@@ -19,6 +19,7 @@
 #include "display/DisplayConfig.h"
 #include "ui/app_screen.h"
 #include "ui/assets/images.h"
+#include "ui/ui_boot.h"
 #include "ui/ui_common.h"
 #include "ui/ui_status.h"
 #include "ui/ui_theme.h"
@@ -846,6 +847,11 @@ void setup()
     // Initialize system notification component
     ui::SystemNotification::init();
 
+    if (!waking_from_sleep)
+    {
+        ui::boot::show();
+    }
+
     // Initialize chat application context
     app::AppContext& app_ctx = app::AppContext::getInstance();
     bool use_mock = false; // Enable real LoRa adapter for logging and radio tests
@@ -1274,6 +1280,8 @@ void setup()
         updateUserActivity();
         log_d("Updated user activity after waking from sleep");
     }
+
+    ui::boot::mark_ready();
 }
 
 // Forward declaration to check if USB mode is active
