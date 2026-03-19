@@ -26,6 +26,7 @@ const char kProbeSymbols[] = "\xE2\x94\x80\xE2\x96\x88\xE2\x96\xA0";
 
 uint32_t now_ms() { return millis(); }
 time_t utc_now() { return static_cast<time_t>(sys::epoch_seconds_now()); }
+void mono_ui_debug_log(const char* text) { debug_console::print(text ? text : ""); }
 
 uint32_t active_lora_frequency_hz()
 {
@@ -55,6 +56,38 @@ ui::mono_128x64::InputAction to_input_action(
     case BoardInputKey::PrimaryButton: return ui::mono_128x64::InputAction::Primary;
     case BoardInputKey::SecondaryButton: return ui::mono_128x64::InputAction::Secondary;
     default: return ui::mono_128x64::InputAction::None;
+    }
+}
+
+const char* board_key_name(BoardInputKey key)
+{
+    switch (key)
+    {
+    case BoardInputKey::JoystickUp: return "JoyUp";
+    case BoardInputKey::JoystickDown: return "JoyDown";
+    case BoardInputKey::JoystickLeft: return "JoyLeft";
+    case BoardInputKey::JoystickRight: return "JoyRight";
+    case BoardInputKey::JoystickPress: return "JoyPress";
+    case BoardInputKey::PrimaryButton: return "Primary";
+    case BoardInputKey::SecondaryButton: return "Secondary";
+    default: return "?";
+    }
+}
+
+const char* input_action_name(ui::mono_128x64::InputAction action)
+{
+    switch (action)
+    {
+    case ui::mono_128x64::InputAction::None: return "None";
+    case ui::mono_128x64::InputAction::Up: return "Up";
+    case ui::mono_128x64::InputAction::Down: return "Down";
+    case ui::mono_128x64::InputAction::Left: return "Left";
+    case ui::mono_128x64::InputAction::Right: return "Right";
+    case ui::mono_128x64::InputAction::Select: return "Select";
+    case ui::mono_128x64::InputAction::Back: return "Back";
+    case ui::mono_128x64::InputAction::Primary: return "Primary";
+    case ui::mono_128x64::InputAction::Secondary: return "Secondary";
+    default: return "?";
     }
 }
 
@@ -118,6 +151,7 @@ bool initialize()
     callbacks.gps_data_fn = platform::ui::gps::get_data;
     callbacks.gps_enabled_fn = platform::ui::gps::is_enabled;
     callbacks.gps_powered_fn = platform::ui::gps::is_powered;
+    callbacks.debug_log_fn = mono_ui_debug_log;
 
     static ui::mono_128x64::Runtime runtime(::boards::gat562_mesh_evb_pro::Gat562Board::instance().monoDisplay(),
                                             callbacks);
@@ -136,11 +170,27 @@ void appendBootLog(const char* line)
     }
 }
 
+void bindChatObservers()
+{
+    if (initialize() && s_runtime)
+    {
+        s_runtime->bindChatObservers();
+    }
+}
+
 void tick(const BoardInputEvent* event)
 {
     if (initialize() && s_runtime)
     {
-        s_runtime->tick(to_input_action(event));
+        const auto action = to_input_action(event);
+        if (event && event->pressed)
+        {
+            debug_console::printf("[gat562][ui] input key=%s pressed=%u action=%s\n",
+                                  board_key_name(event->key),
+                                  static_cast<unsigned>(event->pressed ? 1 : 0),
+                                  input_action_name(action));
+        }
+        s_runtime->tick(action);
     }
 }
 

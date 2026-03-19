@@ -120,7 +120,7 @@ struct BoardProfile
 
 inline constexpr BoardProfile kBoardProfile{
     {35, 36, true, false},
-    {9, 12, 28, 4, 30, 31, 10, true, true, false, 50},
+    {9, 12, 28, 4, 30, 31, 26, true, true, false, 50},
     {13, 14, 0x3C},
     {8, 6, -1},
     {{43, 45, 44, 42}, 47, 46, 38, 37, true, 1.8f},

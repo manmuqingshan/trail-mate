@@ -76,16 +76,6 @@ static const uint8_t SCK = PIN_SPI_SCK;
 #define PIN_WIRE_SDA (13)
 #define PIN_WIRE_SCL (14)
 
-#define PIN_QSPI_SCK 3
-#define PIN_QSPI_CS 26
-#define PIN_QSPI_IO0 30
-#define PIN_QSPI_IO1 29
-#define PIN_QSPI_IO2 28
-#define PIN_QSPI_IO3 2
-
-#define EXTERNAL_FLASH_DEVICES IS25LP080D
-#define EXTERNAL_FLASH_USE_QSPI
-
 #define USE_SX1262
 #define SX126X_CS (42)
 #define SX126X_DIO1 (47)

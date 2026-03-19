@@ -51,6 +51,36 @@ void logMeshtasticRx(const char* format, ...)
     Serial2.print(buffer);
 }
 
+void toHexString(const uint8_t* data, size_t len, char* out, size_t out_len, size_t max_len = 64)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+
+    out[0] = '\0';
+    if (!data || len == 0)
+    {
+        return;
+    }
+
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    const size_t capped = std::min(len, max_len);
+    size_t pos = 0;
+    for (size_t i = 0; i < capped && pos + 2 < out_len; ++i)
+    {
+        const uint8_t b = data[i];
+        out[pos++] = kHex[(b >> 4) & 0x0F];
+        out[pos++] = kHex[b & 0x0F];
+    }
+    if (capped < len && pos + 2 < out_len)
+    {
+        out[pos++] = '.';
+        out[pos++] = '.';
+    }
+    out[pos] = '\0';
+}
+
 std::array<uint8_t, 6> readMac()
 {
     return device_identity::deriveMacAddressFromDeviceAddress(NRF_FICR->DEVICEADDR[0],
@@ -171,6 +201,8 @@ MeshtasticRadioAdapter::MeshtasticRadioAdapter(const ::chat::runtime::SelfIdenti
       identity_provider_(identity_provider),
       node_store_(node_store)
 {
+    randomSeed(static_cast<unsigned long>(NRF_FICR->DEVICEADDR[0] ^ NRF_FICR->DEVICEADDR[1] ^ micros()));
+    next_packet_id_ = static_cast<::chat::MessageId>(random(1, 0x7FFFFFFF));
 }
 
 ::chat::MeshCapabilities MeshtasticRadioAdapter::getCapabilities() const
@@ -243,9 +275,6 @@ bool MeshtasticRadioAdapter::sendText(::chat::ChannelId channel, const std::stri
         std::memcpy(mqtt_data.payload.bytes, text.data(), mqtt_data.payload.size);
     }
 
-    auto* header = reinterpret_cast<::chat::meshtastic::PacketHeaderWire*>(wire);
-    header->relay_node = ourRelayId();
-    header->next_hop = getLearnedNextHop(dest, header->relay_node);
     if (!transmitPreparedWire(wire, wire_size, channel, &mqtt_data, true, true))
     {
         return false;
@@ -329,9 +358,6 @@ bool MeshtasticRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t por
         std::memcpy(mqtt_data.payload.bytes, payload, mqtt_data.payload.size);
     }
 
-    auto* header = reinterpret_cast<::chat::meshtastic::PacketHeaderWire*>(wire);
-    header->relay_node = ourRelayId();
-    header->next_hop = getLearnedNextHop(wire_dest, header->relay_node);
     return transmitPreparedWire(wire, wire_size, channel, &mqtt_data, true, true);
 }
 
@@ -564,6 +590,13 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                               &implicit_rx);
             return;
         }
+
+        logMeshtasticRx("[gat562][mt] self drop from=%08lX id=%lu relay=%u ch=%u\n",
+                        static_cast<unsigned long>(header.from),
+                        static_cast<unsigned long>(header.id),
+                        static_cast<unsigned>(header.relay_node),
+                        static_cast<unsigned>(header.channel));
+        return;
     }
 
     ::chat::RxMeta rx_meta{};
@@ -606,11 +639,6 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
     if (decoded_ok)
     {
         queueMqttProxyPublishFromWire(data, size, &decoded, channel);
-    }
-
-    if (header.from == node_id_ && header.relay_node == ourRelayId())
-    {
-        return;
     }
 
     updateNodeLastSeen(header.from, ::chat::meshtastic::computeHopsAway(header.flags), channel);
@@ -854,6 +882,21 @@ bool MeshtasticRadioAdapter::transmitPreparedWire(uint8_t* data, size_t size, ::
     }
 
     auto* header = reinterpret_cast<::chat::meshtastic::PacketHeaderWire*>(data);
+    logMeshtasticRx("[gat562][mt] tx from=%08lX to=%08lX id=%lu flags=0x%02X ch=%u next=%u relay=%u len=%u\n",
+                    static_cast<unsigned long>(header->from),
+                    static_cast<unsigned long>(header->to),
+                    static_cast<unsigned long>(header->id),
+                    static_cast<unsigned>(header->flags),
+                    static_cast<unsigned>(header->channel),
+                    static_cast<unsigned>(header->next_hop),
+                    static_cast<unsigned>(header->relay_node),
+                    static_cast<unsigned>(size));
+    char wire_hex[768] = {};
+    toHexString(data, size, wire_hex, sizeof(wire_hex), size);
+    if (wire_hex[0] != '\0')
+    {
+        logMeshtasticRx("[gat562][mt] tx hex %s\n", wire_hex);
+    }
     if (!transmitWire(data, size))
     {
         return false;
@@ -946,9 +989,6 @@ bool MeshtasticRadioAdapter::buildAndQueueRoutingPacket(::chat::NodeId dest, uin
         return false;
     }
 
-    auto* header = reinterpret_cast<::chat::meshtastic::PacketHeaderWire*>(wire);
-    header->relay_node = ourRelayId();
-    header->next_hop = getLearnedNextHop(dest, header->relay_node);
     return transmitPreparedWire(wire, wire_size, channel, &data, false, true);
 }
 
@@ -1011,9 +1051,6 @@ bool MeshtasticRadioAdapter::sendTraceRouteResponse(::chat::NodeId dest, uint32_
         return false;
     }
 
-    auto* header = reinterpret_cast<::chat::meshtastic::PacketHeaderWire*>(wire);
-    header->relay_node = ourRelayId();
-    header->next_hop = getLearnedNextHop(dest, header->relay_node);
     return transmitPreparedWire(wire, wire_size, channel, &data, true, true);
 }
 

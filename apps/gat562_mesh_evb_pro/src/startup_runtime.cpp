@@ -35,6 +35,7 @@ void run()
     if (app_runtime_access::initialize())
     {
         auto& cfg = AppFacadeRuntime::instance().getConfig();
+        ui_runtime::bindChatObservers();
         (void)board.startGpsRuntime(cfg);
         debug_console::println("[gat562] startup app facade ok");
         ui_runtime::appendBootLog("app/gps ok");

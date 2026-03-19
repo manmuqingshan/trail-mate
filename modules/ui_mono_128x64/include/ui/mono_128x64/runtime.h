@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/app_facades.h"
+#include "chat/usecase/chat_service.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
 #include "ui/mono_128x64/text_renderer.h"
@@ -56,9 +57,10 @@ struct HostCallbacks
     platform::ui::gps::GpsState (*gps_data_fn)() = nullptr;
     bool (*gps_enabled_fn)() = nullptr;
     bool (*gps_powered_fn)() = nullptr;
+    void (*debug_log_fn)(const char* text) = nullptr;
 };
 
-class Runtime
+class Runtime : public chat::ChatService::IncomingTextObserver
 {
   public:
     Runtime(MonoDisplay& display, const HostCallbacks& host);
@@ -66,6 +68,32 @@ class Runtime
     bool begin();
     void appendBootLog(const char* line);
     void tick(InputAction action);
+    void bindChatObservers();
+    void onIncomingText(const chat::MeshIncomingText& msg) override;
+
+    enum class ComposeMode : uint8_t
+    {
+        AbcLower = 0,
+        AbcUpper,
+        Num,
+        Sym,
+    };
+
+    enum class ComposeFocus : uint8_t
+    {
+        Body = 0,
+        Candidate,
+        Action,
+    };
+
+    enum class ComposeAction : uint8_t
+    {
+        Mode = 0,
+        Space,
+        Back,
+        Delete,
+        Send,
+    };
 
   private:
     enum class Page : uint8_t
@@ -75,6 +103,8 @@ class Runtime
         MainMenu,
         ChatList,
         Conversation,
+        MessageMenu,
+        MessageInfo,
         Compose,
         SettingsMenu,
         IdentitySettings,
@@ -102,6 +132,8 @@ class Runtime
     void renderMainMenu();
     void renderChatList();
     void renderConversation();
+    void renderMessageMenu();
+    void renderMessageInfo();
     void renderCompose();
     void renderSettingsMenu();
     void renderIdentitySettings();
@@ -115,26 +147,39 @@ class Runtime
     void finishTextEdit(bool accept);
     void rebuildConversationList();
     void rebuildMessages();
+    void buildMessageInfo();
     void sendComposeMessage();
     void commitConfig();
     void ensureBootExit();
     void adjustRadioSetting(int delta);
     void adjustDeviceSetting(int delta);
     void adjustComposeSelection(int delta);
+    void adjustComposeCandidate(int delta);
+    void adjustComposeAction(int delta);
     void addComposeChar();
     void removeComposeChar();
+    void cycleComposeMode();
+    void rebuildComposeCandidates();
+    bool commitComposeCandidate();
+    bool commitComposePreedit(bool prefer_candidate);
+    void appendComposeChar(char ch);
+    void appendComposeWord(const char* text);
+    void activateComposeAction();
     void saveEditedTextToConfig();
     void formatTime(char* out_time, size_t out_len, char* out_date, size_t date_len) const;
     void formatProtocol(char* out, size_t out_len) const;
     void formatNodeLabel(char* out, size_t out_len) const;
+    void formatComposeTarget(char* out, size_t out_len) const;
     void drawTitleBar(const char* left, const char* right);
     void drawMenuList(const char* title, const char* const* items, size_t count, size_t selected);
     void drawFooterHint(const char* hint);
     void drawTextClipped(int x, int y, int w, const char* text, bool inverse = false);
     bool editUsesHexCharset() const;
+    bool usesSmartCompose() const;
 
     uint32_t nowMs() const;
     app::IAppFacade* app() const;
+    const chat::ChatMessage* selectedMessage() const;
 
     MonoDisplay& display_;
     TextRenderer text_renderer_;
@@ -157,6 +202,8 @@ class Runtime
     size_t action_index_ = 0;
     size_t chat_list_index_ = 0;
     size_t message_index_ = 0;
+    size_t message_menu_index_ = 0;
+    size_t message_info_scroll_ = 0;
 
     static constexpr size_t kMaxConversationItems = 8;
     chat::ConversationMeta conversations_[kMaxConversationItems]{};
@@ -168,11 +215,48 @@ class Runtime
     size_t message_count_ = 0;
     chat::ConversationId active_conversation_{};
 
+    struct MessageMetaEntry
+    {
+        bool used = false;
+        chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic;
+        chat::ChannelId channel = chat::ChannelId::PRIMARY;
+        chat::NodeId from = 0;
+        chat::MessageId msg_id = 0;
+        chat::NodeId to = 0;
+        uint8_t hop_limit = 0xFF;
+        bool encrypted = false;
+        chat::RxMeta rx_meta{};
+    };
+    static constexpr size_t kMessageMetaCapacity = 24;
+    MessageMetaEntry message_meta_[kMessageMetaCapacity]{};
+    size_t message_meta_cursor_ = 0;
+    bool chat_observers_bound_ = false;
+
+    static constexpr size_t kMessageInfoLines = 18;
+    static constexpr size_t kMessageInfoWidth = 40;
+    char message_info_lines_[kMessageInfoLines][kMessageInfoWidth] = {};
+    size_t message_info_count_ = 0;
+
     EditTarget edit_target_ = EditTarget::None;
     static constexpr size_t kComposeMax = 64;
     char compose_buffer_[kComposeMax] = {};
     size_t compose_len_ = 0;
     size_t compose_charset_index_ = 0;
+    ComposeMode compose_mode_ = ComposeMode::AbcLower;
+    ComposeFocus compose_focus_ = ComposeFocus::Body;
+    size_t compose_action_index_ = 0;
+    size_t compose_abc_group_index_ = 0;
+    size_t compose_abc_tap_index_ = 0;
+    uint32_t compose_abc_last_tap_ms_ = 0;
+    int compose_abc_last_group_index_ = -1;
+    static constexpr size_t kComposePreeditMax = 24;
+    char compose_preedit_[kComposePreeditMax] = {};
+    size_t compose_preedit_len_ = 0;
+    static constexpr size_t kComposeCandidateMax = 3;
+    static constexpr size_t kComposeCandidateWidth = 20;
+    char compose_candidates_[kComposeCandidateMax][kComposeCandidateWidth] = {};
+    size_t compose_candidate_count_ = 0;
+    size_t compose_candidate_index_ = 0;
 };
 
 } // namespace ui::mono_128x64

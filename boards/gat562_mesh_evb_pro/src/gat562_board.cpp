@@ -53,6 +53,8 @@ struct InputRuntimeState
 {
     uint32_t last_activity_ms = 0;
     BoardInputSnapshot snapshot{};
+    BoardInputSnapshot logged_snapshot{};
+    bool has_logged_snapshot = false;
     DebounceState button_primary{};
     DebounceState button_secondary{};
     DebounceState joystick_up{};
@@ -61,6 +63,33 @@ struct InputRuntimeState
     DebounceState joystick_right{};
     DebounceState joystick_press{};
 } s_input;
+
+void logInputSnapshotChange(const BoardInputSnapshot& snapshot)
+{
+    if (s_input.has_logged_snapshot &&
+        s_input.logged_snapshot.button_primary == snapshot.button_primary &&
+        s_input.logged_snapshot.button_secondary == snapshot.button_secondary &&
+        s_input.logged_snapshot.joystick_up == snapshot.joystick_up &&
+        s_input.logged_snapshot.joystick_down == snapshot.joystick_down &&
+        s_input.logged_snapshot.joystick_left == snapshot.joystick_left &&
+        s_input.logged_snapshot.joystick_right == snapshot.joystick_right &&
+        s_input.logged_snapshot.joystick_press == snapshot.joystick_press)
+    {
+        return;
+    }
+
+    s_input.logged_snapshot = snapshot;
+    s_input.has_logged_snapshot = true;
+    Serial.printf("[gat562][board] raw in pri=%u sec=%u up=%u down=%u left=%u right=%u press=%u any=%u\n",
+                  static_cast<unsigned>(snapshot.button_primary ? 1 : 0),
+                  static_cast<unsigned>(snapshot.button_secondary ? 1 : 0),
+                  static_cast<unsigned>(snapshot.joystick_up ? 1 : 0),
+                  static_cast<unsigned>(snapshot.joystick_down ? 1 : 0),
+                  static_cast<unsigned>(snapshot.joystick_left ? 1 : 0),
+                  static_cast<unsigned>(snapshot.joystick_right ? 1 : 0),
+                  static_cast<unsigned>(snapshot.joystick_press ? 1 : 0),
+                  static_cast<unsigned>(snapshot.any_activity ? 1 : 0));
+}
 
 struct GpsRuntimeState
 {
@@ -577,6 +606,7 @@ bool Gat562Board::pollInputEvent(BoardInputEvent* out_event)
     BoardInputSnapshot current{};
     (void)pollInputSnapshot(&current);
     s_input.snapshot = current;
+    logInputSnapshotChange(current);
 
     const uint32_t now_ms = millis();
     const uint16_t debounce_ms = inputDebounceMs();
