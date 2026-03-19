@@ -53,8 +53,6 @@ struct InputRuntimeState
 {
     uint32_t last_activity_ms = 0;
     BoardInputSnapshot snapshot{};
-    BoardInputSnapshot logged_snapshot{};
-    bool has_logged_snapshot = false;
     DebounceState button_primary{};
     DebounceState button_secondary{};
     DebounceState joystick_up{};
@@ -63,33 +61,6 @@ struct InputRuntimeState
     DebounceState joystick_right{};
     DebounceState joystick_press{};
 } s_input;
-
-void logInputSnapshotChange(const BoardInputSnapshot& snapshot)
-{
-    if (s_input.has_logged_snapshot &&
-        s_input.logged_snapshot.button_primary == snapshot.button_primary &&
-        s_input.logged_snapshot.button_secondary == snapshot.button_secondary &&
-        s_input.logged_snapshot.joystick_up == snapshot.joystick_up &&
-        s_input.logged_snapshot.joystick_down == snapshot.joystick_down &&
-        s_input.logged_snapshot.joystick_left == snapshot.joystick_left &&
-        s_input.logged_snapshot.joystick_right == snapshot.joystick_right &&
-        s_input.logged_snapshot.joystick_press == snapshot.joystick_press)
-    {
-        return;
-    }
-
-    s_input.logged_snapshot = snapshot;
-    s_input.has_logged_snapshot = true;
-    Serial.printf("[gat562][board] raw in pri=%u sec=%u up=%u down=%u left=%u right=%u press=%u any=%u\n",
-                  static_cast<unsigned>(snapshot.button_primary ? 1 : 0),
-                  static_cast<unsigned>(snapshot.button_secondary ? 1 : 0),
-                  static_cast<unsigned>(snapshot.joystick_up ? 1 : 0),
-                  static_cast<unsigned>(snapshot.joystick_down ? 1 : 0),
-                  static_cast<unsigned>(snapshot.joystick_left ? 1 : 0),
-                  static_cast<unsigned>(snapshot.joystick_right ? 1 : 0),
-                  static_cast<unsigned>(snapshot.joystick_press ? 1 : 0),
-                  static_cast<unsigned>(snapshot.any_activity ? 1 : 0));
-}
 
 struct GpsRuntimeState
 {
@@ -108,6 +79,9 @@ struct GpsRuntimeState
     uint32_t epoch_base_s = 0;
     uint32_t epoch_base_ms = 0;
     uint32_t last_nmea_ms = 0;
+    uint32_t last_time_sync_log_ms = 0;
+    uint32_t last_time_sync_epoch_logged = 0;
+    uint32_t last_status_log_ms = 0;
     bool enabled = true;
     bool powered = false;
     bool initialized = false;
@@ -259,10 +233,117 @@ void applyGpsTimeIfValid()
     {
         return;
     }
+    const uint32_t prev_epoch_s = s_gps.epoch_base_s;
     s_gps.epoch_base_s = utc_s;
     s_gps.epoch_base_ms = millis();
     s_gps.time_synced = true;
+    if (s_gps.last_time_sync_epoch_logged != utc_s ||
+        (s_gps.epoch_base_ms - s_gps.last_time_sync_log_ms) >= 1000U)
+    {
+        s_gps.last_time_sync_epoch_logged = utc_s;
+        s_gps.last_time_sync_log_ms = s_gps.epoch_base_ms;
+        Serial.printf(
+            "[gat562][gps] time sync source=gnss epoch=%lu prev=%lu sats=%u fix=%u age_ms=%lu date=%04u-%02u-%02u time=%02u:%02u:%02u\n",
+            static_cast<unsigned long>(utc_s),
+            static_cast<unsigned long>(prev_epoch_s),
+            static_cast<unsigned>(s_gps.parser.satellites.isValid() ? s_gps.parser.satellites.value() : 0U),
+            static_cast<unsigned>(s_gps.parser.location.isValid() ? 1U : 0U),
+            static_cast<unsigned long>(s_gps.parser.location.isValid() ? s_gps.parser.location.age() : 0U),
+            static_cast<unsigned>(year),
+            static_cast<unsigned>(month),
+            static_cast<unsigned>(day),
+            static_cast<unsigned>(hour),
+            static_cast<unsigned>(minute),
+            static_cast<unsigned>(second));
+    }
     syncSystemClockFromEpoch(utc_s);
+}
+
+void logGpsStatusIfDue()
+{
+    if (!s_gps.initialized || !s_gps.enabled)
+    {
+        return;
+    }
+
+    const uint32_t now_ms = millis();
+    const uint32_t interval_ms = s_gps.collection_interval_ms > 0 ? s_gps.collection_interval_ms : 60000U;
+    if ((now_ms - s_gps.last_status_log_ms) < interval_ms)
+    {
+        return;
+    }
+    s_gps.last_status_log_ms = now_ms;
+
+    const bool time_valid = s_gps.parser.time.isValid();
+    const bool date_valid = s_gps.parser.date.isValid();
+    const bool fix_valid = s_gps.parser.location.isValid();
+    const uint16_t year = date_valid ? s_gps.parser.date.year() : 0U;
+    const uint8_t month = date_valid ? s_gps.parser.date.month() : 0U;
+    const uint8_t day = date_valid ? s_gps.parser.date.day() : 0U;
+    const uint8_t hour = time_valid ? s_gps.parser.time.hour() : 0U;
+    const uint8_t minute = time_valid ? s_gps.parser.time.minute() : 0U;
+    const uint8_t second = time_valid ? s_gps.parser.time.second() : 0U;
+    const bool datetime_shape_valid = time_valid && date_valid && gpsDateTimeValid(year, month, day, hour, minute, second);
+    const time_t utc = datetime_shape_valid ? gpsDateTimeToEpochUtc(year, month, day, hour, minute, second)
+                                            : static_cast<time_t>(0);
+    const bool epoch_ok = utc >= static_cast<time_t>(kMinValidEpochSeconds);
+    const uint32_t sat_count = s_gps.parser.satellites.isValid() ? s_gps.parser.satellites.value() : 0U;
+    const uint32_t nmea_age_ms = s_gps.last_nmea_ms > 0 ? (now_ms - s_gps.last_nmea_ms) : 0U;
+    const char* state = "idle";
+    if (!s_gps.nmea_seen)
+    {
+        state = "no_nmea";
+    }
+    else if (!time_valid || !date_valid)
+    {
+        state = "time_invalid";
+    }
+    else if (!datetime_shape_valid)
+    {
+        state = "datetime_reject";
+    }
+    else if (!epoch_ok)
+    {
+        state = "epoch_reject";
+    }
+    else if (sat_count == 0U)
+    {
+        state = "time_only";
+    }
+    else if (!fix_valid)
+    {
+        state = "search_fix";
+    }
+    else if (!s_gps.time_synced)
+    {
+        state = "ready_unsynced";
+    }
+    else
+    {
+        state = "synced";
+    }
+
+    Serial.printf(
+        "[gat562][gps] status state=%s enabled=%u powered=%u nmea=%u nmea_age_ms=%lu time=%u date=%u fix=%u sats=%u lat=%.6f lng=%.6f epoch=%lu utc=%lu dt=%04u-%02u-%02uT%02u:%02u:%02u\n",
+        state,
+        static_cast<unsigned>(s_gps.enabled ? 1 : 0),
+        static_cast<unsigned>(s_gps.powered ? 1 : 0),
+        static_cast<unsigned>(s_gps.nmea_seen ? 1 : 0),
+        static_cast<unsigned long>(nmea_age_ms),
+        static_cast<unsigned>(time_valid ? 1 : 0),
+        static_cast<unsigned>(date_valid ? 1 : 0),
+        static_cast<unsigned>(fix_valid ? 1 : 0),
+        static_cast<unsigned>(sat_count),
+        fix_valid ? s_gps.parser.location.lat() : 0.0,
+        fix_valid ? s_gps.parser.location.lng() : 0.0,
+        static_cast<unsigned long>(s_gps.epoch_base_s),
+        static_cast<unsigned long>(epoch_ok ? static_cast<uint32_t>(utc) : 0U),
+        static_cast<unsigned>(year),
+        static_cast<unsigned>(month),
+        static_cast<unsigned>(day),
+        static_cast<unsigned>(hour),
+        static_cast<unsigned>(minute),
+        static_cast<unsigned>(second));
 }
 
 void refreshGpsFix()
@@ -606,7 +687,6 @@ bool Gat562Board::pollInputEvent(BoardInputEvent* out_event)
     BoardInputSnapshot current{};
     (void)pollInputSnapshot(&current);
     s_input.snapshot = current;
-    logInputSnapshotChange(current);
 
     const uint32_t now_ms = millis();
     const uint16_t debounce_ms = inputDebounceMs();
@@ -852,6 +932,17 @@ void Gat562Board::applyGpsConfig(const app::AppConfig& config)
     s_gps.motion_idle_timeout_ms = config.motion_config.idle_timeout_ms;
     s_gps.motion_sensor_id = config.motion_config.sensor_id;
     s_gps.enabled = true;
+    Serial.printf(
+        "[gat562][gps] config enabled=%u interval_ms=%lu strategy=%u mode=%u sat_mask=0x%02X nmea_hz=%u nmea_mask=0x%02X motion_idle_ms=%lu motion_sensor=%u\n",
+        static_cast<unsigned>(s_gps.enabled ? 1 : 0),
+        static_cast<unsigned long>(s_gps.collection_interval_ms),
+        static_cast<unsigned>(s_gps.power_strategy),
+        static_cast<unsigned>(s_gps.gnss_mode),
+        static_cast<unsigned>(s_gps.sat_mask),
+        static_cast<unsigned>(s_gps.nmea_output_hz),
+        static_cast<unsigned>(s_gps.nmea_sentence_mask),
+        static_cast<unsigned long>(s_gps.motion_idle_timeout_ms),
+        static_cast<unsigned>(s_gps.motion_sensor_id));
 }
 
 void Gat562Board::tickGps()
@@ -869,6 +960,7 @@ void Gat562Board::tickGps()
     }
     applyGpsTimeIfValid();
     refreshGpsFix();
+    logGpsStatusIfDue();
 }
 
 bool Gat562Board::isGpsRuntimeReady() const
@@ -947,9 +1039,15 @@ void Gat562Board::setCurrentEpochSeconds(uint32_t epoch_s)
         return;
     }
 
+    const uint32_t prev_epoch_s = s_gps.epoch_base_s;
     s_gps.epoch_base_s = epoch_s;
     s_gps.epoch_base_ms = millis();
     s_gps.time_synced = true;
+    s_gps.last_time_sync_epoch_logged = epoch_s;
+    s_gps.last_time_sync_log_ms = s_gps.epoch_base_ms;
+    Serial.printf("[gat562][gps] time sync source=external epoch=%lu prev=%lu\n",
+                  static_cast<unsigned long>(epoch_s),
+                  static_cast<unsigned long>(prev_epoch_s));
     syncSystemClockFromEpoch(epoch_s);
 }
 

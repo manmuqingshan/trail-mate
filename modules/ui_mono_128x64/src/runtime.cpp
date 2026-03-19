@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -39,12 +40,12 @@ const char* inputActionName(InputAction action)
 
 constexpr const char* kMainMenuItems[] = {
     "CHATS",
+    "NODES",
     "NEW MESSAGE",
     "SETTINGS",
-    "IDENTITY",
+    "GPS",
     "RADIO",
     "DEVICE",
-    "GNSS",
     "ACTIONS",
 };
 
@@ -115,9 +116,13 @@ constexpr ComposeGroupDef kComposeAbcGroups[] = {
     {"WXYZ", "WXYZ"},
     {".,?", ".,?"},
 };
-constexpr char kSelectedItemMarker[] = "\xE2\x97\x8F";
 constexpr uint32_t kBootMinMs = 1800;
+constexpr uint32_t kSleepTimeoutMs = 30000;
 constexpr uint32_t kComposeMultiTapWindowMs = 700;
+constexpr size_t kMessageInfoPageSize = 6;
+constexpr size_t kNodeInfoPageSize = 6;
+constexpr size_t kGnssSummaryPageSize = 6;
+constexpr size_t kGnssSatPageSize = 5;
 constexpr int kTimezoneMin = -12 * 60;
 constexpr int kTimezoneMax = 14 * 60;
 constexpr int kTimezoneStep = 60;
@@ -248,6 +253,114 @@ bool hasPrefixIgnoreCase(const char* text, const char* prefix)
     return true;
 }
 
+bool equalsIgnoreCase(const char* a, const char* b)
+{
+    if (!a || !b)
+    {
+        return false;
+    }
+    while (*a != '\0' && *b != '\0')
+    {
+        if (upperAscii(*a) != upperAscii(*b))
+        {
+            return false;
+        }
+        ++a;
+        ++b;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+double degToRad(double deg)
+{
+    return deg * 3.14159265358979323846 / 180.0;
+}
+
+double radToDeg(double rad)
+{
+    return rad * 180.0 / 3.14159265358979323846;
+}
+
+double normalizeBearingDeg(double deg)
+{
+    while (deg < 0.0)
+    {
+        deg += 360.0;
+    }
+    while (deg >= 360.0)
+    {
+        deg -= 360.0;
+    }
+    return deg;
+}
+
+double haversineMeters(double lat1, double lon1, double lat2, double lon2)
+{
+    constexpr double kEarthRadiusM = 6371000.0;
+    const double dlat = degToRad(lat2 - lat1);
+    const double dlon = degToRad(lon2 - lon1);
+    const double a = std::sin(dlat / 2.0) * std::sin(dlat / 2.0) +
+                     std::cos(degToRad(lat1)) * std::cos(degToRad(lat2)) *
+                         std::sin(dlon / 2.0) * std::sin(dlon / 2.0);
+    const double c = 2.0 * std::atan2(std::sqrt(a), std::sqrt(std::max(0.0, 1.0 - a)));
+    return kEarthRadiusM * c;
+}
+
+double bearingDegrees(double lat1, double lon1, double lat2, double lon2)
+{
+    const double lat1r = degToRad(lat1);
+    const double lat2r = degToRad(lat2);
+    const double dlonr = degToRad(lon2 - lon1);
+    const double y = std::sin(dlonr) * std::cos(lat2r);
+    const double x = std::cos(lat1r) * std::sin(lat2r) -
+                     std::sin(lat1r) * std::cos(lat2r) * std::cos(dlonr);
+    return normalizeBearingDeg(radToDeg(std::atan2(y, x)));
+}
+
+const char* bearingCardinal(double bearing_deg)
+{
+    static constexpr const char* kDirs[] = {
+        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+        "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"};
+    const int index = static_cast<int>((normalizeBearingDeg(bearing_deg) + 11.25) / 22.5) % 16;
+    return kDirs[index];
+}
+
+const char* gnssFixLabel(::gps::GnssFix fix)
+{
+    switch (fix)
+    {
+    case ::gps::GnssFix::FIX2D: return "2D";
+    case ::gps::GnssFix::FIX3D: return "3D";
+    case ::gps::GnssFix::NOFIX:
+    default: return "NO";
+    }
+}
+
+const char* gnssSystemLabel(::gps::GnssSystem sys)
+{
+    switch (sys)
+    {
+    case ::gps::GnssSystem::GPS: return "GPS";
+    case ::gps::GnssSystem::GLN: return "GLN";
+    case ::gps::GnssSystem::GAL: return "GAL";
+    case ::gps::GnssSystem::BD: return "BDS";
+    case ::gps::GnssSystem::UNKNOWN:
+    default: return "UNK";
+    }
+}
+
+template <size_t N, typename... Args>
+void pushFormattedLine(char (&lines)[N][40], size_t& line_count, const char* fmt, Args... args)
+{
+    if (!fmt || line_count >= N)
+    {
+        return;
+    }
+    std::snprintf(lines[line_count], sizeof(lines[line_count]), fmt, args...);
+    ++line_count;
+}
+
 const char* composeAbcGroupLetters(size_t index)
 {
     return index < arrayCount(kComposeAbcGroups) ? kComposeAbcGroups[index].input : "";
@@ -365,6 +478,7 @@ bool Runtime::begin()
     initialized_ = display_.begin();
     boot_started_ms_ = nowMs();
     page_entered_ms_ = boot_started_ms_;
+    last_interaction_ms_ = boot_started_ms_;
     return initialized_;
 }
 
@@ -397,6 +511,7 @@ void Runtime::tick(InputAction action)
     }
 
     ensureBootExit();
+    ensureSleepTimeout(action);
     handleInput(action);
     render();
 }
@@ -475,6 +590,21 @@ void Runtime::handleInput(InputAction action)
         return;
     }
 
+    if (page_ == Page::Sleep)
+    {
+        if (action != InputAction::None)
+        {
+            last_interaction_ms_ = nowMs();
+            enterPage(page_before_sleep_);
+        }
+        return;
+    }
+
+    if (action != InputAction::None)
+    {
+        last_interaction_ms_ = nowMs();
+    }
+
     switch (page_)
     {
     case Page::MainMenu:
@@ -495,15 +625,15 @@ void Runtime::handleInput(InputAction action)
             switch (main_menu_index_)
             {
             case 0: enterPage(Page::ChatList); break;
-            case 1:
+            case 1: enterPage(Page::NodeList); break;
+            case 2:
                 active_conversation_ = chat::ConversationId(chat::ChannelId::PRIMARY, 0, app()->getConfig().mesh_protocol);
                 openCompose(EditTarget::Message);
                 break;
-            case 2: enterPage(Page::SettingsMenu); break;
-            case 3: enterPage(Page::IdentitySettings); break;
-            case 4: enterPage(Page::RadioSettings); break;
-            case 5: enterPage(Page::DeviceSettings); break;
-            case 6: enterPage(Page::GnssPage); break;
+            case 3: enterPage(Page::SettingsMenu); break;
+            case 4: enterPage(Page::GnssPage); break;
+            case 5: enterPage(Page::RadioSettings); break;
+            case 6: enterPage(Page::DeviceSettings); break;
             case 7: enterPage(Page::ActionPage); break;
             default: break;
             }
@@ -528,6 +658,43 @@ void Runtime::handleInput(InputAction action)
         {
             active_conversation_ = conversations_[chat_list_index_].id;
             enterPage(Page::Conversation);
+        }
+        break;
+
+    case Page::NodeList:
+        if (action == InputAction::Up && node_list_index_ > 0)
+        {
+            --node_list_index_;
+        }
+        else if (action == InputAction::Down && node_list_index_ + 1 < node_count_)
+        {
+            ++node_list_index_;
+        }
+        else if (action == InputAction::Left || action == InputAction::Back)
+        {
+            enterPage(Page::MainMenu);
+        }
+        else if (action == InputAction::Right || action == InputAction::Select || action == InputAction::Primary)
+        {
+            enterPage(Page::NodeInfo);
+        }
+        break;
+
+    case Page::NodeInfo:
+        if (action == InputAction::Up && node_info_scroll_ > 0)
+        {
+            node_info_scroll_ = (node_info_scroll_ >= kNodeInfoPageSize)
+                                    ? (node_info_scroll_ - kNodeInfoPageSize)
+                                    : 0U;
+        }
+        else if (action == InputAction::Down && (node_info_scroll_ + kNodeInfoPageSize) < node_info_count_)
+        {
+            node_info_scroll_ += kNodeInfoPageSize;
+        }
+        else if (action == InputAction::Left || action == InputAction::Back ||
+                 action == InputAction::Right || action == InputAction::Select || action == InputAction::Primary)
+        {
+            enterPage(Page::NodeList);
         }
         break;
 
@@ -579,11 +746,13 @@ void Runtime::handleInput(InputAction action)
     case Page::MessageInfo:
         if (action == InputAction::Up && message_info_scroll_ > 0)
         {
-            --message_info_scroll_;
+            message_info_scroll_ = (message_info_scroll_ >= kMessageInfoPageSize)
+                                       ? (message_info_scroll_ - kMessageInfoPageSize)
+                                       : 0U;
         }
-        else if (action == InputAction::Down && message_info_scroll_ + 1 < message_info_count_)
+        else if (action == InputAction::Down && (message_info_scroll_ + kMessageInfoPageSize) < message_info_count_)
         {
-            ++message_info_scroll_;
+            message_info_scroll_ += kMessageInfoPageSize;
         }
         else if (action == InputAction::Left || action == InputAction::Back ||
                  action == InputAction::Right || action == InputAction::Select || action == InputAction::Primary)
@@ -894,7 +1063,15 @@ void Runtime::handleInput(InputAction action)
         break;
 
     case Page::GnssPage:
-        if (action == InputAction::Left || action == InputAction::Back || action == InputAction::Select)
+        if (action == InputAction::Up && gnss_page_index_ > 0)
+        {
+            --gnss_page_index_;
+        }
+        else if (action == InputAction::Down)
+        {
+            ++gnss_page_index_;
+        }
+        else if (action == InputAction::Left || action == InputAction::Back || action == InputAction::Select)
         {
             enterPage(Page::MainMenu);
         }
@@ -954,8 +1131,11 @@ void Runtime::render()
     {
     case Page::BootLog: renderBootLog(); break;
     case Page::Screensaver: renderScreensaver(); break;
+    case Page::Sleep: renderSleep(); break;
     case Page::MainMenu: renderMainMenu(); break;
     case Page::ChatList: renderChatList(); break;
+    case Page::NodeList: renderNodeList(); break;
+    case Page::NodeInfo: renderNodeInfo(); break;
     case Page::Conversation: renderConversation(); break;
     case Page::MessageMenu: renderMessageMenu(); break;
     case Page::MessageInfo: renderMessageInfo(); break;
@@ -1015,6 +1195,10 @@ void Runtime::renderScreensaver()
     text_renderer_.drawText(display_, node_x, 50, node_buf);
 }
 
+void Runtime::renderSleep()
+{
+}
+
 void Runtime::renderMainMenu()
 {
     drawMenuList("MENU", kMainMenuItems, arrayCount(kMainMenuItems), main_menu_index_);
@@ -1031,7 +1215,6 @@ void Runtime::renderChatList()
     }
 
     const int line_h = text_renderer_.lineHeight();
-    const int marker_w = text_renderer_.measureTextWidth(kSelectedItemMarker) + 2;
     for (size_t i = 0; i < conversation_count_ && i < 6; ++i)
     {
         const bool selected = (i == chat_list_index_);
@@ -1041,11 +1224,86 @@ void Runtime::renderChatList()
                       conv.unread > 0 ? "*" : "",
                       conv.name.c_str());
         const int y = 10 + static_cast<int>(i * line_h);
-        if (selected)
+        drawTextClipped(0, y, display_.width(), line, selected);
+    }
+}
+
+void Runtime::renderNodeList()
+{
+    rebuildNodeList();
+    drawTitleBar("NODES", nullptr);
+    if (node_count_ == 0)
+    {
+        text_renderer_.drawText(display_, 0, 18, "NO NODES");
+        return;
+    }
+
+    const int line_h = text_renderer_.lineHeight();
+    constexpr size_t kNodeAliasMax = 8;
+    const size_t selected = std::min(node_list_index_, node_count_ - 1U);
+    const size_t visible = std::min(node_count_, static_cast<size_t>(6));
+    size_t start = 0;
+    if (node_count_ > visible)
+    {
+        start = (selected + 1 > visible) ? (selected + 1 - visible) : 0;
+        if (start + visible > node_count_)
         {
-            text_renderer_.drawText(display_, 0, y, kSelectedItemMarker);
+            start = node_count_ - visible;
         }
-        drawTextClipped(marker_w, y, display_.width() - marker_w, line, false);
+    }
+
+    for (size_t i = 0; i < visible; ++i)
+    {
+        const size_t node_index = start + i;
+        const auto& node = nodes_[node_index];
+        char node_id[8] = {};
+        std::snprintf(node_id, sizeof(node_id), "%04lX",
+                      static_cast<unsigned long>(node.node_id & 0xFFFFUL));
+        char alias[kNodeAliasMax + 1] = {};
+        if (!node.display_name.empty())
+        {
+            copyText(alias, node.display_name.c_str());
+            alias[kNodeAliasMax] = '\0';
+        }
+
+        char line[40] = {};
+        if (alias[0] == '\0' || equalsIgnoreCase(alias, node_id))
+        {
+            std::snprintf(line, sizeof(line), "%s", node_id);
+        }
+        else
+        {
+            std::snprintf(line, sizeof(line), "%s %s", node_id, alias);
+        }
+        drawTextClipped(0, 10 + static_cast<int>(i * line_h), display_.width(), line, node_index == selected);
+    }
+}
+
+void Runtime::renderNodeInfo()
+{
+    buildNodeInfo();
+    char pos[24] = {};
+    if (node_info_count_ > 0)
+    {
+        const size_t total_pages = (node_info_count_ + kNodeInfoPageSize - 1U) / kNodeInfoPageSize;
+        const size_t current_page = (node_info_scroll_ / kNodeInfoPageSize) + 1U;
+        std::snprintf(pos, sizeof(pos), "%u/%u",
+                      static_cast<unsigned>(current_page),
+                      static_cast<unsigned>(total_pages));
+    }
+    drawTitleBar("NODE", pos[0] != '\0' ? pos : nullptr);
+    if (node_info_count_ == 0)
+    {
+        text_renderer_.drawText(display_, 0, 18, "NO INFO");
+        return;
+    }
+
+    const int line_h = text_renderer_.lineHeight();
+    const size_t start = std::min(node_info_scroll_, node_info_count_);
+    const size_t visible = std::min(node_info_count_ - start, kNodeInfoPageSize);
+    for (size_t i = 0; i < visible && (start + i) < node_info_count_; ++i)
+    {
+        drawTextClipped(0, 10 + static_cast<int>(i * line_h), display_.width(), node_info_lines_[start + i], false);
     }
 }
 
@@ -1070,9 +1328,8 @@ void Runtime::renderConversation()
     }
 
     const int line_h = text_renderer_.lineHeight();
-    const int marker_w = text_renderer_.measureTextWidth(kSelectedItemMarker) + 2;
     const size_t selected_index = std::min(message_index_, message_count_ - 1U);
-    const size_t visible = std::min(message_count_, static_cast<size_t>(5));
+    const size_t visible = std::min(message_count_, static_cast<size_t>(6));
     size_t start = 0;
     if (message_count_ > visible)
     {
@@ -1100,11 +1357,7 @@ void Runtime::renderConversation()
         std::snprintf(line, sizeof(line), "%s>%s", sender, msg.text.c_str());
 
         const int y = 10 + static_cast<int>(i * line_h);
-        if (selected)
-        {
-            text_renderer_.drawText(display_, 0, y, kSelectedItemMarker);
-        }
-        drawTextClipped(marker_w, y, display_.width() - marker_w, line, false);
+        drawTextClipped(0, y, display_.width(), line, selected);
     }
 }
 
@@ -1116,12 +1369,14 @@ void Runtime::renderMessageMenu()
 void Runtime::renderMessageInfo()
 {
     buildMessageInfo();
-    char pos[12] = {};
+    char pos[24] = {};
     if (message_info_count_ > 0)
     {
+        const size_t total_pages = (message_info_count_ + kMessageInfoPageSize - 1U) / kMessageInfoPageSize;
+        const size_t current_page = (message_info_scroll_ / kMessageInfoPageSize) + 1U;
         std::snprintf(pos, sizeof(pos), "%u/%u",
-                      static_cast<unsigned>(std::min(message_info_scroll_ + 1, message_info_count_)),
-                      static_cast<unsigned>(message_info_count_));
+                      static_cast<unsigned>(current_page),
+                      static_cast<unsigned>(total_pages));
     }
     drawTitleBar("INFO", pos[0] != '\0' ? pos : nullptr);
     if (message_info_count_ == 0)
@@ -1131,9 +1386,8 @@ void Runtime::renderMessageInfo()
     }
 
     const int line_h = text_renderer_.lineHeight();
-    const size_t visible = std::min(message_info_count_, static_cast<size_t>(6));
-    const size_t start = std::min(message_info_scroll_,
-                                  message_info_count_ > visible ? message_info_count_ - visible : 0U);
+    const size_t start = std::min(message_info_scroll_, message_info_count_);
+    const size_t visible = std::min(message_info_count_ - start, kMessageInfoPageSize);
     for (size_t i = 0; i < visible && (start + i) < message_info_count_; ++i)
     {
         drawTextClipped(0, 10 + static_cast<int>(i * line_h), display_.width(), message_info_lines_[start + i], false);
@@ -1457,21 +1711,143 @@ void Runtime::renderDeviceSettings()
 
 void Runtime::renderGnssPage()
 {
-    drawTitleBar("GNSS", nullptr);
     const auto state = host_.gps_data_fn ? host_.gps_data_fn() : platform::ui::gps::GpsState{};
-    char line[40] = {};
-    std::snprintf(line, sizeof(line), "ENABLED: %s", (host_.gps_enabled_fn && host_.gps_enabled_fn()) ? "YES" : "NO");
-    text_renderer_.drawText(display_, 0, 12, line);
-    std::snprintf(line, sizeof(line), "POWERED: %s", (host_.gps_powered_fn && host_.gps_powered_fn()) ? "YES" : "NO");
-    text_renderer_.drawText(display_, 0, 22, line);
-    std::snprintf(line, sizeof(line), "FIX: %s", state.valid ? "YES" : "NO");
-    text_renderer_.drawText(display_, 0, 32, line);
+    platform::ui::gps::GnssStatus status{};
+    std::size_t sat_count = 0;
+    platform::ui::gps::GnssSatInfo sats[::gps::kMaxGnssSats] = {};
+    (void)platform::ui::gps::get_gnss_snapshot(sats, ::gps::kMaxGnssSats, &sat_count, &status);
+    char summary_lines[14][40] = {};
+    size_t summary_count = 0;
+
+    pushFormattedLine(summary_lines, summary_count, "USE:%u/%u",
+                      static_cast<unsigned>(status.sats_in_use),
+                      static_cast<unsigned>(status.sats_in_view > 0 ? status.sats_in_view : sat_count));
+    pushFormattedLine(summary_lines, summary_count, "FIX:%s", gnssFixLabel(status.fix));
+    pushFormattedLine(summary_lines, summary_count, "HDOP:%.1f", static_cast<double>(status.hdop));
+    if ((host_.gps_enabled_fn && host_.gps_enabled_fn()) && (host_.gps_powered_fn && host_.gps_powered_fn()))
+    {
+        if (sat_count == 0)
+        {
+            pushFormattedLine(summary_lines, summary_count, "STATE:TIME ONLY");
+        }
+        else if (!state.valid)
+        {
+            pushFormattedLine(summary_lines, summary_count, "STATE:SEARCH FIX");
+        }
+        else
+        {
+            pushFormattedLine(summary_lines, summary_count, "STATE:LOCKED");
+        }
+    }
+    else
+    {
+        pushFormattedLine(summary_lines, summary_count, "STATE:GPS OFF");
+    }
+    pushFormattedLine(summary_lines, summary_count, "EN:%s", (host_.gps_enabled_fn && host_.gps_enabled_fn()) ? "YES" : "NO");
+    pushFormattedLine(summary_lines, summary_count, "PWR:%s", (host_.gps_powered_fn && host_.gps_powered_fn()) ? "YES" : "NO");
+    pushFormattedLine(summary_lines, summary_count, "AGE:%lums", static_cast<unsigned long>(state.age));
+
     if (state.valid)
     {
-        std::snprintf(line, sizeof(line), "LAT %.4f", state.lat);
-        text_renderer_.drawText(display_, 0, 42, line);
-        std::snprintf(line, sizeof(line), "LNG %.4f", state.lng);
-        text_renderer_.drawText(display_, 0, 52, line);
+        pushFormattedLine(summary_lines, summary_count, "LAT:%.5f", state.lat);
+        pushFormattedLine(summary_lines, summary_count, "LON:%.5f", state.lng);
+    }
+    else
+    {
+        pushFormattedLine(summary_lines, summary_count, "LAT:-");
+        pushFormattedLine(summary_lines, summary_count, "LON:-");
+    }
+
+    if (state.has_alt)
+    {
+        pushFormattedLine(summary_lines, summary_count, "ALT:%.0fm", state.alt_m);
+    }
+    else
+    {
+        pushFormattedLine(summary_lines, summary_count, "ALT:-");
+    }
+
+    if (state.has_speed)
+    {
+        pushFormattedLine(summary_lines, summary_count, "SPD:%.1fkmh", state.speed_mps * 3.6);
+    }
+    else
+    {
+        pushFormattedLine(summary_lines, summary_count, "SPD:-");
+    }
+
+    if (state.has_course)
+    {
+        pushFormattedLine(summary_lines, summary_count, "CRS:%.0f %s", state.course_deg, bearingCardinal(state.course_deg));
+    }
+    else
+    {
+        pushFormattedLine(summary_lines, summary_count, "CRS:-");
+    }
+
+    const uint32_t last_motion_ms = platform::ui::gps::last_motion_ms();
+    if (last_motion_ms > 0)
+    {
+        const uint32_t age_s = nowMs() >= last_motion_ms ? (nowMs() - last_motion_ms) / 1000U : 0U;
+        pushFormattedLine(summary_lines, summary_count, "MOVE:%lus", static_cast<unsigned long>(age_s));
+    }
+    else
+    {
+        pushFormattedLine(summary_lines, summary_count, "MOVE:-");
+    }
+
+    const size_t summary_pages = std::max<size_t>(1U, (summary_count + kGnssSummaryPageSize - 1U) / kGnssSummaryPageSize);
+    const size_t sat_pages = std::max<size_t>(1U, (sat_count + kGnssSatPageSize - 1U) / kGnssSatPageSize);
+    const size_t total_pages = summary_pages + sat_pages;
+    if (gnss_page_index_ >= total_pages)
+    {
+        gnss_page_index_ = total_pages - 1U;
+    }
+
+    char pos[16] = {};
+    std::snprintf(pos, sizeof(pos), "%u/%u",
+                  static_cast<unsigned>(gnss_page_index_ + 1U),
+                  static_cast<unsigned>(total_pages));
+    drawTitleBar("GPS", pos);
+
+    const int line_h = text_renderer_.lineHeight();
+
+    if (gnss_page_index_ < summary_pages)
+    {
+        const size_t start = gnss_page_index_ * kGnssSummaryPageSize;
+        const size_t visible = std::min(kGnssSummaryPageSize, summary_count - std::min(start, summary_count));
+        for (size_t i = 0; i < visible; ++i)
+        {
+            text_renderer_.drawText(display_, 0, 10 + static_cast<int>(i * line_h), summary_lines[start + i]);
+        }
+        return;
+    }
+
+    display_.fillRect(0, 10, display_.width(), line_h, true);
+    text_renderer_.drawText(display_, 0, 10, "SAT ID USE SNR ELV AZI", true);
+    const size_t sat_page = gnss_page_index_ - summary_pages;
+    const size_t sat_start = sat_page * kGnssSatPageSize;
+    const size_t sat_visible = std::min(kGnssSatPageSize, sat_count - std::min(sat_start, sat_count));
+    if (sat_visible == 0)
+    {
+        text_renderer_.drawText(display_, 0, 22, "NO SAT DATA");
+        return;
+    }
+
+    for (size_t i = 0; i < sat_visible; ++i)
+    {
+        const auto& sat = sats[sat_start + i];
+        char line[40] = {};
+        std::snprintf(line,
+                      sizeof(line),
+                      "%-3s %02u  %c  %03d %02u  %03u",
+                      gnssSystemLabel(sat.sys),
+                      static_cast<unsigned>(sat.id),
+                      sat.used ? 'Y' : '-',
+                      static_cast<int>(sat.snr >= 0 ? sat.snr : 0),
+                      static_cast<unsigned>(sat.elevation),
+                      static_cast<unsigned>(sat.azimuth));
+        text_renderer_.drawText(display_, 0, 20 + static_cast<int>(i * line_h), line);
     }
 }
 
@@ -1488,6 +1864,16 @@ void Runtime::enterPage(Page page)
     {
         rebuildConversationList();
         chat_list_index_ = std::min(chat_list_index_, conversation_count_ == 0 ? 0U : conversation_count_ - 1U);
+    }
+    else if (page == Page::NodeList)
+    {
+        rebuildNodeList();
+        node_list_index_ = std::min(node_list_index_, node_count_ == 0 ? 0U : node_count_ - 1U);
+    }
+    else if (page == Page::NodeInfo)
+    {
+        node_info_scroll_ = 0;
+        buildNodeInfo();
     }
     else if (page == Page::Conversation)
     {
@@ -1507,6 +1893,10 @@ void Runtime::enterPage(Page page)
     {
         message_info_scroll_ = 0;
         buildMessageInfo();
+    }
+    else if (page == Page::GnssPage)
+    {
+        gnss_page_index_ = 0;
     }
 }
 
@@ -1571,6 +1961,157 @@ void Runtime::rebuildConversationList()
     }
 }
 
+void Runtime::rebuildNodeList()
+{
+    node_count_ = 0;
+    if (!app())
+    {
+        return;
+    }
+
+    auto contacts = app()->getContactService().getContacts();
+    auto nearby = app()->getContactService().getNearby();
+    contacts.insert(contacts.end(), nearby.begin(), nearby.end());
+    std::sort(contacts.begin(), contacts.end(),
+              [](const chat::contacts::NodeInfo& a, const chat::contacts::NodeInfo& b)
+              {
+                  if (a.last_seen != b.last_seen)
+                  {
+                      return a.last_seen > b.last_seen;
+                  }
+                  return a.node_id < b.node_id;
+              });
+
+    node_count_ = std::min(contacts.size(), static_cast<size_t>(kMaxNodeItems));
+    for (size_t i = 0; i < node_count_; ++i)
+    {
+        nodes_[i] = contacts[i];
+    }
+
+    if (node_count_ == 0)
+    {
+        node_list_index_ = 0;
+    }
+    else if (node_list_index_ >= node_count_)
+    {
+        node_list_index_ = node_count_ - 1U;
+    }
+}
+
+void Runtime::buildNodeInfo()
+{
+    node_info_count_ = 0;
+    if (node_count_ == 0)
+    {
+        return;
+    }
+
+    const size_t index = std::min(node_list_index_, node_count_ - 1U);
+    const auto& node = nodes_[index];
+
+    auto push_line = [this](const char* text)
+    {
+        if (!text || text[0] == '\0' || node_info_count_ >= kNodeInfoLines)
+        {
+            return;
+        }
+        copyText(node_info_lines_[node_info_count_], text);
+        ++node_info_count_;
+    };
+
+    auto push_kv = [this](const char* key, const char* value)
+    {
+        if (!key || !value || node_info_count_ >= kNodeInfoLines)
+        {
+            return;
+        }
+        appendInfoLine(node_info_lines_[node_info_count_], key, value);
+        ++node_info_count_;
+    };
+
+    auto push_section = [this](const char* title)
+    {
+        if (!title || node_info_count_ >= kNodeInfoLines)
+        {
+            return;
+        }
+        setInfoSection(node_info_lines_[node_info_count_], title);
+        ++node_info_count_;
+    };
+
+    char value[40] = {};
+    push_section("NODE");
+    std::snprintf(value, sizeof(value), "%08lX", static_cast<unsigned long>(node.node_id));
+    push_kv("ID", value);
+    push_kv("NM", node.display_name.empty() ? "-" : node.display_name.c_str());
+    push_kv("SH", node.short_name[0] != '\0' ? node.short_name : "-");
+    push_kv("LN", node.long_name[0] != '\0' ? node.long_name : "-");
+
+    push_section("LINK");
+    push_kv("P", node.protocol == chat::contacts::NodeProtocolType::MeshCore ? "MC" :
+                 node.protocol == chat::contacts::NodeProtocolType::Meshtastic ? "MT" : "?");
+    std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(node.hops_away));
+    push_kv("HP", node.hops_away == 0xFF ? "-" : value);
+    std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(node.channel));
+    push_kv("CH", node.channel == 0xFF ? "-" : value);
+    std::snprintf(value, sizeof(value), "%.1f", static_cast<double>(node.snr));
+    push_kv("SN", value);
+    std::snprintf(value, sizeof(value), "%.1f", static_cast<double>(node.rssi));
+    push_kv("RS", value);
+    formatTimestamp(value, sizeof(value), node.last_seen);
+    push_kv("SEEN", value[0] != '\0' ? value : "-");
+
+    push_section("POS");
+    if (node.position.valid)
+    {
+        std::snprintf(value, sizeof(value), "%.5f", static_cast<double>(node.position.latitude_i) / 1e7);
+        push_kv("LAT", value);
+        std::snprintf(value, sizeof(value), "%.5f", static_cast<double>(node.position.longitude_i) / 1e7);
+        push_kv("LON", value);
+        if (node.position.has_altitude)
+        {
+            std::snprintf(value, sizeof(value), "%ldm", static_cast<long>(node.position.altitude));
+            push_kv("ALT", value);
+        }
+        formatTimestamp(value, sizeof(value), node.position.timestamp);
+        push_kv("TIME", value[0] != '\0' ? value : "-");
+    }
+    else
+    {
+        push_line("NO POSITION");
+    }
+
+    const auto gps = host_.gps_data_fn ? host_.gps_data_fn() : platform::ui::gps::GpsState{};
+    if (gps.valid && node.position.valid)
+    {
+        const double node_lat = static_cast<double>(node.position.latitude_i) / 1e7;
+        const double node_lon = static_cast<double>(node.position.longitude_i) / 1e7;
+        const double dist_m = haversineMeters(gps.lat, gps.lng, node_lat, node_lon);
+        const double brg_deg = bearingDegrees(gps.lat, gps.lng, node_lat, node_lon);
+
+        push_section("NAV");
+        if (dist_m < 1000.0)
+        {
+            std::snprintf(value, sizeof(value), "%.0fm", dist_m);
+        }
+        else
+        {
+            std::snprintf(value, sizeof(value), "%.2fkm", dist_m / 1000.0);
+        }
+        push_kv("DST", value);
+
+        std::snprintf(value, sizeof(value), "%s %.0f", bearingCardinal(brg_deg), brg_deg);
+        push_kv("DIR", value);
+
+        if (gps.has_course)
+        {
+            const double rel = normalizeBearingDeg(brg_deg - gps.course_deg);
+            std::snprintf(value, sizeof(value), "%.0f", rel);
+            push_kv("REL", value);
+        }
+    }
+}
+
 void Runtime::rebuildMessages()
 {
     message_count_ = 0;
@@ -1583,7 +2124,7 @@ void Runtime::rebuildMessages()
     message_count_ = std::min(list.size(), static_cast<size_t>(kMaxMessageItems));
     for (size_t i = 0; i < message_count_; ++i)
     {
-        messages_[i] = list[i];
+        messages_[i] = list[message_count_ - 1U - i];
     }
     if (message_count_ == 0)
     {
@@ -1806,6 +2347,28 @@ void Runtime::ensureBootExit()
     {
         enterPage(Page::Screensaver);
     }
+}
+
+void Runtime::ensureSleepTimeout(InputAction action)
+{
+    if (page_ == Page::BootLog || page_ == Page::Sleep)
+    {
+        return;
+    }
+
+    const uint32_t now = nowMs();
+    if (action != InputAction::None)
+    {
+        return;
+    }
+
+    if ((now - last_interaction_ms_) < kSleepTimeoutMs)
+    {
+        return;
+    }
+
+    page_before_sleep_ = page_;
+    enterPage(Page::Sleep);
 }
 
 void Runtime::adjustRadioSetting(int delta)
@@ -2345,6 +2908,34 @@ void Runtime::formatTime(char* out_time, size_t out_len, char* out_date, size_t 
     }
 }
 
+void Runtime::formatTimestamp(char* out, size_t out_len, uint32_t timestamp_s) const
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (timestamp_s == 0)
+    {
+        return;
+    }
+
+    const int tz_offset_s = (host_.timezone_offset_min_fn ? host_.timezone_offset_min_fn() : 0) * 60;
+    const time_t adjusted = static_cast<time_t>(timestamp_s + tz_offset_s);
+    const std::tm* tm = std::gmtime(&adjusted);
+    if (!tm)
+    {
+        std::snprintf(out, out_len, "%lu", static_cast<unsigned long>(timestamp_s));
+        return;
+    }
+
+    std::snprintf(out, out_len, "%02d-%02d %02d:%02d",
+                  tm->tm_mon + 1,
+                  tm->tm_mday,
+                  tm->tm_hour,
+                  tm->tm_min);
+}
+
 void Runtime::formatProtocol(char* out, size_t out_len) const
 {
     if (!out || out_len == 0 || !app())
@@ -2398,9 +2989,21 @@ void Runtime::drawMenuList(const char* title, const char* const* items, size_t c
 {
     drawTitleBar(title, nullptr);
     const int line_h = text_renderer_.lineHeight();
-    for (size_t i = 0; i < count && i < 5; ++i)
+    const size_t visible = std::min(count, static_cast<size_t>(6));
+    size_t start = 0;
+    if (count > visible)
     {
-        drawTextClipped(0, 10 + static_cast<int>(i * line_h), display_.width(), items[i], i == selected);
+        start = (selected + 1 > visible) ? (selected + 1 - visible) : 0;
+        if (start + visible > count)
+        {
+            start = count - visible;
+        }
+    }
+
+    for (size_t i = 0; i < visible && (start + i) < count; ++i)
+    {
+        const size_t item_index = start + i;
+        drawTextClipped(0, 10 + static_cast<int>(i * line_h), display_.width(), items[item_index], item_index == selected);
     }
 }
 

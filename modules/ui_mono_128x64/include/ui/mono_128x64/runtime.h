@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/app_facades.h"
+#include "chat/domain/contact_types.h"
 #include "chat/usecase/chat_service.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
@@ -100,8 +101,11 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     {
         BootLog = 0,
         Screensaver,
+        Sleep,
         MainMenu,
         ChatList,
+        NodeList,
+        NodeInfo,
         Conversation,
         MessageMenu,
         MessageInfo,
@@ -129,8 +133,11 @@ class Runtime : public chat::ChatService::IncomingTextObserver
 
     void renderBootLog();
     void renderScreensaver();
+    void renderSleep();
     void renderMainMenu();
     void renderChatList();
+    void renderNodeList();
+    void renderNodeInfo();
     void renderConversation();
     void renderMessageMenu();
     void renderMessageInfo();
@@ -146,11 +153,14 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     void openCompose(EditTarget target, const char* seed_text = nullptr);
     void finishTextEdit(bool accept);
     void rebuildConversationList();
+    void rebuildNodeList();
+    void buildNodeInfo();
     void rebuildMessages();
     void buildMessageInfo();
     void sendComposeMessage();
     void commitConfig();
     void ensureBootExit();
+    void ensureSleepTimeout(InputAction action);
     void adjustRadioSetting(int delta);
     void adjustDeviceSetting(int delta);
     void adjustComposeSelection(int delta);
@@ -167,6 +177,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     void activateComposeAction();
     void saveEditedTextToConfig();
     void formatTime(char* out_time, size_t out_len, char* out_date, size_t date_len) const;
+    void formatTimestamp(char* out, size_t out_len, uint32_t timestamp_s) const;
     void formatProtocol(char* out, size_t out_len) const;
     void formatNodeLabel(char* out, size_t out_len) const;
     void formatComposeTarget(char* out, size_t out_len) const;
@@ -187,8 +198,10 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     bool initialized_ = false;
     Page page_ = Page::BootLog;
     Page page_before_compose_ = Page::MainMenu;
+    Page page_before_sleep_ = Page::Screensaver;
     uint32_t boot_started_ms_ = 0;
     uint32_t page_entered_ms_ = 0;
+    uint32_t last_interaction_ms_ = 0;
     static constexpr size_t kBootLogLines = 8;
     static constexpr size_t kBootLogWidth = 32;
     char boot_log_[kBootLogLines][kBootLogWidth] = {};
@@ -201,14 +214,25 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     size_t device_index_ = 0;
     size_t action_index_ = 0;
     size_t chat_list_index_ = 0;
+    size_t node_list_index_ = 0;
+    size_t node_info_scroll_ = 0;
     size_t message_index_ = 0;
     size_t message_menu_index_ = 0;
     size_t message_info_scroll_ = 0;
+    size_t gnss_page_index_ = 0;
 
     static constexpr size_t kMaxConversationItems = 8;
     chat::ConversationMeta conversations_[kMaxConversationItems]{};
     size_t conversation_count_ = 0;
     size_t conversation_total_ = 0;
+
+    static constexpr size_t kMaxNodeItems = 16;
+    chat::contacts::NodeInfo nodes_[kMaxNodeItems]{};
+    size_t node_count_ = 0;
+    static constexpr size_t kNodeInfoLines = 24;
+    static constexpr size_t kNodeInfoWidth = 40;
+    char node_info_lines_[kNodeInfoLines][kNodeInfoWidth] = {};
+    size_t node_info_count_ = 0;
 
     static constexpr size_t kMaxMessageItems = 12;
     chat::ChatMessage messages_[kMaxMessageItems]{};
