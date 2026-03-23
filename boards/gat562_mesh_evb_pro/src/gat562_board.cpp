@@ -447,15 +447,36 @@ void Gat562Board::enablePeripheralRail()
 
 void Gat562Board::wakeUp()
 {
+    enablePeripheralRail();
+    setStatusLed(false);
 }
 
 void Gat562Board::handlePowerButton()
 {
+    pulseNotificationLed(40);
 }
 
 void Gat562Board::softwareShutdown()
 {
     NVIC_SystemReset();
+}
+
+int Gat562Board::getPowerTier() const
+{
+    const int level = const_cast<Gat562Board*>(this)->readBatteryPercent();
+    if (level < 0)
+    {
+        return 0;
+    }
+    if (level <= 10)
+    {
+        return 2;
+    }
+    if (level <= 20)
+    {
+        return 1;
+    }
+    return 0;
 }
 
 void Gat562Board::setBrightness(uint8_t level)
@@ -544,6 +565,9 @@ void Gat562Board::vibrator()
 
 void Gat562Board::stopVibrator()
 {
+    const auto& leds = kBoardProfile.leds;
+    const int pin = leds.notification_shares_status ? leds.status : leds.notification;
+    writeLed(pin, leds.active_high, false);
 }
 
 void Gat562Board::playMessageTone()
@@ -709,21 +733,23 @@ bool Gat562Board::pollInputEvent(BoardInputEvent* out_event)
 
 namespace
 {
+constexpr int kMonoScreenWidth = 128;
+constexpr int kMonoScreenHeight = 64;
 
 class Ssd1306MonoDisplay final : public ::ui::mono_128x64::MonoDisplay
 {
   public:
     Ssd1306MonoDisplay()
-        : display_(SCREEN_WIDTH,
-                   SCREEN_HEIGHT,
+        : display_(kMonoScreenWidth,
+                   kMonoScreenHeight,
                    &::boards::gat562_mesh_evb_pro::Gat562Board::instance().i2cWire(),
                    -1)
     {
     }
 
     bool begin() override;
-    int width() const override { return SCREEN_WIDTH; }
-    int height() const override { return SCREEN_HEIGHT; }
+    int width() const override { return kMonoScreenWidth; }
+    int height() const override { return kMonoScreenHeight; }
     void clear() override
     {
         if (online_)
@@ -1001,19 +1027,19 @@ bool Gat562Board::gpsGnssSnapshot(::gps::GnssSatInfo* out,
     {
         *status = s_gps.status;
     }
-    if (out && max > 0 && s_gps.data.valid)
+    if (out && max > 0 && s_gps.data.satellites > 0)
     {
         out[0].id = 0;
         out[0].sys = ::gps::GnssSystem::GPS;
         out[0].snr = -1;
-        out[0].used = true;
+        out[0].used = s_gps.data.valid;
         if (out_count)
         {
             *out_count = 1;
         }
         return true;
     }
-    return s_gps.data.valid;
+    return s_gps.data.valid || s_gps.data.satellites > 0;
 }
 
 void Gat562Board::setGpsCollectionInterval(uint32_t interval_ms) { s_gps.collection_interval_ms = interval_ms; }

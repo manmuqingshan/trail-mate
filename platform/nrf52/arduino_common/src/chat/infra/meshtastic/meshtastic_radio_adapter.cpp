@@ -10,6 +10,7 @@
 #include "meshtastic/mqtt.pb.h"
 #include "platform/nrf52/arduino_common/chat/infra/radio_packet_io.h"
 #include "platform/nrf52/arduino_common/device_identity.h"
+#include "sys/clock.h"
 
 #include <Arduino.h>
 
@@ -193,13 +194,20 @@ const uint8_t* selectKeyByHash(const ::chat::MeshConfig& config,
     return nullptr;
 }
 
+uint32_t nowSeconds()
+{
+    return sys::epoch_seconds_now();
+}
+
 } // namespace
 
 MeshtasticRadioAdapter::MeshtasticRadioAdapter(const ::chat::runtime::SelfIdentityProvider* identity_provider,
-                                               NodeStore* node_store)
+                                               NodeStore* node_store,
+                                               ::chat::contacts::ContactService* contact_service)
     : node_id_(device_identity::getSelfNodeId()),
       identity_provider_(identity_provider),
-      node_store_(node_store)
+      node_store_(node_store),
+      contact_service_(contact_service)
 {
     randomSeed(static_cast<unsigned long>(NRF_FICR->DEVICEADDR[0] ^ NRF_FICR->DEVICEADDR[1] ^ micros()));
     next_packet_id_ = static_cast<::chat::MessageId>(random(1, 0x7FFFFFFF));
@@ -572,7 +580,7 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         {
             ::chat::RxMeta implicit_rx{};
             implicit_rx.rx_timestamp_ms = millis();
-            implicit_rx.rx_timestamp_s = static_cast<uint32_t>(std::time(nullptr));
+            implicit_rx.rx_timestamp_s = nowSeconds();
             implicit_rx.time_source = ::chat::RxTimeSource::DeviceUtc;
             implicit_rx.origin = ::chat::RxOrigin::Mesh;
             implicit_rx.channel_hash = header.channel;
@@ -601,7 +609,7 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
 
     ::chat::RxMeta rx_meta{};
     rx_meta.rx_timestamp_ms = millis();
-    rx_meta.rx_timestamp_s = static_cast<uint32_t>(std::time(nullptr));
+    rx_meta.rx_timestamp_s = nowSeconds();
     rx_meta.time_source = ::chat::RxTimeSource::DeviceUtc;
     rx_meta.origin = ::chat::RxOrigin::Mesh;
     rx_meta.direct = (::chat::meshtastic::computeHopsAway(header.flags) == 0);
@@ -669,7 +677,7 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
             const uint8_t hops_away =
                 node.has_hops_away ? node.hops_away : ::chat::meshtastic::computeHopsAway(header.flags);
             node_store_->upsert(node_id, short_name, long_name,
-                                static_cast<uint32_t>(std::time(nullptr)),
+                                nowSeconds(),
                                 snr, last_rx_rssi_,
                                 static_cast<uint8_t>(::chat::contacts::NodeProtocolType::Meshtastic),
                                 role, hops_away,
@@ -688,13 +696,39 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                     role = static_cast<uint8_t>(user.role);
                 }
                 node_store_->upsert(header.from, user.short_name, user.long_name,
-                                    static_cast<uint32_t>(std::time(nullptr)),
+                                    nowSeconds(),
                                     last_rx_snr_, last_rx_rssi_,
                                     static_cast<uint8_t>(::chat::contacts::NodeProtocolType::Meshtastic),
                                     role, ::chat::meshtastic::computeHopsAway(header.flags),
                                     static_cast<uint8_t>(user.hw_model),
                                     static_cast<uint8_t>(channel));
             }
+        }
+    }
+
+    if (decoded_ok &&
+        decoded.portnum == meshtastic_PortNum_POSITION_APP &&
+        decoded.payload.size > 0 &&
+        contact_service_)
+    {
+        meshtastic_Position position_pb = meshtastic_Position_init_zero;
+        pb_istream_t pstream = pb_istream_from_buffer(decoded.payload.bytes, decoded.payload.size);
+        if (pb_decode(&pstream, meshtastic_Position_fields, &position_pb) &&
+            ::chat::meshtastic::hasValidPosition(position_pb))
+        {
+            ::chat::contacts::NodePosition pos{};
+            pos.valid = true;
+            pos.latitude_i = position_pb.latitude_i;
+            pos.longitude_i = position_pb.longitude_i;
+            pos.has_altitude = position_pb.has_altitude;
+            pos.altitude = position_pb.altitude;
+            pos.timestamp = position_pb.timestamp != 0 ? position_pb.timestamp : position_pb.time;
+            pos.precision_bits = position_pb.precision_bits;
+            pos.pdop = position_pb.PDOP;
+            pos.hdop = position_pb.HDOP;
+            pos.vdop = position_pb.VDOP;
+            pos.gps_accuracy_mm = position_pb.gps_accuracy;
+            contact_service_->updateNodePosition(header.from, pos);
         }
     }
 
@@ -807,7 +841,7 @@ void MeshtasticRadioAdapter::processSendQueue()
             }
             if (node_store_ && pending.dest != 0 && pending.dest != kBroadcastNode)
             {
-                node_store_->setNextHop(pending.dest, 0, static_cast<uint32_t>(std::time(nullptr)));
+                node_store_->setNextHop(pending.dest, 0, nowSeconds());
             }
             it = pending_retransmits_.erase(it);
             continue;
@@ -819,7 +853,7 @@ void MeshtasticRadioAdapter::processSendQueue()
             pending.fallback_sent = true;
             if (node_store_ && pending.dest != 0 && pending.dest != kBroadcastNode)
             {
-                node_store_->setNextHop(pending.dest, 0, static_cast<uint32_t>(std::time(nullptr)));
+                node_store_->setNextHop(pending.dest, 0, nowSeconds());
             }
         }
 
@@ -1141,7 +1175,7 @@ void MeshtasticRadioAdapter::emitRoutingResult(uint32_t request_id, meshtastic_R
     else
     {
         incoming.rx_meta.rx_timestamp_ms = millis();
-        incoming.rx_meta.rx_timestamp_s = static_cast<uint32_t>(std::time(nullptr));
+        incoming.rx_meta.rx_timestamp_s = nowSeconds();
         incoming.rx_meta.time_source = ::chat::RxTimeSource::DeviceUtc;
         incoming.rx_meta.origin = ::chat::RxOrigin::Mesh;
         incoming.rx_meta.channel_hash = channel_hash;
@@ -1175,7 +1209,7 @@ void MeshtasticRadioAdapter::learnNextHop(::chat::NodeId dest, uint8_t next_hop)
     {
         return;
     }
-    (void)node_store_->setNextHop(dest, next_hop, static_cast<uint32_t>(std::time(nullptr)));
+    (void)node_store_->setNextHop(dest, next_hop, nowSeconds());
 }
 
 MeshtasticRadioAdapter::PacketHistoryEntry* MeshtasticRadioAdapter::findHistory(::chat::NodeId sender, ::chat::MessageId packet_id)
@@ -1384,7 +1418,7 @@ void MeshtasticRadioAdapter::updateNodeLastSeen(::chat::NodeId node_id, uint8_t 
     {
         return;
     }
-    node_store_->upsert(node_id, "", "", static_cast<uint32_t>(std::time(nullptr)),
+    node_store_->upsert(node_id, "", "", nowSeconds(),
                         last_rx_snr_, last_rx_rssi_,
                         static_cast<uint8_t>(::chat::contacts::NodeProtocolType::Meshtastic),
                         ::chat::contacts::kNodeRoleUnknown,
@@ -1439,7 +1473,7 @@ void MeshtasticRadioAdapter::handleRoutingPacket(const ::chat::meshtastic::Packe
         {
             if (node_store_)
             {
-                node_store_->setNextHop(header.from, 0, static_cast<uint32_t>(std::time(nullptr)));
+                node_store_->setNextHop(header.from, 0, nowSeconds());
             }
         }
 

@@ -185,7 +185,8 @@ void AppFacadeRuntime::initializeChatRuntime()
     (void)installMeshBackend(chat::MeshProtocol::Meshtastic,
                              createProtocolAdapter(chat::MeshProtocol::Meshtastic,
                                                    identityProvider(),
-                                                   static_cast<platform::nrf52::arduino_common::chat::meshtastic::NodeStore*>(node_store_.get())));
+                                                   static_cast<platform::nrf52::arduino_common::chat::meshtastic::NodeStore*>(node_store_.get()),
+                                                   contact_service_.get()));
     (void)installMeshBackend(chat::MeshProtocol::MeshCore,
                              createProtocolAdapter(chat::MeshProtocol::MeshCore, identityProvider()));
 

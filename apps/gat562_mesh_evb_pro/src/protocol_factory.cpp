@@ -8,7 +8,8 @@ namespace apps::gat562_mesh_evb_pro
 
 std::unique_ptr<chat::IMeshAdapter> createProtocolAdapter(chat::MeshProtocol protocol,
                                                           const chat::runtime::SelfIdentityProvider* identity_provider,
-                                                          platform::nrf52::arduino_common::chat::meshtastic::NodeStore* meshtastic_node_store)
+                                                          platform::nrf52::arduino_common::chat::meshtastic::NodeStore* meshtastic_node_store,
+                                                          chat::contacts::ContactService* contact_service)
 {
     switch (protocol)
     {
@@ -19,7 +20,8 @@ std::unique_ptr<chat::IMeshAdapter> createProtocolAdapter(chat::MeshProtocol pro
     default:
         return std::unique_ptr<chat::IMeshAdapter>(
             new platform::nrf52::arduino_common::chat::meshtastic::MeshtasticRadioAdapter(identity_provider,
-                                                                                          meshtastic_node_store));
+                                                                                          meshtastic_node_store,
+                                                                                          contact_service));
     }
 }
 

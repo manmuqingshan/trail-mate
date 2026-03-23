@@ -1,3 +1,9 @@
+#ifndef TRAIL_MATE_NRF_MONO_FUSION_PIXEL_8_ENABLED
+#define TRAIL_MATE_NRF_MONO_FUSION_PIXEL_8_ENABLED 1
+#endif
+
+#if TRAIL_MATE_NRF_MONO_FUSION_PIXEL_8_ENABLED
+
 #include "ui/fonts/fusion_pixel_8_font_generated.h"
 
 namespace ui::mono_128x64
@@ -71356,3 +71362,5 @@ const MonoFont kFusionPixel8Font = MonoFont::makeCompact16(
     8);
 
 } // namespace ui::mono_128x64
+
+#endif

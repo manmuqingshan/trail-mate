@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/app_facades.h"
+#include "app/app_config.h"
 #include "chat/domain/contact_types.h"
 #include "chat/usecase/chat_service.h"
 #include "platform/ui/device_runtime.h"
@@ -44,10 +45,19 @@ enum class InputAction : uint8_t
 
 struct HostCallbacks
 {
+    struct ResourceUsage
+    {
+        bool available = false;
+        uint32_t used_bytes = 0;
+        uint32_t total_bytes = 0;
+    };
+
     app::IAppFacade* app = nullptr;
-    // Platform-owned mono UI font. NRF is expected to provide Fusion Pixel 8px
-    // here so ASCII and CJK share one renderer and one asset boundary.
+    // Platform-owned mono UI font. NRF is expected to provide the selected
+    // Fusion Pixel mono asset here so the renderer stays decoupled from a
+    // specific platform font size.
     const MonoFont* ui_font = nullptr;
+    const MonoFont* accent_font = nullptr;
     uint32_t (*millis_fn)() = nullptr;
     time_t (*utc_now_fn)() = nullptr;
     int (*timezone_offset_min_fn)() = nullptr;
@@ -58,6 +68,8 @@ struct HostCallbacks
     platform::ui::gps::GpsState (*gps_data_fn)() = nullptr;
     bool (*gps_enabled_fn)() = nullptr;
     bool (*gps_powered_fn)() = nullptr;
+    ResourceUsage (*ram_usage_fn)() = nullptr;
+    ResourceUsage (*flash_usage_fn)() = nullptr;
     void (*debug_log_fn)(const char* text) = nullptr;
 };
 
@@ -145,6 +157,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     void renderInfoPage();
     void renderGnssPage();
     void renderActionPage();
+    void renderSettingPopup();
 
     void enterPage(Page page);
     void openCompose(EditTarget target, const char* seed_text = nullptr);
@@ -160,6 +173,11 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     void ensureSleepTimeout(InputAction action);
     void adjustRadioSetting(int delta);
     void adjustDeviceSetting(int delta);
+    void beginSettingPopup(Page owner, size_t index);
+    void cancelSettingPopup();
+    void confirmSettingPopup();
+    void adjustSettingPopup(int delta);
+    void formatSettingPopupValue(char* out, size_t out_len) const;
     void adjustComposeSelection(int delta);
     void adjustComposeCandidate(int delta);
     void adjustComposeAction(int delta);
@@ -191,6 +209,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver
 
     MonoDisplay& display_;
     TextRenderer text_renderer_;
+    TextRenderer accent_text_renderer_;
     HostCallbacks host_{};
     bool initialized_ = false;
     Page page_ = Page::BootLog;
@@ -208,6 +227,12 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     size_t settings_menu_index_ = 0;
     size_t radio_index_ = 0;
     size_t device_index_ = 0;
+    bool setting_popup_active_ = false;
+    Page setting_popup_owner_ = Page::SettingsMenu;
+    size_t setting_popup_index_ = 0;
+    app::AppConfig setting_popup_config_{};
+    bool setting_popup_ble_enabled_ = false;
+    int setting_popup_timezone_min_ = 0;
     size_t info_scroll_ = 0;
     size_t action_index_ = 0;
     size_t chat_list_index_ = 0;

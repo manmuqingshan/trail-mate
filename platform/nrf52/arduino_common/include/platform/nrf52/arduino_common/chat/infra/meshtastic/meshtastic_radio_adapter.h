@@ -4,6 +4,7 @@
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/self_identity_policy.h"
 #include "chat/runtime/self_identity_provider.h"
+#include "chat/usecase/contact_service.h"
 #include "meshtastic/mesh.pb.h"
 #include "platform/nrf52/arduino_common/chat/infra/meshtastic/node_store.h"
 
@@ -35,7 +36,8 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     };
 
     explicit MeshtasticRadioAdapter(const ::chat::runtime::SelfIdentityProvider* identity_provider = nullptr,
-                                    NodeStore* node_store = nullptr);
+                                    NodeStore* node_store = nullptr,
+                                    ::chat::contacts::ContactService* contact_service = nullptr);
 
     ::chat::MeshCapabilities getCapabilities() const override;
     bool sendText(::chat::ChannelId channel, const std::string& text,
@@ -178,6 +180,7 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     std::string short_name_;
     const ::chat::runtime::SelfIdentityProvider* identity_provider_ = nullptr;
     NodeStore* node_store_ = nullptr;
+    ::chat::contacts::ContactService* contact_service_ = nullptr;
     float last_rx_rssi_ = 0.0f;
     float last_rx_snr_ = 0.0f;
     std::queue<::chat::MeshIncomingText> text_queue_;

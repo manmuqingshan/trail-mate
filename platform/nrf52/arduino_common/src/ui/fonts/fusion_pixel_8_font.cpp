@@ -1,3 +1,9 @@
+#ifndef TRAIL_MATE_NRF_MONO_FUSION_PIXEL_8_ENABLED
+#define TRAIL_MATE_NRF_MONO_FUSION_PIXEL_8_ENABLED 1
+#endif
+
+#if TRAIL_MATE_NRF_MONO_FUSION_PIXEL_8_ENABLED
+
 #include "ui/fonts/fusion_pixel_8_font.h"
 
 namespace ui::mono_128x64
@@ -18,3 +24,5 @@ const ::ui::mono_128x64::MonoFont& fusion_pixel_8_font()
 }
 
 } // namespace platform::nrf52::ui::fonts
+
+#endif

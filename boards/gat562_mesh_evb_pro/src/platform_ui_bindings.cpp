@@ -10,6 +10,84 @@
 namespace platform::ui::device
 {
 
+namespace
+{
+
+struct BatteryUiFilterState
+{
+    bool initialized = false;
+    uint32_t last_sample_ms = 0;
+    int stable_level = -1;
+};
+
+BatteryUiFilterState s_battery_filter{};
+
+int applyBatteryUiFilter(int raw_level)
+{
+    if (raw_level < 0)
+    {
+        return raw_level;
+    }
+
+    constexpr uint32_t kSampleIntervalMs = 1500;
+    constexpr int kDisplayHysteresis = 2;
+    const uint32_t now_ms = millis();
+
+    if (!s_battery_filter.initialized)
+    {
+        s_battery_filter.initialized = true;
+        s_battery_filter.last_sample_ms = now_ms;
+        s_battery_filter.stable_level = raw_level;
+        return raw_level;
+    }
+
+    if ((now_ms - s_battery_filter.last_sample_ms) < kSampleIntervalMs)
+    {
+        return s_battery_filter.stable_level;
+    }
+
+    s_battery_filter.last_sample_ms = now_ms;
+    const int delta = raw_level - s_battery_filter.stable_level;
+    const int abs_delta = delta >= 0 ? delta : -delta;
+    if (abs_delta >= kDisplayHysteresis)
+    {
+        s_battery_filter.stable_level = raw_level;
+    }
+    else
+    {
+        s_battery_filter.stable_level = (s_battery_filter.stable_level + raw_level) / 2;
+    }
+
+    return s_battery_filter.stable_level;
+}
+
+int readFilteredBatteryLevel(::boards::gat562_mesh_evb_pro::Gat562Board& board)
+{
+    constexpr int kBatterySamples = 6;
+    int valid_sum = 0;
+    int valid_count = 0;
+    for (int i = 0; i < kBatterySamples; ++i)
+    {
+        const int sample = board.getBatteryLevel();
+        if (sample >= 0)
+        {
+            valid_sum += sample;
+            ++valid_count;
+        }
+        delay(2);
+    }
+
+    if (valid_count == 0)
+    {
+        return -1;
+    }
+
+    const int averaged = (valid_sum + (valid_count / 2)) / valid_count;
+    return applyBatteryUiFilter(averaged);
+}
+
+} // namespace
+
 void delay_ms(uint32_t ms)
 {
     delay(ms);
@@ -31,7 +109,7 @@ BatteryInfo battery_info()
     BatteryInfo info{};
     info.available = true;
     info.charging = board.isCharging();
-    info.level = board.getBatteryLevel();
+    info.level = readFilteredBatteryLevel(board);
     return info;
 }
 
@@ -72,7 +150,7 @@ bool gps_ready()
 
 int power_tier()
 {
-    return 0;
+    return ::boards::gat562_mesh_evb_pro::Gat562Board::instance().getPowerTier();
 }
 
 } // namespace platform::ui::device

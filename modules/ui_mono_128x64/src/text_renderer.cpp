@@ -37,6 +37,11 @@ struct GlyphView
     uint8_t advance;
 };
 
+uint8_t glyphRowBytes(uint8_t width)
+{
+    return static_cast<uint8_t>((width + 7U) / 8U);
+}
+
 size_t utf8SequenceLength(unsigned char lead)
 {
     if ((lead & 0x80U) == 0)
@@ -177,7 +182,9 @@ GlyphView resolveGlyph(const MonoFont& font, uint16_t glyph_index)
     const bool is_compact16 = (font.codepoints16 != nullptr) && (font.glyphs == nullptr);
     if (is_compact16)
     {
-        const uint32_t offset = static_cast<uint32_t>(glyph_index) * static_cast<uint32_t>(font.glyph_height);
+        const uint32_t offset = static_cast<uint32_t>(glyph_index) *
+                                static_cast<uint32_t>(font.glyph_height) *
+                                static_cast<uint32_t>(glyphRowBytes(font.glyph_width));
         const uint8_t advance = font.advances ? font.advances[glyph_index] : font.fixed_advance;
         return GlyphView{
             font.bitmap + offset,
@@ -219,10 +226,12 @@ void drawGlyphBitmap(MonoDisplay& display, const MonoFont& font, int x, int y, c
 
     for (int row = 0; row < glyph.height; ++row)
     {
-        const uint8_t bits = glyph.bitmap[row];
+        const uint8_t row_bytes = glyphRowBytes(glyph.width);
+        const uint8_t* row_ptr = glyph.bitmap + static_cast<size_t>(row) * row_bytes;
         for (int col = 0; col < glyph.width; ++col)
         {
-            const bool on = ((bits >> (7 - col)) & 0x01U) != 0;
+            const uint8_t byte_value = row_ptr[col / 8];
+            const bool on = ((byte_value >> (7 - (col % 8))) & 0x01U) != 0;
             if (!on)
             {
                 continue;

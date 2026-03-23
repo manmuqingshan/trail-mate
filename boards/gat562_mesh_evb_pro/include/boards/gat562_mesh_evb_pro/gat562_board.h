@@ -81,6 +81,7 @@ class Gat562Board final : public BoardBase
     void wakeUp() override;
     void handlePowerButton() override;
     void softwareShutdown() override;
+    int getPowerTier() const override;
 
     void setBrightness(uint8_t level) override;
     uint8_t getBrightness() override;

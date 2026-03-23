@@ -11,6 +11,7 @@
 #include "ui/mono_128x64/runtime.h"
 
 #include <Arduino.h>
+#include <InternalFileSystem.h>
 #include <ctime>
 
 namespace apps::gat562_mesh_evb_pro::ui_runtime
@@ -19,10 +20,15 @@ namespace
 {
 using boards::gat562_mesh_evb_pro::BoardInputEvent;
 using boards::gat562_mesh_evb_pro::BoardInputKey;
+using Adafruit_LittleFS_Namespace::File;
 constexpr uint32_t kProbeHoldMs = 900;
+constexpr uint32_t kGat562TotalRamBytes = 248832U;
+constexpr uint32_t kGat562FsTotalBytes = 7U * 4096U;
 const char kProbeAscii[] = "ABC123";
 const char kProbeCjk[] = "\xE4\xB8\xAD\xE6\x96\x87";
 const char kProbeSymbols[] = "\xE2\x94\x80\xE2\x96\x88\xE2\x96\xA0";
+
+extern "C" char* sbrk(int incr);
 
 uint32_t now_ms() { return millis(); }
 time_t utc_now() { return static_cast<time_t>(sys::epoch_seconds_now()); }
@@ -35,6 +41,73 @@ uint32_t active_lora_frequency_hz()
 bool format_freq(uint32_t freq_hz, char* out, size_t out_len)
 {
     return ::boards::gat562_mesh_evb_pro::Gat562Board::instance().formatLoraFrequencyMHz(freq_hz, out, out_len);
+}
+
+ui::mono_128x64::HostCallbacks::ResourceUsage ram_usage()
+{
+    ui::mono_128x64::HostCallbacks::ResourceUsage usage{};
+    usage.available = true;
+    usage.total_bytes = kGat562TotalRamBytes;
+
+    char stack_marker = 0;
+    const uintptr_t stack_ptr = reinterpret_cast<uintptr_t>(&stack_marker);
+    const uintptr_t heap_ptr = reinterpret_cast<uintptr_t>(sbrk(0));
+    if (stack_ptr > heap_ptr)
+    {
+        const uint32_t free_bytes = static_cast<uint32_t>(stack_ptr - heap_ptr);
+        usage.used_bytes = usage.total_bytes > free_bytes ? (usage.total_bytes - free_bytes) : 0U;
+    }
+    return usage;
+}
+
+uint32_t accumulateFsBytes(File dir)
+{
+    uint32_t total = 0;
+    if (!dir)
+    {
+        return total;
+    }
+
+    dir.rewindDirectory();
+    while (true)
+    {
+        File entry = dir.openNextFile();
+        if (!entry)
+        {
+            break;
+        }
+        if (entry.isDirectory())
+        {
+            total += accumulateFsBytes(entry);
+        }
+        else
+        {
+            total += entry.size();
+        }
+        entry.close();
+    }
+    return total;
+}
+
+ui::mono_128x64::HostCallbacks::ResourceUsage flash_usage()
+{
+    ui::mono_128x64::HostCallbacks::ResourceUsage usage{};
+    if (!InternalFS.begin())
+    {
+        return usage;
+    }
+
+    File root = InternalFS.open("/");
+    if (!root)
+    {
+        return usage;
+    }
+
+    usage.available = true;
+    usage.used_bytes = accumulateFsBytes(root);
+    usage.total_bytes = kGat562FsTotalBytes;
+    root.close();
+    return usage;
 }
 
 ui::mono_128x64::InputAction to_input_action(
@@ -126,6 +199,8 @@ bool initialize()
     callbacks.gps_data_fn = platform::ui::gps::get_data;
     callbacks.gps_enabled_fn = platform::ui::gps::is_enabled;
     callbacks.gps_powered_fn = platform::ui::gps::is_powered;
+    callbacks.ram_usage_fn = ram_usage;
+    callbacks.flash_usage_fn = flash_usage;
 
     static ui::mono_128x64::Runtime runtime(::boards::gat562_mesh_evb_pro::Gat562Board::instance().monoDisplay(),
                                             callbacks);
