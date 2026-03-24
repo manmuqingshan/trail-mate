@@ -1,6 +1,6 @@
 #pragma once
 
-// SD card capability interface (kept separate from BoardBase).
+// Shared SD card capability contract.
 class SdBoard
 {
   public:

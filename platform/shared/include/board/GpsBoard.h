@@ -1,9 +1,10 @@
 #pragma once
 
 #include "TLoRaPagerTypes.h"
+
 class GPS;
 
-// GPS ӿڣ¶ GPS ģơ
+// Shared GPS board capability contract.
 class GpsBoard
 {
   public:

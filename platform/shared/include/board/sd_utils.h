@@ -28,21 +28,17 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
         return false;
     }
 
-    // De-conflict shared SPI devices by driving their CS lines high.
     for (size_t i = 0; i < extra_cs_count; ++i)
     {
         setCsHigh(extra_cs[i]);
     }
     setCsHigh(sd_cs);
 
-    // Ensure SPI bus pins are initialized for SD access.
     pinMode(MISO, INPUT_PULLUP);
-    // Use the same SPI host as the rest of the board to avoid dual-host pin conflicts.
     SPI.end();
     delay(2);
     SPI.begin(SCK, MISO, MOSI);
     SPIClass& sd_bus = SPI;
-    // Re-assert CS lines after SPI re-init.
     for (size_t i = 0; i < extra_cs_count; ++i)
     {
         setCsHigh(extra_cs[i]);
@@ -61,14 +57,12 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
     uint8_t card_type = CARD_NONE;
     uint32_t card_size_mb = 0;
 
-    // Skip SPI locking to align with pager behavior during early SD init.
     (void)bus;
     (void)use_lock;
     bool locked = true;
 
     if (locked)
     {
-        // Try a small frequency fallback ladder; some SD cards/rails are picky at boot.
         const uint32_t freqs[] = {spi_hz, 400000U, 200000U};
         for (size_t i = 0; i < (sizeof(freqs) / sizeof(freqs[0])); ++i)
         {
@@ -78,7 +72,6 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
             Serial.printf("[SD] SD.begin -> %d\n", ok ? 1 : 0);
             if (!ok)
             {
-                // Some cores/boards are picky about the mount point overload.
                 ok = SD.begin(sd_cs, sd_bus, hz_try);
                 Serial.printf("[SD] SD.begin (no mount) -> %d\n", ok ? 1 : 0);
             }

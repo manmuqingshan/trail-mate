@@ -14,6 +14,7 @@
       "-std=gnu++17",
       "-Iinclude",
       "-I../..",
+      "-I../../platform/shared/include",
       "-I../../platform/esp/boards/include",
       "-I../../platform/esp/idf_common/include",
       "-I../../modules/ui_shared/include",

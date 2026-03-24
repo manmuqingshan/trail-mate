@@ -44,33 +44,19 @@
 
 typedef enum PowerCtrlChannel
 {
-    // None - for components that don't require power control
     POWER_NONE,
-    // Display and touch power supply
     POWER_DISPLAY,
-    // Display backlight power supply
     POWER_DISPLAY_BACKLIGHT,
-    // LoRa power supply
     POWER_RADIO,
-    // Touch feedback driver power supply
     POWER_HAPTIC_DRIVER,
-    // Global Positioning GPS power supply
     POWER_GPS,
-    // NFC power supply
     POWER_NFC,
-    // SD Card power supply
     POWER_SD_CARD,
-    // Audio Power Amplifier Power Supply
     POWER_SPEAK,
-    // Sensor power supply
     POWER_SENSOR,
-    // Keyboard power supply
     POWER_KEYBOARD,
-    // Extern gpio
     POWER_EXT_GPIO,
-    // Codec
     POWER_CODEC,
-    // RTC
     POWER_RTC,
 } PowerCtrlChannel_t;
 

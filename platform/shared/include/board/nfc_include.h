@@ -39,5 +39,4 @@
 #include <rfal_t2t.h>
 #include <rfal_t4t.h>
 #include <st_errno.h>
-
 #endif

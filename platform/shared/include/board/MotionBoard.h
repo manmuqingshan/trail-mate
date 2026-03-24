@@ -2,7 +2,7 @@
 
 class SensorBHI260AP;
 
-// ˶ӿڣ¶ BHI260 طʡ
+// Shared motion sensor board capability contract.
 class MotionBoard
 {
   public:

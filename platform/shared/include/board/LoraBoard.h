@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-// LoRa ӿڣṩ RadioLib ķʡ
+// Shared LoRa board capability contract.
 class LoraBoard
 {
   public:

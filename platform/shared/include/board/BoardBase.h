@@ -1,7 +1,7 @@
 #pragma once
 
 // In Arduino environments we use <Arduino.h> for basic types and helpers.
-// In ESP-IDF (or other non-Arduino builds), fall back to standard headers.
+// In non-Arduino builds, fall back to standard headers.
 #if __has_include(<Arduino.h>)
 #include <Arduino.h>
 #else
@@ -72,8 +72,6 @@ class BoardBase
         return 45;
     }
 };
-
-// Global board instance (replaces legacy instance, keeps callers decoupled from concrete type)
 
 #ifndef DEVICE_MAX_BRIGHTNESS_LEVEL
 #define DEVICE_MAX_BRIGHTNESS_LEVEL 16
