@@ -4,6 +4,7 @@
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/self_identity_policy.h"
 #include "chat/usecase/chat_service.h"
+#include "chat/usecase/contact_service.h"
 #include "pb_decode.h"
 #include "pb_encode.h"
 #include "sys/clock.h"
@@ -1158,6 +1159,29 @@ meshtastic_NodeInfo MeshtasticPhoneCore::buildNodeInfoFromEntry(const chat::cont
     info.snr = entry.snr;
     info.has_hops_away = (entry.hops_away != 0xFFU);
     info.hops_away = entry.hops_away;
+
+    const chat::contacts::NodeInfo* node = ctx_.getContactService().getNodeInfo(entry.node_id);
+    if (node != nullptr)
+    {
+        if (node->position.valid)
+        {
+            info.has_position = true;
+            info.position = meshtastic_Position_init_zero;
+            info.position.has_latitude_i = true;
+            info.position.latitude_i = node->position.latitude_i;
+            info.position.has_longitude_i = true;
+            info.position.longitude_i = node->position.longitude_i;
+            info.position.timestamp = node->position.timestamp;
+            info.position.has_altitude = node->position.has_altitude;
+            info.position.altitude = node->position.altitude;
+            info.position.precision_bits = node->position.precision_bits;
+            info.position.PDOP = node->position.pdop;
+            info.position.HDOP = node->position.hdop;
+            info.position.VDOP = node->position.vdop;
+            info.position.gps_accuracy = node->position.gps_accuracy_mm;
+        }
+    }
+
     return info;
 }
 
