@@ -29,6 +29,7 @@ class NodeStore : public contacts::INodeStore,
     bool remove(uint32_t node_id) override;
     const std::vector<contacts::NodeEntry>& getEntries() const override;
     void clear() override;
+    bool flush() override;
 
   private:
     static constexpr const char* kPersistNodesFile = "/nodes.bin";

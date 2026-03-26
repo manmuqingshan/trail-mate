@@ -123,6 +123,11 @@ void NodeStore::clear()
     core_.clear();
 }
 
+bool NodeStore::flush()
+{
+    return core_.flush();
+}
+
 bool NodeStore::loadBlob(std::vector<uint8_t>& out)
 {
     out.clear();

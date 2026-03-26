@@ -1,5 +1,7 @@
 #include "boards/gat562_mesh_evb_pro/gat562_board.h"
 
+#include "app/app_facade_access.h"
+#include "chat/usecase/contact_service.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
 
@@ -118,6 +120,26 @@ void handle_low_battery(const BatteryInfo& info)
     (void)info;
 }
 
+bool supports_screen_brightness()
+{
+    return false;
+}
+
+uint8_t screen_brightness()
+{
+    return ::boards::gat562_mesh_evb_pro::Gat562Board::instance().getBrightness();
+}
+
+void set_screen_brightness(uint8_t level)
+{
+    ::boards::gat562_mesh_evb_pro::Gat562Board::instance().setBrightness(level);
+}
+
+void trigger_haptic()
+{
+    ::boards::gat562_mesh_evb_pro::Gat562Board::instance().vibrator();
+}
+
 uint8_t default_message_tone_volume()
 {
     return ::boards::gat562_mesh_evb_pro::Gat562Board::instance().getMessageToneVolume();
@@ -160,7 +182,42 @@ namespace platform::ui::gps
 
 GpsState get_data()
 {
-    return ::boards::gat562_mesh_evb_pro::Gat562Board::instance().gpsData();
+    GpsState gps = ::boards::gat562_mesh_evb_pro::Gat562Board::instance().gpsData();
+    if (gps.valid)
+    {
+        return gps;
+    }
+
+    if (!::app::hasAppFacade())
+    {
+        return gps;
+    }
+
+    auto& facade = ::app::appFacade();
+    const ::chat::NodeId self_id = facade.getSelfNodeId();
+    if (self_id == 0)
+    {
+        return gps;
+    }
+
+    const ::chat::contacts::NodeInfo* self = facade.getContactService().getNodeInfo(self_id);
+    if (!self || !self->position.valid)
+    {
+        return gps;
+    }
+
+    gps.valid = true;
+    gps.lat = static_cast<double>(self->position.latitude_i) / 1e7;
+    gps.lng = static_cast<double>(self->position.longitude_i) / 1e7;
+    gps.has_alt = self->position.has_altitude;
+    gps.alt_m = self->position.has_altitude ? static_cast<double>(self->position.altitude) : 0.0;
+    gps.has_speed = false;
+    gps.speed_mps = 0.0;
+    gps.has_course = false;
+    gps.course_deg = 0.0;
+    gps.satellites = 0;
+    gps.age = 0xFFFFFFFFUL;
+    return gps;
 }
 
 bool get_gnss_snapshot(GnssSatInfo* out, std::size_t max, std::size_t* out_count, GnssStatus* status)

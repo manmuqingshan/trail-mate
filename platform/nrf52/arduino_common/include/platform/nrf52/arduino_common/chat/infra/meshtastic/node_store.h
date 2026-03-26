@@ -25,6 +25,7 @@ class NodeStore final : public ::chat::contacts::INodeStore
     bool remove(uint32_t node_id) override;
     const std::vector<::chat::contacts::NodeEntry>& getEntries() const override;
     void clear() override;
+    bool flush() override;
     void setProtectedNodeChecker(std::function<bool(uint32_t)> checker);
 
   private:

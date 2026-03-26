@@ -36,6 +36,7 @@ TaskHandle_t s_screen_sleep_task_handle = nullptr;
 uint32_t s_last_user_activity_time = 0;
 bool s_screen_sleeping = false;
 bool s_screen_sleep_disabled = false;
+uint8_t s_saved_screen_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
 uint8_t s_saved_keyboard_brightness = 127;
 bool s_screen_saver_active = false;
 lv_obj_t* s_screen_saver_layer = nullptr;
@@ -242,7 +243,7 @@ void screenSleepTask(void* pvParameters)
                     {
                         s_screen_sleeping = false;
                         board.exitScreenSleep();
-                        board.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
+                        board.setBrightness(s_saved_screen_brightness);
                         if (board.hasKeyboard())
                         {
                             board.keyboardSetBrightness(s_saved_keyboard_brightness);
@@ -260,6 +261,7 @@ void screenSleepTask(void* pvParameters)
                             s_saved_keyboard_brightness = board.keyboardGetBrightness();
                             board.keyboardSetBrightness(0);
                         }
+                        s_saved_screen_brightness = board.getBrightness();
                         board.setBrightness(0);
                         board.enterScreenSleep();
                     }
@@ -267,7 +269,7 @@ void screenSleepTask(void* pvParameters)
                     {
                         s_screen_sleeping = false;
                         board.exitScreenSleep();
-                        board.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
+                        board.setBrightness(s_saved_screen_brightness);
                         if (board.hasKeyboard())
                         {
                             board.keyboardSetBrightness(s_saved_keyboard_brightness);
@@ -418,7 +420,8 @@ void wakeScreenSaver()
     lv_obj_clear_flag(s_screen_saver_layer, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_screen_saver_layer);
     lv_refr_now(nullptr);
-    board.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
+    s_saved_screen_brightness = board.getBrightness();
+    board.setBrightness(s_saved_screen_brightness);
 
     if (s_screen_saver_timer == nullptr)
     {
@@ -471,7 +474,7 @@ void disableScreenSleep()
             if (s_screen_sleeping)
             {
                 s_screen_sleeping = false;
-                board.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
+                board.setBrightness(s_saved_screen_brightness);
                 if (board.hasKeyboard())
                 {
                     board.keyboardSetBrightness(s_saved_keyboard_brightness);
@@ -530,7 +533,7 @@ void updateUserActivity()
             if (s_screen_sleeping)
             {
                 s_screen_sleeping = false;
-                board.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
+                board.setBrightness(s_saved_screen_brightness);
                 if (board.hasKeyboard())
                 {
                     board.keyboardSetBrightness(s_saved_keyboard_brightness);

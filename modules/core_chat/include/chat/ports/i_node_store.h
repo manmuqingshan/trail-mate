@@ -106,6 +106,12 @@ class INodeStore
      * @brief Clear all stored node entries
      */
     virtual void clear() = 0;
+
+    /**
+     * @brief Flush any pending dirty state to persistent storage immediately
+     * @return true if storage is synced or there was nothing pending
+     */
+    virtual bool flush() = 0;
 };
 
 } // namespace contacts

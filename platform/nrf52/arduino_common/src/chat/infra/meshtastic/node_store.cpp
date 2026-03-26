@@ -57,6 +57,11 @@ void NodeStore::clear()
     core_.clear();
 }
 
+bool NodeStore::flush()
+{
+    return core_.flush();
+}
+
 void NodeStore::setProtectedNodeChecker(std::function<bool(uint32_t)> checker)
 {
     core_.setProtectedNodeChecker(std::move(checker));

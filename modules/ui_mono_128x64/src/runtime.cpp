@@ -2323,11 +2323,43 @@ void Runtime::renderNodeCompass()
     const double abs_bearing_deg = bearingDegrees(gps.lat, gps.lng, node_lat, node_lon);
     const double rel_bearing_deg = gps.has_course ? normalizeBearingDeg(abs_bearing_deg - gps.course_deg) : abs_bearing_deg;
 
-    constexpr int kCenterX = 20;
+    constexpr int kCenterX = 25;
     constexpr int kCenterY = 39;
     constexpr int kRadius = 17;
-    constexpr int kInfoX = 42;
-    constexpr int kInfoW = 86;
+    constexpr int kInfoRightX = 127;
+    constexpr int kInfoW = 58;
+    constexpr int kInfoMinX = kInfoRightX - kInfoW + 1;
+    auto drawInfoRight = [this](int y, const char* text)
+    {
+        if (!text || text[0] == '\0')
+        {
+            return;
+        }
+
+        const char* draw_text = text;
+        char clipped[32] = {};
+        if (text_renderer_.measureTextWidth(text) > kInfoW)
+        {
+            if (kInfoW > text_renderer_.ellipsisWidth())
+            {
+                const size_t keep_bytes = text_renderer_.clipTextToWidth(text, kInfoW - text_renderer_.ellipsisWidth());
+                std::memcpy(clipped, text, keep_bytes);
+                clipped[keep_bytes] = '\0';
+                std::strcat(clipped, "...");
+            }
+            else
+            {
+                const size_t keep_bytes = text_renderer_.clipTextToWidth(text, kInfoW);
+                std::memcpy(clipped, text, keep_bytes);
+                clipped[keep_bytes] = '\0';
+            }
+            draw_text = clipped;
+        }
+
+        const int draw_w = text_renderer_.measureTextWidth(draw_text);
+        const int draw_x = std::max(kInfoMinX, kInfoRightX - draw_w);
+        text_renderer_.drawText(display_, draw_x, y, draw_text);
+    };
     drawCircle(display_, kCenterX, kCenterY, kRadius);
     display_.drawPixel(kCenterX, kCenterY, true);
     text_renderer_.drawText(display_, kCenterX - 2, kCenterY - kRadius - 7, "N");
@@ -2356,22 +2388,22 @@ void Runtime::renderNodeCompass()
     {
         std::snprintf(line, sizeof(line), "DST %.2fkm", dist_m / 1000.0);
     }
-    drawTextClipped(kInfoX, 18, kInfoW, line);
+    drawInfoRight(18, line);
 
     std::snprintf(line, sizeof(line), "BRG %s %.0f", bearingCardinal(abs_bearing_deg), abs_bearing_deg);
-    drawTextClipped(kInfoX, 26, kInfoW, line);
+    drawInfoRight(26, line);
 
     if (gps.has_course)
     {
         std::snprintf(line, sizeof(line), "HDG %.0f", gps.course_deg);
-        drawTextClipped(kInfoX, 34, kInfoW, line);
+        drawInfoRight(34, line);
         std::snprintf(line, sizeof(line), "REL %.0f", rel_bearing_deg);
-        drawTextClipped(kInfoX, 42, kInfoW, line);
+        drawInfoRight(42, line);
     }
     else
     {
-        drawTextClipped(kInfoX, 34, kInfoW, "HDG N/A");
-        drawTextClipped(kInfoX, 42, kInfoW, "REL N/A");
+        drawInfoRight(34, "HDG N/A");
+        drawInfoRight(42, "REL N/A");
     }
 
     if (node->position.has_altitude)
@@ -2382,7 +2414,7 @@ void Runtime::renderNodeCompass()
     {
         std::snprintf(line, sizeof(line), "ALT -");
     }
-    drawTextClipped(kInfoX, 50, kInfoW, line);
+    drawInfoRight(50, line);
 
     char age_buf[12] = {};
     formatElapsedShort(host_.utc_now_fn ? host_.utc_now_fn() : 0, node->last_seen, age_buf, sizeof(age_buf));
@@ -2401,7 +2433,7 @@ void Runtime::renderNodeCompass()
                       static_cast<unsigned>(node->hops_away),
                       age_buf);
     }
-    drawTextClipped(kInfoX, 58, kInfoW, footer);
+    drawInfoRight(58, footer);
 }
 
 void Runtime::renderNodeActionMenu()

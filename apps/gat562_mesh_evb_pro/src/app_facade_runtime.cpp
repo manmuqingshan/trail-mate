@@ -19,10 +19,12 @@
 #include "platform/nrf52/arduino_common/chat/infra/store/internal_fs_store.h"
 #include "platform/nrf52/arduino_common/device_identity.h"
 #include "platform/nrf52/arduino_common/self_identity_bridge.h"
+#include "sys/clock.h"
 
 #include <Arduino.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -53,6 +55,25 @@ void copyString(const char* src, T* dst, size_t dst_len)
 const char* protocolLabel(chat::MeshProtocol protocol)
 {
     return protocol == chat::MeshProtocol::MeshCore ? "MC" : "MT";
+}
+
+bool buildNodePositionFromGpsState(const ::gps::GpsState& gps_state,
+                                   ::chat::contacts::NodePosition* out_position)
+{
+    if (!out_position || !gps_state.valid)
+    {
+        return false;
+    }
+
+    ::chat::contacts::NodePosition position{};
+    position.valid = true;
+    position.latitude_i = static_cast<int32_t>(std::lround(gps_state.lat * 1e7));
+    position.longitude_i = static_cast<int32_t>(std::lround(gps_state.lng * 1e7));
+    position.has_altitude = gps_state.has_alt;
+    position.altitude = gps_state.has_alt ? static_cast<int32_t>(std::lround(gps_state.alt_m)) : 0;
+    position.timestamp = ::sys::epoch_seconds_now();
+    *out_position = position;
+    return true;
 }
 
 } // namespace
@@ -590,6 +611,7 @@ const BoardBase* AppFacadeRuntime::getBoard() const
 
 void AppFacadeRuntime::updateCoreServices()
 {
+    syncSelfPositionFromGps();
     if (chat_service_)
     {
         chat_service_->processIncoming();
@@ -597,6 +619,36 @@ void AppFacadeRuntime::updateCoreServices()
     if (ble_manager_)
     {
         ble_manager_->update();
+    }
+}
+
+void AppFacadeRuntime::syncSelfPositionFromGps()
+{
+    if (!contact_service_ || !board_ || effective_identity_.node_id == 0)
+    {
+        return;
+    }
+
+    ::chat::contacts::NodePosition position{};
+    if (!buildNodePositionFromGpsState(board_->gpsData(), &position))
+    {
+        return;
+    }
+
+    const ::chat::contacts::NodeInfo* existing = contact_service_->getNodeInfo(effective_identity_.node_id);
+    if (existing && existing->position.valid &&
+        existing->position.latitude_i == position.latitude_i &&
+        existing->position.longitude_i == position.longitude_i &&
+        existing->position.has_altitude == position.has_altitude &&
+        existing->position.altitude == position.altitude)
+    {
+        return;
+    }
+
+    contact_service_->updateNodePosition(effective_identity_.node_id, position);
+    if (node_store_)
+    {
+        (void)node_store_->flush();
     }
 }
 

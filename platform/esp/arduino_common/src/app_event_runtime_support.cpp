@@ -8,6 +8,7 @@
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_runtime_support.h"
 #include "platform/esp/arduino_common/hostlink/hostlink_bridge_radio.h"
+#include "platform/ui/settings_store.h"
 #include "sys/event_bus.h"
 #include "team/protocol/team_chat.h"
 #include "ui/chat_ui_runtime.h"
@@ -26,7 +27,10 @@ void triggerMessageFeedback(app::IAppFacade& app_context)
     {
         return;
     }
-    board->vibrator();
+    if (platform::ui::settings_store::get_bool("settings", "vibration_enabled", true))
+    {
+        board->vibrator();
+    }
     board->playMessageTone();
 }
 

@@ -482,6 +482,15 @@ void NodeStoreCore::clear()
     blob_store_.clearBlob();
 }
 
+bool NodeStoreCore::flush()
+{
+    if (!dirty_)
+    {
+        return true;
+    }
+    return saveEntries();
+}
+
 uint32_t NodeStoreCore::computeBlobCrc(const uint8_t* data, size_t len)
 {
     uint32_t crc = 0xFFFFFFFF;

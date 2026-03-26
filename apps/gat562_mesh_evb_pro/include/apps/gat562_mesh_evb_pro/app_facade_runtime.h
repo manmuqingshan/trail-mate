@@ -103,6 +103,7 @@ class AppFacadeRuntime final : public app::IAppBleFacade
     void initializeStores();
     void initializeChatRuntime();
     void refreshEffectiveIdentity();
+    void syncSelfPositionFromGps();
     chat::NodeId resolveSelfNodeId() const;
     const chat::runtime::SelfIdentityProvider* identityProvider() const;
 

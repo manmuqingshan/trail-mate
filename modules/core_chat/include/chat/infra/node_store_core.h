@@ -36,6 +36,7 @@ class NodeStoreCore : public INodeStore
     bool remove(uint32_t node_id) override;
     const std::vector<NodeEntry>& getEntries() const override;
     void clear() override;
+    bool flush() override;
 
     static uint32_t computeBlobCrc(const uint8_t* data, size_t len);
 
