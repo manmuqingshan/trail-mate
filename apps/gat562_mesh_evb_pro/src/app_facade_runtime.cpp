@@ -615,6 +615,7 @@ void AppFacadeRuntime::updateCoreServices()
     if (chat_service_)
     {
         chat_service_->processIncoming();
+        chat_service_->flushStore();
     }
     if (ble_manager_)
     {

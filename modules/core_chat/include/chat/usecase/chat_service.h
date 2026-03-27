@@ -96,6 +96,7 @@ class ChatService
      * @brief Process incoming messages (call from mesh task)
      */
     void processIncoming();
+    void flushStore();
 
     void addIncomingTextObserver(IncomingTextObserver* observer);
     void removeIncomingTextObserver(IncomingTextObserver* observer);

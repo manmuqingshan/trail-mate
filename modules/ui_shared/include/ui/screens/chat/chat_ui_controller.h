@@ -75,8 +75,14 @@ class UiController : public IChatUiRuntime
     void handleChannelSelected(const chat::ConversationId& conv);
     void handleSendMessage(const std::string& text);
     void refreshUnreadCounts();
+    void refreshUnreadCounts(bool force_reload);
     void cleanupComposeIme();
     bool isTeamConversation(const chat::ConversationId& conv) const;
+    void syncConversationListFromStore();
+    void normalizeConversationNames(std::vector<chat::ConversationMeta>& convs) const;
+    void applyConversationListToUi();
+    void updateConversationMetaForMessage(const chat::ChatMessage& msg, bool increment_unread);
+    bool updateConversationViewForIncoming(const chat::ChatMessage& msg);
     void refreshTeamConversation();
     void startTeamConversationTimer();
     void stopTeamConversationTimer();
@@ -121,6 +127,8 @@ class UiController : public IChatUiRuntime
     uint64_t key_verify_nonce_ = 0;
     bool key_verify_expects_number_ = false;
     bool key_verify_can_trust_ = false;
+    std::vector<chat::ConversationMeta> cached_conversations_;
+    bool conversation_list_dirty_ = true;
 
     static void team_position_icon_event_cb(lv_event_t* e);
     static void team_position_cancel_event_cb(lv_event_t* e);

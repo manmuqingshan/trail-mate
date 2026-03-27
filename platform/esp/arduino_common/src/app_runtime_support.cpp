@@ -54,6 +54,7 @@ void updateCoreServices(app::IAppFacade& app_context)
     hostlink::process_pending_commands();
 
     app_context.getChatService().processIncoming();
+    app_context.getChatService().flushStore();
 
     team::TeamService* team_service = app_context.getTeamService();
     if (team_service)

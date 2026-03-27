@@ -333,12 +333,10 @@ void UiController::update()
 {
     // Process incoming messages
     service_.processIncoming();
+    service_.flushStore();
 
-    // Refresh UI if needed
-    if (state_ == State::ChannelList && channel_list_)
-    {
-        refreshUnreadCounts();
-    }
+    // Refresh UI only when an event marks the conversation list dirty.
+    refreshUnreadCounts(false);
 }
 
 void UiController::onChannelClicked(chat::ConversationId conv)
@@ -416,19 +414,25 @@ void UiController::onChatEvent(sys::Event* event)
         // Note: Haptic feedback is now handled by the app runtime event pump
         // No need to call vibrator() here
 
-        if (state_ == State::Conversation &&
-            (uint8_t)current_channel_ == msg_event->channel)
+        const ChatMessage* latest = service_.getMessage(msg_event->msg_id);
+        if (latest)
         {
-            CHAT_UI_LOG("[UiController::onChatEvent] Updating conversation UI...\n");
-            auto messages = service_.getRecentMessages(current_conv_, 50);
-            conversation_->clearMessages();
-            for (const auto& m : messages)
+            const bool is_current_conversation =
+                (state_ == State::Conversation) && (current_conv_ == chat::ConversationId(latest->channel,
+                                                                                          latest->peer,
+                                                                                          latest->protocol));
+            updateConversationMetaForMessage(*latest, !is_current_conversation);
+            if (is_current_conversation)
             {
-                conversation_->addMessage(m);
+                (void)updateConversationViewForIncoming(*latest);
+                service_.markConversationRead(current_conv_);
             }
-            conversation_->scrollToBottom();
+            else
+            {
+                conversation_list_dirty_ = true;
+            }
         }
-        refreshUnreadCounts();
+        refreshUnreadCounts(false);
         break;
     }
 
@@ -437,13 +441,17 @@ void UiController::onChatEvent(sys::Event* event)
         sys::ChatSendResultEvent* result_event = (sys::ChatSendResultEvent*)event;
         if (state_ == State::Conversation && conversation_)
         {
-            auto messages = service_.getRecentMessages(current_conv_, 50);
-            conversation_->clearMessages();
-            for (const auto& m : messages)
+            const ChatMessage* msg = service_.getMessage(result_event->msg_id);
+            if (!msg || !conversation_->updateMessageStatus(result_event->msg_id, msg->status))
             {
-                conversation_->addMessage(m);
+                auto messages = service_.getRecentMessages(current_conv_, 50);
+                conversation_->clearMessages();
+                for (const auto& m : messages)
+                {
+                    conversation_->addMessage(m);
+                }
+                conversation_->scrollToBottom();
             }
-            conversation_->scrollToBottom();
         }
         (void)result_event;
         break;
@@ -451,7 +459,8 @@ void UiController::onChatEvent(sys::Event* event)
 
     case sys::EventType::ChatUnreadChanged:
     {
-        refreshUnreadCounts();
+        conversation_list_dirty_ = true;
+        refreshUnreadCounts(false);
         break;
     }
 
@@ -519,7 +528,7 @@ void UiController::switchToChannelList()
     }
 
     service_.setModelEnabled(true);
-    refreshUnreadCounts();
+    refreshUnreadCounts(true);
 }
 
 void UiController::switchToConversation(chat::ConversationId conv)
@@ -768,27 +777,28 @@ void UiController::handleSendMessage(const std::string& text)
 
 void UiController::refreshUnreadCounts()
 {
+    refreshUnreadCounts(true);
+}
+
+void UiController::refreshUnreadCounts(const bool force_reload)
+{
     if (!channel_list_)
     {
         return;
     }
 
-    size_t total = 0;
-    auto convs = service_.getConversations(0, 0, &total);
-
-    // Update conversation names with contact nicknames
-    for (auto& conv : convs)
+    if (force_reload || conversation_list_dirty_ || cached_conversations_.empty())
     {
-        if (conv.id.peer != 0)
-        {
-            std::string contact_name = app::messagingFacade().getContactService().getContactName(conv.id.peer);
-            if (!contact_name.empty())
-            {
-                conv.name = contact_name;
-            }
-            // Otherwise keep the short_name from ConversationMeta
-        }
+        syncConversationListFromStore();
     }
+    applyConversationListToUi();
+}
+
+void UiController::syncConversationListFromStore()
+{
+    size_t total = 0;
+    cached_conversations_ = service_.getConversations(0, 0, &total);
+    normalizeConversationNames(cached_conversations_);
 
     team::ui::TeamUiSnapshot team_snap;
     if (team::ui::team_ui_get_store().load(team_snap) && team_snap.has_team_id)
@@ -811,14 +821,95 @@ void UiController::refreshUnreadCounts()
         {
             team_conv.preview = "No messages";
         }
-        convs.insert(convs.begin(), team_conv);
+        cached_conversations_.insert(cached_conversations_.begin(), team_conv);
     }
 
-    channel_list_->setConversations(convs);
-    channel_list_->setSelectedConversation(current_conv_);
+    conversation_list_dirty_ = false;
+}
 
-    // Update header status (battery only, with icon)
+void UiController::normalizeConversationNames(std::vector<chat::ConversationMeta>& convs) const
+{
+    for (auto& conv : convs)
+    {
+        if (conv.id.peer == 0)
+        {
+            continue;
+        }
+        std::string contact_name = app::messagingFacade().getContactService().getContactName(conv.id.peer);
+        if (!contact_name.empty())
+        {
+            conv.name = contact_name;
+        }
+    }
+}
+
+void UiController::applyConversationListToUi()
+{
+    if (!channel_list_)
+    {
+        return;
+    }
+
+    channel_list_->setConversations(cached_conversations_);
+    channel_list_->setSelectedConversation(current_conv_);
     channel_list_->updateBatteryFromBoard();
+}
+
+void UiController::updateConversationMetaForMessage(const chat::ChatMessage& msg,
+                                                    const bool increment_unread)
+{
+    if (isTeamConversation(chat::ConversationId(msg.channel, msg.peer, msg.protocol)))
+    {
+        conversation_list_dirty_ = true;
+        return;
+    }
+
+    chat::ConversationMeta meta;
+    meta.id = chat::ConversationId(msg.channel, msg.peer, msg.protocol);
+    meta.name = (msg.peer == 0) ? "Broadcast" : resolve_contact_name(msg.peer);
+    meta.preview = msg.text;
+    meta.last_timestamp = msg.timestamp;
+    meta.unread = (increment_unread && msg.status == chat::MessageStatus::Incoming) ? 1 : 0;
+
+    bool found = false;
+    for (auto it = cached_conversations_.begin(); it != cached_conversations_.end(); ++it)
+    {
+        if (!(it->id == meta.id))
+        {
+            continue;
+        }
+        found = true;
+        meta.unread += it->unread;
+        if (!increment_unread && msg.status == chat::MessageStatus::Incoming)
+        {
+            meta.unread = 0;
+        }
+        cached_conversations_.erase(it);
+        break;
+    }
+
+    if (!found && msg.peer == 0)
+    {
+        meta.name = "Broadcast";
+    }
+
+    cached_conversations_.insert(cached_conversations_.begin(), meta);
+}
+
+bool UiController::updateConversationViewForIncoming(const chat::ChatMessage& msg)
+{
+    if (!conversation_)
+    {
+        return false;
+    }
+
+    if (!(current_conv_ == chat::ConversationId(msg.channel, msg.peer, msg.protocol)))
+    {
+        return false;
+    }
+
+    conversation_->addMessage(msg);
+    return true;
 }
 
 bool UiController::isTeamConversation(const chat::ConversationId& conv) const

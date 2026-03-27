@@ -202,6 +202,11 @@ void ChatService::processIncoming()
     }
 }
 
+void ChatService::flushStore()
+{
+    store_.flush();
+}
+
 void ChatService::addIncomingMessageObserver(IncomingMessageObserver* observer)
 {
     if (!observer)
