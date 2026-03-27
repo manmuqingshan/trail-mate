@@ -78,6 +78,11 @@ void NodeStore::begin()
     core_.begin();
 }
 
+void NodeStore::applyUpdate(uint32_t node_id, const contacts::NodeUpdate& update)
+{
+    core_.applyUpdate(node_id, update);
+}
+
 void NodeStore::upsert(uint32_t node_id, const char* short_name, const char* long_name,
                        uint32_t now_secs, float snr, float rssi, uint8_t protocol,
                        uint8_t role, uint8_t hops_away, uint8_t hw_model, uint8_t channel)

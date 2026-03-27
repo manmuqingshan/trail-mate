@@ -14,6 +14,7 @@ class NodeStore final : public ::chat::contacts::INodeStore
     NodeStore();
 
     void begin() override;
+    void applyUpdate(uint32_t node_id, const ::chat::contacts::NodeUpdate& update) override;
     void upsert(uint32_t node_id, const char* short_name, const char* long_name,
                 uint32_t now_secs, float snr = 0.0f, float rssi = 0.0f, uint8_t protocol = 0,
                 uint8_t role = ::chat::contacts::kNodeRoleUnknown, uint8_t hops_away = 0xFF,

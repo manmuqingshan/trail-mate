@@ -104,14 +104,7 @@ constexpr const char* kMessageMenuItems[] = {
     "REPLY",
 };
 
-constexpr const char* kNodeActionItems[] = {
-    "DETAIL",
-    "ADD CONTACT",
-    "TRACE ROUTE",
-    "KEY VERIFICATION",
-    "EXCHANGE POSITION",
-    "OPEN COMPASS",
-};
+constexpr size_t kNodeActionItemCount = 8;
 
 constexpr const char* kWeekdays[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 constexpr const char* kComposeCharset =
@@ -1407,7 +1400,7 @@ void Runtime::handleInput(InputAction action)
         {
             --node_action_index_;
         }
-        else if (action == InputAction::Down && node_action_index_ + 1 < arrayCount(kNodeActionItems))
+        else if (action == InputAction::Down && node_action_index_ + 1 < nodeActionCount())
         {
             ++node_action_index_;
         }
@@ -2439,12 +2432,17 @@ void Runtime::renderNodeCompass()
 void Runtime::renderNodeActionMenu()
 {
     const auto* node = selectedNode();
+    std::array<const char*, kNodeActionItemCount> items{};
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        items[i] = nodeActionLabel(i);
+    }
     char title[20] = {};
     if (node)
     {
         std::snprintf(title, sizeof(title), "%04lX", static_cast<unsigned long>(node->node_id & 0xFFFFUL));
     }
-    drawMenuList(title[0] != '\0' ? title : "NODE", kNodeActionItems, arrayCount(kNodeActionItems), node_action_index_);
+    drawMenuList(title[0] != '\0' ? title : "NODE", items.data(), items.size(), node_action_index_);
 }
 
 void Runtime::renderConversation()
@@ -3304,7 +3302,7 @@ void Runtime::enterPage(Page page)
     }
     else if (page == Page::NodeCompass)
     {
-        node_action_index_ = std::min(node_action_index_, arrayCount(kNodeActionItems) - 1U);
+        node_action_index_ = std::min(node_action_index_, nodeActionCount() - 1U);
     }
     else if (page == Page::Conversation)
     {
@@ -3407,7 +3405,9 @@ void Runtime::rebuildNodeList()
 
     auto contacts = app()->getContactService().getContacts();
     auto nearby = app()->getContactService().getNearby();
+    auto ignored = app()->getContactService().getIgnoredNodes();
     contacts.insert(contacts.end(), nearby.begin(), nearby.end());
+    contacts.insert(contacts.end(), ignored.begin(), ignored.end());
     std::sort(contacts.begin(), contacts.end(),
               [](const chat::contacts::NodeInfo& a, const chat::contacts::NodeInfo& b)
               {
@@ -3499,6 +3499,59 @@ void Runtime::buildNodeInfo()
     formatElapsedShort(host_.utc_now_fn ? host_.utc_now_fn() : 0, node.last_seen, value, sizeof(value));
     push_kv("AGO", value);
     push_kv("SIG", signalRatingLabel(node.snr, node.rssi));
+    std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(node.hw_model));
+    push_kv("HW", node.hw_model == 0 ? "-" : value);
+    std::snprintf(value, sizeof(value), "%02X", static_cast<unsigned>(node.next_hop));
+    push_kv("NH", node.next_hop == 0 ? "-" : value);
+    push_kv("MQTT", node.via_mqtt ? "Y" : "N");
+    push_kv("IGN", node.is_ignored ? "Y" : "N");
+    if (node.has_macaddr)
+    {
+        char mac_buf[24];
+        std::snprintf(mac_buf,
+                      sizeof(mac_buf),
+                      "%02X:%02X:%02X:%02X:%02X:%02X",
+                      static_cast<unsigned>(node.macaddr[0]),
+                      static_cast<unsigned>(node.macaddr[1]),
+                      static_cast<unsigned>(node.macaddr[2]),
+                      static_cast<unsigned>(node.macaddr[3]),
+                      static_cast<unsigned>(node.macaddr[4]),
+                      static_cast<unsigned>(node.macaddr[5]));
+        push_kv("MAC", mac_buf);
+    }
+    push_kv("PKI", node.key_manually_verified ? "VERIFIED" : (node.has_public_key ? "KNOWN" : "-"));
+    if (node.has_device_metrics)
+    {
+        if (node.device_metrics.has_battery_level)
+        {
+            std::snprintf(value, sizeof(value), "%lu%%",
+                          static_cast<unsigned long>(node.device_metrics.battery_level));
+            push_kv("BAT", value);
+        }
+        if (node.device_metrics.has_voltage)
+        {
+            std::snprintf(value, sizeof(value), "%.2fV", static_cast<double>(node.device_metrics.voltage));
+            push_kv("V", value);
+        }
+        if (node.device_metrics.has_channel_utilization)
+        {
+            std::snprintf(value, sizeof(value), "%.1f%%",
+                          static_cast<double>(node.device_metrics.channel_utilization));
+            push_kv("UTIL", value);
+        }
+        if (node.device_metrics.has_air_util_tx)
+        {
+            std::snprintf(value, sizeof(value), "%.1f%%",
+                          static_cast<double>(node.device_metrics.air_util_tx));
+            push_kv("AIR", value);
+        }
+        if (node.device_metrics.has_uptime_seconds)
+        {
+            std::snprintf(value, sizeof(value), "%lu",
+                          static_cast<unsigned long>(node.device_metrics.uptime_seconds));
+            push_kv("UP", value);
+        }
+    }
 
     push_section("POS");
     if (node.position.valid)
@@ -4965,6 +5018,41 @@ const chat::contacts::NodeInfo* Runtime::selectedNode() const
     return &nodes_[index];
 }
 
+size_t Runtime::nodeActionCount() const
+{
+    return kNodeActionItemCount;
+}
+
+const char* Runtime::nodeActionLabel(size_t index) const
+{
+    const chat::contacts::NodeInfo* node = selectedNode();
+    switch (index)
+    {
+    case 0:
+        return "DETAIL";
+    case 1:
+        return "ADD CONTACT";
+    case 2:
+        return (node && node->is_ignored) ? "UNIGNORE NODE" : "IGNORE NODE";
+    case 3:
+        return "TRACE ROUTE";
+    case 4:
+        return "KEY VERIFICATION";
+    case 5:
+        if (node && node->key_manually_verified)
+        {
+            return "CLEAR KEY TRUST";
+        }
+        return "TRUST KEY";
+    case 6:
+        return "EXCHANGE POSITION";
+    case 7:
+        return "OPEN COMPASS";
+    default:
+        return "";
+    }
+}
+
 void Runtime::executeNodeAction()
 {
     auto* mesh = app() ? app()->getMeshAdapter() : nullptr;
@@ -5025,6 +5113,25 @@ void Runtime::executeNodeAction()
     }
     case 2:
     {
+        if (!contacts)
+        {
+            appendBootLog("ignore na");
+            showTransientPopup("IGNORE NODE", "UNAVAILABLE");
+            return;
+        }
+        const bool ignored = !node->is_ignored;
+        const bool ok = contacts->setNodeIgnored(node->node_id, ignored);
+        appendBootLog(ok ? (ignored ? "node ignored" : "node unignored") : "ignore failed");
+        showTransientPopup(ignored ? "IGNORE NODE" : "UNIGNORE NODE", ok ? "SUCCESS" : "FAILED");
+        if (ok)
+        {
+            rebuildNodeList();
+            enterPage(Page::NodeList);
+        }
+        return;
+    }
+    case 3:
+    {
         if (!mesh)
         {
             appendBootLog("trace na");
@@ -5053,7 +5160,7 @@ void Runtime::executeNodeAction()
         showTransientPopup("TRACE ROUTE", ok ? "QUEUED" : "FAILED");
         return;
     }
-    case 3:
+    case 4:
     {
         if (!mesh)
         {
@@ -5061,15 +5168,52 @@ void Runtime::executeNodeAction()
             showTransientPopup("KEY VERIFICATION", "UNAVAILABLE");
             return;
         }
+        if (!mesh->getCapabilities().supports_pki)
+        {
+            appendBootLog("verify pki na");
+            showTransientPopup("KEY VERIFICATION", "PKI UNSUPPORTED");
+            return;
+        }
+        if (!node->has_public_key)
+        {
+            appendBootLog("verify no pubkey");
+            showTransientPopup("KEY VERIFICATION", "NO PUBLIC KEY");
+            return;
+        }
         const bool ok = mesh->startKeyVerification(node->node_id);
         appendBootLog(ok ? "verify queued" : "verify failed");
         showTransientPopup("KEY VERIFICATION", ok ? "QUEUED" : "FAILED");
         return;
     }
-    case 4:
+    case 5:
+    {
+        if (!contacts)
+        {
+            appendBootLog("key trust na");
+            showTransientPopup("TRUST KEY", "UNAVAILABLE");
+            return;
+        }
+        if (!node->has_public_key)
+        {
+            appendBootLog("key trust no pubkey");
+            showTransientPopup("TRUST KEY", "NO PUBLIC KEY");
+            return;
+        }
+        const bool trusted = !node->key_manually_verified;
+        const bool ok = contacts->setNodeKeyManuallyVerified(node->node_id, trusted);
+        appendBootLog(ok ? (trusted ? "key trusted" : "key trust clr") : "key trust fail");
+        showTransientPopup(trusted ? "TRUST KEY" : "CLEAR KEY TRUST", ok ? "SUCCESS" : "FAILED");
+        if (ok)
+        {
+            rebuildNodeList();
+            buildNodeInfo();
+        }
+        return;
+    }
+    case 6:
         requestNodePositionExchange();
         return;
-    case 5:
+    case 7:
         showTransientPopup("OPEN COMPASS", "OPENED");
         enterPage(Page::NodeCompass);
         return;

@@ -211,6 +211,8 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     bool editUsesHexCharset() const;
     bool usesSmartCompose() const;
     void executeActionPageItem(size_t index);
+    size_t nodeActionCount() const;
+    const char* nodeActionLabel(size_t index) const;
 
     uint32_t nowMs() const;
     app::IAppFacade* app() const;

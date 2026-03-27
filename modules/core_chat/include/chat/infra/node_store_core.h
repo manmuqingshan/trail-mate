@@ -18,13 +18,15 @@ class NodeStoreCore : public INodeStore
     static constexpr size_t kMaxNodes = 80;
     static constexpr size_t kLegacySerializedEntrySize = 64;
     static constexpr size_t kSerializedEntrySize = 104;
-    static constexpr uint8_t kPersistVersion = 7;
+    static constexpr size_t kSerializedEntrySizeV8 = 148;
+    static constexpr uint8_t kPersistVersion = 8;
     static constexpr uint32_t kSaveIntervalMs = 5000;
 
     explicit NodeStoreCore(INodeBlobStore& blob_store);
     void setProtectedNodeChecker(std::function<bool(uint32_t)> checker);
 
     void begin() override;
+    void applyUpdate(uint32_t node_id, const NodeUpdate& update) override;
     void upsert(uint32_t node_id, const char* short_name, const char* long_name,
                 uint32_t now_secs, float snr = 0.0f, float rssi = 0.0f, uint8_t protocol = 0,
                 uint8_t role = kNodeRoleUnknown, uint8_t hops_away = 0xFF,

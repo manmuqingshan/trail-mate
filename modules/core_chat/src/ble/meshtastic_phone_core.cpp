@@ -1152,6 +1152,10 @@ meshtastic_NodeInfo MeshtasticPhoneCore::buildNodeInfoFromEntry(const chat::cont
     copyBounded(info.user.id, sizeof(info.user.id), user_id);
     copyBounded(info.user.long_name, sizeof(info.user.long_name), entry.long_name);
     copyBounded(info.user.short_name, sizeof(info.user.short_name), entry.short_name);
+    if (entry.has_macaddr)
+    {
+        memcpy(info.user.macaddr, entry.macaddr, sizeof(info.user.macaddr));
+    }
     info.user.hw_model = static_cast<meshtastic_HardwareModel>(entry.hw_model);
     info.user.role = roleFromEntry(entry.role);
     info.channel = entry.channel;
@@ -1159,6 +1163,23 @@ meshtastic_NodeInfo MeshtasticPhoneCore::buildNodeInfoFromEntry(const chat::cont
     info.snr = entry.snr;
     info.has_hops_away = (entry.hops_away != 0xFFU);
     info.hops_away = entry.hops_away;
+    info.via_mqtt = entry.via_mqtt;
+    info.is_ignored = entry.is_ignored;
+    info.is_key_manually_verified = entry.key_manually_verified;
+    if (entry.has_device_metrics)
+    {
+        info.has_device_metrics = true;
+        info.device_metrics.has_battery_level = entry.device_metrics.has_battery_level;
+        info.device_metrics.battery_level = entry.device_metrics.battery_level;
+        info.device_metrics.has_voltage = entry.device_metrics.has_voltage;
+        info.device_metrics.voltage = entry.device_metrics.voltage;
+        info.device_metrics.has_channel_utilization = entry.device_metrics.has_channel_utilization;
+        info.device_metrics.channel_utilization = entry.device_metrics.channel_utilization;
+        info.device_metrics.has_air_util_tx = entry.device_metrics.has_air_util_tx;
+        info.device_metrics.air_util_tx = entry.device_metrics.air_util_tx;
+        info.device_metrics.has_uptime_seconds = entry.device_metrics.has_uptime_seconds;
+        info.device_metrics.uptime_seconds = entry.device_metrics.uptime_seconds;
+    }
 
     const chat::contacts::NodeInfo* node = ctx_.getContactService().getNodeInfo(entry.node_id);
     if (node != nullptr)

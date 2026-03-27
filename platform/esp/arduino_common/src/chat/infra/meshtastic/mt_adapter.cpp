@@ -1606,10 +1606,31 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                 }
 
                 uint32_t now_secs = time(nullptr);
+                chat::contacts::NodeDeviceMetrics metrics{};
+                const bool has_metrics = node.has_device_metrics;
+                if (has_metrics)
+                {
+                    metrics.has_battery_level = node.device_metrics.has_battery_level;
+                    metrics.battery_level = node.device_metrics.battery_level;
+                    metrics.has_voltage = node.device_metrics.has_voltage;
+                    metrics.voltage = node.device_metrics.voltage;
+                    metrics.has_channel_utilization = node.device_metrics.has_channel_utilization;
+                    metrics.channel_utilization = node.device_metrics.channel_utilization;
+                    metrics.has_air_util_tx = node.device_metrics.has_air_util_tx;
+                    metrics.air_util_tx = node.device_metrics.air_util_tx;
+                    metrics.has_uptime_seconds = node.device_metrics.has_uptime_seconds;
+                    metrics.uptime_seconds = node.device_metrics.uptime_seconds;
+                }
                 sys::NodeInfoUpdateEvent* event = new sys::NodeInfoUpdateEvent(
                     node_id, short_name, long_name, snr, rssi, now_secs,
                     static_cast<uint8_t>(chat::contacts::NodeProtocolType::Meshtastic), role,
-                    hops_away, static_cast<uint8_t>(node.user.hw_model), channel_index);
+                    hops_away, static_cast<uint8_t>(node.user.hw_model), channel_index,
+                    node.has_user, node.has_user ? node.user.macaddr : nullptr,
+                    node.via_mqtt || ((header.flags & chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0),
+                    node.is_ignored,
+                    node.has_user && node.user.public_key.size == 32,
+                    node.is_key_manually_verified,
+                    has_metrics, has_metrics ? &metrics : nullptr);
                 bool published = sys::EventBus::publish(event, 0);
                 if (published)
                 {
@@ -1669,7 +1690,13 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                     sys::NodeInfoUpdateEvent* event = new sys::NodeInfoUpdateEvent(
                         node_id, short_name, long_name, snr, rssi, now_secs,
                         static_cast<uint8_t>(chat::contacts::NodeProtocolType::Meshtastic), role,
-                        hops_away, static_cast<uint8_t>(user.hw_model), channel_index);
+                        hops_away, static_cast<uint8_t>(user.hw_model), channel_index,
+                        true, user.macaddr,
+                        ((header.flags & chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0),
+                        false,
+                        user.public_key.size == 32,
+                        false,
+                        false, nullptr);
                     bool published = sys::EventBus::publish(event, 0);
                     if (published)
                     {

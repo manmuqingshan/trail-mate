@@ -87,6 +87,14 @@ class UiController : public IChatUiRuntime
     void onTeamPositionIconSelected(uint8_t icon_id);
     void onTeamPositionCancel();
     bool isTeamPositionPickerOpen() const;
+    bool isKeyVerificationModalOpen() const;
+    void openKeyVerificationNumberModal(chat::NodeId node_id, uint64_t nonce);
+    void openKeyVerificationInfoModal(chat::NodeId node_id, uint32_t number);
+    void openKeyVerificationFinalModal(chat::NodeId node_id, const char* code, bool is_sender);
+    void closeKeyVerificationModal(bool restore_group);
+    void submitKeyVerificationNumber();
+    void trustKeyFromVerificationModal();
+    void clearKeyVerificationError();
 
     struct TeamPositionIconEventCtx
     {
@@ -101,8 +109,24 @@ class UiController : public IChatUiRuntime
     lv_group_t* team_position_picker_group_ = nullptr;
     lv_group_t* team_position_prev_group_ = nullptr;
 
+    lv_obj_t* key_verify_overlay_ = nullptr;
+    lv_obj_t* key_verify_panel_ = nullptr;
+    lv_obj_t* key_verify_desc_ = nullptr;
+    lv_obj_t* key_verify_textarea_ = nullptr;
+    lv_obj_t* key_verify_error_label_ = nullptr;
+    lv_group_t* key_verify_group_ = nullptr;
+    lv_group_t* key_verify_prev_group_ = nullptr;
+    std::unique_ptr<::ui::widgets::ImeWidget> key_verify_ime_;
+    chat::NodeId key_verify_node_id_ = 0;
+    uint64_t key_verify_nonce_ = 0;
+    bool key_verify_expects_number_ = false;
+    bool key_verify_can_trust_ = false;
+
     static void team_position_icon_event_cb(lv_event_t* e);
     static void team_position_cancel_event_cb(lv_event_t* e);
+    static void key_verify_submit_event_cb(lv_event_t* e);
+    static void key_verify_close_event_cb(lv_event_t* e);
+    static void key_verify_trust_event_cb(lv_event_t* e);
 };
 
 } // namespace ui

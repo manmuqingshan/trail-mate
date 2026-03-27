@@ -1181,13 +1181,53 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
             const float snr = std::isnan(last_rx_snr_) ? node.snr : last_rx_snr_;
             const uint8_t hops_away =
                 node.has_hops_away ? node.hops_away : ::chat::meshtastic::computeHopsAway(header.flags);
-            node_store_->upsert(node_id, short_name, long_name,
-                                nowSeconds(),
-                                snr, last_rx_rssi_,
-                                static_cast<uint8_t>(::chat::contacts::NodeProtocolType::Meshtastic),
-                                role, hops_away,
-                                static_cast<uint8_t>(node.has_user ? node.user.hw_model : 0),
-                                static_cast<uint8_t>(channel));
+            ::chat::contacts::NodeUpdate update{};
+            update.short_name = short_name;
+            update.long_name = long_name;
+            update.has_last_seen = true;
+            update.last_seen = nowSeconds();
+            update.has_snr = !std::isnan(snr);
+            update.snr = snr;
+            update.has_rssi = !std::isnan(last_rx_rssi_);
+            update.rssi = last_rx_rssi_;
+            update.has_protocol = true;
+            update.protocol = static_cast<uint8_t>(::chat::contacts::NodeProtocolType::Meshtastic);
+            update.has_role = (role != ::chat::contacts::kNodeRoleUnknown);
+            update.role = role;
+            update.has_hops_away = true;
+            update.hops_away = hops_away;
+            update.has_hw_model = node.has_user;
+            update.hw_model = static_cast<uint8_t>(node.has_user ? node.user.hw_model : 0);
+            update.has_channel = true;
+            update.channel = static_cast<uint8_t>(channel);
+            update.has_macaddr = node.has_user;
+            if (node.has_user)
+            {
+                memcpy(update.macaddr, node.user.macaddr, sizeof(update.macaddr));
+            }
+            update.has_via_mqtt = true;
+            update.via_mqtt = node.via_mqtt || ((header.flags & ::chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0);
+            update.has_is_ignored = true;
+            update.is_ignored = node.is_ignored;
+            update.has_public_key = true;
+            update.public_key_present = node.has_user && node.user.public_key.size == 32;
+            update.has_key_manually_verified = true;
+            update.key_manually_verified = node.is_key_manually_verified;
+            if (node.has_device_metrics)
+            {
+                update.has_device_metrics = true;
+                update.device_metrics.has_battery_level = node.device_metrics.has_battery_level;
+                update.device_metrics.battery_level = node.device_metrics.battery_level;
+                update.device_metrics.has_voltage = node.device_metrics.has_voltage;
+                update.device_metrics.voltage = node.device_metrics.voltage;
+                update.device_metrics.has_channel_utilization = node.device_metrics.has_channel_utilization;
+                update.device_metrics.channel_utilization = node.device_metrics.channel_utilization;
+                update.device_metrics.has_air_util_tx = node.device_metrics.has_air_util_tx;
+                update.device_metrics.air_util_tx = node.device_metrics.air_util_tx;
+                update.device_metrics.has_uptime_seconds = node.device_metrics.has_uptime_seconds;
+                update.device_metrics.uptime_seconds = node.device_metrics.uptime_seconds;
+            }
+            node_store_->applyUpdate(node_id, update);
             nodeinfo_last_seen_ms_[node_id] = millis();
             if (node.has_user && node.user.public_key.size == 32)
             {
@@ -1205,13 +1245,32 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                 {
                     role = static_cast<uint8_t>(user.role);
                 }
-                node_store_->upsert(header.from, user.short_name, user.long_name,
-                                    nowSeconds(),
-                                    last_rx_snr_, last_rx_rssi_,
-                                    static_cast<uint8_t>(::chat::contacts::NodeProtocolType::Meshtastic),
-                                    role, ::chat::meshtastic::computeHopsAway(header.flags),
-                                    static_cast<uint8_t>(user.hw_model),
-                                    static_cast<uint8_t>(channel));
+                ::chat::contacts::NodeUpdate update{};
+                update.short_name = user.short_name;
+                update.long_name = user.long_name;
+                update.has_last_seen = true;
+                update.last_seen = nowSeconds();
+                update.has_snr = !std::isnan(last_rx_snr_);
+                update.snr = last_rx_snr_;
+                update.has_rssi = !std::isnan(last_rx_rssi_);
+                update.rssi = last_rx_rssi_;
+                update.has_protocol = true;
+                update.protocol = static_cast<uint8_t>(::chat::contacts::NodeProtocolType::Meshtastic);
+                update.has_role = (role != ::chat::contacts::kNodeRoleUnknown);
+                update.role = role;
+                update.has_hops_away = true;
+                update.hops_away = ::chat::meshtastic::computeHopsAway(header.flags);
+                update.has_hw_model = true;
+                update.hw_model = static_cast<uint8_t>(user.hw_model);
+                update.has_channel = true;
+                update.channel = static_cast<uint8_t>(channel);
+                update.has_macaddr = true;
+                memcpy(update.macaddr, user.macaddr, sizeof(update.macaddr));
+                update.has_via_mqtt = true;
+                update.via_mqtt = ((header.flags & ::chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0);
+                update.has_public_key = true;
+                update.public_key_present = user.public_key.size == 32;
+                node_store_->applyUpdate(header.from, update);
                 nodeinfo_last_seen_ms_[header.from] = millis();
                 if (user.public_key.size == 32)
                 {
