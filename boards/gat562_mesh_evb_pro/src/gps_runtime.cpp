@@ -21,6 +21,8 @@ namespace
 
 constexpr uint32_t kMinValidEpochSeconds = 1700000000UL;
 constexpr std::size_t kNmeaFieldMax = 24;
+constexpr std::size_t kGpsTailCanarySize = 32;
+constexpr uint8_t kGpsTailCanaryByte = 0xA5;
 
 uint32_t readSystemEpochSeconds()
 {
@@ -35,6 +37,74 @@ uint32_t readSystemEpochSeconds()
 void syncSystemClockFromEpoch(uint32_t epoch_s)
 {
     (void)epoch_s;
+}
+
+void fillCanary(uint8_t* bytes, std::size_t len)
+{
+    if (!bytes || len == 0)
+    {
+        return;
+    }
+    std::memset(bytes, static_cast<int>(kGpsTailCanaryByte), len);
+}
+
+bool canaryIntact(const uint8_t* bytes, std::size_t len)
+{
+    if (!bytes)
+    {
+        return false;
+    }
+    for (std::size_t i = 0; i < len; ++i)
+    {
+        if (bytes[i] != kGpsTailCanaryByte)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+int firstBadCanaryOffset(const uint8_t* bytes, std::size_t len)
+{
+    if (!bytes)
+    {
+        return -1;
+    }
+    for (std::size_t i = 0; i < len; ++i)
+    {
+        if (bytes[i] != kGpsTailCanaryByte)
+        {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void dumpCanaryHex(const uint8_t* bytes, std::size_t len, char* out, std::size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!bytes || len == 0)
+    {
+        return;
+    }
+
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::size_t pos = 0;
+    for (std::size_t i = 0; i < len && (pos + 3) < out_len; ++i)
+    {
+        const uint8_t b = bytes[i];
+        out[pos++] = kHex[(b >> 4) & 0x0F];
+        out[pos++] = kHex[b & 0x0F];
+        if (i + 1 < len)
+        {
+            out[pos++] = ' ';
+        }
+    }
+    out[pos] = '\0';
 }
 
 enum class CollectorSlot : uint8_t
@@ -229,15 +299,17 @@ time_t gpsDateTimeToEpochUtc(int year, uint8_t month, uint8_t day, uint8_t hour,
 struct GpsRuntime::Impl
 {
     static constexpr uint32_t kGuardValue = 0x47505352UL;
-    uint32_t guard_begin = kGuardValue;
-    TinyGPSPlus parser{};
-    ::gps::GpsState data{};
-    ::gps::GnssStatus status{};
+
     struct GsvCollector
     {
         std::array<::gps::GnssSatInfo, ::gps::kMaxGnssSats> sats{};
         std::size_t count = 0;
     };
+
+    uint32_t guard_begin = kGuardValue;
+    TinyGPSPlus parser{};
+    ::gps::GpsState data{};
+    ::gps::GnssStatus status{};
     uint32_t last_motion_ms = 0;
     uint32_t collection_interval_ms = 60000;
     uint32_t motion_idle_timeout_ms = 0;
@@ -272,7 +344,34 @@ struct GpsRuntime::Impl
     std::size_t last_logged_snapshot_count = static_cast<std::size_t>(-1);
     bool last_logged_snapshot_available = false;
     bool first_nmea_sentence_logged = false;
+    std::array<uint8_t, kGpsTailCanarySize> tail_canary{};
     uint32_t guard_end = kGuardValue;
+
+    void initializeDebugGuards()
+    {
+        guard_begin = kGuardValue;
+        guard_end = kGuardValue;
+        fillCanary(tail_canary.data(), tail_canary.size());
+    }
+
+    void logMemoryLayout(const char* reason) const
+    {
+        Serial.printf(
+            "[gat562][gps][mem] reason=%s impl=%p size=%u guard_begin@%p guard_end@%p canary@%p canary_len=%u parser@%p data@%p status@%p sats@%p used_ids@%p nmea@%p\n",
+            reason ? reason : "unknown",
+            static_cast<const void*>(this),
+            static_cast<unsigned>(sizeof(*this)),
+            static_cast<const void*>(&guard_begin),
+            static_cast<const void*>(&guard_end),
+            static_cast<const void*>(tail_canary.data()),
+            static_cast<unsigned>(tail_canary.size()),
+            static_cast<const void*>(&parser),
+            static_cast<const void*>(&data),
+            static_cast<const void*>(&status),
+            static_cast<const void*>(sats.data()),
+            static_cast<const void*>(used_sat_ids.data()),
+            static_cast<const void*>(nmea_line));
+    }
 
     bool usedSat(uint16_t sat_id) const
     {
@@ -329,6 +428,10 @@ struct GpsRuntime::Impl
         {
             return true;
         }
+        if (!canaryIntact(tail_canary.data(), tail_canary.size()))
+        {
+            return true;
+        }
         if (sat_count > sats.size())
         {
             return true;
@@ -354,22 +457,33 @@ struct GpsRuntime::Impl
 
     void repairCorruptSatelliteState(const char* reason)
     {
+        const int bad_offset = firstBadCanaryOffset(tail_canary.data(), tail_canary.size());
+        const uint8_t bad_value =
+            (bad_offset >= 0) ? tail_canary[static_cast<std::size_t>(bad_offset)] : 0;
+
+        char canary_hex[3 * kGpsTailCanarySize + 1] = {};
+        dumpCanaryHex(tail_canary.data(), tail_canary.size(), canary_hex, sizeof(canary_hex));
+
         Serial.printf(
-            "[gat562][gps][corrupt] reason=%s parser_sats=%u snapshot_count=%u used_count=%u status_view=%u status_use=%u guards=%08lX/%08lX\n",
+            "[gat562][gps][corrupt] reason=%s impl=%p parser_sats=%u snapshot_count=%u used_count=%u status_view=%u status_use=%u guards=%08lX/%08lX canary_bad=%d bad_val=%02X canary=[%s]\n",
             reason ? reason : "unknown",
+            static_cast<void*>(this),
             static_cast<unsigned>(parser.satellites.isValid() ? parser.satellites.value() : 0U),
             static_cast<unsigned>(sat_count),
             static_cast<unsigned>(used_sat_count),
             static_cast<unsigned>(status.sats_in_view),
             static_cast<unsigned>(status.sats_in_use),
             static_cast<unsigned long>(guard_begin),
-            static_cast<unsigned long>(guard_end));
+            static_cast<unsigned long>(guard_end),
+            bad_offset,
+            static_cast<unsigned>(bad_value),
+            canary_hex);
 
-        if (guard_begin != kGuardValue || guard_end != kGuardValue)
-        {
-            guard_begin = kGuardValue;
-            guard_end = kGuardValue;
-        }
+        logMemoryLayout("corrupt");
+
+        guard_begin = kGuardValue;
+        guard_end = kGuardValue;
+        fillCanary(tail_canary.data(), tail_canary.size());
 
         sats.fill(::gps::GnssSatInfo{});
         used_sat_ids.fill(0);
@@ -401,6 +515,10 @@ struct GpsRuntime::Impl
             used_sat_ids[used_sat_count++] = static_cast<uint16_t>(sat_id);
         }
         mergeGnssSatellites();
+        if (satelliteStateLooksCorrupt())
+        {
+            repairCorruptSatelliteState("parse_gsa");
+        }
     }
 
     void parseGsvSentence(const char* talker, const std::array<char*, kNmeaFieldMax>& fields, std::size_t count)
@@ -464,6 +582,10 @@ struct GpsRuntime::Impl
         }
 
         mergeGnssSatellites();
+        if (satelliteStateLooksCorrupt())
+        {
+            repairCorruptSatelliteState("parse_gsv");
+        }
     }
 
     void parseNmeaSentence(char* sentence)
@@ -628,7 +750,7 @@ struct GpsRuntime::Impl
         const time_t utc = datetime_shape_valid ? gpsDateTimeToEpochUtc(year, month, day, hour, minute, second)
                                                 : static_cast<time_t>(0);
         const bool epoch_ok = utc >= static_cast<time_t>(kMinValidEpochSeconds);
-        const uint32_t sat_count = parser.satellites.isValid() ? parser.satellites.value() : 0U;
+        const uint32_t sat_count_parser = parser.satellites.isValid() ? parser.satellites.value() : 0U;
         const uint32_t nmea_age_ms = last_nmea_ms > 0 ? (now_ms - last_nmea_ms) : 0U;
         const char* state = "idle";
         if (!nmea_seen)
@@ -647,7 +769,7 @@ struct GpsRuntime::Impl
         {
             state = "epoch_reject";
         }
-        else if (sat_count == 0U)
+        else if (sat_count_parser == 0U)
         {
             state = "time_only";
         }
@@ -674,7 +796,7 @@ struct GpsRuntime::Impl
             static_cast<unsigned>(time_valid ? 1 : 0),
             static_cast<unsigned>(date_valid ? 1 : 0),
             static_cast<unsigned>(fix_valid ? 1 : 0),
-            static_cast<unsigned>(sat_count),
+            static_cast<unsigned>(sat_count_parser),
             fix_valid ? parser.location.lat() : 0.0,
             fix_valid ? parser.location.lng() : 0.0,
             static_cast<unsigned long>(epoch_base_s),
@@ -709,10 +831,6 @@ struct GpsRuntime::Impl
                                   ? static_cast<uint8_t>(std::min<std::size_t>(sat_count, 255U))
                                   : data.satellites;
 
-        // Ignore transient "used satellites" noise unless we also have an actual
-        // parser/view count. This prevents brief GSA-only updates from surfacing
-        // as fake SAT activity in the UI during unrelated events such as BLE
-        // connection setup.
         if (sat_count == 0 && data.satellites == 0)
         {
             status.sats_in_use = 0;
@@ -720,7 +838,8 @@ struct GpsRuntime::Impl
         }
 
         status.hdop = parser.hdop.isValid() ? static_cast<float>(parser.hdop.hdop()) : 0.0f;
-        status.fix = data.valid ? (data.has_alt ? ::gps::GnssFix::FIX3D : ::gps::GnssFix::FIX2D) : ::gps::GnssFix::NOFIX;
+        status.fix = data.valid ? (data.has_alt ? ::gps::GnssFix::FIX3D : ::gps::GnssFix::FIX2D)
+                                : ::gps::GnssFix::NOFIX;
 
         if (data.valid)
         {
@@ -774,6 +893,11 @@ struct GpsRuntime::Impl
 GpsRuntime::GpsRuntime()
     : impl_(new Impl())
 {
+    if (impl_)
+    {
+        impl_->initializeDebugGuards();
+        impl_->logMemoryLayout("ctor");
+    }
 }
 
 GpsRuntime::~GpsRuntime()
@@ -818,6 +942,7 @@ bool GpsRuntime::begin(const app::AppConfig& config)
         Serial1.begin(profile.gps.baud_rate);
         s.initialized = true;
         s.powered = true;
+        s.logMemoryLayout("begin");
     }
     return true;
 }
@@ -859,6 +984,11 @@ void GpsRuntime::tick()
         return;
     }
 
+    if (s.satelliteStateLooksCorrupt())
+    {
+        s.repairCorruptSatelliteState("tick_pre");
+    }
+
     while (Serial1.available() > 0)
     {
         s.nmea_seen = true;
@@ -867,12 +997,15 @@ void GpsRuntime::tick()
         s.parser.encode(ch);
         s.processNmeaChar(ch);
     }
+
     s.applyTimeIfValid();
     s.refreshFix();
+
     if (s.satelliteStateLooksCorrupt())
     {
         s.repairCorruptSatelliteState("tick_post_refresh");
     }
+
     s.logSatelliteFlowIfChanged();
     s.logStatusIfDue();
 }
@@ -908,11 +1041,14 @@ bool GpsRuntime::gnssSnapshot(::gps::GnssSatInfo* out,
                               std::size_t* out_count,
                               ::gps::GnssStatus* status) const
 {
-    const auto& s = *impl();
+    auto& s = *const_cast<Impl*>(impl());
+
     if (s.satelliteStateLooksCorrupt())
     {
-        const_cast<Impl&>(s).repairCorruptSatelliteState("snapshot");
+        s.logMemoryLayout("snapshot_pre_corrupt");
+        s.repairCorruptSatelliteState("snapshot");
     }
+
     const bool snapshot_available = s.data.valid || s.data.satellites > 0 || s.sat_count > 0;
     if (out_count)
     {
@@ -951,6 +1087,7 @@ bool GpsRuntime::gnssSnapshot(::gps::GnssSatInfo* out,
 
 void GpsRuntime::setCollectionInterval(uint32_t interval_ms) { impl()->collection_interval_ms = interval_ms; }
 void GpsRuntime::setPowerStrategy(uint8_t strategy) { impl()->power_strategy = strategy; }
+
 void GpsRuntime::setConfig(uint8_t mode, uint8_t sat_mask)
 {
     auto& s = *impl();
@@ -962,13 +1099,16 @@ void GpsRuntime::setConfig(uint8_t mode, uint8_t sat_mask)
         s.clearObservations();
     }
 }
+
 void GpsRuntime::setNmeaConfig(uint8_t output_hz, uint8_t sentence_mask)
 {
     impl()->nmea_output_hz = output_hz;
     impl()->nmea_sentence_mask = sentence_mask;
 }
+
 void GpsRuntime::setMotionIdleTimeout(uint32_t timeout_ms) { impl()->motion_idle_timeout_ms = timeout_ms; }
 void GpsRuntime::setMotionSensorId(uint8_t sensor_id) { impl()->motion_sensor_id = sensor_id; }
+
 void GpsRuntime::suspend()
 {
     auto& s = *impl();
