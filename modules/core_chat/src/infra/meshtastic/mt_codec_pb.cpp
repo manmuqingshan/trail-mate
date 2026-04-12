@@ -266,8 +266,7 @@ bool decodeAppData(const uint8_t* buffer, size_t size, MeshIncomingData* out)
     }
 
     if (data.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP ||
-        data.portnum == meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP ||
-        data.portnum == meshtastic_PortNum_NODEINFO_APP)
+        data.portnum == meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP)
     {
         return false;
     }

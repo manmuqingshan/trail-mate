@@ -1,7 +1,7 @@
 #pragma once
 
 #include "app/app_facades.h"
-#include "ble_manager.h"
+#include "ble/ble_manager.h"
 #include "chat/ble/meshtastic_phone_session.h"
 #include "chat/domain/chat_types.h"
 #include "chat/ports/i_node_store.h"
@@ -28,6 +28,7 @@ class MeshtasticPhoneCore;
 class MeshtasticBleService final : public BleService,
                                    public chat::ChatService::IncomingTextObserver,
                                    public chat::ChatService::OutgoingTextObserver,
+                                   public chat::ChatService::IncomingDataObserver,
                                    public MeshtasticPhoneTransport,
                                    public MeshtasticPhoneHooks
 {
@@ -45,8 +46,11 @@ class MeshtasticBleService final : public BleService,
     void start() override;
     void stop() override;
     void update() override;
+
     void onIncomingText(const chat::MeshIncomingText& msg) override;
     void onOutgoingText(const chat::MeshIncomingText& msg) override;
+    void onIncomingData(const chat::MeshIncomingData& msg) override;
+
     bool handleToRadio(const uint8_t* data, size_t len);
     bool enqueueToRadio(const uint8_t* data, size_t len);
     bool popToPhone(MeshtasticBleFrame* out);
@@ -66,8 +70,8 @@ class MeshtasticBleService final : public BleService,
     void handlePairPasskeyDisplay(uint16_t conn_handle, const uint8_t passkey[6], bool match_request);
     void handlePairComplete(uint16_t conn_handle, uint8_t auth_status);
     void handleSecured(uint16_t conn_handle);
-    bool getPairingStatus(BlePairingStatus* out) const override;
 
+    bool getPairingStatus(BlePairingStatus* out) const override;
     bool isBleConnected() const override;
     void notifyFromNum(uint32_t from_num) override;
     bool loadBluetoothConfig(meshtastic_Config_BluetoothConfig* out) const override;
@@ -113,31 +117,40 @@ class MeshtasticBleService final : public BleService,
     meshtastic_LocalModuleConfig module_config_ = meshtastic_LocalModuleConfig_init_zero;
     std::unique_ptr<MeshtasticPhoneSession> phone_session_;
     std::atomic<uint32_t> pending_passkey_{0};
+
     static constexpr uint8_t kPendingToRadioCapacity = 6;
     PendingToRadioFrame pending_to_radio_[kPendingToRadioCapacity]{};
     volatile uint8_t pending_to_radio_head_ = 0;
     volatile uint8_t pending_to_radio_tail_ = 0;
     volatile uint8_t pending_to_radio_count_ = 0;
+
     volatile bool pairing_request_pending_ = false;
     volatile uint16_t pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
+
     std::atomic<bool> read_waiting_{false};
+
     bool pending_to_phone_valid_ = false;
     Frame pending_to_phone_{};
+
     static constexpr uint8_t kToPhoneQueueDepth = 3;
     Frame to_phone_queue_[kToPhoneQueueDepth]{};
     volatile uint8_t to_phone_head_ = 0;
     volatile uint8_t to_phone_tail_ = 0;
     volatile uint8_t to_phone_count_ = 0;
+
     bool from_radio_preloaded_valid_ = false;
     Frame from_radio_preloaded_{};
     bool from_radio_consume_pending_ = false;
+
     bool pending_from_num_valid_ = false;
     uint32_t pending_from_num_ = 0;
+
     volatile bool pending_connect_log_ = false;
     volatile bool pending_disconnect_log_ = false;
     volatile bool pending_from_num_cccd_log_ = false;
     volatile bool pending_pair_complete_log_ = false;
     volatile bool pending_secured_log_ = false;
+
     volatile uint16_t pending_connect_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     volatile uint16_t pending_disconnect_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     volatile uint16_t pending_from_num_cccd_conn_handle_ = BLE_CONN_HANDLE_INVALID;
@@ -145,10 +158,12 @@ class MeshtasticBleService final : public BleService,
     volatile uint16_t pending_pair_complete_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     volatile uint8_t pending_pair_complete_status_ = 0;
     volatile uint16_t pending_secured_conn_handle_ = BLE_CONN_HANDLE_INVALID;
+
     volatile bool pending_from_radio_read_log_ = false;
     volatile bool pending_from_radio_empty_log_ = false;
     volatile uint32_t pending_from_radio_read_from_num_ = 0;
     volatile uint16_t pending_from_radio_read_len_ = 0;
+
     bool bluetooth_config_save_pending_ = false;
     bool module_config_save_pending_ = false;
     uint32_t config_save_due_ms_ = 0;

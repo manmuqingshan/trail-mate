@@ -476,18 +476,18 @@ MeshtasticBleService::MeshtasticBleService(app::IAppBleFacade& ctx, const std::s
     const bool persisted_ok = loadPersistedBleState(&persisted);
 
     bleLogBoth("[BLE][nrf52][mt] persisted load ok=%u has_bt=%u has_mod=%u",
-            persisted_ok ? 1U : 0U,
-            persisted.has_bluetooth ? 1U : 0U,
-            persisted.has_module ? 1U : 0U);
+               persisted_ok ? 1U : 0U,
+               persisted.has_bluetooth ? 1U : 0U,
+               persisted.has_module ? 1U : 0U);
 
-    #if defined(GAT562_MESH_EVB_PRO)
-        bleLogBoth("[BLE][nrf52][mt] settings_store load=%s save=%s",
-                ::boards::gat562_mesh_evb_pro::settings_store::statusLabel(
-                    ::boards::gat562_mesh_evb_pro::settings_store::lastLoadStatus()),
-                ::boards::gat562_mesh_evb_pro::settings_store::statusLabel(
-                    ::boards::gat562_mesh_evb_pro::settings_store::lastSaveStatus()));
-    #endif
-    
+#if defined(GAT562_MESH_EVB_PRO)
+    bleLogBoth("[BLE][nrf52][mt] settings_store load=%s save=%s",
+               ::boards::gat562_mesh_evb_pro::settings_store::statusLabel(
+                   ::boards::gat562_mesh_evb_pro::settings_store::lastLoadStatus()),
+               ::boards::gat562_mesh_evb_pro::settings_store::statusLabel(
+                   ::boards::gat562_mesh_evb_pro::settings_store::lastSaveStatus()));
+#endif
+
     if (persisted.has_bluetooth &&
         isValidBluetoothMode(static_cast<uint8_t>(persisted.bluetooth.mode)) &&
         isValidBlePin(persisted.bluetooth.fixed_pin))
@@ -547,15 +547,13 @@ void MeshtasticBleService::start()
     pairing_request_pending_ = false;
     pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     last_ble_activity_ms_ = millis();
+
     prepareBluefruit(device_name_);
     applyBleSecurity();
 
     service_.begin();
     bleLogBoth("[BLE][nrf52][mt] service begin");
 
-    // Keep Meshtastic BLE characteristics open on nRF52 for compatibility.
-    // The app expects to complete service discovery and config bootstrap without
-    // getting stuck behind MITM-protected attribute access on Bluefruit.
     to_radio_.setProperties(CHR_PROPS_WRITE);
     to_radio_.setPermission(SECMODE_OPEN, SECMODE_OPEN);
     to_radio_.setFixedLen(0);
@@ -590,6 +588,8 @@ void MeshtasticBleService::start()
 
     ctx_.getChatService().addIncomingTextObserver(this);
     ctx_.getChatService().addOutgoingTextObserver(this);
+    ctx_.getChatService().addIncomingDataObserver(this);
+
     startAdvertising(service_);
     active_ = true;
     pending_passkey_.store(0);
@@ -601,6 +601,8 @@ void MeshtasticBleService::stop()
 {
     ctx_.getChatService().removeIncomingTextObserver(this);
     ctx_.getChatService().removeOutgoingTextObserver(this);
+    ctx_.getChatService().removeIncomingDataObserver(this);
+
     disconnectAll();
     Bluefruit.Advertising.stop();
     flushPendingConfigSaves(true);
@@ -696,6 +698,18 @@ void MeshtasticBleService::onOutgoingText(const chat::MeshIncomingText& msg)
     }
 }
 
+void MeshtasticBleService::onIncomingData(const chat::MeshIncomingData& msg)
+{
+    if (phone_session_)
+    {
+        phone_session_->onIncomingData(msg);
+        if (phone_session_->isSendingPackets())
+        {
+            notifyFromNum(0);
+        }
+    }
+}
+
 bool MeshtasticBleService::handleToRadio(const uint8_t* data, size_t len)
 {
     last_ble_activity_ms_ = millis();
@@ -717,9 +731,6 @@ void MeshtasticBleService::handleToPhone()
     const bool config_flow_active = phone_session_->isConfigFlowActive();
     const bool can_prepare = connected_ && (!in_send_packets || config_flow_active);
 
-    // Meshtastic mobile apps often send `want_config` before they finish enabling
-    // FROMNUM notifications. If we start emitting config frames too early, the
-    // first bootstrap frame can be skipped and the app stays stuck on connecting.
     if (config_flow_active && !from_num_notify_enabled_)
     {
         return;
@@ -749,6 +760,19 @@ void MeshtasticBleService::handleToPhone()
         MeshtasticBleFrame session_frame{};
         if (!phone_session_->popToPhone(&session_frame))
         {
+            if (waiting_for_read && in_send_packets)
+            {
+                read_waiting_.store(false);
+            }
+            return;
+        }
+
+        if (session_frame.len == 0 || session_frame.len > frame.buf.size())
+        {
+            bleLogBoth("[BLE][nrf52][mt] drop oversize to_phone frame from_num=%08lX len=%u max=%u",
+                       static_cast<unsigned long>(session_frame.from_num),
+                       static_cast<unsigned>(session_frame.len),
+                       static_cast<unsigned>(frame.buf.size()));
             if (waiting_for_read && in_send_packets)
             {
                 read_waiting_.store(false);
@@ -1379,9 +1403,6 @@ void MeshtasticBleService::requestPairingIfNeeded(uint16_t conn_handle)
     {
         return;
     }
-    // Bluefruit on nRF52 is more stable if we let the central initiate pairing
-    // implicitly when it touches MITM-protected characteristics, instead of
-    // forcing requestPairing() immediately after connect.
     Serial2.printf("[BLE][nrf52][mt] pairing wait-for-central conn=%u mode=%u\n",
                    static_cast<unsigned>(conn_handle),
                    static_cast<unsigned>(ble_config_.mode));
