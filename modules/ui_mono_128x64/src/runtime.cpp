@@ -10,6 +10,7 @@
 #include "chat/usecase/contact_service.h"
 #include "generated/meshtastic/mesh.pb.h"
 #include "generated/meshtastic/portnums.pb.h"
+#include "platform/ui/screen_runtime.h"
 #include "pb_encode.h"
 #include <algorithm>
 #include <array>
@@ -70,7 +71,7 @@ constexpr const char* kMeshtasticRadioItems[] = {
     "REGION",
     "TX POWER",
     "MODEM",
-    "CHANNEL",
+    "CH SLOT",
     "ENCRYPT",
 };
 
@@ -84,11 +85,43 @@ constexpr const char* kMeshCoreRadioItems[] = {
     "NAME",
 };
 
+constexpr uint16_t kMeshtasticChannelNumMax = 16;
+constexpr uint32_t kScreenTimeoutAlwaysMs = 300000UL;
+constexpr uint32_t kScreenTimeoutOptionsMs[] = {15000UL, 30000UL, 60000UL, kScreenTimeoutAlwaysMs};
+
+uint16_t normalizedMeshtasticChannelNum(uint16_t channel_num)
+{
+    return std::min<uint16_t>(channel_num, kMeshtasticChannelNumMax);
+}
+
+void sanitizeMeshtasticChannelNum(app::AppConfig& cfg)
+{
+    cfg.meshtastic_config.channel_num = normalizedMeshtasticChannelNum(cfg.meshtastic_config.channel_num);
+}
+
+void formatMeshtasticChannelSlot(char* out, size_t out_len, uint16_t channel_num)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+
+    const unsigned slot = static_cast<unsigned>(normalizedMeshtasticChannelNum(channel_num));
+    if (slot == 0U)
+    {
+        std::snprintf(out, out_len, "Auto");
+        return;
+    }
+
+    std::snprintf(out, out_len, "%u", slot);
+}
+
 constexpr const char* kDeviceItems[] = {
     "BLE",
     "GPS",
     "SATS",
     "GPS INT",
+    "SCREEN OFF",
     "TIME ZONE",
 };
 
@@ -136,7 +169,6 @@ constexpr ComposeGroupDef kComposeAbcGroups[] = {
     {".,?", ".,?"},
 };
 constexpr uint32_t kBootMinMs = 1800;
-constexpr uint32_t kSleepTimeoutMs = 30000;
 constexpr uint32_t kComposeMultiTapWindowMs = 700;
 constexpr size_t kChatListPageSize = 6;
 constexpr size_t kNodeListPageSize = 6;
@@ -253,6 +285,52 @@ template <typename T>
 constexpr T clampValue(T value, T low, T high)
 {
     return value < low ? low : (value > high ? high : value);
+}
+
+uint32_t normalizedScreenTimeoutMs(uint32_t timeout_ms)
+{
+    return platform::ui::screen::clamp_timeout_ms(timeout_ms);
+}
+
+size_t screenTimeoutOptionIndex(uint32_t timeout_ms)
+{
+    timeout_ms = normalizedScreenTimeoutMs(timeout_ms);
+    size_t index = 0;
+    while (index + 1 < arrayCount(kScreenTimeoutOptionsMs) &&
+           kScreenTimeoutOptionsMs[index] < timeout_ms)
+    {
+        ++index;
+    }
+    return index;
+}
+
+uint32_t stepScreenTimeoutMs(uint32_t current_timeout_ms, int delta)
+{
+    const int current = static_cast<int>(screenTimeoutOptionIndex(current_timeout_ms));
+    const int next = clampValue(current + delta, 0, static_cast<int>(arrayCount(kScreenTimeoutOptionsMs)) - 1);
+    return kScreenTimeoutOptionsMs[next];
+}
+
+void formatScreenTimeoutLabel(char* out, size_t out_len, uint32_t timeout_ms)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+
+    const uint32_t normalized = normalizedScreenTimeoutMs(timeout_ms);
+    if (normalized >= kScreenTimeoutAlwaysMs)
+    {
+        std::snprintf(out, out_len, "Always");
+        return;
+    }
+    if (normalized % 60000UL == 0)
+    {
+        std::snprintf(out, out_len, "%lumin", static_cast<unsigned long>(normalized / 60000UL));
+        return;
+    }
+
+    std::snprintf(out, out_len, "%lus", static_cast<unsigned long>(normalized / 1000UL));
 }
 
 size_t utf8CharLength(unsigned char lead)
@@ -2769,7 +2847,7 @@ void Runtime::renderRadioSettings()
         case 4:
             if (cfg.mesh_protocol == chat::MeshProtocol::Meshtastic)
             {
-                std::snprintf(value, sizeof(value), "Slot %u", static_cast<unsigned>(cfg.meshtastic_config.channel_num));
+                formatMeshtasticChannelSlot(value, sizeof(value), cfg.meshtastic_config.channel_num);
             }
             else
             {
@@ -2835,6 +2913,12 @@ void Runtime::renderDeviceSettings()
                           static_cast<unsigned long>(app()->getConfig().gps_interval_ms / 1000UL));
         }
         else if (i == 4)
+        {
+            char timeout_label[16] = {};
+            formatScreenTimeoutLabel(timeout_label, sizeof(timeout_label), platform::ui::screen::timeout_ms());
+            std::snprintf(line, sizeof(line), "SCREEN OFF: %s", timeout_label);
+        }
+        else if (i == 5)
         {
             const int tz = host_.timezone_offset_min_fn ? host_.timezone_offset_min_fn() : 0;
             char tz_label[16] = {};
@@ -3002,8 +3086,8 @@ void Runtime::renderInfoPage()
     {
         push_kv("MODEM", chat::meshtastic::presetDisplayName(
                              static_cast<meshtastic_Config_LoRaConfig_ModemPreset>(cfg.meshtastic_config.modem_preset)));
-        std::snprintf(value, sizeof(value), "Slot %u", static_cast<unsigned>(cfg.meshtastic_config.channel_num));
-        push_kv("CHAN", value);
+        formatMeshtasticChannelSlot(value, sizeof(value), cfg.meshtastic_config.channel_num);
+        push_kv("CH SLOT", value);
         push_kv("ENCRYPT", encryptEnabled(cfg) ? "ON" : "OFF");
     }
     else
@@ -3964,7 +4048,18 @@ void Runtime::ensureSleepTimeout(InputAction action)
         return;
     }
 
-    if ((now - last_interaction_ms_) < kSleepTimeoutMs)
+    if (platform::ui::screen::is_sleep_disabled())
+    {
+        return;
+    }
+
+    const uint32_t timeout_ms = platform::ui::screen::timeout_ms();
+    if (timeout_ms >= kScreenTimeoutAlwaysMs)
+    {
+        return;
+    }
+
+    if ((now - last_interaction_ms_) < timeout_ms)
     {
         return;
     }
@@ -4085,9 +4180,17 @@ void Runtime::adjustRadioSetting(int delta)
     case 4:
         if (cfg.mesh_protocol == chat::MeshProtocol::Meshtastic)
         {
+            const int current = static_cast<int>(normalizedMeshtasticChannelNum(cfg.meshtastic_config.channel_num));
             cfg.meshtastic_config.channel_num = static_cast<uint16_t>(clampValue<int>(
-                static_cast<int>(cfg.meshtastic_config.channel_num) + delta, 0, 255));
-            appendStatus(this, "channel %u", static_cast<unsigned>(cfg.meshtastic_config.channel_num));
+                current + delta, 0, static_cast<int>(kMeshtasticChannelNumMax)));
+            if (cfg.meshtastic_config.channel_num == 0)
+            {
+                appendStatus(this, "channel auto");
+            }
+            else
+            {
+                appendStatus(this, "channel slot %u", static_cast<unsigned>(cfg.meshtastic_config.channel_num));
+            }
         }
         else
         {
@@ -4145,7 +4248,15 @@ void Runtime::adjustDeviceSetting(int delta)
         commitConfig();
         appendStatus(this, "gps int %lus", static_cast<unsigned long>(app()->getConfig().gps_interval_ms / 1000UL));
     }
-    else if (device_index_ == 4 && host_.timezone_offset_min_fn && host_.set_timezone_offset_min_fn)
+    else if (device_index_ == 4)
+    {
+        const uint32_t next = stepScreenTimeoutMs(platform::ui::screen::timeout_ms(), delta);
+        platform::ui::screen::set_timeout_ms(next);
+        char timeout_label[16] = {};
+        formatScreenTimeoutLabel(timeout_label, sizeof(timeout_label), next);
+        appendStatus(this, "screen %s", timeout_label);
+    }
+    else if (device_index_ == 5 && host_.timezone_offset_min_fn && host_.set_timezone_offset_min_fn)
     {
         const int current = host_.timezone_offset_min_fn();
         const int next = clampValue(current + delta * kTimezoneStep, kTimezoneMin, kTimezoneMax);
@@ -4167,6 +4278,7 @@ void Runtime::beginSettingPopup(Page owner, size_t index)
     setting_popup_index_ = index;
     setting_popup_config_ = app()->getConfig();
     setting_popup_ble_enabled_ = app()->isBleEnabled();
+    setting_popup_screen_timeout_ms_ = platform::ui::screen::timeout_ms();
     setting_popup_timezone_min_ = host_.timezone_offset_min_fn ? host_.timezone_offset_min_fn() : 0;
 }
 
@@ -4191,12 +4303,14 @@ void Runtime::confirmSettingPopup()
     }
 
     auto& cfg = app()->getConfig();
+    sanitizeMeshtasticChannelNum(setting_popup_config_);
     cfg = setting_popup_config_;
     cfg.ble_enabled = setting_popup_ble_enabled_;
     if (host_.set_timezone_offset_min_fn)
     {
         host_.set_timezone_offset_min_fn(setting_popup_timezone_min_);
     }
+    platform::ui::screen::set_timeout_ms(setting_popup_screen_timeout_ms_);
     app()->setBleEnabled(setting_popup_ble_enabled_);
     app()->saveConfig();
 
@@ -4312,8 +4426,9 @@ void Runtime::adjustSettingPopup(int delta)
         case 4:
             if (cfg.mesh_protocol == chat::MeshProtocol::Meshtastic)
             {
+                const int current = static_cast<int>(normalizedMeshtasticChannelNum(cfg.meshtastic_config.channel_num));
                 cfg.meshtastic_config.channel_num = static_cast<uint16_t>(clampValue<int>(
-                    static_cast<int>(cfg.meshtastic_config.channel_num) + delta, 0, 255));
+                    current + delta, 0, static_cast<int>(kMeshtasticChannelNumMax)));
             }
             else
             {
@@ -4357,6 +4472,9 @@ void Runtime::adjustSettingPopup(int delta)
             break;
         }
         case 4:
+            setting_popup_screen_timeout_ms_ = stepScreenTimeoutMs(setting_popup_screen_timeout_ms_, delta);
+            break;
+        case 5:
             setting_popup_timezone_min_ = clampValue(setting_popup_timezone_min_ + delta * kTimezoneStep,
                                                      kTimezoneMin,
                                                      kTimezoneMax);
@@ -4404,7 +4522,7 @@ void Runtime::formatSettingPopupValue(char* out, size_t out_len) const
         case 4:
             if (cfg.mesh_protocol == chat::MeshProtocol::Meshtastic)
             {
-                std::snprintf(out, out_len, "CH %u", static_cast<unsigned>(cfg.meshtastic_config.channel_num));
+                formatMeshtasticChannelSlot(out, out_len, cfg.meshtastic_config.channel_num);
             }
             else
             {
@@ -4436,6 +4554,9 @@ void Runtime::formatSettingPopupValue(char* out, size_t out_len) const
             std::snprintf(out, out_len, "%lus", static_cast<unsigned long>(setting_popup_config_.gps_interval_ms / 1000UL));
             return;
         case 4:
+            formatScreenTimeoutLabel(out, out_len, setting_popup_screen_timeout_ms_);
+            return;
+        case 5:
         {
             char tz_label[16] = {};
             formatTimezoneLabel(setting_popup_timezone_min_, tz_label, sizeof(tz_label));

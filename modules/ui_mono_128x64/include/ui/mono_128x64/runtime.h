@@ -252,6 +252,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver
     size_t setting_popup_index_ = 0;
     app::AppConfig setting_popup_config_{};
     bool setting_popup_ble_enabled_ = false;
+    uint32_t setting_popup_screen_timeout_ms_ = 30000;
     int setting_popup_timezone_min_ = 0;
     size_t info_scroll_ = 0;
     size_t action_index_ = 0;
