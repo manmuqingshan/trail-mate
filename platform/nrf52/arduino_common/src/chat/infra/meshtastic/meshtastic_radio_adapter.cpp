@@ -1294,6 +1294,17 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
 
     maybeHandleObservedRelay(header);
     const bool duplicate = history.seen_recently && !history.was_upgraded;
+    auto apply_observed_node_update = [&](::chat::NodeId node_id, const ::chat::contacts::NodeUpdate& update)
+    {
+        if (contact_service_)
+        {
+            contact_service_->applyNodeUpdate(node_id, update);
+        }
+        else if (node_store_)
+        {
+            node_store_->applyUpdate(node_id, update);
+        }
+    };
 
     // ------------------------------------------------------------
     // NODEINFO / USER: 保守版，只更新观测字段，先不要把身份字段写进 store
@@ -1301,7 +1312,7 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
     if (decoded_ok &&
         decoded.portnum == meshtastic_PortNum_NODEINFO_APP &&
         decoded.payload.size > 0 &&
-        node_store_)
+        (node_store_ || contact_service_))
     {
         meshtastic_NodeInfo node = meshtastic_NodeInfo_init_default;
         pb_istream_t nstream = pb_istream_from_buffer(decoded.payload.bytes, decoded.payload.size);
@@ -1344,10 +1355,49 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                 update.has_via_mqtt = true;
                 update.via_mqtt = node.via_mqtt ||
                                   ((header.flags & ::chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0);
+                update.has_is_ignored = true;
+                update.is_ignored = node.is_ignored;
+
+                if (node.has_user)
+                {
+                    if (node.user.short_name[0] != '\0')
+                    {
+                        update.short_name = node.user.short_name;
+                    }
+                    if (node.user.long_name[0] != '\0')
+                    {
+                        update.long_name = node.user.long_name;
+                    }
+                    update.has_role = true;
+                    update.role = static_cast<uint8_t>(node.user.role);
+                    if (node.user.hw_model != meshtastic_HardwareModel_UNSET)
+                    {
+                        update.has_hw_model = true;
+                        update.hw_model = static_cast<uint8_t>(node.user.hw_model);
+                    }
+
+                    bool has_macaddr = false;
+                    for (std::size_t idx = 0; idx < sizeof(update.macaddr); ++idx)
+                    {
+                        if (node.user.macaddr[idx] != 0)
+                        {
+                            has_macaddr = true;
+                            break;
+                        }
+                    }
+                    if (has_macaddr)
+                    {
+                        update.has_macaddr = true;
+                        std::memcpy(update.macaddr, node.user.macaddr, sizeof(update.macaddr));
+                    }
+
+                    update.has_public_key = true;
+                    update.public_key_present = (node.user.public_key.size > 0);
+                }
 
                 if (!duplicate || history.was_fallback)
                 {
-                    node_store_->applyUpdate(effective_node_id, update);
+                    apply_observed_node_update(effective_node_id, update);
                 }
                 nodeinfo_last_seen_ms_[effective_node_id] = millis();
 
@@ -1383,6 +1433,14 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                 else
                 {
                     ::chat::contacts::NodeUpdate update{};
+                    if (user.short_name[0] != '\0')
+                    {
+                        update.short_name = user.short_name;
+                    }
+                    if (user.long_name[0] != '\0')
+                    {
+                        update.long_name = user.long_name;
+                    }
                     update.has_last_seen = true;
                     update.last_seen = nowSeconds();
                     update.has_snr = !std::isnan(last_rx_snr_);
@@ -1397,10 +1455,35 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                     update.channel = static_cast<uint8_t>(channel);
                     update.has_via_mqtt = true;
                     update.via_mqtt = ((header.flags & ::chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0);
+                    update.has_role = true;
+                    update.role = static_cast<uint8_t>(user.role);
+                    if (user.hw_model != meshtastic_HardwareModel_UNSET)
+                    {
+                        update.has_hw_model = true;
+                        update.hw_model = static_cast<uint8_t>(user.hw_model);
+                    }
+
+                    bool has_macaddr = false;
+                    for (std::size_t idx = 0; idx < sizeof(update.macaddr); ++idx)
+                    {
+                        if (user.macaddr[idx] != 0)
+                        {
+                            has_macaddr = true;
+                            break;
+                        }
+                    }
+                    if (has_macaddr)
+                    {
+                        update.has_macaddr = true;
+                        std::memcpy(update.macaddr, user.macaddr, sizeof(update.macaddr));
+                    }
+
+                    update.has_public_key = true;
+                    update.public_key_present = (user.public_key.size > 0);
 
                     if (!duplicate || history.was_fallback)
                     {
-                        node_store_->applyUpdate(effective_node_id, update);
+                        apply_observed_node_update(effective_node_id, update);
                     }
                     nodeinfo_last_seen_ms_[effective_node_id] = millis();
 

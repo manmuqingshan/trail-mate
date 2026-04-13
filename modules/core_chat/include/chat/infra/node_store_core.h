@@ -18,7 +18,7 @@ class NodeStoreCore : public INodeStore
     static constexpr size_t kMaxNodes = 80;
     static constexpr size_t kLegacySerializedEntrySize = 64;
     static constexpr size_t kSerializedEntrySize = 104;
-    static constexpr size_t kSerializedEntrySizeV8 = 148;
+    static constexpr size_t kSerializedEntrySizeV8 = 144;
     static constexpr uint8_t kPersistVersion = 8;
     static constexpr uint32_t kSaveIntervalMs = 5000;
 

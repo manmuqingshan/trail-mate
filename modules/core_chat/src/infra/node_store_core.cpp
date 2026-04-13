@@ -109,7 +109,8 @@ struct PersistedNodeEntryV8
     uint32_t metrics_uptime_seconds;
 } __attribute__((packed));
 
-static_assert(sizeof(PersistedNodeEntryV8) == 144, "PersistedNodeEntryV8 size changed");
+static_assert(sizeof(PersistedNodeEntryV8) == NodeStoreCore::kSerializedEntrySizeV8,
+              "PersistedNodeEntryV8 size changed");
 
 void copyCommonFields(NodeEntry& dst,
                       uint32_t node_id,
