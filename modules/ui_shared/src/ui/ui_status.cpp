@@ -113,7 +113,10 @@ StatusSnapshot collect_status()
     snap.route_active = cfg.route_enabled && (cfg.route_path[0] != '\0');
     snap.track_recording = platform::ui::tracker::is_recording();
     snap.gps_enabled = platform::ui::gps::is_enabled();
-    snap.ble_enabled = app::runtimeFacade().isBleEnabled();
+    if (auto* ble = app::runtimeFacade().getBleManager())
+    {
+        snap.ble_enabled = ble->isEnabled();
+    }
 
     refresh_team_cache();
     snap.team_active = s_team_cache.team_active;

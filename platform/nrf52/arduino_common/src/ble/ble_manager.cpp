@@ -56,14 +56,24 @@ void BleManager::begin()
     bleManagerLog("[BLE][nrf52] begin enabled=%u proto=%u",
                   ctx_.bleEnabled() ? 1U : 0U,
                   static_cast<unsigned>(ctx_.bleConfig().mesh_protocol));
-    setEnabled(true);
+    setEnabled(ctx_.bleEnabled());
 }
 
 void BleManager::setEnabled(bool enabled)
 {
     if (enabled)
     {
-        if (!service_)
+        if (service_)
+        {
+            service_->setDeviceName(buildDeviceName(active_protocol_));
+            if (!service_->isRunning())
+            {
+                bleManagerLog("[BLE][nrf52] setEnabled resume proto=%u",
+                              static_cast<unsigned>(active_protocol_));
+                service_->start();
+            }
+        }
+        else
         {
             bleManagerLog("[BLE][nrf52] setEnabled on proto=%u",
                           static_cast<unsigned>(ctx_.bleConfig().mesh_protocol));
@@ -72,18 +82,17 @@ void BleManager::setEnabled(bool enabled)
     }
     else
     {
-        if (service_)
+        if (service_ && service_->isRunning())
         {
             bleManagerLog("[BLE][nrf52] setEnabled off");
             service_->stop();
-            service_.reset();
         }
     }
 }
 
 bool BleManager::isEnabled() const
 {
-    return ctx_.bleEnabled();
+    return service_ && service_->isRunning();
 }
 
 void BleManager::update()

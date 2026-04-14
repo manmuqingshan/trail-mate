@@ -1108,6 +1108,58 @@ bool loadBlePairingStatus(app::IAppFacade* app, ble::BlePairingStatus* out)
     return manager ? manager->getPairingStatus(out) : false;
 }
 
+enum class BleDisplayState
+{
+    Off,
+    On,
+    Link,
+};
+
+BleDisplayState resolveBleDisplayState(app::IAppFacade* app)
+{
+    if (!app)
+    {
+        return BleDisplayState::Off;
+    }
+
+    ble::BleManager* manager = app->getBleManager();
+    if (!manager || !manager->isEnabled())
+    {
+        return BleDisplayState::Off;
+    }
+
+    ble::BlePairingStatus status{};
+    if (manager->getPairingStatus(&status) && status.is_connected)
+    {
+        return BleDisplayState::Link;
+    }
+
+    return BleDisplayState::On;
+}
+
+const char* bleDisplayStateLabel(BleDisplayState state)
+{
+    switch (state)
+    {
+    case BleDisplayState::Link:
+        return "LINK";
+    case BleDisplayState::On:
+        return "ON";
+    case BleDisplayState::Off:
+    default:
+        return "OFF";
+    }
+}
+
+void formatBleStateLabel(char* out, size_t out_len, app::IAppFacade* app)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "BLE %s", bleDisplayStateLabel(resolveBleDisplayState(app)));
+}
+
 const char* blePairingModeLabel(const ble::BlePairingStatus& status)
 {
     if (!status.requires_passkey)
@@ -1882,6 +1934,7 @@ void Runtime::render()
 
     ble::BlePairingStatus ble_status{};
     if (loadBlePairingStatus(app(), &ble_status) &&
+        ble_status.available &&
         ble_status.requires_passkey &&
         ble_status.is_pairing_active)
     {
@@ -1937,6 +1990,7 @@ void Runtime::renderScreensaver()
 {
     char protocol[8] = {};
     char freq[20] = {};
+    char ram_buf[24] = {};
     char time_buf[16] = {};
     char time_main_buf[8] = {};
     char time_sec_buf[4] = {};
@@ -1950,7 +2004,7 @@ void Runtime::renderScreensaver()
     char top_left_buf[32] = {};
     char top_right_buf[32] = {};
     char left_toggle_buf[12] = {};
-    char right_toggle_buf[12] = {};
+    char left_ble_buf[12] = {};
     formatProtocol(protocol, sizeof(protocol));
     formatNodeLabel(node_buf, sizeof(node_buf));
     formatTime(time_buf, sizeof(time_buf), date_buf, sizeof(date_buf));
@@ -1965,11 +2019,11 @@ void Runtime::renderScreensaver()
 
     refreshGnssSnapshot();
     const auto battery = host_.battery_info_fn ? host_.battery_info_fn() : platform::ui::device::BatteryInfo{};
+    const auto ram = host_.ram_usage_fn ? host_.ram_usage_fn() : HostCallbacks::ResourceUsage{};
     const auto& gps = gnss_snapshot_state_;
     const auto& gnss_status = gnss_snapshot_status_;
     const int unread = app() ? app()->getChatService().getTotalUnread() : 0;
     const bool gps_enabled = host_.gps_enabled_fn && host_.gps_enabled_fn();
-    const bool ble_enabled = app() && app()->isBleEnabled();
     std::snprintf(unread_buf, sizeof(unread_buf), unread > 99 ? "99+" : "%d", unread);
     if (battery.available && battery.level >= 0)
     {
@@ -2008,14 +2062,26 @@ void Runtime::renderScreensaver()
     std::snprintf(top_left_buf, sizeof(top_left_buf), "%s %s", protocol[0] ? protocol : "--", bat_pct_buf);
     std::snprintf(top_right_buf, sizeof(top_right_buf), "%s", freq[0] ? freq : "--");
     formatToggleLabel(left_toggle_buf, sizeof(left_toggle_buf), "GPS", gps_enabled);
-    formatToggleLabel(right_toggle_buf, sizeof(right_toggle_buf), "BLE", ble_enabled);
+    formatBleStateLabel(left_ble_buf, sizeof(left_ble_buf), app());
+    if (ram.available && ram.total_bytes > 0)
+    {
+        std::snprintf(ram_buf, sizeof(ram_buf), "RAM %lu/%luK",
+                      static_cast<unsigned long>(ram.used_bytes / 1024U),
+                      static_cast<unsigned long>(ram.total_bytes / 1024U));
+    }
+    else
+    {
+        std::snprintf(ram_buf, sizeof(ram_buf), "RAM --");
+    }
 
     constexpr int kTopY = 1;
     constexpr int kTopDetailY = 9;
-    constexpr int kTimeY = 22;
-    constexpr int kSideToggleY = 26;
-    constexpr int kSecY = 28;
-    constexpr int kDateY = 42;
+    constexpr int kRamY = 17;
+    constexpr int kTimeY = 24;
+    constexpr int kSidePrimaryY = 27;
+    constexpr int kSideSecondaryY = 35;
+    constexpr int kSecY = 30;
+    constexpr int kDateY = 44;
     constexpr int kFooterY = 55;
 
     drawTextClipped(2, kTopY, 60, top_left_buf);
@@ -2026,6 +2092,8 @@ void Runtime::renderScreensaver()
     std::snprintf(top_detail_right, sizeof(top_detail_right), "MSG %s", unread_buf);
     const int top_detail_right_w = text_renderer_.measureTextWidth(top_detail_right);
     text_renderer_.drawText(display_, std::max(70, display_.width() - top_detail_right_w - 2), kTopDetailY, top_detail_right);
+    const int ram_w = text_renderer_.measureTextWidth(ram_buf);
+    text_renderer_.drawText(display_, std::max(64, display_.width() - ram_w - 2), kRamY, ram_buf);
 
     const int time_w = measureClockText(time_main_buf);
     const int time_x = std::max(0, (display_.width() - time_w) / 2);
@@ -2035,9 +2103,8 @@ void Runtime::renderScreensaver()
         const int sec_x = std::min(display_.width() - 12, time_x + time_w + 4);
         text_renderer_.drawText(display_, sec_x, kSecY, time_sec_buf);
     }
-    drawTextClipped(0, kSideToggleY, 28, left_toggle_buf);
-    const int right_toggle_w = text_renderer_.measureTextWidth(right_toggle_buf);
-    text_renderer_.drawText(display_, std::max(96, display_.width() - right_toggle_w), kSideToggleY, right_toggle_buf);
+    drawTextClipped(0, kSidePrimaryY, 42, left_toggle_buf);
+    drawTextClipped(0, kSideSecondaryY, 42, left_ble_buf);
     const int status_w = text_renderer_.measureTextWidth(status_buf);
     text_renderer_.drawText(display_, std::max(0, (display_.width() - status_w) / 2), kDateY, status_buf);
 
@@ -2788,20 +2855,20 @@ void Runtime::renderDeviceSettings()
     {
         if (i == 0)
         {
-            if (has_ble_status && ble_status.requires_passkey && ble_status.passkey != 0)
+            if (has_ble_status && ble_status.available && ble_status.requires_passkey && ble_status.passkey != 0)
             {
                 std::snprintf(line, sizeof(line), "BLE: ON %s %06lu",
                               ble_status.is_fixed_pin ? "FIX" : "PIN",
                               static_cast<unsigned long>(ble_status.passkey));
             }
-            else if (has_ble_status && ble_status.requires_passkey)
+            else if (has_ble_status && ble_status.available && ble_status.requires_passkey)
             {
                 std::snprintf(line, sizeof(line), "BLE: ON %s",
                               ble_status.is_fixed_pin ? "FIXED" : "RANDOM");
             }
             else
             {
-                std::snprintf(line, sizeof(line), "BLE: %s", app()->isBleEnabled() ? "ON" : "OFF");
+                std::snprintf(line, sizeof(line), "BLE: %s", bleDisplayStateLabel(resolveBleDisplayState(app())));
             }
         }
         else if (i == 1)
@@ -2961,8 +3028,8 @@ void Runtime::renderInfoPage()
     char value[40] = {};
     std::snprintf(value, sizeof(value), "%s", protocolLabel(cfg.mesh_protocol));
     push_kv("PROTO", value);
-    push_kv("BLE", app()->isBleEnabled() ? "ON" : "OFF");
-    if (has_ble_status && ble_status.requires_passkey)
+    push_kv("BLE", bleDisplayStateLabel(resolveBleDisplayState(app())));
+    if (has_ble_status && ble_status.available && ble_status.requires_passkey)
     {
         push_kv("BLE MODE", blePairingModeLabel(ble_status));
         if (ble_status.passkey != 0)
@@ -3006,8 +3073,8 @@ void Runtime::renderInfoPage()
     }
 
     push_line("[SYSTEM]");
-    push_kv("BLE", app()->isBleEnabled() ? "ON" : "OFF");
-    if (has_ble_status && ble_status.requires_passkey)
+    push_kv("BLE", bleDisplayStateLabel(resolveBleDisplayState(app())));
+    if (has_ble_status && ble_status.available && ble_status.requires_passkey)
     {
         push_kv("BLE MODE", blePairingModeLabel(ble_status));
         if (ble_status.passkey != 0)

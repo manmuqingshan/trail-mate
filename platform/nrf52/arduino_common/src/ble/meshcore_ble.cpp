@@ -15,6 +15,16 @@ namespace
 constexpr size_t kMaxFrameSize = 172;
 MeshCoreBleService* s_active_service = nullptr;
 
+void disconnectAll()
+{
+    uint16_t handles[BLE_MAX_CONNECTION] = {};
+    const uint8_t count = Bluefruit.getConnectedHandles(handles, BLE_MAX_CONNECTION);
+    for (uint8_t i = 0; i < count; ++i)
+    {
+        Bluefruit.disconnect(handles[i]);
+    }
+}
+
 void copyBounded(char* dst, size_t dst_len, const char* src)
 {
     if (!dst || dst_len == 0)
@@ -150,30 +160,43 @@ void MeshCoreBleService::start()
     s_active_service = this;
     prepareBluefruit(device_name_);
 
-    service_.begin();
+    if (!gatt_initialized_)
+    {
+        service_.begin();
 
-    rx_char_.setProperties(CHR_PROPS_WRITE);
-    rx_char_.setPermission(SECMODE_OPEN, SECMODE_OPEN);
-    rx_char_.setFixedLen(0);
-    rx_char_.setMaxLen(kMaxFrameSize);
-    rx_char_.setWriteCallback(onRxWrite, false);
-    rx_char_.begin();
+        rx_char_.setProperties(CHR_PROPS_WRITE);
+        rx_char_.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+        rx_char_.setFixedLen(0);
+        rx_char_.setMaxLen(kMaxFrameSize);
+        rx_char_.setWriteCallback(onRxWrite, false);
+        rx_char_.begin();
 
-    tx_char_.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
-    tx_char_.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    tx_char_.setFixedLen(0);
-    tx_char_.setMaxLen(kMaxFrameSize);
-    tx_char_.setReadAuthorizeCallback(onTxAuthorize, false);
-    tx_char_.begin();
+        tx_char_.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
+        tx_char_.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+        tx_char_.setFixedLen(0);
+        tx_char_.setMaxLen(kMaxFrameSize);
+        tx_char_.setReadAuthorizeCallback(onTxAuthorize, false);
+        tx_char_.begin();
+        gatt_initialized_ = true;
+    }
 
-    ctx_.getChatService().addIncomingTextObserver(this);
+    if (!observer_registered_)
+    {
+        ctx_.getChatService().addIncomingTextObserver(this);
+        observer_registered_ = true;
+    }
     startAdvertising(service_);
     active_ = true;
 }
 
 void MeshCoreBleService::stop()
 {
-    ctx_.getChatService().removeIncomingTextObserver(this);
+    if (observer_registered_)
+    {
+        ctx_.getChatService().removeIncomingTextObserver(this);
+        observer_registered_ = false;
+    }
+    disconnectAll();
     Bluefruit.Advertising.stop();
     if (core_)
     {
@@ -239,6 +262,29 @@ void MeshCoreBleService::sendPendingNotifications()
             break;
         }
     }
+}
+
+bool MeshCoreBleService::isRunning() const
+{
+    return active_ && (Bluefruit.connected() || Bluefruit.Advertising.isRunning());
+}
+
+void MeshCoreBleService::setDeviceName(const std::string& name)
+{
+    device_name_ = name;
+}
+
+bool MeshCoreBleService::getPairingStatus(BlePairingStatus* out) const
+{
+    if (!out)
+    {
+        return false;
+    }
+
+    *out = BlePairingStatus{};
+    out->available = active_;
+    out->is_connected = Bluefruit.connected();
+    return true;
 }
 
 bool MeshCoreBleService::getCustomVars(std::string* out) const

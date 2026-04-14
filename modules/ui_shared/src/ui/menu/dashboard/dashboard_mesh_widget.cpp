@@ -166,10 +166,21 @@ void refresh_mesh_widget()
     lv_obj_set_style_text_color(mesh.stat_values[2], battery.charging ? color_info() : color_text(), 0);
 
     char footer[64];
+    bool ble_active = false;
+    bool ble_linked = false;
+    if (auto* ble = app::runtimeFacade().getBleManager())
+    {
+        ble_active = ble->isEnabled();
+        ble::BlePairingStatus ble_status{};
+        if (ble->getPairingStatus(&ble_status))
+        {
+            ble_linked = ble_status.is_connected;
+        }
+    }
     std::snprintf(footer,
                   sizeof(footer),
                   "%s  |  %s",
-                  app::runtimeFacade().isBleEnabled() ? "BLE bridge ready" : "LoRa direct path",
+                  ble_linked ? "BLE linked" : (ble_active ? "BLE bridge ready" : "LoRa direct path"),
                   unread > 0 ? "new activity" : "quiet net");
     set_label_text_if_changed(mesh.footer_label, footer);
 

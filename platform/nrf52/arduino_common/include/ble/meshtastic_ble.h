@@ -46,6 +46,8 @@ class MeshtasticBleService final : public BleService,
     void start() override;
     void stop() override;
     void update() override;
+    bool isRunning() const override;
+    void setDeviceName(const std::string& name) override;
 
     void onIncomingText(const chat::MeshIncomingText& msg) override;
     void onOutgoingText(const chat::MeshIncomingText& msg) override;
@@ -109,6 +111,8 @@ class MeshtasticBleService final : public BleService,
     ::BLECharacteristic from_num_;
     ::BLECharacteristic log_radio_;
     bool active_ = false;
+    bool gatt_initialized_ = false;
+    bool observers_registered_ = false;
     bool connected_ = false;
     bool from_num_notify_enabled_ = false;
     uint16_t conn_handle_ = BLE_CONN_HANDLE_INVALID;

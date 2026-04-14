@@ -549,44 +549,52 @@ void MeshtasticBleService::start()
     prepareBluefruit(device_name_);
     applyBleSecurity();
 
-    service_.begin();
-    bleLogBoth("[BLE][nrf52][mt] service begin");
-
-    to_radio_.setProperties(CHR_PROPS_WRITE);
-    to_radio_.setPermission(SECMODE_OPEN, SECMODE_OPEN);
-    to_radio_.setFixedLen(0);
-    to_radio_.setMaxLen(meshtastic_ToRadio_size);
-    to_radio_.setWriteCallback(onToRadioWrite, false);
-    to_radio_.begin();
-
-    from_radio_.setProperties(CHR_PROPS_READ);
-    from_radio_.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    from_radio_.setFixedLen(0);
-    from_radio_.setMaxLen(meshtastic_FromRadio_size);
-    from_radio_.setReadAuthorizeCallback(onFromRadioAuthorize, false);
-    from_radio_.begin();
+    if (!gatt_initialized_)
     {
-        uint8_t empty = 0;
-        from_radio_.write(&empty, 0);
+        service_.begin();
+        bleLogBoth("[BLE][nrf52][mt] service begin");
+
+        to_radio_.setProperties(CHR_PROPS_WRITE);
+        to_radio_.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+        to_radio_.setFixedLen(0);
+        to_radio_.setMaxLen(meshtastic_ToRadio_size);
+        to_radio_.setWriteCallback(onToRadioWrite, false);
+        to_radio_.begin();
+
+        from_radio_.setProperties(CHR_PROPS_READ);
+        from_radio_.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+        from_radio_.setFixedLen(0);
+        from_radio_.setMaxLen(meshtastic_FromRadio_size);
+        from_radio_.setReadAuthorizeCallback(onFromRadioAuthorize, false);
+        from_radio_.begin();
+        {
+            uint8_t empty = 0;
+            from_radio_.write(&empty, 0);
+        }
+
+        from_num_.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
+        from_num_.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+        from_num_.setFixedLen(4);
+        from_num_.write32(0);
+        from_num_.setCccdWriteCallback(onFromNumCccdWrite, false);
+        from_num_.begin();
+
+        log_radio_.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
+        log_radio_.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+        log_radio_.setFixedLen(0);
+        log_radio_.setMaxLen(96);
+        log_radio_.begin();
+        bleLogBoth("[BLE][nrf52][mt] chars ready");
+        gatt_initialized_ = true;
     }
 
-    from_num_.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
-    from_num_.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    from_num_.setFixedLen(4);
-    from_num_.write32(0);
-    from_num_.setCccdWriteCallback(onFromNumCccdWrite, false);
-    from_num_.begin();
-
-    log_radio_.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
-    log_radio_.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    log_radio_.setFixedLen(0);
-    log_radio_.setMaxLen(96);
-    log_radio_.begin();
-    bleLogBoth("[BLE][nrf52][mt] chars ready");
-
-    ctx_.getChatService().addIncomingTextObserver(this);
-    ctx_.getChatService().addOutgoingTextObserver(this);
-    ctx_.getChatService().addIncomingDataObserver(this);
+    if (!observers_registered_)
+    {
+        ctx_.getChatService().addIncomingTextObserver(this);
+        ctx_.getChatService().addOutgoingTextObserver(this);
+        ctx_.getChatService().addIncomingDataObserver(this);
+        observers_registered_ = true;
+    }
 
     startAdvertising(service_);
     active_ = true;
@@ -597,9 +605,13 @@ void MeshtasticBleService::start()
 
 void MeshtasticBleService::stop()
 {
-    ctx_.getChatService().removeIncomingTextObserver(this);
-    ctx_.getChatService().removeOutgoingTextObserver(this);
-    ctx_.getChatService().removeIncomingDataObserver(this);
+    if (observers_registered_)
+    {
+        ctx_.getChatService().removeIncomingTextObserver(this);
+        ctx_.getChatService().removeOutgoingTextObserver(this);
+        ctx_.getChatService().removeIncomingDataObserver(this);
+        observers_registered_ = false;
+    }
 
     disconnectAll();
     Bluefruit.Advertising.stop();
@@ -706,6 +718,16 @@ void MeshtasticBleService::onIncomingData(const chat::MeshIncomingData& msg)
             notifyFromNum(0);
         }
     }
+}
+
+bool MeshtasticBleService::isRunning() const
+{
+    return active_ && (Bluefruit.connected() || Bluefruit.Advertising.isRunning());
+}
+
+void MeshtasticBleService::setDeviceName(const std::string& name)
+{
+    device_name_ = name;
 }
 
 bool MeshtasticBleService::handleToRadio(const uint8_t* data, size_t len)
@@ -1096,7 +1118,7 @@ bool MeshtasticBleService::getPairingStatus(BlePairingStatus* out) const
     }
 
     *out = BlePairingStatus{};
-    out->available = ctx_.isBleEnabled();
+    out->available = active_;
     out->requires_passkey = ble_config_.mode != meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN;
     out->is_fixed_pin = ble_config_.mode == meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN;
     out->is_connected = isBleConnected();
