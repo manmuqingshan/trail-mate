@@ -58,9 +58,9 @@ designed for fast navigation on a physical keyboard without deep menu nesting.
 Expected SD card tile layout:
 
 ```text
-/maps/osm/{z}/{x}/{y}.png
-/maps/terrain/{z}/{x}/{y}.png
-/maps/satellite/{z}/{x}/{y}.jpg
+/maps/base/osm/{z}/{x}/{y}.png
+/maps/base/terrain/{z}/{x}/{y}.png
+/maps/base/satellite/{z}/{x}/{y}.jpg
 /maps/contour/major-500/{z}/{x}/{y}.png
 /maps/contour/major-200/{z}/{x}/{y}.png
 /maps/contour/major-100/{z}/{x}/{y}.png
