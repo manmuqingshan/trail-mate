@@ -16,11 +16,15 @@
 #include "ui/page/page_profile.h"
 #include "ui/runtime/pack_repository.h"
 #include "ui/ui_theme.h"
+#include "ui/widgets/busy_overlay.h"
 #include "ui/widgets/system_notification.h"
 #include "ui/widgets/top_bar.h"
 
 #if !defined(LV_FONT_MONTSERRAT_16) || !LV_FONT_MONTSERRAT_16
 #define lv_font_montserrat_16 lv_font_montserrat_14
+#endif
+#if !defined(LV_FONT_MONTSERRAT_14) || !LV_FONT_MONTSERRAT_14
+#define lv_font_montserrat_14 lv_font_montserrat_16
 #endif
 
 namespace
@@ -52,7 +56,6 @@ struct RuntimeState
     lv_obj_t* header_card = nullptr;
     lv_obj_t* title_label = nullptr;
     lv_obj_t* status_label = nullptr;
-    lv_obj_t* refresh_btn = nullptr;
     lv_obj_t* body_panel = nullptr;
     lv_obj_t* detail_back_btn = nullptr;
     lv_obj_t* primary_action_btn = nullptr;
@@ -66,6 +69,23 @@ struct RuntimeState
 };
 
 RuntimeState s_runtime{};
+
+class ScopedBusyOverlay
+{
+  public:
+    ScopedBusyOverlay(const char* title, const char* detail = nullptr)
+    {
+        ::ui::widgets::busy_overlay::show(title, detail);
+    }
+
+    ~ScopedBusyOverlay()
+    {
+        ::ui::widgets::busy_overlay::hide();
+    }
+
+    ScopedBusyOverlay(const ScopedBusyOverlay&) = delete;
+    ScopedBusyOverlay& operator=(const ScopedBusyOverlay&) = delete;
+};
 
 void request_exit()
 {
@@ -266,7 +286,15 @@ void set_header_title(const char* text)
     {
         return;
     }
-    ::ui::i18n::set_label_text(s_runtime.title_label, text ? text : "");
+    if (text == nullptr || text[0] == '\0')
+    {
+        lv_obj_add_flag(s_runtime.title_label, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(s_runtime.title_label, "");
+        return;
+    }
+
+    lv_obj_clear_flag(s_runtime.title_label, LV_OBJ_FLAG_HIDDEN);
+    ::ui::i18n::set_label_text(s_runtime.title_label, text);
 }
 
 void set_status_text(const char* text)
@@ -396,10 +424,6 @@ void sync_focus_group(lv_obj_t* preferred_focus = nullptr)
     {
         lv_group_add_obj(app_g, s_runtime.filter_btn);
     }
-    if (s_runtime.refresh_btn != nullptr)
-    {
-        lv_group_add_obj(app_g, s_runtime.refresh_btn);
-    }
     if (s_runtime.detail_back_btn != nullptr)
     {
         lv_group_add_obj(app_g, s_runtime.detail_back_btn);
@@ -490,12 +514,6 @@ void on_filter_clicked(lv_event_t* event)
     show_list_view();
 }
 
-void on_refresh_clicked(lv_event_t* event)
-{
-    (void)event;
-    refresh_catalog_and_render();
-}
-
 void on_package_clicked(lv_event_t* event)
 {
     const uintptr_t raw_index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
@@ -536,7 +554,9 @@ void on_primary_action_clicked(lv_event_t* event)
     }
 
     const packs::PackageRecord& package = s_runtime.packages[package_index];
+    const std::string package_id = package.id;
     std::string error;
+    ScopedBusyOverlay overlay("Installing package...", package_id.c_str());
     set_status_text("Installing package...");
     if (!packs::install_package(package, error))
     {
@@ -546,7 +566,7 @@ void on_primary_action_clicked(lv_event_t* event)
     }
 
     ::ui::SystemNotification::show("Package installed", 2000);
-    s_runtime.selected_package_id = package.id;
+    s_runtime.selected_package_id = package_id;
     s_runtime.view = MainView::Detail;
     refresh_catalog_and_render();
 }
@@ -608,7 +628,7 @@ lv_obj_t* create_action_button(lv_obj_t* parent,
 void show_message_body(const char* text)
 {
     clear_body();
-    set_header_title("Language Packs");
+    set_header_title(nullptr);
 
     lv_obj_t* card = lv_obj_create(s_runtime.body_panel);
     style_detail_card(card);
@@ -686,7 +706,7 @@ void create_package_list_item(const packs::PackageRecord& package, std::size_t p
 void render_list_view()
 {
     clear_body();
-    set_header_title("Language Packs");
+    set_header_title(nullptr);
 
     if (s_runtime.filtered_indices.empty())
     {
@@ -831,7 +851,7 @@ void refresh_catalog_and_render()
     {
         set_status_text(error);
         show_message_body(error.c_str());
-        sync_focus_group(s_runtime.refresh_btn ? s_runtime.refresh_btn : s_runtime.filter_btn);
+        sync_focus_group(s_runtime.filter_btn);
         return;
     }
 
@@ -887,39 +907,15 @@ void create_main_panel(lv_obj_t* parent)
 
     s_runtime.header_card = lv_obj_create(s_runtime.main_panel);
     style_detail_card(s_runtime.header_card);
-    lv_obj_set_style_pad_row(s_runtime.header_card, 4, 0);
+    lv_obj_set_style_pad_all(s_runtime.header_card, 6, 0);
+    lv_obj_set_style_pad_row(s_runtime.header_card, 2, 0);
 
-    lv_obj_t* header_row = lv_obj_create(s_runtime.header_card);
-    lv_obj_set_size(header_row, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(header_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(header_row, 0, 0);
-    lv_obj_set_style_pad_all(header_row, 0, 0);
-    lv_obj_set_style_pad_column(header_row, 8, 0);
-    lv_obj_set_flex_flow(header_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(header_row,
-                          LV_FLEX_ALIGN_SPACE_BETWEEN,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    two_pane_layout::make_non_scrollable(header_row);
-
-    s_runtime.title_label = lv_label_create(header_row);
-    lv_obj_set_width(s_runtime.title_label, 0);
-    lv_obj_set_flex_grow(s_runtime.title_label, 1);
+    s_runtime.title_label = lv_label_create(s_runtime.header_card);
+    lv_obj_set_width(s_runtime.title_label, LV_PCT(100));
     lv_label_set_long_mode(s_runtime.title_label, LV_LABEL_LONG_WRAP);
-    two_pane_styles::apply_label_primary(s_runtime.title_label);
-    lv_obj_set_style_text_font(s_runtime.title_label, &lv_font_montserrat_16, 0);
-    ::ui::i18n::set_label_text(s_runtime.title_label, "Language Packs");
-
-    s_runtime.refresh_btn = lv_btn_create(header_row);
-    lv_obj_set_width(s_runtime.refresh_btn, ::ui::page_profile::resolve_control_button_min_width());
-    lv_obj_set_height(s_runtime.refresh_btn, ::ui::page_profile::resolve_control_button_height());
-    two_pane_layout::make_non_scrollable(s_runtime.refresh_btn);
-    two_pane_styles::apply_btn_basic(s_runtime.refresh_btn);
-    lv_obj_add_event_cb(s_runtime.refresh_btn, on_refresh_clicked, LV_EVENT_CLICKED, nullptr);
-    lv_obj_add_event_cb(s_runtime.refresh_btn, on_focus_scroll, LV_EVENT_FOCUSED, nullptr);
-    lv_obj_t* refresh_label = lv_label_create(s_runtime.refresh_btn);
-    ::ui::i18n::set_label_text(refresh_label, "Refresh");
-    lv_obj_center(refresh_label);
+    two_pane_styles::apply_label_muted(s_runtime.title_label);
+    lv_obj_set_style_text_font(s_runtime.title_label, &lv_font_montserrat_14, 0);
+    lv_obj_add_flag(s_runtime.title_label, LV_OBJ_FLAG_HIDDEN);
 
     s_runtime.status_label = lv_label_create(s_runtime.header_card);
     lv_obj_set_width(s_runtime.status_label, LV_PCT(100));

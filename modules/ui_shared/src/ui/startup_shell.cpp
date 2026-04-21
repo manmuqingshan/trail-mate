@@ -20,6 +20,35 @@ namespace ui::startup_shell
 namespace
 {
 
+bool resolve_display_time(struct tm* out_tm)
+{
+    if (!out_tm)
+    {
+        return false;
+    }
+
+    if (::platform::ui::time::localtime_now(out_tm))
+    {
+        return true;
+    }
+
+    const std::time_t now = std::time(nullptr);
+    if (now <= 0)
+    {
+        return false;
+    }
+
+    const std::time_t local = ::platform::ui::time::apply_timezone_offset(now);
+    const std::tm* tmp = std::gmtime(&local);
+    if (!tmp)
+    {
+        return false;
+    }
+
+    *out_tm = *tmp;
+    return true;
+}
+
 void present_boot_overlay_now()
 {
     lv_timer_handler();
@@ -38,7 +67,7 @@ bool format_menu_time(char* out, size_t out_len)
     struct tm info
     {
     };
-    if (!::platform::ui::time::localtime_now(&info))
+    if (!resolve_display_time(&info))
     {
         return false;
     }

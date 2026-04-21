@@ -59,6 +59,35 @@ bool formatMenuTime(char* out, size_t out_len)
     return s_runtime.hooks.format_time ? s_runtime.hooks.format_time(out, out_len) : false;
 }
 
+bool resolveDisplayLocalTime(struct tm* out_tm)
+{
+    if (!out_tm)
+    {
+        return false;
+    }
+
+    if (::platform::ui::time::localtime_now(out_tm))
+    {
+        return true;
+    }
+
+    const std::time_t now = std::time(nullptr);
+    if (now <= 0)
+    {
+        return false;
+    }
+
+    const std::time_t local = ::platform::ui::time::apply_timezone_offset(now);
+    const std::tm* tmp = std::gmtime(&local);
+    if (!tmp)
+    {
+        return false;
+    }
+
+    *out_tm = *tmp;
+    return true;
+}
+
 std::size_t used_bytes(std::size_t total_bytes, std::size_t free_bytes)
 {
     return total_bytes > free_bytes ? (total_bytes - free_bytes) : 0;
@@ -186,16 +215,10 @@ void updateWatchFaceTime()
     const uint32_t self_id = app::messagingFacade().getSelfNodeId();
     watchFaceSetNodeId(self_id);
     const int battery = s_runtime.watch_face_battery >= 0 ? s_runtime.watch_face_battery : -1;
-    if (!platform::ui::device::rtc_ready())
-    {
-        watchFaceSetTime(-1, -1, -1, -1, nullptr, battery);
-        return;
-    }
-
     struct tm info
     {
     };
-    if (!::platform::ui::time::localtime_now(&info))
+    if (!resolveDisplayLocalTime(&info))
     {
         watchFaceSetTime(-1, -1, -1, -1, nullptr, battery);
         return;
@@ -236,13 +259,6 @@ void refreshTimeLabel()
         return;
     }
 
-    if (!platform::ui::device::rtc_ready())
-    {
-        lv_label_set_text(s_runtime.time_label, "--:--");
-        updateWatchFaceTime();
-        return;
-    }
-
     char time_str[16];
     if (formatMenuTime(time_str, sizeof(time_str)))
     {
@@ -256,7 +272,7 @@ void refreshTimeLabel()
     }
     else
     {
-        lv_label_set_text(s_runtime.time_label, "??:??");
+        lv_label_set_text(s_runtime.time_label, "--:--");
     }
 
     updateWatchFaceTime();

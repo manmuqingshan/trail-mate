@@ -13,7 +13,7 @@ constexpr uint32_t kScreenTimeoutDefaultMs = 30000UL;
 constexpr uint32_t kScreenTimeoutMinMs = 15000UL;
 constexpr uint32_t kScreenTimeoutMaxMs = 300000UL;
 
-bool s_sleep_disabled = false;
+uint32_t s_sleep_disable_depth = 0;
 
 uint32_t normalize_timeout_ms(uint32_t timeout_ms)
 {
@@ -62,7 +62,7 @@ bool is_sleeping()
 
 bool is_sleep_disabled()
 {
-    return s_sleep_disabled;
+    return s_sleep_disable_depth > 0;
 }
 
 bool is_saver_active()
@@ -84,12 +84,18 @@ void update_user_activity()
 
 void disable_sleep()
 {
-    s_sleep_disabled = true;
+    if (s_sleep_disable_depth < UINT32_MAX)
+    {
+        ++s_sleep_disable_depth;
+    }
 }
 
 void enable_sleep()
 {
-    s_sleep_disabled = false;
+    if (s_sleep_disable_depth > 0)
+    {
+        --s_sleep_disable_depth;
+    }
 }
 
 } // namespace platform::ui::screen

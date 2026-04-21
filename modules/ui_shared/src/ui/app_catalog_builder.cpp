@@ -217,13 +217,13 @@ AppCatalog build(const FeatureFlags& flags)
             add(&s_sstv_app);
 #endif
         }
-        if (flags.include_settings)
-        {
-            add(&s_setting_app);
-        }
         if (flags.include_extensions)
         {
             add(&s_extensions_app);
+        }
+        if (flags.include_settings)
+        {
+            add(&s_setting_app);
         }
     };
 

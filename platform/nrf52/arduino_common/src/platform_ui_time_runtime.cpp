@@ -11,6 +11,7 @@ namespace
 
 constexpr const char* kSettingsNs = "settings";
 constexpr const char* kTimezoneKey = "timezone_offset";
+constexpr time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 
 int stored_timezone_offset_min()
 {
@@ -44,7 +45,12 @@ bool localtime_now(struct tm* out_tm)
     {
         return false;
     }
-    const time_t now = apply_timezone_offset(static_cast<time_t>(sys::epoch_seconds_now()));
+    const time_t utc_now = static_cast<time_t>(sys::epoch_seconds_now());
+    if (utc_now < kMinValidEpochSeconds)
+    {
+        return false;
+    }
+    const time_t now = apply_timezone_offset(utc_now);
     const tm* tmp = gmtime(&now);
     if (!tmp)
     {

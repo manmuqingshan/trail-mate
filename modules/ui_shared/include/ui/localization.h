@@ -21,6 +21,14 @@ struct LocaleInfo
     bool builtin = true;
 };
 
+struct ImeInfo
+{
+    const char* id = nullptr;
+    const char* display_name = nullptr;
+    const char* backend = nullptr;
+    bool builtin = true;
+};
+
 void reload_language();
 std::size_t locale_count();
 const LocaleInfo* locale_at(std::size_t index);
@@ -33,6 +41,12 @@ const lv_font_t* active_ui_font_fallback();
 const lv_font_t* active_content_font_fallback();
 const lv_font_t* locale_preview_font(const char* locale_id, const lv_font_t* ascii_font = nullptr);
 bool ensure_content_font_for_text(const char* text);
+std::size_t ime_count();
+const ImeInfo* ime_at(std::size_t index);
+std::size_t enabled_ime_count();
+bool ime_enabled(const char* ime_id);
+bool set_ime_enabled(const char* ime_id, bool enabled, bool persist = true);
+bool any_enabled_script_input();
 const char* active_ime_pack_id();
 bool active_locale_supports_script_input();
 const char* tr(const char* english);

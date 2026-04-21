@@ -4,6 +4,17 @@
 
 namespace platform::ui::time
 {
+namespace
+{
+
+constexpr ::time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
+
+bool is_valid_epoch(::time_t value)
+{
+    return value >= kMinValidEpochSeconds;
+}
+
+} // namespace
 
 int timezone_offset_min()
 {
@@ -26,7 +37,12 @@ bool localtime_now(struct tm* out_tm)
     {
         return false;
     }
-    const ::time_t local = apply_timezone_offset(::time(nullptr));
+    const ::time_t now = ::time(nullptr);
+    if (!is_valid_epoch(now))
+    {
+        return false;
+    }
+    const ::time_t local = apply_timezone_offset(now);
     const ::tm* tmp = ::gmtime(&local);
     if (!tmp)
     {

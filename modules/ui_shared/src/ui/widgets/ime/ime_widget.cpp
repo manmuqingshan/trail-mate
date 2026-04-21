@@ -23,10 +23,13 @@ namespace
 
 ImeWidget* s_active_ime = nullptr;
 static constexpr int kCandidatesPerPage = 12;
+static constexpr int kCompactCandidatesPerPage = 7;
+static constexpr lv_coord_t kCompactImeRowHeight = 22;
+static constexpr lv_coord_t kCompactImeControlHeight = 18;
 
 bool script_input_available()
 {
-    return ::ui::i18n::active_locale_supports_script_input();
+    return ::ui::i18n::any_enabled_script_input();
 }
 
 #if UI_SHARED_TOUCH_IME_ENABLED
@@ -42,10 +45,12 @@ static const char* kTouchNumMap[] = {
     ".", ",", "?", "!", "'", "\"", "%", "+", "\n",
     "Space", ""};
 #endif
-std::string make_candidates_text(const std::vector<std::string>& candidates, int active_idx)
+std::string make_candidates_text(const std::vector<std::string>& candidates,
+                                 int active_idx,
+                                 int max_show = kCandidatesPerPage,
+                                 const char* separator = "  ")
 {
     std::string out;
-    int max_show = kCandidatesPerPage;
     int total = static_cast<int>(candidates.size());
     if (total <= 0) return out;
     if (active_idx < 0) active_idx = 0;
@@ -61,7 +66,7 @@ std::string make_candidates_text(const std::vector<std::string>& candidates, int
 
     for (int i = start; i < total && i < start + max_show; ++i)
     {
-        if (!out.empty()) out += "  ";
+        if (!out.empty() && separator) out += separator;
         if (i == active_idx)
         {
             out += '[';
@@ -244,19 +249,21 @@ void ImeWidget::init_compact_ui(lv_obj_t* parent)
 {
     container_ = lv_obj_create(parent);
     lv_obj_set_width(container_, LV_PCT(100));
-    lv_obj_set_height(container_, 24);
+    lv_obj_set_height(container_, kCompactImeRowHeight);
     lv_obj_set_flex_flow(container_, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(container_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_left(container_, 6, 0);
-    lv_obj_set_style_pad_right(container_, 6, 0);
-    lv_obj_set_style_pad_column(container_, 6, 0);
+    lv_obj_set_style_pad_top(container_, 0, 0);
+    lv_obj_set_style_pad_bottom(container_, 0, 0);
+    lv_obj_set_style_pad_left(container_, 4, 0);
+    lv_obj_set_style_pad_right(container_, 4, 0);
+    lv_obj_set_style_pad_column(container_, 4, 0);
     lv_obj_set_style_bg_color(container_, lv_color_hex(0xFFF0D3), 0);
     lv_obj_set_style_bg_opa(container_, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(container_, 0, 0);
     lv_obj_clear_flag(container_, LV_OBJ_FLAG_SCROLLABLE);
 
     toggle_btn_ = lv_btn_create(container_);
-    lv_obj_set_size(toggle_btn_, 44, 18);
+    lv_obj_set_size(toggle_btn_, 42, kCompactImeControlHeight);
     lv_obj_set_style_radius(toggle_btn_, 4, LV_PART_MAIN);
     lv_obj_set_style_bg_color(toggle_btn_, lv_color_hex(0xFFF7E9), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(toggle_btn_, LV_OPA_COVER, LV_PART_MAIN);
@@ -286,9 +293,13 @@ void ImeWidget::init_compact_ui(lv_obj_t* parent)
 
     candidates_label_ = lv_label_create(container_);
     set_candidates_label_text(candidates_label_, "");
+    lv_obj_set_width(candidates_label_, 0);
+    lv_obj_set_height(candidates_label_, kCompactImeControlHeight);
     lv_obj_set_style_text_color(candidates_label_, lv_color_hex(0x3A2A1A), 0);
+    lv_obj_set_style_text_line_space(candidates_label_, 0, 0);
     lv_obj_set_flex_grow(candidates_label_, 1);
-    lv_obj_set_style_text_align(candidates_label_, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_long_mode(candidates_label_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(candidates_label_, LV_TEXT_ALIGN_LEFT, 0);
 }
 
 #if UI_SHARED_TOUCH_IME_ENABLED
@@ -891,7 +902,8 @@ void ImeWidget::refresh_candidates()
         set_candidates_label_text(candidates_label_, "");
         return;
     }
-    std::string text = make_candidates_text(ime_.candidates(), ime_.candidateIndex());
+    std::string text =
+        make_candidates_text(ime_.candidates(), ime_.candidateIndex(), kCompactCandidatesPerPage, " ");
     set_candidates_label_text(candidates_label_, text.c_str());
 }
 

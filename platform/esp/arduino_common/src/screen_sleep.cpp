@@ -37,7 +37,7 @@ SemaphoreHandle_t s_activity_mutex = nullptr;
 TaskHandle_t s_screen_sleep_task_handle = nullptr;
 uint32_t s_last_user_activity_time = 0;
 bool s_screen_sleeping = false;
-bool s_screen_sleep_disabled = false;
+uint32_t s_screen_sleep_disable_depth = 0;
 uint8_t s_saved_screen_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
 uint8_t s_saved_keyboard_brightness = 127;
 bool s_screen_saver_active = false;
@@ -237,7 +237,8 @@ void screenSleepTask(void* pvParameters)
                 const uint32_t time_since_activity = current_time - s_last_user_activity_time;
                 const uint32_t current_timeout = getScreenSleepTimeout();
 
-                if (s_screen_sleep_disabled)
+                const bool sleep_disabled = s_screen_sleep_disable_depth > 0;
+                if (sleep_disabled)
                 {
                     if (s_screen_sleeping)
                     {
@@ -395,7 +396,7 @@ bool isScreenSaverActive()
 
 void wakeScreenSaver()
 {
-    if (s_screen_sleep_disabled)
+    if (s_screen_sleep_disable_depth > 0)
     {
         updateUserActivity();
         return;
@@ -483,13 +484,18 @@ void disableScreenSleep()
     {
         if (xSemaphoreTake(s_activity_mutex, portMAX_DELAY) == pdTRUE)
         {
-            s_screen_sleep_disabled = true;
-            if (s_screen_saver_active)
+            const bool was_disabled = s_screen_sleep_disable_depth > 0;
+            if (s_screen_sleep_disable_depth < UINT32_MAX)
+            {
+                ++s_screen_sleep_disable_depth;
+            }
+
+            if (!was_disabled && s_screen_saver_active)
             {
                 s_screen_saver_active = false;
                 hide_saver = true;
             }
-            if (s_screen_sleeping)
+            if (!was_disabled && s_screen_sleeping)
             {
                 s_screen_sleeping = false;
                 board.setBrightness(s_saved_screen_brightness);
@@ -513,8 +519,14 @@ void enableScreenSleep()
     {
         if (xSemaphoreTake(s_activity_mutex, portMAX_DELAY) == pdTRUE)
         {
-            s_screen_sleep_disabled = false;
-            s_last_user_activity_time = millis();
+            if (s_screen_sleep_disable_depth > 0)
+            {
+                --s_screen_sleep_disable_depth;
+                if (s_screen_sleep_disable_depth == 0)
+                {
+                    s_last_user_activity_time = millis();
+                }
+            }
             xSemaphoreGive(s_activity_mutex);
         }
     }
@@ -527,7 +539,7 @@ bool isScreenSleepDisabled()
     {
         if (xSemaphoreTake(s_activity_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
-            disabled = s_screen_sleep_disabled;
+            disabled = s_screen_sleep_disable_depth > 0;
             xSemaphoreGive(s_activity_mutex);
         }
     }

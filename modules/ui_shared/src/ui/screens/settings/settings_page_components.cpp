@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "app/app_config.h"
@@ -73,8 +74,18 @@ struct OptionClick
     settings::ui::ItemWidget* widget;
 };
 
+struct ImeToggleClick
+{
+    const char* ime_id = nullptr;
+    settings::ui::ItemWidget* widget = nullptr;
+    lv_obj_t* state_label = nullptr;
+};
+
 static OptionClick s_option_clicks[kMaxOptions]{};
+static constexpr size_t kMaxImeOptions = 16;
+static ImeToggleClick s_ime_toggle_clicks[kMaxImeOptions]{};
 static size_t s_option_click_count = 0;
+static size_t s_ime_toggle_count = 0;
 static lv_group_t* s_modal_prev_group = nullptr;
 static int s_pending_category = -1;
 static bool s_category_update_scheduled = false;
@@ -96,6 +107,7 @@ static wifi_runtime::ScanResult kWifiScanResults[kMaxWifiNetworks] = {};
 
 static void update_item_value(settings::ui::ItemWidget& widget);
 static void open_factory_reset_modal();
+static void open_enabled_imes_modal(settings::ui::ItemWidget& widget);
 static bool option_labels_are_translated(const settings::ui::SettingItem& item);
 static bool option_labels_use_content_font(const settings::ui::SettingItem& item);
 static void apply_locale_preview_font(lv_obj_t* label, const settings::ui::SettingItem& item, int value);
@@ -107,6 +119,51 @@ static void copy_bounded(char* out, size_t out_len, const char* text)
         return;
     }
     std::snprintf(out, out_len, "%s", text ? text : "");
+}
+
+static void set_modal_toggle_state_label(lv_obj_t* label, bool enabled)
+{
+    if (!label)
+    {
+        return;
+    }
+    ::ui::i18n::set_label_text_raw(label, ::ui::i18n::tr(enabled ? "ON" : "OFF"));
+}
+
+static void format_enabled_ime_summary(char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+
+    const std::size_t available = ::ui::i18n::ime_count();
+    const std::size_t enabled = ::ui::i18n::enabled_ime_count();
+    if (available == 0)
+    {
+        std::snprintf(out, out_len, "%s", ::ui::i18n::tr("Unavailable"));
+        return;
+    }
+    if (enabled == 0)
+    {
+        std::snprintf(out, out_len, "%s", ::ui::i18n::tr("None"));
+        return;
+    }
+    if (enabled == 1)
+    {
+        for (std::size_t index = 0; index < available; ++index)
+        {
+            const ::ui::i18n::ImeInfo* ime = ::ui::i18n::ime_at(index);
+            if (ime != nullptr && ::ui::i18n::ime_enabled(ime->id))
+            {
+                std::snprintf(out, out_len, "%s", ime->display_name ? ime->display_name : ime->id);
+                return;
+            }
+        }
+    }
+
+    const std::string summary = ::ui::i18n::format("%d enabled", static_cast<int>(enabled));
+    std::snprintf(out, out_len, "%s", summary.c_str());
 }
 
 static void clear_wifi_scan_options()
@@ -929,7 +986,14 @@ static void format_value(const settings::ui::SettingItem& item, char* out, size_
         }
         break;
     case settings::ui::SettingType::Action:
-        snprintf(out, out_len, "%s", ::ui::i18n::tr("Run"));
+        if (item.pref_key && std::strcmp(item.pref_key, "enabled_imes") == 0)
+        {
+            format_enabled_ime_summary(out, out_len);
+        }
+        else
+        {
+            snprintf(out, out_len, "%s", ::ui::i18n::tr("Run"));
+        }
         break;
     }
 }
@@ -942,7 +1006,11 @@ static void update_item_value(settings::ui::ItemWidget& widget)
     }
     char value[48];
     format_value(*widget.def, value, sizeof(value));
-    if (option_labels_use_content_font(*widget.def))
+    const bool use_content_font =
+        option_labels_use_content_font(*widget.def) ||
+        (widget.def->pref_key && std::strcmp(widget.def->pref_key, "enabled_imes") == 0 &&
+         ::ui::fonts::utf8_has_non_ascii(value));
+    if (use_content_font)
     {
         ::ui::i18n::set_content_label_text_raw(widget.value_label, value);
     }
@@ -994,6 +1062,7 @@ static void modal_close()
     g_state.editing_item = nullptr;
     g_state.editing_widget = nullptr;
     s_option_click_count = 0;
+    s_ime_toggle_count = 0;
     modal_restore_group();
 }
 
@@ -1811,6 +1880,12 @@ static void open_factory_reset_modal()
     lv_group_focus_obj(cancel_btn);
 }
 
+static void on_enabled_imes_back_clicked(lv_event_t* e)
+{
+    (void)e;
+    modal_close();
+}
+
 static void option_modal_focused_cb(lv_event_t* e)
 {
     if (lv_event_get_code(e) != LV_EVENT_FOCUSED) return;
@@ -1818,6 +1893,156 @@ static void option_modal_focused_cb(lv_event_t* e)
     if (target && lv_obj_is_valid(target))
     {
         lv_obj_scroll_to_view(target, LV_ANIM_ON);
+    }
+}
+
+static void on_ime_toggle_clicked(lv_event_t* e)
+{
+    ImeToggleClick* payload = static_cast<ImeToggleClick*>(lv_event_get_user_data(e));
+    if (!payload || !payload->ime_id || !payload->widget)
+    {
+        return;
+    }
+
+    const bool currently_enabled = ::ui::i18n::ime_enabled(payload->ime_id);
+    const bool next_enabled = !currently_enabled;
+    if (!::ui::i18n::set_ime_enabled(payload->ime_id, next_enabled, true))
+    {
+        ::ui::SystemNotification::show(::ui::i18n::tr("IME setting update failed"), 3000);
+        return;
+    }
+
+    lv_obj_t* btn = lv_event_get_target_obj(e);
+    if (btn)
+    {
+        if (next_enabled)
+        {
+            lv_obj_add_state(btn, LV_STATE_CHECKED);
+        }
+        else
+        {
+            lv_obj_clear_state(btn, LV_STATE_CHECKED);
+        }
+    }
+
+    set_modal_toggle_state_label(payload->state_label, next_enabled);
+    update_item_value(*payload->widget);
+}
+
+static void open_enabled_imes_modal(settings::ui::ItemWidget& widget)
+{
+    if (g_state.modal_root)
+    {
+        return;
+    }
+
+    const std::size_t ime_total = ::ui::i18n::ime_count();
+    if (ime_total == 0)
+    {
+        ::ui::SystemNotification::show(::ui::i18n::tr("No IME packs installed"), 3000);
+        return;
+    }
+
+    modal_prepare_group();
+
+    const auto& profile = ::ui::page_profile::current();
+    const lv_coord_t top_bar_h = profile.top_bar_height > 0
+                                     ? profile.top_bar_height
+                                     : static_cast<lv_coord_t>(::ui::widgets::kTopBarHeight);
+    const lv_coord_t gap_from_top_bar = 3;
+    const lv_coord_t content_h = lv_obj_get_height(g_state.root) - top_bar_h;
+
+    g_state.modal_root = lv_obj_create(g_state.root);
+    lv_obj_set_size(g_state.modal_root, LV_PCT(100), content_h);
+    lv_obj_set_pos(g_state.modal_root, 0, top_bar_h);
+    style::apply_modal_bg(g_state.modal_root);
+    style::apply_modal_panel(g_state.modal_root);
+    lv_obj_set_style_border_width(g_state.modal_root, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(g_state.modal_root, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(g_state.modal_root, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(g_state.modal_root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(g_state.modal_root, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* list = lv_obj_create(g_state.modal_root);
+    lv_obj_set_size(list, LV_PCT(100), content_h - gap_from_top_bar);
+    lv_obj_set_pos(list, 0, gap_from_top_bar);
+    lv_obj_set_style_pad_all(list, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+
+    s_ime_toggle_count = 0;
+    for (std::size_t index = 0; index < ime_total && s_ime_toggle_count < kMaxImeOptions; ++index)
+    {
+        const ::ui::i18n::ImeInfo* ime = ::ui::i18n::ime_at(index);
+        if (!ime)
+        {
+            continue;
+        }
+
+        lv_obj_t* btn = lv_btn_create(list);
+        lv_obj_set_size(btn, LV_PCT(100), ::ui::page_profile::resolve_control_button_height());
+        style::apply_btn_modal(btn);
+        lv_obj_set_style_pad_left(btn, 12, LV_PART_MAIN);
+        lv_obj_set_style_pad_right(btn, 12, LV_PART_MAIN);
+        lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(btn,
+                              LV_FLEX_ALIGN_SPACE_BETWEEN,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+
+        lv_obj_t* name_label = lv_label_create(btn);
+        const char* display_name = ime->display_name ? ime->display_name : ime->id;
+        if (::ui::fonts::utf8_has_non_ascii(display_name))
+        {
+            ::ui::i18n::set_content_label_text_raw(name_label, display_name);
+        }
+        else
+        {
+            ::ui::i18n::set_label_text_raw(name_label, display_name);
+        }
+        style::apply_label_primary(name_label);
+
+        lv_obj_t* state_label = lv_label_create(btn);
+        set_modal_toggle_state_label(state_label, ::ui::i18n::ime_enabled(ime->id));
+        style::apply_label_primary(state_label);
+
+        s_ime_toggle_clicks[s_ime_toggle_count].ime_id = ime->id;
+        s_ime_toggle_clicks[s_ime_toggle_count].widget = &widget;
+        s_ime_toggle_clicks[s_ime_toggle_count].state_label = state_label;
+        lv_obj_add_event_cb(btn,
+                            on_ime_toggle_clicked,
+                            LV_EVENT_CLICKED,
+                            &s_ime_toggle_clicks[s_ime_toggle_count]);
+        lv_obj_add_event_cb(btn, option_modal_focused_cb, LV_EVENT_FOCUSED, nullptr);
+        if (::ui::i18n::ime_enabled(ime->id))
+        {
+            lv_obj_add_state(btn, LV_STATE_CHECKED);
+        }
+        lv_group_add_obj(g_state.modal_group, btn);
+        ++s_ime_toggle_count;
+    }
+
+    lv_obj_t* back_btn = lv_btn_create(list);
+    lv_obj_set_size(back_btn, LV_PCT(100), ::ui::page_profile::resolve_control_button_height());
+    style::apply_btn_modal(back_btn);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    ::ui::i18n::set_label_text(back_label, "Back");
+    style::apply_label_primary(back_label);
+    lv_obj_center(back_label);
+    lv_obj_add_event_cb(back_btn, on_enabled_imes_back_clicked, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(back_btn, option_modal_focused_cb, LV_EVENT_FOCUSED, nullptr);
+    lv_group_add_obj(g_state.modal_group, back_btn);
+
+    if (s_ime_toggle_count > 0)
+    {
+        lv_group_focus_obj(lv_obj_get_child(list, 0));
+    }
+    else
+    {
+        lv_group_focus_obj(back_btn);
     }
 }
 
@@ -2229,6 +2454,7 @@ static settings::ui::SettingItem kScreenItems[] = {
     {"Display Language", settings::ui::SettingType::Enum, kLocaleOptions,
      0, &g_settings.display_locale_index, nullptr, nullptr, 0, false,
      "display_locale"},
+    {"Enabled IMEs", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "enabled_imes"},
     {"Screen Timeout", settings::ui::SettingType::Enum, kScreenTimeoutOptions, 4, &g_settings.screen_timeout_ms, nullptr, nullptr, 0, false, "screen_timeout"},
     {"Screen Brightness", settings::ui::SettingType::Enum, kScreenBrightnessOptions,
      sizeof(kScreenBrightnessOptions) / sizeof(kScreenBrightnessOptions[0]), &g_settings.screen_brightness, nullptr, nullptr, 0, false, "screen_brightness"},
@@ -2726,7 +2952,11 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
     }
     if (item.type == settings::ui::SettingType::Action)
     {
-        if (item.pref_key && strcmp(item.pref_key, "chat_reset_mesh") == 0)
+        if (item.pref_key && strcmp(item.pref_key, "enabled_imes") == 0)
+        {
+            open_enabled_imes_modal(widget);
+        }
+        else if (item.pref_key && strcmp(item.pref_key, "chat_reset_mesh") == 0)
         {
             reset_mesh_settings();
         }

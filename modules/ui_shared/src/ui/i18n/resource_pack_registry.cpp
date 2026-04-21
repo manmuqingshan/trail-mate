@@ -14,6 +14,7 @@
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/runtime/memory_profile.h"
 #include "ui/support/lvgl_fs_utils.h"
+#include "ui/widgets/busy_overlay.h"
 
 #if __has_include("lv_binfont_loader.h")
 #include "lv_binfont_loader.h"
@@ -33,6 +34,7 @@ namespace
 constexpr const char* kLogTag = "[I18N]";
 constexpr const char* kSettingsNamespace = "settings";
 constexpr const char* kDisplayLocaleKey = "display_locale";
+constexpr const char* kEnabledImeKey = "enabled_imes";
 constexpr const char* kLegacyDisplayLanguageKey = "display_language";
 constexpr const char* kDefaultLocaleId = "en";
 constexpr const char* kBuiltinEnglishName = "English";
@@ -41,6 +43,8 @@ constexpr const char* kPackRoot = "/trailmate/packs";
 constexpr const char* kFontPackRoot = "/trailmate/packs/fonts";
 constexpr const char* kLocalePackRoot = "/trailmate/packs/locales";
 constexpr const char* kImePackRoot = "/trailmate/packs/ime";
+constexpr const char* kDisabledImeSentinel = "__none__";
+constexpr std::size_t kFontLoadOverlayThresholdBytes = 64U * 1024U;
 
 enum class FontPackUsage : uint8_t
 {
@@ -109,6 +113,8 @@ std::vector<FontPackRecord> s_font_packs;
 std::vector<ImePackRecord> s_ime_packs;
 std::vector<LocalePackRecord> s_locale_packs;
 std::vector<LocaleInfo> s_locale_views;
+std::vector<ImeInfo> s_ime_views;
+std::vector<std::string> s_enabled_ime_ids;
 
 LocalePackRecord* s_active_locale = nullptr;
 FontPackRecord* s_active_ui_font_pack = nullptr;
@@ -120,6 +126,44 @@ FontChainState s_content_font_chain;
 std::vector<FontPackRecord*> s_content_supplement_packs;
 
 bool s_registry_ready = false;
+
+class ScopedFontLoadOverlay
+{
+  public:
+    explicit ScopedFontLoadOverlay(const FontPackRecord& pack)
+        : active_(should_show(pack))
+    {
+        if (!active_)
+        {
+            return;
+        }
+
+        ::ui::widgets::busy_overlay::show("Loading font pack...", pack.id.c_str());
+    }
+
+    ~ScopedFontLoadOverlay()
+    {
+        if (active_)
+        {
+            ::ui::widgets::busy_overlay::hide();
+        }
+    }
+
+    ScopedFontLoadOverlay(const ScopedFontLoadOverlay&) = delete;
+    ScopedFontLoadOverlay& operator=(const ScopedFontLoadOverlay&) = delete;
+
+  private:
+    static bool should_show(const FontPackRecord& pack)
+    {
+        if (pack.builtin || pack.source_path.empty())
+        {
+            return false;
+        }
+        return pack.estimated_ram_bytes == 0U || pack.estimated_ram_bytes >= kFontLoadOverlayThresholdBytes;
+    }
+
+    bool active_ = false;
+};
 
 const char* safe_text(const char* value)
 {
@@ -213,6 +257,24 @@ std::vector<std::string> split_csv_strings(const char* value)
     }
 
     return items;
+}
+
+std::string join_csv_strings(const std::vector<std::string>& items)
+{
+    std::string joined;
+    for (std::size_t index = 0; index < items.size(); ++index)
+    {
+        if (items[index].empty())
+        {
+            continue;
+        }
+        if (!joined.empty())
+        {
+            joined += ',';
+        }
+        joined += items[index];
+    }
+    return joined;
 }
 
 std::string join_path(const std::string& base, const std::string& child)
@@ -445,6 +507,34 @@ const TPack* find_pack_by_id(const std::vector<TPack>& packs, const char* id)
     }
 
     return nullptr;
+}
+
+bool string_list_contains(const std::vector<std::string>& values, const char* value)
+{
+    if (!value || value[0] == '\0')
+    {
+        return false;
+    }
+
+    return std::find(values.begin(), values.end(), value) != values.end();
+}
+
+void append_unique_string(std::vector<std::string>& values, const std::string& value)
+{
+    if (!value.empty() && !string_list_contains(values, value.c_str()))
+    {
+        values.push_back(value);
+    }
+}
+
+bool ime_backend_supports_runtime_input(const ImePackRecord& pack)
+{
+    return pack.backend == "builtin-pinyin";
+}
+
+bool ime_backend_can_be_enabled(const ImePackRecord& pack)
+{
+    return ime_backend_supports_runtime_input(pack);
 }
 
 std::size_t parse_size_value(const char* value)
@@ -962,6 +1052,7 @@ bool load_font_pack(FontPackRecord& pack)
                 pack.id.c_str(),
                 pack.source_path.c_str(),
                 static_cast<unsigned long>(pack.estimated_ram_bytes));
+    ScopedFontLoadOverlay overlay(pack);
     pack.owned_font = lv_binfont_create(pack.source_path.c_str());
     if (pack.owned_font == nullptr)
     {
@@ -1257,6 +1348,27 @@ void rebuild_locale_views()
         view.ime_pack_id = pack.ime_pack_id.empty() ? nullptr : pack.ime_pack_id.c_str();
         view.builtin = pack.builtin;
         s_locale_views.push_back(view);
+    }
+}
+
+void rebuild_ime_views()
+{
+    s_ime_views.clear();
+    s_ime_views.reserve(s_ime_packs.size());
+
+    for (const auto& pack : s_ime_packs)
+    {
+        if (!ime_backend_can_be_enabled(pack))
+        {
+            continue;
+        }
+
+        ImeInfo view{};
+        view.id = pack.id.c_str();
+        view.display_name = pack.display_name.c_str();
+        view.backend = pack.backend.c_str();
+        view.builtin = pack.builtin;
+        s_ime_views.push_back(view);
     }
 }
 
@@ -1723,6 +1835,82 @@ void prune_unresolved_locales()
         s_locale_packs.end());
 }
 
+ImePackRecord* resolve_enabled_ime_pack()
+{
+    if (s_active_ime_pack != nullptr &&
+        string_list_contains(s_enabled_ime_ids, s_active_ime_pack->id.c_str()) &&
+        ime_backend_supports_runtime_input(*s_active_ime_pack))
+    {
+        return s_active_ime_pack;
+    }
+
+    for (const std::string& ime_id : s_enabled_ime_ids)
+    {
+        ImePackRecord* pack = find_pack_by_id(s_ime_packs, ime_id.c_str());
+        if (pack != nullptr && ime_backend_supports_runtime_input(*pack))
+        {
+            return pack;
+        }
+    }
+
+    return nullptr;
+}
+
+void enable_default_ime_packs()
+{
+    s_enabled_ime_ids.clear();
+    for (const auto& pack : s_ime_packs)
+    {
+        if (ime_backend_can_be_enabled(pack))
+        {
+            s_enabled_ime_ids.push_back(pack.id);
+        }
+    }
+}
+
+void load_enabled_ime_packs()
+{
+    s_enabled_ime_ids.clear();
+
+    std::string stored;
+    if (!::platform::ui::settings_store::get_string(kSettingsNamespace, kEnabledImeKey, stored))
+    {
+        enable_default_ime_packs();
+        std::printf("%s enabled ime packs source=default ids=%s\n",
+                    kLogTag,
+                    s_enabled_ime_ids.empty() ? "<none>" : join_csv_strings(s_enabled_ime_ids).c_str());
+        return;
+    }
+
+    const std::vector<std::string> stored_ids = split_csv_strings(stored.c_str());
+    if (stored_ids.size() == 1U && stored_ids.front() == kDisabledImeSentinel)
+    {
+        std::printf("%s enabled ime packs source=stored ids=<none>\n", kLogTag);
+        return;
+    }
+
+    for (const std::string& ime_id : stored_ids)
+    {
+        const ImePackRecord* pack = find_pack_by_id(s_ime_packs, ime_id.c_str());
+        if (pack != nullptr && ime_backend_can_be_enabled(*pack))
+        {
+            append_unique_string(s_enabled_ime_ids, pack->id);
+        }
+    }
+
+    std::printf("%s enabled ime packs source=stored ids=%s\n",
+                kLogTag,
+                s_enabled_ime_ids.empty() ? "<none>" : join_csv_strings(s_enabled_ime_ids).c_str());
+}
+
+bool persist_enabled_ime_packs()
+{
+    const std::string stored_value =
+        s_enabled_ime_ids.empty() ? std::string(kDisabledImeSentinel) : join_csv_strings(s_enabled_ime_ids);
+    return ::platform::ui::settings_store::put_string(
+        kSettingsNamespace, kEnabledImeKey, stored_value.c_str());
+}
+
 void remove_legacy_locale_key()
 {
     const char* keys[] = {kLegacyDisplayLanguageKey};
@@ -1785,6 +1973,8 @@ void clear_registry()
     s_ime_packs.clear();
     s_locale_packs.clear();
     s_locale_views.clear();
+    s_ime_views.clear();
+    s_enabled_ime_ids.clear();
 
     s_active_locale = nullptr;
     s_active_ui_font_pack = nullptr;
@@ -1840,13 +2030,15 @@ bool activate_locale_internal(LocalePackRecord* locale, FontPackRecord* preserve
     }
 
     rebuild_runtime_font_chains();
+    ImePackRecord* effective_ime_pack = resolve_enabled_ime_pack();
 
-    std::printf("%s active locale=%s ui_font=%s content_font=%s ime=%s ui_chain=%s content_chain=%s\n",
+    std::printf("%s active locale=%s ui_font=%s content_font=%s locale_ime=%s effective_ime=%s ui_chain=%s content_chain=%s\n",
                 kLogTag,
                 s_active_locale ? s_active_locale->id.c_str() : "<none>",
                 s_active_ui_font_pack ? s_active_ui_font_pack->id.c_str() : "<none>",
                 s_active_content_font_pack ? s_active_content_font_pack->id.c_str() : "<none>",
                 s_active_ime_pack ? s_active_ime_pack->id.c_str() : "<none>",
+                effective_ime_pack ? effective_ime_pack->id.c_str() : "<none>",
                 s_ui_font_chain.desc.empty() ? "<none>" : s_ui_font_chain.desc.c_str(),
                 s_content_font_chain.desc.empty() ? "<none>" : s_content_font_chain.desc.c_str());
     return true;
@@ -1865,6 +2057,8 @@ void rebuild_registry()
     catalog_external_packs();
     prune_unresolved_locales();
     rebuild_locale_views();
+    rebuild_ime_views();
+    load_enabled_ime_packs();
     s_registry_ready = true;
 
     const std::string preferred_locale = migrate_legacy_locale_if_needed();
@@ -2067,17 +2261,80 @@ bool ensure_content_font_for_text(const char* text)
     return missing.empty();
 }
 
+std::size_t ime_count()
+{
+    ensure_registry();
+    return s_ime_views.size();
+}
+
+const ImeInfo* ime_at(std::size_t index)
+{
+    ensure_registry();
+    if (index >= s_ime_views.size())
+    {
+        return nullptr;
+    }
+    return &s_ime_views[index];
+}
+
+std::size_t enabled_ime_count()
+{
+    ensure_registry();
+    return s_enabled_ime_ids.size();
+}
+
+bool ime_enabled(const char* ime_id)
+{
+    ensure_registry();
+    return string_list_contains(s_enabled_ime_ids, ime_id);
+}
+
+bool set_ime_enabled(const char* ime_id, bool enabled, bool persist)
+{
+    ensure_registry();
+    const ImePackRecord* pack = find_pack_by_id(s_ime_packs, ime_id);
+    if (pack == nullptr || !ime_backend_can_be_enabled(*pack))
+    {
+        return false;
+    }
+
+    const std::vector<std::string> previous = s_enabled_ime_ids;
+    if (enabled)
+    {
+        append_unique_string(s_enabled_ime_ids, pack->id);
+    }
+    else
+    {
+        s_enabled_ime_ids.erase(
+            std::remove(s_enabled_ime_ids.begin(), s_enabled_ime_ids.end(), pack->id),
+            s_enabled_ime_ids.end());
+    }
+
+    if (persist && previous != s_enabled_ime_ids && !persist_enabled_ime_packs())
+    {
+        s_enabled_ime_ids = previous;
+        return false;
+    }
+
+    return true;
+}
+
+bool any_enabled_script_input()
+{
+    ensure_registry();
+    return resolve_enabled_ime_pack() != nullptr;
+}
+
 const char* active_ime_pack_id()
 {
     ensure_registry();
-    return s_active_ime_pack ? s_active_ime_pack->id.c_str() : nullptr;
+    ImePackRecord* pack = resolve_enabled_ime_pack();
+    return pack ? pack->id.c_str() : nullptr;
 }
 
 bool active_locale_supports_script_input()
 {
-    ensure_registry();
-    return s_active_ime_pack != nullptr && !s_active_ime_pack->backend.empty() &&
-           s_active_ime_pack->backend != "none";
+    return any_enabled_script_input();
 }
 
 const char* tr(const char* english)
