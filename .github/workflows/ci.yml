@@ -75,6 +75,18 @@ jobs:
       - name: Build (${{ matrix.env }})
         run: pio run -e ${{ matrix.env }}
 
+      - name: Validate OTA slot size
+        run: |
+          if [ -f ".pio/build/${{ matrix.env }}/firmware.bin" ]; then
+            SIZE=$(stat -c%s ".pio/build/${{ matrix.env }}/firmware.bin")
+            MAX_SIZE=$((0x400000))
+            echo "firmware.bin size=${SIZE} max=${MAX_SIZE}"
+            if [ "${SIZE}" -gt "${MAX_SIZE}" ]; then
+              echo "firmware.bin exceeds OTA slot size" >&2
+              exit 1
+            fi
+          fi
+
       - name: Collect firmware
         run: |
           mkdir -p dist

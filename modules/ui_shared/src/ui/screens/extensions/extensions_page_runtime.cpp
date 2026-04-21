@@ -495,12 +495,6 @@ bool load_catalog(std::string& out_error)
     out_error.clear();
     s_runtime.packages.clear();
 
-    if (!platform::ui::device::card_ready())
-    {
-        out_error = "Insert an SD card to use Extensions";
-        return false;
-    }
-
     return packs::fetch_catalog(s_runtime.packages, out_error);
 }
 

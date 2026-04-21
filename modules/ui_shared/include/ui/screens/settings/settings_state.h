@@ -126,6 +126,9 @@ struct SettingsData
     char gauge_full_mah[8] = "";
 
     // Advanced
+    char fw_current_version[24] = "";
+    char fw_latest_version[24] = "";
+    char fw_update_status[96] = "";
     bool advanced_debug_logs = false;
 };
 

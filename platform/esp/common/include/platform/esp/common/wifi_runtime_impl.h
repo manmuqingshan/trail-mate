@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/app_facade_access.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/wifi_runtime.h"
 
@@ -10,10 +11,18 @@
 
 #include "esp_err.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#if __has_include("ble/ble_manager.h")
+#include "ble/ble_manager.h"
+#define TRAIL_MATE_WIFI_HAS_BLE_MANAGER 1
+#else
+#define TRAIL_MATE_WIFI_HAS_BLE_MANAGER 0
+#endif
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "bsp/m5stack_tab5.h"
@@ -28,6 +37,26 @@ constexpr const char* kSettingsNs = "settings";
 constexpr const char* kWifiEnabledKey = "wifi_enabled";
 constexpr const char* kWifiSsidKey = "wifi_ssid";
 constexpr const char* kWifiPasswordKey = "wifi_password";
+constexpr uint32_t kBleRetryDelayMs = 180;
+constexpr int kWifiTxBufferTypeStatic = 0;
+constexpr int kWifiTxBufferTypeDynamic = 1;
+constexpr int kWifiPrimaryStaticRxBufNum = 4;
+constexpr int kWifiPrimaryDynamicRxBufNum = 16;
+constexpr int kWifiPrimaryDynamicTxBufNum = 16;
+constexpr int kWifiPrimaryCacheTxBufNum = 4;
+constexpr int kWifiPrimaryMgmtSbufNum = 8;
+constexpr int kWifiRetryStaticRxBufNum = 4;
+constexpr int kWifiRetryDynamicRxBufNum = 8;
+constexpr int kWifiRetryDynamicTxBufNum = 8;
+constexpr int kWifiRetryCacheTxBufNum = 4;
+constexpr int kWifiRetryMgmtSbufNum = 6;
+constexpr int kWifiRetryRxMgmtBufNum = 5;
+
+enum class WifiInitProfile : uint8_t
+{
+    Lightweight = 0,
+    EmergencyLowMemory,
+};
 
 struct RuntimeState
 {
@@ -35,6 +64,7 @@ struct RuntimeState
     bool handlers_registered = false;
     bool wifi_started = false;
     bool wifi_initialized = false;
+    bool ble_paused_for_wifi = false;
     bool config_cached = false;
     bool connected = false;
     bool connecting = false;
@@ -50,6 +80,99 @@ struct RuntimeState
 };
 
 RuntimeState s_runtime{};
+
+std::size_t internal_free_bytes()
+{
+    return heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+std::size_t internal_largest_block_bytes()
+{
+    return heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+std::size_t psram_free_bytes()
+{
+    return heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+}
+
+std::size_t psram_largest_block_bytes()
+{
+    return heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+}
+
+void log_heap_snapshot(const char* stage)
+{
+    std::printf("[WiFi][MEM] stage=%s ram_free=%u ram_largest=%u psram_free=%u psram_largest=%u\n",
+                stage ? stage : "state",
+                static_cast<unsigned>(internal_free_bytes()),
+                static_cast<unsigned>(internal_largest_block_bytes()),
+                static_cast<unsigned>(psram_free_bytes()),
+                static_cast<unsigned>(psram_largest_block_bytes()));
+}
+
+const char* wifi_profile_name(WifiInitProfile profile)
+{
+    switch (profile)
+    {
+    case WifiInitProfile::Lightweight:
+        return "lightweight";
+    case WifiInitProfile::EmergencyLowMemory:
+        return "emergency";
+    }
+    return "unknown";
+}
+
+void apply_wifi_init_profile(wifi_init_config_t& config, WifiInitProfile profile)
+{
+    config.tx_buf_type = kWifiTxBufferTypeDynamic;
+    config.static_tx_buf_num = 0;
+
+    switch (profile)
+    {
+    case WifiInitProfile::Lightweight:
+        config.static_rx_buf_num = kWifiPrimaryStaticRxBufNum;
+        config.dynamic_rx_buf_num = kWifiPrimaryDynamicRxBufNum;
+        config.dynamic_tx_buf_num = kWifiPrimaryDynamicTxBufNum;
+        config.cache_tx_buf_num = std::max(1, kWifiPrimaryCacheTxBufNum);
+        config.mgmt_sbuf_num = std::max(6, kWifiPrimaryMgmtSbufNum);
+        break;
+    case WifiInitProfile::EmergencyLowMemory:
+        config.static_rx_buf_num = kWifiRetryStaticRxBufNum;
+        config.dynamic_rx_buf_num = kWifiRetryDynamicRxBufNum;
+        config.dynamic_tx_buf_num = kWifiRetryDynamicTxBufNum;
+        config.cache_tx_buf_num = std::max(1, kWifiRetryCacheTxBufNum);
+        config.rx_mgmt_buf_num = std::max(1, kWifiRetryRxMgmtBufNum);
+        config.mgmt_sbuf_num = std::max(6, kWifiRetryMgmtSbufNum);
+        config.ampdu_rx_enable = 0;
+        config.ampdu_tx_enable = 0;
+        config.amsdu_tx_enable = 0;
+        config.rx_ba_win = 0;
+        break;
+    }
+}
+
+void log_wifi_init_profile(const char* attempt_tag,
+                           WifiInitProfile profile,
+                           const wifi_init_config_t& config)
+{
+    std::printf("[WiFi][CFG] attempt=%s profile=%s static_rx=%d dynamic_rx=%d tx_type=%d static_tx=%d dynamic_tx=%d "
+                "cache_tx=%d rx_mgmt=%d mgmt_sbuf=%d ampdu_rx=%d ampdu_tx=%d amsdu_tx=%d rx_ba_win=%d\n",
+                attempt_tag ? attempt_tag : "attempt",
+                wifi_profile_name(profile),
+                config.static_rx_buf_num,
+                config.dynamic_rx_buf_num,
+                config.tx_buf_type,
+                config.static_tx_buf_num,
+                config.dynamic_tx_buf_num,
+                config.cache_tx_buf_num,
+                config.rx_mgmt_buf_num,
+                config.mgmt_sbuf_num,
+                config.ampdu_rx_enable,
+                config.ampdu_tx_enable,
+                config.amsdu_tx_enable,
+                config.rx_ba_win);
+}
 
 void copy_bounded(char* out, std::size_t out_len, const char* text)
 {
@@ -176,6 +299,77 @@ void refresh_runtime_status_message()
     set_status_message("Ready to connect");
 }
 
+bool runtime_ble_is_enabled()
+{
+    if (!app::hasAppFacade())
+    {
+        return false;
+    }
+
+#if TRAIL_MATE_WIFI_HAS_BLE_MANAGER
+    if (ble::BleManager* ble_manager = app::appFacade().getBleManager())
+    {
+        return ble_manager->isEnabled();
+    }
+#endif
+
+    return app::appFacade().isBleEnabled();
+}
+
+bool pause_runtime_ble_for_wifi()
+{
+    if (s_runtime.ble_paused_for_wifi || !app::hasAppFacade())
+    {
+        return false;
+    }
+
+#if TRAIL_MATE_WIFI_HAS_BLE_MANAGER
+    if (ble::BleManager* ble_manager = app::appFacade().getBleManager())
+    {
+        if (!ble_manager->isEnabled())
+        {
+            return false;
+        }
+        std::printf("[WiFi][BLE] pausing BLE to free internal RAM for Wi-Fi init retry\n");
+        ble_manager->setEnabled(false);
+        s_runtime.ble_paused_for_wifi = true;
+        return true;
+    }
+#endif
+
+    if (!app::appFacade().isBleEnabled())
+    {
+        return false;
+    }
+
+    std::printf("[WiFi][BLE] pausing BLE runtime facade for Wi-Fi init retry\n");
+    app::appFacade().setBleEnabled(false);
+    s_runtime.ble_paused_for_wifi = true;
+    return true;
+}
+
+void restore_runtime_ble_after_wifi(const char* reason)
+{
+    if (!s_runtime.ble_paused_for_wifi || !app::hasAppFacade())
+    {
+        return;
+    }
+
+#if TRAIL_MATE_WIFI_HAS_BLE_MANAGER
+    if (ble::BleManager* ble_manager = app::appFacade().getBleManager())
+    {
+        std::printf("[WiFi][BLE] restoring BLE (%s)\n", reason ? reason : "after Wi-Fi");
+        ble_manager->setEnabled(true);
+        s_runtime.ble_paused_for_wifi = false;
+        return;
+    }
+#endif
+
+    std::printf("[WiFi][BLE] restoring BLE runtime facade (%s)\n", reason ? reason : "after Wi-Fi");
+    app::appFacade().setBleEnabled(true);
+    s_runtime.ble_paused_for_wifi = false;
+}
+
 bool ensure_stack_ready()
 {
     if (s_runtime.stack_ready)
@@ -263,6 +457,64 @@ void wifi_event_handler(void*,
     }
 }
 
+bool initialize_wifi_driver_once(const char* attempt_tag, WifiInitProfile profile)
+{
+    char stage[48];
+    std::snprintf(stage, sizeof(stage), "before init %s", attempt_tag ? attempt_tag : "attempt");
+    log_heap_snapshot(stage);
+
+    wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
+    apply_wifi_init_profile(config, profile);
+    log_wifi_init_profile(attempt_tag, profile, config);
+    const esp_err_t init_err = esp_wifi_init(&config);
+    if (init_err != ESP_OK && init_err != ESP_ERR_WIFI_INIT_STATE)
+    {
+        std::printf("[WiFi] esp_wifi_init failed attempt=%s err=0x%x\n",
+                    attempt_tag ? attempt_tag : "attempt",
+                    static_cast<unsigned>(init_err));
+        std::snprintf(stage, sizeof(stage), "after init fail %s", attempt_tag ? attempt_tag : "attempt");
+        log_heap_snapshot(stage);
+        return false;
+    }
+
+    const esp_err_t storage_err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    if (storage_err != ESP_OK)
+    {
+        std::printf("[WiFi] esp_wifi_set_storage failed attempt=%s err=0x%x\n",
+                    attempt_tag ? attempt_tag : "attempt",
+                    static_cast<unsigned>(storage_err));
+        (void)esp_wifi_deinit();
+        set_status_message("wifi storage failed");
+        return false;
+    }
+
+    const esp_err_t mode_err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (mode_err != ESP_OK)
+    {
+        std::printf("[WiFi] esp_wifi_set_mode failed attempt=%s err=0x%x\n",
+                    attempt_tag ? attempt_tag : "attempt",
+                    static_cast<unsigned>(mode_err));
+        (void)esp_wifi_deinit();
+        set_status_message("wifi mode failed");
+        return false;
+    }
+
+    const esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    if (ps_err != ESP_OK)
+    {
+        std::printf("[WiFi] esp_wifi_set_ps failed attempt=%s err=0x%x\n",
+                    attempt_tag ? attempt_tag : "attempt",
+                    static_cast<unsigned>(ps_err));
+        (void)esp_wifi_deinit();
+        set_status_message("wifi power-save failed");
+        return false;
+    }
+
+    std::snprintf(stage, sizeof(stage), "after init %s", attempt_tag ? attempt_tag : "attempt");
+    log_heap_snapshot(stage);
+    return true;
+}
+
 bool ensure_wifi_initialized()
 {
     if (s_runtime.wifi_initialized)
@@ -275,33 +527,28 @@ bool ensure_wifi_initialized()
         return false;
     }
 
-    wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
-    const esp_err_t init_err = esp_wifi_init(&config);
-    if (init_err != ESP_OK && init_err != ESP_ERR_WIFI_INIT_STATE)
+    if (!initialize_wifi_driver_once("primary", WifiInitProfile::Lightweight))
     {
-        set_status_message("esp_wifi_init failed");
-        return false;
-    }
+        if (runtime_ble_is_enabled() && pause_runtime_ble_for_wifi())
+        {
+            vTaskDelay(pdMS_TO_TICKS(kBleRetryDelayMs));
+            log_heap_snapshot("after BLE pause");
+            (void)esp_wifi_deinit();
 
-    const esp_err_t storage_err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    if (storage_err != ESP_OK)
-    {
-        set_status_message("wifi storage failed");
-        return false;
-    }
+            if (!initialize_wifi_driver_once("retry", WifiInitProfile::EmergencyLowMemory))
+            {
+                restore_runtime_ble_after_wifi("Wi-Fi init retry failed");
+                set_status_message("esp_wifi_init failed");
+                return false;
+            }
 
-    const esp_err_t mode_err = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (mode_err != ESP_OK)
-    {
-        set_status_message("wifi mode failed");
-        return false;
-    }
-
-    const esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-    if (ps_err != ESP_OK)
-    {
-        set_status_message("wifi power-save failed");
-        return false;
+            std::printf("[WiFi][BLE] Wi-Fi init retry succeeded with BLE paused for this Wi-Fi session\n");
+        }
+        else
+        {
+            set_status_message("esp_wifi_init failed");
+            return false;
+        }
     }
 
     if (!s_runtime.handlers_registered)
@@ -354,6 +601,14 @@ bool ensure_wifi_started()
     const esp_err_t start_err = esp_wifi_start();
     if (start_err != ESP_OK && start_err != ESP_ERR_WIFI_CONN)
     {
+        std::printf("[WiFi] esp_wifi_start failed err=0x%x\n",
+                    static_cast<unsigned>(start_err));
+        if (s_runtime.ble_paused_for_wifi)
+        {
+            (void)esp_wifi_deinit();
+            s_runtime.wifi_initialized = false;
+            restore_runtime_ble_after_wifi("Wi-Fi start failed");
+        }
         set_status_message("wifi start failed");
         return false;
     }
@@ -401,11 +656,26 @@ bool apply_enabled(bool enabled)
             (void)esp_wifi_disconnect();
             (void)esp_wifi_stop();
         }
+        if (s_runtime.wifi_initialized)
+        {
+            const esp_err_t deinit_err = esp_wifi_deinit();
+            if (deinit_err != ESP_OK && deinit_err != ESP_ERR_WIFI_NOT_INIT)
+            {
+                std::printf("[WiFi] esp_wifi_deinit failed err=0x%x\n",
+                            static_cast<unsigned>(deinit_err));
+            }
+            else
+            {
+                log_heap_snapshot("after deinit");
+            }
+        }
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
         bsp_set_wifi_power_enable(false);
 #endif
         s_runtime.wifi_started = false;
+        s_runtime.wifi_initialized = false;
         clear_connection_details();
+        restore_runtime_ble_after_wifi("Wi-Fi disabled");
         set_status_message("Wi-Fi disabled");
         return true;
     }

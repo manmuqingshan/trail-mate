@@ -39,6 +39,12 @@ constexpr const char* kLegacyDisplayLanguageKey = "display_language";
 constexpr const char* kDefaultLocaleId = "en";
 constexpr const char* kBuiltinEnglishName = "English";
 constexpr const char* kBuiltinLatinFontPackId = "builtin-latin-ui";
+#if defined(ARDUINO_ARCH_ESP32)
+constexpr const char* kFlashPackRoot = "/fs/trailmate/packs";
+constexpr const char* kFlashFontPackRoot = "/fs/trailmate/packs/fonts";
+constexpr const char* kFlashLocalePackRoot = "/fs/trailmate/packs/locales";
+constexpr const char* kFlashImePackRoot = "/fs/trailmate/packs/ime";
+#endif
 constexpr const char* kPackRoot = "/trailmate/packs";
 constexpr const char* kFontPackRoot = "/trailmate/packs/fonts";
 constexpr const char* kLocalePackRoot = "/trailmate/packs/locales";
@@ -1720,16 +1726,33 @@ void scan_pack_group(const char* root_path, bool (*loader)(const std::string&))
     }
 }
 
-void catalog_external_packs()
+void catalog_external_packs_from_root(const char* pack_root,
+                                      const char* font_root,
+                                      const char* ime_root,
+                                      const char* locale_root)
 {
-    if (!external_pack_scan_enabled() || !::ui::fs::dir_exists(kPackRoot))
+    if (!pack_root || !::ui::fs::dir_exists(pack_root))
     {
         return;
     }
 
-    scan_pack_group(kFontPackRoot, catalog_external_font_pack);
-    scan_pack_group(kImePackRoot, catalog_external_ime_pack);
-    scan_pack_group(kLocalePackRoot, catalog_external_locale_pack);
+    scan_pack_group(font_root, catalog_external_font_pack);
+    scan_pack_group(ime_root, catalog_external_ime_pack);
+    scan_pack_group(locale_root, catalog_external_locale_pack);
+}
+
+void catalog_external_packs()
+{
+    if (!external_pack_scan_enabled())
+    {
+        return;
+    }
+
+#if defined(ARDUINO_ARCH_ESP32)
+    catalog_external_packs_from_root(
+        kFlashPackRoot, kFlashFontPackRoot, kFlashImePackRoot, kFlashLocalePackRoot);
+#endif
+    catalog_external_packs_from_root(kPackRoot, kFontPackRoot, kImePackRoot, kLocalePackRoot);
 }
 
 bool locale_dependencies_resolved(const LocalePackRecord& locale)

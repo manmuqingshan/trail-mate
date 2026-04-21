@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.client
 import json
 import os
@@ -104,16 +105,33 @@ def download(url: str, destination: Path) -> None:
         destination.write_bytes(response.read())
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(64 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def build_unavailable_metadata() -> dict:
     return {
         "available": False,
         "tag_name": None,
+        "version": None,
         "release_url": None,
         "published_at": None,
         "targets": {
             target["id"]: {
                 "available": False,
                 "manifest_path": f"manifests/{target['id']}.json",
+                "ota_available": False,
+                "ota_path": None,
+                "ota_sha256": None,
+                "ota_size_bytes": 0,
+                "version": None,
             }
             for target in WEBFLASH_TARGETS
         },
@@ -152,11 +170,14 @@ def copy_showcase_images(site_root: Path) -> None:
 def prepare_site(site_root: Path, release: dict | None) -> None:
     manifests_dir = site_root / "manifests"
     assets_dir = site_root / "assets" / "webflash"
+    ota_assets_dir = site_root / "assets" / "ota"
     data_dir = site_root / "data"
 
     shutil.rmtree(assets_dir, ignore_errors=True)
+    shutil.rmtree(ota_assets_dir, ignore_errors=True)
     clear_directory_contents(manifests_dir, preserve_names=(".gitignore",))
     assets_dir.mkdir(parents=True, exist_ok=True)
+    ota_assets_dir.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
     copy_showcase_images(site_root)
     build_pack_repository(pack_root=Path("packs"), site_root=site_root)
@@ -171,47 +192,71 @@ def prepare_site(site_root: Path, release: dict | None) -> None:
     metadata = {
         "available": True,
         "tag_name": release.get("tag_name"),
+        "version": None,
         "release_url": release.get("html_url"),
         "published_at": release.get("published_at"),
         "targets": {},
     }
 
     version = (release.get("tag_name") or "").removeprefix("v")
+    metadata["version"] = version or None
     for target in WEBFLASH_TARGETS:
         asset_name = target["merged_asset_name"]
         manifest_path = f"manifests/{target['id']}.json"
         download_url = assets_by_name.get(asset_name)
+        ota_asset_name = f"trail-mate-{target['env']}-v{version}.bin" if version else ""
+        ota_download_url = assets_by_name.get(ota_asset_name)
+        ota_path = None
+        ota_sha256 = None
+        ota_size_bytes = 0
 
         if not download_url:
             metadata["targets"][target["id"]] = {
                 "available": False,
                 "manifest_path": manifest_path,
+                "ota_available": False,
+                "ota_path": None,
+                "ota_sha256": None,
+                "ota_size_bytes": 0,
+                "version": version or None,
             }
-            continue
+        else:
+            asset_path = assets_dir / asset_name
+            download(download_url, asset_path)
 
-        asset_path = assets_dir / asset_name
-        download(download_url, asset_path)
+            manifest = {
+                "name": f"Trail Mate - {target['name']}",
+                "version": version or "latest",
+                "new_install_prompt_erase": True,
+                "builds": [
+                    {
+                        "chipFamily": target["chip_family"],
+                        "parts": [
+                            {
+                                "path": f"../assets/webflash/{asset_name}",
+                                "offset": 0,
+                            }
+                        ],
+                    }
+                ],
+            }
+            write_json(manifests_dir / f"{target['id']}.json", manifest)
 
-        manifest = {
-            "name": f"Trail Mate - {target['name']}",
-            "version": version or "latest",
-            "new_install_prompt_erase": True,
-            "builds": [
-                {
-                    "chipFamily": target["chip_family"],
-                    "parts": [
-                        {
-                            "path": f"../assets/webflash/{asset_name}",
-                            "offset": 0,
-                        }
-                    ],
-                }
-            ],
-        }
-        write_json(manifests_dir / f"{target['id']}.json", manifest)
+        if ota_download_url:
+            ota_asset_path = ota_assets_dir / ota_asset_name
+            download(ota_download_url, ota_asset_path)
+            ota_path = f"assets/ota/{ota_asset_name}"
+            ota_sha256 = sha256_file(ota_asset_path)
+            ota_size_bytes = ota_asset_path.stat().st_size
+
         metadata["targets"][target["id"]] = {
-            "available": True,
+            "available": bool(download_url),
             "manifest_path": manifest_path,
+            "ota_available": bool(ota_download_url),
+            "ota_path": ota_path,
+            "ota_sha256": ota_sha256,
+            "ota_size_bytes": ota_size_bytes,
+            "version": version or None,
         }
 
     write_json(data_dir / "latest-release.json", metadata)

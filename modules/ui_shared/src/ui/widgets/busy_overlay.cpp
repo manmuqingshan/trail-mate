@@ -48,6 +48,19 @@ void set_bar_value(void* bar, int32_t value)
     lv_bar_set_value(bar_obj, static_cast<int32_t>(value), LV_ANIM_OFF);
 }
 
+int clamp_progress(int progress_percent)
+{
+    if (progress_percent < 0)
+    {
+        return -1;
+    }
+    if (progress_percent > 100)
+    {
+        return 100;
+    }
+    return progress_percent;
+}
+
 void stop_bar_animation()
 {
     if (s_bar && lv_obj_is_valid(s_bar))
@@ -76,6 +89,25 @@ void start_bar_animation()
     lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
     lv_anim_set_exec_cb(&anim, set_bar_value);
     lv_anim_start(&anim);
+}
+
+void apply_progress(int progress_percent)
+{
+    if (!s_bar || !lv_obj_is_valid(s_bar))
+    {
+        return;
+    }
+
+    const int clamped = clamp_progress(progress_percent);
+    if (clamped < 0)
+    {
+        start_bar_animation();
+        return;
+    }
+
+    stop_bar_animation();
+    lv_bar_set_range(s_bar, 0, 100);
+    lv_bar_set_value(s_bar, clamped, LV_ANIM_OFF);
 }
 
 void swallow_event_cb(lv_event_t* e)
@@ -182,6 +214,20 @@ void set_label_text(lv_obj_t* label, const char* text)
     lv_label_set_text(label, text ? text : "");
 }
 
+void update_content(const char* title, const char* detail)
+{
+    set_label_text(s_title_label, title ? title : "Loading...");
+    set_label_text(s_detail_label, detail ? detail : "");
+    if (detail && detail[0] != '\0')
+    {
+        lv_obj_clear_flag(s_detail_label, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(s_detail_label, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 } // namespace
 
 void show(const char* title, const char* detail)
@@ -194,17 +240,32 @@ void show(const char* title, const char* detail)
         return;
     }
 
-    set_label_text(s_title_label, title ? title : "Loading...");
-    set_label_text(s_detail_label, detail ? detail : "");
-    if (detail && detail[0] != '\0')
-    {
-        lv_obj_clear_flag(s_detail_label, LV_OBJ_FLAG_HIDDEN);
-    }
-    else
-    {
-        lv_obj_add_flag(s_detail_label, LV_OBJ_FLAG_HIDDEN);
-    }
+    update_content(title, detail);
+    apply_progress(-1);
     lv_obj_move_foreground(s_root);
+    refresh_now();
+}
+
+void update(const char* title, const char* detail)
+{
+    if (!s_root || !lv_obj_is_valid(s_root))
+    {
+        return;
+    }
+
+    update_content(title, detail);
+    lv_obj_move_foreground(s_root);
+    refresh_now();
+}
+
+void set_progress(int progress_percent)
+{
+    if (!s_root || !lv_obj_is_valid(s_root))
+    {
+        return;
+    }
+
+    apply_progress(progress_percent);
     refresh_now();
 }
 

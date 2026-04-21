@@ -1,5 +1,7 @@
 #include "platform/ui/device_runtime.h"
 
+#include <cstring>
+
 #include "board/BoardBase.h"
 #include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
@@ -7,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "platform/esp/arduino_common/battery_guard.h"
+#include "platform/esp/common/build_info.h"
 
 namespace platform::ui::device
 {
@@ -48,6 +51,12 @@ MemoryStats memory_stats()
 
 const char* firmware_version()
 {
+    const char* configured = ::platform::esp::common::build_info::firmwareVersion();
+    if (configured && configured[0] != '\0' && std::strcmp(configured, "unknown") != 0)
+    {
+        return configured;
+    }
+
     const esp_app_desc_t* desc = esp_ota_get_app_description();
     return (desc && desc->version[0] != '\0') ? desc->version : "unknown";
 }

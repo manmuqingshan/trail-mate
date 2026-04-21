@@ -15,6 +15,7 @@
 #include "platform/ui/wifi_runtime.h"
 #include "ui/localization.h"
 #include "ui/runtime/memory_profile.h"
+#include "ui/support/lvgl_fs_utils.h"
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
 
@@ -35,6 +36,7 @@ extern "C" esp_err_t esp_crt_bundle_attach(void* conf);
 
 #if defined(ARDUINO)
 #include <Arduino.h>
+#include <FS.h>
 #include <SD.h>
 #else
 #include "platform/esp/idf_common/bsp_runtime.h"
@@ -51,11 +53,26 @@ namespace
 
 constexpr const char* kCatalogUrl = "https://vicliu624.github.io/trail-mate/data/packs.json";
 constexpr const char* kCatalogBaseUrl = "https://vicliu624.github.io/trail-mate";
+#if defined(ARDUINO)
+constexpr const char* kFlashPackRoot = "/fs/trailmate/packs";
+constexpr const char* kFlashIndexDir = "/fs/trailmate/packs/index";
+constexpr const char* kFlashTempDir = "/fs/trailmate/packs/index/tmp";
+constexpr const char* kFlashInstalledIndexPath = "/fs/trailmate/packs/index/installed.json";
+#endif
+constexpr const char* kSdPackRoot = "/trailmate/packs";
+constexpr const char* kSdInstalledIndexPath = "/trailmate/packs/index/installed.json";
+constexpr const char* kLegacyInstalledIndexPath = "/trailmate/packs/.index/installed.json";
+#if defined(ARDUINO)
+constexpr const char* kPackRoot = kFlashPackRoot;
+constexpr const char* kIndexDir = kFlashIndexDir;
+constexpr const char* kTempDir = kFlashTempDir;
+constexpr const char* kInstalledIndexPath = kFlashInstalledIndexPath;
+#else
 constexpr const char* kPackRoot = "/trailmate/packs";
 constexpr const char* kIndexDir = "/trailmate/packs/index";
 constexpr const char* kTempDir = "/trailmate/packs/index/tmp";
 constexpr const char* kInstalledIndexPath = "/trailmate/packs/index/installed.json";
-constexpr const char* kLegacyInstalledIndexPath = "/trailmate/packs/.index/installed.json";
+#endif
 constexpr int kHttpBufferSize = 1024;
 constexpr int kHttpTxBufferSize = 512;
 constexpr std::size_t kTlsLargeAllocThresholdBytes = 4096;
@@ -65,6 +82,8 @@ constexpr std::size_t kZipTailSearchMax = 0x10000 + kZipEocdMinSize;
 constexpr std::uint32_t kZipEocdSignature = 0x06054B50u;
 constexpr std::uint32_t kZipCentralSignature = 0x02014B50u;
 constexpr std::uint32_t kZipLocalSignature = 0x04034B50u;
+constexpr const char* kStorageFlash = "flash";
+constexpr const char* kStorageSd = "sd";
 
 struct InstalledIndex
 {
@@ -318,6 +337,102 @@ int compare_versions(const std::string& lhs, const std::string& rhs)
 
 #if defined(ARDUINO)
 
+struct ArduinoStorageBinding
+{
+    ::fs::FS* volume = nullptr;
+    std::string volume_path;
+    const char* storage = nullptr;
+};
+
+bool is_flash_logical_path(const std::string& logical_path)
+{
+#if UI_FS_HAS_FLASH_PACK_STORAGE
+    return logical_path == "/fs" || starts_with(logical_path, "/fs/");
+#else
+    (void)logical_path;
+    return false;
+#endif
+}
+
+bool is_explicit_sd_logical_path(const std::string& logical_path)
+{
+    return logical_path == "/sd" || starts_with(logical_path, "/sd/");
+}
+
+std::string strip_mount_prefix(const std::string& logical_path, const char* prefix)
+{
+    if (!prefix || !starts_with(logical_path, prefix))
+    {
+        return logical_path;
+    }
+
+    std::string stripped = logical_path.substr(std::strlen(prefix));
+    if (stripped.empty())
+    {
+        stripped = "/";
+    }
+    return stripped;
+}
+
+std::string file_entry_name(const char* raw_name)
+{
+    if (raw_name == nullptr || raw_name[0] == '\0')
+    {
+        return {};
+    }
+
+    std::string name = raw_name;
+    const std::size_t slash = name.find_last_of("/\\");
+    if (slash != std::string::npos)
+    {
+        name = name.substr(slash + 1);
+    }
+    return name;
+}
+
+bool resolve_storage_binding(const std::string& logical_path,
+                             bool allow_format_on_fail,
+                             ArduinoStorageBinding& out)
+{
+    out = ArduinoStorageBinding{};
+
+    if (logical_path.empty())
+    {
+        return false;
+    }
+
+#if UI_FS_HAS_FLASH_PACK_STORAGE
+    if (is_flash_logical_path(logical_path))
+    {
+        if (!::ui::fs::ensure_flash_storage_ready(allow_format_on_fail))
+        {
+            return false;
+        }
+
+        out.volume = &FFat;
+        out.storage = kStorageFlash;
+        out.volume_path = strip_mount_prefix(logical_path, "/fs");
+        return true;
+    }
+#endif
+
+    if (!platform::ui::device::card_ready())
+    {
+        return false;
+    }
+
+    out.volume = &SD;
+    out.storage = kStorageSd;
+    out.volume_path = is_explicit_sd_logical_path(logical_path)
+                          ? strip_mount_prefix(logical_path, "/sd")
+                          : logical_path;
+    if (out.volume_path.empty())
+    {
+        out.volume_path = "/";
+    }
+    return true;
+}
+
 bool ensure_dir_recursive(const std::string& logical_dir)
 {
     if (logical_dir.empty())
@@ -325,25 +440,48 @@ bool ensure_dir_recursive(const std::string& logical_dir)
         return false;
     }
 
+    ArduinoStorageBinding binding;
+    if (!resolve_storage_binding(logical_dir, true, binding))
+    {
+        return false;
+    }
+
     std::string current;
     std::size_t start = 0;
-    while (start < logical_dir.size())
+    while (start < binding.volume_path.size())
     {
-        const std::size_t slash = logical_dir.find('/', start);
-        const std::size_t end =
-            (slash == std::string::npos) ? logical_dir.size() : slash;
-        const std::string segment = logical_dir.substr(start, end - start);
+        const std::size_t slash = binding.volume_path.find('/', start);
+        const std::size_t end = (slash == std::string::npos) ? binding.volume_path.size() : slash;
+        const std::string segment = binding.volume_path.substr(start, end - start);
         if (!segment.empty())
         {
             current.push_back('/');
             current += segment;
-            if (!SD.exists(current.c_str()))
+
+            File existing = binding.volume->open(current.c_str(), FILE_READ);
+            const bool exists = static_cast<bool>(existing);
+            const bool is_dir = exists && existing.isDirectory();
+            if (existing)
             {
-                if (!SD.mkdir(current.c_str()))
+                existing.close();
+            }
+
+            if (!exists)
+            {
+                if (!binding.volume->mkdir(current.c_str()))
                 {
-                    std::printf("[Packs] mkdir failed path=%s\n", current.c_str());
+                    std::printf("[Packs] mkdir failed storage=%s path=%s\n",
+                                binding.storage ? binding.storage : "<none>",
+                                current.c_str());
                     return false;
                 }
+            }
+            else if (!is_dir)
+            {
+                std::printf("[Packs] mkdir blocked by file storage=%s path=%s\n",
+                            binding.storage ? binding.storage : "<none>",
+                            current.c_str());
+                return false;
             }
         }
 
@@ -358,29 +496,46 @@ bool ensure_dir_recursive(const std::string& logical_dir)
 
 bool logical_file_exists(const std::string& logical_path)
 {
-    return SD.exists(logical_path.c_str());
+    ArduinoStorageBinding binding;
+    if (!resolve_storage_binding(logical_path, false, binding))
+    {
+        return false;
+    }
+
+    File file = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
+    const bool exists = static_cast<bool>(file) && !file.isDirectory();
+    if (file)
+    {
+        file.close();
+    }
+    return exists;
 }
 
 bool write_binary_file(const std::string& logical_path, const void* data, std::size_t len)
 {
     const std::size_t slash = logical_path.find_last_of('/');
-    if (slash != std::string::npos)
+    if (slash != std::string::npos &&
+        !ensure_dir_recursive(logical_path.substr(0, slash)))
     {
-        if (!ensure_dir_recursive(logical_path.substr(0, slash)))
-        {
-            return false;
-        }
+        return false;
     }
 
-    if (SD.exists(logical_path.c_str()))
+    ArduinoStorageBinding binding;
+    if (!resolve_storage_binding(logical_path, true, binding))
     {
-        (void)SD.remove(logical_path.c_str());
+        return false;
     }
 
-    File file = SD.open(logical_path.c_str(), FILE_WRITE);
+    if (binding.volume->exists(binding.volume_path.c_str()))
+    {
+        (void)binding.volume->remove(binding.volume_path.c_str());
+    }
+
+    File file = binding.volume->open(binding.volume_path.c_str(), FILE_WRITE);
     if (!file)
     {
-        std::printf("[Packs] open for write failed path=%s len=%lu\n",
+        std::printf("[Packs] open for write failed storage=%s path=%s len=%lu\n",
+                    binding.storage ? binding.storage : "<none>",
                     logical_path.c_str(),
                     static_cast<unsigned long>(len));
         return false;
@@ -394,7 +549,8 @@ bool write_binary_file(const std::string& logical_path, const void* data, std::s
         const std::size_t chunk_written = file.write(bytes + written, chunk);
         if (chunk_written != chunk)
         {
-            std::printf("[Packs] write failed path=%s offset=%lu chunk=%lu wrote=%lu total=%lu\n",
+            std::printf("[Packs] write failed storage=%s path=%s offset=%lu chunk=%lu wrote=%lu total=%lu\n",
+                        binding.storage ? binding.storage : "<none>",
                         logical_path.c_str(),
                         static_cast<unsigned long>(written),
                         static_cast<unsigned long>(chunk),
@@ -417,7 +573,14 @@ bool write_text_file(const std::string& logical_path, const std::string& text)
 bool read_binary_file(const std::string& logical_path, std::vector<std::uint8_t>& out)
 {
     out.clear();
-    File file = SD.open(logical_path.c_str(), FILE_READ);
+
+    ArduinoStorageBinding binding;
+    if (!resolve_storage_binding(logical_path, false, binding))
+    {
+        return false;
+    }
+
+    File file = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
     if (!file)
     {
         return false;
@@ -449,30 +612,42 @@ bool read_text_file(const std::string& logical_path, std::string& out)
 
 bool remove_file_if_exists(const std::string& logical_path)
 {
-    if (!SD.exists(logical_path.c_str()))
+    ArduinoStorageBinding binding;
+    if (!resolve_storage_binding(logical_path, false, binding))
+    {
+        return false;
+    }
+
+    if (!binding.volume->exists(binding.volume_path.c_str()))
     {
         return true;
     }
-    return SD.remove(logical_path.c_str());
+    return binding.volume->remove(binding.volume_path.c_str());
 }
 
 bool remove_dir_recursive_if_exists(const std::string& logical_path)
 {
-    if (logical_path.empty() || !SD.exists(logical_path.c_str()))
+    if (logical_path.empty())
     {
         return true;
     }
 
-    File node = SD.open(logical_path.c_str(), FILE_READ);
-    if (!node)
+    ArduinoStorageBinding binding;
+    if (!resolve_storage_binding(logical_path, false, binding))
     {
         return false;
+    }
+
+    File node = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
+    if (!node)
+    {
+        return true;
     }
 
     if (!node.isDirectory())
     {
         node.close();
-        return SD.remove(logical_path.c_str());
+        return binding.volume->remove(binding.volume_path.c_str());
     }
 
     while (true)
@@ -483,20 +658,16 @@ bool remove_dir_recursive_if_exists(const std::string& logical_path)
             break;
         }
 
-        std::string child_path = entry.name();
-        if (!child_path.empty() && child_path.front() != '/')
-        {
-            child_path = join_logical_path(logical_path, child_path);
-        }
-
         const bool is_dir = entry.isDirectory();
+        const std::string child_name = file_entry_name(entry.name());
         entry.close();
 
-        if (child_path.empty())
+        if (child_name.empty())
         {
             continue;
         }
 
+        const std::string child_path = join_logical_path(logical_path, child_name);
         if (is_dir)
         {
             if (!remove_dir_recursive_if_exists(child_path))
@@ -507,7 +678,9 @@ bool remove_dir_recursive_if_exists(const std::string& logical_path)
             continue;
         }
 
-        if (!SD.remove(child_path.c_str()))
+        ArduinoStorageBinding child_binding;
+        if (!resolve_storage_binding(child_path, false, child_binding) ||
+            !child_binding.volume->remove(child_binding.volume_path.c_str()))
         {
             node.close();
             return false;
@@ -515,7 +688,7 @@ bool remove_dir_recursive_if_exists(const std::string& logical_path)
     }
 
     node.close();
-    return SD.rmdir(logical_path.c_str());
+    return binding.volume->rmdir(binding.volume_path.c_str());
 }
 
 class RandomAccessFile
@@ -523,7 +696,13 @@ class RandomAccessFile
   public:
     bool open(const std::string& logical_path)
     {
-        file_ = SD.open(logical_path.c_str(), FILE_READ);
+        ArduinoStorageBinding binding;
+        if (!resolve_storage_binding(logical_path, false, binding))
+        {
+            return false;
+        }
+
+        file_ = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
         return static_cast<bool>(file_);
     }
 
@@ -559,24 +738,31 @@ class SequentialWriteFile
     bool open(const std::string& logical_path)
     {
         const std::size_t slash = logical_path.find_last_of('/');
-        if (slash != std::string::npos)
+        if (slash != std::string::npos &&
+            !ensure_dir_recursive(logical_path.substr(0, slash)))
         {
-            if (!ensure_dir_recursive(logical_path.substr(0, slash)))
-            {
-                return false;
-            }
+            return false;
         }
-        if (SD.exists(logical_path.c_str()))
+
+        ArduinoStorageBinding binding;
+        if (!resolve_storage_binding(logical_path, true, binding))
         {
-            (void)SD.remove(logical_path.c_str());
+            return false;
         }
-        file_ = SD.open(logical_path.c_str(), FILE_WRITE);
+
+        if (binding.volume->exists(binding.volume_path.c_str()))
+        {
+            (void)binding.volume->remove(binding.volume_path.c_str());
+        }
+        file_ = binding.volume->open(binding.volume_path.c_str(), FILE_WRITE);
         return static_cast<bool>(file_);
     }
 
     bool write(const void* data, std::size_t len)
     {
-        return file_ && static_cast<std::size_t>(file_.write(static_cast<const std::uint8_t*>(data), len)) == len;
+        return file_ &&
+               static_cast<std::size_t>(
+                   file_.write(static_cast<const std::uint8_t*>(data), len)) == len;
     }
 
     void close()
@@ -1251,21 +1437,27 @@ bool compatible_with_firmware(const PackageRecord& package)
                             package.min_firmware_version) >= 0;
 }
 
-bool load_installed_index(InstalledIndex& out_index, std::string& out_error)
+const char* default_storage_for_index_path(const char* index_path)
 {
-    out_index = InstalledIndex{};
-    out_error.clear();
+    if (!index_path)
+    {
+        return kStorageFlash;
+    }
 
-    const char* index_path = nullptr;
-    if (logical_file_exists(kInstalledIndexPath))
-    {
-        index_path = kInstalledIndexPath;
-    }
-    else if (logical_file_exists(kLegacyInstalledIndexPath))
-    {
-        index_path = kLegacyInstalledIndexPath;
-    }
-    else
+#if defined(ARDUINO)
+    return starts_with(index_path, "/fs/") ? kStorageFlash : kStorageSd;
+#else
+    return kStorageSd;
+#endif
+}
+
+bool load_installed_index_file(const char* index_path,
+                               const char* default_storage,
+                               InstalledIndex& out_index,
+                               std::string& out_error)
+{
+    out_error.clear();
+    if (!index_path || !logical_file_exists(index_path))
     {
         return true;
     }
@@ -1294,6 +1486,11 @@ bool load_installed_index(InstalledIndex& out_index, std::string& out_error)
             record.id = json_string(item, "id");
             record.version = json_string(item, "version");
             record.archive_sha256 = json_string(item, "archive_sha256");
+            record.storage = json_string(item, "storage");
+            if (record.storage.empty())
+            {
+                record.storage = default_storage ? default_storage : default_storage_for_index_path(index_path);
+            }
             record.installed_at_epoch = json_u64(item, "installed_at_epoch");
             if (!record.id.empty())
             {
@@ -1303,6 +1500,37 @@ bool load_installed_index(InstalledIndex& out_index, std::string& out_error)
     }
 
     cJSON_Delete(root);
+    return true;
+}
+
+bool load_installed_index(InstalledIndex& out_index, std::string& out_error)
+{
+    out_index = InstalledIndex{};
+    out_error.clear();
+
+    if (logical_file_exists(kInstalledIndexPath))
+    {
+        return load_installed_index_file(
+            kInstalledIndexPath, default_storage_for_index_path(kInstalledIndexPath), out_index, out_error);
+    }
+
+#if defined(ARDUINO)
+    if (logical_file_exists(kSdInstalledIndexPath))
+    {
+        return load_installed_index_file(kSdInstalledIndexPath, kStorageSd, out_index, out_error);
+    }
+    if (logical_file_exists(kLegacyInstalledIndexPath))
+    {
+        return load_installed_index_file(kLegacyInstalledIndexPath, kStorageSd, out_index, out_error);
+    }
+#elif defined(ESP_PLATFORM)
+    if (logical_file_exists(kLegacyInstalledIndexPath))
+    {
+        return load_installed_index_file(
+            kLegacyInstalledIndexPath, default_storage_for_index_path(kLegacyInstalledIndexPath), out_index, out_error);
+    }
+#endif
+
     return true;
 }
 
@@ -1324,6 +1552,10 @@ bool save_installed_index(const InstalledIndex& index, std::string& out_error)
         cJSON_AddStringToObject(item, "id", record.id.c_str());
         cJSON_AddStringToObject(item, "version", record.version.c_str());
         cJSON_AddStringToObject(item, "archive_sha256", record.archive_sha256.c_str());
+        cJSON_AddStringToObject(item,
+                                "storage",
+                                record.storage.empty() ? default_storage_for_index_path(kInstalledIndexPath)
+                                                       : record.storage.c_str());
         cJSON_AddNumberToObject(item,
                                 "installed_at_epoch",
                                 static_cast<double>(record.installed_at_epoch));
@@ -1569,7 +1801,31 @@ void merge_installed_state(const std::vector<InstalledPackageRecord>& installed,
     }
 }
 
-bool remove_package_payload(const PackageRecord& package, std::string& out_error)
+const char* storage_pack_root(const std::string& storage)
+{
+#if defined(ARDUINO)
+    return lowercase_ascii(storage) == kStorageSd ? kSdPackRoot : kFlashPackRoot;
+#else
+    (void)storage;
+    return kPackRoot;
+#endif
+}
+
+const InstalledPackageRecord* find_installed_record(const InstalledIndex& index, const std::string& package_id)
+{
+    for (const InstalledPackageRecord& record : index.packages)
+    {
+        if (record.id == package_id)
+        {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+bool remove_package_payload(const PackageRecord& package,
+                            const std::string& storage,
+                            std::string& out_error)
 {
     const struct PayloadGroup
     {
@@ -1581,6 +1837,7 @@ bool remove_package_payload(const PackageRecord& package, std::string& out_error
         {"fonts", &package.provided_font_ids, "font"},
         {"ime", &package.provided_ime_ids, "IME"},
     };
+    const char* pack_root = storage_pack_root(storage);
 
     for (const PayloadGroup& group : groups)
     {
@@ -1592,7 +1849,7 @@ bool remove_package_payload(const PackageRecord& package, std::string& out_error
             }
 
             const std::string logical_path =
-                join_logical_path(join_logical_path(kPackRoot, group.dir_name), id);
+                join_logical_path(join_logical_path(pack_root, group.dir_name), id);
             if (!remove_dir_recursive_if_exists(logical_path))
             {
                 out_error = std::string("Remove ") + group.label + " pack failed";
@@ -1608,7 +1865,11 @@ bool remove_package_payload(const PackageRecord& package, std::string& out_error
 
 bool is_supported()
 {
+#if defined(ARDUINO)
+    return true;
+#else
     return platform::ui::device::card_ready();
+#endif
 }
 
 bool load_installed_packages(std::vector<InstalledPackageRecord>& out_installed, std::string& out_error)
@@ -1735,17 +1996,12 @@ bool install_package(const PackageRecord& package, std::string& out_error)
         out_error = "Wi-Fi is not connected";
         return false;
     }
-    if (!platform::ui::device::card_ready())
-    {
-        out_error = "SD card is not ready";
-        return false;
-    }
 
     if (!ensure_dir_recursive(kPackRoot) ||
         !ensure_dir_recursive(kIndexDir) ||
         !ensure_dir_recursive(kTempDir))
     {
-        out_error = "Create pack directories failed";
+        out_error = "Create flash pack directories failed";
         return false;
     }
 
@@ -1785,6 +2041,9 @@ bool install_package(const PackageRecord& package, std::string& out_error)
         return false;
     }
 
+    const InstalledPackageRecord* previous_record = find_installed_record(index, package.id);
+    const std::string previous_storage = previous_record ? previous_record->storage : "";
+
     bool updated = false;
     for (InstalledPackageRecord& record : index.packages)
     {
@@ -1794,6 +2053,7 @@ bool install_package(const PackageRecord& package, std::string& out_error)
         }
         record.version = package.version;
         record.archive_sha256 = archive_sha256;
+        record.storage = kStorageFlash;
         record.installed_at_epoch = static_cast<std::uint64_t>(std::time(nullptr));
         updated = true;
         break;
@@ -1805,6 +2065,7 @@ bool install_package(const PackageRecord& package, std::string& out_error)
         record.id = package.id;
         record.version = package.version;
         record.archive_sha256 = archive_sha256;
+        record.storage = kStorageFlash;
         record.installed_at_epoch = static_cast<std::uint64_t>(std::time(nullptr));
         index.packages.push_back(std::move(record));
     }
@@ -1816,6 +2077,22 @@ bool install_package(const PackageRecord& package, std::string& out_error)
     }
 
     (void)remove_file_if_exists(temp_zip_path);
+
+#if defined(ARDUINO)
+    if (!previous_storage.empty() &&
+        lowercase_ascii(previous_storage) == kStorageSd &&
+        platform::ui::device::card_ready())
+    {
+        std::string cleanup_error;
+        if (!remove_package_payload(package, previous_storage, cleanup_error))
+        {
+            std::printf("[Packs] legacy sd cleanup skipped id=%s reason=%s\n",
+                        package.id.c_str(),
+                        cleanup_error.c_str());
+        }
+    }
+#endif
+
     ::ui::i18n::reload_language();
     return true;
 }
@@ -1829,11 +2106,6 @@ bool uninstall_package(const PackageRecord& package, std::string& out_error)
         out_error = "Package metadata is incomplete";
         return false;
     }
-    if (!platform::ui::device::card_ready())
-    {
-        out_error = "SD card is not ready";
-        return false;
-    }
 
     InstalledIndex index;
     if (!load_installed_index(index, out_error))
@@ -1841,7 +2113,18 @@ bool uninstall_package(const PackageRecord& package, std::string& out_error)
         return false;
     }
 
-    if (!remove_package_payload(package, out_error))
+    const InstalledPackageRecord* installed = find_installed_record(index, package.id);
+    const std::string storage = installed ? installed->storage : std::string(kStorageFlash);
+
+#if defined(ARDUINO)
+    if (lowercase_ascii(storage) == kStorageSd && !platform::ui::device::card_ready())
+    {
+        out_error = "SD card is not ready";
+        return false;
+    }
+#endif
+
+    if (!remove_package_payload(package, storage, out_error))
     {
         return false;
     }

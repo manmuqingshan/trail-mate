@@ -18,6 +18,7 @@
 #include "chat/infra/meshtastic/mt_region.h"
 #include "meshtastic/config.pb.h"
 #include "platform/ui/device_runtime.h"
+#include "platform/ui/firmware_update_runtime.h"
 #include "platform/ui/gps_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/settings_store.h"
@@ -37,6 +38,7 @@
 #include "ui/screens/settings/settings_state.h"
 #include "ui/screens/team/team_ui_store.h"
 #include "ui/ui_common.h"
+#include "ui/widgets/busy_overlay.h"
 #include "ui/widgets/system_notification.h"
 #include "ui/widgets/top_bar.h"
 
@@ -47,6 +49,7 @@ namespace
 {
 
 namespace device_runtime = ::platform::ui::device;
+namespace firmware_update_runtime = ::platform::ui::firmware_update;
 namespace gps_runtime = ::platform::ui::gps;
 namespace screen_runtime = ::platform::ui::screen;
 namespace settings_store = ::platform::ui::settings_store;
@@ -104,6 +107,10 @@ static settings::ui::SettingOption kWifiNetworkOptions[kMaxWifiNetworks] = {};
 static size_t kWifiNetworkOptionCount = 0;
 static char kWifiNetworkOptionLabels[kMaxWifiNetworks][64] = {};
 static wifi_runtime::ScanResult kWifiScanResults[kMaxWifiNetworks] = {};
+static lv_timer_t* s_firmware_update_timer = nullptr;
+static bool s_firmware_overlay_owned = false;
+static firmware_update_runtime::Phase s_last_firmware_phase = firmware_update_runtime::Phase::Unsupported;
+static bool s_last_firmware_busy = false;
 
 static void update_item_value(settings::ui::ItemWidget& widget);
 static void open_factory_reset_modal();
@@ -215,6 +222,107 @@ static void refresh_wifi_state_from_runtime()
     {
         copy_bounded(g_settings.wifi_status, sizeof(g_settings.wifi_status), status.message);
     }
+}
+
+static void refresh_firmware_update_state_from_runtime()
+{
+    const firmware_update_runtime::Status status = firmware_update_runtime::status();
+    copy_bounded(g_settings.fw_current_version,
+                 sizeof(g_settings.fw_current_version),
+                 status.current_version[0] != '\0' ? status.current_version : "unknown");
+    if (status.latest_version[0] != '\0')
+    {
+        copy_bounded(g_settings.fw_latest_version, sizeof(g_settings.fw_latest_version), status.latest_version);
+    }
+    else
+    {
+        copy_bounded(g_settings.fw_latest_version,
+                     sizeof(g_settings.fw_latest_version),
+                     status.checked ? g_settings.fw_current_version : "Not checked");
+    }
+    copy_bounded(g_settings.fw_update_status,
+                 sizeof(g_settings.fw_update_status),
+                 status.message[0] != '\0' ? status.message
+                                           : (status.supported ? "Ready to check" : "OTA unsupported"));
+}
+
+static void refresh_visible_item_values()
+{
+    for (size_t index = 0; index < g_state.item_count; ++index)
+    {
+        update_item_value(g_state.item_widgets[index]);
+    }
+}
+
+static const char* firmware_overlay_title(const firmware_update_runtime::Status& status)
+{
+    switch (status.phase)
+    {
+    case firmware_update_runtime::Phase::Checking:
+        return "Checking for updates...";
+    case firmware_update_runtime::Phase::Downloading:
+        return "Downloading update...";
+    case firmware_update_runtime::Phase::Installing:
+        return "Installing update...";
+    case firmware_update_runtime::Phase::Rebooting:
+        return "Restarting...";
+    default:
+        break;
+    }
+    return status.message[0] != '\0' ? status.message : "Working...";
+}
+
+static void sync_firmware_update_ui(bool notify_completion)
+{
+    const firmware_update_runtime::Status status = firmware_update_runtime::status();
+    refresh_firmware_update_state_from_runtime();
+    refresh_visible_item_values();
+
+    if (status.busy)
+    {
+        const char* detail = status.detail[0] != '\0' ? status.detail : nullptr;
+        if (!s_firmware_overlay_owned)
+        {
+            ::ui::widgets::busy_overlay::show(firmware_overlay_title(status), detail);
+            s_firmware_overlay_owned = true;
+        }
+        else
+        {
+            ::ui::widgets::busy_overlay::update(firmware_overlay_title(status), detail);
+        }
+        ::ui::widgets::busy_overlay::set_progress(status.progress_percent);
+    }
+    else if (s_firmware_overlay_owned)
+    {
+        ::ui::widgets::busy_overlay::hide();
+        s_firmware_overlay_owned = false;
+    }
+
+    if (notify_completion && s_last_firmware_busy && !status.busy)
+    {
+        switch (status.phase)
+        {
+        case firmware_update_runtime::Phase::UpToDate:
+            ::ui::SystemNotification::show(status.message, 2200);
+            break;
+        case firmware_update_runtime::Phase::UpdateAvailable:
+            ::ui::SystemNotification::show(status.message, 2600);
+            break;
+        case firmware_update_runtime::Phase::Error:
+            ::ui::SystemNotification::show(status.message, 3200);
+            break;
+        default:
+            break;
+        }
+    }
+
+    s_last_firmware_busy = status.busy;
+    s_last_firmware_phase = status.phase;
+}
+
+static void firmware_update_timer_cb(lv_timer_t* /*timer*/)
+{
+    sync_firmware_update_ui(true);
 }
 
 static bool use_tdeck_info_card_layout()
@@ -910,6 +1018,7 @@ static void settings_load()
     g_settings.ble_enabled = cfg.ble_enabled;
     g_settings.vibration_enabled = prefs_get_bool("vibration_enabled", true);
     refresh_wifi_state_from_runtime();
+    refresh_firmware_update_state_from_runtime();
 
     g_settings.advanced_debug_logs = prefs_get_bool("adv_debug", false);
 
@@ -2482,6 +2591,11 @@ static settings::ui::SettingItem kWifiItems[] = {
 };
 
 static settings::ui::SettingItem kAdvancedItems[] = {
+    {"Current Version", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.fw_current_version, sizeof(g_settings.fw_current_version), false, "fw_current"},
+    {"Latest Version", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.fw_latest_version, sizeof(g_settings.fw_latest_version), false, "fw_latest"},
+    {"OTA Status", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.fw_update_status, sizeof(g_settings.fw_update_status), false, "fw_status"},
+    {"Check for Updates", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "fw_check"},
+    {"Install Update", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "fw_install"},
     {"Debug Logs", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.advanced_debug_logs, nullptr, 0, false, "adv_debug"},
 };
 
@@ -2628,6 +2742,13 @@ static bool should_show_item(const settings::ui::SettingItem& item)
          has_pref_key(item, "wifi_disconnect") || has_pref_key(item, "wifi_ssid") ||
          has_pref_key(item, "wifi_password") || has_pref_key(item, "wifi_enabled")) &&
         !wifi_runtime::is_supported())
+    {
+        return false;
+    }
+    if ((has_pref_key(item, "fw_current") || has_pref_key(item, "fw_latest") ||
+         has_pref_key(item, "fw_status") || has_pref_key(item, "fw_check") ||
+         has_pref_key(item, "fw_install")) &&
+        !firmware_update_runtime::is_supported())
     {
         return false;
     }
@@ -3018,6 +3139,38 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             refresh_wifi_state_from_runtime();
             build_item_list();
         }
+        else if (item.pref_key && strcmp(item.pref_key, "fw_check") == 0)
+        {
+            if (!firmware_update_runtime::start_check())
+            {
+                sync_firmware_update_ui(false);
+                const firmware_update_runtime::Status status = firmware_update_runtime::status();
+                const char* message = status.busy ? "Update task already running"
+                                                  : (status.message[0] != '\0' ? status.message
+                                                                               : "Unable to start update check");
+                ::ui::SystemNotification::show(message, 2600);
+            }
+            else
+            {
+                sync_firmware_update_ui(false);
+            }
+        }
+        else if (item.pref_key && strcmp(item.pref_key, "fw_install") == 0)
+        {
+            if (!firmware_update_runtime::start_install())
+            {
+                sync_firmware_update_ui(false);
+                const firmware_update_runtime::Status status = firmware_update_runtime::status();
+                const char* message = status.busy ? "Update task already running"
+                                                  : (status.message[0] != '\0' ? status.message
+                                                                               : "Unable to start OTA install");
+                ::ui::SystemNotification::show(message, 2600);
+            }
+            else
+            {
+                sync_firmware_update_ui(false);
+            }
+        }
         return true;
     }
 
@@ -3123,6 +3276,22 @@ void create(lv_obj_t* parent)
 
     update_filter_styles();
     build_item_list();
+    sync_firmware_update_ui(false);
+    if (s_firmware_update_timer)
+    {
+        lv_timer_del(s_firmware_update_timer);
+        s_firmware_update_timer = nullptr;
+    }
+    s_firmware_update_timer = lv_timer_create(firmware_update_timer_cb, 250, nullptr);
+    if (s_firmware_update_timer)
+    {
+        lv_timer_set_repeat_count(s_firmware_update_timer, -1);
+    }
+    {
+        const firmware_update_runtime::Status status = firmware_update_runtime::status();
+        s_last_firmware_phase = status.phase;
+        s_last_firmware_busy = status.busy;
+    }
 
     // Restore previous default group before initializing input.
     set_default_group(prev_group);
@@ -3134,6 +3303,16 @@ void destroy()
     if (g_state.modal_root)
     {
         modal_close();
+    }
+    if (s_firmware_update_timer)
+    {
+        lv_timer_del(s_firmware_update_timer);
+        s_firmware_update_timer = nullptr;
+    }
+    if (s_firmware_overlay_owned)
+    {
+        ::ui::widgets::busy_overlay::hide();
+        s_firmware_overlay_owned = false;
     }
     settings::ui::input::cleanup();
     if (g_state.root)

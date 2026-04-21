@@ -4,8 +4,53 @@
 
 #include <string>
 
+#if defined(ARDUINO_ARCH_ESP32) && __has_include(<FFat.h>)
+#include <FFat.h>
+#include <cstdio>
+#define UI_FS_HAS_FLASH_PACK_STORAGE 1
+#else
+#define UI_FS_HAS_FLASH_PACK_STORAGE 0
+#endif
+
 namespace ui::fs
 {
+
+inline bool ensure_flash_storage_ready(bool allow_format_on_fail = false)
+{
+#if UI_FS_HAS_FLASH_PACK_STORAGE
+    static bool mounted = false;
+    static bool mount_attempted = false;
+    static bool format_mount_attempted = false;
+
+    if (mounted)
+    {
+        return true;
+    }
+
+    if (!mount_attempted)
+    {
+        mount_attempted = true;
+        mounted = FFat.begin(false, "/fs", 10, "ffat");
+        std::printf("[I18N][FS] flash mount readonly=%d\n", mounted ? 1 : 0);
+        if (mounted)
+        {
+            return true;
+        }
+    }
+
+    if (allow_format_on_fail && !format_mount_attempted)
+    {
+        format_mount_attempted = true;
+        mounted = FFat.begin(true, "/fs", 10, "ffat");
+        std::printf("[I18N][FS] flash mount format_retry=%d\n", mounted ? 1 : 0);
+    }
+
+    return mounted;
+#else
+    (void)allow_format_on_fail;
+    return false;
+#endif
+}
 
 inline std::string normalize_path(const char* path)
 {
@@ -14,10 +59,34 @@ inline std::string normalize_path(const char* path)
         return {};
     }
 
-    if (path[1] == ':')
+    if (path[0] != '\0' && path[1] == ':')
     {
+#if UI_FS_HAS_FLASH_PACK_STORAGE
+        if ((path[0] == 'F' || path[0] == 'f') && !ensure_flash_storage_ready(false))
+        {
+            return {};
+        }
+#endif
         return std::string(path);
     }
+
+#if UI_FS_HAS_FLASH_PACK_STORAGE
+    if ((path[0] == '/' && path[1] == 'f' && path[2] == 's' &&
+         (path[3] == '\0' || path[3] == '/')))
+    {
+        if (!ensure_flash_storage_ready(false))
+        {
+            return {};
+        }
+
+        const char* relative = path + 3;
+        if (*relative == '\0')
+        {
+            relative = "/";
+        }
+        return std::string("F:") + relative;
+    }
+#endif
 
     if (path[0] == '/')
     {

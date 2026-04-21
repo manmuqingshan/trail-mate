@@ -13,6 +13,7 @@ struct InstalledPackageRecord
     std::string id;
     std::string version;
     std::string archive_sha256;
+    std::string storage;
     std::uint64_t installed_at_epoch = 0;
 };
 

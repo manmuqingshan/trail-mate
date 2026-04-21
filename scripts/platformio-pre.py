@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import json
+import re
 
 print("[pio] pre: configuring build environment")
 
@@ -11,6 +12,58 @@ pio_platform = (env.get("PIOPLATFORM") or "").lower()
 is_esp32_env = "espressif32" in pio_platform
 is_nrf52_env = "nordicnrf52" in pio_platform
 is_gat562_env = env.get("PIOENV") == "gat562_mesh_evb_pro"
+
+
+def read_text_best_effort(path):
+    encodings = ("utf-16", "utf-8-sig", "utf-8")
+    last_error = None
+    for encoding in encodings:
+        try:
+            with open(path, "r", encoding=encoding) as fp:
+                return fp.read()
+        except UnicodeError as exc:
+            last_error = exc
+    if last_error:
+        raise last_error
+    with open(path, "r", encoding="utf-8") as fp:
+        return fp.read()
+
+
+def extract_version_from_changelog():
+    changelog_path = os.path.join(project_dir, "CHANGELOG.md")
+    if not os.path.exists(changelog_path):
+        return None
+
+    text = read_text_best_effort(changelog_path)
+    match = re.search(r"^## \[([0-9][^\]]*)\]", text, re.MULTILINE)
+    return match.group(1).strip() if match else None
+
+
+def extract_version_from_ci_tag():
+    github_ref = os.environ.get("GITHUB_REF", "")
+    github_ref_name = os.environ.get("GITHUB_REF_NAME", "")
+
+    tag_name = ""
+    if github_ref.startswith("refs/tags/"):
+        tag_name = github_ref.rsplit("/", 1)[-1]
+    elif github_ref_name:
+        tag_name = github_ref_name
+
+    if not tag_name:
+        return None
+    return tag_name[1:] if tag_name.startswith("v") else tag_name
+
+
+def resolve_project_version():
+    version = extract_version_from_ci_tag()
+    if version:
+        return version
+
+    version = extract_version_from_changelog()
+    if version:
+        return version
+
+    return "unknown"
 
 
 def update_library_build_metadata(library_json_path, desired_updates, description):
@@ -167,9 +220,17 @@ def configure_nrf52_framework_libraries():
     )
 
 
+def inject_project_version_define():
+    version = resolve_project_version()
+    escaped_version = version.replace("\\", "\\\\").replace('"', '\\"')
+    env.AppendUnique(CPPDEFINES=[("TRAIL_MATE_FIRMWARE_VERSION", '\\"' + escaped_version + '\\"')])
+    print(f"[pio] pre: Injected firmware version: {version}")
+
+
 configure_radiolib_for_gat562()
 configure_crypto_for_gat562()
 configure_nrf52_framework_libraries()
+inject_project_version_define()
 
 # Only ESP Arduino builds need the shared LVGL config under platform/esp.
 if is_esp32_env:

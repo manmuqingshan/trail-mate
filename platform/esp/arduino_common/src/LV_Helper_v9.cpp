@@ -12,9 +12,15 @@
 #include "screen_sleep.h"
 #include "ui/LV_Helper.h"
 #include "ui/app_runtime.h"
+#include "ui/support/lvgl_fs_utils.h"
 #include "walkie/walkie_service.h"
 #include <Arduino.h>
+#include <dirent.h>
+#include <errno.h>
 #include <esp_heap_caps.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #if LVGL_VERSION_MAJOR == 9
 
@@ -32,6 +38,261 @@ static lv_indev_t* indev_keyboard;
 
 static lv_color16_t* buf = nullptr;
 static lv_color16_t* buf1 = nullptr;
+
+#if UI_FS_HAS_FLASH_PACK_STORAGE
+namespace
+{
+constexpr char kLvglFlashFsLetter = 'F';
+constexpr const char* kLvglFlashFsMountPoint = "/fs";
+
+lv_fs_drv_t s_flash_fs_drv;
+bool s_flash_fs_ready = false;
+
+inline int flash_fs_fd_from_ptr(void* file_p)
+{
+    return static_cast<int>(reinterpret_cast<uintptr_t>(file_p) - 1U);
+}
+
+inline void* flash_fs_ptr_from_fd(int fd)
+{
+    return reinterpret_cast<void*>(static_cast<uintptr_t>(fd + 1));
+}
+
+lv_fs_res_t flash_fs_errno_to_res(int errno_val)
+{
+    switch (errno_val)
+    {
+    case 0:
+        return LV_FS_RES_OK;
+    case EIO:
+        return LV_FS_RES_HW_ERR;
+    case EFAULT:
+        return LV_FS_RES_FS_ERR;
+    case ENOENT:
+        return LV_FS_RES_NOT_EX;
+    case ENOSPC:
+        return LV_FS_RES_FULL;
+    case EALREADY:
+        return LV_FS_RES_LOCKED;
+    case EACCES:
+        return LV_FS_RES_DENIED;
+    case EBUSY:
+        return LV_FS_RES_BUSY;
+    case ETIMEDOUT:
+        return LV_FS_RES_TOUT;
+    case ENOSYS:
+        return LV_FS_RES_NOT_IMP;
+    case ENOMEM:
+        return LV_FS_RES_OUT_OF_MEM;
+    case EINVAL:
+        return LV_FS_RES_INV_PARAM;
+    default:
+        return LV_FS_RES_UNKNOWN;
+    }
+}
+
+bool flash_fs_ready_for_io()
+{
+    return ::ui::fs::ensure_flash_storage_ready(false);
+}
+
+void* flash_fs_open(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
+{
+    LV_UNUSED(drv);
+
+    if (!flash_fs_ready_for_io())
+    {
+        return nullptr;
+    }
+
+    int flags = 0;
+    if (mode == LV_FS_MODE_WR)
+    {
+        flags = O_WRONLY | O_CREAT;
+    }
+    else if (mode == LV_FS_MODE_RD)
+    {
+        flags = O_RDONLY;
+    }
+    else if (mode == (LV_FS_MODE_WR | LV_FS_MODE_RD))
+    {
+        flags = O_RDWR | O_CREAT;
+    }
+
+    char full_path[LV_FS_MAX_PATH_LEN];
+    lv_snprintf(full_path, sizeof(full_path), "%s%s", kLvglFlashFsMountPoint, path);
+
+    const int fd = ::open(full_path, flags, 0666);
+    if (fd < 0)
+    {
+        return nullptr;
+    }
+
+    return flash_fs_ptr_from_fd(fd);
+}
+
+lv_fs_res_t flash_fs_close(lv_fs_drv_t* drv, void* file_p)
+{
+    LV_UNUSED(drv);
+    return ::close(flash_fs_fd_from_ptr(file_p)) < 0 ? flash_fs_errno_to_res(errno)
+                                                     : LV_FS_RES_OK;
+}
+
+lv_fs_res_t flash_fs_read(lv_fs_drv_t* drv, void* file_p, void* buf, uint32_t btr, uint32_t* br)
+{
+    LV_UNUSED(drv);
+
+    const ssize_t result = ::read(flash_fs_fd_from_ptr(file_p), buf, btr);
+    if (result < 0)
+    {
+        return flash_fs_errno_to_res(errno);
+    }
+
+    if (br != nullptr)
+    {
+        *br = static_cast<uint32_t>(result);
+    }
+    return LV_FS_RES_OK;
+}
+
+lv_fs_res_t flash_fs_write(lv_fs_drv_t* drv,
+                           void* file_p,
+                           const void* buf,
+                           uint32_t btw,
+                           uint32_t* bw)
+{
+    LV_UNUSED(drv);
+
+    const ssize_t result = ::write(flash_fs_fd_from_ptr(file_p), buf, btw);
+    if (result < 0)
+    {
+        return flash_fs_errno_to_res(errno);
+    }
+
+    if (bw != nullptr)
+    {
+        *bw = static_cast<uint32_t>(result);
+    }
+    return LV_FS_RES_OK;
+}
+
+lv_fs_res_t flash_fs_seek(lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whence_t whence)
+{
+    LV_UNUSED(drv);
+
+    int origin = SEEK_SET;
+    switch (whence)
+    {
+    case LV_FS_SEEK_CUR:
+        origin = SEEK_CUR;
+        break;
+    case LV_FS_SEEK_END:
+        origin = SEEK_END;
+        break;
+    case LV_FS_SEEK_SET:
+    default:
+        origin = SEEK_SET;
+        break;
+    }
+
+    return ::lseek(flash_fs_fd_from_ptr(file_p), static_cast<off_t>(pos), origin) < 0
+               ? flash_fs_errno_to_res(errno)
+               : LV_FS_RES_OK;
+}
+
+lv_fs_res_t flash_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
+{
+    LV_UNUSED(drv);
+
+    const off_t offset = ::lseek(flash_fs_fd_from_ptr(file_p), 0, SEEK_CUR);
+    if (offset < 0)
+    {
+        return flash_fs_errno_to_res(errno);
+    }
+
+    if (pos_p != nullptr)
+    {
+        *pos_p = static_cast<uint32_t>(offset);
+    }
+    return LV_FS_RES_OK;
+}
+
+void* flash_fs_dir_open(lv_fs_drv_t* drv, const char* path)
+{
+    LV_UNUSED(drv);
+
+    if (!flash_fs_ready_for_io())
+    {
+        return nullptr;
+    }
+
+    char full_path[LV_FS_MAX_PATH_LEN];
+    lv_snprintf(full_path, sizeof(full_path), "%s%s", kLvglFlashFsMountPoint, path);
+    return ::opendir(full_path);
+}
+
+lv_fs_res_t flash_fs_dir_read(lv_fs_drv_t* drv, void* dir_p, char* fn, uint32_t fn_len)
+{
+    LV_UNUSED(drv);
+
+    if (fn == nullptr || fn_len == 0)
+    {
+        return LV_FS_RES_INV_PARAM;
+    }
+
+    struct dirent* entry = nullptr;
+    do
+    {
+        entry = ::readdir(static_cast<DIR*>(dir_p));
+        if (entry == nullptr)
+        {
+            lv_strlcpy(fn, "", fn_len);
+            return LV_FS_RES_OK;
+        }
+
+        if (entry->d_type == DT_DIR)
+        {
+            lv_snprintf(fn, fn_len, "/%s", entry->d_name);
+        }
+        else
+        {
+            lv_strlcpy(fn, entry->d_name, fn_len);
+        }
+    } while (lv_strcmp(fn, "/.") == 0 || lv_strcmp(fn, "/..") == 0);
+
+    return LV_FS_RES_OK;
+}
+
+lv_fs_res_t flash_fs_dir_close(lv_fs_drv_t* drv, void* dir_p)
+{
+    LV_UNUSED(drv);
+    return ::closedir(static_cast<DIR*>(dir_p)) < 0 ? flash_fs_errno_to_res(errno)
+                                                    : LV_FS_RES_OK;
+}
+
+void init_flash_fs_driver()
+{
+    if (s_flash_fs_ready)
+    {
+        return;
+    }
+
+    lv_fs_drv_init(&s_flash_fs_drv);
+    s_flash_fs_drv.letter = kLvglFlashFsLetter;
+    s_flash_fs_drv.open_cb = flash_fs_open;
+    s_flash_fs_drv.close_cb = flash_fs_close;
+    s_flash_fs_drv.read_cb = flash_fs_read;
+    s_flash_fs_drv.write_cb = flash_fs_write;
+    s_flash_fs_drv.seek_cb = flash_fs_seek;
+    s_flash_fs_drv.tell_cb = flash_fs_tell;
+    s_flash_fs_drv.dir_open_cb = flash_fs_dir_open;
+    s_flash_fs_drv.dir_read_cb = flash_fs_dir_read;
+    s_flash_fs_drv.dir_close_cb = flash_fs_dir_close;
+    lv_fs_drv_register(&s_flash_fs_drv);
+    s_flash_fs_ready = true;
+}
+} // namespace
+#endif
 
 static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* color_p)
 {
@@ -399,6 +660,10 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
     Serial.println("[LVGL] init");
     lv_init();
     Serial.println("[LVGL] init done");
+
+#if UI_FS_HAS_FLASH_PACK_STORAGE
+    init_flash_fs_driver();
+#endif
 
 #if LV_USE_LOG
     if (debug)
