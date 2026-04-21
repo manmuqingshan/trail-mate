@@ -216,16 +216,16 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     lv_obj_center(stack);
 
     lv_obj_t* title = lv_label_create(stack);
-    ::ui::i18n::set_label_text(title, page_subtitle());
     lv_obj_set_style_text_font(title, &lv_font_montserrat_18, 0);
+    ::ui::i18n::set_label_text(title, page_subtitle());
 
     s_status_label = lv_label_create(stack);
-    ::ui::i18n::set_label_text(s_status_label, "Waiting for host...");
     lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_18, 0);
+    ::ui::i18n::set_label_text(s_status_label, "Waiting for host...");
 
     s_count_label = lv_label_create(stack);
-    ::ui::i18n::set_label_text(s_count_label, "RX: 0  TX: 0");
     lv_obj_set_style_text_font(s_count_label, &lv_font_montserrat_16, 0);
+    ::ui::i18n::set_label_text(s_count_label, "RX: 0  TX: 0");
 
     if (!s_timer)
     {

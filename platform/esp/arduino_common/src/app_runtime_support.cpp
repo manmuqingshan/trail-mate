@@ -1,21 +1,85 @@
 #include "platform/esp/arduino_common/app_runtime_support.h"
 
+#include <cstdio>
+#include <string>
+
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "app/app_facades.h"
 #include "ble/ble_manager.h"
+#include "board/BoardBase.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/device_identity.h"
 #include "platform/esp/arduino_common/hostlink/hostlink_service.h"
+#include "platform/ui/settings_store.h"
 #include "sys/event_bus.h"
 #include "team/usecase/team_pairing_service.h"
 #include "team/usecase/team_service.h"
 #include "team/usecase/team_track_sampler.h"
+#include "ui/localization.h"
+#include "ui/widgets/system_notification.h"
 
 namespace platform::esp::arduino_common
 {
+namespace
+{
+
+void triggerNodeInfoFeedback(app::IAppFacade& app_context)
+{
+    BoardBase* board = app_context.getBoard();
+    if (!board)
+    {
+        return;
+    }
+
+    if (platform::ui::settings_store::get_bool("settings", "vibration_enabled", true))
+    {
+        board->vibrator();
+    }
+
+    board->playMessageTone();
+}
+
+std::string resolveNodeInfoName(app::IAppFacade& app_context, const sys::NodeInfoUpdateEvent& node_event)
+{
+    std::string name = app_context.getContactService().getContactName(node_event.node_id);
+    if (!name.empty())
+    {
+        return name;
+    }
+
+    if (node_event.short_name[0] != '\0')
+    {
+        return std::string(node_event.short_name);
+    }
+
+    if (node_event.long_name[0] != '\0')
+    {
+        return std::string(node_event.long_name);
+    }
+
+    char fallback[16];
+    std::snprintf(fallback, sizeof(fallback), "%08lX", static_cast<unsigned long>(node_event.node_id));
+    return fallback;
+}
+
+void notifyNodeInfoUpdate(app::IAppFacade& app_context, const sys::NodeInfoUpdateEvent& node_event)
+{
+    if (node_event.node_id == 0 || node_event.node_id == app_context.getSelfNodeId() || node_event.is_ignored)
+    {
+        return;
+    }
+
+    triggerNodeInfoFeedback(app_context);
+
+    const std::string message =
+        ::ui::i18n::format("Node info: %s", resolveNodeInfoName(app_context, node_event).c_str());
+    ::ui::SystemNotification::show(message.c_str(), 3000);
+}
+
+} // namespace
 
 BackgroundTaskStartResult startBackgroundTasks(LoraBoard* board, chat::IMeshAdapter* adapter)
 {
@@ -134,6 +198,7 @@ bool dispatchEvent(app::IAppFacade& app_context, sys::Event* event)
             update.device_metrics = node_event->device_metrics;
         }
         app_context.getContactService().applyNodeUpdate(node_event->node_id, update);
+        notifyNodeInfoUpdate(app_context, *node_event);
         delete event;
         return true;
     }

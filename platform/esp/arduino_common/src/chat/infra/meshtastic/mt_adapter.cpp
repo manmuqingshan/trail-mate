@@ -2142,6 +2142,14 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         {
             node_last_channel_[header.from] = channel_id;
         }
+        if (nodeinfo_decoded)
+        {
+            maybeBroadcastNodeInfoAfterPeerAnnouncement(
+                header.from,
+                millis(),
+                channel_id,
+                (header.flags & chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0);
+        }
         if (want_ack_flag && to_us)
         {
             if (sendRoutingAck(header.from, header.id, header.channel, psk, psk_len))
@@ -2702,6 +2710,10 @@ bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId chan
     }
 
     bool ok = transmitWirePacket(wire_buffer, wire_size);
+    if (ok && dest == 0xFFFFFFFF)
+    {
+        last_nodeinfo_ms_ = millis();
+    }
     LORA_LOG("[LORA] TX nodeinfo id=%08lX len=%u ok=%d\n",
              (unsigned long)msg_id,
              (unsigned)wire_size,
@@ -2841,6 +2853,39 @@ void MtAdapter::maybeBroadcastNodeInfo(uint32_t now_ms)
         {
             last_nodeinfo_ms_ = now_ms;
         }
+    }
+}
+
+void MtAdapter::maybeBroadcastNodeInfoAfterPeerAnnouncement(uint32_t from_node,
+                                                            uint32_t now_ms,
+                                                            ChannelId channel,
+                                                            bool from_mqtt)
+{
+    if (!ready_ || from_mqtt || from_node == 0 || from_node == node_id_)
+    {
+        return;
+    }
+
+    if (last_nodeinfo_ms_ != 0 &&
+        (now_ms - last_nodeinfo_ms_) < NODEINFO_REANNOUNCE_SUPPRESS_MS)
+    {
+        LORA_LOG("[LORA] TX nodeinfo announce suppressed from=%08lX age=%lu\n",
+                 (unsigned long)from_node,
+                 (unsigned long)(now_ms - last_nodeinfo_ms_));
+        return;
+    }
+
+    if (sendNodeInfoTo(0xFFFFFFFF, false, channel))
+    {
+        LORA_LOG("[LORA] TX nodeinfo announce after peer from=%08lX ch=%u\n",
+                 (unsigned long)from_node,
+                 static_cast<unsigned>(channel));
+    }
+    else
+    {
+        LORA_LOG("[LORA] TX nodeinfo announce fail after peer from=%08lX ch=%u\n",
+                 (unsigned long)from_node,
+                 static_cast<unsigned>(channel));
     }
 }
 

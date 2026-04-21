@@ -272,26 +272,26 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     if (!platform::ui::device::card_ready())
     {
         lv_obj_t* error_label = lv_label_create(s_content);
-        ::ui::i18n::set_label_text(error_label, "SD Card Not Found\nPlease insert SD card");
-        lv_obj_center(error_label);
         lv_obj_set_style_text_font(error_label, &lv_font_montserrat_18, LV_PART_MAIN);
         lv_obj_set_style_text_color(error_label, lv_color_hex(0xCC0000), LV_PART_MAIN);
+        ::ui::i18n::set_label_text(error_label, "SD Card Not Found\nPlease insert SD card");
+        lv_obj_center(error_label);
         return;
     }
 
     s_status_label = lv_label_create(s_content);
-    ::ui::i18n::set_label_text(s_status_label, "Initializing...");
-    lv_obj_center(s_status_label);
     lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_18, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(0x3A2A1A), LV_PART_MAIN);
     lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    ::ui::i18n::set_label_text(s_status_label, "Initializing...");
+    lv_obj_center(s_status_label);
 
     lv_obj_t* info_label = lv_label_create(s_content);
-    ::ui::i18n::set_label_text(info_label, "Press Back to exit USB mode");
-    lv_obj_align(info_label, LV_ALIGN_BOTTOM_MID, 0, -20);
     lv_obj_set_style_text_font(info_label, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_set_style_text_color(info_label, lv_color_hex(0x6A5646), LV_PART_MAIN);
     lv_obj_set_style_text_opa(info_label, LV_OPA_80, LV_PART_MAIN);
+    ::ui::i18n::set_label_text(info_label, "Press Back to exit USB mode");
+    lv_obj_align(info_label, LV_ALIGN_BOTTOM_MID, 0, -20);
 
     update_status_label();
 

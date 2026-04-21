@@ -7,6 +7,7 @@
 
 #include <Preferences.h>
 #include <SD.h>
+#include <string>
 
 namespace chat
 {
@@ -14,6 +15,11 @@ namespace infra
 {
 namespace
 {
+
+std::string makeTempSdPath(const char* path)
+{
+    return std::string(path ? path : "") + ".tmp";
+}
 
 bool isValidPrefKey(const char* key)
 {
@@ -117,12 +123,18 @@ bool saveRawBlobToSd(const char* path, const uint8_t* data, size_t len)
         return false;
     }
 
-    if (SD.exists(path))
+    const std::string temp_path = makeTempSdPath(path);
+    if (temp_path.empty())
     {
-        SD.remove(path);
+        return false;
     }
 
-    File file = SD.open(path, FILE_WRITE);
+    if (SD.exists(temp_path.c_str()))
+    {
+        SD.remove(temp_path.c_str());
+    }
+
+    File file = SD.open(temp_path.c_str(), FILE_WRITE);
     if (!file)
     {
         return false;
@@ -134,7 +146,24 @@ bool saveRawBlobToSd(const char* path, const uint8_t* data, size_t len)
         ok = (file.write(data, len) == len);
     }
     file.close();
-    return ok;
+    if (!ok)
+    {
+        SD.remove(temp_path.c_str());
+        return false;
+    }
+
+    if (SD.exists(path))
+    {
+        SD.remove(path);
+    }
+
+    if (!SD.rename(temp_path.c_str(), path))
+    {
+        SD.remove(temp_path.c_str());
+        return false;
+    }
+
+    return true;
 }
 
 bool loadRawBlobFromPreferences(const char* ns, const char* key, std::vector<uint8_t>& out)

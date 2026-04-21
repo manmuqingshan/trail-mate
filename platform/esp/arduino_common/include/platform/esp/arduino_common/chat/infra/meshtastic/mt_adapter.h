@@ -197,6 +197,7 @@ class MtAdapter : public chat::IMeshAdapter
     static constexpr uint8_t MAX_RETRIES = 3;
     static constexpr uint32_t NODEINFO_INTERVAL_MS = 3 * 60 * 60 * 1000;
     static constexpr uint32_t NODEINFO_REPLY_SUPPRESS_MS = 12 * 60 * 60 * 1000;
+    static constexpr uint32_t NODEINFO_REANNOUNCE_SUPPRESS_MS = 60 * 1000;
     static constexpr uint32_t POSITION_REPLY_SUPPRESS_MS = 3 * 60 * 1000;
     static constexpr uint32_t PKI_BACKOFF_MS = 5 * 60 * 1000;
     static constexpr size_t MAX_APP_QUEUE = 10;
@@ -230,6 +231,10 @@ class MtAdapter : public chat::IMeshAdapter
                                 bool want_ack_flag,
                                 bool want_response);
     void maybeBroadcastNodeInfo(uint32_t now_ms);
+    void maybeBroadcastNodeInfoAfterPeerAnnouncement(uint32_t from_node,
+                                                     uint32_t now_ms,
+                                                     ChannelId channel,
+                                                     bool from_mqtt);
     void configureRadio();
     void initNodeIdentity();
     void updateChannelKeys();
