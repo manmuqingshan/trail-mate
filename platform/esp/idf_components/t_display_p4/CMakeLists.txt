@@ -1,0 +1,21 @@
+idf_component_register(
+    SRCS
+        "trail_mate_t_display_p4_runtime.cpp"
+        "${CMAKE_SOURCE_DIR}/boards/t_display_p4/src/runtime_support.cpp"
+        "hi8561_driver.c"
+        "rm69a10_driver.c"
+    INCLUDE_DIRS
+        "include"
+        "include/bsp"
+        "."
+    PRIV_INCLUDE_DIRS
+        "${CMAKE_SOURCE_DIR}/boards/t_display_p4/include"
+        "${CMAKE_SOURCE_DIR}/platform/shared/include"
+    REQUIRES
+        esp_lcd
+        esp_lvgl_port
+        esp_timer
+        esp_driver_gpio
+        esp_driver_i2c
+        esp_driver_ledc
+)

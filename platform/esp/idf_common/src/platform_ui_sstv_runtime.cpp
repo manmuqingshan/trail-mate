@@ -32,8 +32,8 @@ bool board_supports_sstv()
     return ::boards::tab5::Tab5Board::hasAudio() &&
            ::boards::tab5::Tab5Board::hasSdCard();
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return platform::esp::boards::t_display_p4::kBoardProfile.has_audio &&
-           platform::esp::boards::t_display_p4::kBoardProfile.has_sdcard;
+    return ::boards::t_display_p4::kBoardProfile.has_audio &&
+           ::boards::t_display_p4::kBoardProfile.has_sdcard;
 #else
     return false;
 #endif

@@ -22,6 +22,8 @@ extern "C"
 {
 #include "bsp/trail_mate_tab5_runtime.h"
 }
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+#include "boards/t_display_p4/runtime_support.h"
 #endif
 
 namespace
@@ -110,6 +112,8 @@ bool wake_requested_by_touch_irq_locked()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     return s_screen_sleeping && trail_mate_tab5_touch_interrupt_active();
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return s_screen_sleeping && boards::t_display_p4::runtime_support::touch_interrupt_active();
 #else
     return false;
 #endif
@@ -135,7 +139,7 @@ void screen_sleep_task(void*)
             }
             else if (wake_requested_by_touch_irq_locked())
             {
-                ESP_LOGI(kTag, "Display wake requested by Tab5 touch interrupt");
+                ESP_LOGI(kTag, "Display wake requested by board touch interrupt");
                 wake_display_locked();
                 should_notify_wake = true;
             }

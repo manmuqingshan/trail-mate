@@ -96,6 +96,8 @@ set(trail_mate_idf_ui_shared_sources
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/widgets/ime/ime_widget.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/widgets/ime/pinyin_ime.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/assets/fonts/font_utils.cpp
+    ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/components/air_status_footer.cpp
+    ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/components/info_card.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/components/two_pane_layout.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/components/two_pane_styles.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/components/two_pane_nav.cpp
@@ -116,7 +118,9 @@ set(trail_mate_idf_ui_shared_sources
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/screens/chat/chat_message_list_layout.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/screens/chat/chat_message_list_styles.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/screens/chat/chat_page_shell.cpp
+    ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/screens/chat/chat_protocol_support.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/screens/chat/chat_page_runtime.cpp
+    ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/screens/chat/chat_send_flow.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/screens/gnss/gnss_skyplot_page_shell.cpp
     ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/screens/gnss/gnss_skyplot_page_runtime.cpp
@@ -251,7 +255,8 @@ if(TRAIL_MATE_IDF_TARGET STREQUAL "tab5")
     list(APPEND trail_mate_idf_ui_shared_sources
         ${trail_mate_dashboard_sources}
     )
-elseif(TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4")
+elseif(TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4_tft" OR
+       TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4_amoled")
     set(trail_mate_dashboard_sources
         ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/menu/menu_dashboard.cpp
         ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/menu/dashboard/dashboard_state.cpp
@@ -260,6 +265,16 @@ elseif(TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4")
         ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/menu/dashboard/dashboard_gps_widget.cpp
         ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/menu/dashboard/dashboard_recent_widget.cpp
         ${CMAKE_SOURCE_DIR}/modules/ui_shared/src/ui/menu/dashboard/dashboard_compass_widget.cpp
+    )
+    list(APPEND trail_mate_idf_include_dirs
+        "${CMAKE_SOURCE_DIR}/platform/esp/idf_components/t_display_p4/include"
+    )
+    list(APPEND trail_mate_idf_requires
+        t_display_p4
+    )
+    list(APPEND trail_mate_idf_external_sources
+        ${CMAKE_SOURCE_DIR}/boards/t_display_p4/src/t_display_p4_board.cpp
+        ${CMAKE_SOURCE_DIR}/boards/t_display_p4/src/rtc_runtime.cpp
     )
     list(APPEND trail_mate_idf_ui_shared_sources
         ${trail_mate_dashboard_sources}
@@ -288,9 +303,22 @@ target_sources(${COMPONENT_LIB} PRIVATE
 )
 
 if(TRAIL_MATE_IDF_TARGET STREQUAL "tab5")
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE TRAIL_MATE_ESP_BOARD_TAB5=1)
-elseif(TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4")
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4=1)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        TRAIL_MATE_ESP_BOARD_TAB5=1
+        TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22
+    )
+elseif(TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4_tft")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4=1
+        TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4_TFT=1
+        TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22
+    )
+elseif(TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4_amoled")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4=1
+        TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4_AMOLED=1
+        TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22
+    )
 else()
     message(FATAL_ERROR "Unsupported TRAIL_MATE_IDF_TARGET='${TRAIL_MATE_IDF_TARGET}' inside apps/esp_idf/CMakeLists.txt")
 endif()

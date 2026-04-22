@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <ctime>
+
 class BoardBase;
 class GpsBoard;
 class LoraBoard;
@@ -27,9 +30,21 @@ struct AppContextInitHandles
     MotionBoard* motion_board;
 };
 
+struct BoardIdentity
+{
+    const char* long_name = "TrailMate";
+    const char* short_name = "TM";
+    const char* ble_name = "trail-mate";
+};
+
 void initializeBoard(bool waking_from_sleep);
 void initializeDisplay();
 bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles);
 AppContextInitHandles resolveAppContextInitHandles();
+bool lockDisplay(uint32_t timeout_ms);
+void unlockDisplay();
+bool syncSystemTimeFromBoardRtc();
+bool applySystemTimeAndSyncBoardRtc(std::time_t epoch_seconds, const char* source);
+BoardIdentity defaultIdentity();
 
 } // namespace platform::esp::boards

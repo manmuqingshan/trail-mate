@@ -105,6 +105,26 @@ function Resolve-NinjaExe() {
     return $null
 }
 
+function Resolve-RiscvToolchainBin() {
+    $toolsRoot = 'C:\ProgramData\Espressif\tools\riscv32-esp-elf'
+    if (-not (Test-Path $toolsRoot)) {
+        return $null
+    }
+
+    $candidates = Get-ChildItem $toolsRoot -Directory |
+        Sort-Object LastWriteTime -Descending |
+        ForEach-Object { Join-Path $_.FullName 'riscv32-esp-elf\bin' }
+
+    foreach ($candidate in $candidates) {
+        $gccPath = Join-Path $candidate 'riscv32-esp-elf-gcc.exe'
+        if (Test-Path $gccPath) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
 function Resolve-Port($Settings, [string]$RequestedPort) {
     if ($RequestedPort) {
         return $RequestedPort
@@ -128,6 +148,7 @@ $settings = Get-WorkspaceSettings $repoRoot
 $idfPath = Resolve-IdfPath $repoRoot $settings
 $pythonExe = Resolve-PythonExe $settings
 $ninjaExe = Resolve-NinjaExe
+$riscvToolchainBin = Resolve-RiscvToolchainBin
 $portValue = Resolve-Port $settings $Port
 if (-not $BuildDir) {
     $BuildDir = "build.$Target"
@@ -135,6 +156,9 @@ if (-not $BuildDir) {
 
 $env:IDF_PATH = $idfPath
 $env:IDF_PYTHON_ENV_PATH = Split-Path -Parent (Split-Path -Parent $pythonExe)
+if ($riscvToolchainBin) {
+    $env:PATH = "$riscvToolchainBin;$env:PATH"
+}
 if ($ninjaExe) {
     $env:PATH = "$(Split-Path -Parent $ninjaExe);$env:PATH"
 }

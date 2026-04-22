@@ -219,14 +219,15 @@ Trail Mate 的长期目标不是“尽可能支持更多板子”，而是优先
 | **LILYGO T-Deck Pro** | `tdeck_pro_a7682e` / `tdeck_pro_pcm512a` | PlatformIO / Arduino | 已有独立环境，仍处于 bring-up / 适配推进阶段 |
 | **LILYGO T-Watch S3** | `lilygo_twatch_s3` | PlatformIO / Arduino | 实验性目标，偏系统与 UI 验证，不是当前完整功能验证主路径 |
 | **M5Stack Tab5** | `TRAIL_MATE_IDF_TARGET=tab5` | ESP-IDF | 当前主要的大屏 IDF bring-up 目标，共享 shell 已跑通，硬件细节仍在补齐 |
-| **LILYGO T-Display P4** | `TRAIL_MATE_IDF_TARGET=t_display_p4` | ESP-IDF | 早期接入目标，主要用于公共 IDF shell 与大屏路径验证 |
+| **LILYGO T-Display P4 TFT** | `TRAIL_MATE_IDF_TARGET=t_display_p4_tft` | ESP-IDF | 明确的 TFT / HI8561 变体接入目标 |
+| **LILYGO T-Display P4 AMOLED** | `TRAIL_MATE_IDF_TARGET=t_display_p4_amoled` | ESP-IDF | 明确的 AMOLED / RM69A10 + GT9895 变体接入目标 |
 
 ### 当前阶段怎么选目标
 
 - 如果你想走今天最稳的日常开发路径，优先使用 **`tlora_pager_sx1262`** 或 **`tdeck`**。
 - 如果你在做资源受限、单色屏、Meshtastic / BLE 相关调试，优先使用 **`gat562_mesh_evb_pro`**。
 - 如果你在推进新的大屏触控 ESP-IDF 路线，优先使用 **`tab5`**。
-- **`tdeck_pro_*`**、**`lilygo_twatch_s3`**、**`t_display_p4`** 更适合 bring-up、布局和设备适配工作，而不是当前功能完成度最高的验证入口。
+- **`tdeck_pro_*`**、**`lilygo_twatch_s3`**、**`t_display_p4_tft`**、**`t_display_p4_amoled`** 更适合 bring-up、布局和设备适配工作，而不是当前功能完成度最高的验证入口。
 - “仓库里有构建目标” 不等于 “所有页面与能力在该设备上都已达到同等成熟度”；部分功能会根据 capability、RAM 和输入设备条件动态启用或隐藏。
 - GitHub Actions 当前持续构建的主路径是 **`tlora_pager_sx1262`**、**`tdeck`** 和 **`lilygo_twatch_s3`**。
 
@@ -286,7 +287,7 @@ platformio run -e tlora_pager_sx1262 --target upload --upload-port COM6
 
 ### ESP-IDF
 
-ESP-IDF 目前主要用于新的共享 shell 路线，当前正式接入的目标是 `tab5` 和 `t_display_p4`。仓库根目录已经有顶层 `CMakeLists.txt`，可以直接在根目录执行 `idf.py`。
+ESP-IDF 目前主要用于新的共享 shell 路线，当前正式接入的目标是 `tab5`、`t_display_p4_tft` 和 `t_display_p4_amoled`。仓库根目录已经有顶层 `CMakeLists.txt`，可以直接在根目录执行 `idf.py`。
 
 `tab5` 目标示例：
 
@@ -296,18 +297,25 @@ idf.py -B build.tab5 -DTRAIL_MATE_IDF_TARGET=tab5 -p COM6 flash
 idf.py -B build.tab5 -DTRAIL_MATE_IDF_TARGET=tab5 monitor
 ```
 
-`t_display_p4` 目标示例：
+`t_display_p4_tft` 目标示例：
 
 ```bash
-idf.py -B build.t_display_p4 -DTRAIL_MATE_IDF_TARGET=t_display_p4 reconfigure build
-idf.py -B build.t_display_p4 -DTRAIL_MATE_IDF_TARGET=t_display_p4 build
+idf.py -B build.t_display_p4_tft -DTRAIL_MATE_IDF_TARGET=t_display_p4_tft reconfigure build
+idf.py -B build.t_display_p4_tft -DTRAIL_MATE_IDF_TARGET=t_display_p4_tft build
+```
+
+`t_display_p4_amoled` 目标示例：
+
+```bash
+idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled reconfigure build
+idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled build
 ```
 
 ### 说明
 
-- ESP-IDF 的 `sdkconfig` 现已跟随构建目录保存，例如 `build.tab5` 或 `build.t_display_p4`，不同目标不会再互相污染配置。
+- ESP-IDF 的 `sdkconfig` 现已跟随构建目录保存，例如 `build.tab5`、`build.t_display_p4_tft` 或 `build.t_display_p4_amoled`，不同目标不会再互相污染配置。
 - 对 **Tab5**，更建议烧录后单独执行 `monitor`；把 `flash monitor` 串在一起时，自动复位可能让 ESP32-P4 停在 ROM download mode。
-- VS Code 下已经提供了 **`IDF Tab5: Reconfigure`**、**`IDF Tab5: Build`**、**`IDF Tab5: Flash`**、**`IDF Tab5: Monitor`** 等任务，入口脚本在 `tools/vscode/run_idf_task.ps1`。
+- VS Code 下已经提供了按目标拆分的 **Tab5**、**T-Display-P4 TFT**、**T-Display-P4 AMOLED** `Reconfigure / Build / Flash / Monitor` 任务，统一入口脚本在 `tools/vscode/run_idf_task.ps1`。
 - 如果你只是想做版本发布或回归验证，优先走当前 CI 覆盖的 PlatformIO 主路径；ESP-IDF 目标更适合板级 bring-up 与共享 shell 演进。
 
 ## 🌐 语言
@@ -662,5 +670,3 @@ Trail-mate 的目标是提供一种真正可用、以人为中心的离网协同
 你不必先提交 Issue，也可以直接联系作者。
 
 感谢你对本项目的关注与使用。
-
-

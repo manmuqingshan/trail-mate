@@ -3,11 +3,10 @@
 #include <cstring>
 #include <ctime>
 
-#include "boards/t_display_p4/board_profile.h"
-#include "boards/tab5/rtc_runtime.h"
+#include "boards/t_display_p4/t_display_p4_board.h"
 #include "boards/tab5/tab5_board.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
-#include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -26,6 +25,12 @@ namespace
 {
 
 uint8_t s_brightness_level = DEVICE_MAX_BRIGHTNESS_LEVEL;
+constexpr ::time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
+
+bool is_valid_epoch(::time_t value)
+{
+    return value >= kMinValidEpochSeconds;
+}
 
 } // namespace
 
@@ -41,7 +46,7 @@ void restart()
 
 bool rtc_ready()
 {
-    return ::boards::tab5::rtc_runtime::is_valid_epoch(std::time(nullptr));
+    return is_valid_epoch(std::time(nullptr));
 }
 
 BatteryInfo battery_info()
@@ -49,6 +54,11 @@ BatteryInfo battery_info()
     BatteryInfo info{};
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     info.charging = bsp_usb_c_detect();
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    auto& board = ::boards::t_display_p4::TDisplayP4Board::instance();
+    info.available = true;
+    info.charging = board.isCharging();
+    info.level = board.getBatteryLevel();
 #endif
     return info;
 }
@@ -72,7 +82,7 @@ const char* firmware_version()
         return configured;
     }
 
-    const esp_app_desc_t* desc = esp_ota_get_app_description();
+    const esp_app_desc_t* desc = esp_app_get_description();
     return (desc && desc->version[0] != '\0') ? desc->version : "unknown";
 }
 
@@ -136,7 +146,7 @@ bool gps_supported()
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     return ::boards::tab5::Tab5Board::hasGpsUart();
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return ::boards::t_display_p4::kBoardProfile.has_gps_uart;
+    return ::boards::t_display_p4::TDisplayP4Board::hasGpsUart();
 #else
     return false;
 #endif

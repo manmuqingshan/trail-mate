@@ -1,25 +1,27 @@
 # `apps/esp_idf/targets/t_display_p4`
 
-ESP-IDF target descriptor for T-Display-P4.
+This directory is now a family note, not a buildable target.
 
-Source reference for board bring-up:
+`LILYGO T-Display-P4` exists in two real display/touch hardware variants, so the old generic
+`TRAIL_MATE_IDF_TARGET=t_display_p4` target was retired in favor of two explicit environments:
 
-- `.tmp/T-Display-P4`
+- `TRAIL_MATE_IDF_TARGET=t_display_p4_tft`
+- `TRAIL_MATE_IDF_TARGET=t_display_p4_amoled`
 
-This target now owns:
+Use the target that matches the physical module on your board:
 
-- T-Display-P4-specific `sdkconfig.defaults`
-- future partition-table selection if the device needs its own flash layout
-- target selection / board binding into `platform/esp/boards/t_display_p4`
+- TFT variant:
+  [t_display_p4_tft](../t_display_p4_tft/README.md)
+- AMOLED variant:
+  [t_display_p4_amoled](../t_display_p4_amoled/README.md)
 
-Expected split:
+Shared ownership stays the same:
 
-- shared IDF app assembly -> `apps/esp_idf`
-- shared IDF platform glue -> `platform/esp/idf_common`
-- board-specific runtime/pins/capabilities -> `platform/esp/boards/t_display_p4`
+- `boards/t_display_p4/*`
+  Own shared board-family truth and hardware arbitration.
+- `platform/esp/idf_components/t_display_p4/*`
+  Own shared P4-side display/touch/LVGL runtime.
+- `platform/esp/idf_common/*`
+  Own shared glue only.
 
-Current wiring:
-
-- selected by `TRAIL_MATE_IDF_TARGET=t_display_p4`
-- built through the shared `apps/esp_idf` component root
-- board-specific runtime selection is handled through `TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4`
+The repo still builds only the ESP32-P4 firmware. The ESP32-C6 companion firmware remains an external flashing contract.

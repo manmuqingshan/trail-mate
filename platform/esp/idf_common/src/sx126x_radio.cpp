@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "boards/t_display_p4/t_display_p4_board.h"
 #include "boards/tab5/tab5_board.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
@@ -272,7 +273,61 @@ uint8_t ocp_for_60ma()
 
 const auto& lora_pins()
 {
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     return ::boards::tab5::Tab5Board::loraModulePins();
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return ::boards::t_display_p4::TDisplayP4Board::loraModulePins();
+#else
+    return ::boards::tab5::Tab5Board::loraModulePins();
+#endif
+}
+
+bool prepare_board_lora_runtime()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    return true;
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return ::boards::t_display_p4::TDisplayP4Board::instance().prepareLoraRuntime();
+#else
+    return false;
+#endif
+}
+
+bool board_uses_internal_dio2_rf_switch()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    return true;
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return false;
+#else
+    return false;
+#endif
+}
+
+bool set_board_lora_reset_asserted(bool asserted)
+{
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    if (lora_pins().rst < 0)
+    {
+        return false;
+    }
+    gpio_set_level(static_cast<gpio_num_t>(lora_pins().rst), asserted ? 0 : 1);
+    return true;
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return ::boards::t_display_p4::TDisplayP4Board::instance().setLoraResetAsserted(asserted);
+#else
+    (void)asserted;
+    return false;
+#endif
+}
+
+void board_prepare_lora_direction(bool transmit)
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    (void)::boards::t_display_p4::TDisplayP4Board::instance().setLoraRfSwitchTransmit(transmit);
+#else
+    (void)transmit;
+#endif
 }
 
 } // namespace
@@ -285,7 +340,7 @@ Sx126xRadio& Sx126xRadio::instance()
 
 bool Sx126xRadio::acquire()
 {
-#if !defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if !defined(TRAIL_MATE_ESP_BOARD_TAB5) && !defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     return false;
 #else
     if (!mutex_)
@@ -338,8 +393,8 @@ bool Sx126xRadio::isOnline() const
 
 bool Sx126xRadio::init_locked()
 {
-#if !defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    set_error_locked("Tab5 LoRa radio unavailable");
+#if !defined(TRAIL_MATE_ESP_BOARD_TAB5) && !defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    set_error_locked("SX126x radio unavailable on this board");
     return false;
 #else
     if (initialized_)
@@ -407,12 +462,20 @@ bool Sx126xRadio::init_locked()
         }
     }
 
+    if (!prepare_board_lora_runtime())
+    {
+        set_error_locked("board LoRa runtime setup failed");
+        return false;
+    }
+
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     gpio_config_t io_cfg{};
     io_cfg.pin_bit_mask = (1ULL << lora_pins().rst);
     io_cfg.mode = GPIO_MODE_OUTPUT;
     io_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
     io_cfg.pull_up_en = GPIO_PULLUP_DISABLE;
     gpio_config(&io_cfg);
+#endif
 
     if (lora_pins().irq >= 0)
     {
@@ -424,9 +487,27 @@ bool Sx126xRadio::init_locked()
         gpio_config(&irq_cfg);
     }
 
-    gpio_set_level(static_cast<gpio_num_t>(lora_pins().rst), 0);
+    if (lora_pins().busy >= 0)
+    {
+        gpio_config_t busy_cfg{};
+        busy_cfg.pin_bit_mask = (1ULL << lora_pins().busy);
+        busy_cfg.mode = GPIO_MODE_INPUT;
+        busy_cfg.pull_up_en = GPIO_PULLUP_DISABLE;
+        busy_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        gpio_config(&busy_cfg);
+    }
+
+    if (!set_board_lora_reset_asserted(true))
+    {
+        set_error_locked("radio reset assert failed");
+        return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(2));
-    gpio_set_level(static_cast<gpio_num_t>(lora_pins().rst), 1);
+    if (!set_board_lora_reset_asserted(false))
+    {
+        set_error_locked("radio reset release failed");
+        return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(10));
 
     initialized_ = true;
@@ -444,8 +525,11 @@ bool Sx126xRadio::init_locked()
     set_buffer_base_locked(0x00, 0x00);
     const uint8_t regulator = kRegulatorDcDc;
     write_command_locked(kCmdSetRegulatorMode, &regulator, 1, true);
-    const uint8_t dio2_rf_switch = 0x01;
-    write_command_locked(kCmdSetDio2AsRfSwitchCtrl, &dio2_rf_switch, 1, true);
+    if (board_uses_internal_dio2_rf_switch())
+    {
+        const uint8_t dio2_rf_switch = 0x01;
+        write_command_locked(kCmdSetDio2AsRfSwitchCtrl, &dio2_rf_switch, 1, true);
+    }
     const uint8_t fallback = kFallbackStandbyRc;
     write_command_locked(kCmdSetRxTxFallbackMode, &fallback, 1, true);
     clear_irq_locked(kIrqAll);
@@ -458,7 +542,7 @@ bool Sx126xRadio::init_locked()
 
 bool Sx126xRadio::probe_locked()
 {
-#if !defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if !defined(TRAIL_MATE_ESP_BOARD_TAB5) && !defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     return false;
 #else
     uint8_t version[6] = {0};
@@ -486,7 +570,7 @@ bool Sx126xRadio::probe_locked()
 
 void Sx126xRadio::wait_ready_locked() const
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     if (lora_pins().busy >= 0)
     {
         const TickType_t start = xTaskGetTickCount();
@@ -508,7 +592,7 @@ void Sx126xRadio::wait_ready_locked() const
 
 bool Sx126xRadio::write_command_locked(uint8_t cmd, const uint8_t* data, size_t size, bool wait)
 {
-#if !defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if !defined(TRAIL_MATE_ESP_BOARD_TAB5) && !defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     (void)cmd;
     (void)data;
     (void)size;
@@ -555,7 +639,7 @@ bool Sx126xRadio::read_command_locked(uint8_t cmd,
                                       size_t size,
                                       bool wait)
 {
-#if !defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if !defined(TRAIL_MATE_ESP_BOARD_TAB5) && !defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     (void)cmd;
     (void)prefix;
     (void)prefix_size;
@@ -950,6 +1034,7 @@ bool Sx126xRadio::startReceive()
     {
         return false;
     }
+    board_prepare_lora_direction(false);
     const bool ok = set_dio_irq_params_locked(kIrqRxDone | kIrqTimeout | kIrqCrcErr, kIrqRxDone) &&
                     clear_irq_locked(kIrqAll) &&
                     set_buffer_base_locked(0x00, 0x00) &&
@@ -990,6 +1075,7 @@ int Sx126xRadio::startTransmit(const uint8_t* data, size_t size)
 
     uint8_t packet[9] = {0};
     bool ok = set_buffer_base_locked(0x00, 0x00);
+    board_prepare_lora_direction(true);
     if (packet_type_ == kPacketTypeLoRa)
     {
         const uint8_t lo[6] = {0x00, 0x08, kLoRaHeaderExplicit, static_cast<uint8_t>(size), kLoRaCrcOn, kLoRaIqStandard};

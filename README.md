@@ -220,14 +220,16 @@ The table below describes the **real build targets that exist in the repository 
 | **LILYGO T-Deck Pro** | `tdeck_pro_a7682e` / `tdeck_pro_pcm512a` | PlatformIO / Arduino | Separate environments exist, but this line is still in active bring-up / adaptation work |
 | **LILYGO T-Watch S3** | `lilygo_twatch_s3` | PlatformIO / Arduino | Experimental target used more for system and UI validation than for full feature coverage |
 | **M5Stack Tab5** | `TRAIL_MATE_IDF_TARGET=tab5` | ESP-IDF | Main large-screen IDF bring-up target; the shared shell runs and hardware-specific work is still being filled in |
-| **LILYGO T-Display P4** | `TRAIL_MATE_IDF_TARGET=t_display_p4` | ESP-IDF | Early integrated target used to validate the shared IDF shell and large-screen path |
+| **LILYGO T-Display P4 TFT** | `TRAIL_MATE_IDF_TARGET=t_display_p4_tft` | ESP-IDF | Explicit TFT / HI8561 bring-up target for the shared IDF shell |
+| **LILYGO T-Display P4 AMOLED** | `TRAIL_MATE_IDF_TARGET=t_display_p4_amoled` | ESP-IDF | Explicit AMOLED / RM69A10 + GT9895 bring-up target for the shared IDF shell |
 
 ### How To Choose A Target Today
 
 - If you want the most stable daily development path right now, start with **`tlora_pager_sx1262`** or **`tdeck`**
 - If you are debugging a resource-constrained monochrome target or Meshtastic / BLE behavior, start with **`gat562_mesh_evb_pro`**
 - If you are working on the newer large-screen ESP-IDF path, start with **`tab5`**
-- **`tdeck_pro_*`**, **`lilygo_twatch_s3`**, and **`t_display_p4`** are better treated as bring-up, layout, or device-adaptation targets than as the highest-maturity feature-validation path
+- **`tdeck_pro_*`**, **`lilygo_twatch_s3`**, **`t_display_p4_tft`**, and **`t_display_p4_amoled`** are better treated as bring-up, layout, or device-adaptation targets than as the highest-maturity feature-validation path
+- For the **T-Display-P4 family**, this repo currently builds only the **ESP32-P4 firmware**. The board's ESP32-C6 companion firmware is an external flashing contract, not an in-repo build artifact.
 - “The repository has a build target” does not mean every page or capability is equally mature on that device; some features are enabled or hidden dynamically based on capabilities, RAM budget, and input hardware
 - GitHub Actions currently keeps building the main path through **`tlora_pager_sx1262`**, **`tdeck`**, and **`lilygo_twatch_s3`**
 
@@ -287,7 +289,41 @@ Notes:
 
 ### ESP-IDF
 
-ESP-IDF is currently used mainly for the newer shared-shell path. The officially wired targets right now are `tab5` and `t_display_p4`. The repository root already contains the top-level `CMakeLists.txt`, so you can invoke `idf.py` directly from the root directory.
+ESP-IDF is currently used mainly for the newer shared-shell path. The officially wired targets right now are `tab5`, `t_display_p4_tft`, and `t_display_p4_amoled`. The repository root already contains the top-level `CMakeLists.txt`, so you can invoke `idf.py` directly from the root directory.
+
+Important:
+
+- `idf.py` is not guaranteed to exist in a plain Windows PowerShell session.
+- If PowerShell says `idf.py` is not recognized, your current shell has not entered the ESP-IDF environment yet.
+- On Windows, the recommended CLI path in this repo is `tools/vscode/run_idf_task.ps1`. It resolves `IDF_PATH`, Python, Ninja, build dir, and serial port from the local Espressif installation and workspace settings.
+
+Recommended Windows PowerShell flow:
+
+```powershell
+# Tab5
+powershell -ExecutionPolicy Bypass -File tools\vscode\run_idf_task.ps1 -Action build   -Target tab5
+powershell -ExecutionPolicy Bypass -File tools\vscode\run_idf_task.ps1 -Action flash   -Target tab5 -Port COM6
+powershell -ExecutionPolicy Bypass -File tools\vscode\run_idf_task.ps1 -Action monitor -Target tab5 -Port COM6
+
+# T-Display-P4 TFT
+powershell -ExecutionPolicy Bypass -File tools\vscode\run_idf_task.ps1 -Action build   -Target t_display_p4_tft
+powershell -ExecutionPolicy Bypass -File tools\vscode\run_idf_task.ps1 -Action flash   -Target t_display_p4_tft -Port COM6
+powershell -ExecutionPolicy Bypass -File tools\vscode\run_idf_task.ps1 -Action monitor -Target t_display_p4_tft -Port COM6
+
+# T-Display-P4 AMOLED
+powershell -ExecutionPolicy Bypass -File tools\vscode\run_idf_task.ps1 -Action build   -Target t_display_p4_amoled
+powershell -ExecutionPolicy Bypass -File tools\vscode\run_idf_task.ps1 -Action flash   -Target t_display_p4_amoled -Port COM6
+powershell -ExecutionPolicy Bypass -File tools\vscode\run_idf_task.ps1 -Action monitor -Target t_display_p4_amoled -Port COM6
+```
+
+If you specifically want to use raw `idf.py`, first export the ESP-IDF environment into the current shell. Example for a standard Windows install:
+
+```powershell
+$env:IDF_PATH = 'C:\ProgramData\Espressif\frameworks\esp-idf-v5.5.4'
+& "$env:IDF_PATH\export.ps1"
+```
+
+After that, `idf.py` should exist in the current PowerShell session.
 
 `tab5` example:
 
@@ -297,18 +333,32 @@ idf.py -B build.tab5 -DTRAIL_MATE_IDF_TARGET=tab5 -p COM6 flash
 idf.py -B build.tab5 -DTRAIL_MATE_IDF_TARGET=tab5 monitor
 ```
 
-`t_display_p4` example:
+`t_display_p4_tft` example:
 
 ```bash
-idf.py -B build.t_display_p4 -DTRAIL_MATE_IDF_TARGET=t_display_p4 reconfigure build
-idf.py -B build.t_display_p4 -DTRAIL_MATE_IDF_TARGET=t_display_p4 build
+idf.py -B build.t_display_p4_tft -DTRAIL_MATE_IDF_TARGET=t_display_p4_tft reconfigure build
+idf.py -B build.t_display_p4_tft -DTRAIL_MATE_IDF_TARGET=t_display_p4_tft -p COM6 flash
+idf.py -B build.t_display_p4_tft -DTRAIL_MATE_IDF_TARGET=t_display_p4_tft monitor
+```
+
+`t_display_p4_amoled` example:
+
+```bash
+idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled reconfigure build
+idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled -p COM6 flash
+idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled monitor
 ```
 
 ### Notes
 
-- ESP-IDF generated `sdkconfig` state now lives inside the selected build directory such as `build.tab5` or `build.t_display_p4`, so different targets do not fight over stale config output anymore
+- ESP-IDF generated `sdkconfig` state now lives inside the selected build directory such as `build.tab5`, `build.t_display_p4_tft`, or `build.t_display_p4_amoled`, so different targets do not fight over stale config output anymore
 - For **Tab5**, prefer running `monitor` separately after flashing; chaining `flash monitor` can leave ESP32-P4 in ROM download mode after auto-reset
-- VS Code already provides **`IDF Tab5: Reconfigure`**, **`IDF Tab5: Build`**, **`IDF Tab5: Flash`**, and **`IDF Tab5: Monitor`** tasks via `tools/vscode/run_idf_task.ps1`
+- For **T-Display-P4**, the commands above only handle the **P4 firmware**. If your board also needs a C6 companion refresh, flash that separately with the vendor or companion-firmware workflow.
+- For **T-Display-P4**, Wi-Fi should currently be treated as unavailable in this repo because the real Wi-Fi path lives behind the external C6 companion runtime.
+- VS Code already provides split **Tab5**, **T-Display-P4 TFT**, and **T-Display-P4 AMOLED** `Reconfigure / Build / Flash / Monitor` tasks via `tools/vscode/run_idf_task.ps1`
+- `tools/vscode/run_idf_task.ps1` is also the recommended non-VS-Code CLI path on Windows because it avoids the common `idf.py` not found problem
+- If `idf.py` is not recognized, fix the shell environment first. Do not start debugging the build itself yet.
+- If flashing succeeds but there is still no serial output, run `monitor` separately and press reset once
 - If your goal is release validation or routine regression checks, prefer the main PlatformIO path that CI already covers; ESP-IDF targets are still more useful for board bring-up and shared-shell evolution
 
 ---
@@ -636,4 +686,3 @@ Constructive feedback, real-world testing reports, and implementation experience
 You are not required to open Issues before contacting the author directly.
 
 Thank you for taking the time to examine and use this project.
-

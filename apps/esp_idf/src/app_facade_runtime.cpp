@@ -4,7 +4,6 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "app/app_facades.h"
-#include "boards/tab5/tab5_board.h"
 #include "chat/domain/chat_model.h"
 #include "chat/infra/contact_store_core.h"
 #include "chat/infra/mesh_adapter_router_core.h"
@@ -13,6 +12,7 @@
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "esp_log.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "sys/clock.h"
 #include "sys/event_bus.h"
 #include "team/usecase/team_controller.h"
@@ -909,6 +909,18 @@ class MinimalAppFacade final : public app::IAppFacade
         {
             return false;
         }
+
+        platform::esp::boards::AppContextInitHandles handles{};
+        if (!platform::esp::boards::tryResolveAppContextInitHandles(&handles) || !handles.isValid())
+        {
+            ESP_LOGE(runtime_config.log_tag,
+                     "%s board handles are not ready; refusing to bind shared AppFacade",
+                     runtime_config.target_name ? runtime_config.target_name : "esp-idf");
+            return false;
+        }
+        board_ = handles.board;
+        lora_board_ = handles.lora_board;
+
         configureIdentity(runtime_config);
         self_node_id_ = makeNodeId(runtime_config.target_name);
 
@@ -925,7 +937,10 @@ class MinimalAppFacade final : public app::IAppFacade
         chat_model_ = std::make_unique<chat::ChatModel>();
         chat_store_ = std::make_unique<chat::RamStore>();
         mesh_router_ = std::make_unique<chat::MeshAdapterRouterCore>();
-        installMeshBackend(config_.mesh_protocol);
+        if (!installMeshBackend(config_.mesh_protocol))
+        {
+            return false;
+        }
         if (mesh_router_)
         {
             self_node_id_ = mesh_router_->getNodeId();
@@ -1057,7 +1072,10 @@ class MinimalAppFacade final : public app::IAppFacade
         {
             chat_service_->setActiveProtocol(protocol);
         }
-        installMeshBackend(protocol);
+        if (!installMeshBackend(protocol))
+        {
+            return false;
+        }
         if (mesh_router_)
         {
             self_node_id_ = mesh_router_->getNodeId();
@@ -1195,12 +1213,12 @@ class MinimalAppFacade final : public app::IAppFacade
 
     BoardBase* getBoard() override
     {
-        return &::boards::tab5::Tab5Board::instance();
+        return board_;
     }
 
     const BoardBase* getBoard() const override
     {
-        return &::boards::tab5::Tab5Board::instance();
+        return board_;
     }
 
     void updateCoreServices() override
@@ -1434,42 +1452,48 @@ class MinimalAppFacade final : public app::IAppFacade
 
     void configureIdentity(const RuntimeConfig& runtime_config)
     {
-        const char* target_name = runtime_config.target_name ? runtime_config.target_name : "IDF";
+        const auto identity = platform::esp::boards::defaultIdentity();
         std::snprintf(config_.node_name, sizeof(config_.node_name), "%s",
-                      ::boards::tab5::Tab5Board::defaultLongName());
+                      (identity.long_name && identity.long_name[0] != '\0') ? identity.long_name : "TrailMate");
         std::snprintf(config_.short_name, sizeof(config_.short_name), "%s",
-                      ::boards::tab5::Tab5Board::defaultShortName());
-        if (target_name && target_name[0] != '\0' &&
-            std::strcmp(target_name, "tab5") != 0 &&
-            std::strcmp(target_name, "TAB5") != 0)
+                      (identity.short_name && identity.short_name[0] != '\0') ? identity.short_name : "TM");
+        if (config_.short_name[0] == '\0')
         {
-            makeShortName(target_name, config_.short_name, sizeof(config_.short_name));
+            makeShortName(runtime_config.target_name, config_.short_name, sizeof(config_.short_name));
         }
         config_.mesh_protocol = chat::MeshProtocol::Meshtastic;
         config_.chat_channel = 0;
     }
 
-    void installMeshBackend(chat::MeshProtocol protocol)
+    bool installMeshBackend(chat::MeshProtocol protocol)
     {
         if (!mesh_router_)
         {
-            return;
+            return false;
         }
 
         loopback_adapter_ = nullptr;
         meshtastic_adapter_ = nullptr;
         if (protocol == chat::MeshProtocol::Meshtastic)
         {
+            if (lora_board_ == nullptr)
+            {
+                ESP_LOGE(runtime_config_.log_tag,
+                         "%s requested Meshtastic backend without a resolved LoRa board handle",
+                         runtime_config_.target_name ? runtime_config_.target_name : "esp-idf");
+                return false;
+            }
             auto backend = std::make_unique<apps::esp_idf::MeshtasticRadioAdapter>(
-                ::boards::tab5::Tab5Board::instance());
+                *lora_board_);
             meshtastic_adapter_ = backend.get();
             (void)mesh_router_->installBackend(protocol, std::move(backend));
-            return;
+            return true;
         }
 
         auto backend = std::make_unique<LoopbackMeshAdapter>(self_node_id_);
         loopback_adapter_ = backend.get();
         (void)mesh_router_->installBackend(protocol, std::move(backend));
+        return true;
     }
 
     void seedDemoData()
@@ -1607,6 +1631,8 @@ class MinimalAppFacade final : public app::IAppFacade
     chat::NodeId self_node_id_ = 0;
     RuntimeConfig runtime_config_{};
     app::AppConfig config_{};
+    BoardBase* board_ = nullptr;
+    LoraBoard* lora_board_ = nullptr;
     chat::ui::IChatUiRuntime* chat_ui_runtime_ = nullptr;
 
     std::unique_ptr<InMemoryNodeBlobStore> node_blob_store_;

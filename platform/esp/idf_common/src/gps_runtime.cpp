@@ -11,12 +11,12 @@
 #include <limits>
 #include <mutex>
 
-#include "boards/t_display_p4/board_profile.h"
-#include "boards/tab5/rtc_runtime.h"
+#include "boards/t_display_p4/t_display_p4_board.h"
 #include "boards/tab5/tab5_board.h"
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/ui/device_runtime.h"
 
@@ -28,6 +28,7 @@ constexpr const char* kTag = "idf-gps-runtime";
 constexpr size_t kMaxFields = 24;
 constexpr size_t kLineBufferSize = 160;
 constexpr size_t kRxBufferSize = 512;
+constexpr std::time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 constexpr uint32_t kProbeWarmupMs = 1500;
 constexpr uint32_t kProbeListenMs = 3500;
 constexpr uint32_t kNoDataWarnMs = 5000;
@@ -89,6 +90,82 @@ uint32_t now_ms()
     return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
 }
 
+bool is_valid_epoch(std::time_t epoch_seconds)
+{
+    return epoch_seconds >= kMinValidEpochSeconds;
+}
+
+int64_t days_from_civil(int year, unsigned month, unsigned day)
+{
+    year -= month <= 2;
+    const int era = (year >= 0 ? year : year - 399) / 400;
+    const unsigned yoe = static_cast<unsigned>(year - era * 400);
+    const unsigned doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return static_cast<int64_t>(era) * 146097 + static_cast<int64_t>(doe) - 719468;
+}
+
+bool is_leap_year(int year)
+{
+    return ((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0);
+}
+
+uint8_t days_in_month(int year, uint8_t month)
+{
+    static constexpr uint8_t kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (month < 1 || month > 12)
+    {
+        return 0;
+    }
+    if (month == 2 && is_leap_year(year))
+    {
+        return 29;
+    }
+    return kDays[month - 1];
+}
+
+bool validate_datetime_utc(int year,
+                           uint8_t month,
+                           uint8_t day,
+                           uint8_t hour,
+                           uint8_t minute,
+                           uint8_t second)
+{
+    if (year < 2000 || year > 2099)
+    {
+        return false;
+    }
+    if (month < 1 || month > 12)
+    {
+        return false;
+    }
+    if (day < 1 || day > days_in_month(year, month))
+    {
+        return false;
+    }
+    if (hour > 23 || minute > 59 || second > 59)
+    {
+        return false;
+    }
+    return true;
+}
+
+std::time_t datetime_to_epoch_utc(int year,
+                                  uint8_t month,
+                                  uint8_t day,
+                                  uint8_t hour,
+                                  uint8_t minute,
+                                  uint8_t second)
+{
+    if (!validate_datetime_utc(year, month, day, hour, minute, second))
+    {
+        return static_cast<std::time_t>(-1);
+    }
+    const int64_t days = days_from_civil(year, month, day);
+    return static_cast<std::time_t>(days * 86400LL + static_cast<int64_t>(hour) * 3600LL +
+                                    static_cast<int64_t>(minute) * 60LL + second);
+}
+
 struct GpsUartPins
 {
     int port;
@@ -102,9 +179,8 @@ GpsUartPins gps_uart_pins()
     const auto& uart = ::boards::tab5::Tab5Board::gpsUart();
     return {uart.port, uart.tx, uart.rx};
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return {platform::esp::boards::t_display_p4::kBoardProfile.gps_uart.port,
-            platform::esp::boards::t_display_p4::kBoardProfile.gps_uart.tx,
-            platform::esp::boards::t_display_p4::kBoardProfile.gps_uart.rx};
+    const auto& uart = ::boards::t_display_p4::TDisplayP4Board::gpsUart();
+    return {uart.port, uart.tx, uart.rx};
 #else
     return {-1, -1, -1};
 #endif
@@ -219,7 +295,7 @@ void clear_payload_locked()
     s_runtime.used_sat_count = 0;
     s_runtime.last_time_sync_attempt_ms = 0;
     s_runtime.last_time_sync_epoch = 0;
-    s_runtime.time_sync_committed = ::boards::tab5::rtc_runtime::is_valid_epoch(std::time(nullptr));
+    s_runtime.time_sync_committed = is_valid_epoch(std::time(nullptr));
     for (auto& collector : s_runtime.gsv) collector = GsvCollector{};
 }
 
@@ -279,12 +355,12 @@ void maybe_sync_time_from_rmc_locked(const std::array<char*, kMaxFields>& fields
         return;
     }
 
-    if (!::boards::tab5::rtc_runtime::validate_datetime_utc(year, month, day, hour, minute, second))
+    if (!validate_datetime_utc(year, month, day, hour, minute, second))
     {
         return;
     }
 
-    const std::time_t gnss_epoch = ::boards::tab5::rtc_runtime::datetime_to_epoch_utc(
+    const std::time_t gnss_epoch = datetime_to_epoch_utc(
         year, month, day, hour, minute, second);
     if (gnss_epoch < 0)
     {
@@ -292,7 +368,7 @@ void maybe_sync_time_from_rmc_locked(const std::array<char*, kMaxFields>& fields
     }
 
     const std::time_t now_epoch = std::time(nullptr);
-    const bool system_valid = ::boards::tab5::rtc_runtime::is_valid_epoch(now_epoch);
+    const bool system_valid = is_valid_epoch(now_epoch);
     const long long delta_seconds = system_valid
                                         ? std::llabs(static_cast<long long>(now_epoch) - static_cast<long long>(gnss_epoch))
                                         : std::numeric_limits<long long>::max();
@@ -309,7 +385,7 @@ void maybe_sync_time_from_rmc_locked(const std::array<char*, kMaxFields>& fields
     }
 
     s_runtime.last_time_sync_attempt_ms = ts;
-    if (::boards::tab5::rtc_runtime::apply_system_time_and_sync_rtc(gnss_epoch, "gnss_rmc"))
+    if (platform::esp::boards::applySystemTimeAndSyncBoardRtc(gnss_epoch, "gnss_rmc"))
     {
         s_runtime.last_time_sync_epoch = gnss_epoch;
         s_runtime.time_sync_committed = true;
@@ -501,6 +577,13 @@ bool configure_uart_hardware()
         return false;
     }
     return true;
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    if (!::boards::t_display_p4::TDisplayP4Board::instance().prepareGpsRuntime())
+    {
+        ESP_LOGE(kTag, "T-Display-P4 GNSS runtime setup failed");
+        return false;
+    }
+    return true;
 #else
     const auto gps_uart = gps_uart_pins();
     uart_config_t config{};
@@ -523,6 +606,8 @@ void teardown_uart_hardware()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     // Tab5 keeps GNSS power and UART under board ownership for the whole runtime.
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    ::boards::t_display_p4::TDisplayP4Board::instance().teardownGpsRuntime();
 #else
     const auto gps_uart = gps_uart_pins();
     if (gps_uart.port >= 0)
@@ -613,7 +698,7 @@ void worker_task(void*)
         s_runtime.last_fix_ms = 0;
         s_runtime.last_time_sync_attempt_ms = 0;
         s_runtime.last_time_sync_epoch = 0;
-        s_runtime.time_sync_committed = ::boards::tab5::rtc_runtime::is_valid_epoch(std::time(nullptr));
+        s_runtime.time_sync_committed = is_valid_epoch(std::time(nullptr));
         s_runtime.first_sentence_logged = false;
         s_runtime.last_no_data_log_ms = 0;
     }
@@ -703,7 +788,7 @@ void set_gnss_config(uint8_t mode, uint8_t sat_mask)
     }
     s_runtime.probe_requested = false;
     s_runtime.probe_deadline_ms = 0;
-    s_runtime.time_sync_committed = ::boards::tab5::rtc_runtime::is_valid_epoch(std::time(nullptr));
+    s_runtime.time_sync_committed = is_valid_epoch(std::time(nullptr));
     ensure_worker_locked();
     ESP_LOGI(kTag, "GNSS runtime enabled: interval_ms=%lu mode=%u sat_mask=0x%02X strategy=%u", static_cast<unsigned long>(s_runtime.collection_interval_ms), s_runtime.gnss_mode, s_runtime.gnss_sat_mask, s_runtime.power_strategy);
 }

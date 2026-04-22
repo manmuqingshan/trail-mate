@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdlib>
+#include <ctime>
 
 #include "boards/tab5/board_profile.h"
+#include "boards/tab5/rtc_runtime.h"
 #include "boards/tab5/tab5_board.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -106,6 +108,33 @@ inline bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles)
 inline AppContextInitHandles resolveAppContextInitHandles()
 {
     return {&::boards::tab5::Tab5Board::instance(), &::boards::tab5::Tab5Board::instance(), nullptr, nullptr};
+}
+
+inline bool lockDisplay(uint32_t timeout_ms)
+{
+    return bsp_display_lock(timeout_ms);
+}
+
+inline void unlockDisplay()
+{
+    bsp_display_unlock();
+}
+
+inline bool syncSystemTimeFromBoardRtc()
+{
+    return ::boards::tab5::rtc_runtime::sync_system_time_from_hardware_rtc();
+}
+
+inline bool applySystemTimeAndSyncBoardRtc(std::time_t epoch_seconds, const char* source)
+{
+    return ::boards::tab5::rtc_runtime::apply_system_time_and_sync_rtc(epoch_seconds, source);
+}
+
+inline BoardIdentity defaultIdentity()
+{
+    return {::boards::tab5::Tab5Board::defaultLongName(),
+            ::boards::tab5::Tab5Board::defaultShortName(),
+            ::boards::tab5::Tab5Board::defaultBleName()};
 }
 
 } // namespace platform::esp::boards::detail

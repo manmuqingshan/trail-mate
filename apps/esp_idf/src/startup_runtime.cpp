@@ -6,7 +6,6 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "board/BoardBase.h"
-#include "boards/tab5/rtc_runtime.h"
 #include "esp_log.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
@@ -22,16 +21,6 @@
 #include "ui/app_runtime.h"
 #include "ui/startup_shell.h"
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-extern "C"
-{
-#include <stdint.h>
-
-    bool bsp_display_lock(uint32_t timeout_ms);
-    void bsp_display_unlock(void);
-}
-#endif
-
 namespace apps::esp_idf::startup_runtime
 {
 namespace
@@ -39,19 +28,12 @@ namespace
 
 bool lockUi(uint32_t timeout_ms)
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    return bsp_display_lock(timeout_ms);
-#else
-    (void)timeout_ms;
-    return true;
-#endif
+    return platform::esp::boards::lockDisplay(timeout_ms);
 }
 
 void unlockUi()
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    bsp_display_unlock();
-#endif
+    platform::esp::boards::unlockDisplay();
 }
 
 void applyPlatformRuntimeConfig(const RuntimeConfig& config)
@@ -135,7 +117,7 @@ void run(const RuntimeConfig& config)
     (void)platform::esp::idf_common::bsp_runtime::ensure_nvs_ready();
     platform::esp::boards::initializeBoard(waking_from_sleep);
     platform::esp::boards::initializeDisplay();
-    if (::boards::tab5::rtc_runtime::sync_system_time_from_hardware_rtc())
+    if (platform::esp::boards::syncSystemTimeFromBoardRtc())
     {
         ESP_LOGI(config.log_tag, "Boot time restored from hardware RTC");
     }

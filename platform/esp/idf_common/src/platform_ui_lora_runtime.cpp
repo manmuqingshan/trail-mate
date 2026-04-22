@@ -16,7 +16,7 @@ bool board_has_lora_capability()
     return ::boards::tab5::Tab5Board::hasLora() ||
            ::boards::tab5::Tab5Board::hasM5BusLoraRouting();
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return platform::esp::boards::t_display_p4::kBoardProfile.has_lora;
+    return ::boards::t_display_p4::kBoardProfile.has_lora;
 #else
     return false;
 #endif

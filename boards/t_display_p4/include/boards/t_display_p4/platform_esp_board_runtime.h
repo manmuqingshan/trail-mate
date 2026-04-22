@@ -1,10 +1,16 @@
 #pragma once
 
-#include <cstdlib>
+#include <ctime>
 
-#include "boards/t_display_p4/board_profile.h"
+#include "boards/t_display_p4/rtc_runtime.h"
+#include "boards/t_display_p4/t_display_p4_board.h"
 #include "esp_log.h"
 #include "platform/esp/boards/board_runtime.h"
+
+extern "C"
+{
+#include "bsp/trail_mate_t_display_p4_runtime.h"
+}
 
 namespace platform::esp::boards::detail
 {
@@ -16,68 +22,112 @@ constexpr const char* kTag = "t-display-p4-board-runtime";
 
 inline void initializeBoard(bool waking_from_sleep)
 {
+    const auto& profile = ::boards::t_display_p4::TDisplayP4Board::profile();
     ESP_LOGI(kTag,
-             "T-Display-P4 board runtime bootstrap: caps(display=%d touch=%d audio=%d sd=%d gps=%d lora=%d ioexp_lora=%d) sys_i2c=(%d,%d,%d) ext_i2c=(%d,%d,%d) gps_uart=(%d,%d,%d) sdmmc=(%d,%d,%d,%d,%d,%d) audio_i2s=(%d,%d,%d,%d,%d) lora_spi=(host=%d sck=%d miso=%d mosi=%d) lora_ctrl=(nss=%d rst=%d irq=%d busy=%d pwr_en=%d) boot=%d expander_int=%d backlight=%d wake=%d",
-             ::boards::t_display_p4::kBoardProfile.has_display ? 1 : 0,
-             ::boards::t_display_p4::kBoardProfile.has_touch ? 1 : 0,
-             ::boards::t_display_p4::kBoardProfile.has_audio ? 1 : 0,
-             ::boards::t_display_p4::kBoardProfile.has_sdcard ? 1 : 0,
-             ::boards::t_display_p4::kBoardProfile.has_gps_uart ? 1 : 0,
-             ::boards::t_display_p4::kBoardProfile.has_lora ? 1 : 0,
-             ::boards::t_display_p4::kBoardProfile.uses_io_expander_for_lora ? 1 : 0,
-             ::boards::t_display_p4::kBoardProfile.sys_i2c.port,
-             ::boards::t_display_p4::kBoardProfile.sys_i2c.sda,
-             ::boards::t_display_p4::kBoardProfile.sys_i2c.scl,
-             ::boards::t_display_p4::kBoardProfile.ext_i2c.port,
-             ::boards::t_display_p4::kBoardProfile.ext_i2c.sda,
-             ::boards::t_display_p4::kBoardProfile.ext_i2c.scl,
-             ::boards::t_display_p4::kBoardProfile.gps_uart.port,
-             ::boards::t_display_p4::kBoardProfile.gps_uart.tx,
-             ::boards::t_display_p4::kBoardProfile.gps_uart.rx,
-             ::boards::t_display_p4::kBoardProfile.sdmmc.d0,
-             ::boards::t_display_p4::kBoardProfile.sdmmc.d1,
-             ::boards::t_display_p4::kBoardProfile.sdmmc.d2,
-             ::boards::t_display_p4::kBoardProfile.sdmmc.d3,
-             ::boards::t_display_p4::kBoardProfile.sdmmc.cmd,
-             ::boards::t_display_p4::kBoardProfile.sdmmc.clk,
-             ::boards::t_display_p4::kBoardProfile.audio_i2s.bclk,
-             ::boards::t_display_p4::kBoardProfile.audio_i2s.mclk,
-             ::boards::t_display_p4::kBoardProfile.audio_i2s.ws,
-             ::boards::t_display_p4::kBoardProfile.audio_i2s.dout,
-             ::boards::t_display_p4::kBoardProfile.audio_i2s.din,
-             ::boards::t_display_p4::kBoardProfile.lora.spi.host,
-             ::boards::t_display_p4::kBoardProfile.lora.spi.sck,
-             ::boards::t_display_p4::kBoardProfile.lora.spi.miso,
-             ::boards::t_display_p4::kBoardProfile.lora.spi.mosi,
-             ::boards::t_display_p4::kBoardProfile.lora.nss,
-             ::boards::t_display_p4::kBoardProfile.lora.rst,
-             ::boards::t_display_p4::kBoardProfile.lora.irq,
-             ::boards::t_display_p4::kBoardProfile.lora.busy,
-             ::boards::t_display_p4::kBoardProfile.lora.pwr_en,
-             ::boards::t_display_p4::kBoardProfile.boot,
-             ::boards::t_display_p4::kBoardProfile.expander_int,
-             ::boards::t_display_p4::kBoardProfile.lcd_backlight,
+             "T-Display-P4 board runtime bootstrap: caps(display=%d touch=%d audio=%d sd=%d gps=%d lora=%d ioexp_lora=%d) "
+             "sys_i2c=(%d,%d,%d) ext_i2c=(%d,%d,%d) gps_uart=(%d,%d,%d) sdmmc=(%d,%d,%d,%d,%d,%d) "
+             "audio_i2s=(%d,%d,%d,%d,%d) lora_spi=(host=%d sck=%d miso=%d mosi=%d) lora_ctrl=(nss=%d rst=%d irq=%d busy=%d pwr_en=%d) "
+             "boot=%d expander_int=%d backlight=%d wake=%d",
+             profile.has_display ? 1 : 0,
+             profile.has_touch ? 1 : 0,
+             profile.has_audio ? 1 : 0,
+             profile.has_sdcard ? 1 : 0,
+             profile.has_gps_uart ? 1 : 0,
+             profile.has_lora ? 1 : 0,
+             profile.uses_io_expander_for_lora ? 1 : 0,
+             profile.sys_i2c.port,
+             profile.sys_i2c.sda,
+             profile.sys_i2c.scl,
+             profile.ext_i2c.port,
+             profile.ext_i2c.sda,
+             profile.ext_i2c.scl,
+             profile.gps_uart.port,
+             profile.gps_uart.tx,
+             profile.gps_uart.rx,
+             profile.sdmmc.d0,
+             profile.sdmmc.d1,
+             profile.sdmmc.d2,
+             profile.sdmmc.d3,
+             profile.sdmmc.cmd,
+             profile.sdmmc.clk,
+             profile.audio_i2s.bclk,
+             profile.audio_i2s.mclk,
+             profile.audio_i2s.ws,
+             profile.audio_i2s.dout,
+             profile.audio_i2s.din,
+             profile.lora.spi.host,
+             profile.lora.spi.sck,
+             profile.lora.spi.miso,
+             profile.lora.spi.mosi,
+             profile.lora.nss,
+             profile.lora.rst,
+             profile.lora.irq,
+             profile.lora.busy,
+             profile.lora.pwr_en,
+             profile.boot,
+             profile.expander_int,
+             profile.lcd_backlight,
              waking_from_sleep ? 1 : 0);
+
+    (void)::boards::t_display_p4::TDisplayP4Board::instance().begin();
 }
 
 inline void initializeDisplay()
 {
-    ESP_LOGI(kTag, "T-Display-P4 display runtime not wired yet; waiting for IDF board/display adapter migration");
+    if (trail_mate_t_display_p4_display_runtime_init())
+    {
+        ESP_LOGI(kTag, "T-Display-P4 display runtime initialized");
+    }
+    else
+    {
+        ESP_LOGE(kTag, "T-Display-P4 display runtime initialization failed");
+    }
 }
 
 inline bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles)
 {
-    (void)out_handles;
-    ESP_LOGI(kTag, "T-Display-P4 AppContext handles are not available yet; board adapter still pending");
-    return false;
+    if (!out_handles)
+    {
+        return false;
+    }
+
+    *out_handles = resolveAppContextInitHandles();
+    return out_handles->isValid();
 }
 
 inline AppContextInitHandles resolveAppContextInitHandles()
 {
-    AppContextInitHandles handles{};
-    (void)handles;
-    ESP_LOGE(kTag, "T-Display-P4 resolveAppContextInitHandles() called before adapter implementation");
-    abort();
+    return {&::boards::t_display_p4::TDisplayP4Board::instance(),
+            &::boards::t_display_p4::TDisplayP4Board::instance(),
+            nullptr,
+            nullptr};
+}
+
+inline bool lockDisplay(uint32_t timeout_ms)
+{
+    return trail_mate_t_display_p4_display_lock(timeout_ms);
+}
+
+inline void unlockDisplay()
+{
+    trail_mate_t_display_p4_display_unlock();
+}
+
+inline bool syncSystemTimeFromBoardRtc()
+{
+    return ::boards::t_display_p4::rtc_runtime::sync_system_time_from_hardware_rtc();
+}
+
+inline bool applySystemTimeAndSyncBoardRtc(std::time_t epoch_seconds, const char* source)
+{
+    return ::boards::t_display_p4::rtc_runtime::apply_system_time_and_sync_rtc(epoch_seconds, source);
+}
+
+inline BoardIdentity defaultIdentity()
+{
+    return {::boards::t_display_p4::TDisplayP4Board::defaultLongName(),
+            ::boards::t_display_p4::TDisplayP4Board::defaultShortName(),
+            ::boards::t_display_p4::TDisplayP4Board::defaultBleName()};
 }
 
 } // namespace platform::esp::boards::detail
