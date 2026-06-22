@@ -26,6 +26,11 @@ inline void initializeDisplay()
     beginLvglHelper(static_cast<LilyGo_Display&>(::boards::twatchs3::instance));
 }
 
+inline bool initializeStorage()
+{
+    return false;
+}
+
 inline bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles)
 {
     if (!out_handles)

@@ -369,6 +369,16 @@ bool TDeckProBoard::installSD()
     return ok;
 }
 
+bool TDeckProBoard::ensureSDReady()
+{
+    if (isCardReady())
+    {
+        sd_ready_ = true;
+        return true;
+    }
+    return initStorage();
+}
+
 void TDeckProBoard::uninstallSD()
 {
     ::platform::esp::arduino_common::storage::unmount_sd_card();

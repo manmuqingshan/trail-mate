@@ -29,6 +29,11 @@ void initializeDisplay()
     detail::initializeDisplay();
 }
 
+bool initializeStorage()
+{
+    return detail::initializeStorage();
+}
+
 bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles)
 {
     return detail::tryResolveAppContextInitHandles(out_handles);

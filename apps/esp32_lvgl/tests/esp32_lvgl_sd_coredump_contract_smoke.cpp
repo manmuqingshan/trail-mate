@@ -49,11 +49,16 @@ int main(int argc, char** argv)
     const std::size_t begin_boot = position_of(
         arduino_startup,
         "startup_shell::beginBootUi");
+    const std::size_t storage_init = position_of(
+        arduino_startup,
+        "boards::initializeStorage");
     const std::size_t export_core = position_of(
         arduino_startup,
         "debug::export_previous_coredump_to_sd");
     assert(board_init < display_init);
     assert(display_init < begin_boot);
+    assert(begin_boot < storage_init);
+    assert(storage_init < begin_log);
     assert(begin_boot < begin_log);
     assert(begin_log < export_core);
 

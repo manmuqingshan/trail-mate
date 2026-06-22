@@ -671,6 +671,27 @@ bool TDeckBoard::installSD()
 #endif
 }
 
+bool TDeckBoard::ensureSDReady()
+{
+    if (isCardReady())
+    {
+        sd_ready_ = true;
+        devices_probe_ |= HW_SD_ONLINE;
+        return true;
+    }
+
+    sd_ready_ = installSD();
+    if (sd_ready_)
+    {
+        devices_probe_ |= HW_SD_ONLINE;
+    }
+    else
+    {
+        devices_probe_ &= ~HW_SD_ONLINE;
+    }
+    return sd_ready_;
+}
+
 void TDeckBoard::uninstallSD()
 {
     if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))

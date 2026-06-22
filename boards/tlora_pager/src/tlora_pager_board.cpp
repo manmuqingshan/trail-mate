@@ -789,6 +789,26 @@ bool TLoRaPagerBoard::installSD()
     return true;
 }
 
+bool TLoRaPagerBoard::ensureSDReady()
+{
+    if (isCardReady())
+    {
+        devices_probe |= HW_SD_ONLINE;
+        return true;
+    }
+
+    const bool ok = installSD();
+    if (ok)
+    {
+        devices_probe |= HW_SD_ONLINE;
+    }
+    else
+    {
+        devices_probe &= ~HW_SD_ONLINE;
+    }
+    return ok;
+}
+
 void TLoRaPagerBoard::uninstallSD()
 {
     // Safely unmount SD card (requires SPI lock)

@@ -102,6 +102,9 @@ void run()
 
     applyStartupBrightness("after_lvgl");
     ui::startup_shell::beginBootUi(waking_from_sleep, "Starting services...");
+    ui::startup_shell::setBootLogLine("Mounting SD card...");
+    const bool sd_ready = platform::esp::boards::initializeStorage();
+    Serial.printf("[Setup] SD storage initialized after boot UI ready=%d\n", sd_ready ? 1 : 0);
     ui::startup_shell::setBootLogLine("Starting debug log...");
 
     platform::esp::arduino_common::debug::begin_sd_debug_log();

@@ -101,6 +101,11 @@ inline void initializeDisplay()
     }
 }
 
+inline bool initializeStorage()
+{
+    return false;
+}
+
 inline bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles)
 {
     if (!out_handles)

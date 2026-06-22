@@ -123,6 +123,7 @@ class TLoRaPagerBoard : public BoardBase,
     bool initSensor();
     bool initRTC();
     bool installSD();
+    bool ensureSDReady() override;
     void uninstallSD();
     bool isCardReady() override;
 

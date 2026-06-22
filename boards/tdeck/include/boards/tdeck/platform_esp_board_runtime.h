@@ -9,19 +9,24 @@ namespace platform::esp::boards::detail
 
 inline void initializeBoard(bool waking_from_sleep)
 {
-    // Defer GPS UART open until AppConfig is loaded so saved baud/profile policy is
-    // applied on the first and only GPS init.
-    ::boards::tdeck::board.begin(NO_HW_GPS);
+    // Defer GPS UART open until AppConfig is loaded. Defer SD until the boot
+    // overlay is visible so slow card mount cannot leave the device on a black screen.
+    ::boards::tdeck::instance.begin(NO_HW_GPS | NO_HW_SD);
 
     if (waking_from_sleep)
     {
-        ::boards::tdeck::board.wakeUp();
+        ::boards::tdeck::instance.wakeUp();
     }
 }
 
 inline void initializeDisplay()
 {
     beginLvglHelper(static_cast<LilyGo_Display&>(::boards::tdeck::instance));
+}
+
+inline bool initializeStorage()
+{
+    return ::boards::tdeck::instance.ensureSDReady();
 }
 
 inline bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles)

@@ -13,9 +13,11 @@
 #include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
 #include "platform/esp/arduino_common/chat/infra/meshtastic/node_store.h"
 #include "platform/esp/arduino_common/chat/infra/protocol_factory.h"
+#include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
 #include "platform/esp/arduino_common/device_identity.h"
 #include "platform/esp/arduino_common/gps/gps_service.h"
 #include "platform/esp/arduino_common/gps/track_recorder.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/arduino_common/team/crypto/team_crypto.h"
 #include "platform/esp/arduino_common/team/event/team_app_data_event_bus_bridge.h"
 #include "platform/esp/arduino_common/team/event/team_event_bus_sink.h"
@@ -110,7 +112,20 @@ void set_team_mode_active(bool active)
 
 std::unique_ptr<chat::IChatStore> create_chat_store()
 {
-    Serial.printf("[AppContext] chat store=RamStore\n");
+    if (::platform::esp::arduino_common::storage::sd_card_ready())
+    {
+        std::unique_ptr<chat::SdStore> sd_store(new chat::SdStore());
+        if (sd_store && sd_store->isReady())
+        {
+            Serial.printf("[AppContext] chat store=SdStore backend=%s path=/chat_messages.bin\n",
+                          ::platform::esp::arduino_common::storage::sd_card_backend_name());
+            return std::unique_ptr<chat::IChatStore>(sd_store.release());
+        }
+        Serial.printf("[AppContext] chat store=RamStore reason=sd_store_unavailable\n");
+        return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
+    }
+
+    Serial.printf("[AppContext] chat store=RamStore reason=sd_not_ready\n");
     return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
 }
 

@@ -132,6 +132,8 @@ class TDeckBoard : public BoardBase,
     SensorBHI260AP& getMotionSensor() override { return sensor_; }
     bool isSensorReady() const override { return (devices_probe_ & HW_BHI260AP_ONLINE) != 0; }
 
+    bool ensureSDReady() override;
+
   private:
     TDeckBoard();
     bool initPMU();

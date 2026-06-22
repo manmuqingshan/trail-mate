@@ -10,20 +10,25 @@ namespace platform::esp::boards::detail
 inline void initializeBoard(bool waking_from_sleep)
 {
 #if HAS_GPS
-    ::boards::tlora_pager::board.begin(NO_HW_NFC);
+    ::boards::tlora_pager::instance.begin(NO_HW_NFC | NO_HW_SD);
 #else
-    ::boards::tlora_pager::board.begin(NO_HW_GPS | NO_HW_NFC);
+    ::boards::tlora_pager::instance.begin(NO_HW_GPS | NO_HW_NFC | NO_HW_SD);
 #endif
 
     if (waking_from_sleep)
     {
-        ::boards::tlora_pager::board.wakeUp();
+        ::boards::tlora_pager::instance.wakeUp();
     }
 }
 
 inline void initializeDisplay()
 {
     beginLvglHelper(static_cast<LilyGo_Display&>(::boards::tlora_pager::instance));
+}
+
+inline bool initializeStorage()
+{
+    return ::boards::tlora_pager::instance.ensureSDReady();
 }
 
 inline bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles)
