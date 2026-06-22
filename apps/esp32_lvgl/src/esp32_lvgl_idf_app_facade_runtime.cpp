@@ -6,6 +6,7 @@
 #include "app/app_facades.h"
 #include "board/BoardBase.h"
 #include "chat/infra/contact_store_core.h"
+#include "chat/infra/node_store_blob_format.h"
 #include "chat/infra/node_store_core.h"
 #include "chat/infra/store/ram_store.h"
 #include "chat/ports/i_contact_blob_store.h"
@@ -17,9 +18,12 @@
 #include "esp_mac.h"
 #include "esp_system.h"
 #include "platform/esp/boards/board_runtime.h"
+#include "platform/esp/idf_common/bsp_runtime.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 #endif
 
@@ -29,47 +33,250 @@ namespace
 {
 
 #if defined(ESP_PLATFORM)
-class MemoryNodeBlobStore final : public chat::contacts::INodeBlobStore
+constexpr const char* kIdfStoreTag = "idf-app-store";
+constexpr const char* kIdfContactsFile = "/contacts.dat";
+constexpr const char* kIdfNodesFile = "/nodes.bin";
+
+std::string makeSdPath(const char* relative)
+{
+    const char* mount = platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
+    std::string path = mount ? mount : "";
+    if (path.empty() || !relative || !relative[0])
+    {
+        return path;
+    }
+    if (path.back() == '/' && relative[0] == '/')
+    {
+        path.pop_back();
+    }
+    else if (path.back() != '/' && relative[0] != '/')
+    {
+        path.push_back('/');
+    }
+    path += relative;
+    return path;
+}
+
+bool readSdFile(const char* relative, std::vector<uint8_t>& out)
+{
+    out.clear();
+    if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
+    {
+        ESP_LOGW(kIdfStoreTag, "load skipped: sd not ready path=%s", relative);
+        return false;
+    }
+
+    const std::string path = makeSdPath(relative);
+    FILE* file = std::fopen(path.c_str(), "rb");
+    if (!file)
+    {
+        return false;
+    }
+
+    if (std::fseek(file, 0, SEEK_END) != 0)
+    {
+        std::fclose(file);
+        return false;
+    }
+    const long size = std::ftell(file);
+    if (size <= 0)
+    {
+        std::fclose(file);
+        return false;
+    }
+    if (std::fseek(file, 0, SEEK_SET) != 0)
+    {
+        std::fclose(file);
+        return false;
+    }
+
+    out.resize(static_cast<size_t>(size));
+    const size_t read = std::fread(out.data(), 1, out.size(), file);
+    std::fclose(file);
+    if (read != out.size())
+    {
+        out.clear();
+        return false;
+    }
+    return true;
+}
+
+bool removeSdFile(const char* relative)
+{
+    if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
+    {
+        return false;
+    }
+    const std::string path = makeSdPath(relative);
+    const std::string temp_path = path + ".tmp";
+    std::remove(temp_path.c_str());
+    std::remove(path.c_str());
+    return true;
+}
+
+bool writeSdFileAtomic(const char* relative, const uint8_t* data, size_t len)
+{
+    if (len == 0)
+    {
+        return removeSdFile(relative);
+    }
+    if (!data)
+    {
+        return false;
+    }
+    if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
+    {
+        ESP_LOGW(kIdfStoreTag, "save skipped: sd not ready path=%s len=%u",
+                 relative,
+                 static_cast<unsigned>(len));
+        return false;
+    }
+
+    const std::string path = makeSdPath(relative);
+    const std::string temp_path = path + ".tmp";
+    std::remove(temp_path.c_str());
+
+    FILE* file = std::fopen(temp_path.c_str(), "wb");
+    if (!file)
+    {
+        ESP_LOGW(kIdfStoreTag, "save open failed path=%s", temp_path.c_str());
+        return false;
+    }
+
+    const size_t written = std::fwrite(data, 1, len, file);
+    const int close_result = std::fclose(file);
+    if (written != len || close_result != 0)
+    {
+        std::remove(temp_path.c_str());
+        ESP_LOGW(kIdfStoreTag, "save write failed path=%s want=%u got=%u close=%d",
+                 temp_path.c_str(),
+                 static_cast<unsigned>(len),
+                 static_cast<unsigned>(written),
+                 close_result);
+        return false;
+    }
+
+    std::remove(path.c_str());
+    if (std::rename(temp_path.c_str(), path.c_str()) != 0)
+    {
+        std::remove(temp_path.c_str());
+        ESP_LOGW(kIdfStoreTag, "save rename failed tmp=%s path=%s",
+                 temp_path.c_str(),
+                 path.c_str());
+        return false;
+    }
+    return true;
+}
+
+class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
 {
   public:
     bool loadBlob(std::vector<uint8_t>& out) override
     {
-        out = blob_;
+        std::vector<uint8_t> file;
+        if (!readSdFile(kIdfNodesFile, file) ||
+            file.size() <= sizeof(chat::contacts::NodeStoreSdHeader))
+        {
+            out.clear();
+            return false;
+        }
+
+        chat::contacts::NodeStoreSdHeader header{};
+        std::memcpy(&header, file.data(), sizeof(header));
+        const uint8_t* payload = file.data() + sizeof(header);
+        const size_t payload_len = file.size() - sizeof(header);
+        if (chat::contacts::validateNodeStoreSdBlob(header, payload, payload_len) !=
+            chat::contacts::NodeBlobValidation::Ok)
+        {
+            out.clear();
+            ESP_LOGW(kIdfStoreTag,
+                     "node load invalid path=%s ver=%u count=%u len=%u",
+                     kIdfNodesFile,
+                     static_cast<unsigned>(header.ver),
+                     static_cast<unsigned>(header.count),
+                     static_cast<unsigned>(payload_len));
+            return false;
+        }
+
+        std::vector<chat::contacts::NodeEntry> entries;
+        if (!chat::contacts::NodeStoreCore::decodeBlob(entries, payload, payload_len, header.ver))
+        {
+            out.clear();
+            ESP_LOGW(kIdfStoreTag, "node load decode failed path=%s ver=%u",
+                     kIdfNodesFile,
+                     static_cast<unsigned>(header.ver));
+            return false;
+        }
+
+        chat::contacts::NodeStoreCore::encodeBlob(out, entries);
+        ESP_LOGI(kIdfStoreTag,
+                 "node load source=sd path=%s count=%u len=%u",
+                 kIdfNodesFile,
+                 static_cast<unsigned>(entries.size()),
+                 static_cast<unsigned>(out.size()));
         return !out.empty();
     }
 
     bool saveBlob(const uint8_t* data, size_t len) override
     {
-        blob_.assign(data, data + len);
-        return true;
+        if (len == 0)
+        {
+            removeSdFile(kIdfNodesFile);
+            return true;
+        }
+        if (!chat::contacts::isValidNodeBlobSize(len) ||
+            chat::contacts::nodeBlobEntryCount(len) > chat::contacts::NodeStoreCore::kMaxNodes)
+        {
+            return false;
+        }
+
+        chat::contacts::NodeStoreSdHeader header =
+            chat::contacts::makeNodeStoreSdHeader(data, len);
+        std::vector<uint8_t> file(sizeof(header) + len);
+        std::memcpy(file.data(), &header, sizeof(header));
+        std::memcpy(file.data() + sizeof(header), data, len);
+        const bool ok = writeSdFileAtomic(kIdfNodesFile, file.data(), file.size());
+        ESP_LOGI(kIdfStoreTag,
+                 "node save target=sd path=%s count=%u len=%u ok=%u",
+                 kIdfNodesFile,
+                 static_cast<unsigned>(header.count),
+                 static_cast<unsigned>(len),
+                 ok ? 1U : 0U);
+        return ok;
     }
 
     void clearBlob() override
     {
-        blob_.clear();
+        (void)removeSdFile(kIdfNodesFile);
     }
-
-  private:
-    std::vector<uint8_t> blob_{};
 };
 
-class MemoryContactBlobStore final : public chat::IContactBlobStore
+class IdfSdContactBlobStore final : public chat::IContactBlobStore
 {
   public:
     bool loadBlob(std::vector<uint8_t>& out) override
     {
-        out = blob_;
-        return !out.empty();
+        const bool ok = readSdFile(kIdfContactsFile, out);
+        if (ok)
+        {
+            ESP_LOGI(kIdfStoreTag,
+                     "contacts load source=sd path=%s len=%u",
+                     kIdfContactsFile,
+                     static_cast<unsigned>(out.size()));
+        }
+        return ok;
     }
 
     bool saveBlob(const uint8_t* data, size_t len) override
     {
-        blob_.assign(data, data + len);
-        return true;
+        const bool ok = writeSdFileAtomic(kIdfContactsFile, data, len);
+        ESP_LOGI(kIdfStoreTag,
+                 "contacts save target=sd path=%s len=%u ok=%u",
+                 kIdfContactsFile,
+                 static_cast<unsigned>(len),
+                 ok ? 1U : 0U);
+        return ok;
     }
-
-  private:
-    std::vector<uint8_t> blob_{};
 };
 
 class IdfNullMeshAdapter final : public chat::IMeshAdapter
@@ -405,8 +612,8 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     bool team_mode_active_ = false;
     BoardBase* board_ = nullptr;
     app::AppConfig config_{};
-    MemoryNodeBlobStore node_blob_store_{};
-    MemoryContactBlobStore contact_blob_store_{};
+    IdfSdNodeBlobStore node_blob_store_{};
+    IdfSdContactBlobStore contact_blob_store_{};
     chat::contacts::NodeStoreCore node_store_{node_blob_store_};
     chat::contacts::ContactStoreCore contact_store_{contact_blob_store_};
     chat::contacts::ContactService contact_service_{node_store_, contact_store_};

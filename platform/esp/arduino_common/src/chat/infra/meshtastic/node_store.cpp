@@ -169,11 +169,36 @@ bool NodeStore::loadBlob(std::vector<uint8_t>& out)
 
     if (backend_ == StorageBackend::Sd)
     {
-        if (loadFromSd(out))
+        const LoadResult sd_result = loadFromSd(out);
+        if (sd_result == LoadResult::Loaded)
         {
             NODE_STORE_LOG("[NodeStore] load source=sd path=%s len=%u\n",
                            kPersistNodesFile,
                            static_cast<unsigned>(out.size()));
+            return true;
+        }
+        if (sd_result == LoadResult::Busy)
+        {
+            NODE_STORE_LOG("[NodeStore] load source=none reason=sd_busy\n");
+            return false;
+        }
+
+        std::vector<uint8_t> fallback;
+        if (loadFromNvs(fallback))
+        {
+            NODE_STORE_LOG("[NodeStore] load source=nvs fallback=sd_miss ns=%s len=%u\n",
+                           kPersistNodesNs,
+                           static_cast<unsigned>(fallback.size()));
+            const bool migrated = saveToSd(fallback.data(), fallback.size());
+            NODE_STORE_LOG("[NodeStore] migrate source=nvs target=sd path=%s len=%u ok=%u\n",
+                           kPersistNodesFile,
+                           static_cast<unsigned>(fallback.size()),
+                           migrated ? 1U : 0U);
+            if (migrated)
+            {
+                clearNvs();
+            }
+            out.swap(fallback);
             return true;
         }
     }
@@ -310,26 +335,26 @@ bool NodeStore::loadFromNvs(std::vector<uint8_t>& out)
     return true;
 }
 
-bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
+NodeStore::LoadResult NodeStore::loadFromSd(std::vector<uint8_t>& out) const
 {
     if (!::platform::esp::arduino_common::storage::sd_card_ready())
     {
         NODE_STORE_LOG("[NodeStore] load SD skipped: card none\n");
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdLoadWait, "node_store_sd");
     if (!spi_guard.locked())
     {
         NODE_STORE_LOG("[NodeStore] load SD skipped: spi busy\n");
-        return false;
+        return LoadResult::Busy;
     }
 
     ::platform::esp::arduino_common::storage::SdRuntimeFile file;
     if (!file.open(kPersistNodesFile, "r"))
     {
         NODE_STORE_LOG("[NodeStore] load SD open failed path=%s\n", kPersistNodesFile);
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     const size_t file_size = static_cast<size_t>(file.size());
@@ -339,7 +364,7 @@ bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
                        kPersistNodesFile,
                        static_cast<unsigned>(file_size));
         file.close();
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     contacts::NodeStoreSdHeader header{};
@@ -347,7 +372,7 @@ bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
     {
         NODE_STORE_LOG("[NodeStore] load SD header read failed path=%s\n", kPersistNodesFile);
         file.close();
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     if (header.count == 0 || header.count > contacts::NodeStoreCore::kMaxNodes)
@@ -357,7 +382,7 @@ bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
                        static_cast<unsigned>(header.ver),
                        static_cast<unsigned>(header.count));
         file.close();
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     const size_t payload_len = file_size - sizeof(header);
@@ -368,7 +393,7 @@ bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
                        static_cast<unsigned>(header.ver),
                        static_cast<unsigned>(header.count));
         file.close();
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     out.resize(payload_len);
@@ -382,7 +407,7 @@ bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
                        static_cast<unsigned>(payload_len),
                        static_cast<unsigned>(read_bytes));
         out.clear();
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     const size_t entry_size = contacts::nodeBlobEntrySizeForVersion(header.ver);
@@ -392,7 +417,7 @@ bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
                        kPersistNodesFile,
                        static_cast<unsigned>(header.ver));
         out.clear();
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     const size_t expected_len = static_cast<size_t>(header.count) * entry_size;
@@ -405,7 +430,7 @@ bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
                        static_cast<unsigned>(header.count),
                        static_cast<unsigned>(expected_len));
         out.clear();
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     const uint32_t calc_crc = contacts::NodeStoreCore::computeBlobCrc(out.data(), out.size());
@@ -416,7 +441,7 @@ bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
                        static_cast<unsigned long>(header.crc),
                        static_cast<unsigned long>(calc_crc));
         out.clear();
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     std::vector<uint8_t> normalized;
@@ -427,13 +452,13 @@ bool NodeStore::loadFromSd(std::vector<uint8_t>& out) const
                        static_cast<unsigned>(header.ver),
                        static_cast<unsigned>(out.size()));
         out.clear();
-        return false;
+        return LoadResult::MissingOrInvalid;
     }
 
     out.swap(normalized);
     NODE_STORE_LOG("[NodeStore] loaded=%u (SD)\n",
                    static_cast<unsigned>(out.size() / contacts::NodeStoreCore::kSerializedEntrySizeV8));
-    return true;
+    return LoadResult::Loaded;
 }
 
 bool NodeStore::saveToNvs(const uint8_t* data, size_t len) const

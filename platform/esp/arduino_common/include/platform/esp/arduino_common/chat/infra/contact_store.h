@@ -34,6 +34,13 @@ class ContactStore : public IContactStore,
         Flash,
     };
 
+    enum class LoadResult : uint8_t
+    {
+        Loaded,
+        MissingOrInvalid,
+        Busy,
+    };
+
     static constexpr const char* kSdPath = "/contacts.dat";
     static constexpr const char* kPrefNs = "contacts";
     static constexpr const char* kPrefKey = "contact_blob";
@@ -41,10 +48,11 @@ class ContactStore : public IContactStore,
     bool loadBlob(std::vector<uint8_t>& out) override;
     bool saveBlob(const uint8_t* data, size_t len) override;
 
-    bool loadFromSD(std::vector<uint8_t>& out) const;
+    LoadResult loadFromSD(std::vector<uint8_t>& out) const;
     bool saveToSD(const uint8_t* data, size_t len) const;
     bool loadFromFlash(std::vector<uint8_t>& out) const;
     bool saveToFlash(const uint8_t* data, size_t len) const;
+    void clearFlash() const;
 
     ContactStoreCore core_;
     StorageBackend backend_ = StorageBackend::Flash;

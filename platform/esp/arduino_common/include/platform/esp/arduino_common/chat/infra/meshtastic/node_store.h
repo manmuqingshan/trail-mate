@@ -46,6 +46,13 @@ class NodeStore : public contacts::INodeStore,
         Nvs,
     };
 
+    enum class LoadResult : uint8_t
+    {
+        Loaded,
+        MissingOrInvalid,
+        Busy,
+    };
+
     static constexpr const char* kPersistNodesFile = "/nodes.bin";
     static constexpr const char* kPersistNodesNs = "nodes";
     static constexpr const char* kPersistNodesKey = "node_blob";
@@ -57,7 +64,7 @@ class NodeStore : public contacts::INodeStore,
     void clearBlob() override;
 
     bool loadFromNvs(std::vector<uint8_t>& out);
-    bool loadFromSd(std::vector<uint8_t>& out) const;
+    LoadResult loadFromSd(std::vector<uint8_t>& out) const;
     bool saveToNvs(const uint8_t* data, size_t len) const;
     bool saveToSd(const uint8_t* data, size_t len) const;
     bool saveToBackend(const uint8_t* data, size_t len, StorageBackend backend) const;
