@@ -7,8 +7,12 @@
 
 #include "chat/ports/i_chat_store.h"
 
-#include <map>
 #include <vector>
+
+namespace platform::esp::arduino_common::storage
+{
+class SdRuntimeFile;
+} // namespace platform::esp::arduino_common::storage
 
 namespace chat
 {
@@ -16,9 +20,13 @@ namespace chat
 class SdStore final : public IChatStore
 {
   public:
-    static constexpr size_t kMaxMessagesTotal = 120;
+    static constexpr const char* kDir = "/chat";
+    static constexpr const char* kIndexFile = "/chat/index.bin";
+    static constexpr size_t kMaxMessagesPerConv = 100;
+    static constexpr size_t kMaxTextLen = 233;
+    static constexpr size_t kPreviewLen = 48;
 
-    explicit SdStore(const char* path = "/chat_messages.bin");
+    SdStore();
     ~SdStore() override = default;
 
     bool isReady() const { return ready_; }
@@ -37,103 +45,86 @@ class SdStore final : public IChatStore
     void flush() override;
 
   private:
-    struct StoredMessageEntry
-    {
-        ChatMessage message;
-        uint32_t sequence = 0;
-    };
-
-    struct ConversationStorage
-    {
-        std::vector<StoredMessageEntry> messages;
-        int unread_count = 0;
-    };
-
     struct FileHeader
     {
         uint32_t magic = 0;
         uint16_t version = 0;
-        uint16_t conversation_count = 0;
-        uint32_t next_sequence = 1;
+        uint16_t head = 0;
+        uint16_t count = 0;
+        uint16_t reserved = 0;
     } __attribute__((packed));
 
-    struct LegacyFileHeader
+    struct Record
+    {
+        uint8_t protocol = 0;
+        uint8_t channel = 0;
+        uint8_t status = 0;
+        uint16_t text_len = 0;
+        uint32_t from = 0;
+        uint32_t peer = 0;
+        uint32_t msg_id = 0;
+        uint32_t timestamp = 0;
+        char text[kMaxTextLen] = {};
+    } __attribute__((packed));
+
+    struct IndexHeader
     {
         uint32_t magic = 0;
         uint16_t version = 0;
-        uint16_t conversation_count = 0;
+        uint16_t count = 0;
     } __attribute__((packed));
 
-    struct ConversationRecord
-    {
-        uint8_t protocol = 0;
-        uint8_t channel = 0;
-        uint16_t reserved = 0;
-        uint32_t peer = 0;
-        int32_t unread_count = 0;
-        uint16_t message_count = 0;
-        uint16_t reserved2 = 0;
-    } __attribute__((packed));
-
-    struct MessageRecord
+    struct IndexEntry
     {
         uint8_t protocol = 0;
         uint8_t channel = 0;
         uint8_t status = 0;
-        uint8_t flags = 0;
-        uint32_t from = 0;
+        uint16_t unread = 0;
         uint32_t peer = 0;
-        uint32_t msg_id = 0;
-        uint32_t timestamp = 0;
-        uint32_t sequence = 0;
-        uint8_t team_location_icon = 0;
-        int32_t geo_lat_e7 = 0;
-        int32_t geo_lon_e7 = 0;
-        uint16_t text_len = 0;
-        char text[220] = {};
+        uint32_t last_msg_id = 0;
+        uint32_t last_timestamp = 0;
+        uint32_t last_from = 0;
+        uint16_t preview_len = 0;
+        char preview[kPreviewLen] = {};
     } __attribute__((packed));
 
-    struct LegacyMessageRecord
-    {
-        uint8_t protocol = 0;
-        uint8_t channel = 0;
-        uint8_t status = 0;
-        uint8_t flags = 0;
-        uint32_t from = 0;
-        uint32_t peer = 0;
-        uint32_t msg_id = 0;
-        uint32_t timestamp = 0;
-        uint8_t team_location_icon = 0;
-        int32_t geo_lat_e7 = 0;
-        int32_t geo_lon_e7 = 0;
-        uint16_t text_len = 0;
-        char text[220] = {};
-    } __attribute__((packed));
-
-    static constexpr uint32_t kMagic = 0x54534D43; // CMST
+    static constexpr uint32_t kFileMagic = 0x474F4C43;  // "CLOG"
+    static constexpr uint32_t kIndexMagic = 0x54414843; // "CHAT"
     static constexpr uint16_t kVersion = 2;
 
     bool ensureFs() const;
-    bool loadFromFs();
-    bool saveToFs() const;
-    void markDirty();
-    void maybeSave(bool force = false);
-    void evictOldestMessage();
-    ConversationStorage& getConversationStorage(const ConversationId& conv);
-    const ConversationStorage& getConversationStorage(const ConversationId& conv) const;
+    bool ensureDir() const;
+    bool readIndex(std::vector<IndexEntry>& entries) const;
+    bool writeIndex(const std::vector<IndexEntry>& entries) const;
+    bool ensureIndex(std::vector<IndexEntry>& entries);
+    bool findIndexEntry(const ConversationId& conv,
+                        std::vector<IndexEntry>& entries,
+                        size_t* out_idx) const;
+    bool findIndexEntry(const ConversationId& conv,
+                        const std::vector<IndexEntry>& entries,
+                        size_t* out_idx) const;
+    void updateIndexForMessage(const ChatMessage& msg);
+    void rebuildIndex();
+    bool loadFileHeader(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+                        FileHeader& header) const;
+    bool initFileHeader(::platform::esp::arduino_common::storage::SdRuntimeFile& file) const;
+    bool readRecord(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+                    uint16_t slot,
+                    Record& rec) const;
+    bool writeRecord(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+                     uint16_t slot,
+                     const Record& rec) const;
+    bool openConversationForUpdate(const ConversationId& conv,
+                                   ::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+                                   FileHeader& header) const;
+    void buildConversationPath(const ConversationId& conv, char* out, size_t out_len) const;
+    const char* channelName(ChannelId channel) const;
+    static ChatMessage messageFromRecord(const Record& rec);
+    static Record recordFromMessage(const ChatMessage& msg);
+    static ConversationMeta metaFromIndexEntry(const IndexEntry& entry);
+    static bool hasLogSuffix(const char* name);
 
-    const char* path_ = nullptr;
-    std::map<ConversationId, ConversationStorage> conversations_;
-    uint32_t next_sequence_ = 1;
-    size_t total_message_count_ = 0;
-    mutable uint32_t last_save_ms_ = 0;
-    mutable uint32_t dirty_since_ms_ = 0;
-    mutable size_t pending_write_count_ = 0;
-    mutable bool dirty_ = false;
     bool ready_ = false;
-
-    static constexpr uint32_t kSaveIntervalMs = 1500;
-    static constexpr size_t kMaxPendingWrites = 4;
 };
 
 } // namespace chat

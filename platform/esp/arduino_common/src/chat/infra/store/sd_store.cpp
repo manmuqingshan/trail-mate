@@ -1,12 +1,12 @@
 /**
  * @file sd_store.cpp
- * @brief SD-backed ESP Arduino chat storage implementation.
+ * @brief SD-backed ESP Arduino chat storage using per-conversation log files.
  */
 
 #include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
 
+#include "chat/infra/mesh_protocol_utils.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "sys/clock.h"
 
 #include <Arduino.h>
 
@@ -21,8 +21,6 @@ namespace
 {
 namespace storage = ::platform::esp::arduino_common::storage;
 
-constexpr const char* kTempSuffix = ".tmp";
-
 bool readExact(storage::SdRuntimeFile& file, void* out, size_t len)
 {
     return file.read(out, len) == static_cast<int>(len);
@@ -33,571 +31,878 @@ bool writeExact(storage::SdRuntimeFile& file, const void* data, size_t len)
     return file.write(data, len) == len;
 }
 
-std::string tempPathFor(const char* path)
+const char* protocolTag(MeshProtocol protocol)
 {
-    return std::string(path ? path : "") + kTempSuffix;
+    return chat::infra::meshProtocolSlug(protocol);
+}
+
+std::string pathInChatDir(const char* name)
+{
+    if (!name || name[0] == '\0')
+    {
+        return {};
+    }
+    if (name[0] == '/')
+    {
+        return std::string(name);
+    }
+    return std::string(SdStore::kDir) + "/" + name;
 }
 } // namespace
 
-SdStore::SdStore(const char* path)
-    : path_(path)
+SdStore::SdStore()
 {
-    ready_ = ensureFs();
-    if (ready_)
+    ready_ = ensureFs() && ensureDir();
+    if (!ready_)
     {
-        (void)loadFromFs();
+        Serial.printf("[AppContext] chat store=SdStore layout=logs ready=0 root=%s\n", kDir);
+        return;
     }
+
+    std::vector<IndexEntry> entries;
+    if (!readIndex(entries))
+    {
+        rebuildIndex();
+        (void)readIndex(entries);
+    }
+    Serial.printf("[AppContext] chat store=SdStore layout=logs root=%s index=%u\n",
+                  kDir,
+                  static_cast<unsigned>(entries.size()));
 }
 
 void SdStore::append(const ChatMessage& msg)
 {
-    if (total_message_count_ >= kMaxMessagesTotal)
+    if (!ready_ || !ensureDir())
     {
-        evictOldestMessage();
+        return;
     }
 
-    ConversationStorage& storage = getConversationStorage(ConversationId(msg.channel, msg.peer, msg.protocol));
-    StoredMessageEntry entry;
-    entry.message = msg;
-    entry.sequence = next_sequence_++;
-    storage.messages.push_back(entry);
-    ++total_message_count_;
-    if (msg.status == MessageStatus::Incoming)
+    const ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    storage::SdRuntimeFile file;
+    FileHeader header{};
+    if (!openConversationForUpdate(conv, file, header))
     {
-        ++storage.unread_count;
+        return;
     }
-    markDirty();
-    maybeSave();
+
+    const Record rec = recordFromMessage(msg);
+    if (!writeRecord(file, header.head, rec))
+    {
+        file.close();
+        return;
+    }
+
+    header.head = static_cast<uint16_t>((header.head + 1U) % kMaxMessagesPerConv);
+    if (header.count < kMaxMessagesPerConv)
+    {
+        header.count = static_cast<uint16_t>(header.count + 1U);
+    }
+
+    if (!file.seek(0) || !writeExact(file, &header, sizeof(header)))
+    {
+        file.close();
+        return;
+    }
+    file.flush();
+    file.close();
+
+    updateIndexForMessage(msg);
 }
 
 std::vector<ChatMessage> SdStore::loadRecent(const ConversationId& conv, size_t n)
 {
-    const ConversationStorage& storage = getConversationStorage(conv);
-    std::vector<ChatMessage> result;
-    const size_t count = storage.messages.size();
-    const size_t start = (count > n) ? (count - n) : 0;
-    result.reserve(count - start);
-    for (size_t i = start; i < count; ++i)
+    std::vector<ChatMessage> out;
+    if (!ready_ || n == 0)
     {
-        result.push_back(storage.messages[i].message);
+        return out;
     }
-    return result;
+
+    char path[96]{};
+    buildConversationPath(conv, path, sizeof(path));
+    if (!storage::sd_exists(path))
+    {
+        return out;
+    }
+
+    storage::SdRuntimeFile file;
+    if (!file.open(path, "r"))
+    {
+        return out;
+    }
+
+    FileHeader header{};
+    if (!loadFileHeader(file, header) || header.count == 0)
+    {
+        file.close();
+        return out;
+    }
+
+    const size_t to_read = std::min<size_t>(n, header.count);
+    const uint16_t start = static_cast<uint16_t>(
+        (header.head + kMaxMessagesPerConv - to_read) % kMaxMessagesPerConv);
+
+    out.reserve(to_read);
+    for (size_t index = 0; index < to_read; ++index)
+    {
+        const uint16_t slot = static_cast<uint16_t>((start + index) % kMaxMessagesPerConv);
+        Record rec{};
+        if (!readRecord(file, slot, rec) || rec.text_len == 0)
+        {
+            continue;
+        }
+        out.push_back(messageFromRecord(rec));
+    }
+    file.close();
+    return out;
 }
 
 std::vector<ConversationMeta> SdStore::loadConversationPage(size_t offset,
                                                             size_t limit,
                                                             size_t* total)
 {
-    std::vector<ConversationMeta> list;
-    list.reserve(conversations_.size());
-
-    for (const auto& pair : conversations_)
+    std::vector<IndexEntry> entries;
+    if (!ready_ || !ensureIndex(entries))
     {
-        const ConversationId& conv = pair.first;
-        const ConversationStorage& storage = pair.second;
-        if (storage.messages.empty())
+        if (total)
         {
-            continue;
+            *total = 0;
         }
-
-        ConversationMeta meta;
-        meta.id = conv;
-        meta.preview = storage.messages.back().message.text;
-        meta.last_timestamp = storage.messages.back().message.timestamp;
-        meta.unread = storage.unread_count;
-        if (conv.peer == 0)
-        {
-            meta.name = "Broadcast";
-        }
-        else
-        {
-            char buf[16];
-            std::snprintf(buf, sizeof(buf),
-                          "%04lX",
-                          static_cast<unsigned long>(conv.peer & 0xFFFFUL));
-            meta.name = buf;
-        }
-        list.push_back(meta);
+        return {};
     }
 
-    std::sort(list.begin(),
-              list.end(),
-              [](const ConversationMeta& a, const ConversationMeta& b)
+    std::sort(entries.begin(),
+              entries.end(),
+              [](const IndexEntry& a, const IndexEntry& b)
               {
                   return a.last_timestamp > b.last_timestamp;
               });
 
     if (total)
     {
-        *total = list.size();
+        *total = entries.size();
     }
-    if (offset >= list.size())
+    if (offset >= entries.size())
     {
         return {};
     }
-    if (limit == 0)
+
+    size_t end = entries.size();
+    if (limit != 0 && offset + limit < end)
     {
-        return std::vector<ConversationMeta>(list.begin() + static_cast<long>(offset), list.end());
+        end = offset + limit;
     }
 
-    const size_t end = std::min(list.size(), offset + limit);
-    return std::vector<ConversationMeta>(list.begin() + static_cast<long>(offset),
-                                         list.begin() + static_cast<long>(end));
+    std::vector<ConversationMeta> list;
+    list.reserve(end - offset);
+    for (size_t index = offset; index < end; ++index)
+    {
+        list.push_back(metaFromIndexEntry(entries[index]));
+    }
+    return list;
 }
 
 void SdStore::setUnread(const ConversationId& conv, int unread)
 {
-    getConversationStorage(conv).unread_count = unread;
-    markDirty();
-    maybeSave();
-}
-
-int SdStore::getUnread(const ConversationId& conv) const
-{
-    return getConversationStorage(conv).unread_count;
-}
-
-void SdStore::clearConversation(const ConversationId& conv)
-{
-    auto it = conversations_.find(conv);
-    if (it == conversations_.end())
+    std::vector<IndexEntry> entries;
+    if (!ready_ || !ensureIndex(entries))
     {
         return;
     }
 
-    total_message_count_ -= std::min(total_message_count_, it->second.messages.size());
-    conversations_.erase(it);
-    markDirty();
-    maybeSave(true);
+    size_t index = 0;
+    if (!findIndexEntry(conv, entries, &index))
+    {
+        return;
+    }
+    entries[index].unread = static_cast<uint16_t>(std::max(0, unread));
+    (void)writeIndex(entries);
+}
+
+int SdStore::getUnread(const ConversationId& conv) const
+{
+    std::vector<IndexEntry> entries;
+    if (!ready_ || !readIndex(entries))
+    {
+        return 0;
+    }
+
+    size_t index = 0;
+    if (!findIndexEntry(conv, entries, &index))
+    {
+        return 0;
+    }
+    return entries[index].unread;
+}
+
+void SdStore::clearConversation(const ConversationId& conv)
+{
+    if (!ready_)
+    {
+        return;
+    }
+
+    char path[96]{};
+    buildConversationPath(conv, path, sizeof(path));
+    if (storage::sd_exists(path))
+    {
+        storage::sd_remove(path);
+    }
+
+    std::vector<IndexEntry> entries;
+    if (!readIndex(entries))
+    {
+        return;
+    }
+    entries.erase(std::remove_if(entries.begin(),
+                                 entries.end(),
+                                 [&](const IndexEntry& entry)
+                                 {
+                                     return entry.peer == conv.peer &&
+                                            entry.channel == static_cast<uint8_t>(conv.channel) &&
+                                            entry.protocol == static_cast<uint8_t>(conv.protocol);
+                                 }),
+                  entries.end());
+    (void)writeIndex(entries);
 }
 
 void SdStore::clearAll()
 {
-    conversations_.clear();
-    total_message_count_ = 0;
-    next_sequence_ = 1;
-    dirty_ = false;
-    pending_write_count_ = 0;
-    dirty_since_ms_ = 0;
-
-    if (ensureFs() && path_ && storage::sd_exists(path_))
+    if (!ready_)
     {
-        storage::sd_remove(path_);
+        return;
     }
-    const std::string temp_path = tempPathFor(path_);
-    if (!temp_path.empty() && storage::sd_exists(temp_path.c_str()))
+
+    if (storage::sd_exists(kIndexFile))
     {
-        storage::sd_remove(temp_path.c_str());
+        storage::sd_remove(kIndexFile);
+    }
+
+    std::vector<std::string> log_paths;
+    storage::SdRuntimeDir dir;
+    if (dir.open(kDir))
+    {
+        char name[96]{};
+        bool is_dir = false;
+        while (dir.read_next(name, sizeof(name), &is_dir))
+        {
+            if (!is_dir && hasLogSuffix(name))
+            {
+                log_paths.push_back(pathInChatDir(name));
+            }
+        }
+        dir.close();
+    }
+
+    for (const auto& path : log_paths)
+    {
+        if (!path.empty() && storage::sd_exists(path.c_str()))
+        {
+            storage::sd_remove(path.c_str());
+        }
     }
 }
 
 bool SdStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
 {
-    if (msg_id == 0)
+    if (!ready_ || msg_id == 0)
     {
         return false;
     }
 
-    for (auto& pair : conversations_)
+    std::vector<IndexEntry> entries;
+    if (!readIndex(entries))
     {
-        ConversationStorage& storage = pair.second;
-        for (auto& entry : storage.messages)
+        return false;
+    }
+
+    bool updated = false;
+    for (auto& entry : entries)
+    {
+        ConversationId conv(static_cast<ChannelId>(entry.channel),
+                            entry.peer,
+                            static_cast<MeshProtocol>(entry.protocol));
+        char path[96]{};
+        buildConversationPath(conv, path, sizeof(path));
+        if (!storage::sd_exists(path))
         {
-            ChatMessage& msg = entry.message;
-            if (msg.msg_id != msg_id || msg.from != 0)
+            continue;
+        }
+
+        storage::SdRuntimeFile file;
+        if (!file.open(path, "r+"))
+        {
+            continue;
+        }
+
+        FileHeader header{};
+        if (!loadFileHeader(file, header))
+        {
+            file.close();
+            continue;
+        }
+
+        for (uint16_t index = 0; index < header.count; ++index)
+        {
+            const uint16_t slot =
+                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
+                                      kMaxMessagesPerConv);
+            Record rec{};
+            if (!readRecord(file, slot, rec))
             {
                 continue;
             }
-            msg.status = status;
-            markDirty();
-            maybeSave();
-            return true;
+            if (rec.msg_id != msg_id || rec.from != 0)
+            {
+                continue;
+            }
+
+            rec.status = static_cast<uint8_t>(status);
+            updated = writeRecord(file, slot, rec);
+            if (updated)
+            {
+                file.flush();
+                if (entry.last_msg_id == msg_id)
+                {
+                    entry.status = static_cast<uint8_t>(status);
+                }
+            }
+            break;
+        }
+
+        file.close();
+        if (updated)
+        {
+            break;
         }
     }
-    return false;
+
+    if (updated)
+    {
+        (void)writeIndex(entries);
+    }
+    return updated;
 }
 
 bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
 {
-    if (msg_id == 0)
+    if (!ready_ || msg_id == 0)
     {
         return false;
     }
 
-    for (const auto& pair : conversations_)
+    std::vector<IndexEntry> entries;
+    if (!readIndex(entries))
     {
-        const ConversationStorage& storage = pair.second;
-        for (const auto& entry : storage.messages)
+        return false;
+    }
+
+    for (const auto& entry : entries)
+    {
+        ConversationId conv(static_cast<ChannelId>(entry.channel),
+                            entry.peer,
+                            static_cast<MeshProtocol>(entry.protocol));
+        char path[96]{};
+        buildConversationPath(conv, path, sizeof(path));
+        if (!storage::sd_exists(path))
         {
-            if (entry.message.msg_id != msg_id)
+            continue;
+        }
+
+        storage::SdRuntimeFile file;
+        if (!file.open(path, "r"))
+        {
+            continue;
+        }
+
+        FileHeader header{};
+        if (!loadFileHeader(file, header))
+        {
+            file.close();
+            continue;
+        }
+
+        for (uint16_t index = 0; index < header.count; ++index)
+        {
+            const uint16_t slot =
+                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
+                                      kMaxMessagesPerConv);
+            Record rec{};
+            if (!readRecord(file, slot, rec) || rec.text_len == 0 || rec.msg_id != msg_id)
             {
                 continue;
             }
             if (out)
             {
-                *out = entry.message;
+                *out = messageFromRecord(rec);
             }
+            file.close();
             return true;
         }
+        file.close();
     }
     return false;
 }
 
 void SdStore::flush()
 {
-    maybeSave(true);
 }
 
 bool SdStore::ensureFs() const
 {
-    return path_ && path_[0] != '\0' && storage::sd_card_ready();
+    return storage::sd_card_ready();
 }
 
-bool SdStore::loadFromFs()
-{
-    conversations_.clear();
-    total_message_count_ = 0;
-    next_sequence_ = 1;
-    if (!ensureFs() || !storage::sd_exists(path_))
-    {
-        return false;
-    }
-
-    storage::SdRuntimeFile file;
-    if (!file.open(path_, "r"))
-    {
-        return false;
-    }
-
-    LegacyFileHeader legacy_header{};
-    if (!readExact(file, &legacy_header, sizeof(legacy_header)) || legacy_header.magic != kMagic)
-    {
-        file.close();
-        return false;
-    }
-
-    const bool legacy_v1 = legacy_header.version == 1;
-    const bool current_v2 = legacy_header.version == kVersion;
-    if (!legacy_v1 && !current_v2)
-    {
-        file.close();
-        return false;
-    }
-
-    uint16_t conversation_count = legacy_header.conversation_count;
-    if (current_v2)
-    {
-        uint32_t persisted_next_sequence = 1U;
-        if (!readExact(file, &persisted_next_sequence, sizeof(persisted_next_sequence)))
-        {
-            file.close();
-            return false;
-        }
-        next_sequence_ = std::max<uint32_t>(1U, persisted_next_sequence);
-    }
-    uint32_t recovered_sequence = 1U;
-
-    for (uint16_t index = 0; index < conversation_count; ++index)
-    {
-        ConversationRecord conv_record{};
-        if (!readExact(file, &conv_record, sizeof(conv_record)))
-        {
-            file.close();
-            conversations_.clear();
-            total_message_count_ = 0;
-            return false;
-        }
-
-        ConversationId conv(static_cast<ChannelId>(conv_record.channel),
-                            conv_record.peer,
-                            static_cast<MeshProtocol>(conv_record.protocol));
-        ConversationStorage& storage = getConversationStorage(conv);
-        storage.unread_count = conv_record.unread_count;
-
-        for (uint16_t message_index = 0; message_index < conv_record.message_count; ++message_index)
-        {
-            MessageRecord rec{};
-            if (current_v2)
-            {
-                if (!readExact(file, &rec, sizeof(rec)))
-                {
-                    file.close();
-                    conversations_.clear();
-                    total_message_count_ = 0;
-                    return false;
-                }
-            }
-            else
-            {
-                LegacyMessageRecord legacy_rec{};
-                if (!readExact(file, &legacy_rec, sizeof(legacy_rec)))
-                {
-                    file.close();
-                    conversations_.clear();
-                    total_message_count_ = 0;
-                    return false;
-                }
-                rec.protocol = legacy_rec.protocol;
-                rec.channel = legacy_rec.channel;
-                rec.status = legacy_rec.status;
-                rec.flags = legacy_rec.flags;
-                rec.from = legacy_rec.from;
-                rec.peer = legacy_rec.peer;
-                rec.msg_id = legacy_rec.msg_id;
-                rec.timestamp = legacy_rec.timestamp;
-                rec.team_location_icon = legacy_rec.team_location_icon;
-                rec.geo_lat_e7 = legacy_rec.geo_lat_e7;
-                rec.geo_lon_e7 = legacy_rec.geo_lon_e7;
-                rec.text_len = legacy_rec.text_len;
-                std::memcpy(rec.text, legacy_rec.text, sizeof(rec.text));
-            }
-
-            ChatMessage msg;
-            msg.protocol = static_cast<MeshProtocol>(rec.protocol);
-            msg.channel = static_cast<ChannelId>(rec.channel);
-            msg.from = rec.from;
-            msg.peer = rec.peer;
-            msg.msg_id = rec.msg_id;
-            msg.timestamp = rec.timestamp;
-            msg.team_location_icon = rec.team_location_icon;
-            msg.has_geo = (rec.flags & 0x01U) != 0;
-            msg.geo_lat_e7 = rec.geo_lat_e7;
-            msg.geo_lon_e7 = rec.geo_lon_e7;
-            msg.status = static_cast<MessageStatus>(rec.status);
-            msg.text.assign(rec.text, std::min<size_t>(rec.text_len, sizeof(rec.text)));
-
-            const uint32_t sequence = current_v2 ? rec.sequence : recovered_sequence++;
-            StoredMessageEntry entry;
-            entry.message = msg;
-            entry.sequence = sequence;
-            storage.messages.push_back(entry);
-            ++total_message_count_;
-            if (sequence >= next_sequence_)
-            {
-                next_sequence_ = sequence + 1U;
-            }
-        }
-    }
-
-    file.close();
-    while (total_message_count_ > kMaxMessagesTotal)
-    {
-        evictOldestMessage();
-    }
-    dirty_ = false;
-    pending_write_count_ = 0;
-    dirty_since_ms_ = 0;
-    last_save_ms_ = sys::millis_now();
-    Serial.printf("[AppContext] chat store=SdStore load path=%s conversations=%u messages=%u\n",
-                  path_,
-                  static_cast<unsigned>(conversations_.size()),
-                  static_cast<unsigned>(total_message_count_));
-    return true;
-}
-
-bool SdStore::saveToFs() const
+bool SdStore::ensureDir() const
 {
     if (!ensureFs())
     {
         return false;
     }
+    if (storage::sd_is_directory(kDir))
+    {
+        return true;
+    }
+    return storage::sd_mkdir(kDir);
+}
 
-    const std::string temp_path = tempPathFor(path_);
-    if (temp_path.empty())
+bool SdStore::readIndex(std::vector<IndexEntry>& entries) const
+{
+    entries.clear();
+    if (!ensureFs() || !storage::sd_exists(kIndexFile))
     {
         return false;
-    }
-    if (storage::sd_exists(temp_path.c_str()))
-    {
-        storage::sd_remove(temp_path.c_str());
     }
 
     storage::SdRuntimeFile file;
-    if (!file.open(temp_path.c_str(), "w"))
+    if (!file.open(kIndexFile, "r"))
     {
         return false;
     }
 
-    FileHeader header{};
-    header.magic = kMagic;
-    header.version = kVersion;
-    header.conversation_count = static_cast<uint16_t>(std::min<size_t>(conversations_.size(), 0xFFFFU));
-    header.next_sequence = next_sequence_;
-    if (!writeExact(file, &header, sizeof(header)))
+    IndexHeader header{};
+    if (!readExact(file, &header, sizeof(header)) ||
+        header.magic != kIndexMagic ||
+        header.version != kVersion)
     {
         file.close();
-        storage::sd_remove(temp_path.c_str());
         return false;
     }
 
-    for (const auto& pair : conversations_)
+    entries.resize(header.count);
+    const size_t expected = static_cast<size_t>(header.count) * sizeof(IndexEntry);
+    const bool ok = expected == 0 || readExact(file, entries.data(), expected);
+    file.close();
+    if (!ok)
     {
-        const ConversationId& conv = pair.first;
-        const ConversationStorage& storage_entry = pair.second;
+        entries.clear();
+        return false;
+    }
+    return true;
+}
 
-        ConversationRecord conv_record{};
-        conv_record.protocol = static_cast<uint8_t>(conv.protocol);
-        conv_record.channel = static_cast<uint8_t>(conv.channel);
-        conv_record.peer = conv.peer;
-        conv_record.unread_count = storage_entry.unread_count;
-        conv_record.message_count = static_cast<uint16_t>(std::min<size_t>(storage_entry.messages.size(), 0xFFFFU));
-        if (!writeExact(file, &conv_record, sizeof(conv_record)))
-        {
-            file.close();
-            storage::sd_remove(temp_path.c_str());
-            return false;
-        }
-
-        for (const StoredMessageEntry& entry : storage_entry.messages)
-        {
-            const ChatMessage& msg = entry.message;
-
-            MessageRecord rec{};
-            rec.protocol = static_cast<uint8_t>(msg.protocol);
-            rec.channel = static_cast<uint8_t>(msg.channel);
-            rec.status = static_cast<uint8_t>(msg.status);
-            rec.flags = msg.has_geo ? 0x01U : 0x00U;
-            rec.from = msg.from;
-            rec.peer = msg.peer;
-            rec.msg_id = msg.msg_id;
-            rec.timestamp = msg.timestamp;
-            rec.sequence = entry.sequence;
-            rec.team_location_icon = msg.team_location_icon;
-            rec.geo_lat_e7 = msg.geo_lat_e7;
-            rec.geo_lon_e7 = msg.geo_lon_e7;
-            rec.text_len = static_cast<uint16_t>(std::min<size_t>(msg.text.size(), sizeof(rec.text)));
-            if (rec.text_len > 0)
-            {
-                std::memcpy(rec.text, msg.text.data(), rec.text_len);
-            }
-
-            if (!writeExact(file, &rec, sizeof(rec)))
-            {
-                file.close();
-                storage::sd_remove(temp_path.c_str());
-                return false;
-            }
-        }
+bool SdStore::writeIndex(const std::vector<IndexEntry>& entries) const
+{
+    if (!ensureDir())
+    {
+        return false;
     }
 
+    static constexpr const char* kTempIndexFile = "/chat/index.tmp";
+    if (storage::sd_exists(kTempIndexFile))
+    {
+        storage::sd_remove(kTempIndexFile);
+    }
+
+    storage::SdRuntimeFile file;
+    if (!file.open(kTempIndexFile, "w"))
+    {
+        return false;
+    }
+
+    IndexHeader header{};
+    header.magic = kIndexMagic;
+    header.version = kVersion;
+    header.count = static_cast<uint16_t>(std::min<size_t>(entries.size(), 0xFFFFU));
+    bool ok = writeExact(file, &header, sizeof(header));
+    for (size_t index = 0; ok && index < header.count; ++index)
+    {
+        ok = writeExact(file, &entries[index], sizeof(IndexEntry));
+    }
     file.flush();
     file.close();
 
-    if (storage::sd_exists(path_))
+    if (!ok)
     {
-        storage::sd_remove(path_);
+        storage::sd_remove(kTempIndexFile);
+        return false;
     }
-    const bool renamed = storage::sd_rename(temp_path.c_str(), path_);
-    if (renamed)
+
+    if (storage::sd_exists(kIndexFile))
     {
-        dirty_ = false;
-        pending_write_count_ = 0;
-        dirty_since_ms_ = 0;
-        last_save_ms_ = sys::millis_now();
+        storage::sd_remove(kIndexFile);
     }
-    return renamed;
+    if (!storage::sd_rename(kTempIndexFile, kIndexFile))
+    {
+        storage::sd_remove(kTempIndexFile);
+        return false;
+    }
+    return true;
 }
 
-void SdStore::markDirty()
+bool SdStore::ensureIndex(std::vector<IndexEntry>& entries)
 {
-    if (!dirty_)
+    if (readIndex(entries))
     {
-        dirty_ = true;
-        dirty_since_ms_ = sys::millis_now();
+        return true;
     }
-    ++pending_write_count_;
+    rebuildIndex();
+    return readIndex(entries);
 }
 
-void SdStore::maybeSave(bool force)
+bool SdStore::findIndexEntry(const ConversationId& conv,
+                             std::vector<IndexEntry>& entries,
+                             size_t* out_idx) const
 {
-    if (!dirty_)
-    {
-        return;
-    }
-
-    const uint32_t now_ms = sys::millis_now();
-    const bool interval_elapsed =
-        (dirty_since_ms_ != 0) && ((now_ms - dirty_since_ms_) >= kSaveIntervalMs);
-    const bool too_many_pending = pending_write_count_ >= kMaxPendingWrites;
-    if (!force && !interval_elapsed && !too_many_pending)
-    {
-        return;
-    }
-
-    if (!saveToFs())
-    {
-        Serial.printf("[AppContext] chat store=SdStore save_failed path=%s dirty=%u pending=%u\n",
-                      path_ ? path_ : "",
-                      dirty_ ? 1U : 0U,
-                      static_cast<unsigned>(pending_write_count_));
-    }
+    return findIndexEntry(conv,
+                          static_cast<const std::vector<IndexEntry>&>(entries),
+                          out_idx);
 }
 
-void SdStore::evictOldestMessage()
+bool SdStore::findIndexEntry(const ConversationId& conv,
+                             const std::vector<IndexEntry>& entries,
+                             size_t* out_idx) const
 {
-    auto oldest_it = conversations_.end();
-    size_t oldest_index = 0;
-    uint32_t oldest_sequence = 0;
-    bool found = false;
-
-    for (auto it = conversations_.begin(); it != conversations_.end(); ++it)
+    for (size_t index = 0; index < entries.size(); ++index)
     {
-        auto& messages = it->second.messages;
-        for (size_t index = 0; index < messages.size(); ++index)
+        const IndexEntry& entry = entries[index];
+        if (entry.peer == conv.peer &&
+            entry.channel == static_cast<uint8_t>(conv.channel) &&
+            entry.protocol == static_cast<uint8_t>(conv.protocol))
         {
-            if (!found || messages[index].sequence < oldest_sequence)
+            if (out_idx)
             {
-                oldest_it = it;
-                oldest_index = index;
-                oldest_sequence = messages[index].sequence;
-                found = true;
+                *out_idx = index;
             }
+            return true;
         }
     }
+    return false;
+}
 
-    if (!found)
+void SdStore::updateIndexForMessage(const ChatMessage& msg)
+{
+    std::vector<IndexEntry> entries;
+    if (!ensureIndex(entries))
     {
-        total_message_count_ = 0;
+        entries.clear();
+    }
+
+    const ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    size_t index = 0;
+    if (!findIndexEntry(conv, entries, &index))
+    {
+        IndexEntry entry{};
+        entry.protocol = static_cast<uint8_t>(msg.protocol);
+        entry.channel = static_cast<uint8_t>(msg.channel);
+        entry.peer = msg.peer;
+        entries.push_back(entry);
+        index = entries.size() - 1;
+    }
+
+    IndexEntry& entry = entries[index];
+    entry.protocol = static_cast<uint8_t>(msg.protocol);
+    entry.channel = static_cast<uint8_t>(msg.channel);
+    entry.status = static_cast<uint8_t>(msg.status);
+    entry.peer = msg.peer;
+    entry.last_msg_id = msg.msg_id;
+    entry.last_timestamp = msg.timestamp;
+    entry.last_from = msg.from;
+    entry.preview_len = static_cast<uint16_t>(std::min<size_t>(msg.text.size(), kPreviewLen));
+    std::memset(entry.preview, 0, sizeof(entry.preview));
+    if (entry.preview_len > 0)
+    {
+        std::memcpy(entry.preview, msg.text.data(), entry.preview_len);
+    }
+    if (msg.status == MessageStatus::Incoming && entry.unread < 0xFFFFU)
+    {
+        entry.unread = static_cast<uint16_t>(entry.unread + 1U);
+    }
+
+    (void)writeIndex(entries);
+}
+
+void SdStore::rebuildIndex()
+{
+    if (!ensureDir())
+    {
         return;
     }
 
-    ConversationStorage& storage_entry = oldest_it->second;
-    const ChatMessage removed = storage_entry.messages[oldest_index].message;
-    storage_entry.messages.erase(storage_entry.messages.begin() + static_cast<long>(oldest_index));
-    if (removed.status == MessageStatus::Incoming && storage_entry.unread_count > 0)
+    std::vector<IndexEntry> entries;
+    storage::SdRuntimeDir dir;
+    if (!dir.open(kDir))
     {
-        --storage_entry.unread_count;
+        return;
     }
-    if (storage_entry.messages.empty())
+
+    char name[96]{};
+    bool is_dir = false;
+    while (dir.read_next(name, sizeof(name), &is_dir))
     {
-        conversations_.erase(oldest_it);
+        if (is_dir || !hasLogSuffix(name))
+        {
+            continue;
+        }
+
+        const std::string path = pathInChatDir(name);
+        storage::SdRuntimeFile file;
+        if (path.empty() || !file.open(path.c_str(), "r"))
+        {
+            continue;
+        }
+
+        FileHeader header{};
+        if (!loadFileHeader(file, header))
+        {
+            file.close();
+            continue;
+        }
+
+        ChatMessage last_msg;
+        bool have_last = false;
+        uint16_t unread = 0;
+        for (uint16_t index = 0; index < header.count; ++index)
+        {
+            const uint16_t slot =
+                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
+                                      kMaxMessagesPerConv);
+            Record rec{};
+            if (!readRecord(file, slot, rec) || rec.text_len == 0)
+            {
+                continue;
+            }
+            ChatMessage msg = messageFromRecord(rec);
+            if (msg.status == MessageStatus::Incoming && unread < 0xFFFFU)
+            {
+                ++unread;
+            }
+            if (!have_last || msg.timestamp >= last_msg.timestamp)
+            {
+                last_msg = msg;
+                have_last = true;
+            }
+        }
+        file.close();
+
+        if (!have_last)
+        {
+            continue;
+        }
+
+        IndexEntry entry{};
+        entry.protocol = static_cast<uint8_t>(last_msg.protocol);
+        entry.channel = static_cast<uint8_t>(last_msg.channel);
+        entry.status = static_cast<uint8_t>(last_msg.status);
+        entry.unread = unread;
+        entry.peer = last_msg.peer;
+        entry.last_msg_id = last_msg.msg_id;
+        entry.last_timestamp = last_msg.timestamp;
+        entry.last_from = last_msg.from;
+        entry.preview_len = static_cast<uint16_t>(std::min<size_t>(last_msg.text.size(), kPreviewLen));
+        if (entry.preview_len > 0)
+        {
+            std::memcpy(entry.preview, last_msg.text.data(), entry.preview_len);
+        }
+        entries.push_back(entry);
     }
-    if (total_message_count_ > 0)
+    dir.close();
+
+    (void)writeIndex(entries);
+    Serial.printf("[AppContext] chat store=SdStore rebuild index entries=%u\n",
+                  static_cast<unsigned>(entries.size()));
+}
+
+bool SdStore::loadFileHeader(storage::SdRuntimeFile& file, FileHeader& header) const
+{
+    if (!file.is_open() || file.size() < sizeof(FileHeader))
     {
-        --total_message_count_;
+        return false;
+    }
+    if (!file.seek(0) || !readExact(file, &header, sizeof(header)))
+    {
+        return false;
+    }
+    return header.magic == kFileMagic && header.version == kVersion &&
+           header.head < kMaxMessagesPerConv && header.count <= kMaxMessagesPerConv;
+}
+
+bool SdStore::initFileHeader(storage::SdRuntimeFile& file) const
+{
+    FileHeader header{};
+    header.magic = kFileMagic;
+    header.version = kVersion;
+    if (!file.seek(0) || !writeExact(file, &header, sizeof(header)))
+    {
+        return false;
+    }
+    return file.flush();
+}
+
+bool SdStore::readRecord(storage::SdRuntimeFile& file, uint16_t slot, Record& rec) const
+{
+    if (slot >= kMaxMessagesPerConv)
+    {
+        return false;
+    }
+    const uint64_t offset = sizeof(FileHeader) + static_cast<uint64_t>(slot) * sizeof(Record);
+    if (file.size() < offset + sizeof(Record))
+    {
+        return false;
+    }
+    return file.seek(offset) && readExact(file, &rec, sizeof(rec));
+}
+
+bool SdStore::writeRecord(storage::SdRuntimeFile& file, uint16_t slot, const Record& rec) const
+{
+    if (slot >= kMaxMessagesPerConv)
+    {
+        return false;
+    }
+    const uint64_t offset = sizeof(FileHeader) + static_cast<uint64_t>(slot) * sizeof(Record);
+    return file.seek(offset) && writeExact(file, &rec, sizeof(rec));
+}
+
+bool SdStore::openConversationForUpdate(const ConversationId& conv,
+                                        storage::SdRuntimeFile& file,
+                                        FileHeader& header) const
+{
+    char path[96]{};
+    buildConversationPath(conv, path, sizeof(path));
+
+    if (storage::sd_exists(path) && file.open(path, "r+"))
+    {
+        if (loadFileHeader(file, header))
+        {
+            return true;
+        }
+        file.close();
+    }
+
+    if (!file.open(path, "w+"))
+    {
+        return false;
+    }
+    if (!initFileHeader(file))
+    {
+        file.close();
+        return false;
+    }
+    return loadFileHeader(file, header);
+}
+
+void SdStore::buildConversationPath(const ConversationId& conv, char* out, size_t out_len) const
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    if (conv.peer == 0)
+    {
+        std::snprintf(out,
+                      out_len,
+                      "%s/%s_broadcast_%s.log",
+                      kDir,
+                      protocolTag(conv.protocol),
+                      channelName(conv.channel));
+        return;
+    }
+
+    std::snprintf(out,
+                  out_len,
+                  "%s/%s_n_%08lX.log",
+                  kDir,
+                  protocolTag(conv.protocol),
+                  static_cast<unsigned long>(conv.peer));
+}
+
+const char* SdStore::channelName(ChannelId channel) const
+{
+    switch (channel)
+    {
+    case ChannelId::PRIMARY:
+        return "LongFast";
+    case ChannelId::SECONDARY:
+        return "Squad";
+    default:
+        return "Unknown";
     }
 }
 
-SdStore::ConversationStorage& SdStore::getConversationStorage(const ConversationId& conv)
+ChatMessage SdStore::messageFromRecord(const Record& rec)
 {
-    auto it = conversations_.find(conv);
-    if (it == conversations_.end())
-    {
-        auto result = conversations_.emplace(conv, ConversationStorage{});
-        return result.first->second;
-    }
-    return it->second;
+    ChatMessage msg;
+    msg.protocol = static_cast<MeshProtocol>(rec.protocol);
+    msg.channel = static_cast<ChannelId>(rec.channel);
+    msg.from = rec.from;
+    msg.peer = rec.peer;
+    msg.msg_id = rec.msg_id;
+    msg.timestamp = rec.timestamp;
+    msg.text.assign(rec.text, std::min<size_t>(rec.text_len, sizeof(rec.text)));
+    msg.status = static_cast<MessageStatus>(rec.status);
+    return msg;
 }
 
-const SdStore::ConversationStorage& SdStore::getConversationStorage(const ConversationId& conv) const
+SdStore::Record SdStore::recordFromMessage(const ChatMessage& msg)
 {
-    auto it = conversations_.find(conv);
-    if (it == conversations_.end())
+    Record rec{};
+    rec.protocol = static_cast<uint8_t>(msg.protocol);
+    rec.channel = static_cast<uint8_t>(msg.channel);
+    rec.status = static_cast<uint8_t>(msg.status);
+    rec.text_len = static_cast<uint16_t>(std::min<size_t>(msg.text.size(), sizeof(rec.text)));
+    rec.from = msg.from;
+    rec.peer = msg.peer;
+    rec.msg_id = msg.msg_id;
+    rec.timestamp = msg.timestamp;
+    if (rec.text_len > 0)
     {
-        static ConversationStorage empty;
-        return empty;
+        std::memcpy(rec.text, msg.text.data(), rec.text_len);
     }
-    return it->second;
+    return rec;
+}
+
+ConversationMeta SdStore::metaFromIndexEntry(const IndexEntry& entry)
+{
+    ConversationMeta meta;
+    meta.id.protocol = static_cast<MeshProtocol>(entry.protocol);
+    meta.id.channel = static_cast<ChannelId>(entry.channel);
+    meta.id.peer = entry.peer;
+    meta.preview.assign(entry.preview, std::min<size_t>(entry.preview_len, sizeof(entry.preview)));
+    meta.last_timestamp = entry.last_timestamp;
+    meta.unread = entry.unread;
+    if (entry.peer == 0)
+    {
+        meta.name = "Broadcast";
+    }
+    else
+    {
+        char buf[16];
+        std::snprintf(buf,
+                      sizeof(buf),
+                      "%04lX",
+                      static_cast<unsigned long>(entry.peer & 0xFFFFUL));
+        meta.name = buf;
+    }
+    return meta;
+}
+
+bool SdStore::hasLogSuffix(const char* name)
+{
+    if (!name)
+    {
+        return false;
+    }
+    const char* suffix = std::strstr(name, ".log");
+    return suffix != nullptr && suffix[4] == '\0';
 }
 
 } // namespace chat

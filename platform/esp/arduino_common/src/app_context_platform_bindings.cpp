@@ -117,7 +117,7 @@ std::unique_ptr<chat::IChatStore> create_chat_store()
         std::unique_ptr<chat::SdStore> sd_store(new chat::SdStore());
         if (sd_store && sd_store->isReady())
         {
-            Serial.printf("[AppContext] chat store=SdStore backend=%s path=/chat_messages.bin\n",
+            Serial.printf("[AppContext] chat store=SdStore backend=%s layout=/chat/index.bin+/chat/*.log\n",
                           ::platform::esp::arduino_common::storage::sd_card_backend_name());
             return std::unique_ptr<chat::IChatStore>(sd_store.release());
         }
