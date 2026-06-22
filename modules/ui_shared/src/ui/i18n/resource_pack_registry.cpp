@@ -67,6 +67,12 @@ constexpr bool kLvFsPosixEnabled = true;
 constexpr bool kLvFsPosixEnabled = false;
 #endif
 
+#if defined(TRAIL_MATE_LVGL_SD_FS_LETTER)
+constexpr bool kTrailMateLvglSdFsEnabled = true;
+#else
+constexpr bool kTrailMateLvglSdFsEnabled = false;
+#endif
+
 #if UI_FS_HAS_FLASH_PACK_STORAGE
 constexpr bool kFlashPackStorageEnabled = true;
 #else
@@ -350,7 +356,7 @@ const char* usage_name(FontPackUsage usage)
 
 bool external_pack_scan_enabled()
 {
-#if (defined(LV_USE_FS_POSIX) && LV_USE_FS_POSIX) || UI_FS_HAS_FLASH_PACK_STORAGE
+#if defined(TRAIL_MATE_LVGL_SD_FS_LETTER) || (defined(LV_USE_FS_POSIX) && LV_USE_FS_POSIX) || UI_FS_HAS_FLASH_PACK_STORAGE
     return true;
 #else
     return false;
@@ -2415,10 +2421,11 @@ void catalog_external_packs_from_root(const char* pack_root,
 
 void catalog_external_packs()
 {
-    std::printf("%s external pack scan begin enabled=%d lv_fs_posix=%d flash_storage=%d\n",
+    std::printf("%s external pack scan begin enabled=%d lv_fs_posix=%d trailmate_sd_fs=%d flash_storage=%d\n",
                 kLogTag,
                 external_pack_scan_enabled() ? 1 : 0,
                 kLvFsPosixEnabled ? 1 : 0,
+                kTrailMateLvglSdFsEnabled ? 1 : 0,
                 kFlashPackStorageEnabled ? 1 : 0);
     if (!external_pack_scan_enabled())
     {

@@ -13,5 +13,68 @@ third_party/
 
 # Tooling caches
 .cache/
+.distinction/
 __pycache__/
 *.pyc
+
+# Generated analysis/docs artifacts
+docs/code-understanding/
+docs/design/
+
+# Generated protocol code
+modules/core_chat/generated/
+
+# Generated image and font data arrays
+modules/ui_shared/src/ui/assets/*.c
+modules/ui_mono/src/assets/trailmate_sleep_logo.cpp
+modules/ui_mono/include/ui/mono/assets/trailmate_sleep_logo.h
+platform/nrf52/arduino_common/src/ui/fonts/*_font_data.cpp
+platform/nrf52/arduino_common/include/ui/fonts/*_font_generated.h
+
+# Imported/vendored library code
+modules/core_chat/third_party/
+modules/core_chat/src/infra/meshcore/crypto/ed25519/
+modules/core_chat/include/chat/infra/meshcore/crypto/ed25519/
+modules/core_chat/src/infra/meshtastic/compression/unishox2.cpp
+modules/core_chat/include/chat/infra/meshtastic/compression/unishox2.h
+platform/esp/arduino_audio_codec/
+platform/esp/idf_components/m5stack_tab5/m5stack_tab5.c
+platform/esp/idf_components/m5stack_tab5/esp_lcd_st7123.c
+platform/esp/idf_components/m5stack_tab5/priv_include/
+platform/esp/idf_components/m5stack_tab5/include/bsp/ili9881_init_data.c
+platform/esp/idf_components/m5stack_tab5/include/bsp/touch.h
+platform/esp/idf_components/m5stack_tab5/include/bsp/m5stack_tab5.h
+platform/esp/idf_components/m5stack_tab5/include/bsp/esp-bsp.h
+platform/esp/idf_components/m5stack_tab5/include/bsp/display.h
+platform/esp/idf_components/m5stack_tab5/include/bsp/config.h
+platform/esp/idf_components/sensor_bmi270/src/bmi2_ois.c
+platform/esp/idf_components/sensor_bmi270/src/bmi270.c
+platform/esp/idf_components/sensor_bmi270/src/bmi2.c
+platform/esp/idf_components/sensor_bmi270/src/bmi270_maximum_fifo.c
+platform/esp/idf_components/sensor_bmi270/src/bmi270_legacy.c
+platform/esp/idf_components/sensor_bmi270/include/bmi270.h
+platform/esp/idf_components/sensor_bmi270/include/bmi2.h
+platform/esp/idf_components/sensor_bmi270/include/bmi270_maximum_fifo.h
+platform/esp/idf_components/sensor_bmi270/include/bmi270_legacy.h
+platform/esp/idf_components/sensor_bmi270/include/bmi2_defs.h
+platform/esp/idf_components/sensor_bmi270/include/bmi2_ois.h
+platform/esp/idf_components/t_display_p4/src/hi8561_driver.c
+platform/esp/idf_components/t_display_p4/src/rm69a10_driver.c
+platform/esp/idf_components/t_display_p4/include/hi8561_driver.h
+platform/esp/idf_components/t_display_p4/include/rm69a10_driver.h
+variants/t_echo_lite_nrf52840/variant.cpp
+variants/t_echo_lite_nrf52840/variant.h
+
+# GitNexus parser timeout guards for oversized implementation files
+modules/ui_mono/src/runtime.cpp
+modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp
+platform/esp/arduino_common/src/ble/meshtastic_ble_owner_hooks.cpp
+platform/esp/arduino_common/src/chat/infra/chat_event_bus_bridge.cpp
+platform/esp/arduino_common/src/chat/infra/contact_store.cpp
+platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_adapter.cpp
+platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_identity.cpp
+platform/esp/arduino_common/src/chat/infra/mesh_adapter_router.cpp
+platform/esp/arduino_common/src/chat/infra/meshcore/meshcore_adapter.cpp
+platform/esp/arduino_common/src/chat/infra/meshcore/meshcore_identity.cpp
+platform/esp/arduino_common/src/chat/infra/meshtastic/mt_adapter.cpp
+platform/linux/common/src/chat/linux_raw_lora_mesh_adapter.cpp

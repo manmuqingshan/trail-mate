@@ -20,8 +20,16 @@ constexpr lv_coord_t kHeaderHeightPx = 30;
 constexpr lv_coord_t kHeaderCloseButtonHeightPx = 26;
 constexpr lv_coord_t kPickerOuterPaddingPx = 6;
 constexpr lv_coord_t kGridGapPx = 6;
-constexpr lv_coord_t kGridTopPaddingPx = 4;
+constexpr lv_coord_t kGridTopPaddingPx = 6;
 constexpr lv_coord_t kGridBottomPaddingPx = 2;
+
+constexpr uint32_t kAmber = 0xEBA341;
+constexpr uint32_t kAmberDark = 0xC98118;
+constexpr uint32_t kWarmBg = 0xF6E6C6;
+constexpr uint32_t kPanelBg = 0xFAF0D8;
+constexpr uint32_t kLine = 0xE7C98F;
+constexpr uint32_t kText = 0x6B4A1E;
+constexpr uint32_t kTextDim = 0x8A6A3A;
 
 struct PickerState
 {
@@ -136,15 +144,15 @@ void apply_candidate_button_style(lv_obj_t* button, bool active)
     }
     lv_obj_set_style_radius(button, 8, LV_PART_MAIN);
     lv_obj_set_style_bg_color(button,
-                              active ? lv_color_hex(0xEBA341) : lv_color_hex(0xFFF7E9),
+                              active ? lv_color_hex(kAmber) : lv_color_hex(kPanelBg),
                               LV_PART_MAIN);
     lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(button,
-                                  active ? lv_color_hex(0xC98118) : lv_color_hex(0xD9B06A),
+                                  active ? lv_color_hex(kAmberDark) : lv_color_hex(kLine),
                                   LV_PART_MAIN);
     lv_obj_set_style_outline_width(button, active ? 2 : 0, LV_STATE_FOCUSED);
-    lv_obj_set_style_outline_color(button, lv_color_hex(0xC98118), LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_color(button, lv_color_hex(kAmberDark), LV_STATE_FOCUSED);
     lv_obj_set_style_outline_pad(button, 1, LV_STATE_FOCUSED);
 }
 
@@ -155,10 +163,10 @@ void apply_ime_button_style(lv_obj_t* button)
         return;
     }
     lv_obj_set_style_radius(button, 4, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(button, lv_color_hex(0xFFF7E9), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button, lv_color_hex(kPanelBg), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(button, lv_color_hex(0xD9B06A), LV_PART_MAIN);
+    lv_obj_set_style_border_color(button, lv_color_hex(kLine), LV_PART_MAIN);
     lv_obj_set_style_outline_width(button, 0, LV_STATE_FOCUSED);
 }
 
@@ -241,7 +249,7 @@ lv_color_t button_label_color(lv_obj_t* button)
     }
     return button && lv_obj_is_valid(button)
                ? lv_obj_get_style_text_color(button, LV_PART_MAIN)
-               : lv_color_hex(0x3A2A1A);
+               : lv_color_hex(kText);
 }
 
 lv_coord_t object_width_hint(lv_obj_t* obj)
@@ -277,7 +285,7 @@ lv_coord_t object_height_hint(lv_obj_t* obj)
 void set_candidate_button_label(lv_obj_t* button,
                                 const char* text,
                                 const lv_font_t* font = nullptr,
-                                lv_color_t color = lv_color_hex(0x3A2A1A))
+                                lv_color_t color = lv_color_hex(kText))
 {
     if (!button)
     {
@@ -289,7 +297,7 @@ void set_candidate_button_label(lv_obj_t* button,
         label = lv_label_create(button);
     }
     ::ui::i18n::set_content_label_text_raw(label, text ? text : "");
-    lv_obj_set_width(label, LV_PCT(100));
+    lv_obj_set_width(label, LV_SIZE_CONTENT);
     lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, color, LV_PART_MAIN);
@@ -303,7 +311,7 @@ void set_candidate_button_label(lv_obj_t* button,
 void set_toolbar_button_label(lv_obj_t* button,
                               const char* text,
                               const lv_font_t* font = nullptr,
-                              lv_color_t color = lv_color_hex(0x3A2A1A))
+                              lv_color_t color = lv_color_hex(kText))
 {
     if (!button)
     {
@@ -634,16 +642,10 @@ void open_text_candidate_picker(lv_obj_t* textarea,
 
     s_picker.root = lv_obj_create(parent);
     lv_obj_set_size(s_picker.root, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_flex_flow(s_picker.root, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(s_picker.root,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_START);
-    lv_obj_set_style_bg_color(s_picker.root, lv_color_hex(0xFBF3E7), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_picker.root, lv_color_hex(kWarmBg), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_picker.root, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_picker.root, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(s_picker.root, kPickerOuterPaddingPx, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(s_picker.root, kPickerOuterPaddingPx, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_picker.root, 0, LV_PART_MAIN);
     lv_obj_clear_flag(s_picker.root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_picker.root, on_picker_key, LV_EVENT_KEY, nullptr);
 
@@ -660,17 +662,25 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     }
     const lv_coord_t content_w =
         std::max<lv_coord_t>(1, screen_w - static_cast<lv_coord_t>(kPickerOuterPaddingPx * 2));
+    const lv_coord_t grid_y = kHeaderHeightPx;
+    const lv_coord_t grid_h =
+        std::max<lv_coord_t>(1, screen_h - grid_y);
 
     lv_obj_t* header = lv_obj_create(s_picker.root);
-    lv_obj_set_size(header, content_w, kHeaderHeightPx);
+    lv_obj_set_size(header, screen_w, kHeaderHeightPx);
+    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(header,
                           LV_FLEX_ALIGN_SPACE_BETWEEN,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(header, lv_color_hex(kPanelBg), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(header, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(header, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(header, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(header, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(header, kPickerOuterPaddingPx, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(header, kPickerOuterPaddingPx, LV_PART_MAIN);
     lv_obj_set_style_pad_column(header, 8, LV_PART_MAIN);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -683,7 +693,7 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_set_style_text_font(title_label,
                                ::ui::page_profile::resolve_caption_font(),
                                LV_PART_MAIN);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(0x3A2A1A), LV_PART_MAIN);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(kText), LV_PART_MAIN);
 
     lv_obj_t* hint_label = lv_label_create(header);
     ::ui::i18n::set_label_text_raw(hint_label, "WASD move  Q close  E pick");
@@ -694,7 +704,7 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_set_style_text_font(hint_label,
                                ::ui::page_profile::resolve_caption_font(),
                                LV_PART_MAIN);
-    lv_obj_set_style_text_color(hint_label, lv_color_hex(0x6A5646), LV_PART_MAIN);
+    lv_obj_set_style_text_color(hint_label, lv_color_hex(kTextDim), LV_PART_MAIN);
 
     lv_obj_t* close_btn = lv_btn_create(header);
     lv_obj_set_size(close_btn,
@@ -707,8 +717,8 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_add_event_cb(close_btn, on_picker_key, LV_EVENT_KEY, nullptr);
 
     lv_obj_t* grid = lv_obj_create(s_picker.root);
-    lv_obj_set_size(grid, content_w, 0);
-    lv_obj_set_flex_grow(grid, 1);
+    lv_obj_set_size(grid, screen_w, grid_h);
+    lv_obj_set_pos(grid, 0, grid_y);
     lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(grid,
                           LV_FLEX_ALIGN_START,
@@ -718,11 +728,13 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_set_scrollbar_mode(grid, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(grid, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(grid, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(grid, kPickerOuterPaddingPx, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(grid, kPickerOuterPaddingPx, LV_PART_MAIN);
     lv_obj_set_style_pad_top(grid, kGridTopPaddingPx, LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(grid, kGridBottomPaddingPx, LV_PART_MAIN);
     lv_obj_set_style_pad_row(grid, kGridGapPx, LV_PART_MAIN);
     lv_obj_set_style_pad_column(grid, kGridGapPx, LV_PART_MAIN);
+    lv_obj_move_foreground(header);
 
     const int columns = picker_columns();
     const lv_coord_t cell_w =
@@ -799,8 +811,8 @@ lv_obj_t* add_text_candidate_button(lv_obj_t* toolbar,
         width = std::max<lv_coord_t>(48, profile.ime_toggle_width);
     }
     width = set == text_candidates::CandidateSet::Emoji
-                ? std::max<lv_coord_t>(width + 18, 68)
-                : std::max<lv_coord_t>(width, 46);
+                ? std::max<lv_coord_t>(width + 24, 76)
+                : std::max<lv_coord_t>(width + 10, 58);
 
     lv_obj_t* button = lv_btn_create(toolbar);
     lv_obj_set_size(button, width, height);
