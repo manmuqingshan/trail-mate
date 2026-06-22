@@ -312,12 +312,17 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
         log_d("PMU initialized successfully");
         devices_probe |= HW_PMU_ONLINE;
     }
+    Serial.printf("[TLoRaPagerBoard::begin] PMU settle begin ms=20\n");
+    delay(20);
+    Serial.printf("[TLoRaPagerBoard::begin] PMU settle end\n");
 
     // Initialize GPIO expander (XL9555) - controls power for various peripherals
 #ifdef USING_XL9555_EXPANDS
+    Serial.printf("[TLoRaPagerBoard::begin] expander init begin addr=0x20\n");
     if (io.begin(Wire, 0x20))
     {
         log_d("GPIO expander (XL9555) initialized successfully");
+        Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=1\n");
         devices_probe |= HW_EXPAND_ONLINE;
 
         // Configure GPIO expander pins as outputs and set them HIGH (enable peripherals)
@@ -342,84 +347,159 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
 #endif
         };
 
+        Serial.printf("[TLoRaPagerBoard::begin] expander power rails begin count=%u\n",
+                      static_cast<unsigned>(sizeof(expand_pins) / sizeof(expand_pins[0])));
         for (auto pin : expand_pins)
         {
             io.pinMode(pin, OUTPUT);
             io.digitalWrite(pin, HIGH); // Enable peripheral power
             delay(1);                   // Small delay for power stabilization
         }
+        Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle begin ms=50\n");
+        delay(50);
+        Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle end\n");
 
         // SD card pull-up enable (input pin)
+        Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode begin\n");
         io.pinMode(EXPANDS_SD_PULLEN, INPUT);
+        Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode end\n");
     }
     else
     {
         log_w("GPIO expander (XL9555) initialization failed");
+        Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=0\n");
     }
 #endif
 
     // Initialize sensor (BHI260AP) - optional, can be disabled
     if (!(disable_hw_init & NO_HW_SENSOR))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] sensor init begin\n");
         if (initSensor())
         {
             log_d("Sensor (BHI260AP) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] sensor init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] sensor init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] sensor init skipped\n");
     }
 
     // Initialize backlight driver (AW9364)
+    Serial.printf("[TLoRaPagerBoard::begin] backlight init begin\n");
     backlight.begin(DISP_BL);
     log_d("Backlight driver initialized (pin %d)", DISP_BL);
+    Serial.printf("[TLoRaPagerBoard::begin] backlight init end\n");
 
     // Initialize shared SPI pins (CS pins for LoRa, NFC, SD)
+    Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init begin\n");
     initShareSPIPins();
+    Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init end\n");
 
     // Initialize display (ST7796)
+    Serial.printf("[TLoRaPagerBoard::begin] display bus init begin\n");
     LilyGoDispArduinoSPI::init(DISP_SCK, DISP_MISO, DISP_MOSI, DISP_CS, DISP_RST, DISP_DC, -1);
     log_d("Display (ST7796) initialized: logical=%dx%d raw=%dx%d",
           LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height, DISP_WIDTH, DISP_HEIGHT);
+    Serial.printf("[TLoRaPagerBoard::begin] display bus init end logical=%dx%d raw=%dx%d\n",
+                  LilyGoDispArduinoSPI::_width,
+                  LilyGoDispArduinoSPI::_height,
+                  DISP_WIDTH,
+                  DISP_HEIGHT);
 
     // Initialize SPI bus for LoRa/SD/NFC (shared SPI bus)
+    Serial.printf("[TLoRaPagerBoard::begin] shared spi bus begin sck=%d miso=%d mosi=%d\n",
+                  LORA_SCK,
+                  LORA_MISO,
+                  LORA_MOSI);
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI);
     log_d("SPI bus initialized (SCK=%d, MISO=%d, MOSI=%d)", LORA_SCK, LORA_MISO, LORA_MOSI);
+    Serial.printf("[TLoRaPagerBoard::begin] shared spi bus end\n");
 
     // Configure NFC interrupt pin
+    Serial.printf("[TLoRaPagerBoard::begin] nfc irq pin mode begin\n");
     pinMode(NFC_INT, INPUT_PULLUP);
+    Serial.printf("[TLoRaPagerBoard::begin] nfc irq pin mode end\n");
 
     // Initialize RTC (PCF85063) - optional
     if (!(disable_hw_init & NO_HW_RTC))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] rtc init begin\n");
         if (initRTC())
         {
             log_d("RTC (PCF85063) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] rtc init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] rtc init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] rtc init skipped\n");
     }
 
     // Initialize NFC (ST25R3916) - optional
     if (!(disable_hw_init & NO_HW_NFC))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] nfc init begin\n");
         if (initNFC())
         {
             log_d("NFC (ST25R3916) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] nfc init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] nfc init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] nfc init skipped\n");
     }
 
     // Initialize keyboard (TCA8418) - optional
     if (!(disable_hw_init & NO_HW_KEYBOARD))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] keyboard init begin\n");
         if (initKeyboard())
         {
             log_d("Keyboard (TCA8418) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] keyboard init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] keyboard init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] keyboard init skipped\n");
     }
 
     // Initialize haptic driver (DRV2605) - optional
     if (!(disable_hw_init & NO_HW_DRV))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] haptic init begin\n");
         if (initDrv())
         {
             log_d("Haptic driver (DRV2605) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] haptic init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] haptic init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] haptic init skipped\n");
     }
 
     // GPS service is initialized by AppContext after configuration is loaded
@@ -427,15 +507,26 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
     // Initialize LoRa radio_ - optional
     if (!(disable_hw_init & NO_HW_LORA))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] lora init begin\n");
         if (initLoRa())
         {
             log_d("LoRa radio_ initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] lora init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] lora init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] lora init skipped\n");
     }
 
     // Initialize SD card - optional, with retry
     if (!(disable_hw_init & NO_HW_SD))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] sd init begin\n");
         const int max_retries = 2;
         for (int retry = 0; retry < max_retries; retry++)
         {
@@ -443,6 +534,7 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
             {
                 log_d("SD card initialized successfully");
                 devices_probe |= HW_SD_ONLINE;
+                Serial.printf("[TLoRaPagerBoard::begin] sd init end ok=1 retry=%d\n", retry);
                 break;
             }
             else if (retry < max_retries - 1)
@@ -453,19 +545,26 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
             else
             {
                 log_w("SD card not found after %d attempts", max_retries);
+                Serial.printf("[TLoRaPagerBoard::begin] sd init end ok=0 retries=%d\n", max_retries);
             }
         }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] sd init skipped\n");
     }
 
     // Initialize audio codec (ES8311) - optional
 #ifdef USING_AUDIO_CODEC
     if (!(disable_hw_init & NO_HW_CODEC))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] audio codec init begin\n");
         codec.setPins(I2S_MCLK, I2S_SCK, I2S_WS, I2S_SDOUT, I2S_SDIN);
         if (codec.begin(Wire, 0x18, CODEC_TYPE_ES8311))
         {
             devices_probe |= HW_CODEC_ONLINE;
             log_d("Audio codec (ES8311) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] audio codec init end ok=1\n");
 
             // Set power amplifier control callback
             codec.setPaPinCallback([](bool enable, void* user_data)
@@ -475,41 +574,63 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
         else
         {
             log_w("Audio codec (ES8311) not found");
+            Serial.printf("[TLoRaPagerBoard::begin] audio codec init end ok=0\n");
         }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] audio codec init skipped\n");
     }
 #endif
 
     // Create rotary encoder message queue and task
+    Serial.printf("[TLoRaPagerBoard::begin] rotary runtime init begin\n");
     rotaryMsg = xQueueCreate(5, sizeof(RotaryMsg_t));
     if (rotaryMsg == nullptr)
     {
         log_e("Failed to create rotary encoder message queue");
+        Serial.printf("[TLoRaPagerBoard::begin] rotary queue create ok=0\n");
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] rotary queue create ok=1\n");
     }
 
     rotaryTaskFlag = xEventGroupCreate();
     if (rotaryTaskFlag == nullptr)
     {
         log_e("Failed to create rotary encoder event group");
+        Serial.printf("[TLoRaPagerBoard::begin] rotary event group create ok=0\n");
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] rotary event group create ok=1\n");
     }
 
     BaseType_t task_result = xTaskCreate(rotaryTask, "rotary", 2 * 1024, NULL, 10, &rotaryHandler);
     if (task_result != pdPASS)
     {
         log_e("Failed to create rotary encoder task");
+        Serial.printf("[TLoRaPagerBoard::begin] rotary task create ok=0 result=%ld\n", static_cast<long>(task_result));
     }
     else
     {
         log_d("Rotary encoder task created successfully");
+        Serial.printf("[TLoRaPagerBoard::begin] rotary task create ok=1\n");
     }
+    Serial.printf("[TLoRaPagerBoard::begin] rotary runtime init end\n");
 
     // Initialize power button handling
+    Serial.printf("[TLoRaPagerBoard::begin] power button init begin\n");
     if (!initPowerButton())
     {
         log_w("Power button initialization failed");
+        Serial.printf("[TLoRaPagerBoard::begin] power button init end ok=0\n");
     }
     else
     {
         log_d("Power button initialized successfully");
+        Serial.printf("[TLoRaPagerBoard::begin] power button init end ok=1\n");
     }
 
     log_d("Board initialization complete. Hardware online: 0x%08X", devices_probe);
