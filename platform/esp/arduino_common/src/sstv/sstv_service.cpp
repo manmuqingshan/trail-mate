@@ -147,7 +147,7 @@ struct StorageFacade
     }
 };
 
-StorageFacade SD;
+StorageFacade s_tab5_storage;
 constexpr int FILE_WRITE = 1;
 constexpr int CARD_NONE = 0;
 constexpr int POWER_SPEAK = 0;
@@ -338,9 +338,9 @@ const char* get_saved_path()
 bool ensure_sstv_dir()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    if (!SD.exists("/sstv"))
+    if (!s_tab5_storage.exists("/sstv"))
     {
-        if (!SD.mkdir("/sstv"))
+        if (!s_tab5_storage.mkdir("/sstv"))
         {
             return false;
         }
@@ -386,7 +386,7 @@ bool build_save_path(char* out_path, size_t out_len)
                      static_cast<unsigned long>(millis()), i);
         }
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-        if (!SD.exists(out_path))
+        if (!s_tab5_storage.exists(out_path))
 #else
         if (!::platform::esp::arduino_common::storage::sd_exists(out_path))
 #endif
@@ -482,7 +482,7 @@ bool save_frame_to_sd()
         return false;
     }
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    if (SD.cardType() == CARD_NONE)
+    if (s_tab5_storage.cardType() == CARD_NONE)
 #else
     if (!::platform::esp::arduino_common::storage::sd_card_ready())
 #endif
@@ -511,7 +511,7 @@ bool save_frame_to_sd()
     const uint32_t data_offset = 14 + 40;
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    File f = SD.open(path, FILE_WRITE);
+    File f = s_tab5_storage.open(path, FILE_WRITE);
     if (!f)
 #else
     ::platform::esp::arduino_common::storage::SdRuntimeFile f;

@@ -738,12 +738,17 @@
     #define LV_FS_STDIO_CACHE_SIZE 0    /*>0 to cache this number of bytes in lv_fs_read()*/
 #endif
 
+/* TrailMate registers its own nonblocking shared-SPI SD driver on A:.
+ * Do not also enable LVGL's built-in POSIX A: driver; duplicate A: drivers
+ * make SD routing ambiguous and can bypass the shared-SPI backpressure path.
+ */
+#define TRAIL_MATE_LVGL_SD_FS_LETTER 'A'
+#define TRAIL_MATE_LVGL_SD_FS_PATH "/sd"
+
 /*API for open, read, etc*/
-#define LV_USE_FS_POSIX 1
+#define LV_USE_FS_POSIX 0
 #if LV_USE_FS_POSIX
-    #define LV_FS_POSIX_LETTER 'A'     /*Set an upper cased letter on which the drive will accessible (e.g. 'A')*/
-    #define LV_FS_POSIX_PATH "/sd"     /* /sd : SD Card /fs: FFat */
-    #define LV_FS_POSIX_CACHE_SIZE 0    /*>0 to cache this number of bytes in lv_fs_read()*/
+    #error "TrailMate ESP builds must use the custom A: SD driver, not LVGL POSIX."
 #endif
 
 /*API for CreateFile, ReadFile, etc*/

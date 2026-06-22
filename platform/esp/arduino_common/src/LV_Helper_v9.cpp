@@ -600,7 +600,7 @@ void init_sd_fs_driver()
     }
 
     lv_fs_drv_init(&s_sd_fs_drv);
-    s_sd_fs_drv.letter = LV_FS_POSIX_LETTER;
+    s_sd_fs_drv.letter = TRAIL_MATE_LVGL_SD_FS_LETTER;
     s_sd_fs_drv.ready_cb = sd_fs_ready_cb;
     s_sd_fs_drv.open_cb = sd_fs_open;
     s_sd_fs_drv.close_cb = sd_fs_close;
@@ -618,8 +618,8 @@ void init_sd_fs_driver()
     letters[0] = '\0';
     lv_fs_get_letters(letters);
     Serial.printf("[LVGL][FS] SD driver registered letter=%c ready=%d letters=%s\n",
-                  LV_FS_POSIX_LETTER,
-                  lv_fs_is_ready(LV_FS_POSIX_LETTER) ? 1 : 0,
+                  TRAIL_MATE_LVGL_SD_FS_LETTER,
+                  lv_fs_is_ready(TRAIL_MATE_LVGL_SD_FS_LETTER) ? 1 : 0,
                   letters);
 }
 } // namespace

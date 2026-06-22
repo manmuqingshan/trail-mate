@@ -6,7 +6,6 @@
 #include <AudioFileSourcePROGMEM.h>
 #include <AudioGeneratorRTTTL.h>
 #include <AudioOutputI2S.h>
-#include <SD.h>
 #include <Wire.h>
 #include <ctime>
 #include <driver/gpio.h>
@@ -652,7 +651,7 @@ bool TDeckBoard::installSD()
     extra_cs_count = 1;
 #endif
 
-    uint8_t cardType = CARD_NONE;
+    uint8_t cardType = sdutil::kCardNone;
     uint32_t cardSizeMB = 0;
     bool ok = sdutil::installSpiSd(*this, SD_CS, SD_SPI_FREQUENCY, "/sd",
                                    extra_cs, extra_cs_count,

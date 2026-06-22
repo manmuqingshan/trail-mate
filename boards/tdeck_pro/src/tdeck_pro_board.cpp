@@ -6,7 +6,6 @@
 #include <AudioFileSourcePROGMEM.h>
 #include <AudioGeneratorRTTTL.h>
 #include <AudioOutputI2S.h>
-#include <SD.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <ctime>
@@ -15,6 +14,8 @@
 #include <freertos/task.h>
 #include <limits>
 #include <sys/time.h>
+
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 
 namespace boards::tdeck_pro
 {
@@ -26,6 +27,7 @@ constexpr time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 constexpr uint8_t kKeyboardRows = 4;
 constexpr uint8_t kKeyboardCols = 10;
 constexpr uint32_t kEpdSpiHz = 2000000;
+constexpr uint32_t kSdSpiHz = 4000000;
 constexpr uint8_t kFlushLogLimit = 8;
 constexpr uint32_t kRadioTxMaxTimeoutMs = 120000;
 SemaphoreHandle_t g_shared_spi_mutex = nullptr;
@@ -346,16 +348,30 @@ bool TDeckProBoard::installSD()
 {
     pinMode(profile().sd.cs, OUTPUT);
     digitalWrite(profile().sd.cs, HIGH);
+    static const int extra_cs_pins[] = {
+        profile().lora.cs,
+        profile().epd.cs,
+    };
+    for (int pin : extra_cs_pins)
+    {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, HIGH);
+    }
     sharedSpiLock();
     sharedSpiPrepareDevice(profile().sd.cs);
-    const bool ok = SD.begin(profile().sd.cs, SPI);
+    const bool ok = ::platform::esp::arduino_common::storage::mount_sd_card(
+        profile().sd.cs,
+        SPI,
+        kSdSpiHz,
+        "/sd",
+        8);
     sharedSpiUnlock();
     return ok;
 }
 
 void TDeckProBoard::uninstallSD()
 {
-    SD.end();
+    ::platform::esp::arduino_common::storage::unmount_sd_card();
 }
 
 uint32_t TDeckProBoard::begin(uint32_t disable_hw_init)
@@ -453,7 +469,7 @@ int TDeckProBoard::getBatteryLevel()
 
 bool TDeckProBoard::isCardReady()
 {
-    return sd_ready_ && SD.cardType() != CARD_NONE;
+    return sd_ready_ && ::platform::esp::arduino_common::storage::sd_card_ready();
 }
 
 void TDeckProBoard::vibrator()

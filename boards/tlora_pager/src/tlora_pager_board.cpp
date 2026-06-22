@@ -772,10 +772,13 @@ bool TLoRaPagerBoard::installSD()
     // Ensure SPI pins are initialized
     initShareSPIPins();
 
-    uint8_t card_type = CARD_NONE;
+    uint8_t card_type = sdutil::kCardNone;
     uint32_t card_size_mb = 0;
+    static const int extra_cs_pins[] = {NFC_CS, LORA_CS};
     bool ok = sdutil::installSpiSd(*this, SD_CS, SD_SPI_FREQUENCY, "/sd",
-                                   nullptr, 0, &card_type, &card_size_mb);
+                                   extra_cs_pins,
+                                   sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]),
+                                   &card_type, &card_size_mb);
     if (!ok)
     {
         log_w("SD card initialization failed");

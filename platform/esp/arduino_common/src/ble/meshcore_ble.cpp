@@ -8,7 +8,6 @@
 #include "ui/widgets/ble_pairing_popup.h"
 #include <Arduino.h>
 #include <Preferences.h>
-#include <SD.h>
 #include <algorithm>
 #include <cstring>
 #include <ctime>

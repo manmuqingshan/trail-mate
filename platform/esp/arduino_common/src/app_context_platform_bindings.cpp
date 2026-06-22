@@ -2,7 +2,6 @@
 #include "platform/esp/arduino_common/app_config_store.h"
 
 #include <Arduino.h>
-#include <SD.h>
 
 #include "app/app_facades.h"
 #include "board/GpsBoard.h"
@@ -14,11 +13,9 @@
 #include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
 #include "platform/esp/arduino_common/chat/infra/meshtastic/node_store.h"
 #include "platform/esp/arduino_common/chat/infra/protocol_factory.h"
-#include "platform/esp/arduino_common/chat/infra/store/log_store.h"
 #include "platform/esp/arduino_common/device_identity.h"
 #include "platform/esp/arduino_common/gps/gps_service.h"
 #include "platform/esp/arduino_common/gps/track_recorder.h"
-#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/arduino_common/team/crypto/team_crypto.h"
 #include "platform/esp/arduino_common/team/event/team_app_data_event_bus_bridge.h"
 #include "platform/esp/arduino_common/team/event/team_event_bus_sink.h"
@@ -113,18 +110,6 @@ void set_team_mode_active(bool active)
 
 std::unique_ptr<chat::IChatStore> create_chat_store()
 {
-    const bool sd_available =
-        ::platform::esp::arduino_common::storage::sd_card_uses_arduino_sd();
-    if (sd_available)
-    {
-        auto log_store = std::unique_ptr<chat::LogStore>(new chat::LogStore());
-        if (log_store->begin(SD))
-        {
-            Serial.printf("[AppContext] chat store=LogStore (SD)\n");
-            return log_store;
-        }
-    }
-
     Serial.printf("[AppContext] chat store=RamStore\n");
     return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
 }

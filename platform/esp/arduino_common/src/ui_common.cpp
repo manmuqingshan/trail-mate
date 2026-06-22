@@ -13,7 +13,6 @@
 extern "C" lv_draw_buf_t* lv_snapshot_take(lv_obj_t* obj, lv_color_format_t cf);
 extern "C" void lv_draw_buf_destroy(lv_draw_buf_t* draw_buf);
 #endif
-#include <SD.h>
 #include <cmath>
 #include <cstdio>
 #include <ctime>

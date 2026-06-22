@@ -10,7 +10,6 @@
 
 #include <AW9364LedDriver.hpp>
 #include <Arduino.h>
-#include <SD.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <memory>
