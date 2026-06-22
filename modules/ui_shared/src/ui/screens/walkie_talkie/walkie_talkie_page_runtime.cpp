@@ -99,6 +99,9 @@ void set_monitor_visual_state(bool enabled)
 
 void apply_monitor_enabled_from_ui(bool enabled)
 {
+    std::printf("[WALKIE][UI] monitor request=%d current=%d\n",
+                enabled ? 1 : 0,
+                platform::ui::walkie::monitor_enabled() ? 1 : 0);
     if (!platform::ui::walkie::set_monitor_enabled(enabled))
     {
         const bool actual = platform::ui::walkie::get_status().monitor_enabled;
@@ -111,6 +114,11 @@ void apply_monitor_enabled_from_ui(bool enabled)
 
     set_monitor_visual_state(platform::ui::walkie::get_status().monitor_enabled);
     ::ui::status::force_update();
+}
+
+void toggle_monitor_from_ui()
+{
+    apply_monitor_enabled_from_ui(!platform::ui::walkie::monitor_enabled());
 }
 
 void request_exit()
@@ -148,7 +156,8 @@ void monitor_row_event_cb(lv_event_t* e)
     const lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED)
     {
-        apply_monitor_enabled_from_ui(!lv_obj_has_state(s_monitor_row, LV_STATE_CHECKED));
+        toggle_monitor_from_ui();
+        lv_event_stop_processing(e);
         return;
     }
     if (code != LV_EVENT_KEY)
@@ -159,7 +168,7 @@ void monitor_row_event_cb(lv_event_t* e)
     const uint32_t key = lv_event_get_key(e);
     if (key == LV_KEY_ENTER || key == ' ')
     {
-        apply_monitor_enabled_from_ui(!lv_obj_has_state(s_monitor_row, LV_STATE_CHECKED));
+        toggle_monitor_from_ui();
         lv_event_stop_processing(e);
         return;
     }
@@ -193,7 +202,6 @@ void style_monitor_switch(lv_obj_t* sw)
     {
         return;
     }
-    lv_obj_clear_flag(sw, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(sw, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_obj_clear_flag(sw, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(sw, lv_color_hex(kWarmBg), LV_PART_MAIN);
@@ -529,7 +537,8 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     s_monitor_switch = lv_switch_create(s_monitor_row);
     lv_obj_set_size(s_monitor_switch, kMonitorSwitchWidth, kMonitorSwitchHeight);
     style_monitor_switch(s_monitor_switch);
-    lv_obj_add_event_cb(s_monitor_switch, root_key_event_cb, LV_EVENT_KEY, nullptr);
+    lv_obj_add_event_cb(s_monitor_switch, monitor_row_event_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(s_monitor_switch, monitor_row_event_cb, LV_EVENT_KEY, nullptr);
 
     lv_obj_t* volume_row = lv_obj_create(s_control_panel);
     lv_obj_set_size(volume_row, LV_PCT(100), 24);

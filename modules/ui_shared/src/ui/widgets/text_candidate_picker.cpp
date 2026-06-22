@@ -646,6 +646,12 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_set_style_bg_opa(s_picker.root, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_picker.root, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_picker.root, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(s_picker.root, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(s_picker.root, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_picker.root,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
     lv_obj_clear_flag(s_picker.root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_picker.root, on_picker_key, LV_EVENT_KEY, nullptr);
 
@@ -662,13 +668,10 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     }
     const lv_coord_t content_w =
         std::max<lv_coord_t>(1, screen_w - static_cast<lv_coord_t>(kPickerOuterPaddingPx * 2));
-    const lv_coord_t grid_y = kHeaderHeightPx;
-    const lv_coord_t grid_h =
-        std::max<lv_coord_t>(1, screen_h - grid_y);
+    (void)screen_h;
 
     lv_obj_t* header = lv_obj_create(s_picker.root);
-    lv_obj_set_size(header, screen_w, kHeaderHeightPx);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_size(header, LV_PCT(100), kHeaderHeightPx);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(header,
                           LV_FLEX_ALIGN_SPACE_BETWEEN,
@@ -717,8 +720,8 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_add_event_cb(close_btn, on_picker_key, LV_EVENT_KEY, nullptr);
 
     lv_obj_t* grid = lv_obj_create(s_picker.root);
-    lv_obj_set_size(grid, screen_w, grid_h);
-    lv_obj_set_pos(grid, 0, grid_y);
+    lv_obj_set_size(grid, LV_PCT(100), 0);
+    lv_obj_set_flex_grow(grid, 1);
     lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(grid,
                           LV_FLEX_ALIGN_START,
@@ -734,7 +737,6 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_set_style_pad_bottom(grid, kGridBottomPaddingPx, LV_PART_MAIN);
     lv_obj_set_style_pad_row(grid, kGridGapPx, LV_PART_MAIN);
     lv_obj_set_style_pad_column(grid, kGridGapPx, LV_PART_MAIN);
-    lv_obj_move_foreground(header);
 
     const int columns = picker_columns();
     const lv_coord_t cell_w =
