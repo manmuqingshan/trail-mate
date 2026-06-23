@@ -10,9 +10,9 @@ namespace platform::esp::boards::detail
 inline void initializeBoard(bool waking_from_sleep)
 {
 #if HAS_GPS
-    ::boards::tlora_pager::instance.begin(NO_HW_NFC | NO_HW_SD);
+    ::boards::tlora_pager::instance.begin(NO_HW_SD);
 #else
-    ::boards::tlora_pager::instance.begin(NO_HW_GPS | NO_HW_NFC | NO_HW_SD);
+    ::boards::tlora_pager::instance.begin(NO_HW_GPS | NO_HW_SD);
 #endif
 
     if (waking_from_sleep)

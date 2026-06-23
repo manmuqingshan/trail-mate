@@ -53,6 +53,10 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
         return false;
     }
 
+    bool ok = false;
+    uint8_t card_type = kCardNone;
+    uint32_t card_size_mb = 0;
+
     resetSharedSpiForSd(sd_cs, extra_cs, extra_cs_count);
     SPIClass& sd_bus = SPI;
     Serial.printf("[SD] SPI pins sck=%d miso=%d mosi=%d cs=%d hz=%lu\n",
@@ -62,10 +66,6 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
         Serial.printf("[SD] extra CS pin=%d level=%d\n", extra_cs[i], digitalRead(extra_cs[i]));
     }
     Serial.printf("[SD] sd CS pin=%d level=%d\n", sd_cs, digitalRead(sd_cs));
-
-    bool ok = false;
-    uint8_t card_type = kCardNone;
-    uint32_t card_size_mb = 0;
 
     bool locked = true;
     if (use_lock)

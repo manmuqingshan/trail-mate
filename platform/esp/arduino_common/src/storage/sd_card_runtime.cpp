@@ -1,5 +1,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 
+#include "platform/esp/common/shared_spi_lock.h"
+
 #include <Arduino.h>
 #include <SPI.h>
 #ifndef DISABLE_FS_H_WARNING
@@ -12,6 +14,10 @@
 #include <cstring>
 #include <new>
 #include <vector>
+
+#if SDFAT_FILE_TYPE != 3
+#error "TrailMate requires SdFs with FAT/FAT32/exFAT support (SDFAT_FILE_TYPE=3)."
+#endif
 
 namespace platform::esp::arduino_common::storage
 {
@@ -27,6 +33,7 @@ constexpr uint32_t kDefaultSharedSpiSdHz = 4000000U;
 constexpr uint32_t kMaxSharedSpiSdHz = 10000000U;
 constexpr uint32_t kSdInitHz = 400000U;
 constexpr uint8_t kSdR1IdleState = 0x01U;
+constexpr TickType_t kSdRuntimeLockWait = pdMS_TO_TICKS(250);
 
 #ifndef TRAIL_MATE_SD_IO_LOG_ENABLE
 #define TRAIL_MATE_SD_IO_LOG_ENABLE 1
@@ -49,6 +56,22 @@ SdCardInfo s_info{};
 bool s_sdfat_mounted = false;
 uint32_t s_last_sd_io_log_ms = 0;
 uint32_t s_suppressed_sd_io_logs = 0;
+
+class SdRuntimeBusGuard
+{
+  public:
+    // SdFat is not thread-safe. Treat the shared SPI mutex as the storage
+    // runtime's serialization boundary so call sites cannot bypass it.
+    explicit SdRuntimeBusGuard(const char* owner = "sd_runtime")
+        : guard_(kSdRuntimeLockWait, owner)
+    {
+    }
+
+    bool locked() const { return guard_.locked(); }
+
+  private:
+    ::platform::esp::common::SharedSpiLockGuard guard_;
+};
 
 const char* backend_name_from_info()
 {
@@ -227,6 +250,9 @@ void clear_sdfat()
     if (s_sdfat_mounted)
     {
         s_sdfat.end();
+        // SdFat's Arduino driver ends the shared SPIClass. Restore the board
+        // pin mapping immediately so display/radio users keep a valid bus.
+        SPI.begin(SCK, MISO, MOSI);
         s_sdfat_mounted = false;
     }
 }
@@ -321,6 +347,8 @@ bool sd_preflight_go_idle(int sd_cs, SPIClass& spi)
 
 void record_sdfat_info()
 {
+    const uint32_t info_start_ms = millis();
+    Serial.println("[SD][mount] info begin");
     s_info = SdCardInfo{};
     s_info.backend = SdCardBackend::SdFat;
     s_info.card_type = card_type_from_sdfat(s_sdfat);
@@ -332,18 +360,25 @@ void record_sdfat_info()
         s_info.sector_count = static_cast<uint32_t>(card->sectorCount());
         s_info.card_size_bytes = static_cast<uint64_t>(s_info.sector_count) * kSdSectorSize;
     }
+    Serial.printf("[SD][mount] card type=%u fat=%u sectors=%lu elapsed_ms=%lu\n",
+                  static_cast<unsigned>(s_info.card_type),
+                  static_cast<unsigned>(s_info.fat_type),
+                  static_cast<unsigned long>(s_info.sector_count),
+                  static_cast<unsigned long>(millis() - info_start_ms));
+    const uint32_t cluster_start_ms = millis();
     const uint64_t cluster_count = s_sdfat.clusterCount();
     const uint64_t bytes_per_cluster = s_sdfat.bytesPerCluster();
+    Serial.printf("[SD][mount] cluster count=%llu bytes_per_cluster=%llu elapsed_ms=%lu\n",
+                  static_cast<unsigned long long>(cluster_count),
+                  static_cast<unsigned long long>(bytes_per_cluster),
+                  static_cast<unsigned long>(millis() - cluster_start_ms));
     if (cluster_count > 0 && bytes_per_cluster > 0)
     {
         s_info.total_bytes = cluster_count * bytes_per_cluster;
     }
-    const int32_t free_clusters = s_sdfat.freeClusterCount();
-    if (free_clusters >= 0 && bytes_per_cluster > 0)
-    {
-        const uint64_t free_bytes = static_cast<uint64_t>(free_clusters) * bytes_per_cluster;
-        s_info.used_bytes = s_info.total_bytes > free_bytes ? s_info.total_bytes - free_bytes : 0;
-    }
+    Serial.println("[SD][mount] free_cluster_count skipped");
+    Serial.printf("[SD][mount] info total elapsed_ms=%lu\n",
+                  static_cast<unsigned long>(millis() - info_start_ms));
 }
 
 } // namespace
@@ -373,14 +408,26 @@ bool mount_sd_card(int sd_cs,
         Serial.println("[SD] SdFat preflight failed; continuing to SdFat.begin for detailed error");
     }
 
+    constexpr uint8_t kSdFatSpiOptions = SHARED_SPI | USER_SPI_BEGIN;
+    const uint32_t begin_start = millis();
+    Serial.printf("[SD] SdFat.begin config file_type=%d dedicated=%d options=0x%02X hz=%lu\n",
+                  static_cast<int>(SDFAT_FILE_TYPE),
+                  static_cast<int>(ENABLE_DEDICATED_SPI),
+                  static_cast<unsigned>(kSdFatSpiOptions),
+                  static_cast<unsigned long>(effective_hz));
+
     const bool sdfat_ok = s_sdfat.begin(
-        SdSpiConfig(sd_cs, SHARED_SPI | USER_SPI_BEGIN, effective_hz, &spi));
-    Serial.printf("[SD] SdFat.begin hz=%lu -> %d\n",
+        SdSpiConfig(sd_cs, kSdFatSpiOptions, effective_hz, &spi));
+    Serial.printf("[SD] SdFat.begin hz=%lu -> %d fat=%u elapsed_ms=%lu err=0x%02X data=0x%02X\n",
                   static_cast<unsigned long>(effective_hz),
-                  sdfat_ok ? 1 : 0);
+                  sdfat_ok ? 1 : 0,
+                  static_cast<unsigned>(s_sdfat.fatType()),
+                  static_cast<unsigned long>(millis() - begin_start),
+                  static_cast<unsigned>(s_sdfat.sdErrorCode()),
+                  static_cast<unsigned>(s_sdfat.sdErrorData()));
     if (!sdfat_ok || s_sdfat.fatType() == 0)
     {
-        s_sdfat.initErrorPrint(&Serial);
+        s_sdfat.printSdError(&Serial);
         clear_sdfat();
         reset_info();
         return false;
@@ -399,6 +446,12 @@ bool mount_sd_card(int sd_cs,
 
 void unmount_sd_card()
 {
+    SdRuntimeBusGuard guard("sd_unmount");
+    if (!guard.locked())
+    {
+        Serial.println("[SD] unmount skipped: shared SPI lock unavailable");
+        return;
+    }
     clear_sdfat();
     reset_info();
 }
@@ -467,6 +520,12 @@ bool sd_exists(const char* path)
     const char* normalized = normalize_sd_path(path);
     const uint32_t start_ms = sd_io_begin("exists", normalized);
     bool result = false;
+    SdRuntimeBusGuard guard("sd_exists");
+    if (!guard.locked())
+    {
+        sd_io_end("exists", normalized, start_ms, false, 0, -2);
+        return false;
+    }
     if (s_info.backend == SdCardBackend::SdFat)
     {
         result = s_sdfat.exists(normalized);
@@ -482,6 +541,12 @@ bool sd_is_directory(const char* path)
     const char* normalized = normalize_sd_path(path);
     const uint32_t start_ms = sd_io_begin("is_dir", normalized);
     bool result = false;
+    SdRuntimeBusGuard guard("sd_is_dir");
+    if (!guard.locked())
+    {
+        sd_io_end("is_dir", normalized, start_ms, false, 0, -2);
+        return false;
+    }
     if (s_info.backend == SdCardBackend::SdFat)
     {
         FsFile dir = s_sdfat.open(normalized, O_RDONLY);
@@ -499,6 +564,12 @@ bool sd_mkdir(const char* path)
     const char* normalized = normalize_sd_path(path);
     const uint32_t start_ms = sd_io_begin("mkdir", normalized);
     bool result = false;
+    SdRuntimeBusGuard guard("sd_mkdir");
+    if (!guard.locked())
+    {
+        sd_io_end("mkdir", normalized, start_ms, false, 0, -2);
+        return false;
+    }
     if (s_info.backend == SdCardBackend::SdFat)
     {
         result = s_sdfat.mkdir(normalized, true);
@@ -514,6 +585,12 @@ bool sd_rmdir(const char* path)
     const char* normalized = normalize_sd_path(path);
     const uint32_t start_ms = sd_io_begin("rmdir", normalized);
     bool result = false;
+    SdRuntimeBusGuard guard("sd_rmdir");
+    if (!guard.locked())
+    {
+        sd_io_end("rmdir", normalized, start_ms, false, 0, -2);
+        return false;
+    }
     if (s_info.backend == SdCardBackend::SdFat)
     {
         result = s_sdfat.rmdir(normalized);
@@ -529,6 +606,12 @@ bool sd_remove(const char* path)
     const char* normalized = normalize_sd_path(path);
     const uint32_t start_ms = sd_io_begin("remove", normalized);
     bool result = false;
+    SdRuntimeBusGuard guard("sd_remove");
+    if (!guard.locked())
+    {
+        sd_io_end("remove", normalized, start_ms, false, 0, -2);
+        return false;
+    }
     if (s_info.backend == SdCardBackend::SdFat)
     {
         result = s_sdfat.remove(normalized);
@@ -545,6 +628,12 @@ bool sd_rename(const char* old_path, const char* new_path)
     const char* normalized_new = normalize_sd_path(new_path);
     const uint32_t start_ms = sd_io_begin("rename", normalized_old);
     bool result = false;
+    SdRuntimeBusGuard guard("sd_rename");
+    if (!guard.locked())
+    {
+        sd_io_end("rename", normalized_old, start_ms, false, 0, -2);
+        return false;
+    }
     if (s_info.backend == SdCardBackend::SdFat)
     {
         result = s_sdfat.rename(normalized_old, normalized_new);
@@ -587,6 +676,12 @@ bool SdRuntimeFile::open(const char* path, const char* mode)
     copy_path(impl_->path, sizeof(impl_->path), normalized);
     copy_path(impl_->mode, sizeof(impl_->mode), mode ? mode : "r");
     const uint32_t start_ms = sd_io_begin("file_open", impl_->path);
+    SdRuntimeBusGuard guard("sd_file_open");
+    if (!guard.locked())
+    {
+        sd_io_end("file_open", impl_->path, start_ms, false, 0, -2);
+        return false;
+    }
     if (s_info.backend == SdCardBackend::SdFat)
     {
         impl_->sdfat_file = s_sdfat.open(normalized, sdfat_open_flags(mode));
@@ -608,8 +703,16 @@ void SdRuntimeFile::close()
     if (impl_->backend == SdCardBackend::SdFat)
     {
         const uint32_t start_ms = sd_io_begin("file_close", impl_->path);
-        impl_->sdfat_file.close();
-        sd_io_end("file_close", impl_->path, start_ms, true);
+        SdRuntimeBusGuard guard("sd_file_close");
+        if (guard.locked())
+        {
+            impl_->sdfat_file.close();
+            sd_io_end("file_close", impl_->path, start_ms, true);
+        }
+        else
+        {
+            sd_io_end("file_close", impl_->path, start_ms, false, 0, -2);
+        }
     }
     impl_->backend = SdCardBackend::None;
     impl_->path[0] = '\0';
@@ -629,6 +732,11 @@ int SdRuntimeFile::available() const
     }
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        SdRuntimeBusGuard guard("sd_file_available");
+        if (!guard.locked())
+        {
+            return 0;
+        }
         return impl_->sdfat_file.available();
     }
     return 0;
@@ -643,6 +751,12 @@ int SdRuntimeFile::read(void* buffer, std::size_t bytes_to_read)
     if (impl_->backend == SdCardBackend::SdFat)
     {
         const uint32_t start_ms = sd_io_begin("file_read", impl_->path, bytes_to_read);
+        SdRuntimeBusGuard guard("sd_file_read");
+        if (!guard.locked())
+        {
+            sd_io_end("file_read", impl_->path, start_ms, false, bytes_to_read, -2);
+            return -1;
+        }
         const int result = impl_->sdfat_file.read(buffer, bytes_to_read);
         sd_io_end("file_read", impl_->path, start_ms, result >= 0, bytes_to_read, result);
         return result;
@@ -658,6 +772,11 @@ int SdRuntimeFile::read_byte()
     }
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        SdRuntimeBusGuard guard("sd_file_read_byte");
+        if (!guard.locked())
+        {
+            return -1;
+        }
         return impl_->sdfat_file.read();
     }
     return -1;
@@ -672,6 +791,12 @@ std::size_t SdRuntimeFile::read_bytes(char* buffer, std::size_t bytes_to_read)
     if (impl_->backend == SdCardBackend::SdFat)
     {
         const uint32_t start_ms = sd_io_begin("file_read_bytes", impl_->path, bytes_to_read);
+        SdRuntimeBusGuard guard("sd_file_read_bytes");
+        if (!guard.locked())
+        {
+            sd_io_end("file_read_bytes", impl_->path, start_ms, false, bytes_to_read, -2);
+            return 0;
+        }
         int result = impl_->sdfat_file.read(buffer, bytes_to_read);
         sd_io_end("file_read_bytes", impl_->path, start_ms, result >= 0, bytes_to_read, result);
         return result > 0 ? static_cast<std::size_t>(result) : 0;
@@ -688,6 +813,12 @@ std::size_t SdRuntimeFile::write(const void* buffer, std::size_t bytes_to_write)
     if (impl_->backend == SdCardBackend::SdFat)
     {
         const uint32_t start_ms = sd_io_begin("file_write", impl_->path, bytes_to_write);
+        SdRuntimeBusGuard guard("sd_file_write");
+        if (!guard.locked())
+        {
+            sd_io_end("file_write", impl_->path, start_ms, false, bytes_to_write, -2);
+            return 0;
+        }
         const std::size_t result = impl_->sdfat_file.write(buffer, bytes_to_write);
         sd_io_end("file_write", impl_->path, start_ms, result == bytes_to_write, bytes_to_write, result);
         return result;
@@ -703,6 +834,11 @@ std::size_t SdRuntimeFile::write_byte(uint8_t value)
     }
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        SdRuntimeBusGuard guard("sd_file_write_byte");
+        if (!guard.locked())
+        {
+            return 0;
+        }
         return impl_->sdfat_file.write(value);
     }
     return 0;
@@ -716,6 +852,11 @@ std::size_t SdRuntimeFile::print(const char* text)
     }
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        SdRuntimeBusGuard guard("sd_file_print");
+        if (!guard.locked())
+        {
+            return 0;
+        }
         return impl_->sdfat_file.print(text);
     }
     return 0;
@@ -730,6 +871,11 @@ std::size_t SdRuntimeFile::print(double value, int digits)
     const uint8_t precision = digits < 0 ? 0 : static_cast<uint8_t>(digits);
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        SdRuntimeBusGuard guard("sd_file_print");
+        if (!guard.locked())
+        {
+            return 0;
+        }
         return impl_->sdfat_file.print(value, precision);
     }
     return 0;
@@ -768,6 +914,11 @@ bool SdRuntimeFile::seek(uint64_t offset)
     }
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        SdRuntimeBusGuard guard("sd_file_seek");
+        if (!guard.locked())
+        {
+            return false;
+        }
         return impl_->sdfat_file.seekSet(offset);
     }
     return false;
@@ -781,6 +932,11 @@ uint64_t SdRuntimeFile::position() const
     }
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        SdRuntimeBusGuard guard("sd_file_position");
+        if (!guard.locked())
+        {
+            return 0;
+        }
         return impl_->sdfat_file.curPosition();
     }
     return 0;
@@ -794,6 +950,11 @@ uint64_t SdRuntimeFile::size() const
     }
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        SdRuntimeBusGuard guard("sd_file_size");
+        if (!guard.locked())
+        {
+            return 0;
+        }
         return impl_->sdfat_file.fileSize();
     }
     return 0;
@@ -808,6 +969,12 @@ bool SdRuntimeFile::flush()
     if (impl_->backend == SdCardBackend::SdFat)
     {
         const uint32_t start_ms = sd_io_begin("file_flush", impl_->path);
+        SdRuntimeBusGuard guard("sd_file_flush");
+        if (!guard.locked())
+        {
+            sd_io_end("file_flush", impl_->path, start_ms, false, 0, -2);
+            return false;
+        }
         const bool result = impl_->sdfat_file.sync();
         sd_io_end("file_flush", impl_->path, start_ms, result);
         return result;
@@ -844,6 +1011,12 @@ bool SdRuntimeDir::open(const char* path)
     const char* normalized = normalize_sd_path(path);
     copy_path(impl_->path, sizeof(impl_->path), normalized);
     const uint32_t start_ms = sd_io_begin("dir_open", impl_->path);
+    SdRuntimeBusGuard guard("sd_dir_open");
+    if (!guard.locked())
+    {
+        sd_io_end("dir_open", impl_->path, start_ms, false, 0, -2);
+        return false;
+    }
     if (s_info.backend == SdCardBackend::SdFat)
     {
         impl_->sdfat_dir = s_sdfat.open(normalized, O_RDONLY);
@@ -866,8 +1039,16 @@ void SdRuntimeDir::close()
     if (impl_->backend == SdCardBackend::SdFat)
     {
         const uint32_t start_ms = sd_io_begin("dir_close", impl_->path);
-        impl_->sdfat_dir.close();
-        sd_io_end("dir_close", impl_->path, start_ms, true);
+        SdRuntimeBusGuard guard("sd_dir_close");
+        if (guard.locked())
+        {
+            impl_->sdfat_dir.close();
+            sd_io_end("dir_close", impl_->path, start_ms, true);
+        }
+        else
+        {
+            sd_io_end("dir_close", impl_->path, start_ms, false, 0, -2);
+        }
     }
     impl_->backend = SdCardBackend::None;
     impl_->path[0] = '\0';
@@ -893,6 +1074,12 @@ bool SdRuntimeDir::read_next(char* name, std::size_t name_size, bool* is_dir)
     if (impl_->backend == SdCardBackend::SdFat)
     {
         const uint32_t start_ms = sd_io_begin("dir_read", impl_->path);
+        SdRuntimeBusGuard guard("sd_dir_read");
+        if (!guard.locked())
+        {
+            sd_io_end("dir_read", impl_->path, start_ms, false, 0, -2);
+            return false;
+        }
         FsFile entry = impl_->sdfat_dir.openNextFile(O_RDONLY);
         if (!entry)
         {
@@ -918,9 +1105,16 @@ bool sd_read_raw(uint32_t lba, uint8_t* buffer)
     std::snprintf(path, sizeof(path), "raw:%lu", static_cast<unsigned long>(lba));
     const uint32_t start_ms = sd_io_begin("raw_read", path, kSdSectorSize);
     bool result = false;
-    if (s_info.backend == SdCardBackend::SdFat && s_sdfat.card() != nullptr)
+    SdRuntimeBusGuard guard("sd_raw_read");
+    if (!guard.locked())
     {
-        result = s_sdfat.card()->readSector(lba, buffer);
+        sd_io_end("raw_read", path, start_ms, false, kSdSectorSize, -2);
+        return false;
+    }
+    if (s_info.backend == SdCardBackend::SdFat)
+    {
+        result = s_sdfat.card() != nullptr &&
+                 s_sdfat.card()->readSector(lba, buffer);
         sd_io_end("raw_read", path, start_ms, result, kSdSectorSize);
         return result;
     }
@@ -934,9 +1128,16 @@ bool sd_write_raw(uint32_t lba, const uint8_t* buffer)
     std::snprintf(path, sizeof(path), "raw:%lu", static_cast<unsigned long>(lba));
     const uint32_t start_ms = sd_io_begin("raw_write", path, kSdSectorSize);
     bool result = false;
-    if (s_info.backend == SdCardBackend::SdFat && s_sdfat.card() != nullptr)
+    SdRuntimeBusGuard guard("sd_raw_write");
+    if (!guard.locked())
     {
-        result = s_sdfat.card()->writeSector(lba, buffer);
+        sd_io_end("raw_write", path, start_ms, false, kSdSectorSize, -2);
+        return false;
+    }
+    if (s_info.backend == SdCardBackend::SdFat)
+    {
+        result = s_sdfat.card() != nullptr &&
+                 s_sdfat.card()->writeSector(lba, buffer);
         sd_io_end("raw_write", path, start_ms, result, kSdSectorSize);
         return result;
     }

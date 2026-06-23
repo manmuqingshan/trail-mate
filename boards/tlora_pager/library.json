@@ -48,12 +48,6 @@
       "name": "Adafruit BusIO"
     },
     {
-      "name": "STM32duino ST25R3916"
-    },
-    {
-      "name": "STM32duino NFC-RFAL"
-    },
-    {
       "name": "esp_arduino_audio_codec"
     }
   ]

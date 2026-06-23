@@ -71,6 +71,16 @@ void LilyGoKeyboard::setBrightness(uint8_t level)
         return;
     }
     _brightness = level;
+    if (!_backlight_attached)
+    {
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+        ledcAttach(_backlight, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
+#else
+        ledcSetup(LEDC_BACKLIGHT_CHANNEL, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
+        ledcAttachPin(_backlight, LEDC_BACKLIGHT_CHANNEL);
+#endif
+        _backlight_attached = true;
+    }
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     ledcWrite(_backlight, _brightness);
 #else
@@ -89,14 +99,7 @@ bool LilyGoKeyboard::begin(const LilyGoKeyboardConfigure_t& config, TwoWire& w, 
     {
         ::pinMode(_backlight, OUTPUT);
         ::digitalWrite(_backlight, LOW);
-
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-        ledcAttach(_backlight, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
-#else
-        ledcSetup(LEDC_BACKLIGHT_CHANNEL, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
-        ledcAttachPin(_backlight, LEDC_BACKLIGHT_CHANNEL);
-#endif
-        setBrightness(127);
+        _brightness = 0;
     }
 
     bool res = Adafruit_TCA8418::begin(TCA8418_DEFAULT_ADDR, &w);
@@ -136,7 +139,18 @@ bool LilyGoKeyboard::begin(const LilyGoKeyboardConfigure_t& config, TwoWire& w, 
 
 void LilyGoKeyboard::end()
 {
-    setBrightness(0);
+    if (this->bl_cb || _backlight_attached)
+    {
+        setBrightness(0);
+    }
+    else
+    {
+        _brightness = 0;
+        if (_backlight != -1)
+        {
+            ::digitalWrite(_backlight, LOW);
+        }
+    }
 
     if (_irq > 0)
     {
@@ -147,10 +161,17 @@ void LilyGoKeyboard::end()
     if (_backlight != -1)
     {
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-        ledcDetach(_backlight);
+        if (_backlight_attached)
+        {
+            ledcDetach(_backlight);
+        }
 #else
-        ledcDetachPin(_backlight);
+        if (_backlight_attached)
+        {
+            ledcDetachPin(_backlight);
+        }
 #endif
+        _backlight_attached = false;
         ::pinMode(_backlight, OPEN_DRAIN);
     }
     for (int pin = 0; pin < 18; pin++)

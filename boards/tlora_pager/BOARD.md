@@ -31,4 +31,4 @@ This record describes hardware facts only.
 - audio codec present: yes
 - motion sensor present: yes
 - RTC present: yes
-- NFC present: yes
+- NFC present: no

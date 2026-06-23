@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 
 namespace ui::widgets
 {
@@ -17,12 +18,15 @@ namespace
 
 constexpr std::size_t kMaxCandidateButtons = text_candidates::kMaxBuiltinTextCandidates;
 constexpr lv_coord_t kHeaderHeightPx = 30;
-constexpr lv_coord_t kHeaderCloseButtonHeightPx = 26;
-constexpr lv_coord_t kHeaderGridGapPx = 4;
+constexpr lv_coord_t kHeaderCloseButtonHeightPx = 24;
 constexpr lv_coord_t kPickerOuterPaddingPx = 6;
 constexpr lv_coord_t kGridGapPx = 6;
-constexpr lv_coord_t kGridTopPaddingPx = 6;
+constexpr lv_coord_t kGridTopPaddingPx = 4;
 constexpr lv_coord_t kGridBottomPaddingPx = 2;
+
+#ifndef TRAIL_MATE_TEXT_CANDIDATE_LAYOUT_LOG
+#define TRAIL_MATE_TEXT_CANDIDATE_LAYOUT_LOG 1
+#endif
 
 constexpr uint32_t kAmber = 0xEBA341;
 constexpr uint32_t kAmberDark = 0xC98118;
@@ -641,35 +645,36 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     s_picker.group = lv_group_create();
     set_default_group(s_picker.group);
 
+    lv_coord_t screen_w = lv_display_get_horizontal_resolution(nullptr);
+    lv_coord_t screen_h = lv_display_get_vertical_resolution(nullptr);
+    if (screen_w <= 0)
+    {
+        screen_w = 1;
+    }
+    if (screen_h <= 0)
+    {
+        screen_h = 1;
+    }
+    const lv_coord_t body_y = std::min(kHeaderHeightPx, screen_h);
+    const lv_coord_t body_h = std::max<lv_coord_t>(1, screen_h - body_y);
+
     s_picker.root = lv_obj_create(parent);
-    lv_obj_set_size(s_picker.root, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_pos(s_picker.root, 0, 0);
+    lv_obj_set_size(s_picker.root, screen_w, screen_h);
     lv_obj_set_style_bg_color(s_picker.root, lv_color_hex(kWarmBg), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_picker.root, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_picker.root, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_picker.root, 0, LV_PART_MAIN);
+    lv_obj_set_layout(s_picker.root, LV_LAYOUT_NONE);
     lv_obj_clear_flag(s_picker.root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_picker.root, on_picker_key, LV_EVENT_KEY, nullptr);
 
-    lv_obj_update_layout(s_picker.root);
-    lv_coord_t screen_w = lv_obj_get_width(s_picker.root);
-    lv_coord_t screen_h = lv_obj_get_height(s_picker.root);
-    if (screen_w <= 0)
-    {
-        screen_w = lv_display_get_horizontal_resolution(nullptr);
-    }
-    if (screen_h <= 0)
-    {
-        screen_h = lv_display_get_vertical_resolution(nullptr);
-    }
     const lv_coord_t content_w =
         std::max<lv_coord_t>(1, screen_w - static_cast<lv_coord_t>(kPickerOuterPaddingPx * 2));
-    const lv_coord_t grid_y = kHeaderHeightPx + kHeaderGridGapPx;
-    const lv_coord_t grid_h =
-        std::max<lv_coord_t>(1, screen_h - grid_y);
 
     lv_obj_t* header = lv_obj_create(s_picker.root);
-    lv_obj_set_size(header, screen_w, kHeaderHeightPx);
     lv_obj_set_pos(header, 0, 0);
+    lv_obj_set_size(header, screen_w, body_y);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(header,
                           LV_FLEX_ALIGN_SPACE_BETWEEN,
@@ -718,8 +723,8 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_add_event_cb(close_btn, on_picker_key, LV_EVENT_KEY, nullptr);
 
     lv_obj_t* grid = lv_obj_create(s_picker.root);
-    lv_obj_set_size(grid, screen_w, grid_h);
-    lv_obj_set_pos(grid, 0, grid_y);
+    lv_obj_set_pos(grid, 0, body_y);
+    lv_obj_set_size(grid, screen_w, body_h);
     lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(grid,
                           LV_FLEX_ALIGN_START,
@@ -768,6 +773,19 @@ void open_text_candidate_picker(lv_obj_t* textarea,
         }
         s_picker.candidate_indices[s_picker.candidate_count++] = index;
     }
+
+#if TRAIL_MATE_TEXT_CANDIDATE_LAYOUT_LOG
+    std::printf("[TEXT_CANDIDATE] layout set=%s screen=%dx%d header=%d grid_y=%d grid_h=%d columns=%d raw=%u filtered=%u\n",
+                text_candidates::title(set),
+                static_cast<int>(screen_w),
+                static_cast<int>(screen_h),
+                static_cast<int>(body_y),
+                static_cast<int>(body_y),
+                static_cast<int>(body_h),
+                columns,
+                static_cast<unsigned>(raw_candidate_count),
+                static_cast<unsigned>(s_picker.candidate_count));
+#endif
 
     for (std::size_t slot = 0; slot < s_picker.candidate_count; ++slot)
     {

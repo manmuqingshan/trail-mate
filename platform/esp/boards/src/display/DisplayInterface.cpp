@@ -109,7 +109,10 @@ bool LilyGoDispArduinoSPI::lock(TickType_t xTicksToWait, const char* owner)
     TaskHandle_t native_holder = xSemaphoreGetMutexHolder(_lock);
     if (native_holder == current)
     {
-        return false;
+        // Storage/runtime code can be called from a scope that already owns the
+        // physical SPI bus; same-task reentry must not look like contention.
+        ++_lock_depth;
+        return true;
     }
 
     if (xSemaphoreTake(_lock, xTicksToWait) != pdTRUE)
@@ -144,6 +147,12 @@ void LilyGoDispArduinoSPI::unlock()
                       lockOwnerTaskName(),
                       nativeLockHolderTaskName(),
                       static_cast<unsigned long>(_lock_depth));
+        return;
+    }
+
+    if (_lock_depth > 1)
+    {
+        --_lock_depth;
         return;
     }
 

@@ -10,9 +10,9 @@ namespace platform::esp::boards::detail
 inline void initializeBoard(bool waking_from_sleep)
 {
 #if HAS_GPS
-    ::boards::twatchs3::instance.begin(NO_HW_SD | NO_HW_NFC);
+    ::boards::twatchs3::instance.begin(NO_HW_SD);
 #else
-    ::boards::twatchs3::instance.begin(NO_HW_GPS | NO_HW_SD | NO_HW_NFC);
+    ::boards::twatchs3::instance.begin(NO_HW_GPS | NO_HW_SD);
 #endif
 
     if (waking_from_sleep)
