@@ -401,7 +401,6 @@ int main(int argc, char** argv)
     assert(contains(linux_map_tiles, "platform/linux/map_contour_tile_generator.h"));
     assert(contains(linux_map_tiles, "schedule_base_tile_fetch"));
     assert(contains(linux_map_tiles, "online_tile_cache().ensure_tile(tile)"));
-    assert(contains(linux_map_tiles, "ensure_directory(online_tile_cache().root())"));
     assert(contains(linux_map_tiles, "TRAIL_MATE_EARTHDATA_TOKEN"));
     assert(contains(linux_map_tiles, "MapContourTileGenerator"));
     assert(contains(linux_map_tiles, "contour_profiles_for_zoom"));
@@ -416,6 +415,7 @@ int main(int argc, char** argv)
     assert(contains(linux_tile_cache, "TRAIL_MATE_OSM_TILE_URL"));
     assert(contains(linux_tile_cache, "TRAIL_MATE_TERRAIN_TILE_URL"));
     assert(contains(linux_tile_cache, "TRAIL_MATE_SATELLITE_TILE_URL"));
+    assert(contains(linux_tile_cache, "ensure_directory(path.parent_path())"));
 
     const std::string contour_generator = read_file(
         repo_root / "platform/linux/common/src/platform/linux/map_contour_tile_generator.cpp");
