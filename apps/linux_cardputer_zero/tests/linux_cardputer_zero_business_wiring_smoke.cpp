@@ -185,10 +185,15 @@ int main(int argc, char** argv)
     assert(not_contains(gps_runtime, "\"GPX\""));
     assert(contains(gps_runtime, "gps_ui::kDefaultLat"));
     assert(contains(gps_runtime, "gps_ui::kDefaultLng"));
-    assert(contains(gps_runtime, "viewport.center_lat = gps_ui::kDefaultLat"));
-    assert(contains(gps_runtime, "viewport.center_lon = gps_ui::kDefaultLng"));
-    assert(contains(gps_runtime,
-                    "model.focus_point.valid = has_viewport_center || snapshot.self.valid || snapshot.header.valid"));
+    assert(contains(gps_runtime, "model.focus_point.valid = true"));
+    assert(contains(gps_runtime, "model.focus_point.lat = has_viewport_center"));
+    assert(contains(gps_runtime, "? snapshot.viewport.center_lat"));
+    assert(contains(gps_runtime, ": (snapshot.self.valid ? snapshot.self.lat"));
+    assert(contains(gps_runtime, ": gps_ui::kDefaultLat)"));
+    assert(contains(gps_runtime, "model.focus_point.lon = has_viewport_center"));
+    assert(contains(gps_runtime, "? snapshot.viewport.center_lon"));
+    assert(contains(gps_runtime, ": (snapshot.self.valid ? snapshot.self.lon"));
+    assert(contains(gps_runtime, ": gps_ui::kDefaultLng)"));
     assert(contains(gps_runtime, "sync_workspace_center_from_screen"));
     assert(contains(gps_runtime, "screen_center(s_map_runtime, center)"));
     assert(contains(gps_runtime, "commit_pending_map_pan_from_screen"));
