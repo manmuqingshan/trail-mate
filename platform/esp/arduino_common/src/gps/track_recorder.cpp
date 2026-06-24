@@ -40,6 +40,8 @@ constexpr uint8_t kActiveFlagManual = 0x01;
 constexpr uint8_t kActiveFlagAuto = 0x02;
 constexpr const char* kActivePath = "/trackers/active.bin";
 constexpr TickType_t kSdTransactionLockWait = pdMS_TO_TICKS(250);
+constexpr uint32_t kPendingFlushIntervalMs = 5000;
+constexpr size_t kPendingFlushThreshold = 6;
 
 double deg2rad(double deg)
 {
@@ -56,6 +58,66 @@ double haversine_m(double lat1, double lon1, double lat2, double lon2)
                          std::sin(dlon / 2) * std::sin(dlon / 2);
     const double c = 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a));
     return R * c;
+}
+
+String track_iso_time(time_t t)
+{
+    if (t <= 0)
+    {
+        t = time(nullptr);
+    }
+    struct tm tm_utc
+    {
+    };
+    char buf[32] = {0};
+    if (t > 0 && gmtime_r(&t, &tm_utc))
+    {
+        strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
+        return String(buf);
+    }
+    return String("1970-01-01T00:00:00Z");
+}
+
+void write_track_point(SdRuntimeFile& f, TrackFormat format, const TrackPoint& pt)
+{
+    if (format == TrackFormat::CSV)
+    {
+        f.printf("%.7f,%.7f,%lu,%u\n",
+                 pt.lat,
+                 pt.lon,
+                 static_cast<unsigned long>(pt.timestamp),
+                 static_cast<unsigned>(pt.satellites));
+    }
+    else if (format == TrackFormat::Binary)
+    {
+        struct BinPoint
+        {
+            int32_t lat_e7;
+            int32_t lon_e7;
+            uint32_t ts;
+            uint8_t sat;
+        } rec{};
+
+        rec.lat_e7 = static_cast<int32_t>(lround(pt.lat * 1e7));
+        rec.lon_e7 = static_cast<int32_t>(lround(pt.lon * 1e7));
+        rec.ts = static_cast<uint32_t>(pt.timestamp);
+        rec.sat = pt.satellites;
+        f.write(reinterpret_cast<const uint8_t*>(&rec), sizeof(rec));
+    }
+    else
+    {
+        const String time_str = track_iso_time(pt.timestamp);
+        f.printf("<trkpt lat=\"%.6f\" lon=\"%.6f\">\n", pt.lat, pt.lon);
+        f.printf("  <ele>%.1f</ele>\n", 0.0);
+        f.printf("  <time>%s</time>\n", time_str.c_str());
+        f.print("  <extensions>\n");
+        f.printf("    <speed>%.2f</speed>\n", 0.0);
+        f.printf("    <course>%.1f</course>\n", 0.0);
+        f.printf("    <hdop>%.1f</hdop>\n", 0.0);
+        f.printf("    <sat>%u</sat>\n", (unsigned)pt.satellites);
+        f.print("  </extensions>\n");
+        f.print("</trkpt>\n");
+    }
 }
 
 } // namespace
@@ -160,6 +222,8 @@ void TrackRecorder::beginNewFile()
     last_point_valid_ = false;
     last_point_time_ = 0;
     last_point_ms_ = 0;
+    pending_point_count_ = 0;
+    last_flush_ms_ = millis();
     updateActiveStateLocked();
 }
 
@@ -173,7 +237,7 @@ bool TrackRecorder::start()
     bool ok = false;
     do
     {
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait);
+        ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
         if (!spi_guard.locked())
         {
             break;
@@ -209,7 +273,7 @@ void TrackRecorder::stop()
         return;
     }
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
     if (!spi_guard.locked())
     {
         if (mutex_)
@@ -222,6 +286,7 @@ void TrackRecorder::stop()
     manual_recording_ = false;
     if (auto_recording_)
     {
+        writePendingPointsLocked(true);
         updateActiveStateLocked();
         if (mutex_)
         {
@@ -232,6 +297,7 @@ void TrackRecorder::stop()
 
     if (recording_ && current_path_.length() > 0)
     {
+        writePendingPointsLocked(true);
         SdRuntimeFile f;
         if (f.open(current_path_.c_str(), "a"))
         {
@@ -248,6 +314,7 @@ void TrackRecorder::stop()
     last_point_valid_ = false;
     last_point_time_ = 0;
     last_point_ms_ = 0;
+    pending_point_count_ = 0;
     updateActiveStateLocked();
 
     if (mutex_)
@@ -263,7 +330,7 @@ void TrackRecorder::setAutoRecording(bool enabled)
         return;
     }
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
     if (!spi_guard.locked())
     {
         if (mutex_)
@@ -285,6 +352,7 @@ void TrackRecorder::setAutoRecording(bool enabled)
     {
         if (current_path_.length() > 0)
         {
+            writePendingPointsLocked(true);
             SdRuntimeFile f;
             if (f.open(current_path_.c_str(), "a"))
             {
@@ -301,6 +369,7 @@ void TrackRecorder::setAutoRecording(bool enabled)
         last_point_valid_ = false;
         last_point_time_ = 0;
         last_point_ms_ = 0;
+        pending_point_count_ = 0;
     }
     updateActiveStateLocked();
 
@@ -352,7 +421,7 @@ void TrackRecorder::setFormat(TrackFormat format)
         return;
     }
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
     if (!spi_guard.locked())
     {
         if (mutex_)
@@ -366,6 +435,7 @@ void TrackRecorder::setFormat(TrackFormat format)
 
     if (current_path_.length() > 0)
     {
+        writePendingPointsLocked(true);
         SdRuntimeFile f;
         if (f.open(current_path_.c_str(), "a"))
         {
@@ -382,6 +452,7 @@ void TrackRecorder::setFormat(TrackFormat format)
     last_point_valid_ = false;
     last_point_time_ = 0;
     last_point_ms_ = 0;
+    pending_point_count_ = 0;
 
     if (auto_recording_ || manual_recording_)
     {
@@ -404,15 +475,93 @@ void TrackRecorder::appendPoint(const TrackPoint& pt)
         return;
     }
 
-    if (mutex_ && xSemaphoreTake(mutex_, pdMS_TO_TICKS(200)) != pdTRUE)
+    bool force_flush_before_enqueue = false;
+    bool should_flush_after_enqueue = false;
+
+    if (mutex_ && xSemaphoreTake(mutex_, pdMS_TO_TICKS(20)) != pdTRUE)
     {
         return;
     }
 
-    // SD and display share one board-level SPI bus on T-Deck/Pager. Acquire
-    // shared bus ownership before touching SD so runtime call sites describe
-    // the actual resource being arbitrated.
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait);
+    uint32_t now_ms = millis();
+    if (!recording_ || current_path_.isEmpty() || !shouldAcceptPointLocked(pt, now_ms))
+    {
+        if (mutex_)
+        {
+            xSemaphoreGive(mutex_);
+        }
+        return;
+    }
+
+    if (pending_point_count_ >= kPendingPointCapacity)
+    {
+        force_flush_before_enqueue = true;
+    }
+    else
+    {
+        pending_points_[pending_point_count_++] = pt;
+        markPointAcceptedLocked(pt, now_ms);
+        should_flush_after_enqueue =
+            pending_point_count_ >= kPendingFlushThreshold ||
+            last_flush_ms_ == 0 ||
+            static_cast<uint32_t>(now_ms - last_flush_ms_) >= kPendingFlushIntervalMs;
+    }
+
+    if (mutex_)
+    {
+        xSemaphoreGive(mutex_);
+    }
+
+    if (force_flush_before_enqueue)
+    {
+        flushPending(true);
+        if (mutex_ && xSemaphoreTake(mutex_, pdMS_TO_TICKS(20)) != pdTRUE)
+        {
+            return;
+        }
+        now_ms = millis();
+        if (recording_ && !current_path_.isEmpty() && shouldAcceptPointLocked(pt, now_ms) &&
+            pending_point_count_ < kPendingPointCapacity)
+        {
+            pending_points_[pending_point_count_++] = pt;
+            markPointAcceptedLocked(pt, now_ms);
+            should_flush_after_enqueue = true;
+        }
+        if (mutex_)
+        {
+            xSemaphoreGive(mutex_);
+        }
+    }
+
+    if (should_flush_after_enqueue)
+    {
+        flushPending(false);
+    }
+}
+
+void TrackRecorder::flushPending(bool force)
+{
+    const TickType_t mutex_wait = force ? pdMS_TO_TICKS(400) : pdMS_TO_TICKS(20);
+    if (mutex_ && xSemaphoreTake(mutex_, mutex_wait) != pdTRUE)
+    {
+        return;
+    }
+
+    uint32_t now_ms = millis();
+    if (pending_point_count_ == 0 ||
+        (!force && pending_point_count_ < kPendingFlushThreshold &&
+         last_flush_ms_ != 0 &&
+         static_cast<uint32_t>(now_ms - last_flush_ms_) < kPendingFlushIntervalMs))
+    {
+        if (mutex_)
+        {
+            xSemaphoreGive(mutex_);
+        }
+        return;
+    }
+
+    const TickType_t spi_wait = force ? kSdTransactionLockWait : 0;
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(spi_wait, "track_sd");
     if (!spi_guard.locked())
     {
         if (mutex_)
@@ -422,39 +571,25 @@ void TrackRecorder::appendPoint(const TrackPoint& pt)
         return;
     }
 
-    if (!sd_card_ready())
-    {
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
-        return;
-    }
+    (void)writePendingPointsLocked(force);
 
-    // Re-check under lock.
-    if (!recording_ || current_path_.isEmpty())
+    if (mutex_)
     {
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
-        return;
+        xSemaphoreGive(mutex_);
     }
+}
 
+bool TrackRecorder::shouldAcceptPointLocked(const TrackPoint& pt, uint32_t now_ms) const
+{
     if (last_point_valid_)
     {
         const double d = haversine_m(last_point_.lat, last_point_.lon, pt.lat, pt.lon);
         if (d < kMinRecordDistanceM)
         {
-            if (mutex_)
-            {
-                xSemaphoreGive(mutex_);
-            }
-            return;
+            return false;
         }
     }
 
-    uint32_t now_ms = millis();
     if (!distance_only_ && min_interval_ms_ > 0)
     {
         if (pt.timestamp > 0 && last_point_time_ > 0)
@@ -462,76 +597,50 @@ void TrackRecorder::appendPoint(const TrackPoint& pt)
             uint32_t delta_ms = static_cast<uint32_t>(pt.timestamp - last_point_time_) * 1000u;
             if (delta_ms < min_interval_ms_)
             {
-                if (mutex_)
-                {
-                    xSemaphoreGive(mutex_);
-                }
-                return;
+                return false;
             }
         }
         else if (last_point_ms_ > 0 && (now_ms - last_point_ms_) < min_interval_ms_)
         {
-            if (mutex_)
-            {
-                xSemaphoreGive(mutex_);
-            }
-            return;
+            return false;
         }
+    }
+    return true;
+}
+
+void TrackRecorder::markPointAcceptedLocked(const TrackPoint& pt, uint32_t now_ms)
+{
+    last_point_ = pt;
+    last_point_valid_ = true;
+    last_point_time_ = pt.timestamp;
+    last_point_ms_ = now_ms;
+}
+
+bool TrackRecorder::writePendingPointsLocked(bool force)
+{
+    if (pending_point_count_ == 0 || !recording_ || current_path_.isEmpty() || !sd_card_ready())
+    {
+        return false;
     }
 
     SdRuntimeFile f;
     if (f.open(current_path_.c_str(), "a"))
     {
-        if (format_ == TrackFormat::CSV)
+        for (size_t i = 0; i < pending_point_count_; ++i)
         {
-            f.printf("%.7f,%.7f,%lu,%u\n",
-                     pt.lat,
-                     pt.lon,
-                     static_cast<unsigned long>(pt.timestamp),
-                     static_cast<unsigned>(pt.satellites));
+            write_track_point(f, format_, pending_points_[i]);
         }
-        else if (format_ == TrackFormat::Binary)
+        if (force || pending_point_count_ >= kPendingFlushThreshold)
         {
-            struct BinPoint
-            {
-                int32_t lat_e7;
-                int32_t lon_e7;
-                uint32_t ts;
-                uint8_t sat;
-            } rec{};
-
-            rec.lat_e7 = static_cast<int32_t>(lround(pt.lat * 1e7));
-            rec.lon_e7 = static_cast<int32_t>(lround(pt.lon * 1e7));
-            rec.ts = static_cast<uint32_t>(pt.timestamp);
-            rec.sat = pt.satellites;
-            f.write(reinterpret_cast<const uint8_t*>(&rec), sizeof(rec));
+            f.flush();
         }
-        else
-        {
-            const String time_str = isoTime(pt.timestamp);
-            f.printf("<trkpt lat=\"%.6f\" lon=\"%.6f\">\n", pt.lat, pt.lon);
-            f.printf("  <ele>%.1f</ele>\n", 0.0);
-            f.printf("  <time>%s</time>\n", time_str.c_str());
-            f.print("  <extensions>\n");
-            f.printf("    <speed>%.2f</speed>\n", 0.0);
-            f.printf("    <course>%.1f</course>\n", 0.0);
-            f.printf("    <hdop>%.1f</hdop>\n", 0.0);
-            f.printf("    <sat>%u</sat>\n", (unsigned)pt.satellites);
-            f.print("  </extensions>\n");
-            f.print("</trkpt>\n");
-        }
-        f.flush();
         f.close();
-        last_point_ = pt;
-        last_point_valid_ = true;
-        last_point_time_ = pt.timestamp;
-        last_point_ms_ = now_ms;
+        pending_point_count_ = 0;
+        last_flush_ms_ = millis();
+        return true;
     }
 
-    if (mutex_)
-    {
-        xSemaphoreGive(mutex_);
-    }
+    return false;
 }
 
 bool TrackRecorder::restoreActiveSession()
@@ -544,7 +653,7 @@ bool TrackRecorder::restoreActiveSession()
     bool ok = false;
     do
     {
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait);
+        ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
         if (!spi_guard.locked())
         {
             break;
@@ -603,6 +712,8 @@ bool TrackRecorder::restoreActiveSession()
         last_point_valid_ = false;
         last_point_time_ = 0;
         last_point_ms_ = 0;
+        pending_point_count_ = 0;
+        last_flush_ms_ = millis();
         format_ = static_cast<TrackFormat>(header.format);
 
         manual_recording_ = (header.flags & kActiveFlagManual) != 0;
@@ -708,7 +819,7 @@ size_t TrackRecorder::listTracks(String* out_names, size_t max_names) const
         return 0;
     }
 
-    if (mutex_ && xSemaphoreTake(mutex_, pdMS_TO_TICKS(200)) != pdTRUE)
+    if (mutex_ && xSemaphoreTake(mutex_, pdMS_TO_TICKS(20)) != pdTRUE)
     {
         return 0;
     }
@@ -721,7 +832,7 @@ size_t TrackRecorder::listTracks(String* out_names, size_t max_names) const
         }
     };
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(0, "track_sd");
     if (!spi_guard.locked())
     {
         release_mutex();

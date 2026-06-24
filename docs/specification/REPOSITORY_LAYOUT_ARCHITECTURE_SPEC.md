@@ -174,11 +174,14 @@ Expected Phase 8 target split examples:
 modules/ui_presentation/
 modules/ui_lvgl_core/
 modules/ui_lvgl_ux_packs/
-modules/ui_legacy_adapters/
 modules/ui_map_runtime/
 modules/ui_chat_runtime/
 modules/ui_gps_runtime/
 ```
+
+The retired `modules/ui_legacy_adapters/` module must not reappear as an active
+module, build dependency, include root, or forwarding-header surface. Former
+adapter responsibilities live in their owning runtime modules.
 
 Portable presentation modules must remain UI-toolkit independent. In
 particular, `ui_presentation` must not depend on LVGL, GTK, platform headers, or
@@ -352,14 +355,14 @@ The first structural migration batch also creates the target UI modules:
 modules/ui_chat_runtime
 modules/ui_map_runtime
 modules/ui_gps_runtime
-modules/ui_legacy_adapters
 modules/ui_lvgl_core
 modules/ui_lvgl_ux_packs
 ```
 
 `modules/ui_shared` remains a transitional umbrella, but the moved Phase 7
-runtime/helper/adapter files must not gain new implementation at their old
-paths. Old headers may remain as forwarding headers only.
+runtime/helper files must not gain new implementation at their old paths. Old
+headers may remain as forwarding headers only when their owning runtime module
+has an explicit compatibility policy.
 
 ## Non-Goals
 

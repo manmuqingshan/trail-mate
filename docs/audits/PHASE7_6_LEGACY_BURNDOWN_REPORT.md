@@ -20,7 +20,7 @@ The pass burned down legacy paths already covered by Phase 7 owners and document
 
 | Surface | Reason | Exit condition |
 | --- | --- | --- |
-| `LegacyChatDeliveryEventBridge` | Closed by later runtime event pump / delivery adapter work | See `LEGACY_BURNDOWN_REGISTER.md` for current status |
+| `LegacyChatDeliveryEventBridge` | Closed by later runtime event pump / delivery adapter work | Removed after `ChatDeliveryEventProjectionAdapter` became the only active owner |
 | `LegacyChatDeliveryActionBridge` | Closed by later delivery action adapter work | See `LEGACY_BURNDOWN_REGISTER.md` for current status |
 | `LegacyTeamActionBridge` | Closed by later Team burn-down; active bridge file/class/test removed | See `LEGACY_BURNDOWN_REGISTER.md` for current owner |
 | `LegacyKeyVerificationSource` / `LegacyKeyVerificationActionSink` | MeshCore / Meshtastic verification APIs still differ behind adapter | Split or rename protocol-specific adapters |

@@ -1,23 +1,28 @@
 ﻿#include "platform/ui/usb_support_runtime.h"
 
+#include "sdkconfig.h"
+
+#include <cstdio>
+
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) && defined(CONFIG_TINYUSB_MSC_ENABLED)
+#define TRAILMATE_IDF_USB_MSC_BACKEND 1
+#else
+#define TRAILMATE_IDF_USB_MSC_BACKEND 0
+#endif
+
+#if TRAILMATE_IDF_USB_MSC_BACKEND
 #include "app/app_facade_access.h"
-#include "esp_wifi.h"
+#include "boards/tab5/tab5_board.h"
+#include "driver/sdmmc_host.h"
+#include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "platform/esp/arduino_common/gps/gps_service_api.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "screen_sleep.h"
-#include "sdkconfig.h"
-#include "team/usecase/team_pairing_service.h"
-
-#include <cstdio>
-
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-#include "boards/tab5/tab5_board.h"
-#include "driver/sdmmc_host.h"
-#include "esp_err.h"
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
 #include "sdmmc_cmd.h"
+#include "team/usecase/team_pairing_service.h"
 #include "tinyusb.h"
 #include "tusb_msc_storage.h"
 extern "C" esp_err_t bsp_sdcard_init(char* mount_point, size_t max_files);
@@ -42,13 +47,15 @@ void set_status_message(const char* message)
 
 void stop_pairing()
 {
+#if TRAILMATE_IDF_USB_MSC_BACKEND
     if (team::TeamPairingService* pairing = app::teamFacade().getTeamPairing())
     {
         pairing->stop();
     }
+#endif
 }
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5) && defined(CONFIG_TINYUSB_MSC_ENABLED)
+#if TRAILMATE_IDF_USB_MSC_BACKEND
 constexpr const char* kUsbVendor = "TrailMate";
 constexpr const char* kUsbProduct = "USB Disk";
 constexpr const char* kUsbSerial = "TM-IDF";
@@ -327,7 +334,7 @@ void stop_backend()
 
 bool is_supported()
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5) && defined(CONFIG_TINYUSB_MSC_ENABLED)
+#if TRAILMATE_IDF_USB_MSC_BACKEND
     return true;
 #else
     return false;
@@ -336,6 +343,7 @@ bool is_supported()
 
 void prepare_mass_storage_mode()
 {
+#if TRAILMATE_IDF_USB_MSC_BACKEND
     stop_pairing();
     disableScreenSleep();
 
@@ -344,10 +352,12 @@ void prepare_mass_storage_mode()
     {
         vTaskSuspend(gps_task_handle);
     }
+#endif
 }
 
 void restore_mass_storage_mode()
 {
+#if TRAILMATE_IDF_USB_MSC_BACKEND
     enableScreenSleep();
 
     TaskHandle_t gps_task_handle = gps::gps_get_task_handle();
@@ -355,6 +365,7 @@ void restore_mass_storage_mode()
     {
         vTaskResume(gps_task_handle);
     }
+#endif
 }
 
 bool start()
@@ -369,7 +380,7 @@ bool start()
         return false;
     }
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5) && defined(CONFIG_TINYUSB_MSC_ENABLED)
+#if TRAILMATE_IDF_USB_MSC_BACKEND
     if (s_status.active)
     {
         refresh_runtime_message();
@@ -396,7 +407,7 @@ bool start()
 
 void stop()
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5) && defined(CONFIG_TINYUSB_MSC_ENABLED)
+#if TRAILMATE_IDF_USB_MSC_BACKEND
     if (s_status.active)
     {
         stop_backend();
@@ -416,7 +427,7 @@ void stop()
 
 Status get_status()
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5) && defined(CONFIG_TINYUSB_MSC_ENABLED)
+#if TRAILMATE_IDF_USB_MSC_BACKEND
     if (s_status.active)
     {
         refresh_runtime_message();

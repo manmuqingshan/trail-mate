@@ -25,7 +25,7 @@ class SystemNotification
 
     /**
      * @brief Show a notification
-     * @param text Message text (will be truncated to 15 characters)
+     * @param text Message text (short ASCII text may be truncated)
      * @param duration_ms Display duration in milliseconds (default 3000ms)
      */
     static void show(const char* text, uint32_t duration_ms = 3000);

@@ -44,17 +44,17 @@ policy.
 
 ### Presentation Sources/Sinks
 
-- `LegacyAirDeviceStatusSource`
-- `LegacyGpsStatusSource`
-- `LegacyMeshStatusSource`
-- `LegacySettingsSource`
-- `LegacySettingsActionSink`
+- `RuntimeDeviceStatusSource`
+- `RuntimeGpsStatusSource`
+- `RuntimeMeshStatusSource`
+- `RuntimeSettingsSource`
+- `RuntimeSettingsActionSink`
 - `ChatPresentationSource`
-- `LegacyChatActionSink`
+- `RuntimeChatActionSink`
 - `TeamChatPresentationSource`
 - `TeamChatActionSink`
-- `LegacyMapPresentationSource`
-- `LegacyMapActionSink`
+- `RuntimeMapWorkspaceSource`
+- `RuntimeMapActionSink`
 
 ### Presentation Models
 

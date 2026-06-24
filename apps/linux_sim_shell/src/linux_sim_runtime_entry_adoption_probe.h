@@ -17,7 +17,6 @@ class LinuxSimRuntimeEntryAdoptionProbe
     bool load(const LinuxSimAppShell& shell);
 
     bool ready() const;
-    bool fallbackUsed() const;
     std::size_t menuCount() const;
     std::size_t screenCount() const;
 
@@ -29,7 +28,6 @@ class LinuxSimRuntimeEntryAdoptionProbe
     product_composition::PresentationBundle presentation_{};
     trailmate::linux_sim::AsciiRuntimeEntryAdoption adoption_{};
     bool ready_ = false;
-    bool fallback_ = true;
 };
 
 } // namespace trailmate::apps::linux_sim_shell

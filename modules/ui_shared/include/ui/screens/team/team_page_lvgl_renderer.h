@@ -97,6 +97,8 @@ class TeamPageLvglRenderer
     lv_obj_t* createListItem(TeamPageLvglRendererContext& context,
                              const char* left,
                              const char* right) const;
+    lv_obj_t* createMemberListItem(TeamPageLvglRendererContext& context,
+                                   const TeamMemberRowView& member) const;
 
     void renderMemberChipRow(TeamPageLvglRendererContext& context,
                              const std::vector<TeamMemberRowView>& rows) const;

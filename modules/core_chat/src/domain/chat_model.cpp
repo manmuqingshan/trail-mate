@@ -39,9 +39,8 @@ void ChatModel::onSendQueued(const ChatMessage& msg)
     appendMessage(conv, copy);
 }
 
-void ChatModel::onSendResult(MessageId msg_id, bool ok)
+bool ChatModel::updateMessageStatus(MessageId msg_id, MessageStatus status)
 {
-    // Find message in all conversations
     for (auto& pair : conversations_)
     {
         ConversationData& data = pair.second;
@@ -50,8 +49,16 @@ void ChatModel::onSendResult(MessageId msg_id, bool ok)
             ChatMessage* msg = &data.messages[i].message;
             if (msg && msg->msg_id == msg_id)
             {
-                msg->status = ok ? MessageStatus::Sent : MessageStatus::Failed;
-                if (!ok)
+                msg->status = status;
+                failed_messages_.erase(
+                    std::remove_if(failed_messages_.begin(),
+                                   failed_messages_.end(),
+                                   [msg_id](const ChatMessage& failed)
+                                   {
+                                       return failed.msg_id == msg_id;
+                                   }),
+                    failed_messages_.end());
+                if (status == MessageStatus::Failed)
                 {
                     if (failed_messages_.size() >= MAX_FAILED_MESSAGES)
                     {
@@ -59,10 +66,16 @@ void ChatModel::onSendResult(MessageId msg_id, bool ok)
                     }
                     failed_messages_.push_back(*msg);
                 }
-                return;
+                return true;
             }
         }
     }
+    return false;
+}
+
+void ChatModel::onSendResult(MessageId msg_id, bool ok)
+{
+    (void)updateMessageStatus(msg_id, ok ? MessageStatus::Sent : MessageStatus::Failed);
 }
 
 int ChatModel::getUnread(const ConversationId& conv) const

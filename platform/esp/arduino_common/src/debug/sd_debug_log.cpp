@@ -117,7 +117,6 @@ void write_log_line(const char* line)
 
     s_log_file.print(line);
     s_log_file.print("\n");
-    s_log_file.flush();
 }
 
 void open_debug_log_if_needed()

@@ -1,12 +1,33 @@
 #include "ui/screens/team/team_page_event_effect_sink.h"
 
 #include <cassert>
+#include <cstdio>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace
 {
+
+class TestMemberNameResolver final : public team::ui::ITeamPageMemberNameResolver
+{
+  public:
+    std::string resolveMemberName(uint32_t node_id) const override
+    {
+        char label[5]{};
+        std::snprintf(label,
+                      sizeof(label),
+                      "%04lX",
+                      static_cast<unsigned long>(node_id & 0xFFFFU));
+        return std::string(label);
+    }
+};
+
+const TestMemberNameResolver& testNames()
+{
+    static TestMemberNameResolver names;
+    return names;
+}
 
 team::TeamId testTeamId()
 {
@@ -16,27 +37,12 @@ team::TeamId testTeamId()
     return id;
 }
 
-class FakeNames final : public team::ui::ITeamPageMemberNameResolver
-{
-  public:
-    std::string resolveMemberName(uint32_t node_id) const override
-    {
-        if (node_id == 0x22222222)
-        {
-            return "Ada";
-        }
-        return "Unknown";
-    }
-};
-
 team::ui::TeamPageEventReducer makeReducer()
 {
-    static FakeNames names;
     team::ui::TeamPageEventContext context;
     context.now_s = 1000;
     context.self_node_id = 0x11111111;
-    context.names = &names;
-    return team::ui::TeamPageEventReducer(context);
+    return team::ui::TeamPageEventReducer(context, testNames());
 }
 
 team::ui::TeamPageEventState makeState()
@@ -263,7 +269,6 @@ void testStatusEffectsConfirmKeyDistAndAppendEpoch()
     FakeKeyEventWriter writer;
     team::ui::TeamPageKeyEventLog log(writer, 900);
     team::ui::TeamPageRuntimePort runtime(nullptr, nullptr, nullptr);
-    FakeNames names;
 
     const auto result = team::ui::TeamPageEventEffectSink().applyEffects(
         state,
@@ -273,8 +278,7 @@ void testStatusEffectsConfirmKeyDistAndAppendEpoch()
         runtime,
         log,
         deferred,
-        notifier,
-        names);
+        notifier);
 
     assert(result.confirmed_keydist);
     assert(result.appended_epoch_rotated);
@@ -303,7 +307,6 @@ void testKeyDistEffectsSaveApplyKeysAndForwardNavigationRequests()
     FakeController controller;
     FakeKeyStore key_store;
     team::ui::TeamPageRuntimePort runtime(&controller, nullptr, &key_store);
-    FakeNames names;
 
     const auto result = team::ui::TeamPageEventEffectSink().applyEffects(
         state,
@@ -313,8 +316,7 @@ void testKeyDistEffectsSaveApplyKeysAndForwardNavigationRequests()
         runtime,
         log,
         deferred,
-        notifier,
-        names);
+        notifier);
 
     assert(result.saved_keys);
     assert(result.applied_keys);
@@ -350,7 +352,6 @@ void testPairingEffectsAppendAcceptedMemberSendStatusAndNotify()
     team::ui::TeamPageKeyEventLog log(writer, 900);
     FakeController controller;
     team::ui::TeamPageRuntimePort runtime(&controller, nullptr, nullptr);
-    FakeNames names;
 
     const auto result = team::ui::TeamPageEventEffectSink().applyEffects(
         state,
@@ -360,8 +361,7 @@ void testPairingEffectsAppendAcceptedMemberSendStatusAndNotify()
         runtime,
         log,
         deferred,
-        notifier,
-        names);
+        notifier);
 
     assert(result.appended_member_accepted);
     assert(result.sent_status);
@@ -381,7 +381,7 @@ void testPairingEffectsAppendAcceptedMemberSendStatusAndNotify()
     assert(deferred.scheduled[0].first == 1);
     assert(deferred.scheduled[0].second == 2);
     assert(notifier.messages.size() == 2);
-    assert(notifier.messages[0] == "Paired: Ada");
+    assert(notifier.messages[0] == "Paired: 2222");
     assert(notifier.messages[1] == "Paired successfully");
 }
 
@@ -399,7 +399,6 @@ void testStatusSendFailuresAreTranslatedToNotifier()
     controller.status_ok = false;
     controller.status_plain_ok = false;
     team::ui::TeamPageRuntimePort runtime(&controller, nullptr, nullptr);
-    FakeNames names;
 
     const auto result = team::ui::TeamPageEventEffectSink().applyEffects(
         state,
@@ -409,8 +408,7 @@ void testStatusSendFailuresAreTranslatedToNotifier()
         runtime,
         log,
         deferred,
-        notifier,
-        names);
+        notifier);
 
     assert(!result.sent_status);
     assert(!result.sent_status_plain);

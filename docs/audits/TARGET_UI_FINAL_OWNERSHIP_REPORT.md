@@ -11,8 +11,8 @@ only in `docs/archive/REMOVED_LEGACY_ROOTS.md`; no source archive is retained.
 Covered target IDs:
 
 - `tab5`
-- `tdisplayp4_tft`
-- `tdisplayp4_amoled`
+- `t_display_p4_tft`
+- `t_display_p4_amoled`
 - `tlora_pager`
 - `tdeck`
 - `twatch`
@@ -42,7 +42,7 @@ Covered target IDs:
 | target family | UI profile | evidence boundary |
 | --- | --- | --- |
 | `tab5` | `tab5_touch_ui` | board profile proves touch/display/audio/SD/GPS/LoRa; dimensions remain repo-evidence pending |
-| `tdisplayp4` | `tdisplayp4_touch_ui` | board profile proves touch plus HI8561/RM69A10 panel facts |
+| `t_display_p4` | `t_display_p4_touch_ui` | board profile proves touch plus HI8561/RM69A10 panel facts |
 | `tlora_pager` | `pager_compact_ui` | board YAML and variant env prove compact landscape build size and keyboard/rotary input |
 | `tdeck` | `deck_wide_ui` | board YAML proves keyboard/touch/trackball and 320 x 240 display |
 | `twatch` | `watch_compact_ui` | board code and variant env prove 240 x 240 touch watch route |
@@ -90,7 +90,7 @@ not hidden inside the shell.
 
 The following gaps are real and intentionally recorded instead of guessed:
 
-- final executable UX packs for `tab5_touch`, `tdisplayp4_touch`,
+- final executable UX packs for `tab5_touch`, `t_display_p4_touch`,
   `pager_compact`, `deck_full`, `watch_compact`, and `node_headless`;
 - ESP-IDF target defaults for `tlora_pager`, `tdeck`, and `twatch`;
 - Cardputer Zero framebuffer, evdev, launch, and packaging validation.

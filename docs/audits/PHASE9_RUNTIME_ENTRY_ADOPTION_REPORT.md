@@ -27,16 +27,18 @@ transitional shell-selected UX pack, builds the compatibility presentation
 graph, and loads `AsciiRuntimeEntryAdoption` without touching
 `legacy/app_implementations`.
 
-Fallback path:
+Failure behavior:
 
-- `LinuxSimRuntimeEntryAdoptionProbe::fallbackUsed()` records whether adoption
-  failed and the existing hardcoded simulator UI path should continue.
-- The real simulator UI selection and old page/menu routing are unchanged.
+- adoption failure is unavailable-on-failure; the entry reports
+  `LinuxSimRuntimeSource::Unavailable`.
+- the hardcoded simulator fallback branch and fallback smoke target are
+  deleted from the active app.
 
 Exit condition:
 
-- the real simulator entry consumes `AsciiRuntimeEntryAdoption` descriptors
-  directly, and old hardcoded routing is only compatibility fallback.
+- satisfied: the real simulator entry consumes `AsciiRuntimeEntryAdoption`
+  descriptors directly, and old hardcoded routing is no longer an active
+  fallback source.
 
 ## uConsole GTK
 
@@ -52,16 +54,18 @@ The module helper consumes `PresentationBundle` through
 `GtkRuntimeEntryAdoption` from a compatibility presentation graph and keeps the
 historical GTK page registry untouched.
 
-Fallback path:
+Failure behavior:
 
-- `LinuxUConsoleGtkRuntimeEntryAdoptionProbe::fallbackUsed()` records whether
-  adoption failed and the existing hardcoded GTK page list should continue.
-- GTK widget creation and page switching are unchanged.
+- adoption failure is unavailable-on-failure; page-registry adoption reports
+  `LinuxUConsoleGtkPageRegistrySource::Unavailable`.
+- the hardcoded GTK page-registry fallback branch and fallback smoke target are
+  deleted from the active app.
 
 Exit condition:
 
-- GTK page switching consumes `GtkRuntimeEntryAdoption` descriptors directly,
-  and the hardcoded page registry remains fallback only.
+- satisfied: GTK page-registry adoption consumes `GtkRuntimeEntryAdoption`
+  descriptors directly, and the hardcoded page registry is no longer an active
+  fallback source.
 
 ## LVGL
 
@@ -71,15 +75,18 @@ Adopted probe path:
 - `modules/ui_lvgl_ux_packs/include/ui_lvgl_ux_packs/runtime/lvgl_runtime_entry_adoption.h`
 - `modules/ui_lvgl_ux_packs/tests/test_lvgl_runtime_entry_adoption.cpp`
 
-Fallback path:
+Failure behavior:
 
-- real LVGL menu rendering and screen creation remain unchanged.
-- device-specific LVGL UI keeps its existing compatibility path.
+- LVGL failed adoption is unavailable-on-failure; descriptor runtime reports
+  `LvglScreenGraphRuntimeSource::Unavailable`.
+- no hardcoded LVGL menu/page fallback branch remains in the descriptor
+  runtime.
 
 Exit condition:
 
-- a real LVGL runtime entry consumes `LvglRuntimeEntryAdoption` descriptors
-  before falling back to compatibility menu/screen creation.
+- satisfied: `LvglPrimaryScreenGraphRuntime` consumes
+  `LvglRuntimeEntryAdoption` descriptors and failed adoption stops as
+  unavailable.
 
 ## Guardrail
 
@@ -102,9 +109,9 @@ Phase 9.3 adds entry-facing consumers above the Phase 9.2 probes:
   compatibility runtime path.
 
 These are real/probe runtime entry paths rather than plain app-shell smoke
-tests. The hardcoded simulator routing, GTK page registry, and LVGL menu/page
-creation remain fallback only and are tracked in
-`docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md`.
+tests. LinuxSim, GTK, and LVGL failed adoption now stop at
+unavailable-on-failure. LVGL hardcoded menu/page creation is reported as burned
+down in `docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md`.
 
 `legacy/app_implementations remains burn-down`: Phase 9.3 does not add
 `LinuxSimRuntimeAdoptionBridge`, `GtkRuntimeEntryAdoption`, or screen graph

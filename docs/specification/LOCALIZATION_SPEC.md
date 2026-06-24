@@ -22,7 +22,7 @@
 
 ### 2.1 当前必须切开的对象
 
-Trail Mate 本地化系统至少由八类对象组成：
+Trail Mate 本地化系统至少由九类对象组成：
 
 1. 固件本地化运行时
 2. Runtime pack 载荷
@@ -32,6 +32,7 @@ Trail Mate 本地化系统至少由八类对象组成：
 6. 已安装索引
 7. locale 质量状态
 8. 输入法运行时后端
+9. 内置文本候选插入面
 
 它们彼此相关，但不是同一个东西。
 
@@ -51,6 +52,7 @@ Trail Mate 本地化系统至少由八类对象组成：
 10. 把拼音当成所有中文使用者的默认输入法。
 11. 把“机器翻译已经填满 TSV”当成可发布质量。
 12. 把英文 key 原样复制到翻译列，当成合法的缺省翻译。
+13. 把 Symbol / Emoji 文本候选插入面伪装成 IME pack 或 Extensions pack。
 
 ---
 
@@ -182,11 +184,145 @@ IME pack manifest 只是输入法后端的声明，不是后端本身。
 一个输入法要成为可启用输入法，必须同时满足：
 
 1. 固件中存在真实后端。
-2. 候选词、组合逻辑、提交行为与目标语言/地区习惯匹配。
+2. 候选词、组合逻辑或直接键盘布局、提交行为与目标语言/地区习惯匹配。
 3. UI widget 知道如何展示该输入模式。
-4. locale manifest 显式依赖它，且该 locale 已经是可发布质量。
+4. 需要作为 locale 默认输入能力时，locale manifest 显式依赖它。
+
+直接键盘类后端必须再拆一层 `KeyboardLayoutDescriptor`。IME backend 只说明“这是直接提交字符的键盘输入策略”，layout descriptor 才拥有：
+
+1. 触摸键盘按键表。
+2. 触摸键盘标签需要的字体覆盖探针。
+3. 布局 id 与用户可见输入模式标签。
+
+因此，共享 `ImeWidget` 不允许按具体 IME id 写展示分支；它只能通过 strategy/descriptor 询问当前输入模式是否有触摸键盘、需要什么字体探针。西里尔、希腊、希伯来、假名等未来布局都必须新增 layout descriptor，而不是继续把字符表写进 widget。
+
+Symbol / Emoji 不属于 IME pack。它们不是 locale 输入习惯，也不是可启用输入法后端，而是内置文本候选插入面。IME 模式按钮只负责切换 `EN` / `IM` / `123` 等输入模式，不得打开 Symbol / Emoji 候选页。
+
+```mermaid
+classDiagram
+  class ImeWidget {
+    +setMode(mode)
+    +handle_key(event)
+    +refresh_labels()
+  }
+
+  class InputModeDescriptor {
+    +kind
+    +ime_id
+    +display_name
+    +keyboard_layout
+  }
+
+  class KeyboardLayoutDescriptor {
+    +layout_id
+    +mode_label
+    +touch_hint_key
+    +touch_map
+    +font_probe_text
+  }
+
+  class ImePackInfo {
+    +id
+    +backend
+    +layout
+  }
+
+  class InputModeAdapter {
+    +describe(ime)
+  }
+
+  ImeWidget --> InputModeDescriptor
+  InputModeDescriptor --> KeyboardLayoutDescriptor
+  InputModeAdapter --> ImePackInfo
+  InputModeAdapter --> InputModeDescriptor
+```
+
+`translation_status` 仍然独立决定 locale 是否进入普通用户语言选择器。
+`review` locale 可以依赖真实 IME 以便运行时完整校验和安装该能力，但不能因此被当成 release UI locale。
 
 因此，不允许用 `backend=builtin-kana`、`backend=builtin-hangul`、`backend=builtin-arabic` 这类尚未实现的名字提前占位。未实现输入法可以写进规划文档，但不能作为 runtime IME pack 进入 payload。
+
+### 3.9 内置文本候选插入面
+
+内置文本候选插入面负责给用户插入“设备键盘难以直接输入、但又不属于 locale 输入法”的短文本符号。
+
+当前只有两组内置候选：
+
+1. `Symbols`
+   - 最多 100 个特殊字符。
+   - 面向 Wi-Fi 密码、频道名、PSK、聊天文本等通用文本输入。
+   - 需要一个小型内置 content baseline font：`builtin-symbol-core`，只覆盖当前 100 个 Symbol 候选。
+2. `Emoji`
+   - 最多 100 个精选 emoji。
+   - 不是全量 emoji 表，也不是可下载扩展包。
+   - 需要一个小型内置 content baseline font：`builtin-emoji-core`，只覆盖当前 100 个 Emoji 候选。
+
+这两组候选的合法入口是文本输入 toolbar 中与 IME 切换按钮并列的 `Sym` / `Emoji` 按钮。Chat compose 与 Settings 文本弹窗必须接入同一个 `TextCandidatePicker`，不得各自实现私有候选窗口。
+
+候选页交互规则固定为：
+
+1. 点击 `Sym` 或 `Emoji` 打开全屏候选页。
+2. 候选页最多加载 100 项；打开时一次性创建全量候选，不分页，候选数组顺序就是展示顺序。
+3. 候选页头部提示硬件键盘可用的选择动作：`WASD` 移动当前候选，`Q` 关闭，`E` 提交当前候选。
+4. 触摸点击候选项时直接提交并关闭候选页。
+5. 提交动作只向目标 textarea 插入 UTF-8 文本并触发 value changed，不改变当前 IME 模式。
+6. 页面不得绕过 `TextCandidatePicker` 直接维护另一份 Symbol / Emoji 列表。
+
+```mermaid
+classDiagram
+  class ChatComposeScreen {
+    +textarea
+    +ime_toggle
+    +symbol_button
+    +emoji_button
+  }
+
+  class SettingsTextModal {
+    +textarea
+    +ime_toggle
+    +symbol_button
+    +emoji_button
+  }
+
+  class ImeWidget {
+    +switchMode()
+    +handle_key()
+  }
+
+  class TextCandidatePicker {
+    +open(textarea, set)
+    +commit(active)
+    +close()
+  }
+
+  class BuiltinTextCandidateData {
+    +symbols[<=100]
+    +emoji[<=100]
+    +symbol_core_binfont
+    +emoji_core_binfont
+  }
+
+  class FontRegistry {
+    +builtin-symbol-core
+    +builtin-emoji-core
+  }
+
+  ChatComposeScreen --> ImeWidget
+  SettingsTextModal --> ImeWidget
+  ChatComposeScreen --> TextCandidatePicker
+  SettingsTextModal --> TextCandidatePicker
+  TextCandidatePicker --> BuiltinTextCandidateData
+  FontRegistry --> BuiltinTextCandidateData
+```
+
+非法做法：
+
+1. 发布 `symbol-picker` / `emoji-picker` 作为 IME pack。
+2. 发布或解析 `candidates.txt` 来驱动通用候选列表 IME。
+3. 把 emoji 候选放回 Extensions catalog，要求用户下载后才能输入。
+4. 内置全量 emoji 表。
+5. 在 Wi-Fi、Chat、Settings 等页面各自维护不同候选集。
+6. 让候选页的打开行为依赖当前 locale 或当前 IME。
 
 ---
 
@@ -277,12 +413,17 @@ locale id 必须按 BCP-47 思路表达语言、脚本与地区语境，而不�
 
 输入法不是“有一个能打字的键盘”这么简单。它属于 locale 的语言、脚本和地区习惯。
 
-当前可启用输入法只有：
+当前可启用输入法只包括 locale 习惯输入法：
 
 1. `zh-Hans` / `zh-Hans-CN`
    - `zh-hans-pinyin`
    - 后端：`builtin-pinyin`
    - 适用范围：简体中文拼音输入。
+2. `ru`
+   - `ru-cyrillic-keyboard`
+   - 后端：`builtin-keyboard-layout`
+   - 布局：`ru-cyrillic`
+   - 适用范围：俄文 Cyrillic 直接键盘布局；不包含候选词转换，也不承诺物理 QWERTY 到俄文的硬件重映射。
 
 当前不得启用的输入法包括：
 
@@ -300,6 +441,8 @@ locale id 必须按 BCP-47 思路表达语言、脚本与地区语境，而不�
    - 需要阿拉伯键盘、RTL 编辑语义与字体 shaping 一致性。
 5. 欧洲 Latin 语言
    - 通常不需要 IME pack；现有 `EN` / `123` 输入路径足够。
+6. Symbol / Emoji
+   - 它们是内置文本候选插入面，不是 IME pack。
 
 如果某 locale 还没有真实输入法，它可以作为 display-only review 包存在，但不得把假 IME 写进 manifest，也不得让设置页显示一个无法工作的输入法选项。
 
@@ -309,9 +452,10 @@ locale id 必须按 BCP-47 思路表达语言、脚本与地区语境，而不�
 
 1. 内建 locale：`en`
 2. 内建字体：`builtin-latin-ui`
-3. 内建 IME：可为空
+3. 内建文本候选插入能力：`Symbols` 与精选 `Emoji`
+4. 内建文本候选内容字体补充：`builtin-symbol-core` 与 `builtin-emoji-core`
 
-English 必须在没有任何外部 pack 的情况下仍可工作。
+English、基础特殊字符输入与精选 emoji 输入必须在没有任何外部 pack 的情况下仍可工作。
 
 这条基线不能被 removable pack 破坏。
 
@@ -342,6 +486,99 @@ English 必须在没有任何外部 pack 的情况下仍可工作。
    - 其他外部文本
 
 这两条链不能被简化成“只要非 ASCII 就统一切换某个 CJK 字体”的旁路实现。
+
+### 4.5.1 Content Font Load Is Not A Render-Side Blocking Operation
+
+内容文本缺字检测与外部字体加载是两个不同动作。
+
+1. `ensure_content_font_for_text()` 可以发现当前内容字体链缺少某些 codepoint。
+2. 它不能在 ESP / display-shared SD-SPI 设备的页面渲染、列表构建、LVGL 事件或 timer 路径里同步加载外部 `font.bin`。
+3. ESP 上的内容补充字体加载必须被视为后台/显式动作；在后台 runtime 完成前，页面使用当前已加载字体链并记录缺字诊断。
+4. 固件内置字体只有在 runtime pack manifest 以 `source=builtin` 显式声明时才算运行时 loaded 状态；ESP 不得隐式注册 CJK 内置字体来替代外部 `zh-hans-core/font.bin`。
+5. 已加载字体是否覆盖某个 codepoint 必须以实际 glyph lookup 为准；manifest/range 只能用于选择候选 pack，不能替代渲染能力判断。
+6. 外部 `font.bin` 加载失败后必须进入 backoff，不能因为多条联系人名、聊天消息或节点名重复触发同一个失败文件读取。
+7. 显式切换 locale 时加载 UI 字体属于 locale 激活流程；这不能被内容文本缺字路径复用成隐式 SD 读。
+8. 外部 `source=binfont` 字体 pack 必须在 catalog 阶段验证 `font.bin` 路径可规范化且可打开；缺少 payload 的 locale 不能进入可选 locale 列表。
+9. 任何用户可见路径中被运行时明确允许的同步外部字体加载，必须先显示阻塞式 busy modal，加载完成或失败后关闭。这个规则不以字体包大小为条件；纯 deferred/backoff 路径只记录诊断，不显示“正在加载”的假窗口。
+10. “显示 busy modal” 的代码语义不是只创建 LVGL 对象，而是必须在进入 `lv_binfont_create()` / 外部 `font.bin` 读取之前，强制把 modal flush 到屏幕。当前绑定点是 `resource_pack_registry.cpp` 的 `ScopedFontLoadOverlay`，它是 `load_font_pack()` 的唯一同步字体加载 UI 边界。
+
+这条规则的目标是保护 UI 实时域：联系人页、聊天页、地图 overlay、节点详情页等内容页面不得因为遇到中文/日文/韩文/阿拉伯文本而把 UI 线程拖入 SD 阻塞 IO。
+
+#### Small content supplement preload
+
+ESP 上允许一个非常窄的例外：如果 content supplement 的 manifest 中的
+`estimated_ram_bytes` 不超过固件规定的小 supplement 上限，registry 可以在
+`reload_language()` / 安装完成后的重新编目阶段预加载它，并把它加入 content font chain。
+
+这个例外只用于小型、已编目的 content supplement。当前固件内置的 `builtin-symbol-core` 与 `builtin-emoji-core` 属于 content font baseline，而不是用户安装的 external supplement；它们不读取 SD / Flash 外部 `font.bin`，只覆盖内置文本候选集，并且不占用 `max_content_supplement_packs` 名额。这个例外不适用于：
+
+1. 大型 locale 字体。
+2. locale 激活之外的 UI 字体替换。
+3. 任何需要反复探测缺失文件的失败路径。
+4. 页面渲染、列表构建、LVGL 事件或 timer 路径中的 SD-backed `font.bin` 同步读取。
+
+因此，已安装到当前运行时 pack root 的小型内容扩展或固件内置的小型内容补充可以在 registry 阶段进入可用字体链；之后聊天内容第一次遇到对应字符时，内容热路径只选择已经 loaded 的字体链，不再为了该字符直接读取 SD。
+
+### 4.5.2 Text Candidate Built-In Font Boundary
+
+Symbol / Emoji 支持不是 locale，也不是 Extensions 中的可下载包。
+
+当前固件只内置两类文本候选字体：
+
+1. `Symbols` 候选集
+   - 最多 100 个 UTF-8 symbol 字符串。
+   - 由 `TextCandidatePicker` 展示和提交。
+   - 不通过 IME registry，也不通过 pack manifest。
+2. `builtin-symbol-core`
+   - 小型内置 content baseline font。
+   - 只覆盖当前 100 个 Symbol 候选集；不得携带用户不能输入的额外 symbol 字形。
+3. `Emoji` 候选集
+   - 最多 100 个 UTF-8 emoji 字符串。
+   - 由 `TextCandidatePicker` 展示和提交。
+   - 不通过 IME registry，也不通过 pack manifest。
+4. `builtin-emoji-core`
+   - 小型内置 content baseline font。
+   - 只覆盖当前 100 个精选 emoji 候选集；不得携带用户不能输入的额外 emoji 字形。
+   - 在 registry 阶段进入 content font chain，不从 SD / Flash 读取 `font.bin`。
+- 与 `builtin-symbol-core` 一样不计入 external content supplement 数量预算；中文、日文、韩文等外部内容字体仍必须能够占用自己的 supplement 名额。
+
+合法依赖方向是：
+
+```mermaid
+flowchart LR
+  ChatText["Chat / content text"] --> FontResolver["Content font resolver"]
+  FontResolver --> SymbolFont["builtin-symbol-core"]
+  FontResolver --> EmojiFont["builtin-emoji-core"]
+  ChatCompose["Chat compose toolbar"] --> TextPicker["TextCandidatePicker"]
+  SettingsText["Settings text modal toolbar"] --> TextPicker
+  TextPicker --> EmojiData["Builtin emoji candidates <= 100"]
+  TextPicker --> SymbolData["Builtin symbol candidates <= 100"]
+  TextPicker --> TextInsert["UTF-8 text insertion"]
+```
+
+非法做法：
+
+1. 在聊天页面硬编码另一份 emoji 替换表。
+2. 把 emoji 声明成一个假 locale。
+3. 发布 `emoji-picker` IME pack 或 `emoji-core` Extensions pack。
+4. 解析 `candidates.txt` 来驱动 emoji 输入。
+5. 为了显示 emoji 而把所有 `1Fxxx` 字符映射到同一个内置图标。
+6. 在 UI 热路径同步读取 SD 上的 emoji font。
+7. 内置全量 emoji 表。
+8. 在 Wi-Fi、Chat 或 Settings 页面各自实现符号/emoji picker。
+
+数量边界：
+
+1. 固件最多内置 100 个 Symbol 候选与 100 个 Emoji 候选。
+2. 对应内置字体只能覆盖这两组候选；候选集缩小后字体也必须同步缩小。
+3. 选择原则是高频、通用、跨语言语义稳定。
+4. 如果未来要扩展到全量 emoji 或大型符号表，必须另立新规格；不得悄悄扩大当前内置表。
+
+Glyph 判定边界：
+
+1. Font registry 的 coverage 和 missing-glyph 判定必须忽略 Unicode variation selector（例如 U+FE0F）与 ZWJ（U+200D）。
+2. 这些 codepoint 只改变组合字符的显示形式，本身不要求字体提供独立 glyph。
+3. `TextCandidatePicker` 与 content font resolver 必须使用一致规则；否则 emoji / symbol 候选会显示通过，但聊天、地图或联系人内容仍被误判为缺字。
 
 ### 4.6 Persistence Contract
 
@@ -386,8 +623,8 @@ English 必须在没有任何外部 pack 的情况下仍可工作。
 3. 重新选择 active locale
 4. 按需加载字体
 
-当前 Arduino/ESP32 安装器默认把下载得到的 payload 解到 Flash pack 根。
-与此同时，手工把 runtime payload 拷贝到 SD 仍然是合法安装方式，因为运行时会同时编目当前支持的 Flash/SD 根。
+当前 Arduino/ESP32 安装器把下载得到的 payload 解到当前平台定义的 pack root。
+运行时会同时编目当前支持的 Flash/SD 根，因此手工把 runtime payload 拷贝到任一受支持根仍然是合法安装方式。
 
 禁止让运行时 registry 直接承担网络下载或 zip 解释职责。
 

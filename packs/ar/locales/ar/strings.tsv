@@ -42,6 +42,7 @@ Contacts (Meshtastic - %.3fMHz)	جهات الاتصال (Meshtastic - %.3fMHz)
 Contacts (RNode)	جهات الاتصال (RNode)
 Contacts (RNode - %.3fMHz)	جهات الاتصال (RNode - %.3fMHz)
 Conversation protocol mismatch	عدم تطابق بروتوكول المحادثة
+Cyrillic keyboard	لوحة مفاتيح سيريلية
 Data Exchange	تبادل البيانات
 Debug Logs	سجلات التصحيح
 Decoding: %d%%	فك التشفير: %d%%
@@ -636,3 +637,14 @@ Restore failed	فشلت الاستعادة
 Settings restored. Restarting...	تمت استعادة الإعدادات. جارٍ إعادة التشغيل...
 Overwrite current settings and restart?	هل تريد استبدال الإعدادات الحالية وإعادة التشغيل؟
 Restore	استعادة
+Date/Time	التاريخ/الوقت
+Set Date/Time	ضبط التاريخ/الوقت
+Date	التاريخ
+Time	الوقت
+Invalid date/time	تاريخ/وقت غير صالح
+Set time unsupported	ضبط الوقت غير مدعوم
+Date/time updated	تم تحديث التاريخ/الوقت
+Seen %um ago	شوهد قبل %u دقيقة
+Seen %uh ago	شوهد قبل %u ساعة
+Seen %ud ago	شوهد قبل %u يوم
+Seen --	آخر ظهور --

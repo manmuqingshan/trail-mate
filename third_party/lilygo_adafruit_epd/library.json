@@ -1,0 +1,31 @@
+{
+  "name": "lilygo_adafruit_epd",
+  "version": "4.5.5",
+  "description": "Vendored Adafruit EPD driver subset for T-Echo Lite SSD1681 displays.",
+  "keywords": [
+    "epaper",
+    "display",
+    "ssd1681"
+  ],
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "nordicnrf52"
+  ],
+  "build": {
+    "includeDir": "src",
+    "srcDir": "src",
+    "srcFilter": [
+      "-<*>",
+      "+<Adafruit_EPD.cpp>",
+      "+<Adafruit_MCPSRAM.cpp>",
+      "+<drivers/Adafruit_SSD1681.cpp>"
+    ]
+  },
+  "dependencies": [
+    {
+      "name": "Adafruit GFX Library"
+    }
+  ]
+}

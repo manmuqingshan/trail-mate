@@ -19,6 +19,8 @@ struct MeshtasticAnnouncementRequest
     NodeId dest_node = 0xFFFFFFFFUL;
     uint8_t hop_limit = 2;
     bool want_response = false;
+    bool want_ack = false;
+    const char* user_id_override = nullptr;
     meshtastic_HardwareModel hw_model = meshtastic_HardwareModel_UNSET;
     const uint8_t* mac_addr = nullptr;
     const uint8_t* public_key = nullptr;

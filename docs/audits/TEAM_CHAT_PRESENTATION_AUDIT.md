@@ -106,7 +106,7 @@ Do not:
 
 - map Team to DirectPeer
 - map Team to Channel
-- send Team text through `LegacyChatActionSink`
+- send Team text through `RuntimeChatActionSink`
 - store Team messages as generic `ChatMessage` unless a separate design says so
 - force Team location/command payload into generic `MessageRow` payload fields
 
@@ -135,4 +135,4 @@ own read adapter, command sink, and `ChatWorkspaceModel` instance.
 
 Location and command entries are read-side textual projections only. Their
 picker/send actions remain legacy-owned and must not be routed through
-`LegacyChatActionSink`, `toCoreConversationId`, or direct/channel send paths.
+`RuntimeChatActionSink`, `toCoreConversationId`, or direct/channel send paths.

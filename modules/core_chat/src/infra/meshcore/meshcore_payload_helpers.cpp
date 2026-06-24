@@ -25,11 +25,9 @@ constexpr uint8_t kPayloadTypeGrpTxt = 0x05;
 constexpr uint8_t kPayloadTypeAnonReq = 0x07;
 constexpr uint8_t kPayloadTypeDirectData = kPayloadTypeAnonReq;
 constexpr uint8_t kPayloadTypePath = 0x08;
-constexpr uint8_t kPayloadVer1 = 0x00;
 constexpr size_t kMeshcoreMaxPathSize = 64;
 constexpr size_t kMeshcoreMaxFrameSize = 255;
 constexpr size_t kCipherBlockSize = 16;
-constexpr size_t kCipherMacSize = 2;
 constexpr size_t kMeshcorePubKeySize = 32;
 constexpr size_t kMeshcorePubKeyPrefixSize = 8;
 constexpr NodeId kSyntheticNodePrefix = 0x4D430000UL;
@@ -40,13 +38,15 @@ constexpr uint8_t kGroupDataMagic0 = 0x47;
 constexpr uint8_t kGroupDataMagic1 = 0x44;
 constexpr uint8_t kControlMagic0 = 0x54;
 constexpr uint8_t kControlMagic1 = 0x4D;
+constexpr uint8_t kMeshCoreNodeInfoTypeQuery =
+    static_cast<uint8_t>(MeshCoreNodeInfoControlType::Query);
+constexpr uint8_t kMeshCoreNodeInfoTypeInfo =
+    static_cast<uint8_t>(MeshCoreNodeInfoControlType::Info);
 constexpr uint8_t kControlSubtypeDiscoverReq = 0x80;
 constexpr uint8_t kControlSubtypeDiscoverResp = 0x90;
 constexpr uint8_t kControlSubtypeMask = 0xF0;
 constexpr uint8_t kDiscoverPrefixOnlyMask = 0x01;
 constexpr uint8_t kAdvertTypeNone = 0x00;
-constexpr uint8_t kAdvertTypeChat = 0x01;
-constexpr uint8_t kAdvertTypeRepeater = 0x02;
 constexpr uint8_t kAdvertTypeRoom = 0x03;
 constexpr uint8_t kAdvertTypeSensor = 0x04;
 constexpr uint8_t kAdvertFlagHasLocation = 0x10;
@@ -61,6 +61,25 @@ constexpr uint8_t kPublicGroupPsk[16] = {
 using chat::meshcore::buildHeader;
 using chat::meshcore::encryptThenMac;
 using chat::meshcore::isZeroKey;
+
+void copyFixedNameBytes(char* out, size_t out_len, const char* src)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    memset(out, 0, out_len);
+    if (!src)
+    {
+        return;
+    }
+    size_t index = 0;
+    while (index + 1 < out_len && src[index] != '\0')
+    {
+        out[index] = src[index];
+        ++index;
+    }
+}
 
 } // namespace
 
@@ -151,21 +170,37 @@ bool isPeerPayloadType(uint8_t payload_type)
 
 bool isPeerCipherShape(size_t payload_len)
 {
-    if (payload_len <= (2 + kCipherMacSize))
+    return isPeerCipherShape(PayloadProfile::V1, payload_len);
+}
+
+bool isPeerCipherShape(PayloadProfile profile, size_t payload_len)
+{
+    const size_t hash_bytes = payloadHashBytes(profile);
+    const size_t mac_bytes = payloadMacBytes(profile);
+    const size_t prefix_len = hash_bytes * 2U;
+    if (payload_len <= (prefix_len + mac_bytes))
     {
         return false;
     }
-    const size_t enc_len = payload_len - 2 - kCipherMacSize;
+    const size_t enc_len = payload_len - prefix_len - mac_bytes;
     return (enc_len % kCipherBlockSize) == 0;
 }
 
 bool isAnonReqCipherShape(size_t payload_len)
 {
-    if (payload_len <= (1 + kMeshcorePubKeySize + kCipherMacSize))
+    return isAnonReqCipherShape(PayloadProfile::V1, payload_len);
+}
+
+bool isAnonReqCipherShape(PayloadProfile profile, size_t payload_len)
+{
+    const size_t hash_bytes = payloadHashBytes(profile);
+    const size_t mac_bytes = payloadMacBytes(profile);
+    const size_t prefix_len = hash_bytes + kMeshcorePubKeySize;
+    if (payload_len <= (prefix_len + mac_bytes))
     {
         return false;
     }
-    const size_t enc_len = payload_len - 1 - kMeshcorePubKeySize - kCipherMacSize;
+    const size_t enc_len = payload_len - prefix_len - mac_bytes;
     return (enc_len % kCipherBlockSize) == 0;
 }
 
@@ -174,9 +209,23 @@ bool buildFrameNoTransport(uint8_t route_type, uint8_t payload_type,
                            const uint8_t* payload, size_t payload_len,
                            uint8_t* out_frame, size_t out_cap, size_t* out_len)
 {
+    return buildFrameNoTransport(PayloadProfile::V1,
+                                 route_type, payload_type,
+                                 path, path_len,
+                                 payload, payload_len,
+                                 out_frame, out_cap, out_len);
+}
+
+bool buildFrameNoTransport(PayloadProfile profile,
+                           uint8_t route_type, uint8_t payload_type,
+                           const uint8_t* path, size_t path_len,
+                           const uint8_t* payload, size_t payload_len,
+                           uint8_t* out_frame, size_t out_cap, size_t* out_len)
+{
     if (!out_frame || !out_len || !payload || payload_len == 0 ||
         out_cap == 0 || path_len > kMeshcoreMaxPathSize ||
-        (path_len > 0 && !path))
+        (path_len > 0 && !path) ||
+        !pathIsWellFormed(profile, path_len))
     {
         return false;
     }
@@ -190,7 +239,7 @@ bool buildFrameNoTransport(uint8_t route_type, uint8_t payload_type,
     }
 
     size_t index = 0;
-    out_frame[index++] = buildHeader(route_type, payload_type, kPayloadVer1);
+    out_frame[index++] = buildHeader(route_type, payload_type, payloadVersion(profile));
     out_frame[index++] = static_cast<uint8_t>(path_len);
     if (path_len > 0)
     {
@@ -212,17 +261,36 @@ bool buildPeerDatagramPayload(uint8_t dest_hash, uint8_t src_hash,
                               const uint8_t* plain, size_t plain_len,
                               uint8_t* out_payload, size_t out_cap, size_t* out_len)
 {
-    if (!key16 || !key32 || !plain || plain_len == 0 || !out_payload || !out_len || out_cap < 3)
+    return buildPeerDatagramPayload(PayloadProfile::V1,
+                                    &dest_hash, &src_hash,
+                                    key16, key32,
+                                    plain, plain_len,
+                                    out_payload, out_cap, out_len);
+}
+
+bool buildPeerDatagramPayload(PayloadProfile profile,
+                              const uint8_t* dest_hash, const uint8_t* src_hash,
+                              const uint8_t key16[16], const uint8_t key32[32],
+                              const uint8_t* plain, size_t plain_len,
+                              uint8_t* out_payload, size_t out_cap, size_t* out_len)
+{
+    const size_t hash_bytes = payloadHashBytes(profile);
+    const size_t prefix_len = hash_bytes * 2U;
+    if (!dest_hash || !src_hash || !key16 || !key32 || !plain || plain_len == 0 ||
+        !out_payload || !out_len || out_cap <= prefix_len)
     {
         return false;
     }
 
     size_t index = 0;
-    out_payload[index++] = dest_hash;
-    out_payload[index++] = src_hash;
+    memcpy(&out_payload[index], dest_hash, hash_bytes);
+    index += hash_bytes;
+    memcpy(&out_payload[index], src_hash, hash_bytes);
+    index += hash_bytes;
     const size_t encrypted_len = encryptThenMac(key16, key32,
                                                 &out_payload[index], out_cap - index,
-                                                plain, plain_len);
+                                                plain, plain_len,
+                                                payloadMacBytes(profile));
     if (encrypted_len == 0)
     {
         return false;
@@ -293,6 +361,107 @@ bool hasControlPrefix(const uint8_t* payload, size_t len, uint8_t kind)
            payload[2] == kind;
 }
 
+bool buildNodeInfoQueryControlPayload(bool request_reply,
+                                      uint8_t* out_payload, size_t out_cap, size_t* out_len)
+{
+    if (!out_payload || !out_len || out_cap < kMeshCoreNodeInfoQueryPayloadSize)
+    {
+        return false;
+    }
+
+    size_t index = 0;
+    out_payload[index++] = kControlMagic0;
+    out_payload[index++] = kControlMagic1;
+    out_payload[index++] = kMeshCoreControlKindNodeInfo;
+    out_payload[index++] = kMeshCoreNodeInfoTypeQuery;
+    out_payload[index++] = request_reply ? kMeshCoreNodeInfoFlagRequestReply : 0x00;
+    *out_len = index;
+    return true;
+}
+
+bool buildNodeInfoInfoControlPayload(const MeshCoreNodeInfoBuildInfo& info,
+                                     uint8_t* out_payload, size_t out_cap, size_t* out_len)
+{
+    if (!out_payload || !out_len || out_cap < kMeshCoreNodeInfoInfoPayloadSize)
+    {
+        return false;
+    }
+
+    char short_name[kMeshCoreNodeInfoShortNameFieldSize] = {};
+    char long_name[kMeshCoreNodeInfoLongNameFieldSize] = {};
+    copyFixedNameBytes(short_name, sizeof(short_name), info.short_name);
+    copyFixedNameBytes(long_name, sizeof(long_name), info.long_name ? info.long_name : info.short_name);
+
+    size_t index = 0;
+    out_payload[index++] = kControlMagic0;
+    out_payload[index++] = kControlMagic1;
+    out_payload[index++] = kMeshCoreControlKindNodeInfo;
+    out_payload[index++] = kMeshCoreNodeInfoTypeInfo;
+    out_payload[index++] = info.role;
+    out_payload[index++] = info.hops;
+    memcpy(&out_payload[index], &info.node_id, sizeof(info.node_id));
+    index += sizeof(info.node_id);
+    memcpy(&out_payload[index], &info.timestamp, sizeof(info.timestamp));
+    index += sizeof(info.timestamp);
+    memcpy(&out_payload[index], short_name, sizeof(short_name));
+    index += sizeof(short_name);
+    memcpy(&out_payload[index], long_name, sizeof(long_name));
+    index += sizeof(long_name);
+    *out_len = index;
+    return true;
+}
+
+bool decodeNodeInfoControlPayload(const uint8_t* payload, size_t len, DecodedNodeInfoControl* out)
+{
+    if (!out)
+    {
+        return false;
+    }
+
+    *out = DecodedNodeInfoControl{};
+    if (!hasControlPrefix(payload, len, kMeshCoreControlKindNodeInfo))
+    {
+        return false;
+    }
+
+    out->valid = true;
+    const uint8_t raw_type = payload[3];
+    if (raw_type == kMeshCoreNodeInfoTypeQuery)
+    {
+        out->type = MeshCoreNodeInfoControlType::Query;
+        out->complete = true;
+        out->request_reply = (len > 4) &&
+                             ((payload[4] & kMeshCoreNodeInfoFlagRequestReply) != 0);
+        return true;
+    }
+
+    if (raw_type != kMeshCoreNodeInfoTypeInfo)
+    {
+        return true;
+    }
+
+    out->type = MeshCoreNodeInfoControlType::Info;
+    if (len < kMeshCoreNodeInfoInfoPayloadSize)
+    {
+        return true;
+    }
+
+    size_t index = 4;
+    out->info.role = payload[index++];
+    out->info.hops = payload[index++];
+    memcpy(&out->info.node_id, payload + index, sizeof(out->info.node_id));
+    index += sizeof(out->info.node_id);
+    memcpy(&out->info.timestamp, payload + index, sizeof(out->info.timestamp));
+    index += sizeof(out->info.timestamp);
+    memcpy(out->info.short_name, payload + index, kMeshCoreNodeInfoShortNameFieldSize);
+    out->info.short_name[kMeshCoreNodeInfoShortNameFieldSize] = '\0';
+    index += kMeshCoreNodeInfoShortNameFieldSize;
+    memcpy(out->info.long_name, payload + index, kMeshCoreNodeInfoLongNameFieldSize);
+    out->info.long_name[kMeshCoreNodeInfoLongNameFieldSize] = '\0';
+    out->complete = true;
+    return true;
+}
+
 size_t copySanitizedName(char* out, size_t out_len, const uint8_t* src, size_t src_len)
 {
     if (!out || out_len == 0)
@@ -355,9 +524,9 @@ uint8_t mapAdvertTypeToRole(uint8_t node_type)
 {
     switch (node_type)
     {
-    case kAdvertTypeChat:
+    case kMeshCoreAdvertTypeChat:
         return static_cast<uint8_t>(chat::contacts::NodeRoleType::Client);
-    case kAdvertTypeRepeater:
+    case kMeshCoreAdvertTypeRepeater:
         return static_cast<uint8_t>(chat::contacts::NodeRoleType::Repeater);
     case kAdvertTypeRoom:
         return static_cast<uint8_t>(chat::contacts::NodeRoleType::Router);
@@ -478,6 +647,59 @@ bool decodeDiscoverRequest(const uint8_t* payload, size_t payload_len, DecodedDi
         memcpy(&decoded.since, payload + 6, sizeof(decoded.since));
     }
     *out = decoded;
+    return true;
+}
+
+bool buildDiscoverRequestControlPayload(const MeshCoreDiscoverRequestBuildInfo& request,
+                                        uint8_t* out_payload, size_t out_cap, size_t* out_len)
+{
+    if (!out_payload || !out_len || out_cap < kMeshCoreDiscoverRequestBasePayloadSize)
+    {
+        return false;
+    }
+
+    size_t index = 0;
+    out_payload[index++] = static_cast<uint8_t>(
+        kControlSubtypeDiscoverReq |
+        (request.prefix_only ? kDiscoverPrefixOnlyMask : 0x00));
+    out_payload[index++] = request.type_filter;
+    memcpy(out_payload + index, &request.tag, sizeof(request.tag));
+    index += sizeof(request.tag);
+
+    if (request.since != 0)
+    {
+        if (out_cap < index + sizeof(request.since))
+        {
+            return false;
+        }
+        memcpy(out_payload + index, &request.since, sizeof(request.since));
+        index += sizeof(request.since);
+    }
+
+    *out_len = index;
+    return true;
+}
+
+bool buildDiscoverResponseControlPayload(uint8_t node_type, int8_t snr_qdb, uint32_t tag,
+                                         const uint8_t* pubkey, size_t pubkey_len,
+                                         uint8_t* out_payload, size_t out_cap, size_t* out_len)
+{
+    if (!pubkey || pubkey_len == 0 || !out_payload || !out_len ||
+        out_cap < kMeshCoreDiscoverResponseBasePayloadSize + pubkey_len)
+    {
+        return false;
+    }
+
+    size_t index = 0;
+    out_payload[index++] = static_cast<uint8_t>(
+        kControlSubtypeDiscoverResp | (node_type & 0x0F));
+    out_payload[index++] = static_cast<uint8_t>(snr_qdb);
+    memcpy(out_payload + index, &tag, sizeof(tag));
+    index += sizeof(tag);
+    memcpy(out_payload + index, pubkey, pubkey_len);
+    index += pubkey_len;
+
+    *out_len = index;
     return true;
 }
 

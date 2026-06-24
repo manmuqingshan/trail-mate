@@ -18,6 +18,7 @@ It does not own:
 - hardware GPS adapters
 - route/tracker stores
 - map tile loading
+- SD writes or track file flushes
 
 ## UI Refresh Port
 
@@ -64,6 +65,22 @@ When set inactive:
 
 Page runtime may keep LVGL timers as tick hooks. The timer callback must call
 the pump; the callback must not encode refresh cadence policy itself.
+
+## Track Recording Boundary
+
+GPS parsing and GPS page refresh are not track storage execution contexts. A GPS
+task may publish normalized points or submit append intents, but it must not
+open, write, flush, list, or close track files directly.
+
+Track recording must follow `UI_STORAGE_EVENT_RUNTIME_DESIGN_SPEC.md`:
+
+```text
+GPS point -> TrackRuntime intent -> TrackStorageWorker command
+  -> storage/bus adapter -> TrackRuntime event -> UI projection
+```
+
+The GPS page may render `Starting`, `Recording`, `Flushing`, `Stopping`, or
+`Error` state. It must not block waiting for a storage transaction to finish.
 
 ## Non-goals
 

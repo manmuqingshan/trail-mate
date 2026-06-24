@@ -10,6 +10,11 @@
 #include "app/app_event_runtime.h"
 #include "app/app_facades.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -178,6 +183,7 @@ class AppContext final : public IAppBleFacade
     }
 
     void saveConfig() override;
+    void requestSaveConfig() override;
 
     void applyMeshConfig() override;
     void applyUserInfo() override;
@@ -258,6 +264,10 @@ class AppContext final : public IAppBleFacade
     void initChatRuntime(bool use_mock_adapter);
     void initTeamServices();
     void initContactServices();
+    void ensureConfigSaveWorker();
+    void enqueueConfigSave();
+    void configSaveLoop();
+    static void configSaveTaskEntry(void* context);
 
     std::unique_ptr<chat::ChatModel> chat_model_;
 
@@ -287,6 +297,15 @@ class AppContext final : public IAppBleFacade
 
     AppConfig config_;
     AppContextPlatformBindings platform_bindings_{};
+    SemaphoreHandle_t config_save_mutex_ = nullptr;
+    QueueHandle_t config_save_queue_ = nullptr;
+    TaskHandle_t config_save_task_ = nullptr;
+    AppConfig pending_config_save_{};
+    uint32_t pending_config_save_generation_ = 0;
+    uint32_t completed_config_save_generation_ = 0;
+    bool config_save_pending_ = false;
+    bool config_save_busy_ = false;
+    bool config_save_failed_ = false;
 
     BoardBase* board_ = nullptr;
     LoraBoard* lora_board_ = nullptr;

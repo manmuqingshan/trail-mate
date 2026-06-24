@@ -16,13 +16,22 @@ This directory stores source vector fonts used to generate Trail Mate font asset
   `https://raw.githubusercontent.com/googlefonts/noto-fonts/main/unhinted/otf/NotoNaskhArabic/NotoNaskhArabic-Regular.otf`
 - License: SIL Open Font License 1.1 (OFL)
 
+## Noto Emoji Monochrome
+
+- File: `NotoEmoji-Regular.ttf`
+- Source:
+  `https://raw.githubusercontent.com/zjaco13/Noto-Emoji-Monochrome/main/fonts/NotoEmoji-Regular.ttf`
+- Upstream project:
+  `https://github.com/googlefonts/noto-emoji`
+- License: SIL Open Font License 1.1 (OFL)
+
 ## Bitmap Compression Tool
 
 Use the in-repo tool to convert an existing LVGL bitmap font (`lv_font_conv` output)
 to LVGL compressed bitmap format (`bitmap_format = 2`):
 
 ```bash
-./tools/compress_lvgl_bitmap_font.py src/ui/assets/fonts/lv_font_noto_cjk_16_2bpp.c
+./tools/compress_lvgl_bitmap_font.py path/to/generated_lvgl_font.c
 ```
 
 The tool validates each glyph via encode/decode round-trip before writing.

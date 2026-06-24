@@ -144,13 +144,13 @@ def write_header(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "#pragma once\n\n"
-        "#include \"ui/mono_128x64/font/mono_font.h\"\n\n"
-        "namespace ui::mono_128x64\n{\n"
+        "#include \"ui/mono/font/mono_font.h\"\n\n"
+        "namespace ui::mono\n{\n"
         "// Generated from Fusion Pixel 8px BDF for the NRF mono UI path.\n"
         "// Glyph bitmaps are normalized into fixed 8x8 cells so the renderer\n"
         "// can keep a single compact raster contract for ASCII and CJK.\n"
         "extern const MonoFont kFusionPixel8Font;\n"
-        "} // namespace ui::mono_128x64\n",
+        "} // namespace ui::mono\n",
         encoding="utf-8",
     )
 
@@ -179,7 +179,7 @@ def write_source(path: Path, entries: list[Glyph], fallback_index: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = f"""#include "ui/fonts/fusion_pixel_8_font_generated.h"
 
-namespace ui::mono_128x64
+namespace ui::mono
 {{
 
 static const uint8_t kFusionPixel8Bitmap[] = {{
@@ -207,7 +207,7 @@ const MonoFont kFusionPixel8Font = MonoFont::makeCompact16(
     {CELL_HEIGHT},
     {CELL_WIDTH});
 
-}} // namespace ui::mono_128x64
+}} // namespace ui::mono
 """
     path.write_text(text, encoding="utf-8")
 

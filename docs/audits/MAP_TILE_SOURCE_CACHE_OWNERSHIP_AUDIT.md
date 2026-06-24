@@ -10,10 +10,10 @@ The first burn-down slice moves Trail Mate offline tile directory mapping behind
 
 | Question | Current answer before 7.10 | 7.10 owner |
 | --- | --- | --- |
-| Where is base tile path built? | `platform/*/ui/widgets/map/map_tiles.cpp` | `MapTileResolver` / `LegacyFilesystemMapTileSource` |
-| Where is contour tile path built? | `platform/*/ui/widgets/map/map_tiles.cpp` | `MapTileResolver` / `LegacyFilesystemMapTileSource` |
+| Where is base tile path built? | `platform/*/ui/widgets/map/map_tiles.cpp` | `MapTileResolver` / `FilesystemMapTileSource` |
+| Where is contour tile path built? | `platform/*/ui/widgets/map/map_tiles.cpp` | `MapTileResolver` / `FilesystemMapTileSource` |
 | Who checks base tile availability? | Platform map tile runtime | `IMapTileSource::lookup(...)` |
-| Who checks layer directories? | Platform map tile runtime | `LegacyFilesystemMapTileSource` |
+| Who checks layer directories? | Platform map tile runtime | `FilesystemMapTileSource` |
 | Who draws tile widgets? | LVGL map tile runtime | Still LVGL map tile runtime |
 | Who owns decoded LVGL image cache? | ESP `map_tiles.cpp` global decode cache | Still contained legacy |
 | Who owns Linux downloaded tile cache? | `platform::linux_runtime::MapTileCache` | Still contained legacy |
@@ -38,7 +38,7 @@ The first burn-down slice moves Trail Mate offline tile directory mapping behind
 
 `MapTileResolver` owns Trail Mate tile path mapping.
 
-`LegacyFilesystemMapTileSource` owns filesystem-backed lookup and optional reads through `IMapTileFileSystem`.
+`FilesystemMapTileSource` owns filesystem-backed lookup and optional reads through `IMapTileFileSystem`.
 
 Platform LVGL tile runtimes may continue to:
 

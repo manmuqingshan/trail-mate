@@ -3,6 +3,7 @@
 #include "ui_lvgl_ux_packs/packs/cardputer_compact_ux_pack.h"
 #include "ui_lvgl_ux_packs/packs/compatibility_ux_pack.h"
 #include "ui_lvgl_ux_packs/packs/simulator_full_ux_pack.h"
+#include "ui_lvgl_ux_packs/packs/t_display_p4_touch_ux_pack.h"
 #include "ui_lvgl_ux_packs/packs/tiny_node_status_ux_pack.h"
 #include "ui_lvgl_ux_packs/packs/uconsole_desktop_ux_pack.h"
 
@@ -23,6 +24,7 @@ const IUxPack* findUxPackById(const char* id)
     static const UConsoleDesktopUxPack uconsole_desktop_pack;
     static const TinyNodeStatusUxPack tiny_node_status_pack;
     static const SimulatorFullUxPack simulator_full_pack;
+    static const TDisplayP4TouchUxPack t_display_p4_touch_pack;
 
     const IUxPack* const packs[] = {
         &compatibility_pack,
@@ -30,6 +32,7 @@ const IUxPack* findUxPackById(const char* id)
         &uconsole_desktop_pack,
         &tiny_node_status_pack,
         &simulator_full_pack,
+        &t_display_p4_touch_pack,
     };
 
     for (const IUxPack* pack : packs)

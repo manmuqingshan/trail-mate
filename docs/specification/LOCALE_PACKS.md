@@ -27,7 +27,8 @@ Trail Mate 把本地化明确建模为三类 pack：
 - `Font Pack`
   拥有字形覆盖元数据以及外部 `font.bin` 资源。
 - `IME Pack`
-  声明脚本特定的输入行为，例如简体中文拼音。IME pack 只有在固件里已经有真实后端时才允许进入 runtime payload。
+  声明输入行为，例如简体中文拼音，或直接提交目标脚本字符的键盘布局。
+  IME pack 只有在固件里已经有真实后端时才允许进入 runtime payload。
 
 Settings 页选择的是 `Locale Pack`，而不是直接选择字体或 IME。
 
@@ -37,9 +38,10 @@ Settings 页选择的是 `Locale Pack`，而不是直接选择字体或 IME。
 
 - 内建 locale pack：`en`
 - 内建 font pack：`builtin-latin-ui`
-- 内建 IME pack：无
+- 内建文本候选插入能力：`Symbols` 与精选 `Emoji`
+- 内建文本候选内容字体基线：`builtin-symbol-core` 与 `builtin-emoji-core`
 
-因此，即使没有任何外部语言包存在，English 也始终可用。
+因此，即使没有任何外部语言包存在，English、基础特殊符号输入和精选 emoji 输入也始终可用。
 
 运行时 payload 可以从外部 pack 根目录中被发现，例如 SD，或者设备上的 Flash 安装存储。
 具体运行时根目录由当前固件实现定义；已安装布局保持为：
@@ -163,7 +165,7 @@ pack 的可用性由共享运行时代码中的 board-specific memory profile �
 - `constrained`
   locale 字体预算 `128 KiB`，禁用 content supplement，解码后的地图 cache 为 `2` 张 tile，页面退出后不保留 cache。
 - `standard`
-  locale 字体预算 `768 KiB`，content supplement 预算 `640 KiB`，最多 `1` 个 supplement pack，解码后的地图 cache 为 `4` 张 tile，页面退出后不保留 cache。
+  locale 字体预算 `768 KiB`，content supplement 预算 `640 KiB`，最多 `2` 个 supplement pack，解码后的地图 cache 为 `12` 张 tile，页面退出后不保留 cache。
 - `extended`
   locale 字体预算 `2 MiB`，content supplement 预算 `2 MiB`，最多 `3` 个 supplement pack，解码后的地图 cache 为 `12` 张 tile，页面退出后保留 cache。
 
@@ -235,16 +237,33 @@ display_name=Pinyin
 backend=builtin-pinyin
 ```
 
+直接键盘布局使用同一类 IME manifest，但必须把后端与布局分开声明：
+
+```ini
+kind=ime
+id=ru-cyrillic-keyboard
+display_name=Russian Cyrillic Keyboard
+backend=builtin-keyboard-layout
+layout=ru-cyrillic
+```
+
 目前可启用的输入法实现是：
 
 - `zh-hans-pinyin`，后端为 `builtin-pinyin`
+- `ru-cyrillic-keyboard`，后端为 `builtin-keyboard-layout`，布局为 `ru-cyrillic`
 
 backend 的真实实现位于固件代码中。IME pack manifest 是把它注册进运行时并暴露出来的那一层。
+`layout` 是直接键盘布局后端的目标布局名；转换型后端例如拼音可以不声明 `layout`。
+`builtin-keyboard-layout` 必须通过 `layout` 指向一个固件已知的 keyboard layout descriptor。descriptor 拥有触摸键盘 map、按键标签字体 probe 和模式标签；IME pack 只引用 descriptor，不复制这些展示资源。
 
 硬规则：
 
 - 只有已经有真实输入引擎和正确候选词表的 IME 才能出现在 runtime payload 中。
-- 未实现的假名、韩文、阿拉伯、西里尔、繁中注音/仓颉和泛 Latin 软键盘，不得用 `backend=builtin-*` 提前占位。
+- Symbol / Emoji 不允许作为 IME pack 发布。它们由固件内置 `TextCandidatePicker` 负责，入口是文本 toolbar 中与 IME 切换按钮并列的 `Sym` / `Emoji` 按钮。
+- IME 模式按钮只负责切换 `EN` / `IM` / `123`；不得打开 Symbol / Emoji 候选页。
+- 直接键盘布局不得把具体字符表、字体 probe 或 layout id 判断写进 `ImeWidget`。新增布局时只能扩展 keyboard layout descriptor registry。
+- 未实现的假名、韩文、阿拉伯、繁中注音/仓颉和泛 Latin 软键盘，不得用 `backend=builtin-*` 提前占位。
+- 西里尔输入只有 `ru-cyrillic-keyboard` 当前可发布；它是直接键盘布局，不是候选词转换引擎。
 - 台湾繁中不得默认拼音。未来 `zh-Hant-TW` 的首选输入法应是注音，仓颉/速成可以作为可选扩展。
 - 欧洲 Latin 语言通常不需要 IME pack；沿用普通 `EN` / `123` 输入路径即可。
 - locale manifest 只有在真实 IME 可用时才写 `ime_pack`。display-only locale 不写假依赖。
@@ -410,7 +429,11 @@ tags=language,cjk,chinese,ime
 - `id`
   稳定 package 标识符，供远程 catalog 与未来的 installed-index 文件使用。
 - `package_type`
-  高层级 package 角色。当前仓库 bundle 使用 `locale-bundle`。
+  高层级 package 角色。合法值包括：
+  - `locale-bundle`：至少提供一个 locale，可能同时提供 font/IME。
+  - `content-bundle`：提供内容字体、supplement 或内容相关 IME，但不声明 locale。
+  - `input-bundle`：主要提供 IME runtime payload，可选依赖已有字体。
+  历史空值按 `locale-bundle` 兼容处理。
 - `version`
   package 版本号，独立于固件 tag。字符串、manifest、字体、质量状态或 IME 依赖发生用户可见变化时必须 bump。
 - `display_name`
@@ -523,19 +546,31 @@ runtime registry 仍然直接从 `/trailmate/packs` 对已解包资源进行编�
 
 ## 当前 IME 覆盖
 
-目前仓库 bundle 中，只有简体中文声明并发布了 IME pack：
+目前仓库 bundle 中只允许声明真实 locale IME：
 
-- `zh-Hans` -> `zh-hans-pinyin`
-
-繁体中文、日文、韩文、阿拉伯语、俄语和欧洲 Latin bundle 目前都是 display-only review 包。它们有意继续沿用现有 `EN` / `123` 输入路径，直到对应脚本的专用 IME pack 出现。
+1. locale bundle 可以声明专用于该 locale 的 IME。
+2. input bundle 可以声明未来新增的真实输入引擎，但必须已经有固件后端支持。
 
 具体约束：
 
-- `zh-Hant` 当前按台湾繁中 review 包处理，不得挂拼音 IME。未来应新增注音优先的真实 IME。
-- `ja` 必须等假名/罗马字日文输入模型完成后才能挂 IME。
-- `ko` 必须等韩文输入模型完成后才能挂 IME。
-- `ar` 必须等阿拉伯键盘、RTL 编辑与 shaping 行为闭环后才能挂 IME。
 - 欧洲 Latin locale 不应为了“有输入法列表项”而挂虚假的 `builtin-latin`。
+- Symbol / Emoji 是固件内置文本候选插入能力，不属于任何 locale，也不属于任何 pack。
+- `builtin-symbol-core` / `builtin-emoji-core` 只覆盖固件内置的 100 个 Symbol / 100 个 Emoji 候选，属于 content font baseline，不占用 external content supplement 数量预算。
+- `symbol-picker`、`emoji-picker`、`builtin-candidate-picker` 与 `candidates.txt` 都是旧候选列表 IME 模型，不得作为新的 runtime payload 发布。
+
+## 新增内容 / 输入扩展
+
+内容或输入扩展可以没有 locale，但必须仍然遵守 runtime payload 分层：
+
+1. source bundle 位于 `packs/<bundle-id>/`。
+2. `package.ini` 使用 `package_type=content-bundle` 或 `package_type=input-bundle`。
+3. 字体 payload 仍放在 `fonts/<font-pack-id>/`。
+4. IME payload 仍放在 `ime/<ime-pack-id>/`。
+5. `README.md` 必须说明它不是 locale，以及用户如何启用它。
+6. `supported_memory_profiles` 必须按 font RAM 与 supplement 策略声明。
+7. 如果它需要新的 runtime IME 后端，必须提高 `min_firmware_version`。
+
+当前不再提供 emoji 扩展参考实现。精选 Symbol / Emoji 候选与 `builtin-symbol-core` / `builtin-emoji-core` 字体由固件内置，数量上限由 `LOCALIZATION_SPEC.md` 的内置文本候选插入面约束。
 
 ## 新增一种语言
 

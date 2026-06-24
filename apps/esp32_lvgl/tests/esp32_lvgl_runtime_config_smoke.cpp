@@ -17,8 +17,8 @@ int main()
     assert(config.loop_priority == 5);
 
     assert(product_composition::findTargetProfile("tab5") != nullptr);
-    assert(product_composition::findTargetProfile("tdisplayp4_tft") != nullptr);
-    assert(product_composition::findTargetProfile("tdisplayp4_amoled") != nullptr);
+    assert(product_composition::findTargetProfile("t_display_p4_tft") != nullptr);
+    assert(product_composition::findTargetProfile("t_display_p4_amoled") != nullptr);
 
     if (std::strcmp(config.target_id, "esp_idf") != 0)
     {

@@ -26,6 +26,8 @@ constexpr const char* kForceTxEnv = "TRAIL_MATE_WALKIE_FORCE_TX";
 
 std::mutex s_mutex;
 bool s_active = false;
+bool s_monitor_enabled = false;
+bool s_ptt_pressed = false;
 Clock::time_point s_started_at = Clock::now();
 std::string s_last_error{};
 
@@ -87,6 +89,7 @@ Status current_status_locked()
 {
     Status status{};
     status.active = s_active;
+    status.monitor_enabled = s_monitor_enabled;
     status.freq_mhz = env_float_or_default(kFreqEnv, 433.500f);
     if (!s_active)
     {
@@ -98,8 +101,8 @@ Status current_status_locked()
     const float seconds = static_cast<float>(elapsed) / 1000.0f;
     const bool force_tx = env_flag_enabled(kForceTxEnv);
 
-    status.tx = force_tx;
-    if (force_tx)
+    status.tx = force_tx || s_ptt_pressed;
+    if (status.tx)
     {
         status.tx_level = synth_level(seconds * 7.4f, 30.0f, 62.0f);
         status.rx_level = synth_level(seconds * 5.1f, 2.0f, 8.0f);
@@ -138,12 +141,42 @@ void stop()
 {
     std::lock_guard<std::mutex> lock(s_mutex);
     s_active = false;
+    s_monitor_enabled = false;
+    s_ptt_pressed = false;
 }
 
 bool is_active()
 {
     std::lock_guard<std::mutex> lock(s_mutex);
     return s_active;
+}
+
+void set_ptt(bool pressed)
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    s_ptt_pressed = s_active && pressed;
+}
+
+bool set_monitor_enabled(bool enabled)
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    s_last_error.clear();
+    if (enabled)
+    {
+        s_active = true;
+        s_monitor_enabled = true;
+        s_started_at = Clock::now();
+        return true;
+    }
+    s_monitor_enabled = false;
+    s_ptt_pressed = false;
+    return true;
+}
+
+bool monitor_enabled()
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    return s_monitor_enabled;
 }
 
 int volume()

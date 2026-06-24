@@ -1,9 +1,11 @@
 European Cyrillic Extended installs the Russian locale together with a shared
 Cyrillic external font pack so interface labels and Russian content can render
-without inflating the firmware image.
+without inflating the firmware image. It also registers a Russian Cyrillic
+keyboard layout backed by the firmware's direct keyboard-layout runtime.
 
-This bundle is display-only today. It does not add a Russian IME, and the locale
-remains in review status until native-language review is complete.
+The locale remains in review status until native-language review is complete.
+The keyboard layout is a direct virtual-keyboard layout; it does not provide
+candidate conversion or physical keyboard remapping.
 
 Credits: Russian translations were contributed by polarikus, based on the
 polarikus/trail-mate Russian localization PR.

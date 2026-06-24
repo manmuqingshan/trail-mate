@@ -55,8 +55,7 @@ class TeamPageEventEffectSink
         const TeamPageRuntimePort& runtime,
         const TeamPageKeyEventLog& key_log,
         ITeamPageEventDeferred& deferred,
-        ITeamPageEventNotifier& notifier,
-        const ITeamPageMemberNameResolver& names) const;
+        ITeamPageEventNotifier& notifier) const;
 };
 
 } // namespace ui

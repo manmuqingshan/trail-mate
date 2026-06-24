@@ -1,6 +1,7 @@
 #include "ui_chat_runtime/chat_delivery_event_projection_adapter.h"
 
 #include "chat/delivery/chat_delivery_message_projection.h"
+#include "chat/delivery/chat_delivery_send_result_projection.h"
 #include "chat/usecase/chat_service.h"
 #include "sys/event_bus.h"
 
@@ -55,13 +56,12 @@ bool ChatDeliveryEventProjectionAdapter::publishSendResult(
         return false;
     }
 
-    ::chat::delivery::ChatDeliveryEvent event{};
-    event.ref = ::chat::delivery::toDeliveryRef(*message);
-    event.state = success ? ::chat::delivery::DeliveryState::Sent
-                          : ::chat::delivery::DeliveryState::Failed;
-    event.failure = success ? ::chat::delivery::SendFailureKind::None
-                            : failure;
-    event.timestamp_ms = timestamp_ms;
+    ::chat::delivery::ChatDeliveryEvent event =
+        ::chat::delivery::makeChatSendResultDeliveryEvent(
+            ::chat::delivery::toDeliveryRef(*message),
+            success,
+            failure,
+            timestamp_ms);
     delivery_events_.publishDeliveryEvent(event);
     return true;
 }

@@ -1,8 +1,9 @@
 #pragma once
 
-#include <SPI.h>
 #include <cstddef>
 #include <cstdint>
+
+class SPIClass;
 
 namespace platform::esp::arduino_common::storage
 {
@@ -10,7 +11,6 @@ namespace platform::esp::arduino_common::storage
 enum class SdCardBackend : uint8_t
 {
     None = 0,
-    ArduinoSd,
     SdFat,
 };
 
@@ -34,7 +34,6 @@ bool mount_sd_card(int sd_cs,
 void unmount_sd_card();
 
 bool sd_card_ready();
-bool sd_card_uses_arduino_sd();
 bool sd_card_uses_sdfat();
 bool sd_card_is_exfat();
 SdCardBackend sd_card_backend();
@@ -45,6 +44,7 @@ const char* sd_card_filesystem_name();
 bool sd_exists(const char* path);
 bool sd_is_directory(const char* path);
 bool sd_mkdir(const char* path);
+bool sd_rmdir(const char* path);
 bool sd_remove(const char* path);
 bool sd_rename(const char* old_path, const char* new_path);
 

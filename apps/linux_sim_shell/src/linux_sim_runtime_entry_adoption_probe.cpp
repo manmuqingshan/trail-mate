@@ -9,7 +9,6 @@ namespace trailmate::apps::linux_sim_shell
 bool LinuxSimRuntimeEntryAdoptionProbe::load(const LinuxSimAppShell& shell)
 {
     ready_ = false;
-    fallback_ = true;
     menu_.clear();
     screen_bindings_.clear();
     presentation_ = {};
@@ -26,18 +25,12 @@ bool LinuxSimRuntimeEntryAdoptionProbe::load(const LinuxSimAppShell& shell)
     presentation_.screen_bindings = &screen_bindings_;
 
     ready_ = adoption_.load(presentation_);
-    fallback_ = !ready_;
     return ready_;
 }
 
 bool LinuxSimRuntimeEntryAdoptionProbe::ready() const
 {
     return ready_;
-}
-
-bool LinuxSimRuntimeEntryAdoptionProbe::fallbackUsed() const
-{
-    return fallback_;
 }
 
 std::size_t LinuxSimRuntimeEntryAdoptionProbe::menuCount() const

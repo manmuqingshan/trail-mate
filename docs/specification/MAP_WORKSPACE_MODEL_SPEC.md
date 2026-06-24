@@ -32,7 +32,7 @@ This model follows:
 - Source/Sink Port
 - Immutable Snapshot
 - CQRS Read/Command split
-- Compatibility Adapter boundary for legacy map runtime
+- Runtime Adapter boundary for map workspace state
 
 ## Snapshot Flow
 
@@ -165,10 +165,10 @@ Team member position rows are projected through `TeamMapOverlaySource` /
 `MapOverlaySnapshotSource`. `TeamOverlaySummary` remains only the workspace
 summary; rich map marker facts must stay in the overlay source path.
 
-## Legacy Adapters
+## Runtime Adapters
 
-`LegacyMapPresentationSource` is a read adapter. It projects legacy GPS/map/team
-compatibility surfaces into `MapWorkspaceSnapshot`.
+`RuntimeMapWorkspaceSource` is a read adapter. It projects GPS/map/team runtime
+surfaces into `MapWorkspaceSnapshot`.
 
 It must not:
 
@@ -179,7 +179,7 @@ It must not:
 - perform route planning
 - expose Team raw payloads
 
-`LegacyMapActionSink` is a command adapter. It handles presentation-level map
+`RuntimeMapActionSink` is a command adapter. It handles presentation-level map
 actions.
 
 It must not:

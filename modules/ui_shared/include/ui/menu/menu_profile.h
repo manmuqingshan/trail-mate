@@ -97,6 +97,7 @@ const MenuLayoutProfile& current();
 MenuLayoutProfile make_tdeck_profile();
 MenuLayoutProfile make_pager_profile();
 MenuLayoutProfile make_tab5_profile();
+MenuLayoutProfile make_t_display_p4_profile();
 MenuLayoutProfile make_default_profile(lv_coord_t width, lv_coord_t height);
 
 } // namespace ui::menu_profile

@@ -5,7 +5,6 @@
 
 #include "ui/screens/team/team_page_components.h"
 #include "app/app_facade_access.h"
-#include "chat/usecase/contact_service.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "sys/clock.h"
 #include "sys/event_bus.h"
@@ -17,6 +16,7 @@
 #include "ui/chat_ui_runtime.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/team/team_page_activity_sink.h"
 #include "ui/screens/team/team_page_command_reducer.h"
 #include "ui/screens/team/team_page_create_team_action.h"
@@ -37,8 +37,8 @@
 #include "ui/screens/team/team_page_state_store.h"
 #include "ui/screens/team/team_page_styles.h"
 #include "ui/screens/team/team_page_transfer_leader_action.h"
+#include "ui/team_presentation/team_member_label.h"
 #include "ui/ui_common.h"
-#include "ui/widgets/system_notification.h"
 #include "ui/widgets/top_bar.h"
 
 #include <array>
@@ -177,7 +177,7 @@ uint8_t next_random_byte()
 uint32_t now_secs();
 bool is_team_ui_active();
 bool is_team_chat_visible();
-std::string resolve_node_name(uint32_t node_id);
+std::string resolve_node_label(uint32_t node_id);
 bool is_pairing_active();
 void sync_pairing_from_service();
 void fill_status_members(team::proto::TeamStatus& status);
@@ -253,10 +253,10 @@ void notify_send_failed(const char* action, bool needs_keys)
     if (action && action[0])
     {
         const std::string notice = std::string(::ui::i18n::tr(action)) + ": " + ::ui::i18n::tr(msg);
-        ::ui::SystemNotification::show(notice.c_str(), 2000);
+        ::ui::feedback::show_notice(notice.c_str(), 2000);
         return;
     }
-    ::ui::SystemNotification::show(msg, 2000);
+    ::ui::feedback::show_notice(msg, 2000);
 }
 
 void notify_send_failed_detail(const char* action, team::TeamService::SendError err)
@@ -284,7 +284,7 @@ void notify_send_failed_detail(const char* action, team::TeamService::SendError 
     }
     const char* action_text = (action && action[0]) ? action : "Send";
     const std::string notice = std::string(::ui::i18n::tr(action_text)) + ": " + ::ui::i18n::tr(reason);
-    ::ui::SystemNotification::show(notice.c_str(), 2000);
+    ::ui::feedback::show_notice(notice.c_str(), 2000);
 }
 
 const char* kick_confirm_failure_action_text(
@@ -345,12 +345,12 @@ void apply_create_team_failures(const TeamPageCreateTeamEffects& effects)
         }
         if (failure.kind == TeamPageCreateTeamFailureKind::PairingNotReady)
         {
-            ::ui::SystemNotification::show("Pairing not ready", 2000);
+            ::ui::feedback::show_notice("Pairing not ready", 2000);
         }
         else if (failure.kind ==
                  TeamPageCreateTeamFailureKind::PairingInitFailed)
         {
-            ::ui::SystemNotification::show("Pairing init failed", 2000);
+            ::ui::feedback::show_notice("Pairing init failed", 2000);
         }
     }
 }
@@ -363,35 +363,42 @@ void apply_pairing_command_failures(
         switch (failure.kind)
         {
         case TeamPagePairingCommandFailureKind::LeaderRequired:
-            ::ui::SystemNotification::show("Only leader can pair", 2000);
+            ::ui::feedback::show_notice("Only leader can pair", 2000);
             break;
         case TeamPagePairingCommandFailureKind::PairingNotReady:
-            ::ui::SystemNotification::show("Pairing not ready", 2000);
+            ::ui::feedback::show_notice("Pairing not ready", 2000);
             break;
         case TeamPagePairingCommandFailureKind::PairingNotAvailable:
-            ::ui::SystemNotification::show("Pairing not available", 2000);
+            ::ui::feedback::show_notice("Pairing not available", 2000);
             break;
         case TeamPagePairingCommandFailureKind::PairingInitFailed:
         default:
-            ::ui::SystemNotification::show("Pairing init failed", 2000);
+            ::ui::feedback::show_notice("Pairing init failed", 2000);
             break;
         }
     }
 }
 
-class TeamPageMemberNameResolver final : public ITeamPageMemberNameResolver, public ITeamPageLvglNameResolver
+class TeamPageNodeLabelResolver final : public ITeamPageLvglNameResolver,
+                                        public ITeamPageMemberNameResolver
 {
   public:
-    std::string resolveMemberName(uint32_t node_id) const override
-    {
-        return resolve_node_name(node_id);
-    }
-
     std::string resolveNodeName(uint32_t node_id) const override
     {
-        return resolve_node_name(node_id);
+        return resolve_node_label(node_id);
+    }
+
+    std::string resolveMemberName(uint32_t node_id) const override
+    {
+        return resolve_node_label(node_id);
     }
 };
+
+const TeamPageNodeLabelResolver& team_page_name_resolver()
+{
+    static TeamPageNodeLabelResolver names;
+    return names;
+}
 
 TeamPageEventState event_state_from_page()
 {
@@ -468,12 +475,10 @@ TeamPageFlowController current_flow_controller()
 
 TeamPageEventReducer current_event_reducer()
 {
-    static TeamPageMemberNameResolver names;
     TeamPageEventContext context;
     context.now_s = now_secs();
     context.self_node_id = app::messagingFacade().getSelfNodeId();
-    context.names = &names;
-    return TeamPageEventReducer(context);
+    return TeamPageEventReducer(context, team_page_name_resolver());
 }
 
 template <typename Reduce>
@@ -536,7 +541,7 @@ class TeamPageEventNotifierAdapter final : public ITeamPageEventNotifier
   public:
     void showMessage(const char* message) override
     {
-        ::ui::SystemNotification::show(message, 2000);
+        ::ui::feedback::show_notice(message, 2000);
     }
 
     void notifySendFailed(const char* action, bool needs_keys) override
@@ -548,7 +553,6 @@ class TeamPageEventNotifierAdapter final : public ITeamPageEventNotifier
 TeamPageEventEffectResult apply_event_effects(
     const TeamPageEventEffects& effects)
 {
-    static TeamPageMemberNameResolver names;
     static TeamPageEventDeferredAdapter deferred;
     static TeamPageEventNotifierAdapter notifier;
     auto key_state = key_event_state_from_page();
@@ -560,8 +564,7 @@ TeamPageEventEffectResult apply_event_effects(
         current_runtime_port(),
         current_key_event_log(),
         deferred,
-        notifier,
-        names);
+        notifier);
     apply_key_event_state_to_page(key_state);
     apply_event_navigation_requests(result);
     return result;
@@ -1023,16 +1026,9 @@ TeamPageReadModel current_read_model()
     return TeamPageReadModel(now_secs());
 }
 
-std::string resolve_node_name(uint32_t node_id)
+std::string resolve_node_label(uint32_t node_id)
 {
-    std::string name = app::messagingFacade().getContactService().getContactName(node_id);
-    if (!name.empty())
-    {
-        return name;
-    }
-    char fallback[16];
-    snprintf(fallback, sizeof(fallback), "%08lX", static_cast<unsigned long>(node_id));
-    return std::string(fallback);
+    return ::ui::team_presentation::shortTeamMemberLabel(node_id);
 }
 
 TeamPageColorContext current_color_context()
@@ -1164,7 +1160,7 @@ void handle_team_error(const team::TeamErrorEvent& ev)
         });
     if (effects.show_key_mismatch)
     {
-        ::ui::SystemNotification::show("Team keys mismatch", 2000);
+        ::ui::feedback::show_notice("Team keys mismatch", 2000);
     }
 }
 
@@ -1345,7 +1341,7 @@ void handle_team_key_request(const team::TeamKeyRequestEvent& ev)
         add_keydist_pending(ev.msg.requester_id != 0 ? ev.msg.requester_id
                                                      : ev.ctx.from,
                             team_page_state().security_round);
-        ::ui::SystemNotification::show("Sent team keys", 2000);
+        ::ui::feedback::show_notice("Sent team keys", 2000);
         return;
     }
 
@@ -1561,7 +1557,7 @@ void handle_manage(lv_event_t*)
 {
     if (!team_page_state().self_is_leader)
     {
-        ::ui::SystemNotification::show("Only leader can manage", 2000);
+        ::ui::feedback::show_notice("Only leader can manage", 2000);
         return;
     }
     nav_to(TeamPage::Members);
@@ -1631,7 +1627,7 @@ void handle_request_keydist(lv_event_t*)
             app::messagingFacade().getSelfNodeId());
     if (effects.sent_request)
     {
-        ::ui::SystemNotification::show("Requested team keys", 2000);
+        ::ui::feedback::show_notice("Requested team keys", 2000);
     }
     else if (effects.send_failed)
     {
@@ -1738,8 +1734,7 @@ void render_page()
     input.read_model = read_model_input;
     input.pairing_peer_id = team_page_state().pairing_peer_id;
 
-    static TeamPageMemberNameResolver names;
-    TeamPageLvglRenderer(now_secs()).render(context, input, handlers, names);
+    TeamPageLvglRenderer(now_secs()).render(context, input, handlers, team_page_name_resolver());
 
     ui_update_top_bar_battery(team_page_lvgl_context().top_bar_widget);
     refresh_team_input(input_context_from_lvgl());

@@ -6,14 +6,16 @@
 #include <AudioFileSourcePROGMEM.h>
 #include <AudioGeneratorRTTTL.h>
 #include <AudioOutputI2S.h>
-#include <SD.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <ctime>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <limits>
 #include <sys/time.h>
+
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 
 namespace boards::tdeck_pro
 {
@@ -25,8 +27,25 @@ constexpr time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 constexpr uint8_t kKeyboardRows = 4;
 constexpr uint8_t kKeyboardCols = 10;
 constexpr uint32_t kEpdSpiHz = 2000000;
+constexpr uint32_t kSdSpiHz = 4000000;
 constexpr uint8_t kFlushLogLimit = 8;
+constexpr uint32_t kRadioTxMaxTimeoutMs = 120000;
 SemaphoreHandle_t g_shared_spi_mutex = nullptr;
+
+uint32_t radioTxTimeoutMs(SX1262Access& radio, size_t len)
+{
+    const uint64_t air_us = static_cast<uint64_t>(radio.getTimeOnAir(len));
+    uint64_t timeout_ms = 10ULL + ((air_us * 5ULL) + 999ULL) / 1000ULL;
+    if (timeout_ms < 100ULL)
+    {
+        timeout_ms = 100ULL;
+    }
+    if (timeout_ms > kRadioTxMaxTimeoutMs)
+    {
+        timeout_ms = kRadioTxMaxTimeoutMs;
+    }
+    return static_cast<uint32_t>(timeout_ms);
+}
 
 void sharedSpiReleaseAllCs()
 {
@@ -329,16 +348,40 @@ bool TDeckProBoard::installSD()
 {
     pinMode(profile().sd.cs, OUTPUT);
     digitalWrite(profile().sd.cs, HIGH);
+    static const int extra_cs_pins[] = {
+        profile().lora.cs,
+        profile().epd.cs,
+    };
+    for (int pin : extra_cs_pins)
+    {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, HIGH);
+    }
     sharedSpiLock();
     sharedSpiPrepareDevice(profile().sd.cs);
-    const bool ok = SD.begin(profile().sd.cs, SPI);
+    const bool ok = ::platform::esp::arduino_common::storage::mount_sd_card(
+        profile().sd.cs,
+        SPI,
+        kSdSpiHz,
+        "/sd",
+        8);
     sharedSpiUnlock();
     return ok;
 }
 
+bool TDeckProBoard::ensureSDReady()
+{
+    if (isCardReady())
+    {
+        sd_ready_ = true;
+        return true;
+    }
+    return initStorage();
+}
+
 void TDeckProBoard::uninstallSD()
 {
-    SD.end();
+    ::platform::esp::arduino_common::storage::unmount_sd_card();
 }
 
 uint32_t TDeckProBoard::begin(uint32_t disable_hw_init)
@@ -436,7 +479,7 @@ int TDeckProBoard::getBatteryLevel()
 
 bool TDeckProBoard::isCardReady()
 {
-    return sd_ready_ && SD.cardType() != CARD_NONE;
+    return sd_ready_ && ::platform::esp::arduino_common::storage::sd_card_ready();
 }
 
 void TDeckProBoard::vibrator()
@@ -675,11 +718,35 @@ int TDeckProBoard::getKeyChar(char* c)
 
 int TDeckProBoard::transmitRadio(const uint8_t* data, size_t len)
 {
+    const uint32_t timeout_ms = radioTxTimeoutMs(radio_, len);
     sharedSpiLock();
     sharedSpiPrepareDevice(profile().lora.cs);
-    const int rc = radio_.transmit(data, len);
+    const int rc = radio_.startTransmit(data, len);
     sharedSpiUnlock();
-    return rc;
+    if (rc != RADIOLIB_ERR_NONE)
+    {
+        return rc;
+    }
+
+    const uint32_t started_ms = millis();
+    while (digitalRead(profile().lora.irq) == LOW)
+    {
+        if (static_cast<uint32_t>(millis() - started_ms) > timeout_ms)
+        {
+            sharedSpiLock();
+            sharedSpiPrepareDevice(profile().lora.cs);
+            (void)radio_.finishTransmit();
+            sharedSpiUnlock();
+            return RADIOLIB_ERR_TX_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    sharedSpiLock();
+    sharedSpiPrepareDevice(profile().lora.cs);
+    const int finish_rc = radio_.finishTransmit();
+    sharedSpiUnlock();
+    return finish_rc;
 }
 
 int TDeckProBoard::startRadioReceive()

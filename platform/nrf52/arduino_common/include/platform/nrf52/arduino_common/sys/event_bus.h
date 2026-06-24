@@ -1,5 +1,6 @@
 #pragma once
 
+#include "chat/domain/chat_types.h"
 #include "sys/clock.h"
 
 #include <cstdint>
@@ -11,6 +12,7 @@ namespace sys
 
 enum class EventType
 {
+    ChatSendResult,
     KeyVerificationNumberRequest,
     KeyVerificationNumberInform,
     KeyVerificationFinal,
@@ -23,6 +25,15 @@ struct Event
 
     explicit Event(EventType t) : type(t), timestamp(sys::millis_now()) {}
     virtual ~Event() = default;
+};
+
+struct ChatSendResultEvent : public Event
+{
+    chat::MessageId msg_id;
+    bool success;
+
+    ChatSendResultEvent(chat::MessageId id, bool ok)
+        : Event(EventType::ChatSendResult), msg_id(id), success(ok) {}
 };
 
 struct KeyVerificationNumberRequestEvent : public Event

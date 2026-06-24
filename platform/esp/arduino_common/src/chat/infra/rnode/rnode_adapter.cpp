@@ -6,6 +6,7 @@
 #include "platform/esp/arduino_common/chat/infra/rnode/rnode_adapter.h"
 
 #include "chat/time_utils.h"
+#include "platform/esp/arduino_common/app_tasks.h"
 #include <Arduino.h>
 #include <RadioLib.h>
 #include <algorithm>
@@ -97,21 +98,26 @@ bool RNodeAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         return false;
     }
 
-    const int first_state = board_.transmitRadio(air_packets.first, air_packets.first_len);
+    int first_state = RADIOLIB_ERR_UNSUPPORTED;
+    int second_state = RADIOLIB_ERR_NONE;
+    {
+        app::AppTasks::ScopedRadioTransmitActivity tx_activity;
+        first_state = board_.transmitRadio(air_packets.first, air_packets.first_len);
+        if (first_state == RADIOLIB_ERR_NONE && air_packets.count > 1U)
+        {
+            second_state = board_.transmitRadio(air_packets.second, air_packets.second_len);
+        }
+    }
     if (first_state != RADIOLIB_ERR_NONE)
     {
         startRadioReceive();
         return false;
     }
 
-    if (air_packets.count > 1U)
+    if (second_state != RADIOLIB_ERR_NONE)
     {
-        const int second_state = board_.transmitRadio(air_packets.second, air_packets.second_len);
-        if (second_state != RADIOLIB_ERR_NONE)
-        {
-            startRadioReceive();
-            return false;
-        }
+        startRadioReceive();
+        return false;
     }
 
     startRadioReceive();

@@ -66,7 +66,10 @@ They must not depend on concrete implementations under `platform/esp/*`,
 - `usb_support_runtime.h`
   USB support reporting and page-facing lifecycle hooks.
 - `walkie_runtime.h`
-  Walkie-talkie support/state lifecycle.
+  Walkie-talkie support/state lifecycle, page-independent monitor policy, and
+  page-facing PTT control. `Status::active` is the hardware audio/radio session
+  truth; `Status::monitor_enabled` is the user policy that keeps listening alive
+  after leaving the Walkie page.
 - `resource_owner.h`
   Shared `ResourceKind` / `OwnerToken` vocabulary for radio, display,
   power rail, I2C/SPI bus, GPS, and audio ownership across Linux and IDF.

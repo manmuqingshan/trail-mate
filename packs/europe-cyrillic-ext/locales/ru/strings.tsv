@@ -42,6 +42,7 @@ Contacts (Meshtastic - %.3fMHz)	Контакты (Meshtastic - %.3fМГц)
 Contacts (RNode)	Контакты (RNode)
 Contacts (RNode - %.3fMHz)	Контакты (RNode - %.3fМГц)
 Conversation protocol mismatch	Несовпадение протокола
+Cyrillic keyboard	Кириллическая клавиатура
 Data Exchange	Обмен данными
 Debug Logs	Журналы отладки
 Decoding: %d%%	Декодирование: %d%%
@@ -636,3 +637,14 @@ Restore failed	Восстановление не удалось
 Settings restored. Restarting...	Настройки восстановлены. Перезапуск...
 Overwrite current settings and restart?	Перезаписать текущие настройки и перезапустить?
 Restore	Восстановить
+Date/Time	Дата/время
+Set Date/Time	Установить дату/время
+Date	Дата
+Time	Время
+Invalid date/time	Неверные дата/время
+Set time unsupported	Установка времени не поддерживается
+Date/time updated	Дата/время обновлены
+Seen %um ago	Видели %u мин назад
+Seen %uh ago	Видели %u ч назад
+Seen %ud ago	Видели %u дн назад
+Seen --	Нет данных

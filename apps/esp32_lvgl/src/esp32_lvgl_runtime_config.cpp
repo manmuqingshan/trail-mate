@@ -24,7 +24,7 @@ const Esp32LvglRuntimeConfig& esp32LvglRuntimeConfig()
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 #if defined(CONFIG_TRAIL_MATE_T_DISPLAY_P4_PANEL_RM69A10) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4_AMOLED)
     static const Esp32LvglRuntimeConfig kConfig = {
-        "tdisplayp4_amoled",
+        "t_display_p4_amoled",
         "trail-mate-t-display-p4-amoled",
         "T-Display-P4 AMOLED",
         "t_display_p4_amoled_app_loop",
@@ -34,7 +34,7 @@ const Esp32LvglRuntimeConfig& esp32LvglRuntimeConfig()
     };
 #else
     static const Esp32LvglRuntimeConfig kConfig = {
-        "tdisplayp4_tft",
+        "t_display_p4_tft",
         "trail-mate-t-display-p4-tft",
         "T-Display-P4 TFT",
         "t_display_p4_tft_app_loop",

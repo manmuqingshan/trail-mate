@@ -1,6 +1,7 @@
 #ifndef Pins_Arduino_h
 #define Pins_Arduino_h
 
+#include "../common/sd_spi_frequency.h"
 #include <stdint.h>
 
 #define USB_VID 0x303a
@@ -12,7 +13,6 @@
 #define DISP_WIDTH (222)
 #define DISP_HEIGHT (480)
 #define SD_CS (21)
-#define SD_SPI_FREQUENCY (75000000U)
 
 static const uint8_t TX = 43;
 static const uint8_t RX = 44;
@@ -37,9 +37,7 @@ static const uint8_t SCK = 35;
 
 // Interrupt IO port
 #define RTC_INT (1)
-#define NFC_INT (5)
 #define SENSOR_INT (8)
-#define NFC_CS (39)
 
 // Power management
 #define POWER_KEY (0) // Power/BOOT button (GPIO 0) - LilyGo wake source
@@ -57,7 +55,7 @@ static const uint8_t SCK = 35;
 #define GPS_RX (4)
 #define GPS_PPS (13)
 
-// LoRa, SD, ST25R3916 card share SPI bus
+// LoRa and SD share SPI bus
 #define LORA_SCK (SCK)   // share spi bus
 #define LORA_MISO (MISO) // share spi bus
 #define LORA_MOSI (MOSI) // share spi bus
@@ -81,7 +79,7 @@ static const uint8_t SCK = 35;
 #define EXPANDS_KB_RST (2)
 #define EXPANDS_LORA_EN (3)
 #define EXPANDS_GPS_EN (4)
-#define EXPANDS_NFC_EN (5)
+#define EXPANDS_UNUSED_SPI_AUX_EN (5)
 #define EXPANDS_GPS_RST (7)
 #define EXPANDS_KB_EN (8)
 #define EXPANDS_GPIO_EN (9)
@@ -96,7 +94,6 @@ static const uint8_t SCK = 35;
 #define USING_BQ_GAUGE
 #define USING_INPUT_DEV_ROTARY
 #define USING_INPUT_DEV_KEYBOARD
-#define USING_ST25R3916
 #define USING_BHI260_SENSOR
 #define HAS_SD_CARD_SOCKET
 

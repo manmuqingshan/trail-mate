@@ -1,19 +1,22 @@
 #include "ui/startup_shell.h"
 
+#include <cstdint>
+#include <cstdio>
 #include <ctime>
 
 #include "lvgl.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/time_runtime.h"
+#include "sys/clock.h"
 #include "ui/app_runtime.h"
 #include "ui/localization.h"
 #include "ui/menu/menu_layout.h"
 #include "ui/menu/menu_runtime.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/ui_boot.h"
 #include "ui/ui_common.h"
 #include "ui/ui_status.h"
 #include "ui/watch_face.h"
-#include "ui/widgets/system_notification.h"
 #include "ui_lvgl_ux_packs/ux/ux_menu_provider.h"
 
 namespace ui::startup_shell
@@ -22,6 +25,9 @@ namespace
 {
 
 ui::menu::MenuModel s_ux_menu_model;
+
+constexpr uint8_t kBootPresentFrameCount = 4;
+constexpr uint32_t kBootPresentFrameDelayMs = 16;
 
 bool resolve_display_time(struct tm* out_tm)
 {
@@ -54,8 +60,19 @@ bool resolve_display_time(struct tm* out_tm)
 
 void present_boot_overlay_now()
 {
-    lv_timer_handler();
-    lv_refr_now(nullptr);
+    for (uint8_t frame = 0; frame < kBootPresentFrameCount; ++frame)
+    {
+        if (lv_obj_t* top = lv_layer_top())
+        {
+            lv_obj_invalidate(top);
+        }
+        lv_timer_handler();
+        lv_refr_now(nullptr);
+        if (frame + 1U < kBootPresentFrameCount)
+        {
+            sys::sleep_ms(kBootPresentFrameDelayMs);
+        }
+    }
 }
 
 } // namespace
@@ -135,16 +152,31 @@ platform::ui::screen::Hooks buildScreenSleepHooks(const Hooks& hooks)
     return runtime_hooks;
 }
 
-void prepareBootUi(bool waking_from_sleep)
+void setBootLogLine(const char* line)
 {
+    std::printf("[BOOT][UI] log line=%s\n", line ? line : "");
+    std::fflush(stdout);
+    ui::boot::set_log_line(line);
+    present_boot_overlay_now();
+}
+
+void beginBootUi(bool waking_from_sleep, const char* initial_line)
+{
+    std::printf("[BOOT][UI] show waking=%d line=%s\n",
+                waking_from_sleep ? 1 : 0,
+                initial_line ? initial_line : "");
+    std::fflush(stdout);
     if (!waking_from_sleep)
     {
         ui::boot::show();
-        ui::boot::set_log_line("Loading language packs...");
-        present_boot_overlay_now();
+        setBootLogLine(initial_line);
     }
+}
+
+void prepareBootResources()
+{
     ::ui::i18n::reload_language();
-    ui::SystemNotification::init();
+    ui::feedback::init();
 }
 
 void initializeShell(const Hooks& hooks)
@@ -176,6 +208,8 @@ void initializeShell(const Hooks& hooks)
 
 void finalizeStartup(bool waking_from_sleep)
 {
+    std::printf("[BOOT][UI] ready waking=%d\n", waking_from_sleep ? 1 : 0);
+    std::fflush(stdout);
     if (waking_from_sleep)
     {
         platform::ui::screen::update_user_activity();

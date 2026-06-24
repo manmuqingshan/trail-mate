@@ -170,7 +170,7 @@ def main() -> int:
         "platformio.ini",
         [
             "trailmate-nrf52-node-app-shell",
-            "ui_mono_128x64",
+            "ui_mono",
         ],
         failures,
     )

@@ -21,14 +21,12 @@ constexpr uint8_t kRouteTypeFlood = 0x01;
 constexpr uint8_t kPayloadTypeAdvert = 0x04;
 constexpr uint8_t kPayloadTypeGrpData = 0x06;
 constexpr uint8_t kPayloadTypeDirectData = 0x07;
-constexpr uint8_t kPayloadVer1 = 0x00;
 constexpr uint8_t kDirectAppMagic0 = 0xDA;
 constexpr uint8_t kDirectAppMagic1 = 0x7A;
 constexpr uint8_t kDirectAppFlagWantAck = 0x01;
 constexpr uint8_t kGroupDataMagic0 = 0x47;
 constexpr uint8_t kGroupDataMagic1 = 0x44;
 constexpr uint8_t kLoraSyncWordPrivate = 0x12;
-constexpr size_t kCipherMacSize = 2;
 constexpr size_t kCipherBlockSize = 16;
 constexpr size_t kMeshCoreMaxFrameSize = 255;
 constexpr size_t kMeshCoreMaxPayloadSize = 184;
@@ -169,6 +167,10 @@ ProtocolResult MeshCoreProtocolStrategy::buildDirectMessage(
 
     uint8_t key16[16] = {};
     uint8_t key32[32] = {};
+    const chat::meshcore::PayloadProfile profile =
+        chat::meshcore::payloadProfileFromVersion(context.meshcore_payload_ver);
+    const size_t hash_bytes = chat::meshcore::payloadHashBytes(profile);
+    const size_t mac_len = chat::meshcore::payloadMacBytes(profile);
 
     if (!group_packet)
     {
@@ -185,32 +187,51 @@ ProtocolResult MeshCoreProtocolStrategy::buildDirectMessage(
         }
 
         constexpr size_t kDirectPlainPrefix = 2 + 1 + sizeof(command.application_port);
-        constexpr size_t kDirectCipherBudget =
-            ((kMeshCoreMaxPayloadSize - 2 - kCipherMacSize) / kCipherBlockSize) * kCipherBlockSize;
-        uint8_t plain[kDirectCipherBudget] = {};
+        const size_t kDirectCipherBudget =
+            ((kMeshCoreMaxPayloadSize - (hash_bytes * 2U) - mac_len) / kCipherBlockSize) *
+            kCipherBlockSize;
+        uint8_t plain[kMeshCoreMaxPayloadSize] = {};
         size_t plain_len = 0;
         plain[0] = kDirectAppMagic0;
         plain[1] = kDirectAppMagic1;
         plain[2] = command.request_ack ? kDirectAppFlagWantAck : 0x00;
         std::memcpy(plain + 3, &command.application_port, sizeof(command.application_port));
-        if (!copyPayload(command, plain, sizeof(plain), kDirectPlainPrefix, plain_len))
+        if (!copyPayload(command, plain, kDirectCipherBudget, kDirectPlainPrefix, plain_len))
         {
             return ProtocolResult::fail(ProtocolFailure::EncodeFailed);
         }
 
         uint8_t payload[kMeshCoreMaxPayloadSize] = {};
         size_t payload_len = 0;
-        const uint8_t dest_hash = lowNodeHash(command.to);
-        const uint8_t src_hash = lowNodeHash(context.local_node);
-        if (src_hash == 0 || !chat::meshcore::buildPeerDatagramPayload(dest_hash,
-                                                                       src_hash,
-                                                                       key16,
-                                                                       key32,
-                                                                       plain,
-                                                                       plain_len,
-                                                                       payload,
-                                                                       sizeof(payload),
-                                                                       &payload_len))
+        uint8_t dest_hash[chat::meshcore::kMeshCoreV2HashBytes] = {};
+        uint8_t src_hash[chat::meshcore::kMeshCoreV2HashBytes] = {};
+        bool hashes_ok = false;
+        if (profile == chat::meshcore::PayloadProfile::V1)
+        {
+            dest_hash[0] = lowNodeHash(command.to);
+            src_hash[0] = lowNodeHash(context.local_node);
+            hashes_ok = src_hash[0] != 0;
+        }
+        else if (context.meshcore_peer_hash.data &&
+                 context.meshcore_local_hash.data &&
+                 context.meshcore_peer_hash.size >= hash_bytes &&
+                 context.meshcore_local_hash.size >= hash_bytes)
+        {
+            std::memcpy(dest_hash, context.meshcore_peer_hash.data, hash_bytes);
+            std::memcpy(src_hash, context.meshcore_local_hash.data, hash_bytes);
+            hashes_ok = true;
+        }
+        if (!hashes_ok ||
+            !chat::meshcore::buildPeerDatagramPayload(profile,
+                                                      dest_hash,
+                                                      src_hash,
+                                                      key16,
+                                                      key32,
+                                                      plain,
+                                                      plain_len,
+                                                      payload,
+                                                      sizeof(payload),
+                                                      &payload_len))
         {
             return ProtocolResult::fail(ProtocolFailure::EncodeFailed);
         }
@@ -218,7 +239,8 @@ ProtocolResult MeshCoreProtocolStrategy::buildDirectMessage(
         const uint8_t route_type = context.route_type != 0 ? context.route_type : kRouteTypeFlood;
         const uint8_t* route_path = context.route_path.empty() ? nullptr : context.route_path.data;
         const size_t route_path_len = context.route_path.empty() ? 0 : context.route_path.size;
-        if (!chat::meshcore::buildFrameNoTransport(route_type,
+        if (!chat::meshcore::buildFrameNoTransport(profile,
+                                                   route_type,
                                                    kPayloadTypeDirectData,
                                                    route_path,
                                                    route_path_len,
@@ -247,9 +269,9 @@ ProtocolResult MeshCoreProtocolStrategy::buildDirectMessage(
 
     constexpr size_t kGroupPlainPrefix = 2 + sizeof(context.local_node.value) +
                                          sizeof(command.application_port);
-    constexpr size_t kGroupCipherBudget =
-        ((kMeshCoreMaxPayloadSize - 1 - kCipherMacSize) / kCipherBlockSize) * kCipherBlockSize;
-    uint8_t plain[kGroupCipherBudget] = {};
+    const size_t kGroupCipherBudget =
+        ((kMeshCoreMaxPayloadSize - hash_bytes - mac_len) / kCipherBlockSize) * kCipherBlockSize;
+    uint8_t plain[kMeshCoreMaxPayloadSize] = {};
     size_t plain_len = 0;
     plain[0] = kGroupDataMagic0;
     plain[1] = kGroupDataMagic1;
@@ -257,7 +279,7 @@ ProtocolResult MeshCoreProtocolStrategy::buildDirectMessage(
     std::memcpy(plain + 2 + sizeof(context.local_node.value),
                 &command.application_port,
                 sizeof(command.application_port));
-    if (!copyPayload(command, plain, sizeof(plain), kGroupPlainPrefix, plain_len))
+    if (!copyPayload(command, plain, kGroupCipherBudget, kGroupPlainPrefix, plain_len))
     {
         return ProtocolResult::fail(ProtocolFailure::EncodeFailed);
     }
@@ -268,21 +290,36 @@ ProtocolResult MeshCoreProtocolStrategy::buildDirectMessage(
                                                                 encrypted,
                                                                 sizeof(encrypted),
                                                                 plain,
-                                                                plain_len);
-    if (encrypted_len == 0 || encrypted_len > (kMeshCoreMaxPayloadSize - 1))
+                                                                plain_len,
+                                                                mac_len);
+    if (encrypted_len == 0 || encrypted_len > (kMeshCoreMaxPayloadSize - hash_bytes))
     {
         return ProtocolResult::fail(ProtocolFailure::CryptoFailed);
     }
 
     uint8_t payload[kMeshCoreMaxPayloadSize] = {};
     size_t payload_len = 0;
-    payload[payload_len++] = context.channel_hash != 0
-                                 ? context.channel_hash
-                                 : chat::meshcore::computeChannelHash(key16);
+    uint8_t channel_hash[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    if (context.meshcore_channel_hash.data &&
+        context.meshcore_channel_hash.size >= hash_bytes)
+    {
+        std::memcpy(channel_hash, context.meshcore_channel_hash.data, hash_bytes);
+    }
+    else if (profile == chat::meshcore::PayloadProfile::V1 && context.channel_hash != 0)
+    {
+        channel_hash[0] = context.channel_hash;
+    }
+    else if (!chat::meshcore::computeChannelHashBytes(key16, channel_hash, hash_bytes))
+    {
+        return ProtocolResult::fail(ProtocolFailure::CryptoFailed);
+    }
+    std::memcpy(payload + payload_len, channel_hash, hash_bytes);
+    payload_len += hash_bytes;
     std::memcpy(payload + payload_len, encrypted, encrypted_len);
     payload_len += encrypted_len;
 
-    if (!chat::meshcore::buildFrameNoTransport(kRouteTypeFlood,
+    if (!chat::meshcore::buildFrameNoTransport(profile,
+                                               kRouteTypeFlood,
                                                kPayloadTypeGrpData,
                                                nullptr,
                                                0,
@@ -309,11 +346,15 @@ ProtocolResult MeshCoreProtocolStrategy::parseRadioPacket(const RadioRxPacket& p
 
     chat::meshcore::ParsedPacket parsed;
     if (!chat::meshcore::parsePacket(packet.bytes, packet.size, &parsed) ||
-        parsed.payload_ver != kPayloadVer1 ||
+        !chat::meshcore::isSupportedPayloadVersion(parsed.payload_ver) ||
         !parsed.payload || parsed.payload_len == 0)
     {
         return ProtocolResult::fail(ProtocolFailure::DecodeFailed);
     }
+    const chat::meshcore::PayloadProfile profile =
+        chat::meshcore::payloadProfileFromVersion(parsed.payload_ver);
+    const size_t hash_bytes = chat::meshcore::payloadHashBytes(profile);
+    const size_t mac_len = chat::meshcore::payloadMacBytes(profile);
 
     if (parsed.payload_type == kPayloadTypeAdvert && parsed.payload_len >= kMeshCorePubKeySize)
     {
@@ -386,22 +427,23 @@ ProtocolResult MeshCoreProtocolStrategy::parseRadioPacket(const RadioRxPacket& p
 
     if (parsed.payload_type == kPayloadTypeDirectData)
     {
-        if (!has_direct_secret_ || parsed.payload_len <= (2 + kCipherMacSize))
+        if (!has_direct_secret_ || parsed.payload_len <= ((hash_bytes * 2U) + mac_len))
         {
             return ProtocolResult::fail(ProtocolFailure::MissingPeerKey);
         }
-        const uint8_t dest_hash = parsed.payload[0];
-        const uint8_t src_hash = parsed.payload[1];
-        if (local_public_hash_ != 0 && dest_hash != local_public_hash_)
+        const uint8_t* dest_hash = parsed.payload;
+        const uint8_t* src_hash = parsed.payload + hash_bytes;
+        if (local_public_hash_ != 0 && dest_hash[0] != local_public_hash_)
         {
             return ProtocolResult::fail(ProtocolFailure::InvalidInput);
         }
         if (!chat::meshcore::macThenDecrypt(direct_key16_,
                                             direct_key32_,
-                                            parsed.payload + 2,
-                                            parsed.payload_len - 2,
+                                            parsed.payload + (hash_bytes * 2U),
+                                            parsed.payload_len - (hash_bytes * 2U),
                                             plain,
-                                            &plain_len))
+                                            &plain_len,
+                                            mac_len))
         {
             return ProtocolResult::fail(ProtocolFailure::CryptoFailed);
         }
@@ -414,7 +456,7 @@ ProtocolResult MeshCoreProtocolStrategy::parseRadioPacket(const RadioRxPacket& p
         }
 
         out.kind = MeshProtocolEventKind::MessageReceived;
-        out.peer = NodeId{src_hash};
+        out.peer = NodeId{src_hash[0]};
         out.packet_id = chat::meshcore::packetSignature(parsed.payload_type,
                                                         parsed.path_len,
                                                         parsed.payload,
@@ -425,16 +467,31 @@ ProtocolResult MeshCoreProtocolStrategy::parseRadioPacket(const RadioRxPacket& p
 
     if (parsed.payload_type == kPayloadTypeGrpData)
     {
-        if (parsed.payload_len <= (1 + kCipherMacSize))
+        if (parsed.payload_len <= (hash_bytes + mac_len))
         {
             return ProtocolResult::fail(ProtocolFailure::DecodeFailed);
         }
-        const uint8_t channel_hash = parsed.payload[0];
+        const uint8_t* channel_hash = parsed.payload;
         uint8_t rx_key16[16] = {};
         uint8_t rx_key32[32] = {};
         const uint8_t* decrypt_key16 = group_key16_;
         const uint8_t* decrypt_key32 = group_key32_;
-        uint8_t expected_hash = group_channel_hash_;
+        uint8_t expected_hash[chat::meshcore::kMeshCoreV2HashBytes] = {};
+        bool has_expected_hash = false;
+        if (has_group_key_)
+        {
+            if (profile == chat::meshcore::PayloadProfile::V1 && group_channel_hash_ != 0)
+            {
+                expected_hash[0] = group_channel_hash_;
+                has_expected_hash = true;
+            }
+            else
+            {
+                has_expected_hash = chat::meshcore::computeChannelHashBytes(group_key16_,
+                                                                            expected_hash,
+                                                                            hash_bytes);
+            }
+        }
         if (!has_group_key_)
         {
             if (!mapSecretToKeys(ByteView{chat::meshcore::publicGroupPsk(),
@@ -446,9 +503,11 @@ ProtocolResult MeshCoreProtocolStrategy::parseRadioPacket(const RadioRxPacket& p
             }
             decrypt_key16 = rx_key16;
             decrypt_key32 = rx_key32;
-            expected_hash = chat::meshcore::computeChannelHash(rx_key16);
+            has_expected_hash = chat::meshcore::computeChannelHashBytes(rx_key16,
+                                                                        expected_hash,
+                                                                        hash_bytes);
         }
-        if (expected_hash != 0 && channel_hash != expected_hash)
+        if (has_expected_hash && memcmp(channel_hash, expected_hash, hash_bytes) != 0)
         {
             return ProtocolResult::fail(has_group_key_
                                             ? ProtocolFailure::InvalidInput
@@ -456,10 +515,11 @@ ProtocolResult MeshCoreProtocolStrategy::parseRadioPacket(const RadioRxPacket& p
         }
         if (!chat::meshcore::macThenDecrypt(decrypt_key16,
                                             decrypt_key32,
-                                            parsed.payload + 1,
-                                            parsed.payload_len - 1,
+                                            parsed.payload + hash_bytes,
+                                            parsed.payload_len - hash_bytes,
                                             plain,
-                                            &plain_len))
+                                            &plain_len,
+                                            mac_len))
         {
             return ProtocolResult::fail(ProtocolFailure::CryptoFailed);
         }

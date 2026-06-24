@@ -1,12 +1,18 @@
 #include "ui/presentation_sources/team_map_overlay_source.h"
 
+#include "sys/clock.h"
+#include "ui/team_presentation/team_member_label.h"
+
 #include <cstdio>
+#include <string>
 #include <vector>
 
 namespace ui::presentation_sources
 {
 namespace
 {
+
+constexpr uint32_t kPositionCacheTtlMs = 1000;
 
 bool sampleHasCoordinate(const ::team::ui::TeamPosSample& sample)
 {
@@ -27,6 +33,46 @@ bool TeamMapOverlaySource::loadSnapshot(
     return snapshot_store_.load(out) && out.in_team && out.has_team_id;
 }
 
+bool TeamMapOverlaySource::loadCachedPositions(
+    ::team::ui::TeamUiSnapshot& snapshot,
+    const std::vector<::team::ui::TeamPosSample>*& samples) const
+{
+    samples = nullptr;
+    if (!loadSnapshot(snapshot))
+    {
+        cached_positions_valid_ = false;
+        return false;
+    }
+
+    const uint32_t now_ms = sys::millis_now();
+    if (cached_positions_valid_ &&
+        cached_team_id_ == snapshot.team_id &&
+        static_cast<uint32_t>(now_ms - cached_positions_ms_) < kPositionCacheTtlMs)
+    {
+        snapshot = cached_snapshot_;
+        samples = &cached_samples_;
+        return true;
+    }
+
+    cached_samples_.clear();
+    if (!::team::ui::team_ui_posring_load_latest(snapshot.team_id, cached_samples_))
+    {
+        cached_snapshot_ = snapshot;
+        cached_team_id_ = snapshot.team_id;
+        cached_positions_ms_ = now_ms;
+        cached_positions_valid_ = true;
+        samples = &cached_samples_;
+        return true;
+    }
+
+    cached_snapshot_ = snapshot;
+    cached_team_id_ = snapshot.team_id;
+    cached_positions_ms_ = now_ms;
+    cached_positions_valid_ = true;
+    samples = &cached_samples_;
+    return true;
+}
+
 std::size_t TeamMapOverlaySource::latestTeamPoints(
     TeamPoint* out,
     std::size_t capacity) const
@@ -37,19 +83,14 @@ std::size_t TeamMapOverlaySource::latestTeamPoints(
     }
 
     ::team::ui::TeamUiSnapshot snapshot;
-    if (!loadSnapshot(snapshot))
-    {
-        return 0;
-    }
-
-    std::vector<::team::ui::TeamPosSample> samples;
-    if (!::team::ui::team_ui_posring_load_latest(snapshot.team_id, samples))
+    const std::vector<::team::ui::TeamPosSample>* samples = nullptr;
+    if (!loadCachedPositions(snapshot, samples) || samples == nullptr)
     {
         return 0;
     }
 
     std::size_t written = 0;
-    for (const auto& sample : samples)
+    for (const auto& sample : *samples)
     {
         if (written >= capacity)
         {
@@ -63,7 +104,7 @@ std::size_t TeamMapOverlaySource::latestTeamPoints(
         out[written].valid = sampleHasCoordinate(sample);
         ++written;
     }
-    return samples.size();
+    return samples->size();
 }
 
 std::size_t TeamMapOverlaySource::latestTeamLocations(
@@ -76,19 +117,14 @@ std::size_t TeamMapOverlaySource::latestTeamLocations(
     }
 
     ::team::ui::TeamUiSnapshot snapshot;
-    if (!loadSnapshot(snapshot))
-    {
-        return 0;
-    }
-
-    std::vector<::team::ui::TeamPosSample> samples;
-    if (!::team::ui::team_ui_posring_load_latest(snapshot.team_id, samples))
+    const std::vector<::team::ui::TeamPosSample>* samples = nullptr;
+    if (!loadCachedPositions(snapshot, samples) || samples == nullptr)
     {
         return 0;
     }
 
     std::size_t count = 0;
-    for (const auto& sample : samples)
+    for (const auto& sample : *samples)
     {
         if (count >= capacity)
         {
@@ -111,18 +147,13 @@ bool TeamMapOverlaySource::loadMemberLocation(
     }
 
     ::team::ui::TeamUiSnapshot snapshot;
-    if (!loadSnapshot(snapshot))
+    const std::vector<::team::ui::TeamPosSample>* samples = nullptr;
+    if (!loadCachedPositions(snapshot, samples) || samples == nullptr)
     {
         return false;
     }
 
-    std::vector<::team::ui::TeamPosSample> samples;
-    if (!::team::ui::team_ui_posring_load_latest(snapshot.team_id, samples))
-    {
-        return false;
-    }
-
-    for (const auto& sample : samples)
+    for (const auto& sample : *samples)
     {
         if (sample.member_id != member_id)
         {
@@ -184,12 +215,14 @@ const char* TeamMapOverlaySource::labelForMember(
 
     for (const auto& member : snapshot.members)
     {
-        if (member.node_id == member_id && !member.name.empty())
+        if (member.node_id == member_id)
         {
+            const std::string label =
+                ::ui::team_presentation::shortTeamMemberLabel(member_id);
             std::snprintf(labels[index],
                           sizeof(labels[index]),
                           "%s",
-                          member.name.c_str());
+                          label.c_str());
             return labels[index];
         }
     }

@@ -7,7 +7,10 @@
 
 #include "board/LoraBoard.h"
 #include "chat/infra/meshcore/meshcore_ble_backend.h"
+#include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/runtime/meshcore_runtime.h"
+#include "chat/runtime/protocol_runtime_factory.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_identity.h"
 #include <deque>
 #include <limits>
@@ -23,7 +26,9 @@ namespace meshcore
 /**
  * @brief MeshCore protocol adapter
  */
-class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
+class MeshCoreAdapter : public IMeshAdapter,
+                        public IMeshCoreBleBackend,
+                        public runtime::IProtocolEffectExecutor
 {
   public:
     /**
@@ -102,10 +107,13 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
     struct PeerInfo
     {
         uint8_t peer_hash = 0;
+        uint8_t peer_hash_len = chat::meshcore::kMeshCoreV1HashBytes;
+        uint8_t peer_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
         NodeId node_id = 0;
         bool has_pubkey = false;
         bool pubkey_verified = false;
         uint8_t pubkey[MeshCoreIdentity::kPubKeySize] = {};
+        PayloadProfile out_path_profile = PayloadProfile::V1;
         uint8_t out_path_len = 0;
         uint8_t out_path[kMaxPeerPathLen] = {};
         uint32_t last_seen_ms = 0;
@@ -153,6 +161,7 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
         uint32_t auth = 0;
         uint32_t trip_ms = 0;
         std::vector<uint8_t> payload;
+        PayloadProfile path_profile = PayloadProfile::V1;
         std::vector<uint8_t> in_path;
         std::vector<uint8_t> out_path;
         std::vector<uint8_t> trace_hashes;
@@ -188,6 +197,9 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
     bool sendRawData(const uint8_t* path, size_t path_len,
                      const uint8_t* payload, size_t payload_len,
                      uint32_t* out_est_timeout);
+    bool sendRawDataEx(uint8_t profile, const uint8_t* path, size_t path_len,
+                       const uint8_t* payload, size_t payload_len,
+                       uint32_t* out_est_timeout) override;
     bool sendTracePath(const uint8_t* path, size_t path_len,
                        uint32_t tag, uint32_t auth, uint8_t flags,
                        uint32_t* out_est_timeout);
@@ -209,7 +221,6 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
     static constexpr const char* kPeerPubKeyPrefsKey = "peer_keys";
     static constexpr const char* kPeerPubKeyPrefsKeyVer = "peer_ver";
     static constexpr uint8_t kPeerPubKeyPrefsVersion = 1;
-    static constexpr uint32_t kAutoDiscoverCooldownMs = 8000;
     static constexpr size_t kMaxEventQueue = 32;
 
     struct ScheduledFrame
@@ -231,6 +242,7 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
         {
             uint8_t path[kMaxPeerPathLen] = {};
             uint8_t path_len = 0;
+            PayloadProfile profile = PayloadProfile::V1;
             ChannelId channel = ChannelId::PRIMARY;
             int16_t snr_x10 = std::numeric_limits<int16_t>::min();
             uint8_t sample_count = 0;
@@ -240,9 +252,12 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
         };
 
         uint8_t peer_hash = 0;
+        uint8_t peer_hash_len = chat::meshcore::kMeshCoreV1HashBytes;
+        uint8_t peer_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
         NodeId node_id_guess = 0;
         uint8_t out_path[kMaxPeerPathLen] = {};
         uint8_t out_path_len = 0;
+        PayloadProfile out_path_profile = PayloadProfile::V1;
         bool has_out_path = false;
         bool has_pubkey = false;
         bool pubkey_verified = false;
@@ -257,16 +272,6 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
         uint8_t best_candidate = 0;
         uint8_t candidate_count = 0;
         PathCandidate candidates[kMaxPeerRouteCandidates];
-    };
-
-    struct PendingAppAck
-    {
-        uint32_t signature = 0;
-        NodeId dest = 0;
-        uint32_t portnum = 0;
-        MessageId chat_msg_id = 0;
-        uint32_t created_ms = 0;
-        uint32_t expire_ms = 0;
     };
 
     struct KeyVerifySession
@@ -307,8 +312,6 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
     uint32_t tx_airtime_ms_ = 0;
     uint32_t rx_airtime_ms_ = 0;
     MeshCoreIdentity identity_;
-    uint32_t last_auto_discover_ms_ = 0;
-    uint8_t last_auto_discover_hash_ = 0;
     uint32_t discover_rx_guard_until_ms_ = 0;
 
     // Implementation state
@@ -324,7 +327,6 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
     bool has_pending_raw_packet_;
     std::deque<ScheduledFrame> scheduled_tx_;
     std::deque<SeenEntry> seen_recent_;
-    std::deque<PendingAppAck> pending_app_acks_;
     std::deque<Event> events_;
     std::vector<PeerRouteEntry> peer_routes_;
     std::vector<NodeId> verified_peers_;
@@ -332,6 +334,9 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
 
     MessageId next_msg_id_;
     std::array<uint8_t, 16> flood_scope_key_ = {};
+    runtime::MeshCoreRuntime protocol_runtime_{};
+
+    static constexpr uint32_t kDiscoverRxGuardDefaultMs = 5000;
 
     TxGateReason checkTxGate(uint32_t now_ms) const;
     static const char* txGateReasonName(TxGateReason reason);
@@ -341,18 +346,27 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
     bool transmitFrameNow(const uint8_t* data, size_t len, uint32_t now_ms);
     bool enqueueScheduled(const uint8_t* data, size_t len, uint32_t delay_ms,
                           bool defer_during_discover = false);
-    void armDiscoverRxGuard(uint32_t now_ms);
+    void armDiscoverRxGuard(uint32_t now_ms, uint32_t duration_ms = kDiscoverRxGuardDefaultMs);
     bool isDiscoverRxGuardActive(uint32_t now_ms) const;
     bool resolveGroupSecret(ChannelId channel, uint8_t out_key16[16],
                             uint8_t out_key32[32], uint8_t* out_hash) const;
+    bool resolveGroupSecret(ChannelId channel, uint8_t out_key16[16],
+                            uint8_t out_key32[32], PayloadProfile profile,
+                            uint8_t* out_hash, size_t out_hash_cap) const;
     ChannelId resolveChannelFromHash(uint8_t channel_hash, bool* out_match) const;
-    bool deriveLegacyDirectSecret(ChannelId channel, uint8_t peer_hash,
-                                  uint8_t out_key16[16], uint8_t out_key32[32]) const;
+    ChannelId resolveChannelFromHash(PayloadProfile profile, const uint8_t* channel_hash,
+                                     bool* out_match) const;
     bool deriveIdentitySecret(uint8_t peer_hash, uint8_t out_key16[16],
                               uint8_t out_key32[32]) const;
+    bool deriveIdentitySecret(PayloadProfile profile, const uint8_t* peer_hash,
+                              uint8_t out_key16[16], uint8_t out_key32[32]) const;
     bool deriveDirectSecret(ChannelId channel, uint8_t peer_hash,
                             uint8_t out_key16[16], uint8_t out_key32[32]) const;
+    bool deriveDirectSecret(ChannelId channel, PayloadProfile profile, const uint8_t* peer_hash,
+                            uint8_t out_key16[16], uint8_t out_key32[32]) const;
     bool lookupPeerPubKey(uint8_t peer_hash, uint8_t out_pubkey[MeshCoreIdentity::kPubKeySize]) const;
+    bool lookupPeerPubKey(PayloadProfile profile, const uint8_t* peer_hash,
+                          uint8_t out_pubkey[MeshCoreIdentity::kPubKeySize]) const;
     void rememberPeerPubKey(const uint8_t pubkey[MeshCoreIdentity::kPubKeySize],
                             uint32_t now_ms, bool verified);
     void loadPeerPubKeysFromPrefs();
@@ -361,14 +375,27 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
     bool tryDecryptPeerPayload(uint8_t src_hash, const uint8_t* cipher, size_t cipher_len,
                                uint8_t* out_plain, size_t* out_plain_len,
                                ChannelId* out_channel) const;
+    bool tryDecryptPeerPayload(PayloadProfile profile, const uint8_t* src_hash,
+                               const uint8_t* cipher, size_t cipher_len,
+                               uint8_t* out_plain, size_t* out_plain_len,
+                               ChannelId* out_channel) const;
     PeerRouteEntry* findPeerRouteByHash(uint8_t peer_hash);
     const PeerRouteEntry* findPeerRouteByHash(uint8_t peer_hash) const;
+    PeerRouteEntry* findPeerRouteByHash(PayloadProfile profile, const uint8_t* peer_hash);
+    const PeerRouteEntry* findPeerRouteByHash(PayloadProfile profile, const uint8_t* peer_hash) const;
     PeerRouteEntry* selectPeerRouteByHash(uint8_t peer_hash, uint32_t now_ms);
     const PeerRouteEntry* selectPeerRouteByHash(uint8_t peer_hash, uint32_t now_ms) const;
+    PeerRouteEntry* selectPeerRouteByHash(PayloadProfile profile, const uint8_t* peer_hash,
+                                          uint32_t now_ms);
+    const PeerRouteEntry* selectPeerRouteByHash(PayloadProfile profile, const uint8_t* peer_hash,
+                                                uint32_t now_ms) const;
     PeerRouteEntry& upsertPeerRoute(uint8_t peer_hash, uint32_t now_ms);
+    PeerRouteEntry& upsertPeerRoute(PayloadProfile profile, const uint8_t* peer_hash,
+                                    uint32_t now_ms);
     void prunePeerRoutes(uint32_t now_ms);
     void refreshBestPeerRoute(PeerRouteEntry& entry, uint32_t now_ms);
     void rememberPeerPathCandidate(PeerRouteEntry& entry,
+                                   PayloadProfile profile,
                                    const uint8_t* path, size_t path_len,
                                    ChannelId channel, int16_t snr_x10,
                                    uint32_t now_ms);
@@ -379,6 +406,12 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
     NodeId resolvePeerNodeId(uint8_t peer_hash) const;
     void rememberPeerPath(uint8_t peer_hash, const uint8_t* path, size_t path_len,
                           ChannelId channel, uint32_t now_ms);
+    void rememberPeerPath(PayloadProfile profile, const uint8_t* peer_hash,
+                          const uint8_t* path, size_t path_len,
+                          ChannelId channel, uint32_t now_ms);
+    PayloadProfile selectSendProfile(const PeerRouteEntry* route) const;
+    bool allowsForwardingProfile(PayloadProfile profile) const;
+    bool selfHash(PayloadProfile profile, uint8_t* out_hash, size_t out_cap) const;
     void pruneSeen(uint32_t now_ms);
     bool hasSeenSignature(uint32_t signature, uint32_t now_ms);
     void handleRawPacketInternal(const uint8_t* data, size_t size, bool allow_duplicate);
@@ -388,8 +421,15 @@ class MeshCoreAdapter : public IMeshAdapter, public IMeshCoreBleBackend
     bool consumePendingAppAck(uint32_t signature, uint32_t now_ms);
     void pushEvent(Event&& ev);
     bool sendNodeInfoFrame(NodeId dest, bool is_query, bool request_reply);
-    MeshActionResult sendDiscoverRequestLocalDetailed();
-    bool sendDiscoverRequestLocal();
+    runtime::RuntimeContext buildRuntimeContext() const;
+    runtime::ProtocolRuntimeBundle protocolRuntimeBundle(
+        const runtime::IProtocolRuntimeContextProvider& context_provider);
+    bool execute(const runtime::ProtocolEffect& effect) override;
+    bool executeProtocolEffects(const runtime::ProtocolEffects& effects);
+    bool executeProtocolEffect(const runtime::ProtocolEffect& effect);
+    MeshActionResult executeDiscoverIntentDetailed(MeshDiscoveryAction action);
+    MeshActionResult executeDiscoveryEffectsDetailed(const runtime::ProtocolEffects& effects);
+    MeshActionResult sendDiscoverRequestLocalDetailed(const runtime::SendDiscoverRequestEffect& effect);
     MeshActionResult sendIdentityAdvertDetailed(bool broadcast);
     MeshActionResult sendIdentityAdvertDetailed(bool broadcast, bool include_location,
                                                 int32_t lat_i6, int32_t lon_i6);

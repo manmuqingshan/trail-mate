@@ -22,6 +22,11 @@ void test_base_paths()
     ref.layer = ui::map_tiles::MapTileLayer::Satellite;
     assert(resolver.resolvePath(ref, path, sizeof(path)));
     assert(std::strcmp(path, "/sd/maps/base/satellite/12/656/1582.jpg") == 0);
+
+    ui::map_tiles::MapTileResolver sd_root_resolver("/");
+    ref.layer = ui::map_tiles::MapTileLayer::Osm;
+    assert(sd_root_resolver.resolvePath(ref, path, sizeof(path)));
+    assert(std::strcmp(path, "/maps/base/osm/12/656/1582.png") == 0);
 }
 
 void test_contour_paths()

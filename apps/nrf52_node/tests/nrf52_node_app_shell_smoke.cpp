@@ -16,13 +16,5 @@ int main()
     assert(std::strcmp(shell.activeUxPackId(), "tiny_node_status") == 0);
     assert(shell.targetProfile() != nullptr);
     assert(shell.targetProfile()->renderer == product_composition::TargetRenderer::Headless);
-    assert(std::strcmp(config.historical_generic_root_name,
-                       "removed root esp_pio") == 0);
-    assert(std::strcmp(config.historical_board_root_name,
-                       "removed root gat562_mesh_evb_pro") == 0);
-    assert(std::strcmp(config.historical_role,
-                       "pre-refactor PlatformIO/nRF52 implementation roots") == 0);
-    assert(std::strcmp(config.replacement_owner,
-                       "apps/nrf52_node + builds/pio_nrf52 + boards/gat562_mesh_evb_pro") == 0);
     return 0;
 }

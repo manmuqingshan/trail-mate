@@ -2,6 +2,8 @@
 
 #include "ui/ui_common.h"
 
+#include <sys/time.h>
+
 namespace platform::ui::time
 {
 namespace
@@ -65,6 +67,18 @@ bool localtime_now(struct tm* out_tm)
     }
     *out_tm = *tmp;
     return true;
+}
+
+bool set_utc_time(::time_t utc_seconds)
+{
+    if (!is_valid_epoch(utc_seconds))
+    {
+        return false;
+    }
+    timeval tv{};
+    tv.tv_sec = utc_seconds;
+    tv.tv_usec = 0;
+    return settimeofday(&tv, nullptr) == 0;
 }
 
 } // namespace platform::ui::time

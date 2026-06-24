@@ -187,4 +187,10 @@ bool localtime_now(struct tm* out_tm)
     return true;
 }
 
+bool set_utc_time(::time_t utc_seconds)
+{
+    (void)utc_seconds;
+    return false;
+}
+
 } // namespace platform::ui::time

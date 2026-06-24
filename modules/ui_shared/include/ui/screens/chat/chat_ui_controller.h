@@ -29,6 +29,11 @@ class KeyVerificationModel;
 struct KeyVerificationSnapshot;
 } // namespace ui::key_verification
 
+namespace ui_chat_runtime
+{
+class ChatDeliveryActionPortAdapter;
+} // namespace ui_chat_runtime
+
 namespace chat
 {
 namespace ui
@@ -59,6 +64,8 @@ class UiController : public IChatUiRefreshSink
                  ChatTeamWorkflow& team_workflow,
                  ::ui::key_verification::KeyVerificationModel*
                      key_verification_model = nullptr,
+                 ::ui_chat_runtime::ChatDeliveryActionPortAdapter*
+                     delivery_action_adapter = nullptr,
                  chat::ChannelId initial_channel = chat::ChannelId::PRIMARY,
                  ExitRequestCallback exit_request = nullptr,
                  void* exit_request_user_data = nullptr);
@@ -69,6 +76,9 @@ class UiController : public IChatUiRefreshSink
     void onInput(const sys::InputEvent& event);
     void backToList();
     void handleConversationAction(ChatConversationScreen::ActionIntent intent);
+    void handleConversationMessageAction(
+        ChatConversationScreen::MessageActionIntent intent,
+        ::ui::chat::MessageRef ref);
     void handleComposeAction(ChatComposeScreen::ActionIntent intent);
     void exitToMenu();
 
@@ -93,6 +103,8 @@ class UiController : public IChatUiRefreshSink
     ChatTeamWorkflow& team_workflow_;
     ::ui::key_verification::KeyVerificationModel* key_verification_model_ =
         nullptr;
+    ::ui_chat_runtime::ChatDeliveryActionPortAdapter*
+        delivery_action_adapter_ = nullptr;
     State state_;
 
     std::unique_ptr<ChatMessageListScreen> channel_list_;
@@ -115,7 +127,6 @@ class UiController : public IChatUiRefreshSink
     void handleChannelSelected(const chat::ConversationId& conv);
     void handleSendMessage(const std::string& text);
     void handleComposeSendDone(bool ok, bool timeout);
-    static void handleComposeSendDoneCallback(bool ok, bool timeout, void* user_data);
     void refreshUnreadCounts();
     void refreshUnreadCounts(bool force_reload);
     void cleanupComposeIme();

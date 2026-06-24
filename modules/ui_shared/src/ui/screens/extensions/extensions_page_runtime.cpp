@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "platform/ui/device_runtime.h"
@@ -15,9 +16,9 @@
 #include "ui/components/two_pane_styles.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/ui_theme.h"
 #include "ui/widgets/busy_overlay.h"
-#include "ui/widgets/system_notification.h"
 #include "ui/widgets/top_bar.h"
 
 #if !defined(LV_FONT_MONTSERRAT_16) || !LV_FONT_MONTSERRAT_16
@@ -44,6 +45,12 @@ enum class MainView : uint8_t
     Detail,
 };
 
+enum class PackageFilter : uint8_t
+{
+    Installed = 0,
+    Uninstalled,
+};
+
 struct RuntimeState
 {
     const Host* host = nullptr;
@@ -51,7 +58,8 @@ struct RuntimeState
     lv_obj_t* root = nullptr;
     lv_obj_t* content = nullptr;
     lv_obj_t* filter_panel = nullptr;
-    lv_obj_t* filter_btn = nullptr;
+    lv_obj_t* installed_filter_btn = nullptr;
+    lv_obj_t* uninstalled_filter_btn = nullptr;
     lv_obj_t* main_panel = nullptr;
     lv_obj_t* header_card = nullptr;
     lv_obj_t* title_label = nullptr;
@@ -60,8 +68,12 @@ struct RuntimeState
     lv_obj_t* detail_back_btn = nullptr;
     lv_obj_t* primary_action_btn = nullptr;
     lv_obj_t* uninstall_btn = nullptr;
+    lv_obj_t* connect_btn = nullptr;
     ::ui::widgets::TopBar top_bar;
     MainView view = MainView::List;
+    PackageFilter filter = PackageFilter::Installed;
+    bool remote_catalog_loaded = false;
+    std::string catalog_error;
     std::string selected_package_id;
     std::vector<packs::PackageRecord> packages;
     std::vector<std::size_t> filtered_indices;
@@ -155,9 +167,13 @@ std::string join_values(const std::vector<std::string>& values)
     return joined;
 }
 
-bool is_language_package(const packs::PackageRecord& package)
+bool is_extension_package(const packs::PackageRecord& package)
 {
-    return package.package_type.empty() || package.package_type == "locale-bundle";
+    return package.package_type.empty() ||
+           package.package_type == "installed" ||
+           package.package_type == "locale-bundle" ||
+           package.package_type == "content-bundle" ||
+           package.package_type == "input-bundle";
 }
 
 bool can_install_or_update(const packs::PackageRecord& package)
@@ -393,6 +409,7 @@ void clear_body()
     s_runtime.detail_back_btn = nullptr;
     s_runtime.primary_action_btn = nullptr;
     s_runtime.uninstall_btn = nullptr;
+    s_runtime.connect_btn = nullptr;
     s_runtime.list_buttons.clear();
 
     if (s_runtime.body_panel != nullptr)
@@ -414,9 +431,13 @@ void sync_focus_group(lv_obj_t* preferred_focus = nullptr)
     {
         lv_group_add_obj(app_g, s_runtime.top_bar.back_btn);
     }
-    if (s_runtime.filter_btn != nullptr)
+    if (s_runtime.installed_filter_btn != nullptr)
     {
-        lv_group_add_obj(app_g, s_runtime.filter_btn);
+        lv_group_add_obj(app_g, s_runtime.installed_filter_btn);
+    }
+    if (s_runtime.uninstalled_filter_btn != nullptr)
+    {
+        lv_group_add_obj(app_g, s_runtime.uninstalled_filter_btn);
     }
     if (s_runtime.detail_back_btn != nullptr)
     {
@@ -437,14 +458,18 @@ void sync_focus_group(lv_obj_t* preferred_focus = nullptr)
     {
         lv_group_add_obj(app_g, s_runtime.uninstall_btn);
     }
+    if (s_runtime.connect_btn != nullptr)
+    {
+        lv_group_add_obj(app_g, s_runtime.connect_btn);
+    }
 
     if (preferred_focus != nullptr && lv_obj_is_valid(preferred_focus))
     {
         lv_group_focus_obj(preferred_focus);
     }
-    else if (s_runtime.filter_btn != nullptr)
+    else if (s_runtime.installed_filter_btn != nullptr)
     {
-        lv_group_focus_obj(s_runtime.filter_btn);
+        lv_group_focus_obj(s_runtime.installed_filter_btn);
     }
     else if (s_runtime.top_bar.back_btn != nullptr)
     {
@@ -460,7 +485,16 @@ void rebuild_filtered_indices()
     s_runtime.filtered_indices.clear();
     for (std::size_t i = 0; i < s_runtime.packages.size(); ++i)
     {
-        if (is_language_package(s_runtime.packages[i]))
+        const packs::PackageRecord& package = s_runtime.packages[i];
+        if (!is_extension_package(package))
+        {
+            continue;
+        }
+
+        const bool include =
+            s_runtime.filter == PackageFilter::Installed ? package.installed
+                                                         : !package.installed;
+        if (include)
         {
             s_runtime.filtered_indices.push_back(i);
         }
@@ -484,21 +518,100 @@ std::size_t find_package_index(const std::string& id)
     return kInvalidIndex;
 }
 
+packs::PackageRecord make_offline_installed_package(
+    const packs::InstalledPackageRecord& installed)
+{
+    packs::PackageRecord package{};
+    package.id = installed.id;
+    package.package_type = "installed";
+    package.version = installed.version;
+    package.display_name = installed.id.empty() ? ::ui::i18n::tr("Installed package")
+                                                : installed.id;
+    package.summary = ::ui::i18n::tr("Installed locally");
+    package.description =
+        ::ui::i18n::tr("Remote catalog is unavailable. Connect Wi-Fi to view package details and updates.");
+    package.installed = true;
+    package.installed_record = installed;
+    package.archive_sha256 = installed.archive_sha256;
+    package.compatible_firmware = true;
+    package.compatible_memory_profile = true;
+    return package;
+}
+
 bool load_catalog(std::string& out_error)
 {
     out_error.clear();
     s_runtime.packages.clear();
+    s_runtime.remote_catalog_loaded = false;
+    s_runtime.catalog_error.clear();
 
-    return packs::fetch_catalog(s_runtime.packages, out_error);
+    std::vector<packs::InstalledPackageRecord> installed;
+    std::string installed_error;
+    const bool installed_loaded = packs::load_installed_packages(installed, installed_error);
+
+    std::vector<packs::PackageRecord> remote_packages;
+    std::string remote_error;
+    if (packs::fetch_catalog(remote_packages, remote_error))
+    {
+        s_runtime.packages = std::move(remote_packages);
+        s_runtime.remote_catalog_loaded = true;
+        return true;
+    }
+
+    s_runtime.catalog_error = remote_error;
+    if (!installed_loaded)
+    {
+        out_error = installed_error.empty() ? remote_error : installed_error;
+        return false;
+    }
+
+    s_runtime.packages.reserve(installed.size());
+    for (const auto& record : installed)
+    {
+        if (!record.id.empty())
+        {
+            s_runtime.packages.push_back(make_offline_installed_package(record));
+        }
+    }
+    std::sort(s_runtime.packages.begin(),
+              s_runtime.packages.end(),
+              [](const packs::PackageRecord& lhs, const packs::PackageRecord& rhs)
+              {
+                  return lhs.display_name < rhs.display_name;
+              });
+    return true;
 }
 
 void show_list_view();
 void refresh_catalog_and_render();
 
+void update_filter_button_states()
+{
+    auto apply = [](lv_obj_t* button, bool active)
+    {
+        if (button == nullptr)
+        {
+            return;
+        }
+        if (active)
+        {
+            lv_obj_add_state(button, LV_STATE_CHECKED);
+        }
+        else
+        {
+            lv_obj_clear_state(button, LV_STATE_CHECKED);
+        }
+    };
+
+    apply(s_runtime.installed_filter_btn, s_runtime.filter == PackageFilter::Installed);
+    apply(s_runtime.uninstalled_filter_btn, s_runtime.filter == PackageFilter::Uninstalled);
+}
+
 void on_filter_clicked(lv_event_t* event)
 {
-    (void)event;
-    lv_obj_add_state(s_runtime.filter_btn, LV_STATE_CHECKED);
+    const uintptr_t raw = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    s_runtime.filter = raw == 1U ? PackageFilter::Uninstalled : PackageFilter::Installed;
+    update_filter_button_states();
     show_list_view();
 }
 
@@ -550,11 +663,11 @@ void on_primary_action_clicked(lv_event_t* event)
     if (!packs::install_package(package, error))
     {
         set_status_text(error);
-        ::ui::SystemNotification::show(error.c_str(), 3000);
+        ::ui::feedback::show_notice(error.c_str(), 3000);
         return;
     }
 
-    ::ui::SystemNotification::show(::ui::i18n::tr("Package installed"), 2000);
+    ::ui::feedback::show_notice(::ui::i18n::tr("Package installed"), 2000);
     s_runtime.selected_package_id = package_id;
     s_runtime.view = MainView::Detail;
     refresh_catalog_and_render();
@@ -581,11 +694,11 @@ void on_uninstall_clicked(lv_event_t* event)
     if (!packs::uninstall_package(package, error))
     {
         set_status_text(error);
-        ::ui::SystemNotification::show(error.c_str(), 3000);
+        ::ui::feedback::show_notice(error.c_str(), 3000);
         return;
     }
 
-    ::ui::SystemNotification::show(::ui::i18n::tr("Package uninstalled"), 2000);
+    ::ui::feedback::show_notice(::ui::i18n::tr("Package uninstalled"), 2000);
     s_runtime.selected_package_id = package.id;
     s_runtime.view = MainView::Detail;
     refresh_catalog_and_render();
@@ -616,6 +729,52 @@ lv_obj_t* create_action_button(lv_obj_t* parent,
     return button;
 }
 
+bool wifi_has_saved_credentials(platform::ui::wifi::Config& out_config)
+{
+    if (!platform::ui::wifi::load_config(out_config))
+    {
+        return false;
+    }
+    return out_config.ssid[0] != '\0';
+}
+
+void on_connect_wifi_clicked(lv_event_t* event)
+{
+    (void)event;
+    if (!platform::ui::wifi::is_supported())
+    {
+        const char* text = ::ui::i18n::tr("Wi-Fi unsupported");
+        set_status_text(text);
+        ::ui::feedback::show_notice(text, 3000);
+        return;
+    }
+
+    platform::ui::wifi::Config config{};
+    if (!wifi_has_saved_credentials(config))
+    {
+        const char* text = ::ui::i18n::tr("Configure Wi-Fi in Settings first");
+        set_status_text(text);
+        ::ui::feedback::show_notice(text, 3500);
+        return;
+    }
+
+    config.enabled = true;
+    (void)platform::ui::wifi::save_config(config);
+    if (!platform::ui::wifi::apply_enabled(true) ||
+        !platform::ui::wifi::connect(&config))
+    {
+        const platform::ui::wifi::Status wifi = platform::ui::wifi::status();
+        const char* text = wifi.message[0] ? wifi.message : ::ui::i18n::tr("Wi-Fi connect failed");
+        set_status_text(text);
+        ::ui::feedback::show_notice(text, 3500);
+        update_top_bar_status();
+        return;
+    }
+
+    ::ui::feedback::show_notice(::ui::i18n::tr("Wi-Fi connected"), 2000);
+    refresh_catalog_and_render();
+}
+
 void show_message_body(const char* text)
 {
     clear_body();
@@ -630,6 +789,46 @@ void show_message_body(const char* text)
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(two_pane_styles::kTextMuted), 0);
     ::ui::i18n::set_content_label_text_raw(label, text ? text : "");
+}
+
+void show_uninstalled_offline_body()
+{
+    clear_body();
+    set_header_title("Uninstalled");
+
+    const platform::ui::wifi::Status wifi = platform::ui::wifi::status();
+    platform::ui::wifi::Config saved_wifi{};
+    const bool has_saved_credentials = wifi_has_saved_credentials(saved_wifi);
+    const char* text = nullptr;
+    if (!wifi.supported)
+    {
+        text = ::ui::i18n::tr("Wi-Fi unsupported on this device");
+    }
+    else if (!has_saved_credentials)
+    {
+        text = ::ui::i18n::tr("Configure Wi-Fi in Settings first");
+    }
+    else
+    {
+        text = ::ui::i18n::tr("Connect Wi-Fi to browse uninstalled packages");
+    }
+    set_status_text(text);
+
+    lv_obj_t* card = lv_obj_create(s_runtime.body_panel);
+    style_detail_card(card);
+    create_wrapped_label(card,
+                         s_runtime.catalog_error.empty()
+                             ? std::string(text)
+                             : s_runtime.catalog_error,
+                         lv_color_hex(two_pane_styles::kTextMuted));
+
+    if (wifi.supported)
+    {
+        s_runtime.connect_btn =
+            create_action_button(card, "Connect Wi-Fi", on_connect_wifi_clicked, nullptr, true);
+    }
+    sync_focus_group(s_runtime.connect_btn ? s_runtime.connect_btn
+                                           : s_runtime.uninstalled_filter_btn);
 }
 
 void create_package_list_item(const packs::PackageRecord& package, std::size_t package_index)
@@ -701,22 +900,39 @@ void render_list_view()
 
     if (s_runtime.filtered_indices.empty())
     {
-        const char* empty_text = ::ui::i18n::tr("No language packs available");
+        if (s_runtime.filter == PackageFilter::Uninstalled && !s_runtime.remote_catalog_loaded)
+        {
+            show_uninstalled_offline_body();
+            return;
+        }
+
+        const char* empty_text =
+            s_runtime.filter == PackageFilter::Installed
+                ? ::ui::i18n::tr("No installed packages")
+                : ::ui::i18n::tr("No uninstalled packages");
         set_status_text(empty_text);
         show_message_body(empty_text);
-        sync_focus_group(s_runtime.filter_btn);
+        sync_focus_group(s_runtime.filter == PackageFilter::Installed
+                             ? s_runtime.installed_filter_btn
+                             : s_runtime.uninstalled_filter_btn);
         return;
     }
 
-    set_status_text(::ui::i18n::format("Available language packs: %lu",
-                                       static_cast<unsigned long>(s_runtime.filtered_indices.size())));
+    set_status_text(::ui::i18n::format(
+        s_runtime.filter == PackageFilter::Installed ? "Installed packages: %lu"
+                                                     : "Uninstalled packages: %lu",
+        static_cast<unsigned long>(s_runtime.filtered_indices.size())));
 
     for (std::size_t index : s_runtime.filtered_indices)
     {
         create_package_list_item(s_runtime.packages[index], index);
     }
 
-    sync_focus_group(!s_runtime.list_buttons.empty() ? s_runtime.list_buttons.front() : s_runtime.filter_btn);
+    sync_focus_group(!s_runtime.list_buttons.empty()
+                         ? s_runtime.list_buttons.front()
+                         : (s_runtime.filter == PackageFilter::Installed
+                                ? s_runtime.installed_filter_btn
+                                : s_runtime.uninstalled_filter_btn));
 }
 
 void render_detail_view(std::size_t package_index)
@@ -810,6 +1026,7 @@ void render_detail_view(std::size_t package_index)
 void render_current_view()
 {
     update_top_bar_status();
+    update_filter_button_states();
     rebuild_filtered_indices();
 
     if (s_runtime.filtered_indices.empty())
@@ -822,7 +1039,7 @@ void render_current_view()
     if (s_runtime.view == MainView::Detail)
     {
         const std::size_t selected_index = find_package_index(s_runtime.selected_package_id);
-        if (selected_index != kInvalidIndex && is_language_package(s_runtime.packages[selected_index]))
+        if (selected_index != kInvalidIndex && is_extension_package(s_runtime.packages[selected_index]))
         {
             render_detail_view(selected_index);
             return;
@@ -844,7 +1061,7 @@ void refresh_catalog_and_render()
     {
         set_status_text(error);
         show_message_body(error.c_str());
-        sync_focus_group(s_runtime.filter_btn);
+        sync_focus_group(s_runtime.installed_filter_btn);
         return;
     }
 
@@ -868,19 +1085,37 @@ void create_filter_panel(lv_obj_t* parent)
     s_runtime.filter_panel = two_pane_layout::create_side_panel(parent, panel_spec);
     two_pane_styles::apply_panel_side(s_runtime.filter_panel);
 
-    s_runtime.filter_btn = lv_btn_create(s_runtime.filter_panel);
-    lv_obj_set_size(s_runtime.filter_btn, LV_PCT(100), profile.filter_button_height);
-    lv_obj_add_flag(s_runtime.filter_btn, LV_OBJ_FLAG_CHECKABLE);
-    lv_obj_add_state(s_runtime.filter_btn, LV_STATE_CHECKED);
-    two_pane_layout::make_non_scrollable(s_runtime.filter_btn);
-    two_pane_styles::apply_btn_filter(s_runtime.filter_btn);
-    lv_obj_add_event_cb(s_runtime.filter_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
-    lv_obj_add_event_cb(s_runtime.filter_btn, on_focus_scroll, LV_EVENT_FOCUSED, nullptr);
+    auto create_filter_button = [&](const char* label_text,
+                                    PackageFilter filter,
+                                    bool active) -> lv_obj_t*
+    {
+        lv_obj_t* button = lv_btn_create(s_runtime.filter_panel);
+        lv_obj_set_size(button, LV_PCT(100), profile.filter_button_height);
+        lv_obj_add_flag(button, LV_OBJ_FLAG_CHECKABLE);
+        if (active)
+        {
+            lv_obj_add_state(button, LV_STATE_CHECKED);
+        }
+        two_pane_layout::make_non_scrollable(button);
+        two_pane_styles::apply_btn_filter(button);
+        lv_obj_add_event_cb(button,
+                            on_filter_clicked,
+                            LV_EVENT_CLICKED,
+                            reinterpret_cast<void*>(
+                                static_cast<uintptr_t>(filter == PackageFilter::Uninstalled ? 1U : 0U)));
+        lv_obj_add_event_cb(button, on_focus_scroll, LV_EVENT_FOCUSED, nullptr);
 
-    lv_obj_t* label = lv_label_create(s_runtime.filter_btn);
-    ::ui::i18n::set_label_text(label, "Language");
-    two_pane_styles::apply_label_primary(label);
-    lv_obj_center(label);
+        lv_obj_t* label = lv_label_create(button);
+        ::ui::i18n::set_label_text(label, label_text);
+        two_pane_styles::apply_label_primary(label);
+        lv_obj_center(label);
+        return button;
+    };
+
+    s_runtime.installed_filter_btn =
+        create_filter_button("Installed", PackageFilter::Installed, true);
+    s_runtime.uninstalled_filter_btn =
+        create_filter_button("Uninstalled", PackageFilter::Uninstalled, false);
 }
 
 void create_main_panel(lv_obj_t* parent)

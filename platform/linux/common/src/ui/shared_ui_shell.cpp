@@ -189,10 +189,11 @@ bool SharedUiShellStartup::begin()
     }
 
     started_at_ms_ = lv_tick_get();
-    if (!ui::startup_ui_shell::prepareBootUi(buildHooks(), false))
+    if (!ui::startup_ui_shell::beginBootUi(buildHooks(), false, "Loading language packs..."))
     {
         return false;
     }
+    ui::startup_ui_shell::prepareBootResources();
 
     phase_ = Phase::BootVisible;
     return true;

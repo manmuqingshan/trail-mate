@@ -53,6 +53,8 @@ class MeshCoreBleService : public BleService,
         uint8_t type = 0;
         uint8_t flags = 0;
         uint8_t out_path_len = 0;
+        uint8_t out_path_profile = 0;
+        uint8_t out_path_hash_bytes = 1;
         uint8_t out_path[64] = {};
         char name[32] = {};
         uint32_t last_advert = 0;
@@ -191,6 +193,8 @@ class MeshCoreBleService : public BleService,
     void onSentRoute(bool sent_flood) override;
     bool lookupAdvertPath(const uint8_t* pubkey, size_t len,
                           uint32_t* out_ts, uint8_t* out_path, size_t* inout_len) const override;
+    bool lookupAdvertPathEx(const uint8_t* pubkey, size_t len,
+                            phone::meshcore::MeshCorePhoneAdvertPath* out) const override;
     bool hasActiveConnection(const uint8_t* prefix, size_t len) const override;
     void logoutActiveConnection(const uint8_t* prefix, size_t len) override;
     bool getRadioStats(phone::meshcore::MeshCorePhoneRadioStats* out) const override;

@@ -1,5 +1,4 @@
 #include "linux_uconsole_gtk_app_shell.h"
-#include "linux_uconsole_gtk_historical_source_descriptor.h"
 
 #include "ui_lvgl_ux_packs/ux/ux_menu_provider.h"
 #include "ui_lvgl_ux_packs/ux/ux_pack_registry.h"
@@ -21,15 +20,6 @@ int main()
     assert(shell.targetProfile() != nullptr);
     assert(shell.targetProfile()->renderer ==
            product_composition::TargetRenderer::Gtk);
-    const auto& descriptor =
-        trailmate::apps::linux_uconsole_gtk::
-            linuxUConsoleGtkHistoricalSourceDescriptor();
-    assert(std::strcmp(config.historical_source,
-                       descriptor.historical_root_name) == 0);
-    assert(std::strcmp(descriptor.historical_role,
-                       "pre-refactor uConsole GTK implementation root") == 0);
-    assert(std::strcmp(descriptor.replacement_owner,
-                       "apps/linux_uconsole_gtk + modules/ui_gtk_runtime") == 0);
     assert(ui_lvgl_ux::findUxPackById(shell.activeUxPackId()) != nullptr);
 
     ui::menu::MenuModel menu;

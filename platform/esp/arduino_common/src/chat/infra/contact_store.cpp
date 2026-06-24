@@ -6,6 +6,7 @@
 #include "platform/esp/arduino_common/chat/infra/contact_store.h"
 #include "../internal/blob_store_io.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/common/shared_spi_lock.h"
 
 #include <Arduino.h>
 
@@ -23,6 +24,12 @@ namespace contacts
 #else
 #define CONTACT_STORE_LOG(...)
 #endif
+
+namespace
+{
+constexpr TickType_t kSdLoadWait = pdMS_TO_TICKS(250);
+constexpr TickType_t kSdPersistWait = pdMS_TO_TICKS(100);
+} // namespace
 
 ContactStore::ContactStore()
     : core_(*this)
@@ -73,11 +80,37 @@ bool ContactStore::loadBlob(std::vector<uint8_t>& out)
 {
     if (backend_ == StorageBackend::Sd)
     {
-        if (loadFromSD(out))
+        const LoadResult sd_result = loadFromSD(out);
+        if (sd_result == LoadResult::Loaded)
         {
             CONTACT_STORE_LOG("[ContactStore] load source=sd path=%s len=%u\n",
                               kSdPath,
                               static_cast<unsigned>(out.size()));
+            return true;
+        }
+        if (sd_result == LoadResult::Busy)
+        {
+            CONTACT_STORE_LOG("[ContactStore] load source=none reason=sd_busy\n");
+            out.clear();
+            return false;
+        }
+
+        std::vector<uint8_t> fallback;
+        if (loadFromFlash(fallback))
+        {
+            CONTACT_STORE_LOG("[ContactStore] load source=flash fallback=sd_miss ns=%s len=%u\n",
+                              kPrefNs,
+                              static_cast<unsigned>(fallback.size()));
+            const bool migrated = saveToSD(fallback.data(), fallback.size());
+            CONTACT_STORE_LOG("[ContactStore] migrate source=flash target=sd path=%s len=%u ok=%u\n",
+                              kSdPath,
+                              static_cast<unsigned>(fallback.size()),
+                              migrated ? 1U : 0U);
+            if (migrated)
+            {
+                clearFlash();
+            }
+            out.swap(fallback);
             return true;
         }
     }
@@ -116,13 +149,31 @@ bool ContactStore::saveBlob(const uint8_t* data, size_t len)
     return ok;
 }
 
-bool ContactStore::loadFromSD(std::vector<uint8_t>& out) const
+ContactStore::LoadResult ContactStore::loadFromSD(std::vector<uint8_t>& out) const
 {
-    return chat::infra::loadRawBlobFromSd(kSdPath, out);
+    if (!::platform::esp::arduino_common::storage::sd_card_ready())
+    {
+        out.clear();
+        return LoadResult::MissingOrInvalid;
+    }
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdLoadWait, "contact_store_sd");
+    if (!spi_guard.locked())
+    {
+        out.clear();
+        return LoadResult::Busy;
+    }
+    return chat::infra::loadRawBlobFromSd(kSdPath, out)
+               ? LoadResult::Loaded
+               : LoadResult::MissingOrInvalid;
 }
 
 bool ContactStore::saveToSD(const uint8_t* data, size_t len) const
 {
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdPersistWait, "contact_store_sd");
+    if (!spi_guard.locked())
+    {
+        return false;
+    }
     return chat::infra::saveRawBlobToSd(kSdPath, data, len);
 }
 
@@ -132,6 +183,11 @@ bool ContactStore::loadFromFlash(std::vector<uint8_t>& out) const
 }
 
 bool ContactStore::saveToFlash(const uint8_t* data, size_t len) const { return chat::infra::saveRawBlobToPreferences(kPrefNs, kPrefKey, data, len); }
+
+void ContactStore::clearFlash() const
+{
+    chat::infra::clearRawBlobFromPreferences(kPrefNs, kPrefKey);
+}
 
 } // namespace contacts
 } // namespace chat

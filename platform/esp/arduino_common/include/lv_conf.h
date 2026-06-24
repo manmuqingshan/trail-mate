@@ -518,6 +518,8 @@
 #define LV_FONT_DEJAVU_16_PERSIAN_HEBREW 0  /*Hebrew, Arabic, Persian letters and all their forms*/
 #define LV_FONT_SIMSUN_14_CJK            0  /*1000 most common CJK radicals*/
 #define LV_FONT_SIMSUN_16_CJK            0  /*1000 most common CJK radicals*/
+#define LV_FONT_SOURCE_HAN_SANS_SC_14_CJK 0 /*CJK fonts are runtime packs loaded from font.bin*/
+#define LV_FONT_SOURCE_HAN_SANS_SC_16_CJK 0
 
 /*Pixel perfect monospace fonts*/
 #define LV_FONT_UNSCII_8  0
@@ -736,12 +738,17 @@
     #define LV_FS_STDIO_CACHE_SIZE 0    /*>0 to cache this number of bytes in lv_fs_read()*/
 #endif
 
+/* TrailMate registers its own nonblocking shared-SPI SD driver on A:.
+ * Do not also enable LVGL's built-in POSIX A: driver; duplicate A: drivers
+ * make SD routing ambiguous and can bypass the shared-SPI backpressure path.
+ */
+#define TRAIL_MATE_LVGL_SD_FS_LETTER 'A'
+#define TRAIL_MATE_LVGL_SD_FS_PATH "/sd"
+
 /*API for open, read, etc*/
-#define LV_USE_FS_POSIX 1
+#define LV_USE_FS_POSIX 0
 #if LV_USE_FS_POSIX
-    #define LV_FS_POSIX_LETTER 'A'     /*Set an upper cased letter on which the drive will accessible (e.g. 'A')*/
-    #define LV_FS_POSIX_PATH "/sd"     /* /sd : SD Card /fs: FFat */
-    #define LV_FS_POSIX_CACHE_SIZE 0    /*>0 to cache this number of bytes in lv_fs_read()*/
+    #error "TrailMate ESP builds must use the custom A: SD driver, not LVGL POSIX."
 #endif
 
 /*API for CreateFile, ReadFile, etc*/
@@ -759,10 +766,10 @@
     #define LV_FS_FATFS_CACHE_SIZE 0    /*>0 to cache this number of bytes in lv_fs_read()*/
 #endif
 
-/*API for memory-mapped file access. */
-#define LV_USE_FS_MEMFS 0
+/*API for memory-mapped file access. Required for built-in binfont buffers. */
+#define LV_USE_FS_MEMFS 1
 #if LV_USE_FS_MEMFS
-    #define LV_FS_MEMFS_LETTER '\0'     /*Set an upper cased letter on which the drive will accessible (e.g. 'A')*/
+    #define LV_FS_MEMFS_LETTER 'M'      /*Set an upper cased letter on which the drive will accessible (e.g. 'M')*/
 #endif
 
 /*API for LittleFs. */

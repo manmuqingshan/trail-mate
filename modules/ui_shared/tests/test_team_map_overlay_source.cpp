@@ -66,9 +66,10 @@ int main()
     const std::size_t count = source.latestTeamPoints(points, 4);
     assert(count == 2);
     assert(points[0].node_id == 0xCAFE);
-    assert(std::strcmp(points[0].label, "Ada") == 0);
+    assert(std::strcmp(points[0].label, "CAFE") == 0);
     assert(points[0].valid);
     assert(points[1].node_id == 0xBEEF);
+    assert(points[1].label == nullptr);
     assert(!points[1].valid);
 
     ui::presentation_sources::TeamMapLocation locations[4]{};

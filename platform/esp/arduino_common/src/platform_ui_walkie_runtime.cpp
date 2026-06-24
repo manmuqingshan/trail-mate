@@ -26,6 +26,21 @@ bool is_active()
     return ::walkie::is_active();
 }
 
+void set_ptt(bool pressed)
+{
+    ::walkie::set_ptt(pressed);
+}
+
+bool set_monitor_enabled(bool enabled)
+{
+    return ::walkie::set_monitor_enabled(enabled);
+}
+
+bool monitor_enabled()
+{
+    return ::walkie::is_monitor_enabled();
+}
+
 int volume()
 {
     return ::walkie::get_volume();
@@ -37,6 +52,7 @@ Status get_status()
     Status status{};
     status.active = source.active;
     status.tx = source.tx;
+    status.monitor_enabled = source.monitor_enabled;
     status.tx_level = source.tx_level;
     status.rx_level = source.rx_level;
     status.freq_mhz = source.freq_mhz;

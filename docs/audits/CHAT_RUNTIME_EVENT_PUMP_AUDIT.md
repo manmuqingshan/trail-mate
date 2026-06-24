@@ -11,7 +11,7 @@ The controller may refresh UI, open modals, and navigate screens. It must not ow
 | Runtime concern | Current owner before 7.7 | Problem | Target owner |
 | --- | --- | --- | --- |
 | EventBus chat event entry | `IChatUiRuntime::onChatEvent(...)` registered to `ChatUiController` | controller receives runtime events directly | `ChatPageRuntimeFacade` / `ChatPageRuntimeEventPump` |
-| `ChatSendResultEvent` delivery projection | `ChatUiController::onChatEvent(...)` calls `LegacyChatDeliveryEventBridge` | UI controller updates delivery runtime projection | `ChatPageRuntimeEventPump` |
+| `ChatSendResultEvent` delivery projection | `ChatUiController::onChatEvent(...)` calls the delivery projection adapter | UI controller updates delivery runtime projection | `ChatPageRuntimeEventPump` |
 | Key verification source/session update | `ChatUiController::onChatEvent(...)` calls `LegacyKeyVerificationSource` | UI controller updates runtime/presentation session | `ChatPageRuntimeEventPump` |
 | `ChatService::processIncoming()` | `ChatUiController::update()` | UI tick schedules runtime work | `ChatPageRuntimeEventPump::update()` |
 | `ChatService::flushStore()` | `ChatUiController::update()` | UI tick owns store flush cadence | `ChatPageRuntimeEventPump::update()` |
@@ -36,7 +36,7 @@ Phase 7.7 splits these responsibilities:
 | Responsibility | Owner |
 | --- | --- |
 | Runtime event routing | `ChatPageRuntimeEventPump` |
-| Delivery projection | `LegacyChatDeliveryEventBridge` called by event pump |
+| Delivery projection | `ChatDeliveryEventProjectionAdapter` called by event pump |
 | Key verification source/session update | `LegacyKeyVerificationSource` called by event pump |
 | Chat incoming/store cadence | `ChatPageRuntimeEventPump::update()` |
 | UI list/conversation refresh | `IChatUiRefreshSink` implemented by `ChatUiController` |

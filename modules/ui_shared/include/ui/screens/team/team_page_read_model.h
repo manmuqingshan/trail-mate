@@ -18,10 +18,10 @@ struct TeamUiSnapshot;
 enum class TeamRelativeTimeKind
 {
     Unknown,
-    Online,
     SecondsAgo,
     MinutesAgo,
-    HoursAgo
+    HoursAgo,
+    DaysAgo
 };
 
 struct TeamRelativeTimeView
@@ -58,7 +58,8 @@ struct TeamMemberRowView
     std::size_t source_index = 0;
     uint32_t node_id = 0;
     std::string name;
-    bool online = false;
+    TeamRelativeTimeView last_seen;
+    bool self = false;
     bool leader = false;
     uint8_t color_index = kTeamColorUnassigned;
 };
@@ -73,7 +74,6 @@ struct TeamPageSummaryView
 
     std::string team_name;
     std::size_t member_count = 0;
-    std::size_t online_count = 0;
     uint32_t security_round = 0;
     bool has_security_round = false;
     TeamRelativeTimeView last_update;

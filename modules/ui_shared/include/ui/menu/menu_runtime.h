@@ -38,6 +38,8 @@ void init(lv_obj_t* screen_root, lv_obj_t* main_screen, lv_obj_t* menu_panel, co
 void showWatchFace();
 void onWakeFromSleep();
 void setMenuActive(bool active);
+bool handleWalkieKey(char key, int state);
+bool handleShortcutKey(char key, int state);
 void setScene(Scene scene);
 Scene currentScene();
 

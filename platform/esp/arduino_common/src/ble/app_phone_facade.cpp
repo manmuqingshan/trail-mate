@@ -741,6 +741,17 @@ bool AppPhoneFacade::meshCoreSendRawData(const uint8_t* path,
     return backend && backend->sendRawData(path, path_len, payload, payload_len, out_est_timeout);
 }
 
+bool AppPhoneFacade::meshCoreSendRawDataEx(uint8_t profile,
+                                           const uint8_t* path,
+                                           std::size_t path_len,
+                                           const uint8_t* payload,
+                                           std::size_t payload_len,
+                                           uint32_t* out_est_timeout)
+{
+    auto* backend = meshCoreBackend();
+    return backend && backend->sendRawDataEx(profile, path, path_len, payload, payload_len, out_est_timeout);
+}
+
 void AppPhoneFacade::meshCoreSetFloodScopeKey(const uint8_t* key, std::size_t len)
 {
     if (auto* backend = meshCoreBackend())

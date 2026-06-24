@@ -15,6 +15,10 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifndef GPS_NMEA_SAMPLE_LOG_ENABLE
+#define GPS_NMEA_SAMPLE_LOG_ENABLE 0
+#endif
+
 struct uBloxGnssModelInfo
 { // Structure to hold the module info (uses 341 bytes of RAM)
     char softVersion[30];
@@ -693,6 +697,7 @@ void GPS::logDebugRawBurst(const char* reason, uint32_t now_ms)
 
 void GPS::logDebugNmeaSentence(const char* sentence)
 {
+#if GPS_NMEA_SAMPLE_LOG_ENABLE
     if (!sentence || debug_nmea_sentence_count_ >= 8)
     {
         return;
@@ -714,6 +719,9 @@ void GPS::logDebugNmeaSentence(const char* sentence)
                   static_cast<unsigned>(debug_nmea_sentence_count_ + 1),
                   preview);
     debug_nmea_sentence_count_++;
+#else
+    (void)sentence;
+#endif
 }
 
 void GPS::handleNmeaChar(char c)

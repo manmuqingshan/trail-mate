@@ -1,5 +1,6 @@
 #include "ui/widgets/toast/toast_widget.h"
 #include "sys/clock.h"
+#include "ui/localization.h"
 
 #include <algorithm>
 
@@ -63,6 +64,7 @@ void Toast::show(lv_obj_t* parent, const char* text, Type type, const Options& o
     // Label: limit width in pixels (do not use lv_pct for this).
     impl->label = lv_label_create(impl->root);
     lv_label_set_text(impl->label, text);
+    ::ui::i18n::log_direct_text_route("toast", impl->label, text);
     lv_label_set_long_mode(impl->label, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_color(impl->label, lv_color_hex(0x3A2A1A), 0);
 

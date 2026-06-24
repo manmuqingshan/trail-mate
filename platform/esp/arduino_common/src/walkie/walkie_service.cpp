@@ -58,8 +58,9 @@ TaskHandle_t s_task = nullptr;
 volatile bool s_active = false;
 volatile bool s_stop_requested = false;
 volatile bool s_ptt_pressed = false;
+volatile bool s_monitor_enabled = false;
 portMUX_TYPE s_status_lock = portMUX_INITIALIZER_UNLOCKED;
-walkie::Status s_status = {false, false, 0, 0, 0.0f};
+walkie::Status s_status = {};
 char s_last_error[96] = {0};
 uint8_t s_volume = kDefaultVolume;
 platform::esp::common::walkie_runtime::Session s_runtime_session{};
@@ -118,6 +119,13 @@ void update_status_active(bool active)
     portEXIT_CRITICAL(&s_status_lock);
 }
 
+void update_status_monitor(bool enabled)
+{
+    portENTER_CRITICAL(&s_status_lock);
+    s_status.monitor_enabled = enabled;
+    portEXIT_CRITICAL(&s_status_lock);
+}
+
 void update_status_freq(float freq_mhz)
 {
     portENTER_CRITICAL(&s_status_lock);
@@ -133,19 +141,6 @@ void set_error(const char* message)
         return;
     }
     snprintf(s_last_error, sizeof(s_last_error), "%s", message);
-}
-
-uint8_t clamp_volume(int value)
-{
-    if (value < 0)
-    {
-        return 0;
-    }
-    if (value > 100)
-    {
-        return 100;
-    }
-    return static_cast<uint8_t>(value);
 }
 
 uint8_t compute_level(const int16_t* samples, int count, uint8_t prev)
@@ -248,7 +243,12 @@ void cleanup_runtime_session(bool apply_mesh_config)
 void shutdown_walkie_task()
 {
     cleanup_runtime_session(true);
+    s_ptt_pressed = false;
+    s_monitor_enabled = false;
     update_status_active(false);
+    update_status_tx(false);
+    update_status_monitor(false);
+    update_status_levels(0, 0);
     s_active = false;
     s_task = nullptr;
 }
@@ -837,6 +837,7 @@ bool start()
     s_ptt_pressed = false;
     s_active = true;
     update_status_active(true);
+    update_status_monitor(s_monitor_enabled);
     update_status_tx(false);
     update_status_levels(0, 0);
     update_status_freq(freq_mhz);
@@ -854,7 +855,9 @@ bool start()
         std::printf("[WALKIE] task create failed\n");
         cleanup_runtime_session(true);
         update_status_active(false);
+        update_status_monitor(false);
         s_active = false;
+        s_monitor_enabled = false;
         s_task = nullptr;
         return false;
     }
@@ -864,6 +867,11 @@ bool start()
 
 void stop()
 {
+    s_monitor_enabled = false;
+    update_status_monitor(false);
+    s_ptt_pressed = false;
+    update_status_tx(false);
+
     if (!s_active)
     {
         cleanup_runtime_session(true);
@@ -904,20 +912,38 @@ void set_ptt(bool pressed)
 {
     if (!s_active)
     {
+        s_ptt_pressed = false;
+        update_status_tx(false);
         return;
     }
     s_ptt_pressed = pressed;
+    update_status_tx(pressed);
 }
 
-void adjust_volume(int delta)
+bool set_monitor_enabled(bool enabled)
 {
-    if (!s_active)
+    if (enabled)
     {
-        return;
+        if (!start())
+        {
+            s_monitor_enabled = false;
+            update_status_monitor(false);
+            return false;
+        }
+        s_monitor_enabled = true;
+        update_status_monitor(true);
+        return true;
     }
-    s_volume = clamp_volume(static_cast<int>(s_volume) + delta);
-    walkie_runtime::codecSetVolume(&s_runtime_session, s_volume);
-    std::printf("[WALKIE] volume=%u\n", static_cast<unsigned>(s_volume));
+
+    s_monitor_enabled = false;
+    update_status_monitor(false);
+    set_ptt(false);
+    return true;
+}
+
+bool is_monitor_enabled()
+{
+    return s_monitor_enabled;
 }
 
 int get_volume()
@@ -938,7 +964,6 @@ void on_key_event(char key, int state)
     std::printf("[WALKIE] PTT key state=%d\n", state);
     const bool pressed = state != 0;
     set_ptt(pressed);
-    update_status_tx(pressed);
 }
 
 Status get_status()
@@ -980,8 +1005,14 @@ void set_ptt(bool)
 {
 }
 
-void adjust_volume(int)
+bool set_monitor_enabled(bool)
 {
+    return false;
+}
+
+bool is_monitor_enabled()
+{
+    return false;
 }
 
 int get_volume()
@@ -995,7 +1026,7 @@ void on_key_event(char, int)
 
 Status get_status()
 {
-    return {false, false, 0, 0, 0.0f};
+    return {};
 }
 
 const char* get_last_error()

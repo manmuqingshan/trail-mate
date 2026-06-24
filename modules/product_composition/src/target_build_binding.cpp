@@ -16,17 +16,17 @@ constexpr TargetBuildBinding kTargetBuildBindings[] = {
         "migrated",
     },
     {
-        "tdisplayp4_tft",
+        "t_display_p4_tft",
         "builds/esp_idf",
         "apps/esp32_lvgl",
-        "builds/esp_idf/targets/tdisplayp4_tft/sdkconfig.defaults",
+        "builds/esp_idf/targets/t_display_p4_tft/sdkconfig.defaults",
         "migrated",
     },
     {
-        "tdisplayp4_amoled",
+        "t_display_p4_amoled",
         "builds/esp_idf",
         "apps/esp32_lvgl",
-        "builds/esp_idf/targets/tdisplayp4_amoled/sdkconfig.defaults",
+        "builds/esp_idf/targets/t_display_p4_amoled/sdkconfig.defaults",
         "migrated",
     },
     {
@@ -73,6 +73,13 @@ constexpr TargetBuildBinding kTargetBuildBindings[] = {
     },
     {
         "gat562_mesh_evb_pro",
+        "builds/pio_nrf52",
+        "apps/nrf52_node",
+        nullptr,
+        "platformio",
+    },
+    {
+        "t-echo-lite",
         "builds/pio_nrf52",
         "apps/nrf52_node",
         nullptr,

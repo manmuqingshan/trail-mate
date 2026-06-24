@@ -35,6 +35,11 @@ struct Status
     uint8_t ble_state = 0;
     uint8_t espnow_state = 0;
     uint8_t wifi_state = 0;
+    uint32_t ble_uplink_count = 0;
+    uint32_t ble_event_count = 0;
+    uint32_t espnow_uplink_count = 0;
+    uint32_t espnow_event_count = 0;
+    uint32_t wifi_event_count = 0;
     char message[96] = {};
     char detail[128] = {};
 };

@@ -42,6 +42,7 @@ Contacts (Meshtastic - %.3fMHz)	Contacts (Meshtastic - %.3fMHz)
 Contacts (RNode)	Contacts (RNode)
 Contacts (RNode - %.3fMHz)	Contacts (RNode - %.3fMHz)
 Conversation protocol mismatch	Protocole incompatible
+Cyrillic keyboard	Clavier cyrillique
 Data Exchange	Échange données
 Debug Logs	Journaux débogage
 Decoding: %d%%	Décodage : %d%%
@@ -636,3 +637,14 @@ Restore failed	Échec de la restauration
 Settings restored. Restarting...	Réglages restaurés. Redémarrage...
 Overwrite current settings and restart?	Remplacer les réglages actuels et redémarrer ?
 Restore	Restaurer
+Date/Time	Date/heure
+Set Date/Time	Régler date/heure
+Date	Date
+Time	Heure
+Invalid date/time	Date/heure invalide
+Set time unsupported	Réglage de l'heure non pris en charge
+Date/time updated	Date/heure mise à jour
+Seen %um ago	Vu il y a %u min
+Seen %uh ago	Vu il y a %u h
+Seen %ud ago	Vu il y a %u j
+Seen --	Vu --

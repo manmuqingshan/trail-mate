@@ -38,7 +38,7 @@ class ITeamChatCommandPort
 //   Command Sink / Bounded Presentation Context.
 //
 // It handles ConversationKind::Team actions only. It must not send Team
-// through LegacyChatActionSink or core chat direct/channel send paths.
+// through runtime chat sinks or core chat direct/channel send paths.
 class TeamChatActionSink final : public ui::chat::IChatActionSink
 {
   public:

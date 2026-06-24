@@ -105,9 +105,26 @@ constexpr size_t kPrefixSize = 6;
 constexpr size_t kMaxFrameSize = 172;
 constexpr size_t kPubKeySize = chat::meshcore::kMeshCorePubKeySize;
 constexpr size_t kMaxPathSize = 64;
+constexpr uint8_t kPathMetadataExtMarker = 0xE2;
+constexpr uint8_t kPathMetadataExtLen = 3;
 constexpr uint8_t STATS_TYPE_CORE = 0;
 constexpr uint8_t STATS_TYPE_RADIO = 1;
 constexpr uint8_t STATS_TYPE_PACKETS = 2;
+
+bool appendPathMetadataExt(uint8_t* out, size_t out_cap, size_t& index,
+                           const MeshCorePhonePathMetadata& meta)
+{
+    if (!out || index + 2 + kPathMetadataExtLen > out_cap)
+    {
+        return false;
+    }
+    out[index++] = kPathMetadataExtMarker;
+    out[index++] = kPathMetadataExtLen;
+    out[index++] = meta.profile;
+    out[index++] = meta.hash_bytes == 0 ? 1 : meta.hash_bytes;
+    out[index++] = meta.hop_count;
+    return true;
+}
 
 void copyBounded(char* dst, size_t dst_len, const char* src)
 {
@@ -122,6 +139,24 @@ void copyBounded(char* dst, size_t dst_len, const char* src)
     }
     std::strncpy(dst, src, dst_len - 1);
     dst[dst_len - 1] = '\0';
+}
+
+void copyFixedField(uint8_t* dst, size_t dst_len, const char* src)
+{
+    if (!dst || dst_len == 0)
+    {
+        return;
+    }
+    std::memset(dst, 0, dst_len);
+    if (!src)
+    {
+        return;
+    }
+    const size_t copy_len = std::min(dst_len, std::strlen(src));
+    if (copy_len > 0)
+    {
+        std::memcpy(dst, src, copy_len);
+    }
 }
 
 uint32_t nowSeconds()
@@ -300,12 +335,11 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
         const uint32_t ble_pin = hooks_ ? hooks_->getReportedBlePin() : 0;
         std::memcpy(&out[index], &ble_pin, sizeof(ble_pin));
         index += sizeof(ble_pin);
-        std::memset(&out[index], 0, 12);
-        std::strncpy(reinterpret_cast<char*>(&out[index]), __DATE__, 11);
+        copyFixedField(&out[index], 12, __DATE__);
         index += 12;
-        std::strncpy(reinterpret_cast<char*>(&out[index]), device_name_.c_str(), 40);
+        copyFixedField(&out[index], 40, device_name_.c_str());
         index += 40;
-        std::strncpy(reinterpret_cast<char*>(&out[index]), kCompatFirmwareVersion, 20);
+        copyFixedField(&out[index], 20, kCompatFirmwareVersion);
         index += 20;
         enqueueFrame(out, index);
         return;
@@ -972,8 +1006,31 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
     if (cmd == CMD_SEND_RAW_DATA && len >= 6)
     {
         size_t index = 1;
-        const int8_t path_len = static_cast<int8_t>(data[index++]);
-        if (path_len < 0 || (index + static_cast<size_t>(path_len) + 4U) > len)
+        uint8_t profile = 0;
+        uint8_t path_len = 0;
+        if (data[index] == 0x80)
+        {
+            if (len < 1 + 1 + 1 + 1 + 4)
+            {
+                enqueueErr(ERR_CODE_UNSUPPORTED_CMD);
+                return;
+            }
+            ++index;
+            profile = data[index++];
+            path_len = data[index++];
+        }
+        else
+        {
+            const int8_t legacy_path_len = static_cast<int8_t>(data[index++]);
+            if (legacy_path_len < 0)
+            {
+                enqueueErr(ERR_CODE_UNSUPPORTED_CMD);
+                return;
+            }
+            path_len = static_cast<uint8_t>(legacy_path_len);
+        }
+        const uint8_t hash_bytes = profile == 1 ? 2 : 1;
+        if ((path_len % hash_bytes) != 0 || (index + static_cast<size_t>(path_len) + 4U) > len)
         {
             enqueueErr(ERR_CODE_UNSUPPORTED_CMD);
             return;
@@ -983,7 +1040,8 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
         const uint8_t* payload = &data[index];
         const size_t payload_len = len - index;
         uint32_t est_timeout = 0;
-        if (!app_.meshCoreSendRawData(path, static_cast<size_t>(path_len), payload, payload_len, &est_timeout))
+        if (!app_.meshCoreSendRawDataEx(profile, path, static_cast<size_t>(path_len),
+                                        payload, payload_len, &est_timeout))
         {
             enqueueErr(ERR_CODE_TABLE_FULL);
             return;
@@ -1155,14 +1213,29 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
         uint32_t ts = 0;
         uint8_t path_len = 0;
         uint8_t path[kMaxPathSize] = {};
+        MeshCorePhonePathMetadata path_meta{};
+        path_meta.profile = 0;
+        path_meta.hash_bytes = 1;
         bool found = false;
         if (hooks_)
         {
-            size_t lookup_len = kMaxPathSize;
-            found = hooks_->lookupAdvertPath(pubkey, kPubKeySize, &ts, path, &lookup_len);
+            MeshCorePhoneAdvertPath advert_path{};
+            found = hooks_->lookupAdvertPathEx(pubkey, kPubKeySize, &advert_path);
             if (found)
             {
-                path_len = static_cast<uint8_t>(std::min(lookup_len, static_cast<size_t>(kMaxPathSize)));
+                ts = advert_path.timestamp;
+                path_len = advert_path.path_len;
+                std::memcpy(path, advert_path.path, std::min<size_t>(path_len, kMaxPathSize));
+                path_meta = advert_path.meta;
+            }
+            else
+            {
+                size_t lookup_len = kMaxPathSize;
+                found = hooks_->lookupAdvertPath(pubkey, kPubKeySize, &ts, path, &lookup_len);
+                if (found)
+                {
+                    path_len = static_cast<uint8_t>(std::min(lookup_len, static_cast<size_t>(kMaxPathSize)));
+                }
             }
         }
         PhoneNodeView entry{};
@@ -1205,6 +1278,16 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
             std::memcpy(&out[index], path, path_len);
             index += path_len;
         }
+        if (path_meta.hash_bytes == 0)
+        {
+            path_meta.hash_bytes = 1;
+        }
+        if (path_meta.hop_count == 0 && path_len > 0)
+        {
+            path_meta.hop_count = static_cast<uint8_t>(
+                path_len / std::max<uint8_t>(path_meta.hash_bytes, 1));
+        }
+        appendPathMetadataExt(out, sizeof(out), index, path_meta);
         enqueueFrame(out, index);
         return;
     }
@@ -1699,6 +1782,12 @@ bool MeshCorePhoneCore::buildContactFromNode(const PhoneNodeView& entry, uint8_t
     index += sizeof(lon);
     std::memcpy(&out.buf[index], &last_adv, sizeof(last_adv));
     index += sizeof(last_adv);
+
+    MeshCorePhonePathMetadata meta{};
+    meta.profile = 0;
+    meta.hash_bytes = 1;
+    meta.hop_count = 0;
+    appendPathMetadataExt(out.buf.data(), out.buf.size(), index, meta);
 
     out.len = index;
     return true;

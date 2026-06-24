@@ -8,6 +8,13 @@
 #include "chat/infra/node_store_core.h"
 #include "chat/ports/i_node_blob_store.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
+#include <vector>
+
 namespace chat
 {
 namespace meshtastic
@@ -39,6 +46,13 @@ class NodeStore : public contacts::INodeStore,
         Nvs,
     };
 
+    enum class LoadResult : uint8_t
+    {
+        Loaded,
+        MissingOrInvalid,
+        Busy,
+    };
+
     static constexpr const char* kPersistNodesFile = "/nodes.bin";
     static constexpr const char* kPersistNodesNs = "nodes";
     static constexpr const char* kPersistNodesKey = "node_blob";
@@ -50,13 +64,29 @@ class NodeStore : public contacts::INodeStore,
     void clearBlob() override;
 
     bool loadFromNvs(std::vector<uint8_t>& out);
-    bool loadFromSd(std::vector<uint8_t>& out) const;
+    LoadResult loadFromSd(std::vector<uint8_t>& out) const;
     bool saveToNvs(const uint8_t* data, size_t len) const;
     bool saveToSd(const uint8_t* data, size_t len) const;
+    bool saveToBackend(const uint8_t* data, size_t len, StorageBackend backend) const;
+    void ensureAsyncSaveWorker();
+    bool enqueueAsyncSave(const uint8_t* data, size_t len);
+    bool waitForAsyncSave(TickType_t wait_ticks);
+    void asyncSaveLoop();
+    static void asyncSaveTaskEntry(void* context);
     void clearNvs() const;
 
     contacts::NodeStoreCore core_;
     StorageBackend backend_ = StorageBackend::Nvs;
+    SemaphoreHandle_t async_save_mutex_ = nullptr;
+    QueueHandle_t async_save_queue_ = nullptr;
+    TaskHandle_t async_save_task_ = nullptr;
+    std::vector<uint8_t> pending_save_blob_;
+    StorageBackend pending_save_backend_ = StorageBackend::Nvs;
+    uint32_t pending_save_generation_ = 0;
+    uint32_t completed_save_generation_ = 0;
+    bool async_save_pending_ = false;
+    bool async_save_busy_ = false;
+    bool async_save_failed_ = false;
 };
 
 } // namespace meshtastic

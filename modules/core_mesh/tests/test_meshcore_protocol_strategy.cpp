@@ -79,6 +79,37 @@ int main()
     assert(event.payload.size == sizeof(text) - 1);
     assert(std::memcmp(event.payload.data, text, sizeof(text) - 1) == 0);
 
+    uint8_t v2_dest_hash[2] = {0x44, 0x33};
+    uint8_t v2_src_hash[2] = {0x22, 0x11};
+    context.meshcore_payload_ver = chat::meshcore::kMeshCorePayloadVer2;
+    context.meshcore_peer_hash = mesh::ByteView{v2_dest_hash, sizeof(v2_dest_hash)};
+    context.meshcore_local_hash = mesh::ByteView{v2_src_hash, sizeof(v2_src_hash)};
+    auto v2_direct_built = strategy.buildDirectMessage(context, command, encoded);
+    assert(v2_direct_built.ok);
+    chat::meshcore::ParsedPacket parsed_v2_direct{};
+    assert(chat::meshcore::parsePacket(encoded.bytes, encoded.size, &parsed_v2_direct));
+    assert(parsed_v2_direct.payload_ver == chat::meshcore::kMeshCorePayloadVer2);
+    assert(parsed_v2_direct.payload_len > 4);
+    assert(std::memcmp(parsed_v2_direct.payload, v2_dest_hash, sizeof(v2_dest_hash)) == 0);
+    assert(std::memcmp(parsed_v2_direct.payload + sizeof(v2_dest_hash),
+                       v2_src_hash,
+                       sizeof(v2_src_hash)) == 0);
+
+    packet = mesh::RadioRxPacket{};
+    std::memcpy(packet.bytes, encoded.bytes, encoded.size);
+    packet.size = encoded.size;
+    event = mesh::MeshProtocolEvent{};
+    auto v2_direct_parsed = receiver.parseRadioPacket(packet, event);
+    assert(v2_direct_parsed.ok);
+    assert(event.kind == mesh::MeshProtocolEventKind::MessageReceived);
+    assert(event.peer == mesh::NodeId{0x22});
+    assert(event.payload.size == sizeof(text) - 1);
+    assert(std::memcmp(event.payload.data, text, sizeof(text) - 1) == 0);
+
+    context.meshcore_payload_ver = chat::meshcore::kMeshCorePayloadVer1;
+    context.meshcore_peer_hash = mesh::ByteView{};
+    context.meshcore_local_hash = mesh::ByteView{};
+
     uint8_t group_key[16] = {};
     for (size_t index = 0; index < sizeof(group_key); ++index)
     {
@@ -131,6 +162,37 @@ int main()
     assert(event.peer == context.local_node);
     assert(event.payload.size == sizeof(text) - 1);
     assert(std::memcmp(event.payload.data, text, sizeof(text) - 1) == 0);
+
+    context.meshcore_payload_ver = chat::meshcore::kMeshCorePayloadVer2;
+    context.meshcore_channel_hash = mesh::ByteView{};
+    auto v2_group_built = strategy.buildDirectMessage(context, group_command, encoded);
+    assert(v2_group_built.ok);
+    chat::meshcore::ParsedPacket parsed_v2_group{};
+    assert(chat::meshcore::parsePacket(encoded.bytes, encoded.size, &parsed_v2_group));
+    assert(parsed_v2_group.payload_ver == chat::meshcore::kMeshCorePayloadVer2);
+    assert(parsed_v2_group.payload_len > (chat::meshcore::kMeshCoreV2HashBytes +
+                                          chat::meshcore::kMeshCoreV2CipherMacSize));
+    uint8_t expected_group_hash[2] = {};
+    assert(chat::meshcore::computeChannelHashBytes(group_key,
+                                                   expected_group_hash,
+                                                   sizeof(expected_group_hash)));
+    assert(std::memcmp(parsed_v2_group.payload,
+                       expected_group_hash,
+                       sizeof(expected_group_hash)) == 0);
+
+    packet = mesh::RadioRxPacket{};
+    std::memcpy(packet.bytes, encoded.bytes, encoded.size);
+    packet.size = encoded.size;
+    event = mesh::MeshProtocolEvent{};
+    auto v2_group_parsed = receiver.parseRadioPacket(packet, event);
+    assert(v2_group_parsed.ok);
+    assert(event.kind == mesh::MeshProtocolEventKind::MessageReceived);
+    assert(event.peer == context.local_node);
+    assert(event.payload.size == sizeof(text) - 1);
+    assert(std::memcmp(event.payload.data, text, sizeof(text) - 1) == 0);
+
+    context.meshcore_payload_ver = chat::meshcore::kMeshCorePayloadVer1;
+    context.meshcore_channel_hash = mesh::ByteView{};
 
     mesh::meshcore::McIdentityFlow identity;
     uint8_t seed[mesh::meshcore::kMeshCoreSeedSize] = {};

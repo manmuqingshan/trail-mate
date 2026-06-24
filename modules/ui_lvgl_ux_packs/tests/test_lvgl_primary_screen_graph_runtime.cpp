@@ -24,7 +24,6 @@ int main()
     assert(runtime.usingPrimaryScreenGraph());
     assert(runtime.runtimeSource() ==
            ui_lvgl_ux::LvglScreenGraphRuntimeSource::ScreenGraphAdoption);
-    assert(!runtime.fallbackUsed());
     assert(runtime.menuCount() > 0);
     assert(runtime.screenCount() > 0);
     assert(runtime.adoption().presenter().menuEntries()[0].route.valid);
@@ -34,8 +33,7 @@ int main()
     assert(!runtime.ready());
     assert(!runtime.usingPrimaryScreenGraph());
     assert(runtime.runtimeSource() ==
-           ui_lvgl_ux::LvglScreenGraphRuntimeSource::HardcodedFallback);
-    assert(runtime.fallbackUsed());
+           ui_lvgl_ux::LvglScreenGraphRuntimeSource::Unavailable);
     assert(runtime.menuCount() == 0);
     assert(runtime.screenCount() == 0);
     return 0;

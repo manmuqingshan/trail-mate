@@ -10,20 +10,10 @@ bool LvglPrimaryScreenGraphRuntime::load(
     if (ready_)
     {
         source_ = LvglScreenGraphRuntimeSource::ScreenGraphAdoption;
-        fallback_ = false;
         return true;
     }
 
-    source_ = LvglScreenGraphRuntimeSource::HardcodedFallback;
-    fallback_ = true;
-    return loadFallback(presentation);
-}
-
-bool LvglPrimaryScreenGraphRuntime::loadFallback(
-    const product_composition::PresentationBundle&)
-{
-    // Phase 10 fallback containment: real LVGL menu/page creation remains
-    // available until descriptor consumption becomes the renderer input.
+    source_ = LvglScreenGraphRuntimeSource::Unavailable;
     return false;
 }
 
@@ -35,12 +25,7 @@ bool LvglPrimaryScreenGraphRuntime::ready() const noexcept
 bool LvglPrimaryScreenGraphRuntime::usingPrimaryScreenGraph() const noexcept
 {
     return source_ == LvglScreenGraphRuntimeSource::ScreenGraphAdoption &&
-           ready_ && !fallback_;
-}
-
-bool LvglPrimaryScreenGraphRuntime::fallbackUsed() const noexcept
-{
-    return fallback_;
+           ready_;
 }
 
 LvglScreenGraphRuntimeSource

@@ -42,6 +42,7 @@ Contacts (Meshtastic - %.3fMHz)	Contacten (Meshtastic - %.3fMHz)
 Contacts (RNode)	Contacten (RNode)
 Contacts (RNode - %.3fMHz)	Contacten (RNode - %.3fMHz)
 Conversation protocol mismatch	Gespreksprotocol komt niet overeen
+Cyrillic keyboard	Cyrillisch toetsenbord
 Data Exchange	Gegevensuitwisseling
 Debug Logs	Foutopsporingslogboeken
 Decoding: %d%%	Decodering: %d%%
@@ -636,3 +637,14 @@ Restore failed	Herstellen mislukt
 Settings restored. Restarting...	Instellingen hersteld. Opnieuw starten...
 Overwrite current settings and restart?	Huidige instellingen overschrijven en opnieuw starten?
 Restore	Herstellen
+Date/Time	Datum/tijd
+Set Date/Time	Datum/tijd instellen
+Date	Datum
+Time	Tijd
+Invalid date/time	Ongeldige datum/tijd
+Set time unsupported	Tijd instellen niet ondersteund
+Date/time updated	Datum/tijd bijgewerkt
+Seen %um ago	%u min geleden gezien
+Seen %uh ago	%u u geleden gezien
+Seen %ud ago	%u d geleden gezien
+Seen --	Gezien --

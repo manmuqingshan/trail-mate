@@ -51,6 +51,7 @@ class IAppConfigFacade
     virtual AppConfig& getConfig() = 0;
     virtual const AppConfig& getConfig() const = 0;
     virtual void saveConfig() = 0;
+    virtual void requestSaveConfig() { saveConfig(); }
     virtual void applyMeshConfig() = 0;
     virtual void applyUserInfo() = 0;
     virtual void applyPositionConfig() = 0;

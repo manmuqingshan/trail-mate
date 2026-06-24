@@ -103,6 +103,7 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     static constexpr const BoardProfile::SdmmcPins& sdmmcPins() { return profile().sdmmc; }
     static constexpr const BoardProfile::LoRaModulePins& loraModulePins() { return profile().lora; }
     static constexpr const BoardProfile::IoExpanderPins& ioExpanderPins() { return profile().io_expander; }
+    static constexpr const BoardProfile::KeyboardModule& keyboardModule() { return profile().keyboard; }
     static constexpr const BoardProfile::PanelGeometry& activePanel()
     {
         return configuredPanelType() == DisplayPanelType::Rm69a10 ? profile().rm69a10_panel
@@ -129,6 +130,7 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     bool hasKeyboard() override;
     void keyboardSetBrightness(uint8_t level) override;
     uint8_t keyboardGetBrightness() override;
+    void setKeyboardReady(bool ready);
 
     bool isRTCReady() const override;
     bool isCharging() override;
@@ -231,8 +233,10 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     bool sd_ready_ = false;
     bool sd_enabled_ = false;
     bool battery_charging_ = false;
+    bool keyboard_ready_ = false;
     int last_battery_level_ = -1;
     uint8_t brightness_level_ = DEVICE_MAX_BRIGHTNESS_LEVEL;
+    uint8_t keyboard_brightness_ = 0;
     uint8_t message_tone_volume_ = 45;
     sdmmc_card_t* sd_card_ = nullptr;
     char sd_mount_point_[32] = {};

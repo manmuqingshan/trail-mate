@@ -58,9 +58,9 @@ These should not regress:
 
 - `ui_presentation/*`
 - `apps/linux_sim/tests/*ascii_probe*.cpp`
-- `ChatPresentationSource` / `LegacyChatActionSink`
+- `ChatPresentationSource` / `RuntimeChatActionSink`
 - `TeamChatPresentationSource` / `TeamChatActionSink`
-- `LegacyMapPresentationSource` / `LegacyMapActionSink`
+- `RuntimeMapWorkspaceSource` / `RuntimeMapActionSink`
 - `ChatWorkspaceModel`-backed non-team message rendering
 - `TeamChatPresentationSource`-backed Team text rendering
 - `MapWorkspaceModel`-backed map workspace status/action path
@@ -110,7 +110,7 @@ GTK/uConsole migrated path:
 
 - `UConsoleMapWorkspaceModel` must keep exposing `presentation_workspace`
 - `UConsoleMapWorkspaceModel` must keep map status/center projection behind
-  `LegacyMapPresentationSource`, `LegacyMapActionSink`, and
+  `RuntimeMapWorkspaceSource`, `RuntimeMapActionSink`, and
   `MapWorkspaceModel`
 - GTK overview GPS compatibility logic remains a baseline legacy island until a
   dedicated overview presentation model exists

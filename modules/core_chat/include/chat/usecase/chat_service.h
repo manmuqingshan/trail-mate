@@ -69,6 +69,11 @@ class ChatService
                                     NodeId peer = 0);
     MeshSendResult sendTextWithIdDetailed(ChannelId channel, const std::string& text,
                                           MessageId forced_msg_id, NodeId peer = 0);
+    bool canSendToConversation(const ConversationId& conversation) const;
+    MessageId sendTextToConversation(const ConversationId& conversation,
+                                     const std::string& text);
+    MeshSendResult sendTextToConversationDetailed(const ConversationId& conversation,
+                                                  const std::string& text);
 
     /**
      * @brief Trigger protocol discovery action (if supported by active adapter)

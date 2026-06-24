@@ -72,6 +72,7 @@ struct RuntimeState
     uint32_t probe_deadline_ms = 0;
     uint32_t last_rx_ms = 0;
     uint32_t last_fix_ms = 0;
+    uint32_t last_fix_log_ms = 0;
     uint32_t last_no_data_log_ms = 0;
     uint32_t last_time_sync_attempt_ms = 0;
     bool first_sentence_logged = false;
@@ -425,8 +426,10 @@ void parse_rmc_locked(const std::array<char*, kMaxFields>& fields, std::size_t c
     maybe_sync_time_from_rmc_locked(fields, count, ts);
     if (!active) return;
     double lat = 0.0, lng = 0.0, speed_knots = 0.0, course = 0.0;
-    if (parse_latlon(fields[3], fields[4], true, &lat)) s_runtime.data.lat = lat;
-    if (parse_latlon(fields[5], fields[6], false, &lng)) s_runtime.data.lng = lng;
+    const bool lat_ok = parse_latlon(fields[3], fields[4], true, &lat);
+    const bool lng_ok = parse_latlon(fields[5], fields[6], false, &lng);
+    if (lat_ok) s_runtime.data.lat = lat;
+    if (lng_ok) s_runtime.data.lng = lng;
     if (parse_double(fields[7], &speed_knots))
     {
         s_runtime.data.speed_mps = speed_knots * 0.514444;
@@ -446,6 +449,16 @@ void parse_rmc_locked(const std::array<char*, kMaxFields>& fields, std::size_t c
         s_runtime.data.has_course = false;
     }
     s_runtime.last_fix_ms = ts;
+    if (lat_ok && lng_ok &&
+        (s_runtime.last_fix_log_ms == 0 || (ts - s_runtime.last_fix_log_ms) >= 5000U))
+    {
+        ESP_LOGI(kTag,
+                 "GNSS fix lat=%.6f lng=%.6f sats=%u age_ms=0",
+                 s_runtime.data.lat,
+                 s_runtime.data.lng,
+                 static_cast<unsigned>(s_runtime.data.satellites));
+        s_runtime.last_fix_log_ms = ts;
+    }
 }
 
 void parse_gga_locked(const std::array<char*, kMaxFields>& fields, std::size_t count, uint32_t ts)
@@ -696,6 +709,7 @@ void worker_task(void*)
         s_runtime.worker_handle = nullptr;
         s_runtime.last_rx_ms = 0;
         s_runtime.last_fix_ms = 0;
+        s_runtime.last_fix_log_ms = 0;
         s_runtime.last_time_sync_attempt_ms = 0;
         s_runtime.last_time_sync_epoch = 0;
         s_runtime.time_sync_committed = is_valid_epoch(std::time(nullptr));

@@ -4,9 +4,9 @@
 #include <cstdlib>
 
 #include "app/app_facade_access.h"
-#include "boards/gat562_mesh_evb_pro/gat562_board.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "nrf52_node_app_facade_runtime.h"
+#include "nrf52_node_target_board.h"
 #include "nrf52_node_ui_runtime.h"
 #include "platform/nrf52/arduino_common/chat/infra/radio_packet_io.h"
 #include "platform/nrf52/debug/nrf52_debug_console.h"
@@ -41,16 +41,16 @@ bool initialize()
     s_status.app_facade_bound = runtime.initialize() && app::hasAppFacade();
     if (!s_status.app_facade_bound)
     {
-        platform::nrf52::debug_console::println("[gat562] app runtime init failed");
+        platform::nrf52::debug_console::printf("%s app runtime init failed\n", target_board::kLogTag);
     }
     return s_status.app_facade_bound;
 }
 
 void tick()
 {
-    auto& board = ::boards::gat562_mesh_evb_pro::Gat562Board::instance();
+    auto& board = target_board::instance();
     board.tickGps();
-    ::boards::gat562_mesh_evb_pro::BoardInputEvent input_event{};
+    target_board::BoardInputEvent input_event{};
     (void)board.pollInputEvent(&input_event);
     AppFacadeRuntime& runtime = AppFacadeRuntime::instance();
     if (chat::IMeshAdapter* adapter = runtime.getMeshAdapter())
@@ -68,7 +68,8 @@ void tick()
             if (s_rx_packet_count <= 4 || (now_ms - s_last_rx_log_ms) >= 2000U)
             {
                 s_last_rx_log_ms = now_ms;
-                platform::nrf52::debug_console::printf("[gat562] rx raw #%lu len=%u rssi=%d.%01d snr=%d.%01d\n",
+                platform::nrf52::debug_console::printf("%s rx raw #%lu len=%u rssi=%d.%01d snr=%d.%01d\n",
+                                                       target_board::kLogTag,
                                                        static_cast<unsigned long>(s_rx_packet_count),
                                                        static_cast<unsigned>(packet.size),
                                                        packet.rx_meta.rssi_dbm_x10 / 10,

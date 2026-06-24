@@ -41,18 +41,12 @@ const char* LinuxUConsoleGtkAppShell::activeUxPackId() const
 
 bool LinuxUConsoleGtkAppShell::validate() const
 {
-    const auto& historical_source =
-        linuxUConsoleGtkHistoricalSourceDescriptor();
     return config_.target_id != nullptr &&
            targetProfile() != nullptr &&
            product_composition::findTargetUxBinding(targetId()) != nullptr &&
            config_.ux_pack_id != nullptr &&
            std::strcmp(config_.ux_pack_id, activeUxPackId()) == 0 &&
-           ui_lvgl_ux::findUxPackById(activeUxPackId()) != nullptr &&
-           config_.historical_source != nullptr &&
-           historical_source.historical_root_name != nullptr &&
-           historical_source.historical_role != nullptr &&
-           historical_source.replacement_owner != nullptr;
+           ui_lvgl_ux::findUxPackById(activeUxPackId()) != nullptr;
 }
 
 } // namespace linux_uconsole_gtk

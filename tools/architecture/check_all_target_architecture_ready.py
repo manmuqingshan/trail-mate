@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 TARGETS = [
     "tab5",
-    "tdisplayp4_tft",
-    "tdisplayp4_amoled",
+    "t_display_p4_tft",
+    "t_display_p4_amoled",
     "tlora_pager",
     "tdeck",
     "twatch",
@@ -20,7 +20,7 @@ TARGETS = [
 
 BOARD_DIRS = [
     "boards/tab5",
-    "boards/tdisplayp4",
+    "boards/t_display_p4",
     "boards/tlora_pager",
     "boards/tdeck",
     "boards/twatch",
@@ -31,7 +31,7 @@ BOARD_DIRS = [
 
 UI_PROFILES = [
     "tab5_touch_ui",
-    "tdisplayp4_touch_ui",
+    "t_display_p4_touch_ui",
     "pager_compact_ui",
     "deck_wide_ui",
     "watch_compact_ui",
@@ -42,7 +42,7 @@ UI_PROFILES = [
 
 PAGE_MANIFESTS = [
     "tab5_touch_manifest",
-    "tdisplayp4_touch_manifest",
+    "t_display_p4_touch_manifest",
     "pager_compact_manifest",
     "deck_full_manifest",
     "watch_compact_manifest",
@@ -53,7 +53,7 @@ PAGE_MANIFESTS = [
 
 LAYOUT_PROFILES = [
     "tab5_large_touch",
-    "tdisplayp4_touch",
+    "t_display_p4_touch",
     "pager_compact",
     "deck_wide",
     "watch_compact",

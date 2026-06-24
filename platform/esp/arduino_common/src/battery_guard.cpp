@@ -5,7 +5,7 @@
 #include "board/BoardBase.h"
 #include "lvgl.h"
 #include "ui/localization.h"
-#include "ui/widgets/system_notification.h"
+#include "ui/runtime/ui_feedback.h"
 
 namespace
 {
@@ -81,12 +81,12 @@ void handleLowBattery(int level, bool charging)
         s_critical_battery_streak++;
         if (now_ms - s_last_critical_battery_warn_ms >= kCriticalBatteryWarnCooldownMs)
         {
-            ui::SystemNotification::show(::ui::i18n::tr("Battery critical"), 2500);
+            ui::feedback::show_notice(::ui::i18n::tr("Battery critical"), 2500);
             s_last_critical_battery_warn_ms = now_ms;
         }
         if (s_critical_battery_streak >= kCriticalStreakToShutdown && s_low_battery_shutdown_timer == nullptr)
         {
-            ui::SystemNotification::show(::ui::i18n::tr("Shutting down to protect battery"), 3000);
+            ui::feedback::show_notice(::ui::i18n::tr("Shutting down to protect battery"), 3000);
             s_low_battery_shutdown_timer = lv_timer_create(lowBatteryShutdownCallback, kCriticalShutdownDelayMs, nullptr);
             if (s_low_battery_shutdown_timer)
             {
@@ -102,7 +102,7 @@ void handleLowBattery(int level, bool charging)
     if (level <= kLowBatteryWarnPercent && now_ms - s_last_low_battery_warn_ms >= kLowBatteryWarnCooldownMs)
     {
         const std::string msg = ::ui::i18n::format("Low battery: %d%%", level);
-        ui::SystemNotification::show(msg.c_str(), 2500);
+        ui::feedback::show_notice(msg.c_str(), 2500);
         s_last_low_battery_warn_ms = now_ms;
     }
 #else

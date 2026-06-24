@@ -43,6 +43,11 @@ ALLOWED_ENGLISH_EQUIVALENTS = {
 
 REAL_IME_BACKENDS = {
     "builtin-pinyin": {"zh-hans-pinyin"},
+    "builtin-keyboard-layout": {"ru-cyrillic-keyboard"},
+}
+
+REAL_IME_LAYOUTS = {
+    "ru-cyrillic-keyboard": "ru-cyrillic",
 }
 
 
@@ -159,6 +164,12 @@ def validate_manifests(pack_root: Path) -> list[str]:
         backend = manifest.get("backend", "none")
         if ime_id not in REAL_IME_BACKENDS.get(backend, set()):
             errors.append(f"{manifest_path}: unsupported runtime IME backend/id: {backend}/{ime_id}")
+        expected_layout = REAL_IME_LAYOUTS.get(ime_id, "")
+        layout = manifest.get("layout", "")
+        if expected_layout and layout != expected_layout:
+            errors.append(f"{manifest_path}: expected layout={expected_layout} for IME {ime_id}")
+        elif not expected_layout and layout:
+            errors.append(f"{manifest_path}: unexpected layout for non-layout IME: {ime_id}")
         ime_backends[ime_id] = backend
 
     for manifest_path in sorted(pack_root.glob("*/locales/*/manifest.ini")):

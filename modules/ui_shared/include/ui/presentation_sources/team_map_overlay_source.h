@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace ui::presentation_sources
 {
@@ -37,8 +38,15 @@ class TeamMapOverlaySource final : public ::ui::map_overlay::IMapOverlayTeamSour
 
   private:
     ::team::ui::ITeamUiSnapshotStore& snapshot_store_;
+    mutable bool cached_positions_valid_ = false;
+    mutable uint32_t cached_positions_ms_ = 0;
+    mutable ::team::TeamId cached_team_id_{};
+    mutable ::team::ui::TeamUiSnapshot cached_snapshot_{};
+    mutable std::vector<::team::ui::TeamPosSample> cached_samples_;
 
     bool loadSnapshot(::team::ui::TeamUiSnapshot& out) const;
+    bool loadCachedPositions(::team::ui::TeamUiSnapshot& snapshot,
+                             const std::vector<::team::ui::TeamPosSample>*& samples) const;
     static TeamMapLocation locationFromSample(
         const ::team::ui::TeamUiSnapshot& snapshot,
         const ::team::ui::TeamPosSample& sample);

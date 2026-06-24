@@ -8,8 +8,20 @@
 #include <cstdio>
 #include <cstring>
 
-// GPS task logs are release diagnostics while receiver bring-up is unstable.
+// GPS task loop diagnostics are high frequency and can stall touch/LVGL work on ESP.
+// Enable only while actively debugging receiver bring-up.
+#ifndef TRAIL_MATE_GPS_TASK_DEBUG
+#define TRAIL_MATE_GPS_TASK_DEBUG 0
+#endif
+
+#if TRAIL_MATE_GPS_TASK_DEBUG
 #define GPS_TASK_LOG(...) Serial.printf(__VA_ARGS__)
+#else
+#define GPS_TASK_LOG(...) \
+    do                    \
+    {                     \
+    } while (0)
+#endif
 
 namespace
 {
@@ -635,6 +647,9 @@ void GpsService::gpsTask(void* pvParameters)
         uint8_t health_sat_count = 0;
         uint8_t health_sats_in_view = 0;
         uint8_t health_sats_in_use = 0;
+        double health_lat = 0.0;
+        double health_lng = 0.0;
+        uint32_t health_fix_age_ms = UINT32_MAX;
 
         if (service->motion_adapter_.isReady() && service->motion_policy_.isEnabled())
         {
@@ -705,11 +720,11 @@ void GpsService::gpsTask(void* pvParameters)
             }
             if (uart_read_bytes != chars_this_loop && (uart_read_bytes > 0 || chars_this_loop > 0))
             {
-                Serial.printf("[GPS][COUNT_CHECK] loop=%lu read_bytes=%lu tinygps_delta=%lu total=%lu\n",
-                              static_cast<unsigned long>(loop_count),
-                              static_cast<unsigned long>(uart_read_bytes),
-                              static_cast<unsigned long>(chars_this_loop),
-                              static_cast<unsigned long>(total_chars));
+                GPS_TASK_LOG("[GPS][COUNT_CHECK] loop=%lu read_bytes=%lu tinygps_delta=%lu total=%lu\n",
+                             static_cast<unsigned long>(loop_count),
+                             static_cast<unsigned long>(uart_read_bytes),
+                             static_cast<unsigned long>(chars_this_loop),
+                             static_cast<unsigned long>(total_chars));
             }
 
             if (service->gps_data_mutex_ != NULL && xSemaphoreTake(service->gps_data_mutex_, portMAX_DELAY) == pdTRUE)
@@ -783,6 +798,14 @@ void GpsService::gpsTask(void* pvParameters)
                                          service->gps_state_.lat, service->gps_state_.lng,
                                          service->gps_state_.satellites, loop_count);
                         }
+                        if (!was_valid)
+                        {
+                            Serial.printf("[GPS][FIX] acquired lat=%.6f lng=%.6f sat=%u loop=%lu\n",
+                                          service->gps_state_.lat,
+                                          service->gps_state_.lng,
+                                          static_cast<unsigned>(service->gps_state_.satellites),
+                                          static_cast<unsigned long>(loop_count));
+                        }
                     }
                     else
                     {
@@ -816,6 +839,12 @@ void GpsService::gpsTask(void* pvParameters)
                 health_sat_count = sat_count;
                 health_sats_in_view = service->gnss_status_.sats_in_view;
                 health_sats_in_use = service->gnss_status_.sats_in_use;
+                health_lat = service->gps_state_.lat;
+                health_lng = service->gps_state_.lng;
+                health_fix_age_ms =
+                    (service->gps_state_.valid && service->gps_last_update_time_ > 0)
+                        ? (millis() - service->gps_last_update_time_)
+                        : UINT32_MAX;
                 xSemaphoreGive(service->gps_data_mutex_);
 
                 // Append GPX track points outside the GPS mutex to keep the task responsive.
@@ -823,6 +852,7 @@ void GpsService::gpsTask(void* pvParameters)
                 {
                     gps::TrackRecorder::getInstance().appendPoint(track_pt);
                 }
+                gps::TrackRecorder::getInstance().flushPending(false);
             }
             else
             {
@@ -932,10 +962,13 @@ void GpsService::gpsTask(void* pvParameters)
                 (total_chars >= last_health_total_chars) ? (total_chars - last_health_total_chars) : 0;
             const uint32_t reads_since_log =
                 (total_uart_reads >= last_health_total_uart_reads) ? (total_uart_reads - last_health_total_uart_reads) : 0;
-            Serial.printf("[GPS] health ready=%d powered=%d state=%s sats=%u view=%u use=%u chars_total=%lu chars_%lus=%lu read_%lus=%lu poll_ms=%lu collection_ms=%lu loops=%lu\n",
+            Serial.printf("[GPS] health ready=%d powered=%d state=%s lat=%.6f lng=%.6f age_ms=%lu sats=%u view=%u use=%u chars_total=%lu chars_%lus=%lu read_%lus=%lu poll_ms=%lu collection_ms=%lu loops=%lu\n",
                           gps_ready ? 1 : 0,
                           service->gps_powered_ ? 1 : 0,
                           gps_valid_text(health_valid),
+                          health_lat,
+                          health_lng,
+                          static_cast<unsigned long>(health_fix_age_ms),
                           static_cast<unsigned>(health_sat_count),
                           static_cast<unsigned>(health_sats_in_view),
                           static_cast<unsigned>(health_sats_in_use),

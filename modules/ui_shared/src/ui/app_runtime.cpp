@@ -3,6 +3,10 @@
 #include "ui/menu/menu_profile.h"
 #include "ui/menu/menu_runtime.h"
 
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+
 #if defined(ESP_PLATFORM)
 #include "esp_log.h"
 #endif
@@ -23,6 +27,183 @@ lv_timer_t* s_exit_timer = nullptr;
 lv_timer_t* s_rebuild_timer = nullptr;
 bool s_overlay_active = false;
 
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+struct AppEdgeSwipeState
+{
+    bool pressed = false;
+    bool armed = false;
+    bool triggered = false;
+    lv_point_t start = {0, 0};
+    lv_point_t last = {0, 0};
+};
+
+AppEdgeSwipeState s_app_edge_swipe;
+
+constexpr lv_coord_t kAppBackEdgeBandMin = 36;
+constexpr lv_coord_t kAppBackEdgeBandMax = 76;
+constexpr lv_coord_t kAppBackSwipeMin = 88;
+constexpr lv_coord_t kAppBackSwipeMax = 160;
+constexpr lv_coord_t kAppBackSwipeSlop = 28;
+
+void reset_app_edge_swipe()
+{
+    s_app_edge_swipe = {};
+}
+
+lv_coord_t active_view_height()
+{
+    if (main_screen != nullptr)
+    {
+        const lv_coord_t height = lv_obj_get_height(main_screen);
+        if (height > 0)
+        {
+            return height;
+        }
+    }
+
+    const lv_coord_t height = lv_display_get_vertical_resolution(nullptr);
+    return height > 0 ? height : static_cast<lv_coord_t>(540);
+}
+
+lv_coord_t bottom_edge_band(lv_coord_t height)
+{
+    return std::min(kAppBackEdgeBandMax, std::max(kAppBackEdgeBandMin, height / 10));
+}
+
+lv_coord_t back_swipe_threshold(lv_coord_t height)
+{
+    return std::min(kAppBackSwipeMax, std::max(kAppBackSwipeMin, height / 6));
+}
+
+bool app_edge_swipe_enabled()
+{
+    return ui::menu_runtime::currentScene() == ui::menu_runtime::Scene::App &&
+           ui_get_active_app() != nullptr &&
+           !ui_is_overlay_active();
+}
+
+bool starts_in_bottom_edge(const lv_point_t& point)
+{
+    const lv_coord_t height = active_view_height();
+    return point.y >= height - bottom_edge_band(height);
+}
+
+bool crosses_back_swipe_threshold(const lv_point_t& point)
+{
+    const lv_coord_t height = active_view_height();
+    const int dx = point.x - s_app_edge_swipe.start.x;
+    const int dy = point.y - s_app_edge_swipe.start.y;
+    return dy <= -back_swipe_threshold(height) &&
+           std::abs(dy) > std::abs(dx) + kAppBackSwipeSlop;
+}
+
+void trigger_app_edge_back(lv_indev_t* indev)
+{
+    if (s_app_edge_swipe.triggered)
+    {
+        return;
+    }
+    s_app_edge_swipe.triggered = true;
+#if defined(ESP_PLATFORM)
+    ESP_LOGI(kTag, "bottom edge swipe -> exit to menu app=%s",
+             s_active_app ? s_active_app->name() : "(null)");
+#endif
+    ui_request_exit_to_menu();
+    if (indev != nullptr)
+    {
+        lv_indev_wait_release(indev);
+        lv_indev_stop_processing(indev);
+    }
+}
+
+void app_edge_swipe_indev_cb(lv_event_t* e)
+{
+    lv_indev_t* indev = static_cast<lv_indev_t*>(lv_event_get_current_target(e));
+    if (indev == nullptr || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER)
+    {
+        return;
+    }
+
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING &&
+        code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST &&
+        code != LV_EVENT_GESTURE)
+    {
+        return;
+    }
+
+    if (!app_edge_swipe_enabled())
+    {
+        reset_app_edge_swipe();
+        return;
+    }
+
+    lv_point_t point{};
+    lv_indev_get_point(indev, &point);
+
+    if (code == LV_EVENT_PRESSED)
+    {
+        reset_app_edge_swipe();
+        s_app_edge_swipe.pressed = true;
+        s_app_edge_swipe.armed = starts_in_bottom_edge(point);
+        s_app_edge_swipe.start = point;
+        s_app_edge_swipe.last = point;
+        return;
+    }
+
+    if (!s_app_edge_swipe.pressed || !s_app_edge_swipe.armed)
+    {
+        if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST)
+        {
+            reset_app_edge_swipe();
+        }
+        return;
+    }
+
+    s_app_edge_swipe.last = point;
+    if (code == LV_EVENT_GESTURE)
+    {
+        const lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+        if (dir == LV_DIR_TOP && crosses_back_swipe_threshold(point))
+        {
+            trigger_app_edge_back(indev);
+        }
+        return;
+    }
+
+    if (code == LV_EVENT_PRESSING && crosses_back_swipe_threshold(point))
+    {
+        trigger_app_edge_back(indev);
+        return;
+    }
+
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST)
+    {
+        if (code == LV_EVENT_RELEASED && crosses_back_swipe_threshold(point))
+        {
+            trigger_app_edge_back(indev);
+            return;
+        }
+        reset_app_edge_swipe();
+    }
+}
+
+void install_app_edge_swipe(lv_indev_t* indev)
+{
+    if (indev == nullptr || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER)
+    {
+        return;
+    }
+
+    lv_indev_remove_event_cb_with_user_data(indev, app_edge_swipe_indev_cb, nullptr);
+    lv_indev_add_event_cb(indev, app_edge_swipe_indev_cb, LV_EVENT_PRESSED, nullptr);
+    lv_indev_add_event_cb(indev, app_edge_swipe_indev_cb, LV_EVENT_PRESSING, nullptr);
+    lv_indev_add_event_cb(indev, app_edge_swipe_indev_cb, LV_EVENT_RELEASED, nullptr);
+    lv_indev_add_event_cb(indev, app_edge_swipe_indev_cb, LV_EVENT_PRESS_LOST, nullptr);
+    lv_indev_add_event_cb(indev, app_edge_swipe_indev_cb, LV_EVENT_GESTURE, nullptr);
+}
+#endif
+
 lv_anim_enable_t transition_anim()
 {
     return ui::menu_profile::current().input_mode == ui::menu_profile::InputMode::TouchPrimary
@@ -35,6 +216,8 @@ void show_menu_internal()
 #if defined(ESP_PLATFORM)
     ESP_LOGI(kTag, "show_menu_internal active=%s", s_active_app ? s_active_app->name() : "(null)");
 #endif
+    std::printf("[UI][Lifecycle] menu visible=1 active=%s scene=menu\n",
+                s_active_app ? s_active_app->name() : "<none>");
     ui_clear_active_app();
     set_default_group(menu_g);
     ui::menu_layout::setMenuVisible(true);
@@ -93,6 +276,8 @@ void exit_to_menu_timer_cb(lv_timer_t* timer)
              parent,
              static_cast<unsigned long>(child_count(parent)));
 #endif
+    std::printf("[UI][Lifecycle] app exit name=%s reason=to_menu\n",
+                app->name());
     app->exit(parent);
     if (parent != nullptr)
     {
@@ -177,6 +362,9 @@ void set_default_group(lv_group_t* group)
         if (lv_indev_get_type(cur_drv) == LV_INDEV_TYPE_POINTER)
         {
             lv_indev_set_group(cur_drv, group);
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+            install_app_edge_swipe(cur_drv);
+#endif
         }
     }
     lv_group_set_default(group);
@@ -215,6 +403,8 @@ void ui_switch_to_app(AppScreen* app, lv_obj_t* parent)
 #if defined(ESP_PLATFORM)
         ESP_LOGI(kTag, "exiting previous app=%s", s_active_app->name());
 #endif
+        std::printf("[UI][Lifecycle] app exit name=%s reason=switch\n",
+                    s_active_app->name());
         s_active_app->exit(parent);
     }
     if (app)
@@ -222,6 +412,10 @@ void ui_switch_to_app(AppScreen* app, lv_obj_t* parent)
 #if defined(ESP_PLATFORM)
         ESP_LOGI(kTag, "enter app=%s", app->name());
 #endif
+        std::printf("[UI][Lifecycle] app enter from=%s to=%s parent=%d\n",
+                    s_active_app ? s_active_app->name() : "<none>",
+                    app->name(),
+                    parent ? 1 : 0);
         app->enter(parent);
         ui::menu_runtime::setScene(ui::menu_runtime::Scene::App);
     }
@@ -232,6 +426,8 @@ void ui_exit_active_app(lv_obj_t* parent)
 {
     if (s_active_app)
     {
+        std::printf("[UI][Lifecycle] app exit name=%s reason=explicit\n",
+                    s_active_app->name());
         s_active_app->exit(parent);
     }
     s_active_app = nullptr;

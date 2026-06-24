@@ -10,8 +10,8 @@ constexpr int kDefaultZoom = ::ui::widgets::map::kDefaultZoom;
 constexpr int kMinZoom = ::ui::widgets::map::kMinZoom;
 constexpr int kMaxZoom = ::ui::widgets::map::kMaxZoom;
 
-constexpr double kDefaultLat = 51.5074;
-constexpr double kDefaultLng = -0.1278;
+constexpr double kDefaultLat = 25.0389;
+constexpr double kDefaultLng = 102.7183;
 
 constexpr bool kShowLoadingOverlay = false;
 

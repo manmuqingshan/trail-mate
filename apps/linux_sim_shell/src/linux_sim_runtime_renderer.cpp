@@ -7,31 +7,14 @@ bool LinuxSimRuntimeRenderer::render(const LinuxSimRuntimeEntry& entry)
 {
     ready_ = false;
     primary_ = false;
-    fallback_ = true;
 
     if (entry.usingPrimaryScreenGraph())
     {
         ready_ = descriptor_renderer_.render(entry.adoption());
         primary_ = ready_;
-        fallback_ = !ready_;
         return ready_;
     }
 
-    if (entry.fallbackUsed())
-    {
-        return renderFallback(entry);
-    }
-
-    return false;
-}
-
-bool LinuxSimRuntimeRenderer::renderFallback(const LinuxSimRuntimeEntry&)
-{
-    // Phase 11 fallback: old hardcoded ASCII rendering remains available only
-    // when the runtime entry did not provide primary descriptors.
-    ready_ = false;
-    primary_ = false;
-    fallback_ = true;
     return false;
 }
 
@@ -48,16 +31,6 @@ bool LinuxSimRuntimeRenderer::usingPrimaryScreenGraph() const noexcept
 bool LinuxSimRuntimeRenderer::usedPrimaryScreenGraph() const noexcept
 {
     return primary_;
-}
-
-bool LinuxSimRuntimeRenderer::fallbackUsed() const noexcept
-{
-    return fallback_;
-}
-
-bool LinuxSimRuntimeRenderer::usedFallback() const noexcept
-{
-    return fallback_;
 }
 
 std::size_t LinuxSimRuntimeRenderer::lineCount() const noexcept

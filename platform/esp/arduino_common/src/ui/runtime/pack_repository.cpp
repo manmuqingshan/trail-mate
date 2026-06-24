@@ -49,9 +49,8 @@
 extern "C" esp_err_t esp_crt_bundle_attach(void* conf);
 
 #if defined(ARDUINO)
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include <Arduino.h>
-#include <FS.h>
-#include <SD.h>
 #else
 #include "platform/esp/idf_common/bsp_runtime.h"
 #endif
@@ -349,9 +348,16 @@ int compare_versions(const std::string& lhs, const std::string& rhs)
 
 #if defined(ARDUINO)
 
-struct ArduinoStorageBinding
+enum class PackStorageBackend : std::uint8_t
 {
-    ::fs::FS* volume = nullptr;
+    None = 0,
+    SdRuntime,
+    FlashPosix,
+};
+
+struct PackStorageBinding
+{
+    PackStorageBackend backend = PackStorageBackend::None;
     std::string volume_path;
     const char* storage = nullptr;
 };
@@ -388,6 +394,20 @@ std::string strip_mount_prefix(const std::string& logical_path, const char* pref
     return stripped;
 }
 
+std::string flash_storage_path_from_logical(const std::string& logical_path)
+{
+    std::string suffix = strip_mount_prefix(logical_path, "/fs");
+    if (suffix.empty())
+    {
+        suffix = "/";
+    }
+    if (suffix.front() != '/')
+    {
+        suffix.insert(suffix.begin(), '/');
+    }
+    return std::string("/fs") + suffix;
+}
+
 std::string file_entry_name(const char* raw_name)
 {
     if (raw_name == nullptr || raw_name[0] == '\0')
@@ -406,9 +426,9 @@ std::string file_entry_name(const char* raw_name)
 
 bool resolve_storage_binding(const std::string& logical_path,
                              bool allow_format_on_fail,
-                             ArduinoStorageBinding& out)
+                             PackStorageBinding& out)
 {
-    out = ArduinoStorageBinding{};
+    out = PackStorageBinding{};
     if (logical_path.empty())
     {
         return false;
@@ -422,9 +442,9 @@ bool resolve_storage_binding(const std::string& logical_path,
             return false;
         }
 
-        out.volume = &FFat;
+        out.backend = PackStorageBackend::FlashPosix;
         out.storage = kStorageFlash;
-        out.volume_path = strip_mount_prefix(logical_path, "/fs");
+        out.volume_path = flash_storage_path_from_logical(logical_path);
         return true;
     }
 #else
@@ -439,7 +459,7 @@ bool resolve_storage_binding(const std::string& logical_path,
         return false;
     }
 
-    out.volume = &SD;
+    out.backend = PackStorageBackend::SdRuntime;
     out.storage = kStorageSd;
     out.volume_path = is_explicit_sd_logical_path(logical_path)
                           ? strip_mount_prefix(logical_path, "/sd")
@@ -522,10 +542,10 @@ std::string host_path_from_normalized_lvgl_path(const std::string& normalized_pa
         return std::string("/fs") + suffix;
     }
 
-#if LV_USE_FS_POSIX
-    if (letter == LV_FS_POSIX_LETTER)
+#if defined(TRAIL_MATE_LVGL_SD_FS_LETTER)
+    if (letter == TRAIL_MATE_LVGL_SD_FS_LETTER)
     {
-        std::string root = LV_FS_POSIX_PATH;
+        std::string root = TRAIL_MATE_LVGL_SD_FS_PATH;
         if (root.empty() || root == "/")
         {
             return suffix;
@@ -546,6 +566,37 @@ const char* safe_cstr(const std::string& value)
     return value.empty() ? "<none>" : value.c_str();
 }
 
+bool binding_is_sd_runtime(const PackStorageBinding& binding)
+{
+    return binding.backend == PackStorageBackend::SdRuntime;
+}
+
+bool binding_is_flash_posix(const PackStorageBinding& binding)
+{
+    return binding.backend == PackStorageBackend::FlashPosix;
+}
+
+bool posix_stat_path(const std::string& path, struct stat& st)
+{
+    return !path.empty() && ::stat(path.c_str(), &st) == 0;
+}
+
+bool posix_file_exists(const std::string& path)
+{
+    struct stat st
+    {
+    };
+    return posix_stat_path(path, st) && S_ISREG(st.st_mode);
+}
+
+bool posix_dir_exists(const std::string& path)
+{
+    struct stat st
+    {
+    };
+    return posix_stat_path(path, st) && S_ISDIR(st.st_mode);
+}
+
 std::string host_path_for_logical_path(const std::string& logical_path, bool allow_format_on_fail)
 {
     return host_path_from_normalized_lvgl_path(
@@ -562,7 +613,7 @@ bool ensure_dir_recursive(const std::string& logical_dir)
         return false;
     }
 
-    ArduinoStorageBinding binding;
+    PackStorageBinding binding;
     if (!resolve_storage_binding(logical_dir, true, binding))
     {
         std::printf("[Packs][Storage] mkdir resolve failed logical=%s storage=%s\n",
@@ -583,17 +634,25 @@ bool ensure_dir_recursive(const std::string& logical_dir)
             current.push_back('/');
             current += segment;
 
-            File existing = binding.volume->open(current.c_str(), FILE_READ);
-            const bool exists = static_cast<bool>(existing);
-            const bool is_dir = exists && existing.isDirectory();
-            if (existing)
+            bool exists = false;
+            bool is_dir = false;
+            if (binding_is_sd_runtime(binding))
             {
-                existing.close();
+                exists = ::platform::esp::arduino_common::storage::sd_exists(current.c_str());
+                is_dir = exists && ::platform::esp::arduino_common::storage::sd_is_directory(current.c_str());
+            }
+            else if (binding_is_flash_posix(binding))
+            {
+                exists = posix_file_exists(current) || posix_dir_exists(current);
+                is_dir = exists && posix_dir_exists(current);
             }
 
             if (!exists)
             {
-                if (!binding.volume->mkdir(current.c_str()))
+                const bool mkdir_ok = binding_is_sd_runtime(binding)
+                                          ? ::platform::esp::arduino_common::storage::sd_mkdir(current.c_str())
+                                          : (::mkdir(current.c_str(), 0775) == 0 || errno == EEXIST);
+                if (!mkdir_ok)
                 {
                     std::printf("[Packs][Storage] mkdir failed logical=%s storage=%s path=%s\n",
                                 logical_dir.c_str(),
@@ -623,36 +682,35 @@ bool ensure_dir_recursive(const std::string& logical_dir)
 
 bool logical_file_exists(const std::string& logical_path)
 {
-    ArduinoStorageBinding binding;
+    PackStorageBinding binding;
     if (!resolve_storage_binding(logical_path, false, binding))
     {
         return false;
     }
 
-    File file = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
-    const bool exists = static_cast<bool>(file) && !file.isDirectory();
-    if (file)
+    if (binding_is_sd_runtime(binding))
     {
-        file.close();
+        return ::platform::esp::arduino_common::storage::sd_exists(binding.volume_path.c_str()) &&
+               !::platform::esp::arduino_common::storage::sd_is_directory(binding.volume_path.c_str());
     }
-    return exists;
+
+    return binding_is_flash_posix(binding) && posix_file_exists(binding.volume_path);
 }
 
 bool logical_dir_exists(const std::string& logical_path)
 {
-    ArduinoStorageBinding binding;
+    PackStorageBinding binding;
     if (!resolve_storage_binding(logical_path, false, binding))
     {
         return false;
     }
 
-    File dir = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
-    const bool exists = static_cast<bool>(dir) && dir.isDirectory();
-    if (dir)
+    if (binding_is_sd_runtime(binding))
     {
-        dir.close();
+        return ::platform::esp::arduino_common::storage::sd_is_directory(binding.volume_path.c_str());
     }
-    return exists;
+
+    return binding_is_flash_posix(binding) && posix_dir_exists(binding.volume_path);
 }
 
 void log_lvgl_path_probe(const char* scope, const std::string& logical_path)
@@ -708,7 +766,7 @@ bool write_binary_file(const std::string& logical_path, const void* data, std::s
 
     (void)remove_file_if_exists(logical_path);
 
-    ArduinoStorageBinding binding;
+    PackStorageBinding binding;
     if (!resolve_storage_binding(logical_path, true, binding))
     {
         std::printf("[Packs][Storage] write resolve failed logical=%s len=%lu storage=%s\n",
@@ -718,7 +776,46 @@ bool write_binary_file(const std::string& logical_path, const void* data, std::s
         return false;
     }
 
-    File file = binding.volume->open(binding.volume_path.c_str(), FILE_WRITE);
+    if (binding_is_sd_runtime(binding))
+    {
+        ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+        if (!file.open(binding.volume_path.c_str(), "w"))
+        {
+            std::printf("[Packs][Storage] open for write failed logical=%s storage=%s path=%s len=%lu\n",
+                        logical_path.c_str(),
+                        binding.storage ? binding.storage : "<none>",
+                        binding.volume_path.c_str(),
+                        static_cast<unsigned long>(len));
+            return false;
+        }
+
+        const std::uint8_t* bytes = static_cast<const std::uint8_t*>(data);
+        std::size_t written = 0;
+        while (written < len)
+        {
+            const std::size_t chunk = std::min(kFileWriteChunkBytes, len - written);
+            const std::size_t chunk_written = file.write(bytes + written, chunk);
+            if (chunk_written != chunk)
+            {
+                std::printf("[Packs][Storage] write failed logical=%s storage=%s path=%s offset=%lu chunk=%lu wrote=%lu total=%lu\n",
+                            logical_path.c_str(),
+                            binding.storage ? binding.storage : "<none>",
+                            binding.volume_path.c_str(),
+                            static_cast<unsigned long>(written),
+                            static_cast<unsigned long>(chunk),
+                            static_cast<unsigned long>(chunk_written),
+                            static_cast<unsigned long>(len));
+                file.close();
+                return false;
+            }
+            written += chunk_written;
+        }
+        file.flush();
+        file.close();
+        return true;
+    }
+
+    FILE* file = binding_is_flash_posix(binding) ? std::fopen(binding.volume_path.c_str(), "wb") : nullptr;
     if (!file)
     {
         std::printf("[Packs][Storage] open for write failed logical=%s storage=%s path=%s len=%lu\n",
@@ -734,7 +831,7 @@ bool write_binary_file(const std::string& logical_path, const void* data, std::s
     while (written < len)
     {
         const std::size_t chunk = std::min(kFileWriteChunkBytes, len - written);
-        const std::size_t chunk_written = file.write(bytes + written, chunk);
+        const std::size_t chunk_written = std::fwrite(bytes + written, 1, chunk, file);
         if (chunk_written != chunk)
         {
             std::printf("[Packs][Storage] write failed logical=%s storage=%s path=%s offset=%lu chunk=%lu wrote=%lu total=%lu\n",
@@ -745,13 +842,13 @@ bool write_binary_file(const std::string& logical_path, const void* data, std::s
                         static_cast<unsigned long>(chunk),
                         static_cast<unsigned long>(chunk_written),
                         static_cast<unsigned long>(len));
-            file.close();
+            std::fclose(file);
             return false;
         }
         written += chunk_written;
     }
-    file.flush();
-    file.close();
+    std::fflush(file);
+    std::fclose(file);
     return true;
 }
 
@@ -764,26 +861,58 @@ bool read_binary_file(const std::string& logical_path, std::vector<std::uint8_t>
 {
     out.clear();
 
-    ArduinoStorageBinding binding;
+    PackStorageBinding binding;
     if (!resolve_storage_binding(logical_path, false, binding))
     {
         return false;
     }
 
-    File file = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
-    if (!file || file.isDirectory())
+    if (binding_is_sd_runtime(binding))
     {
-        if (file)
+        if (::platform::esp::arduino_common::storage::sd_is_directory(binding.volume_path.c_str()))
         {
-            file.close();
+            return false;
         }
+
+        ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+        if (!file.open(binding.volume_path.c_str(), "r"))
+        {
+            return false;
+        }
+        const std::size_t size = static_cast<std::size_t>(file.size());
+        out.resize(size);
+        const int read = file.read(out.data(), size);
+        file.close();
+        if (read < 0 || static_cast<std::size_t>(read) != size)
+        {
+            out.clear();
+            return false;
+        }
+        return true;
+    }
+
+    if (!binding_is_flash_posix(binding) || !posix_file_exists(binding.volume_path))
+    {
         return false;
     }
 
-    const std::size_t size = static_cast<std::size_t>(file.size());
+    FILE* file = std::fopen(binding.volume_path.c_str(), "rb");
+    if (!file)
+    {
+        return false;
+    }
+    std::fseek(file, 0, SEEK_END);
+    const long file_size = std::ftell(file);
+    if (file_size < 0)
+    {
+        std::fclose(file);
+        return false;
+    }
+    std::rewind(file);
+    const std::size_t size = static_cast<std::size_t>(file_size);
     out.resize(size);
-    const std::size_t read = file.read(out.data(), size);
-    file.close();
+    const std::size_t read = size == 0 ? 0 : std::fread(out.data(), 1, size, file);
+    std::fclose(file);
     if (read != size)
     {
         out.clear();
@@ -796,23 +925,41 @@ bool logical_file_size(const std::string& logical_path, std::size_t& out_size)
 {
     out_size = 0;
 
-    ArduinoStorageBinding binding;
+    PackStorageBinding binding;
     if (!resolve_storage_binding(logical_path, false, binding))
     {
         return false;
     }
 
-    File file = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
-    if (!file || file.isDirectory())
+    if (binding_is_sd_runtime(binding))
     {
-        if (file)
+        if (::platform::esp::arduino_common::storage::sd_is_directory(binding.volume_path.c_str()))
         {
-            file.close();
+            return false;
         }
+
+        ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+        if (!file.open(binding.volume_path.c_str(), "r"))
+        {
+            return false;
+        }
+        out_size = static_cast<std::size_t>(file.size());
+        file.close();
+        return true;
+    }
+
+    if (!binding_is_flash_posix(binding))
+    {
         return false;
     }
-    out_size = static_cast<std::size_t>(file.size());
-    file.close();
+    struct stat st
+    {
+    };
+    if (!posix_stat_path(binding.volume_path, st) || !S_ISREG(st.st_mode))
+    {
+        return false;
+    }
+    out_size = static_cast<std::size_t>(st.st_size);
     return true;
 }
 
@@ -850,18 +997,23 @@ void log_path_probe(const char* scope, const std::string& logical_path)
 
 bool remove_file_if_exists(const std::string& logical_path)
 {
-    ArduinoStorageBinding binding;
+    PackStorageBinding binding;
     if (!resolve_storage_binding(logical_path, false, binding))
     {
         return false;
     }
 
-    File file = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
-    const bool exists = static_cast<bool>(file);
-    const bool is_dir = exists && file.isDirectory();
-    if (file)
+    bool exists = false;
+    bool is_dir = false;
+    if (binding_is_sd_runtime(binding))
     {
-        file.close();
+        exists = ::platform::esp::arduino_common::storage::sd_exists(binding.volume_path.c_str());
+        is_dir = exists && ::platform::esp::arduino_common::storage::sd_is_directory(binding.volume_path.c_str());
+    }
+    else if (binding_is_flash_posix(binding))
+    {
+        exists = posix_file_exists(binding.volume_path) || posix_dir_exists(binding.volume_path);
+        is_dir = exists && posix_dir_exists(binding.volume_path);
     }
     if (!exists)
     {
@@ -871,7 +1023,10 @@ bool remove_file_if_exists(const std::string& logical_path)
     {
         return false;
     }
-    if (!binding.volume->remove(binding.volume_path.c_str()))
+    const bool remove_ok = binding_is_sd_runtime(binding)
+                               ? ::platform::esp::arduino_common::storage::sd_remove(binding.volume_path.c_str())
+                               : (std::remove(binding.volume_path.c_str()) == 0);
+    if (!remove_ok)
     {
         std::printf("[Packs][Storage] remove file failed logical=%s storage=%s path=%s\n",
                     logical_path.c_str(),
@@ -889,48 +1044,101 @@ bool remove_dir_recursive_if_exists(const std::string& logical_path)
         return true;
     }
 
-    ArduinoStorageBinding binding;
+    PackStorageBinding binding;
     if (!resolve_storage_binding(logical_path, false, binding))
     {
         return false;
     }
 
-    File node = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
-    if (!node)
+    if (binding_is_sd_runtime(binding))
+    {
+        if (!::platform::esp::arduino_common::storage::sd_exists(binding.volume_path.c_str()))
+        {
+            return true;
+        }
+        if (!::platform::esp::arduino_common::storage::sd_is_directory(binding.volume_path.c_str()))
+        {
+            return ::platform::esp::arduino_common::storage::sd_remove(binding.volume_path.c_str());
+        }
+
+        ::platform::esp::arduino_common::storage::SdRuntimeDir dir;
+        if (!dir.open(binding.volume_path.c_str()))
+        {
+            return false;
+        }
+
+        char name_buf[128];
+        bool child_is_dir = false;
+        while (dir.read_next(name_buf, sizeof(name_buf), &child_is_dir))
+        {
+            const std::string name = file_entry_name(name_buf);
+            if (!name.empty())
+            {
+                const std::string child_logical = join_logical_path(logical_path, name);
+                const bool ok = child_is_dir ? remove_dir_recursive_if_exists(child_logical)
+                                             : remove_file_if_exists(child_logical);
+                if (!ok)
+                {
+                    dir.close();
+                    return false;
+                }
+            }
+        }
+        dir.close();
+        if (!::platform::esp::arduino_common::storage::sd_rmdir(binding.volume_path.c_str()))
+        {
+            std::printf("[Packs][Storage] rmdir failed logical=%s storage=%s path=%s\n",
+                        logical_path.c_str(),
+                        binding.storage ? binding.storage : "<none>",
+                        binding.volume_path.c_str());
+            return false;
+        }
+        return true;
+    }
+
+    if (!binding_is_flash_posix(binding))
+    {
+        return false;
+    }
+
+    if (!posix_file_exists(binding.volume_path) && !posix_dir_exists(binding.volume_path))
     {
         return true;
     }
 
-    if (!node.isDirectory())
+    if (posix_file_exists(binding.volume_path))
     {
-        node.close();
-        return binding.volume->remove(binding.volume_path.c_str());
+        return std::remove(binding.volume_path.c_str()) == 0;
     }
 
-    File child = node.openNextFile();
-    while (child)
+    DIR* dir = ::opendir(binding.volume_path.c_str());
+    if (dir == nullptr)
     {
-        const std::string name = file_entry_name(child.name());
-        const bool is_dir = child.isDirectory();
-        child.close();
+        return false;
+    }
 
+    bool ok = true;
+    while (ok)
+    {
+        struct dirent* entry = ::readdir(dir);
+        if (entry == nullptr)
+        {
+            break;
+        }
+        const std::string name = file_entry_name(entry->d_name);
+        if (name == "." || name == "..")
+        {
+            continue;
+        }
         if (!name.empty())
         {
             const std::string child_logical = join_logical_path(logical_path, name);
-            const bool ok = is_dir ? remove_dir_recursive_if_exists(child_logical)
-                                   : remove_file_if_exists(child_logical);
-            if (!ok)
-            {
-                node.close();
-                return false;
-            }
+            ok = remove_dir_recursive_if_exists(child_logical);
         }
-
-        child = node.openNextFile();
     }
 
-    node.close();
-    if (!binding.volume->rmdir(binding.volume_path.c_str()))
+    ::closedir(dir);
+    if (!ok || ::rmdir(binding.volume_path.c_str()) != 0)
     {
         std::printf("[Packs][Storage] rmdir failed logical=%s storage=%s path=%s\n",
                     logical_path.c_str(),
@@ -946,32 +1154,66 @@ class RandomAccessFile
   public:
     bool open(const std::string& logical_path)
     {
-        ArduinoStorageBinding binding;
+        close();
+
+        PackStorageBinding binding;
         if (!resolve_storage_binding(logical_path, false, binding))
         {
             return false;
         }
 
-        file_ = binding.volume->open(binding.volume_path.c_str(), FILE_READ);
-        if (!file_ || file_.isDirectory())
+        backend_ = binding.backend;
+        if (backend_ == PackStorageBackend::SdRuntime)
         {
-            if (file_)
+            if (::platform::esp::arduino_common::storage::sd_is_directory(binding.volume_path.c_str()) ||
+                !sd_file_.open(binding.volume_path.c_str(), "r"))
             {
-                file_.close();
+                backend_ = PackStorageBackend::None;
+                return false;
             }
+            size_ = static_cast<std::size_t>(sd_file_.size());
+            return true;
+        }
+
+        if (backend_ != PackStorageBackend::FlashPosix || !posix_file_exists(binding.volume_path))
+        {
+            backend_ = PackStorageBackend::None;
             return false;
         }
-        size_ = static_cast<std::size_t>(file_.size());
+        file_ = std::fopen(binding.volume_path.c_str(), "rb");
+        if (file_ == nullptr)
+        {
+            backend_ = PackStorageBackend::None;
+            return false;
+        }
+        std::fseek(file_, 0, SEEK_END);
+        const long file_size = std::ftell(file_);
+        if (file_size < 0)
+        {
+            close();
+            return false;
+        }
+        std::rewind(file_);
+        size_ = static_cast<std::size_t>(file_size);
         return true;
     }
 
     void close()
     {
-        if (file_)
+        if (backend_ == PackStorageBackend::SdRuntime)
         {
-            file_.close();
+            sd_file_.close();
+            backend_ = PackStorageBackend::None;
+            size_ = 0;
+            return;
+        }
+        if (file_ != nullptr)
+        {
+            std::fclose(file_);
+            file_ = nullptr;
             size_ = 0;
         }
+        backend_ = PackStorageBackend::None;
     }
 
     std::size_t size() const
@@ -981,15 +1223,26 @@ class RandomAccessFile
 
     bool read_at(std::size_t offset, void* out, std::size_t len)
     {
-        if (!file_ || !file_.seek(static_cast<uint32_t>(offset)))
+        if (backend_ == PackStorageBackend::SdRuntime)
+        {
+            if (!sd_file_.seek(offset))
+            {
+                return false;
+            }
+            const int read = sd_file_.read(out, len);
+            return read >= 0 && static_cast<std::size_t>(read) == len;
+        }
+        if (file_ == nullptr || std::fseek(file_, static_cast<long>(offset), SEEK_SET) != 0)
         {
             return false;
         }
-        return file_.read(static_cast<std::uint8_t*>(out), len) == len;
+        return std::fread(out, 1, len, file_) == len;
     }
 
   private:
-    File file_{};
+    FILE* file_ = nullptr;
+    ::platform::esp::arduino_common::storage::SdRuntimeFile sd_file_{};
+    PackStorageBackend backend_ = PackStorageBackend::None;
     std::size_t size_ = 0;
 };
 
@@ -998,6 +1251,8 @@ class SequentialWriteFile
   public:
     bool open(const std::string& logical_path)
     {
+        close();
+
         const std::size_t slash = logical_path.find_last_of('/');
         if (slash != std::string::npos &&
             !ensure_dir_recursive(logical_path.substr(0, slash)))
@@ -1007,15 +1262,32 @@ class SequentialWriteFile
 
         (void)remove_file_if_exists(logical_path);
 
-        ArduinoStorageBinding binding;
+        PackStorageBinding binding;
         if (!resolve_storage_binding(logical_path, true, binding))
         {
             return false;
         }
 
-        file_ = binding.volume->open(binding.volume_path.c_str(), FILE_WRITE);
-        if (!file_)
+        backend_ = binding.backend;
+        if (backend_ == PackStorageBackend::SdRuntime)
         {
+            if (!sd_file_.open(binding.volume_path.c_str(), "w"))
+            {
+                backend_ = PackStorageBackend::None;
+                return false;
+            }
+            return true;
+        }
+
+        if (backend_ != PackStorageBackend::FlashPosix)
+        {
+            backend_ = PackStorageBackend::None;
+            return false;
+        }
+        file_ = std::fopen(binding.volume_path.c_str(), "wb");
+        if (file_ == nullptr)
+        {
+            backend_ = PackStorageBackend::None;
             return false;
         }
         return true;
@@ -1023,24 +1295,39 @@ class SequentialWriteFile
 
     bool write(const void* data, std::size_t len)
     {
-        if (!file_)
+        if (backend_ == PackStorageBackend::SdRuntime)
+        {
+            return sd_file_.write(data, len) == len;
+        }
+        if (file_ == nullptr)
         {
             return false;
         }
-        return file_.write(static_cast<const std::uint8_t*>(data), len) == len;
+        return std::fwrite(data, 1, len, file_) == len;
     }
 
     void close()
     {
-        if (file_)
+        if (backend_ == PackStorageBackend::SdRuntime)
         {
-            file_.flush();
-            file_.close();
+            sd_file_.flush();
+            sd_file_.close();
+            backend_ = PackStorageBackend::None;
+            return;
         }
+        if (file_ != nullptr)
+        {
+            std::fflush(file_);
+            std::fclose(file_);
+            file_ = nullptr;
+        }
+        backend_ = PackStorageBackend::None;
     }
 
   private:
-    File file_{};
+    FILE* file_ = nullptr;
+    ::platform::esp::arduino_common::storage::SdRuntimeFile sd_file_{};
+    PackStorageBackend backend_ = PackStorageBackend::None;
 };
 
 #else

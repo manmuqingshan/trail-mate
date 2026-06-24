@@ -362,6 +362,7 @@ def collect_ime_records(stage_bundle_dir: Path) -> list[dict[str, object]]:
                 "id": manifest.get("id", manifest_path.parent.name),
                 "display_name": manifest.get("display_name", manifest_path.parent.name),
                 "backend": manifest.get("backend", "none"),
+                "layout": manifest.get("layout", ""),
             }
         )
     return records

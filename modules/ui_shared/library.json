@@ -17,7 +17,6 @@
                                 "-I../../modules/ui_map_runtime/include",
                                 "-I../../modules/ui_gps_runtime/include",
                                 "-I../../modules/ui_key_verification_runtime/include",
-                                "-I../../modules/ui_legacy_adapters/include",
                                 "-I../../modules/ui_lvgl_core/include",
                                 "-I../../modules/ui_lvgl_ux_packs/include"
                             ]
@@ -37,9 +36,6 @@
                          },
                          {
                              "name":  "ui_key_verification_runtime"
-                         },
-                         {
-                             "name":  "ui_legacy_adapters"
                          },
                          {
                              "name":  "ui_lvgl_ux_packs"

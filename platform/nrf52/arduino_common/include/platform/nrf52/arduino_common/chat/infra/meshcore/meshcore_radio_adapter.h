@@ -2,7 +2,10 @@
 
 #include "chat/infra/meshcore/meshcore_ble_backend.h"
 #include "chat/infra/meshcore/meshcore_identity_crypto.h"
+#include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/runtime/meshcore_runtime.h"
+#include "chat/runtime/protocol_runtime_factory.h"
 #include "chat/runtime/self_identity_policy.h"
 #include "chat/runtime/self_identity_provider.h"
 
@@ -10,17 +13,34 @@
 #include <queue>
 #include <string>
 
+namespace chat::contacts
+{
+class ContactService;
+} // namespace chat::contacts
+
 namespace platform::nrf52::arduino_common::chat::meshcore
 {
 
-class MeshCoreRadioAdapter final : public ::chat::IMeshAdapter, public ::chat::meshcore::IMeshCoreBleBackend
+namespace chat_contacts = ::chat::contacts;
+
+class MeshCoreRadioAdapter final : public ::chat::IMeshAdapter,
+                                   public ::chat::meshcore::IMeshCoreBleBackend,
+                                   public ::chat::runtime::IProtocolEffectExecutor
 {
   public:
-    explicit MeshCoreRadioAdapter(const ::chat::runtime::SelfIdentityProvider* identity_provider = nullptr);
+    explicit MeshCoreRadioAdapter(const ::chat::runtime::SelfIdentityProvider* identity_provider = nullptr,
+                                  chat_contacts::ContactService* contact_service = nullptr);
 
     ::chat::MeshCapabilities getCapabilities() const override;
     bool sendText(::chat::ChannelId channel, const std::string& text,
                   ::chat::MessageId* out_msg_id, ::chat::NodeId peer = 0) override;
+    bool sendTextWithId(::chat::ChannelId channel, const std::string& text,
+                        ::chat::MessageId forced_msg_id,
+                        ::chat::MessageId* out_msg_id, ::chat::NodeId peer = 0) override;
+    ::chat::MeshSendResult sendTextDetailed(::chat::ChannelId channel,
+                                            const std::string& text,
+                                            ::chat::MessageId forced_msg_id = 0,
+                                            ::chat::NodeId peer = 0) override;
     bool pollIncomingText(::chat::MeshIncomingText* out) override;
     bool sendAppData(::chat::ChannelId channel, uint32_t portnum,
                      const uint8_t* payload, size_t len,
@@ -30,6 +50,7 @@ class MeshCoreRadioAdapter final : public ::chat::IMeshAdapter, public ::chat::m
     bool pollIncomingData(::chat::MeshIncomingData* out) override;
     bool requestNodeInfo(::chat::NodeId dest, bool want_response) override;
     bool triggerDiscoveryAction(::chat::MeshDiscoveryAction action) override;
+    ::chat::MeshActionResult triggerDiscoveryActionDetailed(::chat::MeshDiscoveryAction action) override;
     void applyConfig(const ::chat::MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     void setNetworkLimits(bool duty_cycle_enabled, uint8_t util_percent) override;
@@ -70,6 +91,9 @@ class MeshCoreRadioAdapter final : public ::chat::IMeshAdapter, public ::chat::m
     bool sendRawData(const uint8_t* path, size_t path_len,
                      const uint8_t* payload, size_t payload_len,
                      uint32_t* out_est_timeout);
+    bool sendRawDataEx(uint8_t profile, const uint8_t* path, size_t path_len,
+                       const uint8_t* payload, size_t payload_len,
+                       uint32_t* out_est_timeout) override;
     void setFloodScopeKey(const uint8_t* key, size_t len);
 
   private:
@@ -77,18 +101,40 @@ class MeshCoreRadioAdapter final : public ::chat::IMeshAdapter, public ::chat::m
     void ensureIdentityKeys();
     bool transmitFrame(const uint8_t* data, size_t size);
     bool sendAdvert(bool broadcast);
+    bool handleNodeInfoAppData(const ::chat::MeshIncomingData& incoming);
+    ::chat::meshcore::PayloadProfile payloadProfile() const;
+    ::chat::runtime::RuntimeContext buildRuntimeContext() const;
+    ::chat::runtime::ProtocolRuntimeBundle protocolRuntimeBundle(
+        const ::chat::runtime::IProtocolRuntimeContextProvider& context_provider);
+    bool execute(const ::chat::runtime::ProtocolEffect& effect) override;
+    bool executeProtocolEffects(const ::chat::runtime::ProtocolEffects& effects);
+    bool executeProtocolEffect(const ::chat::runtime::ProtocolEffect& effect);
+    bool executeNodeInfoEffect(const ::chat::runtime::SendNodeInfoEffect& effect);
+    bool executeDiscoverRequestEffect(const ::chat::runtime::SendDiscoverRequestEffect& effect);
+    bool executeDiscoverResponseEffect(const ::chat::runtime::SendDiscoverResponseEffect& effect);
+    bool executeSelfAnnouncementEffect(const ::chat::runtime::SendSelfAnnouncementEffect& effect);
+    bool sendAppAck(uint32_t signature);
+    ::chat::MessageId allocateMessageId(::chat::MessageId forced_msg_id);
+    void rememberLocalTextAck(uint32_t signature);
+    bool isLocalTextAck(uint32_t signature) const;
+    void forgetLocalTextAck(uint32_t signature);
 
     ::chat::MeshConfig config_{};
     ::chat::NodeId node_id_ = 0;
+    ::chat::MessageId next_message_id_ = 1;
     std::string long_name_;
     std::string short_name_;
     const ::chat::runtime::SelfIdentityProvider* identity_provider_ = nullptr;
+    chat_contacts::ContactService* contact_service_ = nullptr;
     bool keys_ready_ = false;
     uint8_t public_key_[::chat::meshcore::kMeshCorePubKeySize] = {};
     uint8_t private_key_[::chat::meshcore::kMeshCorePrivKeySize] = {};
     std::array<uint8_t, 16> flood_scope_key_{};
+    std::array<uint32_t, 32> local_text_ack_signatures_{};
+    uint8_t local_text_ack_next_ = 0;
     std::queue<::chat::MeshIncomingText> text_queue_;
     std::queue<::chat::MeshIncomingData> data_queue_;
+    ::chat::runtime::MeshCoreRuntime protocol_runtime_{};
 };
 
 } // namespace platform::nrf52::arduino_common::chat::meshcore

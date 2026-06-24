@@ -2,6 +2,7 @@
 
 #include "chat/infra/meshtastic/mt_packet_wire.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/runtime/meshtastic_runtime.h"
 #include "chat/runtime/self_identity_policy.h"
 #include "chat/runtime/self_identity_provider.h"
 #include "chat/usecase/contact_service.h"
@@ -153,17 +154,19 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     bool sendRoutingError(::chat::NodeId dest, uint32_t request_id, uint8_t channel_hash,
                           ::chat::ChannelId channel, const uint8_t* key, size_t key_len,
                           meshtastic_Routing_Error reason, uint8_t hop_limit);
-    bool sendTraceRouteResponse(::chat::NodeId dest, uint32_t request_id,
-                                const meshtastic_RouteDiscovery& route,
-                                ::chat::ChannelId channel, bool want_ack);
-    bool sendPositionTo(::chat::NodeId dest, ::chat::ChannelId channel);
-    bool handleTraceRoutePacket(const ::chat::meshtastic::PacketHeaderWire& header,
-                                meshtastic_Data* decoded,
-                                const ::chat::RxMeta* rx_meta,
-                                ::chat::ChannelId channel,
-                                bool want_ack_flag,
-                                bool want_response);
+    ::chat::runtime::RuntimeContext buildProtocolRuntimeContext() const;
+    bool sendProtocolPacketEffect(const ::chat::runtime::SendPacketEffect& packet);
+    bool executeProtocolEffects(const ::chat::runtime::ProtocolEffects& effects);
+    bool executeProtocolEffect(const ::chat::runtime::ProtocolEffect& effect);
+    bool executePkiResync(::chat::runtime::MeshtasticPkiResyncCause cause,
+                          ::chat::NodeId peer,
+                          ::chat::MessageId request_id,
+                          ::chat::ChannelId channel);
     void maybeBroadcastNodeInfo(uint32_t now_ms);
+    void maybeBroadcastNodeInfoAfterPeerAnnouncement(::chat::NodeId from_node,
+                                                     uint32_t now_ms,
+                                                     ::chat::ChannelId channel,
+                                                     bool from_mqtt);
     void emitRoutingResult(uint32_t request_id, meshtastic_Routing_Error reason,
                            ::chat::NodeId from, ::chat::NodeId to,
                            ::chat::ChannelId channel, uint8_t channel_hash,
@@ -197,6 +200,7 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     void loadPkiNodeKeys();
     void savePkiNodeKey(::chat::NodeId node_id, const uint8_t* key, size_t key_len);
     void markPkiKeysDirty();
+    void forgetNodePublicKey(::chat::NodeId node_id);
     bool savePkiKeysToPrefs();
     void touchPkiNodeKey(::chat::NodeId node_id);
     bool decryptPkiPayload(::chat::NodeId from, ::chat::MessageId packet_id,
@@ -265,9 +269,10 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     std::map<::chat::NodeId, uint32_t> node_key_last_seen_;
     uint32_t pki_node_keys_save_due_ms_ = 0;
     bool pki_node_keys_dirty_ = false;
+    ::chat::runtime::MeshtasticRuntime protocol_runtime_{};
     std::map<::chat::NodeId, ::chat::ChannelId> node_last_channel_;
     std::map<::chat::NodeId, uint32_t> nodeinfo_last_seen_ms_;
-    uint32_t last_position_reply_ms_ = 0;
+    std::map<::chat::NodeId, uint32_t> nodeinfo_reply_ms_;
     TxScratchBuffers tx_scratch_{};
     RxScratchBuffers rx_scratch_{};
     MqttScratchBuffers mqtt_scratch_{};

@@ -1,43 +1,31 @@
-﻿#include "platform/ui/hostlink_runtime.h"
-
-#include "sdkconfig.h"
-
-#include "platform/esp/arduino_common/hostlink/hostlink_service.h"
+#include "platform/ui/hostlink_runtime.h"
 
 namespace platform::ui::hostlink
 {
 
 bool is_supported()
 {
-#if CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED
-    return true;
-#else
     return false;
-#endif
 }
 
 void start()
 {
-    if (!is_supported())
-    {
-        return;
-    }
-    ::hostlink::start();
 }
 
 void stop()
 {
-    ::hostlink::stop();
 }
 
 bool is_active()
 {
-    return ::hostlink::is_active();
+    return false;
 }
 
 Status get_status()
 {
-    return ::hostlink::get_status();
+    Status status{};
+    status.state = LinkState::Stopped;
+    return status;
 }
 
 } // namespace platform::ui::hostlink

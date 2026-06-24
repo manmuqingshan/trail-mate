@@ -4,6 +4,13 @@ This specification defines the concurrency baseline for Trail Mate targets. It
 exists because ESP32, nRF52, Linux, and tests have different runtime mechanics
 but must preserve the same ownership model.
 
+The detailed design patterns, event simulation requirements, and burn-down
+guidance for UI/storage responsiveness are defined in
+`UI_STORAGE_EVENT_RUNTIME_DESIGN_SPEC.md`.
+
+Active-path migrations that touch UI/storage/event responsiveness must satisfy
+that document's UML coverage gate before implementation begins.
+
 ## Sources of Concurrency
 
 Trail Mate targets may receive work from:
@@ -43,6 +50,11 @@ Storage backends must declare their concurrency model.
 
 Mutable app-service state must have a single owner context.
 
+The UI owner context must not wait for blocking storage, shared-SPI,
+filesystem, decode, or persistence work. UI paths may submit commands, consume
+ready events, or attempt explicitly non-blocking work that can be abandoned
+within the frame budget.
+
 Cross-thread and cross-task interaction must use one of:
 
 ```text
@@ -80,6 +92,11 @@ radio_irq -> MeshSession
 gps_task -> lvgl
 gtk_worker -> GtkWidget
 ui_thread -> blocking storage write
+ui_thread -> blocking shared-SPI wait
+ui_thread -> filesystem open/read/write/list
+ui_thread -> image decode from storage
+ui_thread -> track file create/flush/list
+ui_thread -> node/contact store synchronous save
 ui_renderer -> direct radio access
 ui_renderer -> direct GPS driver access
 platform_driver -> direct message policy
@@ -148,6 +165,9 @@ transaction support
 async write support
 erase/write blocking behavior
 required owner context or mutex
+UI-owner behavior
+queue/backpressure behavior
+diagnostic fields for slow waits
 ```
 
 Examples:
@@ -173,3 +193,44 @@ UI State -> UI context or presentation owner
 
 Other contexts may send commands, publish events, or consume snapshots.
 
+## Slow Work Ownership
+
+Slow work must have an explicit owner. Page widgets, LVGL timers, GTK callbacks,
+and input handlers are not valid owners for durable storage, filesystem walking,
+tile decode, shared-SPI waits, protocol retries, or persistence flushes.
+
+Valid slow-work owners include:
+
+```text
+command worker
+storage worker
+protocol runtime worker
+map tile worker
+track storage worker
+persistence worker
+declared platform service task
+```
+
+Slow-work owners communicate completion through events or immutable snapshots.
+They must not mutate concrete UI objects directly.
+
+## Simulation Requirement
+
+Any runtime that introduces asynchronous command/event behavior must be
+testable with deterministic simulated events. Tests must be able to script:
+
+```text
+command enqueue
+event publish
+worker completion
+timeout
+cancellation
+storage delay
+storage failure
+bus arbitration delay
+UI event drain
+```
+
+The simulator must assert that UI owner code does not execute blocking
+storage/shared-SPI/filesystem calls and that background code does not execute
+concrete renderer calls.

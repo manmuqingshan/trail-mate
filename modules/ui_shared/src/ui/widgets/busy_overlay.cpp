@@ -33,9 +33,18 @@ lv_obj_t* s_detail_label = nullptr;
 lv_obj_t* s_bar = nullptr;
 uint32_t s_depth = 0;
 
-void refresh_now()
+void request_refresh()
 {
-    lv_refr_now(nullptr);
+    if (s_root && lv_obj_is_valid(s_root))
+    {
+        lv_obj_invalidate(s_root);
+        return;
+    }
+
+    if (lv_obj_t* screen = lv_screen_active())
+    {
+        lv_obj_invalidate(screen);
+    }
 }
 
 void set_bar_value(void* bar, int32_t value)
@@ -243,7 +252,7 @@ void show(const char* title, const char* detail)
     update_content(title, detail);
     apply_progress(-1);
     lv_obj_move_foreground(s_root);
-    refresh_now();
+    request_refresh();
 }
 
 void update(const char* title, const char* detail)
@@ -255,7 +264,7 @@ void update(const char* title, const char* detail)
 
     update_content(title, detail);
     lv_obj_move_foreground(s_root);
-    refresh_now();
+    request_refresh();
 }
 
 void set_progress(int progress_percent)
@@ -266,7 +275,7 @@ void set_progress(int progress_percent)
     }
 
     apply_progress(progress_percent);
-    refresh_now();
+    request_refresh();
 }
 
 void hide()
@@ -284,7 +293,7 @@ void hide()
     }
 
     destroy_overlay();
-    refresh_now();
+    request_refresh();
 }
 
 bool visible()

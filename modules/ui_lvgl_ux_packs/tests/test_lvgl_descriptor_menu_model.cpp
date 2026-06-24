@@ -27,10 +27,10 @@ int main()
     assert(model.itemCount() > 0);
     assert(model.items()[0].binding_id != nullptr);
 
-    ui_lvgl_ux::LvglPrimaryScreenGraphRuntime fallback_runtime;
+    ui_lvgl_ux::LvglPrimaryScreenGraphRuntime unavailable_runtime;
     product_composition::PresentationBundle empty;
-    assert(!fallback_runtime.load(empty));
-    assert(!model.load(fallback_runtime));
+    assert(!unavailable_runtime.load(empty));
+    assert(!model.load(unavailable_runtime));
     assert(model.itemCount() == 0);
     return 0;
 }

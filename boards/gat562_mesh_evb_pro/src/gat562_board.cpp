@@ -6,7 +6,7 @@
 #include "boards/gat562_mesh_evb_pro/settings_store.h"
 #include "boards/gat562_mesh_evb_pro/sx1262_radio_packet_io.h"
 #include "platform/nrf52/arduino_common/chat/infra/radio_packet_io.h"
-#include "ui/mono_128x64/runtime.h"
+#include "ui/mono/runtime.h"
 
 #include ".pio/libdeps/gat562_mesh_evb_pro/Adafruit SSD1306/Adafruit_SSD1306.h"
 #include <Arduino.h>
@@ -251,6 +251,8 @@ void Gat562Board::playMessageTone()
     pinMode(buzzer_pin, OUTPUT);
     digitalWrite(buzzer_pin, kBoardProfile.buzzer.active_high ? LOW : HIGH);
 
+    const bool idle_level = kBoardProfile.buzzer.active_high ? LOW : HIGH;
+
     struct ToneStep
     {
         unsigned frequency_hz;
@@ -259,8 +261,8 @@ void Gat562Board::playMessageTone()
     };
 
     static constexpr ToneStep kMessageTone[] = {
-        {1760U, 70U, 25U},
-        {2093U, 110U, 0U},
+        {1760U, 90U, 45U},
+        {2093U, 140U, 0U},
     };
 
     for (const ToneStep& step : kMessageTone)
@@ -274,7 +276,7 @@ void Gat562Board::playMessageTone()
         }
     }
 
-    digitalWrite(buzzer_pin, kBoardProfile.buzzer.active_high ? LOW : HIGH);
+    digitalWrite(buzzer_pin, idle_level);
 }
 
 void Gat562Board::setMessageToneVolume(uint8_t volume_percent)
@@ -393,7 +395,7 @@ namespace
 constexpr int kMonoScreenWidth = 128;
 constexpr int kMonoScreenHeight = 64;
 
-class Ssd1306MonoDisplay final : public ::ui::mono_128x64::MonoDisplay
+class Ssd1306MonoDisplay final : public ::ui::mono::MonoDisplay
 {
   public:
     Ssd1306MonoDisplay()
@@ -409,35 +411,35 @@ class Ssd1306MonoDisplay final : public ::ui::mono_128x64::MonoDisplay
     int height() const override { return kMonoScreenHeight; }
     void clear() override
     {
-        if (online_)
+        if (online_ && !power_save_)
         {
             display_.clearDisplay();
         }
     }
     void drawPixel(int x, int y, bool on) override
     {
-        if (online_)
+        if (online_ && !power_save_)
         {
             display_.drawPixel(x, y, on ? SSD1306_WHITE : SSD1306_BLACK);
         }
     }
     void drawHLine(int x, int y, int w) override
     {
-        if (online_)
+        if (online_ && !power_save_)
         {
             display_.drawFastHLine(x, y, w, SSD1306_WHITE);
         }
     }
     void fillRect(int x, int y, int w, int h, bool on) override
     {
-        if (online_)
+        if (online_ && !power_save_)
         {
             display_.fillRect(x, y, w, h, on ? SSD1306_WHITE : SSD1306_BLACK);
         }
     }
     void present() override
     {
-        if (!online_)
+        if (!online_ || power_save_)
         {
             return;
         }
@@ -448,11 +450,28 @@ class Ssd1306MonoDisplay final : public ::ui::mono_128x64::MonoDisplay
             display_.display();
         }
     }
+    bool powerSavesOnSleep() const override { return true; }
+    void setPowerSave(bool enabled) override
+    {
+        if (!online_ || power_save_ == enabled)
+        {
+            return;
+        }
+        auto& board = ::boards::gat562_mesh_evb_pro::Gat562Board::instance();
+        Gat562Board::I2cGuard guard(board, 100);
+        if (!guard)
+        {
+            return;
+        }
+        display_.ssd1306_command(enabled ? SSD1306_DISPLAYOFF : SSD1306_DISPLAYON);
+        power_save_ = enabled;
+    }
 
   private:
     Adafruit_SSD1306 display_;
     bool initialized_ = false;
     bool online_ = false;
+    bool power_save_ = false;
 };
 
 bool Ssd1306MonoDisplay::begin()
@@ -475,7 +494,7 @@ bool Ssd1306MonoDisplay::begin()
     {
         display_.clearDisplay();
         display_.setTextWrap(false);
-        // Mono UI text is rendered by ui::mono_128x64::TextRenderer. Keep the
+        // Mono UI text is rendered by ui::mono::TextRenderer. Keep the
         // panel implementation at raw-pixel level so NRF never falls back to
         // Adafruit_GFX's built-in ASCII font path.
         display_.display();
@@ -485,7 +504,7 @@ bool Ssd1306MonoDisplay::begin()
 
 } // namespace
 
-::ui::mono_128x64::MonoDisplay& Gat562Board::monoDisplay()
+::ui::mono::MonoDisplay& Gat562Board::monoDisplay()
 {
     static Ssd1306MonoDisplay display;
     return display;

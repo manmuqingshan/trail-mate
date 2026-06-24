@@ -10,7 +10,9 @@
 #if !defined(TRAIL_MATE_FINAL_IDF_NO_APP_FACADE)
 #include "chat/usecase/chat_service.h"
 #endif
+#include "platform/ui/lora_runtime.h"
 #include "platform/ui/tracker_runtime.h"
+#include "platform/ui/walkie_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "sys/clock.h"
 #if !defined(GAT562_NO_TEAM) || !GAT562_NO_TEAM
@@ -39,6 +41,9 @@ extern "C"
 #endif
     extern const lv_image_dsc_t tracker_topbar;
     extern const lv_image_dsc_t ble_topbar;
+    extern const lv_image_dsc_t lora_mod_topbar;
+    extern const lv_image_dsc_t fsk_mod_topbar;
+    extern const lv_image_dsc_t walkie_monitor_topbar;
 }
 
 namespace ui
@@ -56,6 +61,9 @@ struct StatusSnapshot
     bool wifi_enabled = false;
     bool team_active = false;
     bool ble_enabled = false;
+    bool radio_mod_visible = false;
+    bool radio_mod_fsk = false;
+    bool walkie_monitor = false;
     int unread = 0;
 };
 
@@ -76,6 +84,8 @@ lv_obj_t* s_menu_wifi_icon = nullptr;
 lv_obj_t* s_menu_team_icon = nullptr;
 lv_obj_t* s_menu_msg_icon = nullptr;
 lv_obj_t* s_menu_ble_icon = nullptr;
+lv_obj_t* s_menu_radio_mod_icon = nullptr;
+lv_obj_t* s_menu_walkie_monitor_icon = nullptr;
 lv_obj_t* s_chat_badge = nullptr;
 lv_obj_t* s_chat_badge_label = nullptr;
 TeamSnapshotCache s_team_cache;
@@ -149,6 +159,12 @@ StatusSnapshot collect_status()
     const auto gps = gpsStatusModel().snapshot();
     snap.gps_enabled = gps.header.valid && gps.receiver_enabled;
     snap.wifi_enabled = platform::ui::wifi::status().enabled;
+    const auto walkie = platform::ui::walkie::get_status();
+    snap.radio_mod_visible = platform::ui::lora::is_supported() ||
+                             platform::ui::walkie::is_supported() ||
+                             walkie.active || walkie.monitor_enabled;
+    snap.radio_mod_fsk = walkie.active;
+    snap.walkie_monitor = walkie.monitor_enabled;
 
     refresh_team_cache();
     snap.team_active = s_team_cache.team_active;
@@ -195,10 +211,14 @@ void apply_menu_icons(const StatusSnapshot& snap)
 #endif
     apply_icon(s_menu_msg_icon, &message_topbar, snap.unread > 0);
     apply_icon(s_menu_ble_icon, &ble_topbar, snap.ble_enabled);
+    apply_icon(s_menu_radio_mod_icon,
+               snap.radio_mod_fsk ? &fsk_mod_topbar : &lora_mod_topbar,
+               snap.radio_mod_visible);
+    apply_icon(s_menu_walkie_monitor_icon, &walkie_monitor_topbar, snap.walkie_monitor);
 
     const bool any = snap.route_active || snap.track_recording || snap.gps_enabled ||
                      snap.wifi_enabled || snap.team_active || snap.ble_enabled ||
-                     (snap.unread > 0);
+                     snap.radio_mod_visible || snap.walkie_monitor || (snap.unread > 0);
     if (any)
     {
         lv_obj_clear_flag(s_menu_status_row, LV_OBJ_FLAG_HIDDEN);
@@ -262,7 +282,9 @@ void register_menu_status_row(lv_obj_t* row,
                               lv_obj_t* wifi_icon,
                               lv_obj_t* team_icon,
                               lv_obj_t* msg_icon,
-                              lv_obj_t* ble_icon)
+                              lv_obj_t* ble_icon,
+                              lv_obj_t* radio_mod_icon,
+                              lv_obj_t* walkie_monitor_icon)
 {
     s_menu_status_row = row;
     s_menu_route_icon = route_icon;
@@ -272,6 +294,8 @@ void register_menu_status_row(lv_obj_t* row,
     s_menu_team_icon = team_icon;
     s_menu_msg_icon = msg_icon;
     s_menu_ble_icon = ble_icon;
+    s_menu_radio_mod_icon = radio_mod_icon;
+    s_menu_walkie_monitor_icon = walkie_monitor_icon;
     status_timer_cb(nullptr);
 }
 

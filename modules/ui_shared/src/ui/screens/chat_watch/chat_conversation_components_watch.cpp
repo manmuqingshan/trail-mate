@@ -335,6 +335,16 @@ void ChatConversationScreen::setActionCallback(void (*cb)(ActionIntent intent, v
     action_cb_user_data_ = user_data;
 }
 
+void ChatConversationScreen::setMessageActionCallback(
+    void (*cb)(MessageActionIntent intent,
+               ::ui::chat::MessageRef ref,
+               void*),
+    void* user_data)
+{
+    (void)cb;
+    (void)user_data;
+}
+
 void ChatConversationScreen::setHeaderText(const char* title, const char*)
 {
     (void)title;

@@ -4,19 +4,20 @@
 
 | Runtime | Primary path | Source enum | Status |
 | --- | --- | --- | --- |
-| LinuxSim | `LinuxSimRuntimeEntry -> LinuxSimRuntimeEntryAdoptionProbe -> AsciiRuntimeEntryAdoption` | `LinuxSimRuntimeSource::ScreenGraphAdoption` | primary screen graph adoption |
-| GTK | `LinuxUConsoleGtkPageRegistryAdoption -> GtkRuntimeEntryAdoption` | `LinuxUConsoleGtkPageRegistrySource::ScreenGraphAdoption` | primary page registry descriptors |
-| LVGL | `LvglPrimaryScreenGraphRuntime -> LvglRuntimeEntryAdoption` | `LvglScreenGraphRuntimeSource::ScreenGraphAdoption` | primary descriptor runtime |
+| LinuxSim | `LinuxSimRuntimeEntry -> LinuxSimRuntimeEntryAdoptionProbe -> AsciiRuntimeEntryAdoption` | `LinuxSimRuntimeSource::ScreenGraphAdoption` | primary screen graph adoption; Unavailable on failed adoption |
+| GTK | `LinuxUConsoleGtkPageRegistryAdoption -> GtkRuntimeEntryAdoption` | `LinuxUConsoleGtkPageRegistrySource::ScreenGraphAdoption` | primary page registry descriptors; Unavailable on failed adoption |
+| LVGL | `LvglPrimaryScreenGraphRuntime -> LvglRuntimeEntryAdoption` | `LvglScreenGraphRuntimeSource::ScreenGraphAdoption` | primary descriptor runtime; LVGL failed adoption is unavailable-on-failure |
 
 ## Fallback Status
 
 | Runtime | Fallback source | Status |
 | --- | --- | --- |
-| LinuxSim | `LinuxSimRuntimeSource::HardcodedFallback` | fallback-only |
-| GTK | `LinuxUConsoleGtkPageRegistrySource::HardcodedFallback` | fallback-only |
-| LVGL | `LvglScreenGraphRuntimeSource::HardcodedFallback` | fallback-only descriptor fallback |
+| LinuxSim | deleted | deleted after LinuxSim/uConsole fallback burn-down |
+| GTK | deleted | deleted after LinuxSim/uConsole fallback burn-down |
+| LVGL | deleted | deleted after LVGL fallback burn-down |
 
-Fallback remains testable through `fallbackUsed()` and source enum checks.
+LinuxSim/uConsole/LVGL failed adoption remains testable through source enum
+checks and renderer false-return assertions.
 
 ## Not Done
 
@@ -24,7 +25,6 @@ Phase 10 intentionally does not complete these migrations:
 
 - real GTK widget rewrite
 - real LVGL widget/menu rewrite
-- fallback deletion
 - full navigation stack replacement
 - complete screen/page migration
 

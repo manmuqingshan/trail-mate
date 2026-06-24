@@ -45,6 +45,10 @@ and UI presentation identity types.
   failure does not roll back the UI selection because selection is presentation
   state, while the sink is a synchronization hook for app-side side effects
   such as read cursors and mark-read behavior.
+- A selected conversation whose protocol differs from the active runtime
+  protocol is still a valid readable conversation. It is not a valid send
+  target. Renderers may show it and allow message inspection, but compose,
+  reply, retry, and direct send actions must be disabled or rejected.
 - `ChatWorkspaceModel` must not own or expose `ChatService`, `ContactService`,
   `IMeshAdapter`, stores, protocol adapters, or `chat::ConversationId`.
 - `ChatWorkspaceSnapshot` must not expose `ChatService`, `ContactService`,
@@ -133,6 +137,11 @@ ChatWorkspaceModel::markRead(...)
 token back to `core_chat` identity, `MeshSession`, or legacy send behavior
 belongs to the Source/Sink adapter layer, not to `ui_presentation`.
 
+The Source/Sink adapter must preserve the protocol field during that mapping.
+Dropping the protocol and sending only by channel/peer is invalid because it
+turns a readable cross-protocol conversation into a send target for the active
+protocol.
+
 ## Source/Sink Adapter Contract
 
 Chat presentation adapters are the first layer allowed to touch real chat
@@ -164,7 +173,7 @@ explicitly mapped in later phases.
 The current Phase 5.6-c compatibility adapter lives in
 `modules/ui_shared/src/ui/presentation_sources/chat_presentation_source.cpp`
 and
-`modules/ui_shared/src/ui/presentation_sources/legacy_chat_action_sink.cpp`.
+`modules/ui_shared/src/ui/presentation_sources/runtime_chat_action_sink.cpp`.
 It is a Source/Sink boundary around the existing `ChatService`, not a new chat
 domain model.
 

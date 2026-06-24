@@ -43,7 +43,7 @@ Final replacement owner:
 - `platform/esp/radio`
 - `modules/product_composition`
 - `boards/tab5`
-- `boards/tdisplayp4`
+- `boards/t_display_p4`
 
 Removal reason:
 - ESP-IDF final owner extraction completed for the migrated Batch 2 surfaces.

@@ -6,7 +6,6 @@
 #include <AudioFileSourcePROGMEM.h>
 #include <AudioGeneratorRTTTL.h>
 #include <AudioOutputI2S.h>
-#include <SD.h>
 #include <Wire.h>
 #include <ctime>
 #include <driver/gpio.h>
@@ -69,6 +68,22 @@ uint8_t brightness_level_to_backlight_step(uint8_t level)
         return 1;
     }
     return step > kTDeckBacklightStepMax ? kTDeckBacklightStepMax : step;
+}
+
+template <typename RadioT>
+uint32_t radio_tx_timeout_ms(RadioT& radio, size_t len)
+{
+    const uint64_t air_us = static_cast<uint64_t>(radio.getTimeOnAir(len));
+    uint64_t timeout_ms = 10ULL + ((air_us * 5ULL) + 999ULL) / 1000ULL;
+    if (timeout_ms < 100ULL)
+    {
+        timeout_ms = 100ULL;
+    }
+    if (timeout_ms > 120000ULL)
+    {
+        timeout_ms = 120000ULL;
+    }
+    return static_cast<uint32_t>(timeout_ms);
 }
 
 void write_backlight_level(uint8_t level)
@@ -636,7 +651,7 @@ bool TDeckBoard::installSD()
     extra_cs_count = 1;
 #endif
 
-    uint8_t cardType = CARD_NONE;
+    uint8_t cardType = sdutil::kCardNone;
     uint32_t cardSizeMB = 0;
     bool ok = sdutil::installSpiSd(*this, SD_CS, SD_SPI_FREQUENCY, "/sd",
                                    extra_cs, extra_cs_count,
@@ -654,6 +669,27 @@ bool TDeckBoard::installSD()
     Serial.println("[TDeckBoard] SD init skipped: missing SD_CS");
     return false;
 #endif
+}
+
+bool TDeckBoard::ensureSDReady()
+{
+    if (isCardReady())
+    {
+        sd_ready_ = true;
+        devices_probe_ |= HW_SD_ONLINE;
+        return true;
+    }
+
+    sd_ready_ = installSD();
+    if (sd_ready_)
+    {
+        devices_probe_ |= HW_SD_ONLINE;
+    }
+    else
+    {
+        devices_probe_ &= ~HW_SD_ONLINE;
+    }
+    return sd_ready_;
 }
 
 void TDeckBoard::uninstallSD()
@@ -950,10 +986,39 @@ bool TDeckBoard::syncTimeFromGPS(uint32_t gps_task_interval_ms)
 
 int TDeckBoard::transmitRadio(const uint8_t* data, size_t len)
 {
-    // Share the SPI bus with display to avoid tearing due to contention.
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    const uint32_t timeout_ms = radio_tx_timeout_ms(radio_, len);
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx"))
     {
-        int rc = radio_.transmit(data, len);
+        int rc = radio_.startTransmit(data, len);
+        LilyGoDispArduinoSPI::unlock();
+        if (rc != RADIOLIB_ERR_NONE)
+        {
+            return rc;
+        }
+    }
+    else
+    {
+        return RADIOLIB_ERR_SPI_WRITE_FAILED;
+    }
+
+    const uint32_t started_ms = millis();
+    while (digitalRead(LORA_IRQ) == LOW)
+    {
+        if (static_cast<uint32_t>(millis() - started_ms) > timeout_ms)
+        {
+            if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
+            {
+                (void)radio_.finishTransmit();
+                LilyGoDispArduinoSPI::unlock();
+            }
+            return RADIOLIB_ERR_TX_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
+    {
+        const int rc = radio_.finishTransmit();
         LilyGoDispArduinoSPI::unlock();
         return rc;
     }
@@ -962,7 +1027,7 @@ int TDeckBoard::transmitRadio(const uint8_t* data, size_t len)
 
 int TDeckBoard::startRadioReceive()
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
     {
         int rc = radio_.startReceive();
         LilyGoDispArduinoSPI::unlock();
@@ -973,7 +1038,7 @@ int TDeckBoard::startRadioReceive()
 
 uint32_t TDeckBoard::getRadioIrqFlags()
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
     {
         uint32_t flags = radio_.getIrqFlags();
         LilyGoDispArduinoSPI::unlock();
@@ -984,7 +1049,7 @@ uint32_t TDeckBoard::getRadioIrqFlags()
 
 int TDeckBoard::getRadioPacketLength(bool update)
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rx"))
     {
         int len = static_cast<int>(radio_.getPacketLength(update));
         LilyGoDispArduinoSPI::unlock();
@@ -995,7 +1060,7 @@ int TDeckBoard::getRadioPacketLength(bool update)
 
 int TDeckBoard::readRadioData(uint8_t* buf, size_t len)
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
     {
         int rc = radio_.readData(buf, len);
         LilyGoDispArduinoSPI::unlock();
@@ -1006,7 +1071,7 @@ int TDeckBoard::readRadioData(uint8_t* buf, size_t len)
 
 void TDeckBoard::clearRadioIrqFlags(uint32_t flags)
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
     {
         radio_.clearIrqFlags(flags);
         LilyGoDispArduinoSPI::unlock();
@@ -1015,7 +1080,7 @@ void TDeckBoard::clearRadioIrqFlags(uint32_t flags)
 
 float TDeckBoard::getRadioRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
     {
         float rssi = radio_.getRSSI();
         LilyGoDispArduinoSPI::unlock();
@@ -1026,7 +1091,7 @@ float TDeckBoard::getRadioRSSI()
 
 float TDeckBoard::getRadioInstantRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
     {
         const float rssi = radio_.getRSSI(false);
         LilyGoDispArduinoSPI::unlock();
@@ -1037,7 +1102,7 @@ float TDeckBoard::getRadioInstantRSSI()
 
 float TDeckBoard::getRadioSNR()
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
     {
         float snr = radio_.getSNR();
         LilyGoDispArduinoSPI::unlock();
@@ -1060,7 +1125,7 @@ void TDeckBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, ui
                                     int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
                                     uint8_t crc_len)
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100), "radio_cfg"))
     {
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
         radio_.setDio2AsRfSwitch(true);

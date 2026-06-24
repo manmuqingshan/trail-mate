@@ -14,7 +14,6 @@
 #include <vector>
 
 #define TILE_SIZE 256
-#define TILE_CACHE_LIMIT 12
 #define TILE_RECORD_LIMIT 48
 
 #ifndef M_PI
@@ -38,17 +37,6 @@ struct MapAnchor
     bool valid = false;
 };
 
-struct DecodedTileCache
-{
-    int32_t x = -1;
-    int32_t y = -1;
-    int32_t z = -1;
-    uint8_t map_source = 0;
-    lv_image_dsc_t* img_dsc = nullptr;
-    uint32_t last_used_ms = 0;
-    bool in_use = false;
-};
-
 struct MapTile
 {
     int32_t x = 0;
@@ -67,7 +55,6 @@ struct MapTile
     bool base_missing = false;
     bool contour_checked = false;
     bool contour_loaded = false;
-    DecodedTileCache* cached_img = nullptr;
 };
 
 struct TileContext

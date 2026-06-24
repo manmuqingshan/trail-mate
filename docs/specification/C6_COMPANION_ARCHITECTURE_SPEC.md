@@ -8,7 +8,7 @@ ESP32-P4 targets such as Tab5 and T-Display-P4.
 The companion exists so the P4 product can use BLE, ESP-NOW, and later Wi-Fi
 surfaces without moving Trail Mate business truth onto the C6.
 
-As of 2026-06-09, the active development slice is the first full C6 wireless
+As of 2026-06-13, the active development slice is the first full C6 wireless
 facade firmware followed by external C6 flashing and P4-C6 validation. The
 phase is not P4-forced C6 recovery and not runtime slave OTA.
 
@@ -289,6 +289,42 @@ in RAM while the firmware is running, but `CONFIG_BT_NIMBLE_NVS_PERSIST` remains
 disabled for this phase. C6 must not log the configured PIN and must not persist
 BLE pairing material as product identity, Team state, MeshCore keys, or
 Meshtastic channel state.
+
+## Functional Check Baseline
+
+The in-repository C6 firmware is not considered functionally checked merely
+because the ESP-IDF project configures. The minimum repository check must cover:
+
+- `tm_services_init` starts from a disabled service state and exposes a bounded
+  report.
+- `tm_services_apply_config` enables and disables requested BLE, ESP-NOW, and
+  Wi-Fi facade bits without claiming unsupported feature bits.
+- Feature masks preserve the boundary between supported features, requested
+  features, and enabled runtime services.
+- Diagnostics report firmware version, protocol range, heap values, supported
+  feature bits, enabled feature bits, and service state.
+- BLE, ESP-NOW, and Wi-Fi components initialize as facade mechanics and remain
+  disabled until P4 HostLink configuration arrives.
+- HostLink startup is present and does not move Trail Mate business state onto
+  C6.
+
+The required evidence is both:
+
+- host-side functional smoke tests for the service/config/report behavior; and
+- a real ESP-IDF `esp32c6` build of `firmware/c6_companion`.
+
+Current local repository evidence from 2026-06-13 satisfies that build baseline:
+
+- `trailmate_c6_services_functional_smoke` covers service init, config apply,
+  feature mask reporting, disabled-by-default service state, and diagnostics
+  reporting.
+- ESP-IDF built `firmware/c6_companion` for `esp32c6` and produced
+  `.tmp/build.c6_companion_real/trail-mate-c6-companion.bin`; binary size
+  `0x129560`, smallest app partition `0x300000`, free `0x1d6aa0` (61%).
+
+This baseline still does not prove live RF behavior, SDIO HostLink exchange, or
+on-device interoperability. Those require board flashing and P4-C6 runtime
+validation.
 
 ## Firmware Layout
 

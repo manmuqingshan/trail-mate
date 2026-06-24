@@ -14,12 +14,13 @@
 #include "platform/esp/arduino_common/device_identity.h"
 #include "platform/esp/arduino_common/hostlink/hostlink_service.h"
 #include "platform/ui/settings_store.h"
+#include "platform/ui/tracker_runtime.h"
 #include "sys/event_bus.h"
 #include "team/usecase/team_pairing_service.h"
 #include "team/usecase/team_service.h"
 #include "team/usecase/team_track_sampler.h"
 #include "ui/localization.h"
-#include "ui/widgets/system_notification.h"
+#include "ui/runtime/ui_feedback.h"
 
 #ifndef APP_EVENT_LOG_ENABLE
 #define APP_EVENT_LOG_ENABLE 0
@@ -115,7 +116,7 @@ void notifyNodeInfoUpdate(app::IAppFacade& app_context, const sys::NodeInfoUpdat
 
     const std::string message =
         ::ui::i18n::format("Node info: %s", resolveNodeInfoName(app_context, node_event).c_str());
-    ::ui::SystemNotification::show(message.c_str(), 3000);
+    ::ui::feedback::show_notice(message.c_str(), 3000);
 }
 
 } // namespace
@@ -155,6 +156,8 @@ void tickRuntime(app::IAppFacade& app_context)
 void updateCoreServices(app::IAppFacade& app_context)
 {
     hostlink::process_pending_commands();
+
+    platform::ui::tracker::poll();
 
     app_context.getChatService().processIncoming();
     app_context.getChatService().flushStore();

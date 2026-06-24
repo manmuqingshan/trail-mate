@@ -1,12 +1,12 @@
+#include "chat/delivery/chat_delivery_message_projection.h"
 #include "chat/delivery/chat_delivery_read_model.h"
-#include "chat/delivery/legacy_chat_delivery_bridge.h"
 #include "chat/domain/chat_model.h"
 #include "chat/infra/store/ram_store.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
 #include "sys/clock.h"
 #include "ui/presentation_sources/chat_presentation_source.h"
-#include "ui/presentation_sources/legacy_chat_action_sink.h"
+#include "ui/presentation_sources/runtime_chat_action_sink.h"
 
 #include <cassert>
 #include <cstdlib>
@@ -148,7 +148,7 @@ int main()
     ::chat::ChatService service(model, mesh, store);
     ::chat::delivery::ChatDeliveryReadModel delivery_read_model;
 
-    ui::presentation_sources::LegacyChatActionSink sink(service);
+    ui::presentation_sources::RuntimeChatActionSink sink(service);
     ui::presentation_sources::ChatPresentationSource source(
         service, nullptr, &delivery_read_model);
 
@@ -163,6 +163,21 @@ int main()
     assert(mesh.send_count == 1);
     assert(mesh.last_peer == 1234);
     assert(mesh.last_text == "hello");
+
+    const ui::chat::ConversationId meshcore_channel = meshCoreBroadcastConversation();
+    const int send_count_before_mismatch = mesh.send_count;
+    const ui::chat::SendMessageView mismatched_send{meshcore_channel, "mc", 2};
+    const auto mismatched_result = sink.sendMessage(mismatched_send);
+    assert(!mismatched_result.ok);
+    assert(mismatched_result.failure == ui::UiActionFailure::Unsupported);
+    assert(mesh.send_count == send_count_before_mismatch);
+
+    ui::chat::ChatWorkspaceRequest mismatched_request;
+    mismatched_request.selected = meshcore_channel;
+    ui::chat::ChatWorkspaceSnapshot mismatched_snapshot;
+    assert(source.buildChatWorkspaceSnapshot(mismatched_request, mismatched_snapshot));
+    assert(!mismatched_snapshot.can_send);
+    assert(!mismatched_snapshot.composer_enabled);
 
     ::chat::delivery::ChatDeliveryRecord delivered{};
     delivered.ref.protocol_id = 100;
@@ -283,6 +298,7 @@ int main()
     assert(!snapshot.composer_enabled);
 
     send.conversation = broadcast;
+    service.setActiveProtocol(::chat::MeshProtocol::Meshtastic);
     mesh.send_ok = true;
     const auto broadcast_send = sink.sendMessage(send);
     assert(broadcast_send.ok);

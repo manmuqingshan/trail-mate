@@ -11,12 +11,64 @@
 
 static LilyGoDispArduinoSPI* g_display_spi = nullptr;
 
+namespace
+{
+// Display flush is the frame-critical client of the shared SPI bus. It uses a
+// short bounded wait and drops the current flush if storage/radio work is
+// holding the bus, so LVGL can return to input/timer processing instead of
+// blocking the UI owner task indefinitely.
+constexpr TickType_t kDisplayFrameLockWait = pdMS_TO_TICKS(35);
+constexpr TickType_t kDisplayControlLockWait = pdMS_TO_TICKS(50);
+constexpr uint32_t kDisplayLockTimeoutLogIntervalMs = 1000;
+
+uint32_t s_last_display_lock_timeout_log_ms = 0;
+uint32_t s_suppressed_display_lock_timeout_logs = 0;
+volatile uint32_t s_last_display_spi_timeout_ms = 0;
+
+bool lock_or_log(LilyGoDispArduinoSPI& spi, TickType_t wait_ticks, const char* op)
+{
+    if (spi.lock(wait_ticks, "display"))
+    {
+        return true;
+    }
+
+    const uint32_t now_ms = millis();
+    ::platform::esp::common::note_display_spi_timeout(now_ms);
+    ++s_suppressed_display_lock_timeout_logs;
+    if (s_last_display_lock_timeout_log_ms == 0 ||
+        now_ms - s_last_display_lock_timeout_log_ms >= kDisplayLockTimeoutLogIntervalMs)
+    {
+        Serial.printf("[SPI][DISPLAY] lock_timeout op=%s wait_ticks=%lu owner=%s task=%s native_holder=%s held_ms=%lu depth=%lu last_owner=%s last_task=%s last_held_ms=%lu last_release_age_ms=%lu suppressed=%lu\n",
+                      op ? op : "",
+                      static_cast<unsigned long>(wait_ticks),
+                      spi.lockOwnerLabel(),
+                      spi.lockOwnerTaskName(),
+                      spi.nativeLockHolderTaskName(),
+                      static_cast<unsigned long>(spi.lockHeldMs(now_ms)),
+                      static_cast<unsigned long>(spi.lockDepth()),
+                      spi.lastLockOwnerLabel(),
+                      spi.lastLockOwnerTaskName(),
+                      static_cast<unsigned long>(spi.lastLockHeldMs()),
+                      static_cast<unsigned long>(spi.lastLockReleaseAgeMs(now_ms)),
+                      static_cast<unsigned long>(s_suppressed_display_lock_timeout_logs - 1));
+        s_suppressed_display_lock_timeout_logs = 0;
+        s_last_display_lock_timeout_log_ms = now_ms;
+    }
+    return false;
+}
+} // namespace
+
 namespace platform::esp::common
 {
 
 bool shared_spi_lock(TickType_t xTicksToWait)
 {
-    return g_display_spi && g_display_spi->lock(xTicksToWait);
+    return shared_spi_lock_with_owner(xTicksToWait, "shared");
+}
+
+bool shared_spi_lock_with_owner(TickType_t xTicksToWait, const char* owner)
+{
+    return g_display_spi && g_display_spi->lock(xTicksToWait, owner);
 }
 
 void shared_spi_unlock()
@@ -27,16 +79,145 @@ void shared_spi_unlock()
     }
 }
 
+void note_display_spi_timeout(uint32_t now_ms)
+{
+    s_last_display_spi_timeout_ms = now_ms;
+}
+
+uint32_t last_display_spi_timeout_ms()
+{
+    return s_last_display_spi_timeout_ms;
+}
+
+bool display_spi_recently_timed_out(uint32_t now_ms, uint32_t window_ms)
+{
+    const uint32_t last_timeout_ms = s_last_display_spi_timeout_ms;
+    return last_timeout_ms != 0 &&
+           static_cast<uint32_t>(now_ms - last_timeout_ms) < window_ms;
+}
+
 } // namespace platform::esp::common
 
-bool LilyGoDispArduinoSPI::lock(TickType_t xTicksToWait)
+bool LilyGoDispArduinoSPI::lock(TickType_t xTicksToWait, const char* owner)
 {
-    return xSemaphoreTake(_lock, xTicksToWait) == pdTRUE;
+    if (_lock == nullptr)
+    {
+        return false;
+    }
+
+    TaskHandle_t current = xTaskGetCurrentTaskHandle();
+    TaskHandle_t native_holder = xSemaphoreGetMutexHolder(_lock);
+    if (native_holder == current)
+    {
+        // Storage/runtime code can be called from a scope that already owns the
+        // physical SPI bus; same-task reentry must not look like contention.
+        ++_lock_depth;
+        return true;
+    }
+
+    if (xSemaphoreTake(_lock, xTicksToWait) != pdTRUE)
+    {
+        return false;
+    }
+
+    // Keep owner diagnostics on the physical shared-bus mutex. The timeout log
+    // is used by storage adapters to detect display pressure and back off.
+    _lock_owner = current;
+    _lock_depth = 1;
+    _lock_owner_label = (owner && owner[0] != '\0') ? owner : "direct";
+    _lock_owner_task_name = pcTaskGetName(current);
+    _lock_acquired_ms = millis();
+    return true;
 }
 
 void LilyGoDispArduinoSPI::unlock()
 {
-    xSemaphoreGive(_lock);
+    if (_lock == nullptr)
+    {
+        return;
+    }
+
+    TaskHandle_t current = xTaskGetCurrentTaskHandle();
+    TaskHandle_t native_holder = xSemaphoreGetMutexHolder(_lock);
+    if (native_holder != current)
+    {
+        Serial.printf("[SPI][LOCK] unlock_skip task=%s owner=%s owner_task=%s native_holder=%s depth=%lu\n",
+                      pcTaskGetName(current),
+                      lockOwnerLabel(),
+                      lockOwnerTaskName(),
+                      nativeLockHolderTaskName(),
+                      static_cast<unsigned long>(_lock_depth));
+        return;
+    }
+
+    if (_lock_depth > 1)
+    {
+        --_lock_depth;
+        return;
+    }
+
+    const uint32_t now_ms = millis();
+    _last_lock_owner_label = _lock_owner_label;
+    _last_lock_owner_task_name = _lock_owner_task_name;
+    _last_lock_held_ms = _lock_acquired_ms == 0 ? 0 : static_cast<uint32_t>(now_ms - _lock_acquired_ms);
+    _last_lock_released_ms = now_ms;
+
+    if (xSemaphoreGive(_lock) != pdTRUE)
+    {
+        return;
+    }
+
+    _lock_depth = 0;
+    _lock_owner = nullptr;
+    _lock_owner_label = nullptr;
+    _lock_owner_task_name = nullptr;
+    _lock_acquired_ms = 0;
+}
+
+const char* LilyGoDispArduinoSPI::lockOwnerLabel() const
+{
+    return _lock_owner_label ? _lock_owner_label : "-";
+}
+
+const char* LilyGoDispArduinoSPI::lockOwnerTaskName() const
+{
+    return _lock_owner_task_name ? _lock_owner_task_name : "-";
+}
+
+const char* LilyGoDispArduinoSPI::nativeLockHolderTaskName() const
+{
+    TaskHandle_t holder = _lock ? xSemaphoreGetMutexHolder(_lock) : nullptr;
+    return holder ? pcTaskGetName(holder) : "-";
+}
+
+uint32_t LilyGoDispArduinoSPI::lockHeldMs(uint32_t now_ms) const
+{
+    return _lock_acquired_ms == 0 ? 0 : static_cast<uint32_t>(now_ms - _lock_acquired_ms);
+}
+
+uint32_t LilyGoDispArduinoSPI::lockDepth() const
+{
+    return _lock_depth;
+}
+
+const char* LilyGoDispArduinoSPI::lastLockOwnerLabel() const
+{
+    return _last_lock_owner_label ? _last_lock_owner_label : "-";
+}
+
+const char* LilyGoDispArduinoSPI::lastLockOwnerTaskName() const
+{
+    return _last_lock_owner_task_name ? _last_lock_owner_task_name : "-";
+}
+
+uint32_t LilyGoDispArduinoSPI::lastLockHeldMs() const
+{
+    return _last_lock_held_ms;
+}
+
+uint32_t LilyGoDispArduinoSPI::lastLockReleaseAgeMs(uint32_t now_ms) const
+{
+    return _last_lock_released_ms == 0 ? 0 : static_cast<uint32_t>(now_ms - _last_lock_released_ms);
 }
 
 void LilyGoDispArduinoSPI::setBrightness(uint8_t level)
@@ -55,6 +236,11 @@ bool LilyGoDispArduinoSPI::init(int sck,
                                 SPIClass& spi)
 {
     _lock = xSemaphoreCreateMutex();
+    if (_lock == nullptr)
+    {
+        return false;
+    }
+
     _spi = &spi;
     g_display_spi = this;
 
@@ -107,7 +293,6 @@ bool LilyGoDispArduinoSPI::init(int sck,
     {
         digitalWrite(_backlight, (_brightness > 0) ? HIGH : LOW);
     }
-    xSemaphoreGive(_lock);
     return true;
 }
 
@@ -135,7 +320,16 @@ void LilyGoDispArduinoSPI::setRotation(uint8_t rotation)
 
 void LilyGoDispArduinoSPI::pushColors(uint16_t* data, uint32_t len)
 {
-    xSemaphoreTake(_lock, portMAX_DELAY);
+    if (!lock_or_log(*this, kDisplayFrameLockWait, "pushColors"))
+    {
+        return;
+    }
+    pushColorsLocked(data, len);
+    unlock();
+}
+
+void LilyGoDispArduinoSPI::pushColorsLocked(uint16_t* data, uint32_t len)
+{
     digitalWrite(_cs, LOW);
     _spi->beginTransaction(SPISettings(_spi_freq, MSBFIRST, SPI_MODE0));
     digitalWrite(_dc, HIGH);
@@ -169,13 +363,17 @@ void LilyGoDispArduinoSPI::pushColors(uint16_t* data, uint32_t len)
     }
     _spi->endTransaction();
     digitalWrite(_cs, HIGH);
-    xSemaphoreGive(_lock);
 }
 
 void LilyGoDispArduinoSPI::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
 {
-    setAddrWindow(x1, y1, x1 + x2 - 1, y1 + y2 - 1);
-    pushColors(color, x2 * y2);
+    if (!lock_or_log(*this, kDisplayFrameLockWait, "pushColorsArea"))
+    {
+        return;
+    }
+    setAddrWindowLocked(x1, y1, x1 + x2 - 1, y1 + y2 - 1);
+    pushColorsLocked(color, x2 * y2);
+    unlock();
 }
 
 void LilyGoDispArduinoSPI::sleep()
@@ -190,6 +388,16 @@ void LilyGoDispArduinoSPI::wakeup()
 
 void LilyGoDispArduinoSPI::setAddrWindow(uint16_t xs, uint16_t ys, uint16_t xe, uint16_t ye)
 {
+    if (!lock_or_log(*this, kDisplayControlLockWait, "setAddrWindow"))
+    {
+        return;
+    }
+    setAddrWindowLocked(xs, ys, xe, ye);
+    unlock();
+}
+
+void LilyGoDispArduinoSPI::setAddrWindowLocked(uint16_t xs, uint16_t ys, uint16_t xe, uint16_t ye)
+{
     xs += _offset_x;
     ys += _offset_y;
     xe += _offset_x;
@@ -201,13 +409,22 @@ void LilyGoDispArduinoSPI::setAddrWindow(uint16_t xs, uint16_t ys, uint16_t xe, 
     };
     for (uint32_t i = 0; i < 3; i++)
     {
-        writeParams(t[i].cmd, t[i].data, t[i].len);
+        writeParamsLocked(t[i].cmd, t[i].data, t[i].len);
     }
 }
 
 void LilyGoDispArduinoSPI::writeCommand(uint8_t cmd)
 {
-    xSemaphoreTake(_lock, portMAX_DELAY);
+    if (!lock_or_log(*this, kDisplayControlLockWait, "writeCommand"))
+    {
+        return;
+    }
+    writeCommandLocked(cmd);
+    unlock();
+}
+
+void LilyGoDispArduinoSPI::writeCommandLocked(uint8_t cmd)
+{
     digitalWrite(_cs, LOW);
     _spi->beginTransaction(SPISettings(_spi_freq, MSBFIRST, SPI_MODE0));
     digitalWrite(_dc, LOW);
@@ -215,29 +432,46 @@ void LilyGoDispArduinoSPI::writeCommand(uint8_t cmd)
     digitalWrite(_dc, HIGH);
     _spi->endTransaction();
     digitalWrite(_cs, HIGH);
-    xSemaphoreGive(_lock);
 }
 
 void LilyGoDispArduinoSPI::writeData(uint8_t data)
 {
-    xSemaphoreTake(_lock, portMAX_DELAY);
+    if (!lock_or_log(*this, kDisplayControlLockWait, "writeData"))
+    {
+        return;
+    }
+    writeDataLocked(data);
+    unlock();
+}
+
+void LilyGoDispArduinoSPI::writeDataLocked(uint8_t data)
+{
     digitalWrite(_cs, LOW);
     _spi->beginTransaction(SPISettings(_spi_freq, MSBFIRST, SPI_MODE0));
     digitalWrite(_dc, HIGH);
     _spi->write(data);
     _spi->endTransaction();
     digitalWrite(_cs, HIGH);
-    xSemaphoreGive(_lock);
 }
 
 void LilyGoDispArduinoSPI::writeParams(uint8_t cmd, uint8_t* data, size_t length)
 {
-    writeCommand(cmd);
+    if (!lock_or_log(*this, kDisplayControlLockWait, "writeParams"))
+    {
+        return;
+    }
+    writeParamsLocked(cmd, data, length);
+    unlock();
+}
+
+void LilyGoDispArduinoSPI::writeParamsLocked(uint8_t cmd, uint8_t* data, size_t length)
+{
+    writeCommandLocked(cmd);
     if (data != nullptr)
     {
         for (size_t i = 0; i < length; i++)
         {
-            writeData(data[i]);
+            writeDataLocked(data[i]);
         }
     }
 }

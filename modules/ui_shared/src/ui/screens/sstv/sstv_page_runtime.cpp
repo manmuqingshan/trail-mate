@@ -8,9 +8,10 @@
 #include "ui/app_runtime.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/ui_common.h"
-#include "ui/widgets/system_notification.h"
 #include "ui/widgets/top_bar.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -103,7 +104,47 @@ struct SstvUi
     lv_obj_t* btn_rx_label = nullptr;
 };
 
+struct SstvLayout
+{
+    bool large_touch = false;
+    lv_coord_t screen_w = kScreenW;
+    lv_coord_t screen_h = 0;
+    lv_coord_t main_h = kMainHeight;
+
+    lv_coord_t img_x = kImgX;
+    lv_coord_t img_y = kImgY;
+    lv_coord_t img_w = kImgW;
+    lv_coord_t img_h = kImgH;
+
+    lv_coord_t info_x = kInfoX;
+    lv_coord_t info_y = kImgY;
+    lv_coord_t info_w = kInfoW;
+    lv_coord_t info_h = kInfoH;
+    lv_coord_t info_text_w = kInfoTextW;
+
+    lv_coord_t state_y = 6;
+    lv_coord_t mode_y = 56;
+    lv_coord_t ready_y = 128;
+    lv_coord_t btn_x = 0;
+    lv_coord_t btn_y = 150;
+    lv_coord_t btn_w = 72;
+    lv_coord_t btn_h = 22;
+
+    lv_coord_t progress_x = kInfoX;
+    lv_coord_t progress_y = kProgressY;
+    lv_coord_t progress_w = kProgressW;
+    lv_coord_t progress_h = kProgressH;
+
+    lv_coord_t meter_x = kMeterX;
+    lv_coord_t meter_y = kMeterY;
+    lv_coord_t meter_w = kMeterW;
+    lv_coord_t meter_h = kMeterH;
+    lv_coord_t meter_seg_h = kMeterSegH;
+    lv_coord_t meter_seg_gap = kMeterSegGap;
+};
+
 SstvUi s_ui;
+SstvLayout s_layout;
 lv_timer_t* s_refresh_timer = nullptr;
 int s_last_meter_active = -1;
 platform::ui::sstv::State s_last_state = platform::ui::sstv::State::Idle;
@@ -111,6 +152,95 @@ uint16_t s_last_line = 0;
 char s_last_mode[24] = "";
 lv_image_dsc_t s_frame_dsc = {};
 bool s_frame_ready = false;
+
+SstvLayout make_classic_layout()
+{
+    SstvLayout layout{};
+    layout.screen_h = screen_height();
+    return layout;
+}
+
+SstvLayout make_large_touch_layout(lv_coord_t parent_w, lv_coord_t parent_h)
+{
+    SstvLayout layout{};
+    layout.large_touch = true;
+    layout.screen_w = parent_w > 0 ? parent_w : 1168;
+    layout.screen_h = parent_h > 0 ? parent_h : 540;
+
+    const lv_coord_t top_h = top_bar_height();
+    const bool landscape = layout.screen_w >= layout.screen_h;
+    const lv_coord_t margin = 14;
+    const lv_coord_t gap = 14;
+    layout.main_h = std::max<lv_coord_t>(360, layout.screen_h - top_h);
+
+    if (landscape)
+    {
+        layout.info_w = std::min<lv_coord_t>(380, std::max<lv_coord_t>(320, layout.screen_w / 3));
+        layout.img_x = margin;
+        layout.img_y = margin;
+        layout.img_w = layout.screen_w - (margin * 2) - gap - layout.info_w;
+        layout.img_h = layout.main_h - (margin * 2);
+        layout.info_x = layout.img_x + layout.img_w + gap;
+        layout.info_y = margin;
+        layout.info_h = layout.img_h;
+    }
+    else
+    {
+        layout.img_x = margin;
+        layout.img_y = margin;
+        layout.img_w = layout.screen_w - (margin * 2);
+        layout.img_h = std::max<lv_coord_t>(420, (layout.main_h * 62) / 100);
+        layout.info_x = margin;
+        layout.info_y = layout.img_y + layout.img_h + gap;
+        layout.info_w = layout.img_w;
+        layout.info_h = std::max<lv_coord_t>(300, layout.main_h - layout.info_y - margin);
+    }
+
+    layout.info_text_w = layout.info_w - 86;
+    if (layout.info_text_w < 180)
+    {
+        layout.info_text_w = layout.info_w - 28;
+    }
+
+    layout.state_y = 10;
+    layout.mode_y = 76;
+    layout.ready_y = 152;
+    layout.btn_x = 0;
+    layout.btn_w = std::min<lv_coord_t>(160, std::max<lv_coord_t>(118, layout.info_w / 3));
+    layout.btn_h = 50;
+    layout.btn_y = layout.info_h - layout.btn_h - 18;
+
+    layout.progress_x = layout.info_x;
+    layout.progress_w = layout.info_w;
+    layout.progress_h = 14;
+    layout.progress_y = layout.info_y + layout.info_h - layout.progress_h - 8;
+
+    layout.meter_w = 42;
+    layout.meter_x = layout.info_w - layout.meter_w - 10;
+    layout.meter_y = 54;
+    layout.meter_h = std::max<lv_coord_t>(132, layout.info_h - 148);
+    layout.meter_seg_gap = 3;
+    layout.meter_seg_h =
+        std::max<lv_coord_t>(6, (layout.meter_h - 4 - ((kMeterSegments - 1) * layout.meter_seg_gap)) / kMeterSegments);
+    return layout;
+}
+
+SstvLayout resolve_layout(lv_obj_t* parent)
+{
+    if (parent)
+    {
+        lv_obj_update_layout(parent);
+    }
+    const lv_coord_t parent_w = parent ? lv_obj_get_width(parent) : 0;
+    const lv_coord_t parent_h = parent ? lv_obj_get_height(parent) : 0;
+    const lv_coord_t long_side = std::max(parent_w, parent_h);
+    const lv_coord_t short_side = std::min(parent_w, parent_h);
+    if (::ui::page_profile::current().large_touch_hitbox && long_side >= 900 && short_side >= 500)
+    {
+        return make_large_touch_layout(parent_w, parent_h);
+    }
+    return make_classic_layout();
+}
 
 void ensure_frame_dsc();
 
@@ -344,7 +474,7 @@ void build_top_bar(lv_obj_t* parent)
 void build_main_area(lv_obj_t* parent)
 {
     lv_obj_t* main = lv_obj_create(parent);
-    lv_obj_set_size(main, kScreenW, kMainHeight);
+    lv_obj_set_size(main, s_layout.screen_w, s_layout.main_h);
     lv_obj_set_pos(main, 0, top_bar_height());
     lv_obj_set_style_bg_opa(main, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(main, 0, 0);
@@ -352,8 +482,8 @@ void build_main_area(lv_obj_t* parent)
     lv_obj_clear_flag(main, LV_OBJ_FLAG_SCROLLABLE);
 
     s_ui.progress = lv_bar_create(main);
-    lv_obj_set_size(s_ui.progress, kProgressW, kProgressH);
-    lv_obj_set_pos(s_ui.progress, kInfoX, kProgressY);
+    lv_obj_set_size(s_ui.progress, s_layout.progress_w, s_layout.progress_h);
+    lv_obj_set_pos(s_ui.progress, s_layout.progress_x, s_layout.progress_y);
     lv_bar_set_range(s_ui.progress, 0, 100);
     lv_bar_set_value(s_ui.progress, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(s_ui.progress, lv_color_hex(kColorLine), LV_PART_MAIN);
@@ -364,8 +494,8 @@ void build_main_area(lv_obj_t* parent)
     lv_obj_set_style_radius(s_ui.progress, 4, LV_PART_INDICATOR);
 
     s_ui.img_box = lv_obj_create(main);
-    lv_obj_set_size(s_ui.img_box, kImgW, kImgH);
-    lv_obj_set_pos(s_ui.img_box, kImgX, kImgY);
+    lv_obj_set_size(s_ui.img_box, s_layout.img_w, s_layout.img_h);
+    lv_obj_set_pos(s_ui.img_box, s_layout.img_x, s_layout.img_y);
     lv_obj_set_style_bg_color(s_ui.img_box, lv_color_hex(kColorPanelBg), 0);
     lv_obj_set_style_bg_opa(s_ui.img_box, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_ui.img_box, 2, 0);
@@ -384,37 +514,37 @@ void build_main_area(lv_obj_t* parent)
     lv_obj_center(s_ui.img_placeholder);
 
     s_ui.info_area = lv_obj_create(main);
-    lv_obj_set_size(s_ui.info_area, kInfoW, kInfoH);
-    lv_obj_set_pos(s_ui.info_area, kInfoX, kImgY);
+    lv_obj_set_size(s_ui.info_area, s_layout.info_w, s_layout.info_h);
+    lv_obj_set_pos(s_ui.info_area, s_layout.info_x, s_layout.info_y);
     lv_obj_set_style_bg_opa(s_ui.info_area, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_ui.info_area, 0, 0);
     lv_obj_set_style_pad_all(s_ui.info_area, 0, 0);
     lv_obj_clear_flag(s_ui.info_area, LV_OBJ_FLAG_SCROLLABLE);
 
     s_ui.label_state_sub = lv_label_create(s_ui.info_area);
-    lv_obj_set_pos(s_ui.label_state_sub, 0, 6);
-    lv_obj_set_width(s_ui.label_state_sub, kInfoTextW);
+    lv_obj_set_pos(s_ui.label_state_sub, 0, s_layout.state_y);
+    lv_obj_set_width(s_ui.label_state_sub, s_layout.info_text_w);
     lv_obj_set_style_text_align(s_ui.label_state_sub, LV_TEXT_ALIGN_LEFT, 0);
     lv_label_set_long_mode(s_ui.label_state_sub, LV_LABEL_LONG_WRAP);
     apply_label_style(s_ui.label_state_sub, &lv_font_montserrat_14, kColorTextDim);
 
     s_ui.label_mode = lv_label_create(s_ui.info_area);
-    lv_obj_set_pos(s_ui.label_mode, 0, 56);
-    lv_obj_set_width(s_ui.label_mode, kInfoTextW);
+    lv_obj_set_pos(s_ui.label_mode, 0, s_layout.mode_y);
+    lv_obj_set_width(s_ui.label_mode, s_layout.info_text_w);
     lv_obj_set_style_text_align(s_ui.label_mode, LV_TEXT_ALIGN_LEFT, 0);
     lv_label_set_long_mode(s_ui.label_mode, LV_LABEL_LONG_WRAP);
     apply_label_style(s_ui.label_mode, &lv_font_montserrat_14, kColorTextDim);
 
     s_ui.label_ready = lv_label_create(s_ui.info_area);
-    lv_obj_set_pos(s_ui.label_ready, 0, 128);
-    lv_obj_set_width(s_ui.label_ready, kInfoTextW);
+    lv_obj_set_pos(s_ui.label_ready, 0, s_layout.ready_y);
+    lv_obj_set_width(s_ui.label_ready, s_layout.info_text_w);
     lv_obj_set_style_text_align(s_ui.label_ready, LV_TEXT_ALIGN_LEFT, 0);
     lv_label_set_long_mode(s_ui.label_ready, LV_LABEL_LONG_WRAP);
     apply_label_style(s_ui.label_ready, &lv_font_montserrat_14, kColorText);
 
     s_ui.btn_rx = lv_btn_create(s_ui.info_area);
-    lv_obj_set_size(s_ui.btn_rx, 72, 22);
-    lv_obj_set_pos(s_ui.btn_rx, 0, 150);
+    lv_obj_set_size(s_ui.btn_rx, s_layout.btn_w, s_layout.btn_h);
+    lv_obj_set_pos(s_ui.btn_rx, s_layout.btn_x, s_layout.btn_y);
     lv_obj_set_style_bg_color(s_ui.btn_rx, lv_color_hex(kColorPanelBg), 0);
     lv_obj_set_style_bg_opa(s_ui.btn_rx, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_ui.btn_rx, 1, 0);
@@ -429,8 +559,8 @@ void build_main_area(lv_obj_t* parent)
     lv_obj_add_event_cb(s_ui.btn_rx, on_rx_btn_key, LV_EVENT_KEY, nullptr);
 
     s_ui.meter_box = lv_obj_create(s_ui.info_area);
-    lv_obj_set_size(s_ui.meter_box, kMeterW, kMeterH);
-    lv_obj_set_pos(s_ui.meter_box, kMeterX, kMeterY);
+    lv_obj_set_size(s_ui.meter_box, s_layout.meter_w, s_layout.meter_h);
+    lv_obj_set_pos(s_ui.meter_box, s_layout.meter_x, s_layout.meter_y);
     lv_obj_set_style_bg_opa(s_ui.meter_box, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_ui.meter_box, 1, 0);
     lv_obj_set_style_border_color(s_ui.meter_box, lv_color_hex(kColorLine), 0);
@@ -441,8 +571,9 @@ void build_main_area(lv_obj_t* parent)
     for (int i = 0; i < kMeterSegments; ++i)
     {
         lv_obj_t* seg = lv_obj_create(s_ui.meter_box);
-        lv_obj_set_size(seg, kMeterW - 4, kMeterSegH);
-        lv_coord_t y = kMeterH - 2 - kMeterSegH - (i * (kMeterSegH + kMeterSegGap));
+        lv_obj_set_size(seg, s_layout.meter_w - 4, s_layout.meter_seg_h);
+        lv_coord_t y = s_layout.meter_h - 2 - s_layout.meter_seg_h -
+                       (i * (s_layout.meter_seg_h + s_layout.meter_seg_gap));
         lv_obj_set_pos(seg, 2, y);
         lv_obj_set_style_border_width(seg, 0, 0);
         lv_obj_set_style_radius(seg, 2, 0);
@@ -461,6 +592,7 @@ void build_main_area(lv_obj_t* parent)
 void reset_ui_pointers()
 {
     s_ui = {};
+    s_layout = {};
     s_last_meter_active = -1;
     s_last_state = platform::ui::sstv::State::Idle;
     s_last_line = 0;
@@ -482,8 +614,9 @@ lv_obj_t* ui_sstv_create(lv_obj_t* parent)
         reset_ui_pointers();
     }
 
+    s_layout = resolve_layout(parent);
     s_ui.root = lv_obj_create(parent);
-    lv_obj_set_size(s_ui.root, kScreenW, screen_height());
+    lv_obj_set_size(s_ui.root, s_layout.screen_w, s_layout.screen_h);
     lv_obj_set_style_bg_color(s_ui.root, lv_color_hex(kColorWarmBg), 0);
     lv_obj_set_style_bg_opa(s_ui.root, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_ui.root, 0, 0);
@@ -508,7 +641,7 @@ void ui_sstv_enter(lv_obj_t* parent)
 {
     if (platform::ui::device::power_tier() >= 1)
     {
-        ui::SystemNotification::show(::ui::i18n::tr("Low battery - audio disabled"), 3000);
+        ui::feedback::show_notice(::ui::i18n::tr("Low battery - audio disabled"), 3000);
     }
 
     lv_group_t* prev_group = lv_group_get_default();

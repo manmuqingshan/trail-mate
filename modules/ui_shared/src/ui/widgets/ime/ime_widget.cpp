@@ -5,14 +5,21 @@
 
 #include "ui/widgets/ime/ime_widget.h"
 
+#include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/widgets/ime/ime_input_mode_descriptor.h"
+
+#if UI_SHARED_TOUCH_IME_ENABLED
+#include "ui/LV_Helper.h"
+#endif
 
 #include <algorithm>
-#include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace ui
 {
@@ -22,14 +29,111 @@ namespace
 {
 
 ImeWidget* s_active_ime = nullptr;
-static constexpr int kCandidatesPerPage = 12;
 static constexpr int kCompactCandidatesPerPage = 7;
 static constexpr lv_coord_t kCompactImeRowHeight = 22;
 static constexpr lv_coord_t kCompactImeControlHeight = 18;
 
-bool script_input_available()
+using KeyboardLayoutDescriptor = ::ui::widgets::ime::KeyboardLayoutDescriptor;
+using ScriptInputDescriptor = ::ui::widgets::ime::ScriptInputDescriptor;
+using ScriptInputKind = ::ui::widgets::ime::ScriptInputKind;
+
+const ::ui::i18n::ImeInfo* active_ime_info()
 {
-    return ::ui::i18n::any_enabled_script_input();
+    const char* active_id = ::ui::i18n::active_ime_pack_id();
+    if (!active_id || active_id[0] == '\0')
+    {
+        return nullptr;
+    }
+
+    const std::size_t count = ::ui::i18n::ime_count();
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const ::ui::i18n::ImeInfo* ime = ::ui::i18n::ime_at(index);
+        if (ime != nullptr && ime->id != nullptr && std::strcmp(ime->id, active_id) == 0)
+        {
+            return ime;
+        }
+    }
+    return nullptr;
+}
+
+void append_unique_script_input(std::vector<ScriptInputDescriptor>& inputs,
+                                const ::ui::i18n::ImeInfo* ime)
+{
+    ScriptInputDescriptor descriptor = ::ui::widgets::ime::describe_script_input(ime);
+    if (descriptor.kind == ScriptInputKind::None || descriptor.ime_id == nullptr)
+    {
+        return;
+    }
+    const char* ime_id = descriptor.ime_id;
+    const auto existing = std::find_if(
+        inputs.begin(),
+        inputs.end(),
+        [&](const ScriptInputDescriptor& input)
+        {
+            return input.ime_id != nullptr && std::strcmp(input.ime_id, ime_id) == 0;
+        });
+    if (existing == inputs.end())
+    {
+        inputs.push_back(descriptor);
+    }
+}
+
+std::vector<ScriptInputDescriptor> available_script_inputs()
+{
+    std::vector<ScriptInputDescriptor> inputs;
+    append_unique_script_input(inputs, active_ime_info());
+
+    const std::size_t count = ::ui::i18n::ime_count();
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const ::ui::i18n::ImeInfo* ime = ::ui::i18n::ime_at(index);
+        if (ime == nullptr || ime->id == nullptr || !::ui::i18n::ime_enabled(ime->id))
+        {
+            continue;
+        }
+        append_unique_script_input(inputs, ime);
+    }
+    return inputs;
+}
+
+ScriptInputDescriptor selected_script_input(int script_input_index)
+{
+    const std::vector<ScriptInputDescriptor> inputs = available_script_inputs();
+    if (inputs.empty())
+    {
+        return {};
+    }
+    if (script_input_index < 0 || script_input_index >= static_cast<int>(inputs.size()))
+    {
+        script_input_index = 0;
+    }
+    return inputs[static_cast<std::size_t>(script_input_index)];
+}
+
+ScriptInputKind selected_script_input_kind(int script_input_index)
+{
+    return selected_script_input(script_input_index).kind;
+}
+
+const KeyboardLayoutDescriptor* selected_keyboard_layout(int script_input_index)
+{
+    const ScriptInputDescriptor input = selected_script_input(script_input_index);
+    return input.kind == ScriptInputKind::DirectKeyboard ? input.keyboard_layout : nullptr;
+}
+
+bool script_mode(ImeWidget::Mode mode)
+{
+    return mode == ImeWidget::Mode::SCRIPT;
+}
+
+bool hardware_keyboard_available()
+{
+#if UI_SHARED_TOUCH_IME_ENABLED
+    return lv_get_keyboard_indev() != nullptr;
+#else
+    return false;
+#endif
 }
 
 #if UI_SHARED_TOUCH_IME_ENABLED
@@ -44,10 +148,12 @@ static const char* kTouchNumMap[] = {
     "-", "/", ":", ";", "(", ")", "$", "&", "@", "Enter", "\n",
     ".", ",", "?", "!", "'", "\"", "%", "+", "\n",
     "Space", ""};
+
 #endif
+
 std::string make_candidates_text(const std::vector<std::string>& candidates,
                                  int active_idx,
-                                 int max_show = kCandidatesPerPage,
+                                 int max_show,
                                  const char* separator = "  ")
 {
     std::string out;
@@ -160,6 +266,17 @@ bool translate_touch_token(const char* token, uint32_t& key)
     return false;
 }
 
+bool touch_token_is_action(const char* token)
+{
+    return token != nullptr &&
+           (std::strcmp(token, "Bksp") == 0 ||
+            std::strcmp(token, "Enter") == 0 ||
+            std::strcmp(token, "Prev") == 0 ||
+            std::strcmp(token, "Next") == 0 ||
+            std::strcmp(token, "Pick") == 0 ||
+            std::strcmp(token, "Space") == 0);
+}
+
 bool resolve_touch_button_id(lv_event_t* e, lv_obj_t* matrix, uint32_t& button_id)
 {
     if (!matrix)
@@ -230,7 +347,8 @@ void ImeWidget::init(lv_obj_t* parent, lv_obj_t* textarea)
     candidate_window_start_ = 0;
 
 #if UI_SHARED_TOUCH_IME_ENABLED
-    touch_keyboard_enabled_ = profile.large_touch_hitbox && profile.ime_keyboard_height > 0;
+    touch_keyboard_enabled_ =
+        profile.large_touch_hitbox && profile.ime_keyboard_height > 0 && !hardware_keyboard_available();
     if (touch_keyboard_enabled_)
     {
         init_touch_ui(parent);
@@ -306,7 +424,9 @@ void ImeWidget::init_compact_ui(lv_obj_t* parent)
 void ImeWidget::init_touch_ui(lv_obj_t* parent)
 {
     const auto& profile = ::ui::page_profile::current();
-    const lv_coord_t nav_button_width = std::max<lv_coord_t>(48, ::ui::page_profile::resolve_compact_button_min_width());
+    const lv_coord_t nav_button_width = std::max<lv_coord_t>(
+        48,
+        ::ui::page_profile::resolve_compact_button_min_width());
 
     container_ = lv_obj_create(parent);
     lv_obj_set_size(container_, LV_PCT(100), LV_SIZE_CONTENT);
@@ -451,18 +571,28 @@ void ImeWidget::detach()
 
 void ImeWidget::setMode(Mode mode)
 {
-    if (mode == Mode::CN && !script_input_available())
+    const std::vector<ScriptInputDescriptor> script_inputs = available_script_inputs();
+    if (script_input_index_ < 0 ||
+        script_input_index_ >= static_cast<int>(script_inputs.size()))
+    {
+        script_input_index_ = 0;
+    }
+    const ScriptInputKind requested_kind =
+        script_inputs.empty() ? ScriptInputKind::None
+                              : script_inputs[static_cast<std::size_t>(script_input_index_)].kind;
+    if (script_mode(mode) && requested_kind == ScriptInputKind::None)
     {
         mode = Mode::EN;
     }
 
     mode_ = mode;
-    ime_.setEnabled(mode_ == Mode::CN);
+    const bool use_pinyin = script_mode(mode_) && requested_kind == ScriptInputKind::Pinyin;
+    ime_.setEnabled(use_pinyin);
     if (textarea_)
     {
         const char* cur = lv_textarea_get_text(textarea_);
         committed_text_ = cur ? std::string(cur) : std::string();
-        if (mode_ == Mode::CN)
+        if (use_pinyin)
         {
             ime_.reset();
             lv_textarea_set_accepted_chars(textarea_, "");
@@ -482,9 +612,22 @@ ImeWidget::Mode ImeWidget::mode() const
     return mode_;
 }
 
+bool ImeWidget::pinyin_mode() const
+{
+    return script_mode(mode_) &&
+           selected_script_input_kind(script_input_index_) == ScriptInputKind::Pinyin;
+}
+
+bool ImeWidget::direct_keyboard_mode() const
+{
+    return script_mode(mode_) &&
+           selected_script_input_kind(script_input_index_) == ScriptInputKind::DirectKeyboard;
+}
+
 void ImeWidget::cycleMode()
 {
-    if (!script_input_available())
+    const std::vector<ScriptInputDescriptor> script_inputs = available_script_inputs();
+    if (script_inputs.empty())
     {
         setMode(mode_ == Mode::EN ? Mode::NUM : Mode::EN);
         return;
@@ -492,11 +635,20 @@ void ImeWidget::cycleMode()
 
     if (mode_ == Mode::EN)
     {
-        setMode(Mode::CN);
+        script_input_index_ = 0;
+        setMode(Mode::SCRIPT);
     }
-    else if (mode_ == Mode::CN)
+    else if (script_mode(mode_))
     {
-        setMode(Mode::NUM);
+        if ((script_input_index_ + 1) < static_cast<int>(script_inputs.size()))
+        {
+            ++script_input_index_;
+            setMode(Mode::SCRIPT);
+        }
+        else
+        {
+            setMode(Mode::NUM);
+        }
     }
     else
     {
@@ -528,7 +680,7 @@ bool ImeWidget::handle_key_code(uint32_t key)
     bool consumed = false;
     bool update_text = false;
 
-    if (mode_ == Mode::CN)
+    if (pinyin_mode())
     {
         if (key == LV_KEY_BACKSPACE)
         {
@@ -665,6 +817,20 @@ bool ImeWidget::handle_key_code(uint32_t key)
     return consumed;
 }
 
+bool ImeWidget::handle_text_token(const char* token)
+{
+    if (!textarea_ || !token || token[0] == '\0' ||
+        !direct_keyboard_mode())
+    {
+        return false;
+    }
+
+    committed_text_ += token;
+    sync_textarea();
+    refresh_labels();
+    return true;
+}
+
 bool ImeWidget::handle_key(lv_event_t* e)
 {
     if (!textarea_ || !e)
@@ -704,7 +870,7 @@ void ImeWidget::setText(const char* text)
     if (!textarea_) return;
     committed_text_ = text ? std::string(text) : std::string();
     sync_textarea();
-    if (mode_ == Mode::CN)
+    if (pinyin_mode())
     {
         ime_.reset();
     }
@@ -718,7 +884,28 @@ void ImeWidget::refresh_touch_keyboard()
     {
         return;
     }
-    const char* const* map = (mode_ == Mode::NUM) ? kTouchNumMap : kTouchEnMap;
+    const char* const* map = kTouchEnMap;
+    const lv_font_t* font = ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font());
+    if (mode_ == Mode::NUM)
+    {
+        map = kTouchNumMap;
+    }
+    else if (direct_keyboard_mode())
+    {
+        const KeyboardLayoutDescriptor* layout = selected_keyboard_layout(script_input_index_);
+        if (layout != nullptr && layout->touch_map != nullptr)
+        {
+            map = layout->touch_map;
+        }
+        if (layout != nullptr &&
+            layout->font_probe_text != nullptr &&
+            layout->font_probe_text[0] != '\0')
+        {
+            font = ::ui::fonts::content_font(layout->font_probe_text,
+                                             ::ui::fonts::ui_chrome_font());
+        }
+    }
+    lv_obj_set_style_text_font(keyboard_matrix_, font, LV_PART_ITEMS);
     lv_btnmatrix_set_map(keyboard_matrix_, map);
 }
 
@@ -729,7 +916,7 @@ void ImeWidget::refresh_touch_candidates()
         return;
     }
 
-    const bool show_candidates = mode_ == Mode::CN;
+    const bool show_candidates = pinyin_mode() && ime_.hasBuffer();
     if (!show_candidates)
     {
         lv_obj_add_flag(candidate_row_, LV_OBJ_FLAG_HIDDEN);
@@ -739,7 +926,11 @@ void ImeWidget::refresh_touch_candidates()
 
     const auto& candidates = ime_.candidates();
     const int total = static_cast<int>(candidates.size());
-    const int active = ime_.candidateIndex();
+    int active = ime_.candidateIndex();
+    if (active < 0 || active >= total)
+    {
+        active = 0;
+    }
     const int visible_count = static_cast<int>(candidate_btns_.size());
 
     if (total <= 0)
@@ -794,7 +985,7 @@ void ImeWidget::refresh_touch_candidates()
         const int index = start + slot;
         if (index < total)
         {
-            set_button_label(btn, candidates[index].c_str());
+            set_button_label(btn, candidates[static_cast<std::size_t>(index)].c_str());
             lv_obj_clear_flag(btn, LV_OBJ_FLAG_HIDDEN);
             apply_candidate_button_style(btn, index == active);
         }
@@ -815,7 +1006,7 @@ void ImeWidget::refresh_labels()
         return;
     }
 
-    if (mode_ == Mode::CN && !script_input_available())
+    if (script_mode(mode_) && selected_script_input_kind(script_input_index_) == ScriptInputKind::None)
     {
         mode_ = Mode::EN;
         ime_.setEnabled(false);
@@ -823,7 +1014,7 @@ void ImeWidget::refresh_labels()
 
     if (textarea_)
     {
-        if (mode_ == Mode::CN && ime_.hasBuffer())
+        if (pinyin_mode() && ime_.hasBuffer())
         {
             if (lv_group_t* g = lv_group_get_default())
             {
@@ -875,6 +1066,32 @@ void ImeWidget::refresh_labels()
         return;
     }
 
+    const ScriptInputKind script_kind = selected_script_input_kind(script_input_index_);
+    if (script_kind == ScriptInputKind::DirectKeyboard)
+    {
+        const KeyboardLayoutDescriptor* layout = selected_keyboard_layout(script_input_index_);
+        lv_label_set_text(toggle_label_,
+                          layout != nullptr && layout->mode_label != nullptr
+                              ? layout->mode_label
+                              : "IM");
+#if UI_SHARED_TOUCH_IME_ENABLED
+        if (touch_keyboard_enabled_)
+        {
+            const ScriptInputDescriptor input = selected_script_input(script_input_index_);
+            const char* hint =
+                layout != nullptr && layout->touch_hint_key != nullptr
+                    ? ::ui::i18n::tr(layout->touch_hint_key)
+                    : input.display_name;
+            set_candidates_label_text(candidates_label_, hint != nullptr ? hint : "");
+            refresh_touch_keyboard();
+            refresh_touch_candidates();
+            return;
+        }
+#endif
+        set_candidates_label_text(candidates_label_, "");
+        return;
+    }
+
     lv_label_set_text(toggle_label_, "CN");
 #if UI_SHARED_TOUCH_IME_ENABLED
     if (touch_keyboard_enabled_)
@@ -898,7 +1115,7 @@ void ImeWidget::refresh_candidates()
     {
         return;
     }
-    if (!ime_.hasBuffer())
+    if (!pinyin_mode() || !ime_.hasBuffer())
     {
         set_candidates_label_text(candidates_label_, "");
         return;
@@ -946,6 +1163,12 @@ void ImeWidget::on_touch_key_event(lv_event_t* e)
     }
 
     const char* token = lv_btnmatrix_get_btn_text(self->keyboard_matrix_, button_id);
+    if (self->direct_keyboard_mode() && !touch_token_is_action(token))
+    {
+        (void)self->handle_text_token(token);
+        return;
+    }
+
     uint32_t key = 0;
     if (!translate_touch_token(token, key))
     {

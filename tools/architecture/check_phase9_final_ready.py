@@ -53,14 +53,7 @@ def iter_code_files(root: Path):
 
 
 def is_allowed_alias_path(path: Path) -> bool:
-    rel = path.relative_to(ROOT).as_posix()
     name = path.name
-    allowed_prefixes = [
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/",
-        "modules/ui_shared/include/ui/presentation_sources/",
-    ]
-    if any(rel.startswith(prefix) for prefix in allowed_prefixes):
-        return True
     return (
         name.endswith("_legacy_alias_test.cpp")
         or name.endswith("_legacy_alias.cpp")
@@ -76,6 +69,11 @@ def check_no_main_code_includes_burned_down_legacy_headers(failures: list[str]) 
         '#include "ui_legacy_adapters/legacy_key_verification_action_sink.h"',
         '#include "ui_legacy_adapters/legacy_key_verification_session.h"',
         '#include "ui_legacy_adapters/legacy_map_overlay_source.h"',
+        '#include "ui/presentation_sources/legacy_chat_delivery_action_bridge.h"',
+        '#include "ui/presentation_sources/legacy_key_verification_source.h"',
+        '#include "ui/presentation_sources/legacy_key_verification_action_sink.h"',
+        '#include "ui/presentation_sources/legacy_key_verification_session.h"',
+        '#include "ui/presentation_sources/legacy_map_overlay_source.h"',
     ]
     for root_name in ["apps", "legacy/app_implementations", "modules", "platform", "boards"]:
         for path in iter_code_files(ROOT / root_name):
@@ -118,10 +116,11 @@ def check_final_report(failures: list[str]) -> None:
             "ChatDelivery",
             "KeyVerification",
             "MapOverlay",
-            "Remaining Fallback",
+            "No Remaining Fallback",
             "LinuxSim hardcoded runtime routing",
             "GTK hardcoded page registry",
             "LVGL hardcoded menu/page creation",
+            "deleted after LVGL fallback burn-down",
             "Phase 10 Entry Recommendation",
             "LinuxSim / ASCII primary path",
             "AsciiRuntimeEntryAdoption as primary source",
@@ -156,7 +155,10 @@ def check_cross_doc_consistency(failures: list[str]) -> None:
         )
         require_any_token(
             rel,
-            ["deprecated aliases", "deprecated alias", "deprecated aliases only"],
+            [
+                "alias build include surface removed",
+                "retired from build include surface",
+            ],
             failures,
         )
 
@@ -166,9 +168,9 @@ def check_cross_doc_consistency(failures: list[str]) -> None:
             "LinuxSim hardcoded runtime routing",
             "GTK hardcoded page registry",
             "LVGL hardcoded menu/page creation",
-            "contained fallback",
+            "deleted after LVGL fallback burn-down",
             "Exit condition",
-            "Phase 10 first cut makes `AsciiRuntimeEntryAdoption as primary source`",
+            "deleted after LVGL fallback burn-down",
         ],
         failures,
     )
@@ -176,7 +178,7 @@ def check_cross_doc_consistency(failures: list[str]) -> None:
         "docs/audits/LEGACY_BURNDOWN_REGISTER.md",
         [
             "Phase 9.6 Final Readiness Alignment",
-            "The remaining Phase 10-facing UI fallbacks are not legacy adapter burn-down items",
+            "LinuxSim, GTK, and LVGL hardcoded UI fallbacks have been burned down",
         ],
         failures,
     )
@@ -184,7 +186,7 @@ def check_cross_doc_consistency(failures: list[str]) -> None:
         "docs/audits/PHASE9_LEGACY_BURNDOWN_REPORT.md",
         [
             "Phase 9.6 Final Readiness Alignment",
-            "The remaining LinuxSim, GTK, and LVGL hardcoded runtime paths are not reported as burned down",
+            "LinuxSim, GTK, and LVGL hardcoded runtime paths are now reported as burned down",
         ],
         failures,
     )
@@ -210,6 +212,16 @@ def check_required_files(failures: list[str]) -> None:
         "modules/ui_legacy_adapters/src/legacy_key_verification_action_sink.cpp",
         "modules/ui_legacy_adapters/src/legacy_key_verification_session.cpp",
         "modules/ui_legacy_adapters/src/legacy_map_overlay_source.cpp",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_action_bridge.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_source.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_action_sink.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_session.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_map_overlay_source.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h",
     ]:
         require_absent(rel, failures)
 

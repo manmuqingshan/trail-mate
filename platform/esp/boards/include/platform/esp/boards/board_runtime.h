@@ -39,6 +39,7 @@ struct BoardIdentity
 
 void initializeBoard(bool waking_from_sleep);
 void initializeDisplay();
+bool initializeStorage();
 bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles);
 AppContextInitHandles resolveAppContextInitHandles();
 bool lockDisplay(uint32_t timeout_ms);

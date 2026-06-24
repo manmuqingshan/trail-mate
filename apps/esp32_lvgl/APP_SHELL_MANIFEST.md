@@ -66,6 +66,7 @@ UX Pack Runtime Binding:
 
 Current ESP-IDF final owner surfaces:
 
+- `esp32_lvgl_idf_app_facade_runtime.*`
 - `esp32_lvgl_startup_runtime.*`
 - `esp32_lvgl_loop_runtime.*`
 - `esp32_lvgl_runtime_config.*`

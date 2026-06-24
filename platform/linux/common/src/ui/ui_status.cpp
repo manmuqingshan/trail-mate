@@ -14,7 +14,9 @@ void register_menu_status_row(lv_obj_t* row,
                               lv_obj_t* wifi_icon,
                               lv_obj_t* team_icon,
                               lv_obj_t* msg_icon,
-                              lv_obj_t* ble_icon)
+                              lv_obj_t* ble_icon,
+                              lv_obj_t* radio_mod_icon,
+                              lv_obj_t* walkie_monitor_icon)
 {
     (void)row;
     (void)route_icon;
@@ -24,6 +26,8 @@ void register_menu_status_row(lv_obj_t* row,
     (void)team_icon;
     (void)msg_icon;
     (void)ble_icon;
+    (void)radio_mod_icon;
+    (void)walkie_monitor_icon;
 }
 
 void register_chat_badge(lv_obj_t* badge_bg, lv_obj_t* badge_label)

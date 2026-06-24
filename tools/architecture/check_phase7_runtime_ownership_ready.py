@@ -6,32 +6,20 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 
 PATH_ALIASES = {
-    "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h":
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_action_bridge.h",
     "modules/ui_shared/src/ui/presentation_sources/legacy_chat_delivery_action_bridge.cpp":
         "modules/ui_chat_runtime/src/chat_delivery_action_port_adapter.cpp",
     "modules/ui_shared/tests/test_legacy_chat_delivery_action_bridge.cpp":
         "modules/ui_chat_runtime/tests/test_chat_delivery_action_port_adapter.cpp",
-    "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_event_bridge.h":
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_event_bridge.h",
     "modules/ui_shared/src/ui/presentation_sources/legacy_chat_delivery_event_bridge.cpp":
         "modules/ui_chat_runtime/src/chat_delivery_event_projection_adapter.cpp",
     "modules/ui_shared/tests/test_legacy_chat_delivery_event_bridge.cpp":
         "modules/ui_chat_runtime/tests/test_chat_delivery_event_projection_adapter.cpp",
-    "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h":
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_session.h",
-    "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h":
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_source.h",
-    "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h":
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_action_sink.h",
     "modules/ui_shared/src/ui/presentation_sources/legacy_key_verification_source.cpp":
         "modules/ui_key_verification_runtime/src/key_verification_presentation_source.cpp",
     "modules/ui_shared/src/ui/presentation_sources/legacy_key_verification_action_sink.cpp":
         "modules/ui_key_verification_runtime/src/key_verification_action_sink.cpp",
     "modules/ui_shared/tests/test_legacy_key_verification_adapters.cpp":
         "modules/ui_key_verification_runtime/tests/test_key_verification_runtime_adapters.cpp",
-    "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h":
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_map_overlay_source.h",
     "modules/ui_shared/src/ui/presentation_sources/legacy_map_overlay_source.cpp":
         "modules/ui_map_runtime/src/map_overlay_snapshot_source.cpp",
     "modules/ui_shared/tests/test_legacy_map_overlay_source.cpp":
@@ -56,20 +44,14 @@ PATH_ALIASES = {
         "modules/ui_map_runtime/include/ui_map_runtime/map_tiles/map_tile_decoder_cache.h",
     "modules/ui_shared/include/ui/map_tiles/map_tile_render_queue.h":
         "modules/ui_map_runtime/include/ui_map_runtime/map_tiles/map_tile_render_queue.h",
-    "modules/ui_shared/include/ui/map_tiles/legacy_filesystem_map_tile_source.h":
-        "modules/ui_map_runtime/include/ui_map_runtime/map_tiles/filesystem_map_tile_source.h",
     "modules/ui_shared/src/ui/map_tiles/map_tile_render_queue.cpp":
         "modules/ui_map_runtime/src/map_tiles/map_tile_render_queue.cpp",
     "modules/ui_shared/src/ui/map_tiles/map_tile_resolver.cpp":
         "modules/ui_map_runtime/src/map_tiles/map_tile_resolver.cpp",
-    "modules/ui_shared/src/ui/map_tiles/legacy_filesystem_map_tile_source.cpp":
-        "modules/ui_map_runtime/src/map_tiles/filesystem_map_tile_source.cpp",
     "modules/ui_shared/tests/test_map_tile_render_queue.cpp":
         "modules/ui_map_runtime/tests/test_map_tile_render_queue.cpp",
     "modules/ui_shared/tests/test_map_tile_resolver.cpp":
         "modules/ui_map_runtime/tests/test_map_tile_resolver.cpp",
-    "modules/ui_shared/tests/test_legacy_filesystem_map_tile_source.cpp":
-        "modules/ui_map_runtime/tests/test_filesystem_map_tile_source.cpp",
     "modules/ui_shared/include/ui/map_overlay/map_overlay_projector.h":
         "modules/ui_map_runtime/include/ui_map_runtime/map_overlay/map_overlay_projector.h",
     "modules/ui_shared/src/ui/map_overlay/map_overlay_projector.cpp":
@@ -175,26 +157,22 @@ def check_required_files() -> int:
         "modules/core_chat/include/chat/delivery/chat_delivery_action_types.h",
         "modules/core_chat/include/chat/delivery/chat_delivery_action_sink.h",
         "modules/core_chat/include/chat/delivery/chat_delivery_action_service.h",
-        "modules/core_chat/include/chat/delivery/legacy_chat_delivery_bridge.h",
-        "modules/core_chat/include/chat/delivery/legacy_chat_send_result_mapper.h",
+        "modules/core_chat/include/chat/delivery/chat_delivery_message_projection.h",
+        "modules/core_chat/include/chat/delivery/chat_delivery_send_result_projection.h",
         "modules/core_chat/src/delivery/chat_delivery_read_model.cpp",
         "modules/core_chat/src/delivery/chat_delivery_event_projector.cpp",
         "modules/core_chat/src/delivery/chat_delivery_event_port.cpp",
         "modules/core_chat/src/delivery/chat_delivery_action_service.cpp",
-        "modules/core_chat/src/delivery/legacy_chat_delivery_bridge.cpp",
-        "modules/core_chat/src/delivery/legacy_chat_send_result_mapper.cpp",
+        "modules/core_chat/src/delivery/chat_delivery_message_projection.cpp",
+        "modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp",
         "modules/core_chat/tests/test_chat_delivery_read_model.cpp",
         "modules/core_chat/tests/test_chat_delivery_event_projector.cpp",
         "modules/core_chat/tests/test_chat_delivery_event_port.cpp",
         "modules/core_chat/tests/test_chat_delivery_action_service.cpp",
-        "modules/core_chat/tests/test_legacy_chat_delivery_bridge.cpp",
-        "modules/core_chat/tests/test_legacy_chat_send_result_mapper.cpp",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h",
+        "modules/core_chat/tests/test_chat_delivery_message_projection.cpp",
+        "modules/core_chat/tests/test_chat_delivery_send_result_projection.cpp",
         "modules/ui_shared/src/ui/presentation_sources/legacy_chat_delivery_action_bridge.cpp",
         "modules/ui_shared/tests/test_legacy_chat_delivery_action_bridge.cpp",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_event_bridge.h",
-        "modules/ui_shared/src/ui/presentation_sources/legacy_chat_delivery_event_bridge.cpp",
-        "modules/ui_shared/tests/test_legacy_chat_delivery_event_bridge.cpp",
         "modules/ui_shared/include/ui/team_actions/team_action_types.h",
         "modules/ui_shared/include/ui/team_actions/team_action_sink.h",
         "modules/ui_shared/include/ui/team_actions/team_action_runtime_sink.h",
@@ -216,9 +194,6 @@ def check_required_files() -> int:
         "modules/ui_presentation/include/ui_presentation/key_verification/key_verification_model.h",
         "modules/ui_presentation/src/key_verification/key_verification_model.cpp",
         "modules/ui_presentation/tests/test_key_verification_model.cpp",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h",
         "modules/ui_shared/src/ui/presentation_sources/legacy_key_verification_source.cpp",
         "modules/ui_shared/src/ui/presentation_sources/legacy_key_verification_action_sink.cpp",
         "modules/ui_shared/tests/test_legacy_key_verification_adapters.cpp",
@@ -232,18 +207,14 @@ def check_required_files() -> int:
         "modules/ui_shared/include/ui/map_tiles/map_tile_cache.h",
         "modules/ui_shared/include/ui/map_tiles/map_tile_decoder_cache.h",
         "modules/ui_shared/include/ui/map_tiles/map_tile_render_queue.h",
-        "modules/ui_shared/include/ui/map_tiles/legacy_filesystem_map_tile_source.h",
         "modules/ui_shared/src/ui/map_tiles/map_tile_render_queue.cpp",
         "modules/ui_shared/src/ui/map_tiles/map_tile_resolver.cpp",
-        "modules/ui_shared/src/ui/map_tiles/legacy_filesystem_map_tile_source.cpp",
         "modules/ui_shared/tests/test_map_tile_render_queue.cpp",
         "modules/ui_shared/tests/test_map_tile_resolver.cpp",
-        "modules/ui_shared/tests/test_legacy_filesystem_map_tile_source.cpp",
         "modules/ui_presentation/include/ui_presentation/map/map_overlay_snapshot.h",
         "modules/ui_presentation/include/ui_presentation/map/map_overlay_source.h",
         "modules/ui_shared/include/ui/map_overlay/map_overlay_projector.h",
         "modules/ui_shared/src/ui/map_overlay/map_overlay_projector.cpp",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h",
         "modules/ui_shared/src/ui/presentation_sources/legacy_map_overlay_source.cpp",
         "modules/ui_shared/tests/test_map_overlay_projector.cpp",
         "modules/ui_shared/tests/test_legacy_map_overlay_source.cpp",
@@ -388,7 +359,7 @@ def check_docs() -> int:
             "ChatDeliveryReadModel",
             "IChatDeliveryEventPort",
             "ProjectingChatDeliveryEventPort",
-            "LegacyChatDeliveryEventBridge",
+            "ChatDeliveryEventProjectionAdapter",
             "ChatPresentationSource",
             "Phase 7.1 does not make `ChatWorkspaceModel` own delivery state",
         ],
@@ -415,7 +386,8 @@ def check_docs() -> int:
             "`success`",
             "success=false",
             "AckTimeout",
-            "LegacyChatDeliveryEventBridge",
+            "ChatDeliveryEventProjectionAdapter",
+            "ChatDeliverySendResultProjection",
         ],
         "docs/audits/PHASE7_RUNTIME_OWNERSHIP_REGISTER.md": [
             "Chat delivery / pending / failure",
@@ -432,7 +404,7 @@ def check_docs() -> int:
             "KeyVerificationModel",
             "Map tile/cache ownership",
             "MapTileResolver",
-            "LegacyFilesystemMapTileSource",
+            "FilesystemMapTileSource",
         ],
         "docs/audits/KEY_VERIFICATION_OWNERSHIP_AUDIT.md": [
             "Key verification is a standalone runtime/presentation workflow",
@@ -472,7 +444,7 @@ def check_docs() -> int:
         "docs/audits/CHAT_RUNTIME_EVENT_PUMP_AUDIT.md": [
             "Phase 7.7 moves Chat runtime scheduling and event projection out of `ChatUiController`",
             "ChatSendResultEvent",
-            "LegacyChatDeliveryEventBridge",
+            "ChatDeliveryEventProjectionAdapter",
             "LegacyKeyVerificationSource",
             "ChatService::processIncoming()",
             "ChatService::flushStore()",
@@ -539,7 +511,6 @@ def check_docs() -> int:
             "Removal condition",
             "Target phase",
             "Status",
-            "LegacyChatDeliveryEventBridge",
             "LegacyChatDeliveryActionBridge",
             "LegacyKeyVerificationSource",
             "LegacyKeyVerificationActionSink",
@@ -612,7 +583,7 @@ def check_docs() -> int:
             "Phase 7.10 establishes ownership for map tile source, path resolution, and tile availability lookup",
             "MapTileRef",
             "MapTileResolver",
-            "LegacyFilesystemMapTileSource",
+            "FilesystemMapTileSource",
             "IMapTileSource::lookup(...)",
             "MapWorkspaceSnapshot",
             "/maps/base/osm/{z}/{x}/{y}.png",
@@ -629,13 +600,13 @@ def check_docs() -> int:
             "IMapTileSource",
             "IMapTileCache",
             "MapTileResolver",
-            "LegacyFilesystemMapTileSource",
+            "FilesystemMapTileSource",
             "Phase 7.10 does not",
         ],
         "docs/audits/PHASE7_10_MAP_TILE_SOURCE_CACHE_BURNDOWN_REPORT.md": [
             "Phase 7.10 moved Trail Mate map tile path mapping and filesystem-backed availability lookup",
             "MapTileResolver",
-            "LegacyFilesystemMapTileSource",
+            "FilesystemMapTileSource",
             "MapTileRef",
             "Burned Down",
             "Still Contained",
@@ -703,7 +674,6 @@ def check_legacy_burndown_register() -> int:
         failures += fail("LEGACY_BURNDOWN_REGISTER.md missing required table header")
 
     required_surfaces = [
-        "LegacyChatDeliveryEventBridge",
         "LegacyChatDeliveryActionBridge",
         "TeamActionRuntimeSink",
         "LegacyKeyVerificationSource",
@@ -744,6 +714,7 @@ def check_legacy_burndown_register() -> int:
             "contained",
             "burned-down",
             "burned-down to deprecated alias",
+            "retired from build include surface",
             "remaining legacy",
         }:
             failures += fail(f"{surface} has unsupported burn-down status: {status}")
@@ -914,22 +885,21 @@ def check_delivery_type_shape() -> int:
             if token not in text:
                 failures += fail(f"ChatDeliveryActionService source missing token: {token}")
 
-    mapper = "modules/core_chat/include/chat/delivery/legacy_chat_send_result_mapper.h"
-    if exists(mapper):
-        text = read_text(mapper)
+    send_result_projection = (
+        "modules/core_chat/include/chat/delivery/chat_delivery_send_result_projection.h"
+    )
+    if exists(send_result_projection):
+        text = read_text(send_result_projection)
         for token in [
-            "LegacyChatSendFailure",
-            "PeerKeyMissing",
-            "LocalIdentityMissing",
-            "RadioSendFailed",
-            "AckTimeout",
-            "UnsupportedProtocol",
-            "Rejected",
-            "mapLegacyChatSendResult",
+            "makeChatSendResultDeliveryEvent",
             "makeAckTimeoutDeliveryEvent",
+            "ChatDeliveryEvent",
+            "SendFailureKind",
         ]:
             if token not in text:
-                failures += fail(f"LegacyChatSendResultMapper missing token: {token}")
+                failures += fail(
+                    f"ChatDeliverySendResultProjection missing token: {token}"
+                )
 
     return failures
 
@@ -1072,7 +1042,6 @@ def check_ui_presentation_and_renderers_do_not_own_delivery() -> int:
 def check_delivery_event_bridge_boundary() -> int:
     failures = 0
     bridge_files = [
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_event_bridge.h",
         "modules/ui_chat_runtime/src/chat_delivery_event_projection_adapter.cpp",
     ]
     for path in bridge_files:
@@ -1099,13 +1068,13 @@ def check_delivery_event_bridge_boundary() -> int:
         for token in [
             "onChatSendResult",
             "onAckTimeout",
-            "mapLegacyChatSendResult",
+            "makeChatSendResultDeliveryEvent",
             "publishDeliveryEvent",
             "toDeliveryRef",
             "getMessage",
         ]:
             if token not in text:
-                failures += fail(f"LegacyChatDeliveryEventBridge missing token: {token}")
+                failures += fail(f"ChatDeliveryEventProjectionAdapter missing token: {token}")
 
     controller = "modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp"
     if exists(controller):
@@ -1152,7 +1121,6 @@ def check_delivery_event_bridge_boundary() -> int:
 def check_delivery_action_bridge_boundary() -> int:
     failures = 0
     bridge_files = [
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h",
         "modules/ui_chat_runtime/src/chat_delivery_action_port_adapter.cpp",
     ]
     for path in bridge_files:
@@ -1176,14 +1144,7 @@ def check_delivery_action_bridge_boundary() -> int:
 
     header = "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h"
     if exists(header):
-        text = read_text(header)
-        for token in [
-            "LegacyChatDeliveryActionBridge",
-            "ChatDeliveryActionPortAdapter",
-            "[[deprecated",
-        ]:
-            if token not in text:
-                failures += fail(f"LegacyChatDeliveryActionBridge header missing token: {token}")
+        failures += fail(f"LegacyChatDeliveryActionBridge header must stay absent: {header}")
 
     source = "modules/ui_chat_runtime/src/chat_delivery_action_port_adapter.cpp"
     if exists(source):
@@ -2640,13 +2601,17 @@ def check_team_page_activity_sink_boundary() -> int:
             "team_ui_append_member_track",
             "team_ui_get_member_track_path",
             "team_ui_chatlog_append_structured",
-            "g_gps_state.selected_member_id",
-            "gps_tracker_load_file",
             "sys::EventBus::publish",
             "sys::ChatUnreadChangedEvent",
         ]:
             if token not in text:
                 failures += fail(f"Team Page activity adapter source missing token: {token}")
+        for token in [
+            "g_gps_state",
+            "gps_tracker_load_file",
+        ]:
+            if token in text:
+                failures += fail(f"Team Page activity adapter still owns GPS map legacy token: {token}")
 
     if exists(controller):
         text = strip_cpp_comments(read_text(controller))
@@ -3475,8 +3440,8 @@ def check_map_tile_source_cache_boundary() -> int:
     cache_header = "modules/ui_shared/include/ui/map_tiles/map_tile_cache.h"
     resolver_header = "modules/ui_shared/include/ui/map_tiles/map_tile_resolver.h"
     resolver_source = "modules/ui_shared/src/ui/map_tiles/map_tile_resolver.cpp"
-    legacy_header = "modules/ui_shared/include/ui/map_tiles/legacy_filesystem_map_tile_source.h"
-    legacy_source = "modules/ui_shared/src/ui/map_tiles/legacy_filesystem_map_tile_source.cpp"
+    filesystem_header = "modules/ui_map_runtime/include/ui_map_runtime/map_tiles/filesystem_map_tile_source.h"
+    filesystem_source = "modules/ui_map_runtime/src/map_tiles/filesystem_map_tile_source.cpp"
     viewport_source = "modules/ui_shared/src/ui/widgets/map/map_viewport.cpp"
     snapshot_header = "modules/ui_presentation/include/ui_presentation/map/map_workspace_snapshot.h"
     esp_tiles = "platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp"
@@ -3561,10 +3526,10 @@ def check_map_tile_source_cache_boundary() -> int:
             if token in text:
                 failures += fail(f"MapTileResolver owns forbidden storage/render token: {token}")
 
-    if exists(legacy_header):
-        text = read_text(legacy_header)
+    if exists(filesystem_header):
+        text = read_text(filesystem_header)
         for token in [
-            "LegacyFilesystemMapTileSource",
+            "FilesystemMapTileSource",
             "IMapTileSource",
             "MapTileResolver",
             "lookup",
@@ -3575,10 +3540,12 @@ def check_map_tile_source_cache_boundary() -> int:
             "anyContourDirectoryAvailable",
         ]:
             if token not in text:
-                failures += fail(f"LegacyFilesystemMapTileSource header missing token: {token}")
+                failures += fail(f"FilesystemMapTileSource header missing token: {token}")
+        if "LegacyFilesystemMapTileSource" in text:
+            failures += fail("FilesystemMapTileSource header still exposes LegacyFilesystemMapTileSource")
 
-    if exists(legacy_source):
-        text = strip_cpp_comments(read_text(legacy_source))
+    if exists(filesystem_source):
+        text = strip_cpp_comments(read_text(filesystem_source))
         for token in [
             "MapTileStatus::Available",
             "MapTileStatus::Missing",
@@ -3588,20 +3555,16 @@ def check_map_tile_source_cache_boundary() -> int:
             "MapTileLayer::ContourMajor25",
         ]:
             if token not in text:
-                failures += fail(f"LegacyFilesystemMapTileSource source missing token: {token}")
-        if (
-            "LegacyFilesystemMapTileSource::lookup" not in text
-            and "FilesystemMapTileSource::lookup" not in text
-        ):
-            failures += fail("LegacyFilesystemMapTileSource source missing lookup implementation token")
-        if (
-            "LegacyFilesystemMapTileSource::read" not in text
-            and "FilesystemMapTileSource::read" not in text
-        ):
-            failures += fail("LegacyFilesystemMapTileSource source missing read implementation token")
+                failures += fail(f"FilesystemMapTileSource source missing token: {token}")
+        if "FilesystemMapTileSource::lookup" not in text:
+            failures += fail("FilesystemMapTileSource source missing lookup implementation token")
+        if "FilesystemMapTileSource::read" not in text:
+            failures += fail("FilesystemMapTileSource source missing read implementation token")
+        if "LegacyFilesystemMapTileSource" in text:
+            failures += fail("FilesystemMapTileSource source still references LegacyFilesystemMapTileSource")
         for token in ["lvgl.h", "lv_obj_t", "std::filesystem", "FILE*", "fopen", "SD.open", "LittleFS", "SPIFFS"]:
             if token in text:
-                failures += fail(f"LegacyFilesystemMapTileSource owns forbidden platform token: {token}")
+                failures += fail(f"FilesystemMapTileSource owns forbidden platform token: {token}")
 
     if exists(snapshot_header):
         text = strip_cpp_comments(read_text(snapshot_header))
@@ -3675,7 +3638,7 @@ def check_map_tile_source_cache_boundary() -> int:
             "contained",
             "7.10",
             "MapTileResolver",
-            "LegacyFilesystemMapTileSource",
+            "FilesystemMapTileSource",
             "decoded image cache remains contained legacy",
         ]:
             if token not in text:
@@ -3686,7 +3649,7 @@ def check_map_tile_source_cache_boundary() -> int:
         for token in [
             "Map tile path/cache legacy runtime",
             "MapTileResolver",
-            "LegacyFilesystemMapTileSource",
+            "FilesystemMapTileSource",
             "ESP decoded cache",
             "Linux downloader cache",
             "uConsole path fields",
@@ -3960,19 +3923,7 @@ def check_map_overlay_route_tracker_boundary() -> int:
                 failures += fail(f"MapOverlayProjector source missing token: {token}")
 
     if exists(legacy_header):
-        text = strip_cpp_comments(read_text(legacy_header))
-        for token in [
-            "IMapOverlayGpsSource",
-            "IMapOverlayTeamSource",
-            "LegacyMapOverlaySource",
-            "MapOverlaySnapshotSource",
-            "[[deprecated",
-        ]:
-            if token not in text:
-                failures += fail(f"LegacyMapOverlaySource header missing token: {token}")
-        for token in ["lvgl.h", "lv_obj_t", "platform::ui::gps::get_data", "team_ui_chatlog_load_recent", "decodeTeamChatLocation"]:
-            if token in text:
-                failures += fail(f"LegacyMapOverlaySource header exposes forbidden token: {token}")
+        failures += fail(f"LegacyMapOverlaySource header must stay absent: {legacy_header}")
 
     if exists(legacy_source):
         text = strip_cpp_comments(read_text(legacy_source))
@@ -4081,7 +4032,7 @@ def check_map_overlay_route_tracker_boundary() -> int:
             "TeamMapOverlaySource",
             "Map route/tracker overlay projection",
             "MapOverlayProjector",
-            "map renderers consume `MapOverlaySnapshotSource` only",
+            "keep runtime map overlay headers as the only build-visible API",
         ]:
             if token not in text:
                 failures += fail(f"LEGACY_BURNDOWN_REGISTER missing map overlay token: {token}")
@@ -4194,7 +4145,7 @@ def check_team_consumer_shadow_state_closeout() -> int:
     hostlink_header = "platform/esp/arduino_common/include/platform/esp/arduino_common/hostlink/hostlink_bridge_radio.h"
     hostlink_source = "platform/esp/arduino_common/src/hostlink/hostlink_bridge_radio.cpp"
     esp_gps_map = "platform/esp/arduino_common/src/ui/screens/gps/gps_page_map.cpp"
-    map_source = "modules/ui_shared/src/ui/presentation_sources/legacy_map_presentation_source.cpp"
+    map_source = "modules/ui_shared/src/ui/presentation_sources/runtime_map_workspace_source.cpp"
     app_events = "platform/esp/arduino_common/src/app_event_runtime_support.cpp"
     contacts_header = "modules/ui_shared/include/ui/screens/contacts/contacts_team_snapshot_source.h"
     contacts_source = "modules/ui_shared/src/ui/screens/contacts/contacts_team_snapshot_source.cpp"
@@ -4260,9 +4211,9 @@ def check_team_consumer_shadow_state_closeout() -> int:
             "ITeamUiSnapshotStore",
         ]:
             if token not in text:
-                failures += fail(f"Legacy map presentation source missing Team presence token: {token}")
+                failures += fail(f"Runtime map workspace source missing Team presence token: {token}")
         if "member.online" in text:
-            failures += fail("Legacy map presentation source still infers liveness from member.online")
+            failures += fail("Runtime map workspace source still infers liveness from member.online")
 
     for path in [contacts_header, contacts_source]:
         if not exists(path):
@@ -4657,9 +4608,7 @@ def check_key_verification_type_shape() -> int:
 def check_key_verification_bridge_boundary() -> int:
     failures = 0
     bridge_files = [
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h",
         "modules/ui_shared/src/ui/presentation_sources/legacy_key_verification_source.cpp",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h",
         "modules/ui_shared/src/ui/presentation_sources/legacy_key_verification_action_sink.cpp",
     ]
     for path in bridge_files:
@@ -4684,14 +4633,7 @@ def check_key_verification_bridge_boundary() -> int:
     source_header = "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h"
     source_impl = "modules/ui_shared/src/ui/presentation_sources/legacy_key_verification_source.cpp"
     if exists(source_header):
-        text = read_text(source_header)
-        for token in [
-            "LegacyKeyVerificationSource",
-            "KeyVerificationPresentationSource",
-            "[[deprecated",
-        ]:
-            if token not in text:
-                failures += fail(f"LegacyKeyVerificationSource header missing token: {token}")
+        failures += fail(f"LegacyKeyVerificationSource header must stay absent: {source_header}")
     if exists(source_impl):
         text = read_text(source_impl)
         for token in [
@@ -4711,14 +4653,7 @@ def check_key_verification_bridge_boundary() -> int:
     sink_header = "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h"
     sink_impl = "modules/ui_shared/src/ui/presentation_sources/legacy_key_verification_action_sink.cpp"
     if exists(sink_header):
-        text = read_text(sink_header)
-        for token in [
-            "LegacyKeyVerificationActionSink",
-            "KeyVerificationActionSink",
-            "[[deprecated",
-        ]:
-            if token not in text:
-                failures += fail(f"LegacyKeyVerificationActionSink header missing token: {token}")
+        failures += fail(f"LegacyKeyVerificationActionSink header must stay absent: {sink_header}")
     if exists(sink_impl):
         text = read_text(sink_impl)
         for token in [

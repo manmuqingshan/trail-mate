@@ -1056,8 +1056,8 @@ bool base_tile_available(int z, int x, int y, uint8_t map_source)
 
 bool map_source_directory_available(uint8_t map_source)
 {
-    (void)map_source;
-    return ::platform::linux_runtime::ensure_directory(online_tile_cache().root());
+    return tile_source().layerDirectoryAvailable(
+        ui::map_tiles::mapTileLayerFromBaseSource(sanitize_map_source(map_source)));
 }
 
 bool contour_directory_available()

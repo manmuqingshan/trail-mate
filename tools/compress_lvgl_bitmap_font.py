@@ -294,8 +294,6 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "font_c",
-        nargs="?",
-        default="src/ui/assets/fonts/lv_font_noto_cjk_16_2bpp.c",
         help="Path to lvgl font C file",
     )
     args = ap.parse_args()

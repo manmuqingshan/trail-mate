@@ -6,6 +6,7 @@ It contains:
 
 - locale pack: `ru`
 - font pack: `cyrillic-eu`
+- IME pack: `ru-cyrillic-keyboard`
 
 The Russian translations were contributed by polarikus.
 
@@ -20,6 +21,7 @@ The locale manifest points to:
 
 - `ui_font_pack=cyrillic-eu`
 - `content_font_pack=cyrillic-eu`
+- `ime_pack=ru-cyrillic-keyboard`
 
 Bundle-level package metadata lives in:
 
@@ -41,6 +43,8 @@ Bundle-level package metadata lives in:
 - `locales/ru/`
   - `manifest.ini`
   - `strings.tsv`
+- `ime/ru-cyrillic-keyboard/`
+  - `manifest.ini`
 
 ## Generate The Font Pack
 
@@ -65,7 +69,11 @@ python tools/generate_binfont_with_lv_font_conv.py `
 
 Notes:
 
-- This bundle is display-only for now. It does not declare an IME pack yet.
+- The Russian locale is still in `translation_status=review`, but the bundle now
+  declares the real `ru-cyrillic-keyboard` IME pack.
+- `ru-cyrillic-keyboard` is a direct virtual-keyboard layout backed by
+  `backend=builtin-keyboard-layout` and `layout=ru-cyrillic`; it is not a
+  candidate-conversion engine and does not remap physical keyboard hardware.
 - `build.ini` is the source-of-truth for generating `font.bin` during Pages/package builds.
 - `font.bin` is ignored by Git. Regenerate it whenever the subset changes.
 - `ranges.txt` and `estimated_ram_bytes` let the runtime decide whether the pack fits the active memory profile.
@@ -75,7 +83,7 @@ Notes:
 
 `python scripts/build_pack_repository.py --pack-root packs --site-root site` produces:
 
-- `site/assets/packs/europe-cyrillic-ext-1.1.1.zip`
+- `site/assets/packs/europe-cyrillic-ext-1.2.0.zip`
 - `site/data/packs.json`
 
 The zip is the bundle artifact for a future Extensions downloader. Its `payload/` directory unpacks into `/trailmate/packs/...`.
@@ -90,6 +98,7 @@ Copy the bundle contents so the SD card ends up with:
 /trailmate/packs/fonts/cyrillic-eu/font.bin
 /trailmate/packs/locales/ru/manifest.ini
 /trailmate/packs/locales/ru/strings.tsv
+/trailmate/packs/ime/ru-cyrillic-keyboard/manifest.ini
 ```
 
 After reboot, `Русский` appears in Settings only after the locale is promoted to `translation_status=release`. While it is in `review`, the runtime can install and index the pack but will not offer it as a selectable UI language.

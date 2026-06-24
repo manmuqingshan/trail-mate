@@ -8,7 +8,6 @@
 #include "ui/widgets/ble_pairing_popup.h"
 #include <Arduino.h>
 #include <Preferences.h>
-#include <SD.h>
 #include <algorithm>
 #include <cstring>
 #include <ctime>
@@ -135,6 +134,8 @@ constexpr size_t kMaxFrameSize = 172;
 constexpr size_t kPubKeySize = chat::meshcore::MeshCoreIdentity::kPubKeySize;
 constexpr size_t kPubKeyPrefixSize = 6;
 constexpr size_t kMaxPathSize = 64;
+constexpr uint8_t kPathMetadataExtMarker = 0xE2;
+constexpr uint8_t kPathMetadataExtLen = 3;
 constexpr uint32_t kBleWriteMinIntervalMs = 60;
 constexpr bool kMeshCoreBleSecurityEnabled = true;
 constexpr uint32_t kMeshCoreDefaultBlePin = 123456;
@@ -159,6 +160,56 @@ int8_t encodeSnrQdb(int16_t snr_x10)
         qdb = -128;
     }
     return static_cast<int8_t>(qdb);
+}
+
+bool appendPathMetadataExt(uint8_t* out, size_t out_cap, size_t& index,
+                           uint8_t profile, uint8_t hash_bytes, uint8_t hop_count)
+{
+    if (!out || index + 2 + kPathMetadataExtLen > out_cap)
+    {
+        return false;
+    }
+    out[index++] = kPathMetadataExtMarker;
+    out[index++] = kPathMetadataExtLen;
+    out[index++] = profile;
+    out[index++] = hash_bytes == 0 ? 1 : hash_bytes;
+    out[index++] = hop_count;
+    return true;
+}
+
+void decodePathMetadataExt(const uint8_t* data, size_t len,
+                           uint8_t* out_profile, uint8_t* out_hash_bytes, uint8_t* out_hop_count)
+{
+    if (out_profile)
+    {
+        *out_profile = 0;
+    }
+    if (out_hash_bytes)
+    {
+        *out_hash_bytes = 1;
+    }
+    if (out_hop_count)
+    {
+        *out_hop_count = 0;
+    }
+    if (!data || len < 2 + kPathMetadataExtLen ||
+        data[0] != kPathMetadataExtMarker ||
+        data[1] != kPathMetadataExtLen)
+    {
+        return;
+    }
+    if (out_profile)
+    {
+        *out_profile = data[2];
+    }
+    if (out_hash_bytes)
+    {
+        *out_hash_bytes = data[3] == 0 ? 1 : data[3];
+    }
+    if (out_hop_count)
+    {
+        *out_hop_count = data[4];
+    }
 }
 
 int8_t encodeRssiDbm(int16_t rssi_x10)
@@ -1112,6 +1163,17 @@ void MeshCoreBleService::update()
                     memcpy(&out[i], ev.in_path.data(), in_len);
                     i += in_len;
                 }
+                {
+                    size_t index = static_cast<size_t>(i);
+                    const uint8_t profile = static_cast<uint8_t>(ev.path_profile);
+                    const uint8_t hash_bytes = static_cast<uint8_t>(
+                        chat::meshcore::payloadHashBytes(ev.path_profile));
+                    const uint8_t hop_count = (out_len > 0 && hash_bytes > 0)
+                                                  ? static_cast<uint8_t>(out_len / hash_bytes)
+                                                  : 0;
+                    appendPathMetadataExt(out, sizeof(out), index, profile, hash_bytes, hop_count);
+                    i = static_cast<int>(index);
+                }
                 enqueueFrame(out, i);
                 break;
             }
@@ -1534,14 +1596,59 @@ void MeshCoreBleService::loadManualContacts()
         return;
     }
     size_t len = prefs.getBytesLength("blob");
-    if (len == 0 || (len % sizeof(ContactRecord)) != 0)
+    if (len == 0)
     {
         prefs.end();
         return;
     }
-    size_t count = len / sizeof(ContactRecord);
-    manual_contacts_.resize(count);
-    prefs.getBytes("blob", manual_contacts_.data(), len);
+    if ((len % sizeof(ContactRecord)) == 0)
+    {
+        size_t count = len / sizeof(ContactRecord);
+        manual_contacts_.resize(count);
+        prefs.getBytes("blob", manual_contacts_.data(), len);
+    }
+    else
+    {
+        struct LegacyContactRecord
+        {
+            uint8_t pubkey[chat::meshcore::MeshCoreIdentity::kPubKeySize];
+            uint8_t type;
+            uint8_t flags;
+            uint8_t out_path_len;
+            uint8_t out_path[64];
+            char name[32];
+            uint32_t last_advert;
+            int32_t lat;
+            int32_t lon;
+            uint32_t lastmod;
+        } __attribute__((packed));
+
+        if ((len % sizeof(LegacyContactRecord)) != 0)
+        {
+            prefs.end();
+            return;
+        }
+        std::vector<LegacyContactRecord> legacy(len / sizeof(LegacyContactRecord));
+        prefs.getBytes("blob", legacy.data(), len);
+        manual_contacts_.reserve(legacy.size());
+        for (const LegacyContactRecord& old : legacy)
+        {
+            ContactRecord rec{};
+            memcpy(rec.pubkey, old.pubkey, sizeof(rec.pubkey));
+            rec.type = old.type;
+            rec.flags = old.flags;
+            rec.out_path_len = old.out_path_len;
+            rec.out_path_profile = 0;
+            rec.out_path_hash_bytes = 1;
+            memcpy(rec.out_path, old.out_path, sizeof(rec.out_path));
+            memcpy(rec.name, old.name, sizeof(rec.name));
+            rec.last_advert = old.last_advert;
+            rec.lat = old.lat;
+            rec.lon = old.lon;
+            rec.lastmod = old.lastmod;
+            manual_contacts_.push_back(rec);
+        }
+    }
     prefs.end();
 }
 
@@ -1716,6 +1823,14 @@ void MeshCoreBleService::buildContactsSnapshot(uint32_t filter_since)
         i += 4;
         memcpy(&frame.buf[i], &record.lastmod, 4);
         i += 4;
+        const uint8_t hash_bytes = record.out_path_hash_bytes == 0 ? 1 : record.out_path_hash_bytes;
+        const uint8_t hop_count = (record.out_path_len > 0 && hash_bytes > 0)
+                                      ? static_cast<uint8_t>(record.out_path_len / hash_bytes)
+                                      : 0;
+        size_t index = static_cast<size_t>(i);
+        appendPathMetadataExt(frame.buf.data(), frame.buf.size(),
+                              index, record.out_path_profile, hash_bytes, hop_count);
+        i = static_cast<int>(index);
         frame.len = static_cast<uint8_t>(i);
         contacts_frames_.push_back(frame);
         contacts_most_recent_ = std::max(contacts_most_recent_, record.lastmod);
@@ -1782,6 +1897,8 @@ bool MeshCoreBleService::decodeContactPayload(const uint8_t* frame, size_t len,
     out->type = frame[i++];
     out->flags = frame[i++];
     out->out_path_len = frame[i++];
+    out->out_path_profile = 0;
+    out->out_path_hash_bytes = 1;
     memset(out->out_path, 0, sizeof(out->out_path));
     if (out->out_path_len > 0)
     {
@@ -1807,8 +1924,14 @@ bool MeshCoreBleService::decodeContactPayload(const uint8_t* frame, size_t len,
         if (len >= i + 4)
         {
             memcpy(&lastmod, &frame[i], 4);
+            i += 4;
         }
     }
+
+    decodePathMetadataExt(frame + i, len > i ? len - i : 0,
+                          &out->out_path_profile,
+                          &out->out_path_hash_bytes,
+                          nullptr);
 
     if (out_lastmod)
     {
@@ -1874,6 +1997,18 @@ bool MeshCoreBleService::buildContactFrame(const chat::meshcore::MeshCoreAdapter
     i += 4;
     memcpy(&out.buf[i], &last_adv, 4);
     i += 4;
+    {
+        size_t index = static_cast<size_t>(i);
+        const uint8_t profile = static_cast<uint8_t>(peer.out_path_profile);
+        const uint8_t hash_bytes = static_cast<uint8_t>(
+            chat::meshcore::payloadHashBytes(peer.out_path_profile));
+        const uint8_t hop_count = (peer.out_path_len > 0 && hash_bytes > 0)
+                                      ? static_cast<uint8_t>(peer.out_path_len / hash_bytes)
+                                      : 0;
+        appendPathMetadataExt(out.buf.data(), out.buf.size(), index,
+                              profile, hash_bytes, hop_count);
+        i = static_cast<int>(index);
+    }
 
     out.len = static_cast<uint8_t>(i);
     return true;
@@ -1914,6 +2049,11 @@ bool MeshCoreBleService::buildContactFromNode(const chat::contacts::NodeEntry& e
     i += 4;
     memcpy(&out.buf[i], &last_adv, 4);
     i += 4;
+    {
+        size_t index = static_cast<size_t>(i);
+        appendPathMetadataExt(out.buf.data(), out.buf.size(), index, 0, 1, 0);
+        i = static_cast<int>(index);
+    }
 
     out.len = static_cast<uint8_t>(i);
     return true;

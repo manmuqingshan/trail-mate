@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "platform/esp/idf_common/wireless_companion/c6_companion.h"
 #include "ui/loop_shell.h"
 #endif
 
@@ -44,6 +45,7 @@ void loopTask(void* parameter)
 
     while (true)
     {
+        platform::esp::idf_common::wireless_companion::c6_companion().poll();
         ui::loop_shell::tick(hooks);
     }
 }

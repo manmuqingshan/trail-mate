@@ -1095,6 +1095,15 @@ bool LinuxRawLoraMeshAdapter::takePendingSendResult(::chat::MessageId& out_msg_i
         .supports_pki = pki_ready_,
         .supports_discovery_actions =
             active_protocol_ == ::chat::MeshProtocol::Meshtastic,
+        .supports_node_info_query = true,
+        .supports_node_info_reply = true,
+        .supports_node_info_reannounce = true,
+        .supports_position_request = true,
+        .supports_position_reply = true,
+        .supports_trace_route_request = true,
+        .supports_trace_route_reply = true,
+        .supports_protocol_app_response = true,
+        .supports_protocol_ack_tracking = false,
     };
 }
 

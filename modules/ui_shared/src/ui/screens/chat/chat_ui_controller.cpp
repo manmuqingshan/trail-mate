@@ -15,11 +15,12 @@
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/localization.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/chat/chat_protocol_support.h"
 #include "ui/screens/chat/chat_team_workflow.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/ime/ime_widget.h"
-#include "ui/widgets/system_notification.h"
+#include "ui_chat_runtime/chat_delivery_action_port_adapter.h"
 #include "ui_lvgl_ux_packs/common/key_verification_modal_renderer.h"
 #include "ui_lvgl_ux_packs/common/team_position_picker_renderer.h"
 #include "ui_presentation/key_verification/key_verification_model.h"
@@ -191,6 +192,60 @@ const char* key_verification_action_failure_message(::ui::UiActionResult result)
     return "Key verification failed";
 }
 
+const char* local_text_send_failure_message(::ui::UiActionResult result)
+{
+    switch (result.failure)
+    {
+    case ::ui::UiActionFailure::ChannelKeyMissing:
+        return "Channel key missing";
+    case ::ui::UiActionFailure::PeerKeyMissing:
+        return "Peer key missing";
+    case ::ui::UiActionFailure::TxDisabled:
+        return "TX disabled";
+    case ::ui::UiActionFailure::RadioOffline:
+        return "Radio offline";
+    case ::ui::UiActionFailure::DutyCycleLimited:
+        return "TX rate limited";
+    case ::ui::UiActionFailure::RadioTxFailed:
+        return "Radio TX failed";
+    case ::ui::UiActionFailure::LocalIdentityMissing:
+        return "Identity missing";
+    case ::ui::UiActionFailure::Busy:
+        return "Radio busy";
+    case ::ui::UiActionFailure::Unsupported:
+        return "Conversation unsupported";
+    case ::ui::UiActionFailure::InvalidInput:
+        return "Message unavailable";
+    case ::ui::UiActionFailure::NotReady:
+        return "Radio not ready";
+    case ::ui::UiActionFailure::Rejected:
+    case ::ui::UiActionFailure::StorageError:
+    case ::ui::UiActionFailure::None:
+    default:
+        return "Send failed";
+    }
+}
+
+const char* delivery_retry_failure_message(
+    ::chat::delivery::ChatDeliveryActionFailure failure)
+{
+    switch (failure)
+    {
+    case ::chat::delivery::ChatDeliveryActionFailure::InvalidRef:
+    case ::chat::delivery::ChatDeliveryActionFailure::NotFound:
+        return "Message unavailable";
+    case ::chat::delivery::ChatDeliveryActionFailure::Unsupported:
+        return "Retry unavailable";
+    case ::chat::delivery::ChatDeliveryActionFailure::NotRetryable:
+        return "Message not retryable";
+    case ::chat::delivery::ChatDeliveryActionFailure::Rejected:
+        return "Retry failed";
+    case ::chat::delivery::ChatDeliveryActionFailure::None:
+        return "Retry failed";
+    }
+    return "Retry failed";
+}
+
 void handle_message_list_action(chat::ui::ChatMessageListScreen::ActionIntent intent,
                                 const chat::ConversationId& conv,
                                 void* user_data)
@@ -217,6 +272,18 @@ void handle_conversation_action(chat::ui::ChatConversationScreen::ActionIntent i
     if (controller)
     {
         controller->handleConversationAction(intent);
+    }
+}
+
+void handle_conversation_message_action(
+    chat::ui::ChatConversationScreen::MessageActionIntent intent,
+    ::ui::chat::MessageRef ref,
+    void* user_data)
+{
+    auto* controller = static_cast<UiController*>(user_data);
+    if (controller)
+    {
+        controller->handleConversationMessageAction(intent, ref);
     }
 }
 
@@ -254,12 +321,15 @@ UiController::UiController(lv_obj_t* parent,
                            ChatTeamWorkflow& team_workflow,
                            ::ui::key_verification::KeyVerificationModel*
                                key_verification_model,
+                           ::ui_chat_runtime::ChatDeliveryActionPortAdapter*
+                               delivery_action_adapter,
                            chat::ChannelId initial_channel,
                            ExitRequestCallback exit_request,
                            void* exit_request_user_data)
     : parent_(parent), service_(service), chat_model_(chat_model),
       team_workflow_(team_workflow),
       key_verification_model_(key_verification_model),
+      delivery_action_adapter_(delivery_action_adapter),
       state_(State::ChannelList),
       current_channel_(initial_channel),
       current_conv_(chat::ConversationId(initial_channel, 0, chat_support::active_mesh_protocol())),
@@ -521,7 +591,12 @@ void UiController::switchToConversation(chat::ConversationId conv)
     {
         conversation_.reset(new ChatConversationScreen(parent_, conv));
         conversation_->setActionCallback(handle_conversation_action, this);
+        conversation_->setMessageActionCallback(handle_conversation_message_action, this);
         conversation_->setBackCallback(handle_conversation_back, this);
+    }
+    else
+    {
+        conversation_->setMessageActionCallback(handle_conversation_message_action, this);
     }
     const bool can_reply = team_conv_active_
                                ? chat_support::supports_team_chat()
@@ -600,17 +675,17 @@ void UiController::switchToCompose(chat::ConversationId conv)
     const bool is_team_conv = isTeamConversation(conv);
     if (!is_team_conv && conv.protocol != chat_support::active_mesh_protocol())
     {
-        ::ui::SystemNotification::show("Conversation protocol mismatch", 2000);
+        ::ui::feedback::show_notice("Conversation protocol mismatch", 2000);
         return;
     }
     if (!is_team_conv && !chat_support::supports_local_text_chat())
     {
-        ::ui::SystemNotification::show(chat_support::local_text_chat_unavailable_message(), 2200);
+        ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
         return;
     }
     if (is_team_conv && !chat_support::supports_team_chat())
     {
-        ::ui::SystemNotification::show(chat_support::team_chat_unavailable_message(), 2200);
+        ::ui::feedback::show_notice(chat_support::team_chat_unavailable_message(), 2200);
         return;
     }
 
@@ -670,9 +745,9 @@ void UiController::switchToCompose(chat::ConversationId conv)
         }
         compose_ime_->init(compose_content, compose_textarea);
         compose_->attachImeWidget(compose_ime_.get());
-        if (lv_group_t* g = lv_group_get_default())
+        if (lv_group_t* group = lv_group_get_default())
         {
-            lv_group_add_obj(g, compose_ime_->focus_obj());
+            lv_group_add_obj(group, compose_ime_->focus_obj());
         }
     }
 
@@ -735,65 +810,23 @@ void UiController::handleSendMessage(const std::string& text)
     {
         const ::ui::UiActionResult result =
             team_workflow_.sendText(text.c_str());
-        if (!result.ok)
-        {
-            ::ui::SystemNotification::show(
-                team_workflow_.textSendFailureMessage(result),
-                2000);
-        }
+        ::ui::feedback::show_notice(
+            result.ok ? "Sent" : team_workflow_.textSendFailureMessage(result),
+            result.ok ? 1400 : 2000);
         handleComposeSendDone(result.ok, false);
         return;
     }
     if (!chat_support::supports_local_text_chat())
     {
-        ::ui::SystemNotification::show(chat_support::local_text_chat_unavailable_message(), 2200);
+        ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
         return;
     }
+
     const ::ui::UiActionResult result = chat_model_.sendMessage(text.c_str());
     if (!result.ok)
     {
-        const char* message = "Send failed";
-        if (result.failure == ::ui::UiActionFailure::ChannelKeyMissing)
-        {
-            message = "Channel key missing";
-        }
-        else if (result.failure == ::ui::UiActionFailure::PeerKeyMissing)
-        {
-            message = "Peer key missing";
-        }
-        else if (result.failure == ::ui::UiActionFailure::TxDisabled)
-        {
-            message = "TX disabled";
-        }
-        else if (result.failure == ::ui::UiActionFailure::RadioOffline)
-        {
-            message = "Radio offline";
-        }
-        else if (result.failure == ::ui::UiActionFailure::DutyCycleLimited)
-        {
-            message = "TX rate limited";
-        }
-        else if (result.failure == ::ui::UiActionFailure::RadioTxFailed)
-        {
-            message = "Radio TX failed";
-        }
-        else if (result.failure == ::ui::UiActionFailure::LocalIdentityMissing)
-        {
-            message = "Identity missing";
-        }
-        else if (result.failure == ::ui::UiActionFailure::Busy)
-        {
-            message = "Radio busy";
-        }
-        else if (result.failure == ::ui::UiActionFailure::Unsupported)
-        {
-            message = "Conversation unsupported";
-        }
-        else if (result.failure == ::ui::UiActionFailure::InvalidInput)
-        {
-            message = "Message unavailable";
-        }
-        ::ui::SystemNotification::show(message, 2000);
+        ::ui::feedback::show_notice(local_text_send_failure_message(result),
+                                    2000);
     }
     handleComposeSendDone(result.ok, false);
 }
@@ -805,15 +838,6 @@ void UiController::handleComposeSendDone(bool ok, bool timeout)
     if (state_ == State::Compose)
     {
         switchToConversation(current_conv_);
-    }
-}
-
-void UiController::handleComposeSendDoneCallback(bool ok, bool timeout, void* user_data)
-{
-    auto* controller = static_cast<UiController*>(user_data);
-    if (controller)
-    {
-        controller->handleComposeSendDone(ok, timeout);
     }
 }
 
@@ -1246,7 +1270,7 @@ void UiController::submitKeyVerificationInput()
         return;
     }
 
-    ::ui::SystemNotification::show("Verification number sent", 2000);
+    ::ui::feedback::show_notice("Verification number sent", 2000);
     closeKeyVerificationModal(true);
 }
 
@@ -1259,7 +1283,7 @@ void UiController::trustKeyFromVerificationModal()
     }
 
     const auto result = key_verification_model_->accept();
-    ::ui::SystemNotification::show(
+    ::ui::feedback::show_notice(
         result.ok ? "Key marked trusted"
                   : key_verification_action_failure_message(result),
         2000);
@@ -1277,7 +1301,7 @@ void UiController::onTeamPositionIconSelected(uint8_t icon_id)
     const auto result = team_workflow_.sendCurrentLocationMarker(icon_id);
     if (!result.ok)
     {
-        ::ui::SystemNotification::show(
+        ::ui::feedback::show_notice(
             team_workflow_.locationSendFailureMessage(result),
             2000);
     }
@@ -1290,21 +1314,54 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
     {
         if (!team_conv_active_ && current_conv_.protocol != chat_support::active_mesh_protocol())
         {
-            ::ui::SystemNotification::show("Reply disabled for this protocol", 2000);
+            ::ui::feedback::show_notice("Reply disabled for this protocol", 2000);
             return;
         }
         if (!team_conv_active_ && !chat_support::supports_local_text_chat())
         {
-            ::ui::SystemNotification::show(chat_support::local_text_chat_unavailable_message(), 2200);
+            ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
             return;
         }
         if (team_conv_active_ && !chat_support::supports_team_chat())
         {
-            ::ui::SystemNotification::show(chat_support::team_chat_unavailable_message(), 2200);
+            ::ui::feedback::show_notice(chat_support::team_chat_unavailable_message(), 2200);
             return;
         }
         switchToCompose(current_conv_);
     }
+}
+
+void UiController::handleConversationMessageAction(
+    ChatConversationScreen::MessageActionIntent intent,
+    ::ui::chat::MessageRef ref)
+{
+    if (intent != ChatConversationScreen::MessageActionIntent::Retry)
+    {
+        return;
+    }
+    if (team_conv_active_ || delivery_action_adapter_ == nullptr)
+    {
+        ::ui::feedback::show_notice("Retry unavailable", 1800);
+        return;
+    }
+    if (current_conv_.protocol != chat_support::active_mesh_protocol())
+    {
+        ::ui::feedback::show_notice("Retry disabled for this protocol", 2000);
+        return;
+    }
+
+    const auto result = delivery_action_adapter_->retryMessage(ref);
+    if (!result.ok)
+    {
+        ::ui::feedback::show_notice(
+            delivery_retry_failure_message(result.failure),
+            1800);
+        return;
+    }
+
+    ::ui::feedback::show_notice("Retry queued", 1400);
+    conversation_list_dirty_ = true;
+    reloadConversationView();
 }
 
 void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
@@ -1343,13 +1400,10 @@ void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
         }
         const ::ui::UiActionResult result =
             team_workflow_.sendText(text.c_str());
-        if (!result.ok)
-        {
-            ::ui::SystemNotification::show(
-                team_workflow_.textSendFailureMessage(result),
-                2000);
-        }
-        switchToConversation(current_conv_);
+        ::ui::feedback::show_notice(
+            result.ok ? "Sent" : team_workflow_.textSendFailureMessage(result),
+            result.ok ? 1400 : 2000);
+        handleComposeSendDone(result.ok, false);
         return;
     }
 

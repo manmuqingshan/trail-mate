@@ -11,6 +11,7 @@
 #include "chat/infra/meshtastic/mt_dedup.h"
 #include "chat/infra/meshtastic/mt_packet_wire.h" // Wire packet format
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/runtime/meshtastic_runtime.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "platform/esp/arduino_common/mesh/esp_meshtastic_adapter_bridge.h"
@@ -131,8 +132,7 @@ class MtAdapter : public chat::IMeshAdapter
     std::map<uint32_t, std::array<uint8_t, 32>> node_public_keys_;
     std::map<uint32_t, uint32_t> node_key_last_seen_;
     std::map<uint32_t, ChannelId> node_last_channel_;
-    std::map<uint32_t, uint32_t> nodeinfo_last_seen_ms_;
-    uint32_t last_position_reply_ms_;
+    std::map<uint32_t, uint32_t> nodeinfo_reply_ms_;
     std::map<uint32_t, std::string> node_long_names_;
     std::string user_long_name_;
     std::string user_short_name_;
@@ -199,9 +199,6 @@ class MtAdapter : public chat::IMeshAdapter
     static constexpr uint32_t RETRY_DELAY_MS = 1000;
     static constexpr uint8_t MAX_RETRIES = 3;
     static constexpr uint32_t NODEINFO_INTERVAL_MS = 3 * 60 * 60 * 1000;
-    static constexpr uint32_t NODEINFO_REPLY_SUPPRESS_MS = 12 * 60 * 60 * 1000;
-    static constexpr uint32_t NODEINFO_REANNOUNCE_SUPPRESS_MS = 60 * 1000;
-    static constexpr uint32_t POSITION_REPLY_SUPPRESS_MS = 3 * 60 * 1000;
     static constexpr uint32_t PKI_BACKOFF_MS = 5 * 60 * 1000;
     static constexpr size_t MAX_APP_QUEUE = 10;
     static constexpr uint32_t ACK_TIMEOUT_MS = 15000;
@@ -216,23 +213,12 @@ class MtAdapter : public chat::IMeshAdapter
     uint32_t last_tx_ms_ = 0;
     uint8_t encrypt_mode_ = 1;
     meshtastic_Routing_Error last_send_error_ = meshtastic_Routing_Error_NONE;
+    runtime::MeshtasticRuntime protocol_runtime_{};
 
     bool sendPacket(const PendingSend& pending);
     bool sendNodeInfo();
     bool sendNodeInfoTo(uint32_t dest, bool want_response,
                         ChannelId channel = ChannelId::PRIMARY);
-    bool sendPositionTo(uint32_t dest, ChannelId channel);
-    bool sendTraceRouteResponse(uint32_t dest,
-                                uint32_t request_id,
-                                const meshtastic_RouteDiscovery& route,
-                                ChannelId channel,
-                                bool want_ack);
-    bool handleTraceRoutePacket(const PacketHeaderWire& header,
-                                meshtastic_Data* decoded,
-                                const chat::RxMeta* rx_meta,
-                                ChannelId channel,
-                                bool want_ack_flag,
-                                bool want_response);
     void maybeBroadcastNodeInfo(uint32_t now_ms);
     void maybeBroadcastNodeInfoAfterPeerAnnouncement(uint32_t from_node,
                                                      uint32_t now_ms,
@@ -276,6 +262,14 @@ class MtAdapter : public chat::IMeshAdapter
     bool sendRoutingError(uint32_t dest, uint32_t request_id, uint8_t channel_hash,
                           const uint8_t* psk, size_t psk_len,
                           meshtastic_Routing_Error reason);
+    runtime::RuntimeContext buildProtocolRuntimeContext() const;
+    bool sendProtocolPacketEffect(const runtime::SendPacketEffect& packet);
+    bool executeProtocolEffects(const runtime::ProtocolEffects& effects);
+    bool executeProtocolEffect(const runtime::ProtocolEffect& effect);
+    bool executePkiResync(runtime::MeshtasticPkiResyncCause cause,
+                          NodeId peer,
+                          MessageId request_id,
+                          ChannelId channel);
     void emitRoutingResultToPhone(uint32_t request_id,
                                   meshtastic_Routing_Error reason,
                                   uint32_t from,

@@ -21,6 +21,10 @@ send result / ACK / failure event
           -> Renderer
 ```
 
+Final user-visible send feedback is also runtime feedback. It must flow
+through the delivery feedback mechanism defined in
+`CHAT_DELIVERY_FEEDBACK_SPEC.md`, not through a page-local compose widget.
+
 ## Types
 
 Phase 7.1 introduces:
@@ -37,8 +41,9 @@ Phase 7.3 adds:
 - `ChatDeliveryEvent`
 - `IChatDeliveryEventPort`
 - `ProjectingChatDeliveryEventPort`
-- `LegacyChatSendResultMapper`
-- `LegacyChatDeliveryEventBridge`
+- `ChatDeliverySendResultProjection`
+- `ChatDeliveryEventProjectionAdapter`
+- `ChatDeliveryMessageProjection`
 
 ## Ownership
 
@@ -51,11 +56,17 @@ Phase 7.3 adds:
 `ProjectingChatDeliveryEventPort` adapts that port to
 `ChatDeliveryEventProjector`.
 
-`LegacyChatDeliveryEventBridge` maps existing `ChatSendResultEvent` and ACK
-timeout hooks into the delivery event port.
+`ChatDeliveryEventProjectionAdapter` maps existing `ChatSendResultEvent` and
+ACK timeout hooks into the delivery event port.
 
-`LegacyChatDeliveryBridge` maps existing coarse `ChatMessage::status` and
-legacy send/failure concepts into delivery records.
+`ChatDeliveryMessageProjection` maps existing coarse `ChatMessage::status`
+into delivery records.
+
+`ChatDeliverySendResultProjection` maps send-result success/failure facts into
+`ChatDeliveryEvent`.
+
+`ChatDeliveryFeedbackController` observes delivery result facts and emits
+platform feedback through `IChatDeliveryFeedbackPort`.
 
 `ChatPresentationSource` reads the delivery read model and projects state
 into `MessageRow`.
@@ -90,20 +101,21 @@ into `MessageRow`.
 - mutate ChatService storage directly
 - render UI
 
-`LegacyChatDeliveryEventBridge` may:
+`ChatDeliveryEventProjectionAdapter` may:
 
-- consume legacy send result events
+- consume send result events
 - look up the message needed to build `ChatDeliveryRef`
 - publish delivery events through `IChatDeliveryEventPort`
 - expose an ACK timeout projection hook
 
-`LegacyChatDeliveryEventBridge` must not:
+`ChatDeliveryEventProjectionAdapter` must not:
 
 - send packets
 - retry messages
 - build UI snapshots
 - include LVGL/GTK
 - mutate renderer state
+- show final send success/failure prompts
 
 `ChatPresentationSource` may:
 

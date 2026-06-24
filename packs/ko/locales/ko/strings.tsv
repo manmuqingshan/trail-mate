@@ -42,6 +42,7 @@ Contacts (Meshtastic - %.3fMHz)	연락처(Meshtastic - %.3fMHz)
 Contacts (RNode)	연락처(RNode)
 Contacts (RNode - %.3fMHz)	연락처(RNode - %.3fMHz)
 Conversation protocol mismatch	대화 프로토콜 불일치
+Cyrillic keyboard	키릴 키보드
 Data Exchange	데이터 교환
 Debug Logs	디버그 로그
 Decoding: %d%%	디코딩: %d%%
@@ -636,3 +637,14 @@ Restore failed	복원 실패
 Settings restored. Restarting...	설정이 복원되었습니다. 다시 시작 중...
 Overwrite current settings and restart?	현재 설정을 덮어쓰고 다시 시작할까요?
 Restore	복원
+Date/Time	날짜/시간
+Set Date/Time	날짜/시간 설정
+Date	날짜
+Time	시간
+Invalid date/time	잘못된 날짜/시간
+Set time unsupported	시간 설정 미지원
+Date/time updated	날짜/시간 업데이트됨
+Seen %um ago	%u분 전에 확인
+Seen %uh ago	%u시간 전에 확인
+Seen %ud ago	%u일 전에 확인
+Seen --	확인 --

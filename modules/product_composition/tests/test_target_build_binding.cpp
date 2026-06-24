@@ -8,7 +8,7 @@ int main()
     std::size_t count = 0;
     const auto* all = product_composition::allTargetBuildBindings(&count);
     assert(all != nullptr);
-    assert(count == 10);
+    assert(count == 11);
 
     const auto* bindings = product_composition::esp32LvglTargetBuildBindings(&count);
     assert(bindings != nullptr);
@@ -21,15 +21,15 @@ int main()
     assert(std::strcmp(tab5->sdkconfig_defaults,
                        "builds/esp_idf/targets/tab5/sdkconfig.defaults") == 0);
 
-    const auto* tft = product_composition::findTargetBuildBinding("tdisplayp4_tft");
+    const auto* tft = product_composition::findTargetBuildBinding("t_display_p4_tft");
     assert(tft != nullptr);
     assert(std::strcmp(tft->sdkconfig_defaults,
-                       "builds/esp_idf/targets/tdisplayp4_tft/sdkconfig.defaults") == 0);
+                       "builds/esp_idf/targets/t_display_p4_tft/sdkconfig.defaults") == 0);
 
-    const auto* amoled = product_composition::findTargetBuildBinding("tdisplayp4_amoled");
+    const auto* amoled = product_composition::findTargetBuildBinding("t_display_p4_amoled");
     assert(amoled != nullptr);
     assert(std::strcmp(amoled->sdkconfig_defaults,
-                       "builds/esp_idf/targets/tdisplayp4_amoled/sdkconfig.defaults") == 0);
+                       "builds/esp_idf/targets/t_display_p4_amoled/sdkconfig.defaults") == 0);
 
     const auto* pager = product_composition::findTargetBuildBinding("tlora_pager");
     assert(pager != nullptr);

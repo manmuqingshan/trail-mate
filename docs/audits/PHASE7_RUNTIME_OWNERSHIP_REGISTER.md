@@ -13,13 +13,13 @@ has direct user-visible consequences and a bounded migration path.
 | Runtime item | Owner status | Phase | Notes |
 | --- | --- | --- | --- |
 | Chat delivery / pending / failure | contained | 7.1 / 7.6 | owned by `ChatDeliveryReadModel` and projector path; controller direct ownership is forbidden |
-| Chat send-result projection | contained | 7.3 / 7.7 | `ChatSendResultEvent` projects through `LegacyChatDeliveryEventBridge`; `ChatPageRuntimeEventPump` owns forwarding |
+| Chat send-result projection | contained | 7.3 / 7.7 | `ChatSendResultEvent` projects through `ChatDeliveryEventProjectionAdapter`; `ChatPageRuntimeEventPump` owns forwarding |
 | ACK timeout projection | explicitly deferred | 7.3 / final matrix | adapter hook projects `AckTimeout`; unified ACK source has exit condition in `PHASE7_FINAL_LEGACY_SURFACE_MATRIX.md` |
 | key missing projection | explicitly deferred | 7.3 / final matrix | mapper supports structured failure; EventBus schema exit condition in `PHASE7_FINAL_LEGACY_SURFACE_MATRIX.md` |
 | radio send failure projection | explicitly deferred | 7.3 / final matrix | mapper supports structured failure; EventBus schema exit condition in `PHASE7_FINAL_LEGACY_SURFACE_MATRIX.md` |
 | Chat runtime event pump / store flush ownership | contained | 7.7 | owned by `ChatPageRuntimeEventPump` / `ChatPageRuntimeFacade`; controller is UI refresh sink |
 | Chat retry/cancel/clear failure actions | contained | 7.4 / 7.6 | owned by `ChatDeliveryActionRequest` / `ChatDeliveryActionService`; controller direct action ownership is forbidden |
-| Map tile/cache ownership | contained | 7.10 | tile path mapping and filesystem availability are owned by `MapTileResolver` / `LegacyFilesystemMapTileSource`; decoded image cache remains contained legacy |
+| Map tile/cache ownership | contained | 7.10 | tile path mapping and filesystem availability are owned by `MapTileResolver` / `FilesystemMapTileSource`; decoded image cache remains contained legacy |
 | Map tile render queue / decoded cache ownership | contained | 7.11 | visible tile plan is projected into `MapTileRenderQueue`; ESP decoded image cache is wrapped by `LvglDecodedTileCache`; LVGL widget records remain contained legacy |
 | Map overlay/route/tracker ownership | contained / explicitly deferred | 7.12 / Team burn-down | current GPS and Team overlays project through `MapOverlaySnapshot`; Team positions come through `TeamMapOverlaySource`; route/tracker overlay sources have exit conditions in final matrix |
 | GPS page timers/tasks | contained | 7.13 | refresh cadence is owned by `GpsPageRuntimePump`; LVGL timers are tick hooks only |
@@ -52,7 +52,7 @@ Phase 7.1 introduces:
 
 - `ChatDeliveryReadModel`
 - `ChatDeliveryEventProjector`
-- `LegacyChatDeliveryBridge`
+- `ChatDeliveryMessageProjection`
 - optional delivery enrichment in `ChatPresentationSource`
 - composition-root ownership in Linux simulator and uConsole pilots
 
@@ -84,12 +84,13 @@ Phase 7.3 introduces:
 
 - `IChatDeliveryEventPort`
 - `ProjectingChatDeliveryEventPort`
-- `LegacyChatSendResultMapper`
-- `LegacyChatDeliveryEventBridge`
+- `ChatDeliverySendResultProjection`
+- `ChatDeliveryEventProjectionAdapter`
 
 Existing `ChatSendResultEvent` projects coarse success/failure into
-`ChatDeliveryReadModel`. Structured failure kinds are supported by mapper and
-hook APIs, but the current EventBus schema does not yet carry those details.
+`ChatDeliveryReadModel`. Structured failure kinds are supported by projection
+helper and hook APIs, but the current EventBus schema does not yet carry those
+details.
 
 ## Phase 7.2 Decision
 
@@ -181,7 +182,6 @@ Phase 7.6 burned down:
 Remaining legacy surfaces now require removal conditions. Subsequent burn-down phases
 may move those surfaces from contained to burned-down:
 
-- `LegacyChatDeliveryEventBridge`
 - `LegacyChatDeliveryActionBridge`
 - `TeamActionRuntimeSink`
 - `LegacyKeyVerificationSource`
@@ -215,7 +215,7 @@ Phase 7.7 introduces:
 - calls `ChatService::processIncoming()`
 - calls `ChatService::flushStore()`
 - receives EventBus events directly
-- calls `LegacyChatDeliveryEventBridge`
+- calls `ChatDeliveryEventProjectionAdapter`
 - updates `LegacyKeyVerificationSource`
 
 ## Phase 7.8 Decision

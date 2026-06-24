@@ -12,8 +12,8 @@ This was a tile source/cache ownership slice. It did not rewrite LVGL tile rende
 | --- | --- |
 | Base tile directory mapping in platform map renderer code | routed through `MapTileResolver` |
 | Contour tile directory mapping in platform map renderer code | routed through `MapTileResolver` |
-| Base tile availability check as direct path policy | routed through `LegacyFilesystemMapTileSource::lookup(...)` |
-| Layer directory availability checks as direct path policy | routed through `LegacyFilesystemMapTileSource` |
+| Base tile availability check as direct path policy | routed through `FilesystemMapTileSource::lookup(...)` |
+| Layer directory availability checks as direct path policy | routed through `FilesystemMapTileSource` |
 | Map tile identity containing path assumptions | replaced by `MapTileRef` value object |
 
 ## Still Contained
@@ -29,9 +29,9 @@ This was a tile source/cache ownership slice. It did not rewrite LVGL tile rende
 
 - Required map tile audit/spec/report.
 - Required map tile types/source/cache/resolver headers.
-- Required `LegacyFilesystemMapTileSource`.
+- Required `FilesystemMapTileSource`.
 - Required resolver/source smoke tests.
-- Required platform map tile runtimes to call `LegacyFilesystemMapTileSource`.
+- Required platform map tile runtimes to call `FilesystemMapTileSource`.
 - Forbid tile bitmap/cache objects in `MapWorkspaceSnapshot`.
 
 ## Remaining Work

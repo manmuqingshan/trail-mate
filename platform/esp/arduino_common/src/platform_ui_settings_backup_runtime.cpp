@@ -381,6 +381,10 @@ void add_mesh_config(cJSON* parent,
         add_float(object, "meshcore_airtime_factor", config.meshcore_airtime_factor);
         add_int(object, "meshcore_flood_max", config.meshcore_flood_max);
         add_bool(object, "meshcore_multi_acks", config.meshcore_multi_acks);
+        add_int(object, "meshcore_send_profile",
+                static_cast<int>(static_cast<uint8_t>(config.meshcore_send_profile)));
+        add_int(object, "meshcore_forward_profile",
+                static_cast<int>(static_cast<uint8_t>(config.meshcore_forward_profile)));
         add_int(object, "meshcore_channel_slot", config.meshcore_channel_slot);
         add_string(object, "meshcore_channel_name", config.meshcore_channel_name);
         add_blob_hex(object, "meshcore_channel_key", config.secondary_key, chat::kMeshCoreChannelKeyLen);
@@ -438,6 +442,12 @@ void restore_mesh_config(cJSON* object,
         config.meshcore_airtime_factor = json_float(object, "meshcore_airtime_factor", config.meshcore_airtime_factor);
         config.meshcore_flood_max = static_cast<uint8_t>(json_int(object, "meshcore_flood_max", config.meshcore_flood_max));
         config.meshcore_multi_acks = json_bool(object, "meshcore_multi_acks", config.meshcore_multi_acks);
+        config.meshcore_send_profile = static_cast<chat::MeshCorePayloadSendProfile>(
+            json_int(object, "meshcore_send_profile",
+                     static_cast<int>(static_cast<uint8_t>(config.meshcore_send_profile))));
+        config.meshcore_forward_profile = static_cast<chat::MeshCoreForwardProfile>(
+            json_int(object, "meshcore_forward_profile",
+                     static_cast<int>(static_cast<uint8_t>(config.meshcore_forward_profile))));
         config.meshcore_channel_slot = static_cast<uint8_t>(
             json_int(object, "meshcore_channel_slot", config.meshcore_channel_slot));
         copy_json_string(object, "meshcore_channel_name", config.meshcore_channel_name, sizeof(config.meshcore_channel_name));

@@ -96,6 +96,9 @@ bool encodeNodeInfoMessage(const std::string& user_id, const std::string& long_n
  */
 bool encodeAppData(uint32_t portnum, const uint8_t* payload, size_t payload_len,
                    bool want_response, uint8_t* out_buffer, size_t* out_size);
+bool encodeAppDataWithRequestId(uint32_t portnum, const uint8_t* payload, size_t payload_len,
+                                bool want_response, uint32_t request_id,
+                                uint8_t* out_buffer, size_t* out_size);
 bool decodeAppPayload(const meshtastic_Data& data, MeshIncomingData* out);
 bool decodeAppData(const uint8_t* buffer, size_t size, MeshIncomingData* out);
 

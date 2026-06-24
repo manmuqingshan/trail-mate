@@ -11,12 +11,21 @@
 #include "app/app_facade_access.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/time_runtime.h"
+#include "platform/ui/walkie_runtime.h"
 #include "ui/formatters.h"
 #include "ui/menu/menu_layout.h"
 #include "ui/menu/menu_profile.h"
 #include "ui/ui_common.h"
 #include "ui/ui_status.h"
 #include "ui/ui_theme.h"
+
+#if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
+#define lv_font_montserrat_12 lv_font_montserrat_14
+#endif
+
+#if !defined(LV_FONT_MONTSERRAT_10) || !LV_FONT_MONTSERRAT_10
+#define lv_font_montserrat_10 lv_font_montserrat_12
+#endif
 
 namespace ui
 {
@@ -28,6 +37,7 @@ namespace
 #if defined(ESP_PLATFORM)
 constexpr const char* kTag = "ui-menu-runtime";
 #endif
+constexpr int kWalkieRecordBarCount = 7;
 
 struct RuntimeState
 {
@@ -39,8 +49,14 @@ struct RuntimeState
     lv_obj_t* battery_label = nullptr;
     lv_timer_t* time_timer = nullptr;
     lv_timer_t* battery_timer = nullptr;
+    lv_timer_t* walkie_record_timer = nullptr;
+    lv_obj_t* walkie_record_overlay = nullptr;
+    lv_obj_t* walkie_record_bars[kWalkieRecordBarCount]{};
+    lv_obj_t* menu_help_modal = nullptr;
     int watch_face_battery = -1;
     bool menu_active = true;
+    bool walkie_recording = false;
+    uint8_t walkie_record_phase = 0;
     Scene scene = Scene::Menu;
 };
 
@@ -169,6 +185,268 @@ void refreshBottomBar()
     {
         ui::menu_layout::set_bottom_bar_psram_visible(false);
     }
+}
+
+bool isMenuHelpKey(char key)
+{
+    return key == 'h' || key == 'H';
+}
+
+bool isKeyboardBacklightKey(char key)
+{
+    return key == 'k' || key == 'K';
+}
+
+bool pagerMenuKeyboardBacklightShortcutEnabled()
+{
+#if defined(ARDUINO_T_LORA_PAGER)
+    return platform::ui::device::supports_keyboard_backlight();
+#else
+    return false;
+#endif
+}
+
+void consumeMenuKeyEvent(lv_event_t* e)
+{
+    if (!e)
+    {
+        return;
+    }
+    lv_event_stop_bubbling(e);
+    lv_event_stop_processing(e);
+}
+
+void closeMenuHelpModal()
+{
+    if (!s_runtime.menu_help_modal || !lv_obj_is_valid(s_runtime.menu_help_modal))
+    {
+        s_runtime.menu_help_modal = nullptr;
+        return;
+    }
+    lv_obj_del(s_runtime.menu_help_modal);
+    s_runtime.menu_help_modal = nullptr;
+}
+
+void onMenuHelpModalKey(lv_event_t* e)
+{
+    const uint32_t key = lv_event_get_key(e);
+    if (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC || key == LV_KEY_ENTER ||
+        key == 'h' || key == 'H')
+    {
+        consumeMenuKeyEvent(e);
+        closeMenuHelpModal();
+        return;
+    }
+    consumeMenuKeyEvent(e);
+}
+
+void onMenuHelpCloseClicked(lv_event_t* e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED)
+    {
+        return;
+    }
+    closeMenuHelpModal();
+}
+
+void openMenuHelpModal()
+{
+    if (s_runtime.menu_help_modal && lv_obj_is_valid(s_runtime.menu_help_modal))
+    {
+        closeMenuHelpModal();
+        return;
+    }
+
+    lv_obj_t* parent = s_runtime.screen_root && lv_obj_is_valid(s_runtime.screen_root)
+                           ? s_runtime.screen_root
+                           : lv_screen_active();
+    if (!parent)
+    {
+        return;
+    }
+
+    s_runtime.menu_help_modal = lv_obj_create(parent);
+    lv_obj_set_size(s_runtime.menu_help_modal, LV_PCT(100), LV_PCT(100));
+    lv_obj_align(s_runtime.menu_help_modal, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_add_flag(s_runtime.menu_help_modal, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_style_bg_color(s_runtime.menu_help_modal, lv_color_hex(0x1C1812), 0);
+    lv_obj_set_style_bg_opa(s_runtime.menu_help_modal, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(s_runtime.menu_help_modal, 0, 0);
+    lv_obj_set_style_pad_all(s_runtime.menu_help_modal, 4, 0);
+    lv_obj_clear_flag(s_runtime.menu_help_modal, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_runtime.menu_help_modal, onMenuHelpModalKey, LV_EVENT_KEY, nullptr);
+
+    lv_obj_t* panel = lv_obj_create(s_runtime.menu_help_modal);
+    lv_obj_set_size(panel, 304, 146);
+    lv_obj_center(panel);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_bg_color(panel, lv_color_hex(0xFFF3DF), 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(panel, 1, 0);
+    lv_obj_set_style_border_color(panel, lv_color_hex(0x8A6E43), 0);
+    lv_obj_set_style_radius(panel, 4, 0);
+    lv_obj_set_style_pad_left(panel, 7, 0);
+    lv_obj_set_style_pad_right(panel, 7, 0);
+    lv_obj_set_style_pad_top(panel, 5, 0);
+    lv_obj_set_style_pad_bottom(panel, 5, 0);
+    lv_obj_set_style_pad_row(panel, 2, 0);
+    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(panel, onMenuHelpModalKey, LV_EVENT_KEY, nullptr);
+
+    lv_obj_t* title_row = lv_obj_create(panel);
+    lv_obj_set_size(title_row, LV_PCT(100), 20);
+    lv_obj_set_flex_flow(title_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(title_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_bg_opa(title_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(title_row, 0, 0);
+    lv_obj_set_style_pad_all(title_row, 0, 0);
+    lv_obj_clear_flag(title_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* title = lv_label_create(title_row);
+    lv_label_set_text(title, "Main Menu Help");
+    lv_obj_set_width(title, 0);
+    lv_obj_set_flex_grow(title, 1);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0x25170D), 0);
+
+    lv_obj_t* close_btn = lv_btn_create(title_row);
+    lv_obj_set_size(close_btn, 54, 18);
+    lv_obj_set_style_bg_color(close_btn, lv_color_hex(0xF8E6C3), 0);
+    lv_obj_set_style_bg_opa(close_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(close_btn, 1, 0);
+    lv_obj_set_style_border_color(close_btn, lv_color_hex(0x8A6E43), 0);
+    lv_obj_set_style_radius(close_btn, 4, 0);
+    lv_obj_set_style_shadow_width(close_btn, 0, 0);
+    lv_obj_set_style_pad_all(close_btn, 0, 0);
+    lv_obj_add_event_cb(close_btn, onMenuHelpCloseClicked, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t* close_label = lv_label_create(close_btn);
+    lv_label_set_text(close_label, "Close");
+    lv_obj_set_style_text_font(close_label, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_color(close_label, lv_color_hex(0x25170D), 0);
+    lv_obj_center(close_label);
+
+    auto add_keycap = [](lv_obj_t* parent, const char* text, lv_coord_t width)
+    {
+        lv_obj_t* keycap = lv_label_create(parent);
+        lv_obj_set_size(keycap, width, 14);
+        lv_obj_set_style_bg_color(keycap, lv_color_hex(0xF8E6C3), 0);
+        lv_obj_set_style_bg_opa(keycap, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(keycap, 1, 0);
+        lv_obj_set_style_border_color(keycap, lv_color_hex(0x8A6E43), 0);
+        lv_obj_set_style_radius(keycap, 3, 0);
+        lv_obj_set_style_text_font(keycap, &lv_font_montserrat_10, 0);
+        lv_obj_set_style_text_color(keycap, lv_color_hex(0x25170D), 0);
+        lv_obj_set_style_text_align(keycap, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_long_mode(keycap, LV_LABEL_LONG_CLIP);
+        lv_label_set_text(keycap, text ? text : "");
+        return keycap;
+    };
+
+    auto add_help_row = [&](const char* primary,
+                            const char* secondary,
+                            const char* description)
+    {
+        lv_obj_t* row = lv_obj_create(panel);
+        lv_obj_set_size(row, LV_PCT(100), 15);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_set_style_pad_column(row, 3, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t* keys = lv_obj_create(row);
+        lv_obj_set_size(keys, 76, 15);
+        lv_obj_set_flex_flow(keys, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(keys,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_bg_opa(keys, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(keys, 0, 0);
+        lv_obj_set_style_pad_all(keys, 0, 0);
+        lv_obj_set_style_pad_column(keys, 2, 0);
+        lv_obj_clear_flag(keys, LV_OBJ_FLAG_SCROLLABLE);
+
+        if (secondary && secondary[0] != '\0')
+        {
+            add_keycap(keys, primary, std::strlen(primary) > 2 ? 34 : 22);
+            add_keycap(keys, secondary, std::strlen(secondary) > 4 ? 48 : 34);
+        }
+        else
+        {
+            add_keycap(keys, primary, 72);
+        }
+
+        lv_obj_t* text = lv_label_create(row);
+        lv_obj_set_width(text, 0);
+        lv_obj_set_flex_grow(text, 1);
+        lv_obj_set_style_text_font(text, &lv_font_montserrat_10, 0);
+        lv_obj_set_style_text_color(text, lv_color_hex(0x3E2B18), 0);
+        lv_label_set_long_mode(text, LV_LABEL_LONG_DOT);
+        lv_label_set_text(text, description ? description : "");
+    };
+
+    add_help_row("WASD", nullptr, "Select app");
+    add_help_row("Enter", nullptr, "Open app");
+    if (pagerMenuKeyboardBacklightShortcutEnabled())
+    {
+        add_help_row("K", nullptr, "Cycle keyboard backlight");
+    }
+    add_help_row("Space", nullptr, "Walkie PTT when monitor is on");
+    add_help_row("H", "Back", "Close help");
+
+    lv_obj_move_foreground(s_runtime.menu_help_modal);
+    lv_group_t* group = lv_group_get_default();
+    if (group)
+    {
+        lv_group_add_obj(group, panel);
+        lv_group_focus_obj(panel);
+    }
+}
+
+uint8_t nextKeyboardBacklightLevel()
+{
+    const uint8_t max_level = platform::ui::device::keyboard_backlight_max();
+    if (max_level == 0)
+    {
+        return 0;
+    }
+
+    const uint8_t current = platform::ui::device::keyboard_backlight();
+    if (current >= max_level)
+    {
+        return 0;
+    }
+
+    const uint8_t step = max_level >= 4 ? static_cast<uint8_t>(max_level / 4) : 1;
+    uint16_t next = static_cast<uint16_t>(current) + step;
+    if (next <= current)
+    {
+        next = static_cast<uint16_t>(current) + 1;
+    }
+    return static_cast<uint8_t>(next > max_level ? max_level : next);
+}
+
+bool cycleKeyboardBacklight()
+{
+    if (!pagerMenuKeyboardBacklightShortcutEnabled())
+    {
+        return false;
+    }
+
+    const uint8_t next = nextKeyboardBacklightLevel();
+    platform::ui::device::set_keyboard_backlight(next);
+    char text[24];
+    const uint8_t max_level = platform::ui::device::keyboard_backlight_max();
+    std::snprintf(text, sizeof(text), "H Help  K %u/%u", next, max_level);
+    ui::menu_layout::set_bottom_bar_help_text(text);
+    return true;
 }
 
 void showMainMenu()
@@ -321,6 +599,127 @@ void refreshBatteryLabel()
     refreshBottomBar();
 }
 
+void updateWalkieRecordBars()
+{
+    if (s_runtime.walkie_record_overlay == nullptr)
+    {
+        return;
+    }
+
+    const auto status = platform::ui::walkie::get_status();
+    uint8_t level = status.tx_level;
+    if (level < 8)
+    {
+        level = static_cast<uint8_t>(18 + ((s_runtime.walkie_record_phase * 7U) % 44U));
+    }
+
+    static constexpr uint8_t kBarBias[kWalkieRecordBarCount] = {18, 42, 70, 52, 88, 36, 62};
+    for (int i = 0; i < kWalkieRecordBarCount; ++i)
+    {
+        lv_obj_t* bar = s_runtime.walkie_record_bars[i];
+        if (bar == nullptr)
+        {
+            continue;
+        }
+        const uint8_t wave =
+            static_cast<uint8_t>((level + kBarBias[i] + s_runtime.walkie_record_phase * (i + 3)) % 100);
+        lv_coord_t height = static_cast<lv_coord_t>(5 + (wave * 19) / 100);
+        if (height > 24)
+        {
+            height = 24;
+        }
+        lv_obj_set_height(bar, height);
+    }
+    s_runtime.walkie_record_phase = static_cast<uint8_t>(s_runtime.walkie_record_phase + 1);
+}
+
+void walkieRecordTimerCb(lv_timer_t*)
+{
+    updateWalkieRecordBars();
+}
+
+void ensureWalkieRecordOverlay()
+{
+    if (s_runtime.walkie_record_overlay != nullptr || s_runtime.menu_panel == nullptr)
+    {
+        return;
+    }
+
+    lv_obj_t* overlay = lv_obj_create(s_runtime.menu_panel);
+    s_runtime.walkie_record_overlay = overlay;
+    lv_obj_set_size(overlay, 118, 34);
+    lv_obj_align(overlay, LV_ALIGN_BOTTOM_MID, 0, -28);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(overlay, lv_color_hex(0xFFF1D5), 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(overlay, 1, 0);
+    lv_obj_set_style_border_color(overlay, lv_color_hex(0xD28B2E), 0);
+    lv_obj_set_style_radius(overlay, 8, 0);
+    lv_obj_set_style_shadow_width(overlay, 0, 0);
+    lv_obj_set_style_pad_left(overlay, 10, 0);
+    lv_obj_set_style_pad_right(overlay, 10, 0);
+    lv_obj_set_style_pad_top(overlay, 4, 0);
+    lv_obj_set_style_pad_bottom(overlay, 4, 0);
+    lv_obj_set_style_pad_column(overlay, 5, 0);
+    lv_obj_set_flex_flow(overlay, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(overlay, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+
+    for (int i = 0; i < kWalkieRecordBarCount; ++i)
+    {
+        lv_obj_t* bar = lv_obj_create(overlay);
+        s_runtime.walkie_record_bars[i] = bar;
+        lv_obj_set_size(bar, 7, 6);
+        lv_obj_set_style_bg_color(bar, lv_color_hex(0xE55F2A), 0);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(bar, 0, 0);
+        lv_obj_set_style_radius(bar, 3, 0);
+        lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
+void setWalkieRecording(bool recording)
+{
+    if (s_runtime.walkie_recording == recording)
+    {
+        return;
+    }
+
+    s_runtime.walkie_recording = recording;
+    if (recording)
+    {
+        ensureWalkieRecordOverlay();
+        if (s_runtime.walkie_record_overlay != nullptr)
+        {
+            lv_obj_clear_flag(s_runtime.walkie_record_overlay, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(s_runtime.walkie_record_overlay);
+        }
+        if (s_runtime.walkie_record_timer == nullptr)
+        {
+            s_runtime.walkie_record_timer = lv_timer_create(walkieRecordTimerCb, 90, nullptr);
+            lv_timer_set_repeat_count(s_runtime.walkie_record_timer, -1);
+        }
+        else
+        {
+            lv_timer_resume(s_runtime.walkie_record_timer);
+        }
+        updateWalkieRecordBars();
+        return;
+    }
+
+    if (s_runtime.walkie_record_overlay != nullptr)
+    {
+        lv_obj_add_flag(s_runtime.walkie_record_overlay, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_runtime.walkie_record_timer != nullptr)
+    {
+        lv_timer_pause(s_runtime.walkie_record_timer);
+    }
+}
+
 void createTopBar()
 {
     const auto& profile = ui::menu_profile::current();
@@ -381,8 +780,12 @@ void createTopBar()
     lv_obj_t* menu_team_icon = nullptr;
     lv_obj_t* menu_msg_icon = nullptr;
     lv_obj_t* menu_ble_icon = nullptr;
+    lv_obj_t* menu_radio_mod_icon = nullptr;
+    lv_obj_t* menu_walkie_monitor_icon = nullptr;
     if (use_menu_status_icons())
     {
+        menu_radio_mod_icon = lv_image_create(menu_status_row);
+        menu_walkie_monitor_icon = lv_image_create(menu_status_row);
         menu_route_icon = lv_image_create(menu_status_row);
         menu_tracker_icon = lv_image_create(menu_status_row);
         menu_gps_icon = lv_image_create(menu_status_row);
@@ -390,6 +793,8 @@ void createTopBar()
         menu_team_icon = lv_image_create(menu_status_row);
         menu_msg_icon = lv_image_create(menu_status_row);
         menu_ble_icon = lv_image_create(menu_status_row);
+        lv_obj_add_flag(menu_radio_mod_icon, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(menu_walkie_monitor_icon, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(menu_route_icon, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(menu_tracker_icon, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(menu_gps_icon, LV_OBJ_FLAG_HIDDEN);
@@ -411,7 +816,9 @@ void createTopBar()
         menu_wifi_icon,
         menu_team_icon,
         menu_msg_icon,
-        menu_ble_icon);
+        menu_ble_icon,
+        menu_radio_mod_icon,
+        menu_walkie_monitor_icon);
 }
 
 void initWatchFace()
@@ -500,6 +907,12 @@ void onWakeFromSleep()
 void setMenuActive(bool active)
 {
     s_runtime.menu_active = active;
+    if (!active)
+    {
+        platform::ui::walkie::set_ptt(false);
+        setWalkieRecording(false);
+        closeMenuHelpModal();
+    }
 
     if (s_runtime.time_timer != nullptr)
     {
@@ -531,6 +944,54 @@ void setMenuActive(bool active)
         refreshBatteryLabel();
         refreshBottomBar();
     }
+}
+
+bool handleWalkieKey(char key, int state)
+{
+    if (key != ' ' || currentScene() != Scene::Menu)
+    {
+        return false;
+    }
+
+    const auto status = platform::ui::walkie::get_status();
+    if (!status.monitor_enabled || !status.active)
+    {
+        if (state == 0)
+        {
+            setWalkieRecording(false);
+        }
+        return false;
+    }
+
+    const bool pressed = state != 0;
+    platform::ui::walkie::set_ptt(pressed);
+    setWalkieRecording(pressed);
+    return true;
+}
+
+bool handleShortcutKey(char key, int state)
+{
+    if (state == 0 || currentScene() != Scene::Menu)
+    {
+        return false;
+    }
+
+    if (isMenuHelpKey(key))
+    {
+        if (!pagerMenuKeyboardBacklightShortcutEnabled())
+        {
+            return false;
+        }
+        openMenuHelpModal();
+        return true;
+    }
+
+    if (isKeyboardBacklightKey(key))
+    {
+        return cycleKeyboardBacklight();
+    }
+
+    return false;
 }
 
 void setScene(Scene scene)

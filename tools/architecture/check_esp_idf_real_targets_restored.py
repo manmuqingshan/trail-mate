@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 TARGETS = [
     "tab5",
-    "tdisplayp4_tft",
-    "tdisplayp4_amoled",
+    "t_display_p4_tft",
+    "t_display_p4_amoled",
     "tdeck",
     "tlora_pager",
     "twatch",

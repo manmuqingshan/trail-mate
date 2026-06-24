@@ -38,6 +38,9 @@ extern "C"
 
     esp_err_t tm_services_apply_config(const tm_c6_companion_config_t* config,
                                        tm_c6_config_report_t* out_report);
+    void tm_services_mark_ble_configured(esp_err_t result, const char* detail);
+    void tm_services_mark_espnow_configured(esp_err_t result, const char* detail);
+    void tm_services_mark_wifi_configured(esp_err_t result, const char* detail);
     void tm_services_fill_config_report(uint32_t config_seq,
                                         uint16_t error_code,
                                         const char* detail,
@@ -53,7 +56,9 @@ extern "C"
     bool tm_services_send_espnow_event(const tm_c6_espnow_event_t* event);
     bool tm_services_send_wifi_event(const tm_c6_wifi_event_t* event);
     bool tm_services_send_log(const char* message);
+    void tm_services_flush_logs(void);
 
+    bool tm_services_can_accept_wireless_rx(const char* detail);
     void tm_services_note_ble_downlink(void);
     void tm_services_note_espnow_tx(void);
     void tm_services_record_error(uint16_t error_code, const char* detail);

@@ -42,6 +42,7 @@ Contacts (Meshtastic - %.3fMHz)	連絡先 (Meshtastic - %.3fMHz)
 Contacts (RNode)	連絡先 (RNode)
 Contacts (RNode - %.3fMHz)	連絡先 (RNode - %.3fMHz)
 Conversation protocol mismatch	会話プロトコルが一致しません
+Cyrillic keyboard	キリル キーボード
 Data Exchange	データ交換
 Debug Logs	デバッグ ログ
 Decoding: %d%%	デコード: %d%%
@@ -636,3 +637,14 @@ Restore failed	復元に失敗しました
 Settings restored. Restarting...	設定を復元しました。再起動中...
 Overwrite current settings and restart?	現在の設定を上書きして再起動しますか？
 Restore	復元
+Date/Time	日付/時刻
+Set Date/Time	日付/時刻を設定
+Date	日付
+Time	時刻
+Invalid date/time	日付/時刻が無効です
+Set time unsupported	時刻設定は未対応です
+Date/time updated	日付/時刻を更新しました
+Seen %um ago	%u分前に確認
+Seen %uh ago	%u時間前に確認
+Seen %ud ago	%u日前に確認
+Seen --	確認 --

@@ -17,7 +17,6 @@ class LinuxUConsoleGtkRuntimeEntryAdoptionProbe
     bool load(const LinuxUConsoleGtkAppShell& shell);
 
     bool ready() const;
-    bool fallbackUsed() const;
     std::size_t menuCount() const;
     std::size_t screenCount() const;
 
@@ -29,7 +28,6 @@ class LinuxUConsoleGtkRuntimeEntryAdoptionProbe
     product_composition::PresentationBundle presentation_{};
     trailmate::uconsole::gtk::GtkRuntimeEntryAdoption adoption_{};
     bool ready_ = false;
-    bool fallback_ = true;
 };
 
 } // namespace trailmate::apps::linux_uconsole_gtk

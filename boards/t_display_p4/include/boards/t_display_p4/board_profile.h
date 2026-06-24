@@ -113,6 +113,18 @@ struct BoardProfile
         uint16_t imu = 0;
     };
 
+    struct KeyboardModule
+    {
+        int sda = -1;
+        int scl = -1;
+        int interrupt = -1;
+        int backlight = -1;
+        uint16_t tca8418 = 0;
+        uint16_t xl9555 = 0;
+        int rows = 0;
+        int columns = 0;
+    };
+
     struct PanelGeometry
     {
         int width = 0;
@@ -141,6 +153,7 @@ struct BoardProfile
     LoRaModulePins lora{};
     IoExpanderPins io_expander{};
     I2cAddresses i2c{};
+    KeyboardModule keyboard{};
     PanelGeometry hi8561_panel{};
     PanelGeometry rm69a10_panel{};
     int boot = -1;
@@ -168,6 +181,7 @@ struct BoardProfile
     bool has_lora = false;
     bool has_c6_companion = false;
     bool has_motion_sensor = false;
+    bool supports_keyboard_module = false;
     const char* motion_sensor = nullptr;
     bool uses_io_expander_for_lora = false;
 };
@@ -216,6 +230,15 @@ inline constexpr BoardProfile makeBoardProfile()
     profile.i2c.hi8561_touch = 0x68;
     profile.i2c.gt9895_touch = 0x5D;
     profile.i2c.imu = 0x68;
+
+    profile.keyboard.sda = 46;
+    profile.keyboard.scl = 45;
+    profile.keyboard.interrupt = 48;
+    profile.keyboard.backlight = 47;
+    profile.keyboard.tca8418 = 0x34;
+    profile.keyboard.xl9555 = 0x20;
+    profile.keyboard.rows = 7;
+    profile.keyboard.columns = 10;
 
     profile.hi8561_panel.width = 540;
     profile.hi8561_panel.height = 1168;
@@ -272,6 +295,7 @@ inline constexpr BoardProfile makeBoardProfile()
     profile.has_lora = true;
     profile.has_c6_companion = true;
     profile.has_motion_sensor = true;
+    profile.supports_keyboard_module = true;
     profile.motion_sensor = "ICM20948";
     profile.uses_io_expander_for_lora = true;
 

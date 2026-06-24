@@ -227,6 +227,14 @@ bool encodeNodeInfoMessage(const std::string& user_id, const std::string& long_n
 bool encodeAppData(uint32_t portnum, const uint8_t* payload, size_t payload_len,
                    bool want_response, uint8_t* out_buffer, size_t* out_size)
 {
+    return encodeAppDataWithRequestId(
+        portnum, payload, payload_len, want_response, 0, out_buffer, out_size);
+}
+
+bool encodeAppDataWithRequestId(uint32_t portnum, const uint8_t* payload, size_t payload_len,
+                                bool want_response, uint32_t request_id,
+                                uint8_t* out_buffer, size_t* out_size)
+{
     if (!out_buffer || !out_size)
     {
         return false;
@@ -237,6 +245,7 @@ bool encodeAppData(uint32_t portnum, const uint8_t* payload, size_t payload_len,
     data.want_response = want_response;
     data.has_bitfield = true;
     data.bitfield = 0;
+    data.request_id = request_id;
 
     if (payload_len > sizeof(data.payload.bytes))
     {

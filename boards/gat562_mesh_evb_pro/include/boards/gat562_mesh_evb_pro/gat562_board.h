@@ -12,7 +12,7 @@
 
 class TwoWire;
 
-namespace ui::mono_128x64
+namespace ui::mono
 {
 class MonoDisplay;
 }
@@ -117,7 +117,7 @@ class Gat562Board final : public BoardBase
     bool pollInputEvent(BoardInputEvent* out_event);
     bool formatLoraFrequencyMHz(uint32_t freq_hz, char* out, std::size_t out_len) const;
     uint16_t inputDebounceMs() const;
-    ::ui::mono_128x64::MonoDisplay& monoDisplay();
+    ::ui::mono::MonoDisplay& monoDisplay();
     bool ensureI2cReady();
     bool lockI2c(uint32_t timeout_ms = 100);
     void unlockI2c();
@@ -128,12 +128,12 @@ class Gat562Board final : public BoardBase
     bool prepareRadioHardware();
     bool beginRadioIo();
     platform::nrf52::arduino_common::chat::infra::IRadioPacketIo* bindRadioIo();
-    void applyRadioConfig(chat::MeshProtocol protocol, const chat::MeshConfig& config);
+    void applyRadioConfig(chat::MeshProtocol protocol, const chat::MeshConfig& config) override;
     uint32_t activeLoraFrequencyHz() const;
 
     bool startGpsRuntime(const app::AppConfig& config);
     bool beginGps(const app::AppConfig& config);
-    void applyGpsConfig(const app::AppConfig& config);
+    void applyGpsConfig(const app::AppConfig& config) override;
     void tickGps();
     bool isGpsRuntimeReady() const;
     ::gps::GpsState gpsData() const;

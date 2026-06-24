@@ -12,8 +12,8 @@ routes.
 | target_id | board_id | build_entrypoint | app_shell | platform | renderer | ux_pack_id | active_ux_pack | ui_profile_id | page_manifest_id | layout_profile_id | support_status | known_fallback | owner |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `tab5` | `tab5` | `builds/esp_idf` | `apps/esp32_lvgl` | ESP-IDF | LVGL | `tab5_touch` | `compatibility` | `tab5_touch_ui` | `tab5_touch_manifest` | `tab5_large_touch` | `ActiveWithFallback` | current executable UX pack is `compatibility` | `apps/esp32_lvgl + builds/esp_idf + boards/tab5` |
-| `tdisplayp4_tft` | `tdisplayp4` | `builds/esp_idf` | `apps/esp32_lvgl` | ESP-IDF | LVGL | `tdisplayp4_touch` | `compatibility` | `tdisplayp4_touch_ui` | `tdisplayp4_touch_manifest` | `tdisplayp4_touch` | `ActiveWithFallback` | current executable UX pack is `compatibility` | `apps/esp32_lvgl + builds/esp_idf + boards/tdisplayp4` |
-| `tdisplayp4_amoled` | `tdisplayp4` | `builds/esp_idf` | `apps/esp32_lvgl` | ESP-IDF | LVGL | `tdisplayp4_touch` | `compatibility` | `tdisplayp4_touch_ui` | `tdisplayp4_touch_manifest` | `tdisplayp4_touch` | `ActiveWithFallback` | current executable UX pack is `compatibility` | `apps/esp32_lvgl + builds/esp_idf + boards/tdisplayp4` |
+| `t_display_p4_tft` | `t_display_p4` | `builds/esp_idf` | `apps/esp32_lvgl` | ESP-IDF | LVGL | `t_display_p4_touch` | `t_display_p4_touch` | `t_display_p4_touch_ui` | `t_display_p4_touch_manifest` | `t_display_p4_touch` | `Active` | none for UX pack selection | `apps/esp32_lvgl + builds/esp_idf + boards/t_display_p4` |
+| `t_display_p4_amoled` | `t_display_p4` | `builds/esp_idf` | `apps/esp32_lvgl` | ESP-IDF | LVGL | `t_display_p4_touch` | `t_display_p4_touch` | `t_display_p4_touch_ui` | `t_display_p4_touch_manifest` | `t_display_p4_touch` | `Active` | none for UX pack selection | `apps/esp32_lvgl + builds/esp_idf + boards/t_display_p4` |
 | `tlora_pager` | `tlora_pager` | `builds/esp_idf` | `apps/esp32_lvgl` | ESP-IDF | LVGL | `pager_compact` | `compatibility` | `pager_compact_ui` | `pager_compact_manifest` | `pager_compact` | `PendingHardwareValidation` | existing target capability still records Arduino/PIO evidence | `apps/esp32_lvgl + builds/esp_idf + boards/tlora_pager` |
 | `tdeck` | `tdeck` | `builds/esp_idf` | `apps/esp32_lvgl` | ESP-IDF | LVGL | `deck_full` | `compatibility` | `deck_wide_ui` | `deck_full_manifest` | `deck_wide` | `PendingHardwareValidation` | existing target capability still records Arduino/PIO evidence | `apps/esp32_lvgl + builds/esp_idf + boards/tdeck` |
 | `twatch` | `twatch` | `builds/esp_idf` | `apps/esp32_lvgl` | ESP-IDF | LVGL | `watch_compact` | `compatibility` | `watch_compact_ui` | `watch_compact_manifest` | `watch_compact` | `PendingHardwareValidation` | current repo evidence is board and variant data, not migrated IDF defaults | `apps/esp32_lvgl + builds/esp_idf + boards/twatch` |
@@ -30,6 +30,14 @@ routes.
 | `tdeck` | ESP-IDF target defaults and hardware validation for the requested IDF route | `builds/esp_idf + boards/tdeck` |
 | `twatch` | ESP-IDF target defaults and hardware validation for the requested IDF route | `builds/esp_idf + boards/twatch` |
 | `cardputerzero` | real Cardputer Zero Wayland APPLaunch startup, keyboard mapping, notifyd session, Fcitx5 session, explicit fbdev/evdev debug fallback, and live page interaction validation | `apps/linux_cardputer_zero + boards/cardputerzero` |
+
+## Current Firmware Evidence
+
+| target_id | evidence | remaining hardware scope |
+| --- | --- | --- |
+| `t_display_p4_tft` | 2026-06-13 ESP-IDF `esp32p4` build produced `.tmp/build.t_display_p4_tft_real/trail-mate.bin`, size `0x1b3cf0`, app free `0x24c310` (57%) | board flash, display/touch inspection, and P4-C6 live HostLink validation |
+| `t_display_p4_amoled` | 2026-06-13 ESP-IDF `esp32p4` build produced `.tmp/build.t_display_p4_amoled_real/trail-mate.bin`, size `0x1b3cf0`, app free `0x24c310` (57%) | board flash, display/touch inspection, and P4-C6 live HostLink validation |
+| `c6_companion` | 2026-06-13 ESP-IDF `esp32c6` build produced `.tmp/build.c6_companion_real/trail-mate-c6-companion.bin`, size `0x129560`, app free `0x1d6aa0` (61%) | C6 flash, RF checks, and P4-C6 live HostLink validation |
 
 ## Batch 2 Status Tokens
 

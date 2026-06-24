@@ -55,8 +55,8 @@ Boundary established:
 
 - `GpsStatusModel`
 - `MapWorkspaceModel`
-- `LegacyMapPresentationSource`
-- `LegacyMapActionSink`
+- `RuntimeMapWorkspaceSource`
+- `RuntimeMapActionSink`
 - renderer hardening locks the migrated `map_workspace_model()` path
 
 Future cleanup:

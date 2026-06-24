@@ -9,6 +9,8 @@
 | payload         | up to 184 (`MAX_PACKET_PAYLOAD`) | The actual data being transmitted.                        |
 
 Note: see the [payloads doc](./payloads.md) for more information about the content of payload.
+Trail Mate's complete V2 multibyte path/profile rules are defined in
+[V2 multibyte paths](./v2_multibyte_paths.md).
 
 ## Header Breakdown
 
@@ -55,6 +57,6 @@ bit 0 means the lowest bit (1s place)
 | Value  | Version | Description                                       |
 |--------|---------|---------------------------------------------------|
 | `0x00` | 1       | 1-byte src/dest hashes, 2-byte MAC.               |
-| `0x01` | 2       | Future version (e.g., 2-byte hashes, 4-byte MAC). |
+| `0x01` | 2       | 2-byte hashes, 4-byte MAC; paths use 2 bytes per hop. |
 | `0x02` | 3       | Future version.                                   |
 | `0x03` | 4       | Future version.                                   |

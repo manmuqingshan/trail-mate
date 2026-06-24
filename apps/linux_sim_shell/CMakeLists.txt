@@ -11,9 +11,21 @@ set(TRAIL_MATE_REPO_ROOT
 include("${TRAIL_MATE_REPO_ROOT}/cmake/TrailMateUxPacks.cmake")
 trailmate_add_ui_lvgl_ux_packs(trailmate_ui_lvgl_ux_packs)
 
+set(TRAIL_MATE_MESHTASTIC_GENERATED_SOURCES
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/admin.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/channel.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/config.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/connection_status.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/device_ui.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/localonly.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/mesh.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/module_config.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/portnums.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/telemetry.pb.cpp"
+    "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated/meshtastic/xmodem.pb.cpp")
+
 add_library(trailmate_linux_sim_shell
     src/linux_sim_app_shell.cpp
-    src/linux_sim_historical_source_descriptor.cpp
     src/linux_sim_runtime_entry.cpp
     src/linux_sim_runtime_entry_adoption_probe.cpp
     src/linux_sim_runtime_renderer.cpp
@@ -48,13 +60,6 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_linux_sim_app_shell_smoke
              COMMAND trailmate_linux_sim_app_shell_smoke)
 
-    add_executable(trailmate_linux_sim_historical_source_descriptor_smoke
-        tests/linux_sim_historical_source_descriptor_smoke.cpp)
-    target_link_libraries(trailmate_linux_sim_historical_source_descriptor_smoke
-        PRIVATE trailmate_linux_sim_shell)
-    add_test(NAME trailmate_linux_sim_historical_source_descriptor_smoke
-             COMMAND trailmate_linux_sim_historical_source_descriptor_smoke)
-
     add_executable(trailmate_linux_sim_runtime_entry_adoption_probe_smoke
         tests/linux_sim_runtime_entry_adoption_probe_smoke.cpp)
     target_link_libraries(trailmate_linux_sim_runtime_entry_adoption_probe_smoke
@@ -68,13 +73,6 @@ if(BUILD_TESTING)
         PRIVATE trailmate_linux_sim_shell)
     add_test(NAME trailmate_linux_sim_runtime_entry_smoke
              COMMAND trailmate_linux_sim_runtime_entry_smoke)
-
-    add_executable(trailmate_linux_sim_runtime_entry_fallback_smoke
-        tests/linux_sim_runtime_entry_fallback_smoke.cpp)
-    target_link_libraries(trailmate_linux_sim_runtime_entry_fallback_smoke
-        PRIVATE trailmate_linux_sim_shell)
-    add_test(NAME trailmate_linux_sim_runtime_entry_fallback_smoke
-             COMMAND trailmate_linux_sim_runtime_entry_fallback_smoke)
 
     add_executable(trailmate_linux_sim_runtime_renderer_smoke
         tests/linux_sim_runtime_renderer_smoke.cpp)
@@ -97,31 +95,6 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_ascii_descriptor_renderer_smoke
              COMMAND trailmate_ascii_descriptor_renderer_smoke)
 
-    add_executable(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp")
-    target_include_directories(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-        PRIVATE
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_chat_runtime/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_presentation/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
-    target_compile_features(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-        PRIVATE cxx_std_17)
-    add_test(NAME trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-             COMMAND trailmate_legacy_chat_delivery_action_bridge_alias_smoke)
-
-    add_executable(trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge_legacy_alias.cpp")
-    target_include_directories(trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-        PRIVATE
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_chat_runtime/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
-    target_compile_features(trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-        PRIVATE cxx_std_17)
-    add_test(NAME trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-             COMMAND trailmate_legacy_chat_delivery_event_bridge_alias_smoke)
-
     add_executable(trailmate_chat_presentation_source_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_chat_presentation_source.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/domain/chat_model.cpp"
@@ -130,12 +103,10 @@ if(BUILD_TESTING)
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_read_model.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/legacy_chat_delivery_bridge.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/contact_service.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/chat_presentation_source.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/runtime_chat_action_sink.cpp"
-        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/legacy_chat_action_sink.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/src/chat_conversation_mapper.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/src/chat_message_mapper.cpp")
     target_include_directories(trailmate_chat_presentation_source_smoke
@@ -160,6 +131,95 @@ if(BUILD_TESTING)
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_mesh_adapter_router_core_smoke
              COMMAND trailmate_mesh_adapter_router_core_smoke)
+
+    add_executable(trailmate_protocol_effect_executor_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_protocol_effect_executor.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_packet_wire.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_protocol_helpers.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/runtime/meshtastic_position_core.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/runtime/meshtastic_waypoint_core.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb/pb_common.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb/pb_decode.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb/pb_encode.c"
+        ${TRAIL_MATE_MESHTASTIC_GENERATED_SOURCES})
+    target_include_directories(trailmate_protocol_effect_executor_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb")
+    target_compile_features(trailmate_protocol_effect_executor_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_protocol_effect_executor_smoke
+             COMMAND trailmate_protocol_effect_executor_smoke)
+
+    add_executable(trailmate_meshcore_runtime_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_meshcore_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/meshcore_payload_helpers.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/meshcore_protocol_helpers.cpp")
+    target_include_directories(trailmate_meshcore_runtime_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_meshcore_runtime_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_meshcore_runtime_smoke
+             COMMAND trailmate_meshcore_runtime_smoke)
+
+    add_executable(trailmate_mesh_protocol_facade_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_protocol_facade.cpp")
+    target_include_directories(trailmate_mesh_protocol_facade_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_mesh_protocol_facade_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_mesh_protocol_facade_smoke
+             COMMAND trailmate_mesh_protocol_facade_smoke)
+
+    add_executable(trailmate_protocol_runtime_factory_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_protocol_runtime_factory.cpp")
+    target_include_directories(trailmate_protocol_runtime_factory_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_protocol_runtime_factory_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_protocol_runtime_factory_smoke
+             COMMAND trailmate_protocol_runtime_factory_smoke)
+
+    add_executable(trailmate_meshtastic_runtime_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_meshtastic_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_packet_wire.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_protocol_helpers.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/runtime/meshtastic_position_core.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/runtime/meshtastic_waypoint_core.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb/pb_common.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb/pb_decode.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb/pb_encode.c"
+        ${TRAIL_MATE_MESHTASTIC_GENERATED_SOURCES})
+    target_include_directories(trailmate_meshtastic_runtime_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb")
+    target_compile_features(trailmate_meshtastic_runtime_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_meshtastic_runtime_smoke
+             COMMAND trailmate_meshtastic_runtime_smoke)
+
+    add_executable(trailmate_meshtastic_waypoint_core_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_meshtastic_waypoint_core.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/runtime/meshtastic_waypoint_core.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb/pb_common.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb/pb_decode.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb/pb_encode.c"
+        ${TRAIL_MATE_MESHTASTIC_GENERATED_SOURCES})
+    target_include_directories(trailmate_meshtastic_waypoint_core_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb")
+    target_compile_features(trailmate_meshtastic_waypoint_core_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_meshtastic_waypoint_core_smoke
+             COMMAND trailmate_meshtastic_waypoint_core_smoke)
 
     add_executable(trailmate_meshcore_protocol_strategy_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_mesh/tests/test_meshcore_protocol_strategy.cpp"
@@ -255,19 +315,6 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_key_verification_runtime_adapters_smoke
              COMMAND trailmate_key_verification_runtime_adapters_smoke)
 
-    add_executable(trailmate_legacy_key_verification_adapters_alias_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp")
-    target_include_directories(trailmate_legacy_key_verification_adapters_alias_smoke
-        PRIVATE
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_key_verification_runtime/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_presentation/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
-    target_compile_features(trailmate_legacy_key_verification_adapters_alias_smoke
-        PRIVATE cxx_std_17)
-    add_test(NAME trailmate_legacy_key_verification_adapters_alias_smoke
-             COMMAND trailmate_legacy_key_verification_adapters_alias_smoke)
-
     add_executable(trailmate_map_overlay_snapshot_source_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/tests/test_map_overlay_snapshot_source.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/src/map_overlay_snapshot_source.cpp"
@@ -282,17 +329,68 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_map_overlay_snapshot_source_smoke
              COMMAND trailmate_map_overlay_snapshot_source_smoke)
 
-    add_executable(trailmate_legacy_map_overlay_source_alias_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp")
-    target_include_directories(trailmate_legacy_map_overlay_source_alias_smoke
+    add_executable(trailmate_runtime_async_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_runtime_async.cpp")
+    target_include_directories(trailmate_runtime_async_smoke
         PRIVATE
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/include"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_presentation/include")
-    target_compile_features(trailmate_legacy_map_overlay_source_alias_smoke
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_runtime_async_smoke
         PRIVATE cxx_std_17)
-    add_test(NAME trailmate_legacy_map_overlay_source_alias_smoke
-             COMMAND trailmate_legacy_map_overlay_source_alias_smoke)
+    add_test(NAME trailmate_runtime_async_smoke
+             COMMAND trailmate_runtime_async_smoke)
+
+    add_executable(trailmate_storage_event_runtime_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_storage_event_runtime.cpp")
+    target_include_directories(trailmate_storage_event_runtime_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_storage_event_runtime_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_storage_event_runtime_smoke
+             COMMAND trailmate_storage_event_runtime_smoke)
+
+    add_executable(trailmate_map_tile_async_runtime_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/tests/test_map_tile_async_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/src/map_tiles/map_tile_async_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/src/map_tiles/map_tile_render_queue.cpp")
+    target_include_directories(trailmate_map_tile_async_runtime_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_map_tile_async_runtime_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_map_tile_async_runtime_smoke
+             COMMAND trailmate_map_tile_async_runtime_smoke)
+
+    add_executable(trailmate_ui_storage_event_runtime_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_ui_storage_event_runtime_contract.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/src/map_tiles/map_tile_async_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/src/map_tiles/map_tile_render_queue.cpp")
+    target_include_directories(trailmate_ui_storage_event_runtime_contract_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_gps/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/include")
+    target_compile_features(trailmate_ui_storage_event_runtime_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_ui_storage_event_runtime_contract_smoke
+             COMMAND trailmate_ui_storage_event_runtime_contract_smoke)
+
+    add_executable(trailmate_runtime_map_presentation_adapters_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_runtime_map_presentation_adapters.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/runtime_map_workspace_source.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/team_presence/team_presence_model.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+    target_include_directories(trailmate_runtime_map_presentation_adapters_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_presentation/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_team/include")
+    target_compile_features(trailmate_runtime_map_presentation_adapters_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_runtime_map_presentation_adapters_smoke
+             COMMAND trailmate_runtime_map_presentation_adapters_smoke)
 
     add_executable(trailmate_ui_presentation_screen_binding_registry_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_presentation/tests/test_screen_binding_registry.cpp")
@@ -300,6 +398,18 @@ if(BUILD_TESTING)
         PRIVATE trailmate_ui_lvgl_ux_packs)
     add_test(NAME trailmate_ui_presentation_screen_binding_registry_smoke
              COMMAND trailmate_ui_presentation_screen_binding_registry_smoke)
+
+    add_executable(trailmate_ime_input_mode_descriptor_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_ime_input_mode_descriptor.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/widgets/ime/ime_input_mode_descriptor.cpp")
+    target_include_directories(trailmate_ime_input_mode_descriptor_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/stubs")
+    target_compile_features(trailmate_ime_input_mode_descriptor_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_ime_input_mode_descriptor_smoke
+             COMMAND trailmate_ime_input_mode_descriptor_smoke)
 
     add_executable(trailmate_timezone_profile_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_timezone_profile.cpp"
@@ -412,6 +522,7 @@ if(BUILD_TESTING)
     add_executable(trailmate_team_map_overlay_source_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_team_map_overlay_source.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/team_map_overlay_source.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp"
         "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/platform/ui/team_ui_store_runtime.cpp"
         "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/platform/linux/runtime_paths.cpp")
     target_include_directories(trailmate_team_map_overlay_source_smoke

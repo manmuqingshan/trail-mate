@@ -9,6 +9,17 @@
 #include <stdint.h>
 #endif
 
+namespace app
+{
+struct AppConfig;
+}
+
+namespace chat
+{
+enum class MeshProtocol : uint8_t;
+struct MeshConfig;
+} // namespace chat
+
 // Abstract base class: provides a unified interface for different hardware boards.
 // Only keeps the minimal set actually used by the application layer to avoid tight coupling.
 class BoardBase
@@ -78,6 +89,17 @@ class BoardBase
     virtual uint8_t getMessageToneVolume() const
     {
         return 45;
+    }
+
+    // Runtime configuration hooks (default no-op for boards without LoRa/GPS runtime config)
+    virtual void applyRadioConfig(chat::MeshProtocol protocol, const chat::MeshConfig& config)
+    {
+        (void)protocol;
+        (void)config;
+    }
+    virtual void applyGpsConfig(const app::AppConfig& config)
+    {
+        (void)config;
     }
 };
 

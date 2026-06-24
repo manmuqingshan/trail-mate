@@ -5,7 +5,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <limits>
 #include <string>
 #include <utility>
@@ -14,10 +13,11 @@
 #include "app/linux_app_services.h"
 #include "chat/domain/contact_types.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/runtime/mesh_adapter_protocol_effect_executor.h"
+#include "chat/runtime/meshtastic_runtime.h"
+#include "chat/runtime/protocol_runtime_factory.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
-#include "meshtastic/mesh.pb.h"
-#include "pb_encode.h"
 #include "platform/ui/gps_runtime.h"
 #include "sys/clock.h"
 
@@ -884,7 +884,9 @@ ChatWorkspaceSnapshot UConsoleChatWorkspaceModel::snapshot(
     const bool has_local_gps = gps.valid;
     const double local_lat = gps.lat;
     const double local_lon = gps.lng;
-    out.can_send_position = appdata_ready && has_local_gps;
+    out.can_send_position = appdata_ready && has_local_gps &&
+                            active_conversation_.protocol ==
+                                ::chat::MeshProtocol::Meshtastic;
     out.can_send_poi = appdata_ready && has_local_gps &&
                        active_conversation_.protocol ==
                            ::chat::MeshProtocol::Meshtastic;
@@ -1281,13 +1283,14 @@ bool UConsoleChatWorkspaceModel::sendText(const std::string& text)
     }
     if (!canSendActiveConversation())
     {
-        action_status_ = "No Linux mesh transport is connected.";
+        action_status_ = services_.chat().canSendToConversation(active_conversation_)
+                             ? "No Linux mesh transport is connected."
+                             : "Conversation is read-only in the active protocol.";
         return false;
     }
 
     const ::chat::MessageId message_id =
-        services_.chat().sendText(active_conversation_.channel, trimmed,
-                                  active_conversation_.peer);
+        services_.chat().sendTextToConversation(active_conversation_, trimmed);
     if (message_id == 0)
     {
         action_status_ = "Message failed to queue.";
@@ -1307,6 +1310,11 @@ bool UConsoleChatWorkspaceModel::sendCurrentPosition()
         action_status_ = "No Linux mesh transport is connected.";
         return false;
     }
+    if (active_conversation_.protocol != ::chat::MeshProtocol::Meshtastic)
+    {
+        action_status_ = "Position sharing is currently Meshtastic only.";
+        return false;
+    }
     const auto gps = ::platform::ui::gps::get_data();
     if (!gps.valid)
     {
@@ -1314,33 +1322,53 @@ bool UConsoleChatWorkspaceModel::sendCurrentPosition()
         return false;
     }
 
-    meshtastic_Position pos = meshtastic_Position_init_zero;
-    pos.has_latitude_i = true;
-    pos.latitude_i = static_cast<std::int32_t>(std::lround(gps.lat * 10000000.0));
-    pos.has_longitude_i = true;
-    pos.longitude_i = static_cast<std::int32_t>(std::lround(gps.lng * 10000000.0));
-    pos.timestamp = sys::epoch_seconds_now();
-    pos.location_source = meshtastic_Position_LocSource_LOC_INTERNAL;
-    if (gps.has_alt)
-    {
-        pos.has_altitude = true;
-        pos.altitude = static_cast<std::int32_t>(std::lround(gps.alt_m));
-        pos.altitude_source = meshtastic_Position_AltSource_ALT_INTERNAL;
-    }
+    ::chat::runtime::SharePositionIntent intent{};
+    intent.channel = active_conversation_.channel;
+    intent.peer = active_conversation_.peer;
+    intent.valid = gps.valid;
+    intent.latitude_deg = gps.lat;
+    intent.longitude_deg = gps.lng;
+    intent.has_altitude = gps.has_alt;
+    intent.altitude_m = gps.alt_m;
+    intent.has_speed = gps.has_speed;
+    intent.speed_mps = gps.speed_mps;
+    intent.has_course = gps.has_course;
+    intent.course_deg = gps.course_deg;
+    intent.satellites = gps.satellites;
+    intent.timestamp_s = sys::epoch_seconds_now();
 
-    std::uint8_t payload[meshtastic_Position_size] = {};
-    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof(payload));
-    if (!pb_encode(&stream, meshtastic_Position_fields, &pos))
+    ::chat::runtime::MeshtasticRuntime runtime{};
+    ::chat::runtime::RuntimeContext context{};
+    context.protocol = ::chat::MeshProtocol::Meshtastic;
+    context.self_node = adapter->getNodeId();
+    context.now_ms = sys::epoch_seconds_now() * 1000UL;
+    ::chat::runtime::FixedProtocolRuntimeContextProvider context_provider(context);
+    ::chat::runtime::MeshAdapterProtocolEffectExecutor executor(*adapter);
+    ::chat::runtime::ProtocolRuntimeSelection runtime_selection{};
+    runtime_selection.meshtastic = &runtime;
+    const auto bundle = ::chat::runtime::protocolRuntimeFor(::chat::MeshProtocol::Meshtastic,
+                                                            runtime_selection,
+                                                            executor,
+                                                            context_provider);
+    if (!bundle.valid())
     {
         action_status_ = "Position encoding failed.";
         return false;
     }
-    if (!adapter->sendAppData(active_conversation_.channel,
-                              meshtastic_PortNum_POSITION_APP,
-                              payload,
-                              stream.bytes_written,
-                              active_conversation_.peer,
-                              false))
+    auto facade = bundle.createFacade();
+
+    const auto result = facade.sharePosition(intent);
+    if (result.hasActionResult())
+    {
+        action_status_ = "Position encoding failed.";
+        return false;
+    }
+    if (result.executed_effect_count == 0)
+    {
+        action_status_ = "Position encoding failed.";
+        return false;
+    }
+    if (!result.ok())
     {
         action_status_ = "Position failed to queue.";
         return false;
@@ -1370,31 +1398,50 @@ bool UConsoleChatWorkspaceModel::sendCurrentPoi()
         return false;
     }
 
-    meshtastic_Waypoint waypoint = meshtastic_Waypoint_init_zero;
-    waypoint.id = sys::epoch_seconds_now();
-    waypoint.has_latitude_i = true;
-    waypoint.latitude_i = static_cast<std::int32_t>(std::lround(gps.lat * 10000000.0));
-    waypoint.has_longitude_i = true;
-    waypoint.longitude_i = static_cast<std::int32_t>(std::lround(gps.lng * 10000000.0));
-    waypoint.expire = waypoint.id + 86400U;
-    std::strncpy(waypoint.name, "Trail Mate POI", sizeof(waypoint.name) - 1);
-    std::strncpy(waypoint.description,
-                 "Shared from uConsole current GPS fix",
-                 sizeof(waypoint.description) - 1);
+    const std::uint32_t now_s = sys::epoch_seconds_now();
+    ::chat::runtime::ShareWaypointIntent intent{};
+    intent.channel = active_conversation_.channel;
+    intent.peer = active_conversation_.peer;
+    intent.valid = gps.valid;
+    intent.latitude_deg = gps.lat;
+    intent.longitude_deg = gps.lng;
+    intent.id = now_s;
+    intent.expire = now_s + 86400U;
+    intent.name = "Trail Mate POI";
+    intent.description = "Shared from uConsole current GPS fix";
 
-    std::uint8_t payload[meshtastic_Waypoint_size] = {};
-    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof(payload));
-    if (!pb_encode(&stream, meshtastic_Waypoint_fields, &waypoint))
+    ::chat::runtime::MeshtasticRuntime runtime{};
+    ::chat::runtime::RuntimeContext context{};
+    context.protocol = ::chat::MeshProtocol::Meshtastic;
+    context.self_node = adapter->getNodeId();
+    context.now_ms = sys::epoch_seconds_now() * 1000UL;
+    ::chat::runtime::FixedProtocolRuntimeContextProvider context_provider(context);
+    ::chat::runtime::MeshAdapterProtocolEffectExecutor executor(*adapter);
+    ::chat::runtime::ProtocolRuntimeSelection runtime_selection{};
+    runtime_selection.meshtastic = &runtime;
+    const auto bundle = ::chat::runtime::protocolRuntimeFor(::chat::MeshProtocol::Meshtastic,
+                                                            runtime_selection,
+                                                            executor,
+                                                            context_provider);
+    if (!bundle.valid())
     {
         action_status_ = "POI encoding failed.";
         return false;
     }
-    if (!adapter->sendAppData(active_conversation_.channel,
-                              meshtastic_PortNum_WAYPOINT_APP,
-                              payload,
-                              stream.bytes_written,
-                              active_conversation_.peer,
-                              false))
+    auto facade = bundle.createFacade();
+
+    const auto result = facade.shareWaypoint(intent);
+    if (result.hasActionResult())
+    {
+        action_status_ = "POI encoding failed.";
+        return false;
+    }
+    if (result.executed_effect_count == 0)
+    {
+        action_status_ = "POI encoding failed.";
+        return false;
+    }
+    if (!result.ok())
     {
         action_status_ = "POI failed to queue.";
         return false;
@@ -1583,6 +1630,11 @@ void UConsoleChatWorkspaceModel::ensureActiveConversation()
 
 bool UConsoleChatWorkspaceModel::canSendActiveConversation() const
 {
+    if (!services_.chat().canSendToConversation(active_conversation_))
+    {
+        return false;
+    }
+
     const auto* adapter = services_.meshAdapter();
     if (adapter == nullptr || !adapter->isReady())
     {

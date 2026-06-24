@@ -103,6 +103,19 @@ const ImeInfo* ime_at(std::size_t index)
     return nullptr;
 }
 
+std::size_t ime_candidate_count(const char* ime_id)
+{
+    (void)ime_id;
+    return 0;
+}
+
+const char* ime_candidate_at(const char* ime_id, std::size_t index)
+{
+    (void)ime_id;
+    (void)index;
+    return nullptr;
+}
+
 std::size_t enabled_ime_count()
 {
     return 0;

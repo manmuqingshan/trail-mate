@@ -38,7 +38,7 @@ enum class BackgroundTaskStartResult
 
 std::unique_ptr<ble::BleManager> createBleManager(app::IAppBleFacade& app_facade);
 BackgroundTaskStartResult startBackgroundTasks(LoraBoard* board, chat::IMeshAdapter* adapter);
-void tickBoundLifecycle(std::size_t max_events = 32);
+void tickBoundLifecycle(std::size_t max_events = 4);
 void tickRuntime(app::IAppFacade& app_context);
 void updateCoreServices(app::IAppFacade& app_context);
 bool dispatchEvent(app::IAppFacade& app_context, sys::Event* event);

@@ -136,6 +136,11 @@ bool supports_screen_brightness()
     return false;
 }
 
+bool supports_keyboard_backlight()
+{
+    return ::boards::gat562_mesh_evb_pro::Gat562Board::instance().hasKeyboard();
+}
+
 bool supports_configurable_battery_gauge()
 {
     return false;
@@ -153,6 +158,28 @@ uint8_t screen_brightness()
 void set_screen_brightness(uint8_t level)
 {
     ::boards::gat562_mesh_evb_pro::Gat562Board::instance().setBrightness(level);
+}
+
+uint8_t keyboard_backlight()
+{
+    auto& board = ::boards::gat562_mesh_evb_pro::Gat562Board::instance();
+    return board.hasKeyboard() ? board.keyboardGetBrightness() : 0;
+}
+
+uint8_t keyboard_backlight_max()
+{
+    return DEVICE_MAX_BRIGHTNESS_LEVEL;
+}
+
+void set_keyboard_backlight(uint8_t level)
+{
+    auto& board = ::boards::gat562_mesh_evb_pro::Gat562Board::instance();
+    if (!board.hasKeyboard())
+    {
+        return;
+    }
+    const uint8_t clamped = level > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : level;
+    board.keyboardSetBrightness(clamped);
 }
 
 void trigger_haptic()

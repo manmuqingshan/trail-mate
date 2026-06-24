@@ -103,6 +103,17 @@ class AppTasks
      * @brief Ask the radio task to re-arm RX on its next poll cycle.
      */
     static void requestRadioReceiveRestart();
+    static void setRadioTransmitActive(bool active);
+    static bool isRadioTransmitActive();
+
+    class ScopedRadioTransmitActivity
+    {
+      public:
+        ScopedRadioTransmitActivity();
+        ~ScopedRadioTransmitActivity();
+        ScopedRadioTransmitActivity(const ScopedRadioTransmitActivity&) = delete;
+        ScopedRadioTransmitActivity& operator=(const ScopedRadioTransmitActivity&) = delete;
+    };
 
   private:
     static QueueHandle_t radio_tx_queue_;
@@ -115,6 +126,7 @@ class AppTasks
     static bool radio_tasks_paused_;
     static volatile bool radio_receive_active_;
     static volatile bool radio_receive_restart_pending_;
+    static volatile bool radio_transmit_active_;
 };
 
 } // namespace app

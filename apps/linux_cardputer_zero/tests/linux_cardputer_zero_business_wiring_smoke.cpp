@@ -83,8 +83,7 @@ int main(int argc, char** argv)
 
     const std::string cardputer_cmake = read_file(
         repo_root / "apps/linux_cardputer_zero/CMakeLists.txt");
-    assert(contains(cardputer_cmake, "NO_LEGACY_PRESENTATION"));
-    assert(contains(cardputer_cmake, "NO_LEGACY_CHAT_DELIVERY"));
+    assert(not_contains(cardputer_cmake, "NO_LEGACY_PRESENTATION"));
     assert(not_contains(cardputer_cmake, "ui_legacy_adapters"));
 
     const std::string board_facts = read_file(
@@ -140,11 +139,19 @@ int main(int argc, char** argv)
     const std::string shell_includes = slice_between(
         linux_sources_cmake,
         "set(TRAIL_MATE_LINUX_UI_SHELL_INCLUDES",
-        "set(TRAIL_MATE_LINUX_UI_LEGACY_PRESENTATION_SOURCES");
+        "function(trailmate_apply_linux_common_warnings");
     assert(not_contains(common_includes, "TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT"));
     assert(not_contains(shell_includes, "TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT"));
-    assert(contains(linux_sources_cmake, "if(NOT ARG_NO_LEGACY_CHAT_DELIVERY)"));
-    assert(contains(linux_sources_cmake, "if(NOT ARG_NO_LEGACY_PRESENTATION)"));
+    assert(not_contains(linux_sources_cmake, "TRAIL_MATE_LINUX_UI_LEGACY_PRESENTATION_SOURCES"));
+    assert(not_contains(linux_sources_cmake, "NO_LEGACY_PRESENTATION"));
+    assert(not_contains(linux_sources_cmake, "legacy_air_device_status_source.cpp"));
+    assert(not_contains(linux_sources_cmake, "legacy_gps_status_source.cpp"));
+    assert(not_contains(linux_sources_cmake, "legacy_mesh_status_source.cpp"));
+    assert(not_contains(linux_sources_cmake, "legacy_settings_source.cpp"));
+    assert(not_contains(linux_sources_cmake, "legacy_settings_action_sink.cpp"));
+    assert(not_contains(linux_sources_cmake, "legacy_chat_action_sink.cpp"));
+    assert(not_contains(linux_sources_cmake, "legacy_map_presentation_source.cpp"));
+    assert(not_contains(linux_sources_cmake, "legacy_map_action_sink.cpp"));
     assert(contains(linux_sources_cmake, "TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/ui_status.cpp"));
     assert(contains(linux_sources_cmake, "TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/gps_topbar.c"));
     assert(contains(linux_sources_cmake, "TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/wifi_topbar.c"));
@@ -168,7 +175,9 @@ int main(int argc, char** argv)
     assert(contains(gps_runtime, "show_team_overlay_notice"));
     assert(contains(gps_runtime, "route_context_available"));
     assert(contains(gps_runtime, "config.route_enabled && config.route_path[0] != '\\0'"));
-    assert(contains(gps_runtime, "snapshot.team.available && snapshot.team.visible_members > 0"));
+    assert(contains(gps_runtime, "load_team_snapshot(team_snapshot) && !team_snapshot.members.empty()"));
+    assert(contains(gps_runtime, "create_member_button(member)"));
+    assert(contains(gps_runtime, "select_member(member_id)"));
     assert(contains(gps_runtime, "lv_obj_align(s_map_notice_panel, LV_ALIGN_TOP_LEFT"));
     assert(contains(gps_runtime, "lv_obj_set_style_bg_opa(s_map_notice_panel, LV_OPA_70"));
     assert(contains(gps_runtime, "set_hidden(s_map_context_rail, next_mask == 0)"));
@@ -176,14 +185,19 @@ int main(int argc, char** argv)
     assert(not_contains(gps_runtime, "\"GPX\""));
     assert(contains(gps_runtime, "gps_ui::kDefaultLat"));
     assert(contains(gps_runtime, "gps_ui::kDefaultLng"));
-    assert(contains(gps_runtime, "viewport.center_lat = gps_ui::kDefaultLat"));
-    assert(contains(gps_runtime, "viewport.center_lon = gps_ui::kDefaultLng"));
-    assert(contains(gps_runtime,
-                    "model.focus_point.valid = has_viewport_center || snapshot.self.valid || snapshot.header.valid"));
+    assert(contains(gps_runtime, "model.focus_point.valid = true"));
+    assert(contains(gps_runtime, "model.focus_point.lat = has_viewport_center"));
+    assert(contains(gps_runtime, "? snapshot.viewport.center_lat"));
+    assert(contains(gps_runtime, ": (snapshot.self.valid ? snapshot.self.lat"));
+    assert(contains(gps_runtime, ": gps_ui::kDefaultLat)"));
+    assert(contains(gps_runtime, "model.focus_point.lon = has_viewport_center"));
+    assert(contains(gps_runtime, "? snapshot.viewport.center_lon"));
+    assert(contains(gps_runtime, ": (snapshot.self.valid ? snapshot.self.lon"));
+    assert(contains(gps_runtime, ": gps_ui::kDefaultLng)"));
     assert(contains(gps_runtime, "sync_workspace_center_from_screen"));
     assert(contains(gps_runtime, "screen_center(s_map_runtime, center)"));
     assert(contains(gps_runtime, "commit_pending_map_pan_from_screen"));
-    assert(contains(gps_runtime, "if (commit_pending_map_pan_from_screen())"));
+    assert(contains(gps_runtime, "if (!s_map_drag_active && commit_pending_map_pan_from_screen())"));
     assert(contains(gps_runtime, "lv_group_add_obj(group, s_map_zoom_in_btn)"));
     assert(contains(gps_runtime, "lv_group_add_obj(group, s_map_layer_btn)"));
     assert(contains(gps_runtime, "set_layer_map_source"));
@@ -201,8 +215,10 @@ int main(int argc, char** argv)
     assert(contains(gps_runtime, "case 'S':"));
     assert(contains(gps_runtime, "case 'd':"));
     assert(contains(gps_runtime, "case 'D':"));
-    assert(contains(gps_runtime, "case LV_KEY_LEFT:\n        s_map_pan_x += gps_ui::kMapPanStep;"));
-    assert(contains(gps_runtime, "case LV_KEY_RIGHT:\n        s_map_pan_x -= gps_ui::kMapPanStep;"));
+    assert(contains(gps_runtime, "case LV_KEY_LEFT:"));
+    assert(contains(gps_runtime, "s_map_pan_x += gps_ui::kMapPanStep;"));
+    assert(contains(gps_runtime, "case LV_KEY_RIGHT:"));
+    assert(contains(gps_runtime, "s_map_pan_x -= gps_ui::kMapPanStep;"));
     assert(contains(gps_runtime, "take_missing_tile_notice"));
     assert(contains(gps_runtime, "s_map_refresh_pending"));
     assert(contains(gps_runtime, "refresh_view_async"));
@@ -213,15 +229,17 @@ int main(int argc, char** argv)
     assert(contains(gps_runtime, "lv_obj_add_flag(s_map_help_modal, LV_OBJ_FLAG_IGNORE_LAYOUT)"));
     assert(contains(gps_runtime, "lv_label_set_text(title, \"Map Help\")"));
     assert(contains(gps_runtime, "add_help_row(\"WASD\", nullptr, \"Move map\")"));
-    assert(contains(gps_runtime, "add_help_row(\"-\", \"+\", \"Zoom map\")"));
+    assert(contains(gps_runtime, "add_help_row(\"Q\", \"E\", \"Zoom map\")"));
     assert(contains(gps_runtime, "add_help_row(\"P\", \"Pos\", \"Center current position\")"));
+    assert(contains(gps_runtime, "add_help_row(\"L\", nullptr, \"Change base layer\")"));
+    assert(contains(gps_runtime, "add_help_row(\"T\", \"Track\", \"Select track file\")"));
     assert(contains(gps_runtime, "add_help_row(\"O\", \"Contour\", \"Toggle contour overlay\")"));
     assert(contains(gps_runtime, "add_help_row(\"Route\", nullptr, \"Shown when route active\")"));
-    assert(contains(gps_runtime, "add_help_row(\"Team\", nullptr, \"Shown when team active\")"));
-    assert(contains(gps_runtime, "add_help_row(\"F1\", \"Back\", \"Close help\")"));
+    assert(contains(gps_runtime, "add_help_row(\"Members\", nullptr, \"Shown when team active\")"));
+    assert(contains(gps_runtime, "add_help_row(help_key_label(), \"Back\", \"Close help\")"));
     assert(not_contains(gps_runtime, "\"Topo\""));
-    assert(not_contains(gps_runtime, "case 't':"));
-    assert(not_contains(gps_runtime, "case 'T':"));
+    assert(contains(gps_runtime, "case 't':"));
+    assert(contains(gps_runtime, "case 'T':"));
     assert(not_contains(gps_runtime, "case kLvglFunctionKeyF1:\n        open_map_help_modal();"));
     assert(not_contains(gps_runtime, "lv_indev_stop_processing(indev);"));
     assert(contains(gps_runtime, "if (snapshot.header.valid)"));
@@ -287,6 +305,30 @@ int main(int argc, char** argv)
     assert(contains(settings_components, "gps_runtime::supports_external_nmea_output_setting()"));
     assert(contains(settings_components, "gps_runtime::supports_altitude_reference_setting()"));
     assert(contains(settings_components, "gps_runtime::supports_coordinate_format_setting()"));
+
+    const std::string uconsole_cmake = read_file(
+        repo_root / "apps/linux_uconsole_gtk/CMakeLists.txt");
+    assert(contains(uconsole_cmake, "runtime_gps_status_source.cpp"));
+    assert(contains(uconsole_cmake, "runtime_map_workspace_source.cpp"));
+    assert(not_contains(uconsole_cmake, "legacy_gps_status_source.cpp"));
+    assert(not_contains(uconsole_cmake, "legacy_map_presentation_source.cpp"));
+    assert(not_contains(uconsole_cmake, "legacy_map_action_sink.cpp"));
+
+    const std::string uconsole_map_model_header = read_file(
+        repo_root / "platform/linux/uconsole/include/uconsole/uconsole_map_workspace_model.h");
+    const std::string uconsole_map_model = read_file(
+        repo_root / "platform/linux/uconsole/src/uconsole_map_workspace_model.cpp");
+    assert(contains(uconsole_map_model_header, "runtime_gps_status_source.h"));
+    assert(contains(uconsole_map_model_header, "runtime_map_workspace_source.h"));
+    assert(contains(uconsole_map_model_header, "RuntimeMapWorkspaceSource"));
+    assert(contains(uconsole_map_model_header, "RuntimeMapActionSink"));
+    assert(contains(uconsole_map_model, "runtime_gps_status_source()"));
+    assert(not_contains(uconsole_map_model_header, "LegacyGpsStatusSource"));
+    assert(not_contains(uconsole_map_model_header, "LegacyMapPresentationSource"));
+    assert(not_contains(uconsole_map_model_header, "LegacyMapActionSink"));
+    assert(not_contains(uconsole_map_model, "legacy_gps_source_"));
+    assert(not_contains(uconsole_map_model, "legacy_map_source_"));
+    assert(not_contains(uconsole_map_model, "legacy_map_sink_"));
 
     const std::string linux_services = read_file(
         repo_root / "platform/linux/common/src/app/linux_app_services.cpp");
@@ -359,7 +401,6 @@ int main(int argc, char** argv)
     assert(contains(linux_map_tiles, "platform/linux/map_contour_tile_generator.h"));
     assert(contains(linux_map_tiles, "schedule_base_tile_fetch"));
     assert(contains(linux_map_tiles, "online_tile_cache().ensure_tile(tile)"));
-    assert(contains(linux_map_tiles, "ensure_directory(online_tile_cache().root())"));
     assert(contains(linux_map_tiles, "TRAIL_MATE_EARTHDATA_TOKEN"));
     assert(contains(linux_map_tiles, "MapContourTileGenerator"));
     assert(contains(linux_map_tiles, "contour_profiles_for_zoom"));
@@ -374,6 +415,7 @@ int main(int argc, char** argv)
     assert(contains(linux_tile_cache, "TRAIL_MATE_OSM_TILE_URL"));
     assert(contains(linux_tile_cache, "TRAIL_MATE_TERRAIN_TILE_URL"));
     assert(contains(linux_tile_cache, "TRAIL_MATE_SATELLITE_TILE_URL"));
+    assert(contains(linux_tile_cache, "ensure_directory(path.parent_path())"));
 
     const std::string contour_generator = read_file(
         repo_root / "platform/linux/common/src/platform/linux/map_contour_tile_generator.cpp");

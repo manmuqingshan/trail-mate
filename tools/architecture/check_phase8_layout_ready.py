@@ -29,6 +29,8 @@ def check_post_root_legacy_removed() -> int:
     if result.returncode != 0:
         output = (result.stdout + result.stderr).strip()
         return fail(f"post-root legacy removal check failed:\n{output}")
+    if check_retired_ui_legacy_adapters_module():
+        return 1
     print("[phase8-layout-ready] OK (root legacy removed)")
     return 0
 
@@ -167,20 +169,8 @@ def check_required_files() -> int:
         "modules/ui_key_verification_runtime/src/key_verification_presentation_source.cpp",
         "modules/ui_key_verification_runtime/src/key_verification_action_sink.cpp",
         "modules/ui_key_verification_runtime/tests/test_key_verification_runtime_adapters.cpp",
-        "modules/ui_legacy_adapters/README.md",
-        "modules/ui_legacy_adapters/library.json",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_event_bridge.h",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_action_bridge.h",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_session.h",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_source.h",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_action_sink.h",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_map_overlay_source.h",
         "modules/ui_chat_runtime/tests/test_chat_delivery_event_projection_adapter.cpp",
         "modules/ui_chat_runtime/tests/test_chat_delivery_action_port_adapter.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge_legacy_alias.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp",
         "modules/ui_lvgl_core/README.md",
         "modules/ui_lvgl_core/library.json",
         "modules/ui_lvgl_core/include/ui_lvgl_core/lvgl_focus_group.h",
@@ -327,7 +317,7 @@ def check_specification_language() -> int:
             "modules/ui_chat_runtime",
             "modules/ui_map_runtime",
             "modules/ui_gps_runtime",
-            "modules/ui_legacy_adapters",
+            "retired `modules/ui_legacy_adapters/` module must not reappear",
             "modules/ui_lvgl_core",
             "modules/ui_lvgl_ux_packs",
         ],
@@ -429,8 +419,8 @@ def check_audit_language() -> int:
             "new GPS runtime helpers",
             "new chat runtime helpers",
             "new LVGL UX pack renderers",
-            "LegacyFilesystemMapTileSource",
-            "deprecated compatibility alias",
+            "old map tile source alias is retired",
+            "Old map tile aliases must not reappear",
             "FilesystemMapTileSource",
             "check_phase8_layout_ready.py",
         ],
@@ -2058,22 +2048,8 @@ def check_forwarding_headers() -> int:
             "ui_map_runtime/map_tiles/map_tile_decoder_cache.h",
         "modules/ui_shared/include/ui/map_tiles/map_tile_render_queue.h":
             "ui_map_runtime/map_tiles/map_tile_render_queue.h",
-        "modules/ui_shared/include/ui/map_tiles/legacy_filesystem_map_tile_source.h":
-            "ui_map_runtime/map_tiles/filesystem_map_tile_source.h",
         "modules/ui_shared/include/ui/map_overlay/map_overlay_projector.h":
             "ui_map_runtime/map_overlay/map_overlay_projector.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_event_bridge.h":
-            "ui_chat_runtime/chat_delivery_event_projection_adapter.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h":
-            "ui_chat_runtime/chat_delivery_action_port_adapter.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h":
-            "ui_key_verification_runtime/key_verification_session_adapter.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h":
-            "ui_key_verification_runtime/key_verification_presentation_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h":
-            "ui_key_verification_runtime/key_verification_action_sink.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h":
-            "ui_map_runtime/map_overlay_snapshot_source.h",
         "modules/ui_shared/include/ui/screens/chat/team_position_picker_renderer.h":
             "ui_lvgl_ux_packs/common/team_position_picker_renderer.h",
         "modules/ui_shared/include/ui/screens/chat/key_verification_modal_renderer.h":
@@ -2088,19 +2064,6 @@ def check_forwarding_headers() -> int:
         text = read_text(path)
         if include_token not in text:
             failures += fail(f"{path} does not forward to {include_token}")
-        if path in {
-            "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_event_bridge.h",
-            "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h",
-            "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h",
-            "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h",
-            "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h",
-            "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h",
-        }:
-            if "using Legacy" not in text or "[[deprecated" not in text:
-                failures += fail(f"{path} must be a deprecated alias forwarding header")
-            if "class " in text or "struct " in text:
-                failures += fail(f"{path} must not contain a class or struct implementation")
-            continue
         if "class " in text or "struct " in text or "namespace " in text:
             failures += fail(f"{path} must be a forwarding header only")
 
@@ -2109,7 +2072,6 @@ def check_forwarding_headers() -> int:
         "modules/ui_shared/src/ui/screens/gps/gps_page_runtime_pump.cpp",
         "modules/ui_shared/src/ui/map_tiles/map_tile_resolver.cpp",
         "modules/ui_shared/src/ui/map_tiles/map_tile_render_queue.cpp",
-        "modules/ui_shared/src/ui/map_tiles/legacy_filesystem_map_tile_source.cpp",
         "modules/ui_shared/src/ui/map_overlay/map_overlay_projector.cpp",
         "modules/ui_shared/src/ui/presentation_sources/legacy_chat_delivery_event_bridge.cpp",
         "modules/ui_shared/src/ui/presentation_sources/legacy_chat_delivery_action_bridge.cpp",
@@ -2148,12 +2110,8 @@ def check_authoritative_include_paths() -> int:
             "ui_map_runtime/map_tiles/map_tile_decoder_cache.h",
         "ui/map_tiles/map_tile_render_queue.h":
             "ui_map_runtime/map_tiles/map_tile_render_queue.h",
-        "ui/map_tiles/legacy_filesystem_map_tile_source.h":
-            "ui_map_runtime/map_tiles/filesystem_map_tile_source.h",
         "ui/map_overlay/map_overlay_projector.h":
             "ui_map_runtime/map_overlay/map_overlay_projector.h",
-        "ui/presentation_sources/legacy_chat_delivery_event_bridge.h":
-            "ui_chat_runtime/chat_delivery_event_projection_adapter.h",
         "ui/presentation_sources/legacy_chat_delivery_action_bridge.h":
             "ui_chat_runtime/chat_delivery_action_port_adapter.h",
         "ui/presentation_sources/legacy_key_verification_session.h":
@@ -2181,14 +2139,7 @@ def check_authoritative_include_paths() -> int:
         "modules/ui_shared/include/ui/map_tiles/map_tile_cache.h",
         "modules/ui_shared/include/ui/map_tiles/map_tile_decoder_cache.h",
         "modules/ui_shared/include/ui/map_tiles/map_tile_render_queue.h",
-        "modules/ui_shared/include/ui/map_tiles/legacy_filesystem_map_tile_source.h",
         "modules/ui_shared/include/ui/map_overlay/map_overlay_projector.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_event_bridge.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h",
         "modules/ui_shared/include/ui/screens/chat/team_position_picker_renderer.h",
         "modules/ui_shared/include/ui/screens/chat/key_verification_modal_renderer.h",
     }
@@ -2221,7 +2172,6 @@ def check_build_manifest_authority() -> int:
         "modules/ui_chat_runtime/include",
         "modules/ui_map_runtime/include",
         "modules/ui_gps_runtime/include",
-        "modules/ui_legacy_adapters/include",
         "modules/ui_lvgl_core/include",
         "modules/ui_lvgl_ux_packs/include",
     ]
@@ -2240,7 +2190,6 @@ def check_build_manifest_authority() -> int:
             '"name":  "ui_chat_runtime"',
             '"name":  "ui_map_runtime"',
             '"name":  "ui_gps_runtime"',
-            '"name":  "ui_legacy_adapters"',
             '"name":  "ui_lvgl_core"',
             '"name":  "ui_lvgl_ux_packs"',
         ],
@@ -2294,8 +2243,6 @@ def check_build_manifest_authority() -> int:
             "TRAIL_MATE_UI_GPS_RUNTIME_SRC_ROOT",
             "TRAIL_MATE_UI_KEY_VERIFICATION_RUNTIME_INCLUDE_ROOT",
             "TRAIL_MATE_UI_KEY_VERIFICATION_RUNTIME_SRC_ROOT",
-            "TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT",
-            "TRAIL_MATE_UI_LEGACY_ADAPTERS_SRC_ROOT",
             "TRAIL_MATE_UI_LVGL_CORE_INCLUDE_ROOT",
             "TRAIL_MATE_UI_LVGL_UX_PACKS_INCLUDE_ROOT",
             "TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT",
@@ -2368,13 +2315,6 @@ def check_runtime_module_boundaries() -> int:
             "boards/",
             "boards\\",
         ],
-        "modules/ui_legacy_adapters": [
-            "apps/",
-            "apps\\",
-            "builds/",
-            "boards/",
-            "boards\\",
-        ],
         "modules/ui_lvgl_ux_packs": [
             "apps/",
             "apps\\",
@@ -2413,22 +2353,12 @@ def check_runtime_module_boundaries() -> int:
         text = read_text(filesystem_header)
         if "class FilesystemMapTileSource" not in text:
             failures += fail("FilesystemMapTileSource class is missing")
-        if "using LegacyFilesystemMapTileSource" not in text:
-            failures += fail("LegacyFilesystemMapTileSource compatibility alias is missing")
-        if "[[deprecated" not in text:
-            failures += fail("LegacyFilesystemMapTileSource alias must be deprecated")
-        if "FilesystemMapTileSource;" not in text:
-            failures += fail("LegacyFilesystemMapTileSource must alias FilesystemMapTileSource")
 
     for path in iter_code_files(ROOT / "modules/ui_map_runtime"):
         text = path.read_text(encoding="utf-8", errors="ignore")
-        if "LegacyFilesystemMapTileSource" in text and path.as_posix().endswith(
-            "filesystem_map_tile_source.h"
-        ):
-            continue
         if "LegacyFilesystemMapTileSource" in text:
             failures += fail(
-                f"{path.relative_to(ROOT)} uses deprecated LegacyFilesystemMapTileSource"
+                f"{path.relative_to(ROOT)} uses retired LegacyFilesystemMapTileSource"
             )
 
     ui_presentation_root = ROOT / "modules/ui_presentation"
@@ -2443,11 +2373,28 @@ def check_runtime_module_boundaries() -> int:
     return failures
 
 
-def check_deprecated_alias_usage() -> int:
-    allowed = {
-        "modules/ui_map_runtime/include/ui_map_runtime/map_tiles/filesystem_map_tile_source.h",
-    }
+def check_retired_ui_legacy_adapters_module() -> int:
+    failures = 0
+    retired_root = ROOT / "modules/ui_legacy_adapters"
+    if retired_root.exists():
+        failures += fail("retired modules/ui_legacy_adapters module must stay absent")
 
+    forbidden_active_refs = [
+        ".github/workflows/linux-simulator.yml",
+        "variants/gat562_mesh_evb_pro/envs/gat562_mesh_evb_pro.ini",
+    ]
+    for rel_path in forbidden_active_refs:
+        path = ROOT / rel_path
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if "ui_legacy_adapters" in text or "TRAIL_MATE_UI_LEGACY_ADAPTERS" in text:
+            failures += fail(f"{rel_path} still references retired ui_legacy_adapters module")
+
+    return failures
+
+
+def check_deprecated_alias_usage() -> int:
     failures = 0
     for root_name in ["apps", "modules", "platform", "boards"]:
         for path in iter_code_files(ROOT / root_name):
@@ -2455,12 +2402,8 @@ def check_deprecated_alias_usage() -> int:
             text = path.read_text(encoding="utf-8", errors="ignore")
             if "LegacyFilesystemMapTileSource" not in text:
                 continue
-            if rel in allowed:
-                continue
-            if "PHASE8_LEGACY_ALIAS_COMPATIBILITY_TEST" in text:
-                continue
             failures += fail(
-                f"{rel} uses deprecated LegacyFilesystemMapTileSource alias; use FilesystemMapTileSource"
+                f"{rel} uses retired LegacyFilesystemMapTileSource alias; use FilesystemMapTileSource"
             )
 
     return failures
@@ -2535,6 +2478,7 @@ def main() -> int:
     failures += check_authoritative_include_paths()
     failures += check_build_manifest_authority()
     failures += check_runtime_module_boundaries()
+    failures += check_retired_ui_legacy_adapters_module()
     failures += check_deprecated_alias_usage()
     failures += check_transitional_app_markers()
 

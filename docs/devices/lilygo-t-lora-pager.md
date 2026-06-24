@@ -20,7 +20,7 @@ It exists to prevent drift between:
 - Input: `rotary encoder + center key + I2C keyboard`
 - Power / battery: `BQ25896 + BQ27220`
 - RTC: `PCF85063`
-- NFC: `ST25R3916`
+- NFC: not enabled in this repository
 - Motion sensor: `BHI260AP`
 - Audio codec: `ES8311`
 - GPIO expander: `XL9555`
@@ -140,7 +140,6 @@ Bus users:
 
 - LoRa radio
 - SD card
-- NFC
 - display
 
 ### External UART / Expansion Header
@@ -204,13 +203,15 @@ Notes:
 ### Interrupt Pins
 
 - RTC interrupt: `1`
-- NFC interrupt: `5`
 - Motion sensor interrupt: `8`
 
-### NFC
+### Retired NFC Wiring
 
-- ST25R3916 CS: `39`
-- ST25R3916 interrupt: `5`
+The vendor board includes ST25R3916 NFC wiring, but this repository no longer
+enables NFC in the Pager build. The old NFC CS/interrupt definitions and RFAL
+runtime path were removed because no product feature uses them and the unused
+SPI device can interfere with reliable high-speed SD transfers on the shared
+bus.
 
 ## XL9555 Power / Control Lines
 
@@ -224,7 +225,7 @@ Current logical assignments from
 - `EXPANDS_KB_RST = 2`
 - `EXPANDS_LORA_EN = 3`
 - `EXPANDS_GPS_EN = 4`
-- `EXPANDS_NFC_EN = 5`
+- `EXPANDS_UNUSED_SPI_AUX_EN = 5`
 - `EXPANDS_GPS_RST = 7`
 - `EXPANDS_KB_EN = 8`
 - `EXPANDS_GPIO_EN = 9`
@@ -232,7 +233,7 @@ Current logical assignments from
 - `EXPANDS_SD_PULLEN = 11`
 - `EXPANDS_SD_EN = 12`
 
-Operationally this means power sequencing for LoRa, GNSS, NFC, keyboard, SD, audio
+Operationally this means power sequencing for LoRa, GNSS, keyboard, SD, audio
 and haptics is not just raw GPIO configuration on the ESP32-S3. The expander state
 also matters.
 
@@ -246,7 +247,6 @@ The active variant declares these board capabilities:
 - `USING_BQ_GAUGE`
 - `USING_INPUT_DEV_ROTARY`
 - `USING_INPUT_DEV_KEYBOARD`
-- `USING_ST25R3916`
 - `USING_BHI260_SENSOR`
 - `HAS_SD_CARD_SOCKET`
 
@@ -263,7 +263,6 @@ currently initializes or manages:
 - GPIO expander `XL9555`
 - motion sensor `BHI260AP`
 - RTC `PCF85063`
-- NFC `ST25R3916`
 - keyboard `TCA8418`
 - audio codec `ES8311`
 - LoRa radio
@@ -277,8 +276,6 @@ When debugging missing peripherals on Pager, always check both:
 ## Sleep / Power Ownership Notes
 
 - GPS power is owned by `HalGps` / `GpsService`, not by screen sleep helpers.
-- NFC power is board-owned and is toggled by Pager board runtime entrypoints such as
-  `initNFC()`, `startNFCDiscovery()`, `stopNFCDiscovery()`, and screen sleep.
 - The motion sensor is initialized by the board runtime, but Pager does not currently
   implement a dedicated `POWER_SENSOR` hardware branch in `powerControl()`. Do not
   assume screen sleep physically power-cycles `BHI260AP`.
@@ -300,7 +297,7 @@ validated in runtime code rather than assumed from the raw panel numbers alone.
 
 - Pager hardware is highly multiplexed. A peripheral can fail because of shared-bus
   contention, expander power state, or init order, not just because a GPIO number is wrong.
-- LoRa, SD, NFC and display all share the SPI bus, so bus ownership issues are realistic.
+- LoRa, SD and display all share the SPI bus, so bus ownership issues are realistic.
 - Many auxiliary devices share the same I2C bus, so probe order and bus locking matter.
 - Some apparent power-control paths are logical rather than physical. Maintenance changes
   should avoid assuming every peripheral named in sleep or init code has a real board-level

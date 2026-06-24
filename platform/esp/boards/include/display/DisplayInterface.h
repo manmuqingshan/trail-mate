@@ -2,6 +2,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "platform/esp/common/shared_spi_lock.h"
 
 #include <stddef.h>
@@ -131,6 +132,14 @@ class LilyGoDispArduinoSPI
     const DispRotationConfig_t* _rotation_configs;
     DispTransferConfig_t _transfer_config{};
     SemaphoreHandle_t _lock = nullptr;
+    TaskHandle_t _lock_owner = nullptr;
+    uint32_t _lock_depth = 0;
+
+    void pushColorsLocked(uint16_t* data, uint32_t len);
+    void writeParamsLocked(uint8_t cmd, uint8_t* data = nullptr, size_t length = 0);
+    void writeDataLocked(uint8_t data);
+    void writeCommandLocked(uint8_t cmd);
+    void setAddrWindowLocked(uint16_t xs, uint16_t ys, uint16_t xe, uint16_t ye);
 
   public:
     uint16_t _width = 0;
@@ -159,7 +168,25 @@ class LilyGoDispArduinoSPI
     void writeData(uint8_t data);
     void writeCommand(uint8_t cmd);
     void setAddrWindow(uint16_t xs, uint16_t ys, uint16_t xe, uint16_t ye);
-    bool lock(TickType_t xTicksToWait = portMAX_DELAY);
+    bool lock(TickType_t xTicksToWait = portMAX_DELAY, const char* owner = nullptr);
     void unlock();
+    const char* lockOwnerLabel() const;
+    const char* lockOwnerTaskName() const;
+    const char* nativeLockHolderTaskName() const;
+    uint32_t lockHeldMs(uint32_t now_ms) const;
+    uint32_t lockDepth() const;
+    const char* lastLockOwnerLabel() const;
+    const char* lastLockOwnerTaskName() const;
+    uint32_t lastLockHeldMs() const;
+    uint32_t lastLockReleaseAgeMs(uint32_t now_ms) const;
+
+  private:
+    const char* _lock_owner_label = nullptr;
+    const char* _lock_owner_task_name = nullptr;
+    uint32_t _lock_acquired_ms = 0;
+    const char* _last_lock_owner_label = nullptr;
+    const char* _last_lock_owner_task_name = nullptr;
+    uint32_t _last_lock_held_ms = 0;
+    uint32_t _last_lock_released_ms = 0;
 };
 #endif

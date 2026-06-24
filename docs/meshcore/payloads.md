@@ -17,10 +17,16 @@ Inside of each [meshcore packet](./packet_structure.md) is a payload, identified
 This document defines the structure of each of these payload types.
 
 NOTE: all 16 and 32-bit integer fields are Little Endian.
+Trail Mate's complete V2 multibyte path/profile rules are defined in
+[V2 multibyte paths](./v2_multibyte_paths.md).
 
 ## Important concepts:
 
-* Node hash: the first byte of the node's public key
+* V1 node hash: the first byte of the node's public key.
+* V2 node hash: the first two bytes of the node's public key.
+* V1 cipher MAC: 2 bytes.
+* V2 cipher MAC: 4 bytes.
+* Path length fields are byte counts. V1 paths use one byte per hop; V2 paths use two bytes per hop.
 
 # Node advertisement
 This kind of payload notifies receivers that a node exists, and gives information about the node
@@ -76,6 +82,10 @@ Returned path, request, response, and plain text messages are all formatted in t
 | cipher MAC       | 2               | MAC for encrypted data in next field                 |
 | ciphertext       | rest of payload | encrypted message, see subsections below for details |
 
+For payload version 2, the same encrypted peer payload shape uses a 2-byte
+destination hash, 2-byte source hash, and 4-byte cipher MAC before the
+ciphertext.
+
 ## Returned path
 
 Returned path messages provide a description of the route a packet took from the original author. Receivers will send returned path messages to the author of the original message.
@@ -83,7 +93,7 @@ Returned path messages provide a description of the route a packet took from the
 | Field       | Size (bytes) | Description                                                                                  |
 |-------------|--------------|----------------------------------------------------------------------------------------------|
 | path length | 1            | length of next field                                                                         |
-| path        | see above    | a list of node hashes (one byte each) |
+| path        | see above    | a list of node hashes (one byte each in V1, two bytes each in V2) |
 | extra type  | 1            | extra, bundled payload type, eg., acknowledgement or response. Same values as in [packet structure](./packet_structure.md) |
 | extra       | rest of data | extra, bundled payload content, follows same format as main content defined by this document |
 
@@ -164,6 +174,9 @@ txt_type
 | cipher MAC       | 2               | MAC for encrypted data in next field      |
 | ciphertext       | rest of payload | encrypted message, see below for details  |
 
+For payload version 2, anonymous request uses a 2-byte destination hash and a
+4-byte cipher MAC. The sender public key remains 32 bytes.
+
 ## Room server login
 
 | Field          | Size (bytes)    | Description                                                                   |
@@ -186,6 +199,9 @@ txt_type
 | channel hash | 1               | first byte of SHA256 of channel's shared key  |
 | cipher MAC   | 2               | MAC for encrypted data in next field       |
 | ciphertext   | rest of payload | encrypted message, see below for details   |
+
+For payload version 2, group payloads use a 2-byte channel hash and a 4-byte
+cipher MAC.
 
 The plaintext contained in the ciphertext matches the format described in [plain text message](#plain-text-message). Specifically, it consists of a four byte timestamp, a flags byte, and the message. The flags byte will generally be `0x00` because it is a "plain text message". The message will be of the form `<sender name>: <message body>` (eg., `user123: I'm on my way`).
 

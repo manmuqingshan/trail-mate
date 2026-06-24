@@ -378,6 +378,19 @@ struct MeshIncomingData
 /**
  * @brief Mesh configuration
  */
+enum class MeshCorePayloadSendProfile : uint8_t
+{
+    V1Only = 0,
+    AutoPreferV2 = 1,
+    V2Only = 2,
+};
+
+enum class MeshCoreForwardProfile : uint8_t
+{
+    Any = 0,
+    MultibyteOnly = 1,
+};
+
 struct MeshConfig
 {
     // Meshtastic radio configuration
@@ -419,6 +432,8 @@ struct MeshConfig
     float meshcore_airtime_factor;
     uint8_t meshcore_flood_max;
     bool meshcore_multi_acks;
+    MeshCorePayloadSendProfile meshcore_send_profile;
+    MeshCoreForwardProfile meshcore_forward_profile;
     uint8_t meshcore_channel_slot;
     char meshcore_channel_name[32];
 
@@ -453,6 +468,8 @@ struct MeshConfig
           meshcore_airtime_factor(1.0f),
           meshcore_flood_max(16),
           meshcore_multi_acks(false),
+          meshcore_send_profile(MeshCorePayloadSendProfile::AutoPreferV2),
+          meshcore_forward_profile(MeshCoreForwardProfile::MultibyteOnly),
           meshcore_channel_slot(0)
     {
         strncpy(primary_channel_name, "LongFast", sizeof(primary_channel_name) - 1);

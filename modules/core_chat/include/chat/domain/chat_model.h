@@ -29,6 +29,7 @@ class ChatModel
 
     void onIncoming(const ChatMessage& msg);
     void onSendQueued(const ChatMessage& msg);
+    bool updateMessageStatus(MessageId msg_id, MessageStatus status);
 
     /**
      * @brief Handle send result

@@ -164,6 +164,36 @@ PageLayoutProfile make_tab5_profile()
     return profile;
 }
 
+PageLayoutProfile make_t_display_p4_profile()
+{
+    PageLayoutProfile profile = make_tab5_profile();
+    profile.name = "t_display_p4";
+    profile.top_bar_height = 56;
+    profile.top_content_gap = 10;
+    profile.content_pad_left = 14;
+    profile.content_pad_right = 14;
+    profile.content_pad_top = 6;
+    profile.content_pad_bottom = 10;
+    profile.filter_panel_width = 180;
+    profile.filter_button_height = 54;
+    profile.list_panel_pad_row = 12;
+    profile.list_item_height = 58;
+    profile.control_button_height = 50;
+    profile.control_button_min_width = 120;
+    profile.modal_min_width = 340;
+    profile.modal_min_height = 180;
+    profile.modal_margin = 24;
+    profile.modal_pad = 16;
+    profile.popup_title_height = 40;
+    profile.icon_picker_button_size = 84;
+    profile.ime_bar_height = 40;
+    profile.ime_toggle_width = 84;
+    profile.ime_toggle_height = 34;
+    profile.ime_candidate_button_height = 40;
+    profile.ime_keyboard_height = 260;
+    return profile;
+}
+
 PageLayoutProfile make_cardputer_zero_profile()
 {
     PageLayoutProfile profile = make_pager_profile();
@@ -225,6 +255,8 @@ const PageLayoutProfile& current()
     {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
         return make_tab5_profile();
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+        return make_t_display_p4_profile();
 #elif defined(TRAIL_MATE_CARDPUTER_ZERO_LINUX)
         return make_cardputer_zero_profile();
 #elif defined(ARDUINO_T_LORA_PAGER)

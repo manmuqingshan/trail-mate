@@ -251,11 +251,12 @@ void append_projected_node(MapWorkspaceSnapshot& out,
 UConsoleMapWorkspaceModel::UConsoleMapWorkspaceModel(
     linux_app::LinuxAppServices& services)
     : services_(services),
-      legacy_map_source_(legacy_gps_source_,
-                         legacy_map_state_,
-                         &::team::ui::team_ui_snapshot_store()),
-      legacy_map_sink_(legacy_gps_source_, legacy_map_state_),
-      presentation_model_(legacy_map_source_, legacy_map_sink_),
+      map_workspace_source_(::ui::presentation_sources::runtime_gps_status_source(),
+                            map_workspace_state_,
+                            &::team::ui::team_ui_snapshot_store()),
+      map_action_sink_(::ui::presentation_sources::runtime_gps_status_source(),
+                       map_workspace_state_),
+      presentation_model_(map_workspace_source_, map_action_sink_),
       zoom_(std::clamp(
           platform::ui::settings_store::get_int(kMapNamespace, kZoomKey, 14),
           kMinZoom,
@@ -308,7 +309,9 @@ MapWorkspaceSnapshot UConsoleMapWorkspaceModel::snapshot() const
         const bool has_external_source = external_gps_source_configured();
         ::ui::gps::GpsStatusSnapshot gps;
         const bool has_gps_snapshot =
-            legacy_gps_source_.buildGpsStatusSnapshot(gps) && gps.header.valid;
+            ::ui::presentation_sources::runtime_gps_status_source()
+                .buildGpsStatusSnapshot(gps) &&
+            gps.header.valid;
         out.has_fix = has_external_source && has_gps_snapshot && gps.fix_valid;
         out.has_center = out.has_fix;
         out.lat = gps.latitude;
@@ -708,13 +711,13 @@ void UConsoleMapWorkspaceModel::syncPresentationWorkspace(double lat,
                                                           int zoom) const
 {
     const auto map_source = source();
-    legacy_map_state_.layers.osm =
+    map_workspace_state_.layers.osm =
         map_source == ::platform::linux_runtime::MapBaseSource::Osm;
-    legacy_map_state_.layers.terrain =
+    map_workspace_state_.layers.terrain =
         map_source == ::platform::linux_runtime::MapBaseSource::Terrain;
-    legacy_map_state_.layers.satellite =
+    map_workspace_state_.layers.satellite =
         map_source == ::platform::linux_runtime::MapBaseSource::Satellite;
-    legacy_map_state_.layers.contour = contourEnabled();
+    map_workspace_state_.layers.contour = contourEnabled();
 
     ::ui::map::MapViewport viewport;
     viewport.center_lat = lat;

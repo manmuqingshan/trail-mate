@@ -5,6 +5,7 @@
 
 #include "app/app_facades.h"
 #include "board/BoardBase.h"
+#include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_runtime_support.h"
 #include "platform/esp/arduino_common/hostlink/hostlink_bridge_radio.h"
@@ -13,8 +14,9 @@
 #include "team/protocol/team_chat.h"
 #include "ui/chat_ui_runtime.h"
 #include "ui/localization.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/team/team_page_shell.h"
-#include "ui/widgets/system_notification.h"
+#include "ui_chat_runtime/chat_delivery_feedback_controller.h"
 
 namespace platform::esp::arduino_common
 {
@@ -42,6 +44,30 @@ bool isTeamRuntimeEvent(sys::EventType type)
            type == sys::EventType::TeamChat ||
            type == sys::EventType::TeamPairing ||
            type == sys::EventType::TeamError;
+}
+
+class UiFeedbackChatDeliveryFeedbackPort final
+    : public ::ui_chat_runtime::IChatDeliveryFeedbackPort
+{
+  public:
+    void showChatDeliverySent(chat::MessageId msg_id) override
+    {
+        (void)msg_id;
+        ::ui::feedback::show_notice(::ui::i18n::tr("Sent"), 1400);
+    }
+
+    void showChatDeliveryFailed(chat::MessageId msg_id) override
+    {
+        (void)msg_id;
+        ::ui::feedback::show_notice(::ui::i18n::tr("Send failed"), 2000);
+    }
+};
+
+::ui_chat_runtime::ChatDeliveryFeedbackController& chatDeliveryFeedback()
+{
+    static UiFeedbackChatDeliveryFeedbackPort port;
+    static ::ui_chat_runtime::ChatDeliveryFeedbackController controller(port);
+    return controller;
 }
 
 void triggerMessageFeedback(app::IAppFacade& app_context)
@@ -135,7 +161,16 @@ void handleTeamChatNotification(app::IAppFacade& app_context, const sys::TeamCha
         notice += ::ui::i18n::tr("Message");
     }
 
-    ::ui::SystemNotification::show(notice.c_str(), 3000);
+    ::ui::feedback::show_notice(notice.c_str(), 3000);
+}
+
+void handleChatSendResultFeedback(app::IAppFacade& app_context,
+                                  const sys::ChatSendResultEvent& event)
+{
+    chatDeliveryFeedback().onChatSendResult(
+        event.msg_id,
+        event.success,
+        app_context.getChatService().getMessage(event.msg_id));
 }
 
 void tickUiRuntime(app::IAppFacade& app_context)
@@ -160,13 +195,18 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
 
     switch (event->type)
     {
+    case sys::EventType::ChatSendResult:
+        handleChatSendResultFeedback(
+            app_context,
+            *static_cast<sys::ChatSendResultEvent*>(event));
+        break;
     case sys::EventType::ChatNewMessage:
     {
         auto* msg_event = static_cast<sys::ChatNewMessageEvent*>(event);
         if (messageAlertsEnabled())
         {
             triggerMessageFeedback(app_context);
-            ::ui::SystemNotification::show(msg_event->text, 3000);
+            ::ui::feedback::show_notice(msg_event->text, 3000);
         }
         break;
     }
@@ -185,7 +225,7 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
         const std::string msg =
             ::ui::i18n::format("Key verify: enter number for %s",
                                resolveContactName(app_context, kv_event->node_id).c_str());
-        ::ui::SystemNotification::show(msg.c_str(), 4000);
+        ::ui::feedback::show_notice(msg.c_str(), 4000);
         delete event;
         return true;
     }
@@ -203,7 +243,7 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
         char number_buf[16];
         snprintf(number_buf, sizeof(number_buf), "%03u %03u", number / 1000, number % 1000);
         const std::string msg = ::ui::i18n::format("Key verify: %s %s", name.c_str(), number_buf);
-        ::ui::SystemNotification::show(msg.c_str(), 5000);
+        ::ui::feedback::show_notice(msg.c_str(), 5000);
         delete event;
         return true;
     }
@@ -223,7 +263,7 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
                                     : ::ui::i18n::format("Key verify: confirm %s %s",
                                                          kv_event->verification_code,
                                                          resolveContactName(app_context, kv_event->node_id).c_str());
-        ::ui::SystemNotification::show(msg.c_str(), 5000);
+        ::ui::feedback::show_notice(msg.c_str(), 5000);
         delete event;
         return true;
     }

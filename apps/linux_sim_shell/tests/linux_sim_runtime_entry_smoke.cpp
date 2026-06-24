@@ -14,7 +14,6 @@ int main()
     assert(runtime_entry.runtimeSource() ==
            trailmate::apps::linux_sim_shell::LinuxSimRuntimeSource::
                ScreenGraphAdoption);
-    assert(!runtime_entry.fallbackUsed());
     assert(runtime_entry.menuCount() > 0);
     assert(runtime_entry.screenCount() > 0);
     assert(runtime_entry.adoption().presenter().menuLines()[0].route.valid);

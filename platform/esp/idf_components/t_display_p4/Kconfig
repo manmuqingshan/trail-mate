@@ -25,7 +25,7 @@ menu "TrailMate T-Display-P4"
     config TRAIL_MATE_T_DISPLAY_P4_LVGL_BUFFER_LINES
         int "LVGL draw buffer height"
         range 32 200
-        default 80
+        default 200
         help
             Number of scanlines stored in each LVGL draw buffer.
 

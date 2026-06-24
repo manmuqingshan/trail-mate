@@ -87,6 +87,35 @@ ui::startup_shell::Hooks buildShellHooks()
     };
     return hooks;
 }
+
+void showBootUi(const Esp32LvglRuntimeConfig& config, bool waking_from_sleep, const char* initial_line)
+{
+    ESP_LOGI(config.log_tag, "beginBootUi line=%s", initial_line ? initial_line : "");
+    if (lockUi(1000))
+    {
+        ui::startup_shell::beginBootUi(waking_from_sleep, initial_line);
+        unlockUi();
+        ESP_LOGI(config.log_tag, "beginBootUi complete");
+    }
+    else
+    {
+        ESP_LOGW(config.log_tag, "beginBootUi failed to acquire LVGL lock");
+    }
+}
+
+void setBootLog(const Esp32LvglRuntimeConfig& config, const char* line)
+{
+    ESP_LOGI(config.log_tag, "boot log: %s", line ? line : "");
+    if (lockUi(1000))
+    {
+        ui::startup_shell::setBootLogLine(line);
+        unlockUi();
+    }
+    else
+    {
+        ESP_LOGW(config.log_tag, "setBootLog failed to acquire LVGL lock");
+    }
+}
 #endif
 
 } // namespace
@@ -117,24 +146,29 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
     (void)platform::esp::idf_common::bsp_runtime::ensure_nvs_ready();
     platform::esp::boards::initializeBoard(waking_from_sleep);
     platform::esp::boards::initializeDisplay();
+    showBootUi(config, waking_from_sleep, "Starting services...");
     if (platform::esp::boards::syncSystemTimeFromBoardRtc())
     {
         ESP_LOGI(config.log_tag, "Boot time restored from hardware RTC");
     }
+    setBootLog(config, "Starting companion...");
     (void)platform::esp::idf_common::wireless_companion::ensure_c6_companion_started();
+    setBootLog(config, "Mounting SD card...");
     (void)platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready();
+    setBootLog(config, "Checking crash dump...");
     (void)platform::esp::idf_common::debug::export_previous_coredump_to_sd();
 
-    ESP_LOGI(config.log_tag, "prepareBootUi begin waking=%d", waking_from_sleep ? 1 : 0);
-    if (lockUi(1000))
+    setBootLog(config, "Loading language packs...");
+    ESP_LOGI(config.log_tag, "prepareBootResources begin waking=%d", waking_from_sleep ? 1 : 0);
+    if (lockUi(5000))
     {
-        ui::startup_shell::prepareBootUi(waking_from_sleep);
+        ui::startup_shell::prepareBootResources();
         unlockUi();
-        ESP_LOGI(config.log_tag, "prepareBootUi complete");
+        ESP_LOGI(config.log_tag, "prepareBootResources complete");
     }
     else
     {
-        ESP_LOGW(config.log_tag, "prepareBootUi failed to acquire LVGL lock");
+        ESP_LOGW(config.log_tag, "prepareBootResources failed to acquire LVGL lock");
     }
 
     idf_app_runtime_access::initialize(config);

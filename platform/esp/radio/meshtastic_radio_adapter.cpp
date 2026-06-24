@@ -5,6 +5,8 @@
 #include "chat/infra/meshtastic/mt_packet_wire.h"
 #include "chat/infra/meshtastic/mt_protocol_helpers.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
+#include "chat/runtime/meshtastic_self_announcement_core.h"
+#include "chat/runtime/self_identity_policy.h"
 #include "chat/time_utils.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -106,6 +108,9 @@ chat::MeshCapabilities MeshtasticRadioAdapter::getCapabilities() const
     caps.supports_unicast_text = true;
     caps.supports_unicast_appdata = true;
     caps.supports_node_info = true;
+    caps.supports_node_info_query = true;
+    caps.supports_node_info_reply = true;
+    caps.supports_node_info_reannounce = true;
     return caps;
 }
 
@@ -334,29 +339,55 @@ bool MeshtasticRadioAdapter::sendNodeInfoTo(chat::NodeId dest,
                                             bool want_response,
                                             chat::ChannelId channel)
 {
-    uint8_t payload[256];
-    size_t payload_len = sizeof(payload);
-    if (!chat::meshtastic::encodeNodeInfoMessage(std::to_string(node_id_),
-                                                 user_long_name_,
-                                                 user_short_name_,
-                                                 meshtastic_HardwareModel_PRIVATE_HW,
-                                                 mac_addr_,
-                                                 nullptr,
-                                                 0,
-                                                 want_response,
-                                                 payload,
-                                                 &payload_len))
+    if (!ready_ || !board_.isRadioOnline())
     {
         return false;
     }
 
-    return sendEncodedPayload(channel,
-                              payload,
-                              payload_len,
-                              dest == kBroadcastNodeId ? 0 : dest,
-                              false,
-                              0,
-                              false);
+    chat::runtime::EffectiveSelfIdentity identity{};
+    chat::runtime::SelfIdentityInput identity_input{};
+    identity_input.node_id = node_id_;
+    identity_input.configured_long_name = user_long_name_.c_str();
+    identity_input.configured_short_name = user_short_name_.c_str();
+    identity_input.fallback_long_prefix = "esp";
+    identity_input.fallback_ble_prefix = "esp";
+    identity_input.allow_short_hex_fallback = true;
+    (void)chat::runtime::resolveEffectiveSelfIdentity(identity_input, &identity);
+
+    chat::runtime::MeshtasticAnnouncementRequest request{};
+    request.identity = identity;
+    request.mesh_config = config_;
+    request.channel = channel;
+    request.packet_id = next_packet_id_++;
+    request.dest_node = dest;
+    request.hop_limit = config_.hop_limit;
+    request.want_response = want_response;
+    request.want_ack = want_response && (dest != kBroadcastNodeId);
+    request.hw_model = meshtastic_HardwareModel_PRIVATE_HW;
+    request.mac_addr = mac_addr_;
+
+    chat::runtime::MeshtasticAnnouncementPacket packet{};
+    if (!chat::runtime::MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(request, &packet))
+    {
+        return false;
+    }
+
+    const int state = board_.transmitRadio(packet.wire, packet.wire_size);
+    const bool ok = (state == static_cast<int>(kRadioOk));
+    if (ok)
+    {
+        rx_started_ = false;
+        ensureReceiveStarted();
+    }
+    ESP_LOGI(kTag,
+             "tx nodeinfo from=%08lX to=%08lX id=%08lX ch=%u len=%u ok=%d",
+             static_cast<unsigned long>(node_id_),
+             static_cast<unsigned long>(dest),
+             static_cast<unsigned long>(request.packet_id),
+             static_cast<unsigned>(packet.channel_hash),
+             static_cast<unsigned>(packet.wire_size),
+             ok ? 1 : 0);
+    return ok;
 }
 
 bool MeshtasticRadioAdapter::sendRoutingAck(chat::NodeId dest,

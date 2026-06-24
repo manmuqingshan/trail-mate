@@ -21,8 +21,7 @@ TeamPageEventEffectResult TeamPageEventEffectSink::applyEffects(
     const TeamPageRuntimePort& runtime,
     const TeamPageKeyEventLog& key_log,
     ITeamPageEventDeferred& deferred,
-    ITeamPageEventNotifier& notifier,
-    const ITeamPageMemberNameResolver& names) const
+    ITeamPageEventNotifier& notifier) const
 {
     TeamPageEventEffectResult result;
     result.request_status_in_team_page =
@@ -98,7 +97,7 @@ TeamPageEventEffectResult TeamPageEventEffectSink::applyEffects(
     if (effects.show_pairing_peer)
     {
         const std::string name =
-            names.resolveMemberName(effects.pairing_peer_id);
+            reducer.memberDisplayLabel(effects.pairing_peer_id);
         const std::string message = "Paired: " + name;
         notifier.showMessage(message.c_str());
     }

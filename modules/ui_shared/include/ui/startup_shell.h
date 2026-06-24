@@ -24,7 +24,9 @@ bool format_menu_time(char* out, size_t out_len);
 menu_runtime::Hooks::WatchFaceHooks defaultWatchFaceHooks();
 menu_runtime::Hooks buildMenuRuntimeHooks(const Hooks& hooks);
 platform::ui::screen::Hooks buildScreenSleepHooks(const Hooks& hooks);
-void prepareBootUi(bool waking_from_sleep);
+void beginBootUi(bool waking_from_sleep, const char* initial_line);
+void setBootLogLine(const char* line);
+void prepareBootResources();
 void initializeShell(const Hooks& hooks);
 void finalizeStartup(bool waking_from_sleep);
 

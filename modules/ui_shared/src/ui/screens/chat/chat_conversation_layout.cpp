@@ -24,7 +24,7 @@
  *  |                                                                |
  *  | Action Bar (fixed height = 30, non-scrollable)                |
  *  | +------------------------------------------------------------+ |
- *  | |                     [ Reply ]                              | |
+ *  | |                     [ Send ]                               | |
  *  | +------------------------------------------------------------+ |
  *  +----------------------------------------------------------------+
  *
@@ -34,7 +34,7 @@
  * - MsgList(COL, scroll V, grow=1)
  *   - MsgRow*(repeat, ROW, full)
  *     - Bubble(COL, content) -> TextLabel(WRAP)
- * - ActionBar(ROW, fixed=30) -> ReplyBtn -> ReplyLabel
+ * - ActionBar(ROW, fixed=30) -> ComposeBtn -> ComposeLabel
  *
  * Notes:
  * - Structure/layout only: create objects, set size/flex/align/flags.
@@ -88,7 +88,7 @@ ConversationWidgets create_conversation_base(lv_obj_t* parent)
                           LV_FLEX_ALIGN_CENTER);
     make_non_scrollable(w.action_bar);
 
-    // Reply button
+    // Primary compose button
     w.reply_btn = lv_btn_create(w.action_bar);
     lv_obj_set_size(w.reply_btn,
                     profile.dense ? 92 : 120,

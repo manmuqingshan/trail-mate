@@ -8,9 +8,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 INVENTORY = "docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md"
+GENERATED_BUILD_PREFIXES = (
+    "builds/linux_cmake/build/",
+    "builds/pio_nrf52/.pio/",
+)
 
 
-HISTORICAL_DESCRIPTOR_FILES = [
+RETIRED_HISTORICAL_DESCRIPTOR_FILES = [
     "apps/linux_sim_shell/src/linux_sim_historical_source_descriptor.h",
     "apps/linux_sim_shell/src/linux_sim_historical_source_descriptor.cpp",
     "apps/linux_sim_shell/tests/linux_sim_historical_source_descriptor_smoke.cpp",
@@ -57,8 +61,12 @@ def iter_files(base: Path):
     if not base.exists():
         return
     for path in base.rglob("*"):
-        if path.is_file():
-            yield path
+        if not path.is_file():
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        if rel.startswith(GENERATED_BUILD_PREFIXES):
+            continue
+        yield path
 
 
 def check_no_legacy_source_descriptor_files(failures: list[str]) -> None:
@@ -66,66 +74,37 @@ def check_no_legacy_source_descriptor_files(failures: list[str]) -> None:
         rel = path.relative_to(ROOT).as_posix()
         if "legacy_source_descriptor" in rel:
             failures.append(f"apps/ still contains legacy_source_descriptor file: {rel}")
+        if "historical_source_descriptor" in rel:
+            failures.append(f"apps/ still contains historical_source_descriptor file: {rel}")
 
 
-def check_historical_descriptors(failures: list[str]) -> None:
-    for rel in HISTORICAL_DESCRIPTOR_FILES:
-        require_file(rel, failures)
+def check_historical_descriptors_retired(failures: list[str]) -> None:
+    for rel in RETIRED_HISTORICAL_DESCRIPTOR_FILES:
+        if (ROOT / rel).exists():
+            failures.append(
+                f"historical descriptor must stay retired from active app surface: {rel}"
+            )
 
     forbidden = [
-        'root_path = "legacy/',
-        "active_root",
-        "source_root_path",
+        "historical_source_descriptor",
+        "HistoricalSourceDescriptor",
+        "historical_root_name",
+        "historical_generic_root_name",
+        "historical_board_root_name",
+        "replacement_owner",
     ]
-    for rel in HISTORICAL_DESCRIPTOR_FILES:
-        path = ROOT / rel
-        if not path.is_file():
-            continue
-        text = read(rel)
-        for token in forbidden:
-            if token in text:
-                failures.append(f"{rel} contains forbidden historical descriptor token: {token}")
-
-    require_tokens(
-        "apps/linux_sim_shell/src/linux_sim_historical_source_descriptor.h",
-        [
-            "LinuxSimHistoricalSourceDescriptor",
-            "historical_root_name",
-            "historical_role",
-            "replacement_owner",
-        ],
-        failures,
-    )
-    require_tokens(
-        "apps/linux_uconsole_gtk/src/linux_uconsole_gtk_historical_source_descriptor.h",
-        [
-            "LinuxUConsoleGtkHistoricalSourceDescriptor",
-            "historical_root_name",
-            "historical_role",
-            "replacement_owner",
-        ],
-        failures,
-    )
-    require_tokens(
-        "apps/nrf52_node/src/nrf52_historical_source_descriptor.h",
-        [
-            "Nrf52HistoricalSourceDescriptor",
-            "historical_generic_root_name",
-            "historical_board_root_name",
-            "replacement_owner",
-        ],
-        failures,
-    )
-    require_tokens(
-        "apps/esp32_lvgl/src/esp32_lvgl_historical_source_descriptor.h",
-        [
-            "Esp32LvglHistoricalSourceDescriptor",
-            "historical_root_name",
-            "historical_role",
-            "replacement_owner",
-        ],
-        failures,
-    )
+    scanned_suffixes = {".h", ".hpp", ".cpp", ".cc", ".cxx", ".cmake", ".ini", ".json"}
+    for root_name in ["apps", "builds", "cmake"]:
+        for path in iter_files(ROOT / root_name):
+            if path.suffix not in scanned_suffixes and path.name != "CMakeLists.txt":
+                continue
+            rel = path.relative_to(ROOT).as_posix()
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for token in forbidden:
+                if token in text:
+                    failures.append(
+                        f"{rel} contains retired historical descriptor token: {token}"
+                    )
 
 
 def check_nrf52_gat562_final_owner_surface(failures: list[str]) -> None:
@@ -217,6 +196,7 @@ def check_esp_idf_landing_plan(failures: list[str]) -> None:
             "team_ui_store",
             "idf_entry",
             "esp_idf_legacy_implementation_adapter",
+            "historical descriptor retired from active app shell",
             "no ESP-IDF legacy root is deleted",
         ],
         failures,
@@ -231,7 +211,7 @@ def check_inventory_updated(failures: list[str]) -> None:
     for token in [
         "linux_sim_historical_source_descriptor (formerly linux_sim_legacy_source_descriptor)",
         "linux_uconsole_gtk_historical_source_descriptor (formerly linux_uconsole_gtk_legacy_source_descriptor)",
-        "Batch 1 completed the rename and removed the `root_path` field",
+        "Historical descriptor retired from active app shell",
         "nrf52_historical_source_descriptor",
         "esp32_lvgl_historical_source_descriptor",
         "ui_headless_runtime descriptor consumer",
@@ -262,7 +242,7 @@ def main() -> int:
     failures: list[str] = []
 
     check_no_legacy_source_descriptor_files(failures)
-    check_historical_descriptors(failures)
+    check_historical_descriptors_retired(failures)
     check_nrf52_gat562_final_owner_surface(failures)
     check_pio_nrf52_legacy_dependency_extracted(failures)
     check_esp_idf_landing_plan(failures)

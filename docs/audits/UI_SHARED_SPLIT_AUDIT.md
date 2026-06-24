@@ -53,8 +53,8 @@ to be created in Phase 8.1.
 | LVGL screens | `screens/chat`, `screens/gps`, `screens/team`, `screens/tracker`, `screens/settings`, `screens/node_info`, `screens/walkie_talkie` | `ui_lvgl_ux_packs` | Screen membership and feature depth should become UX pack choices |
 | LVGL menu/navigation surfaces | `menu/*`, `app_catalog*`, `app_runtime`, `loop_shell`, `startup_ui_shell` | split between `ui_lvgl_core` and `ui_lvgl_ux_packs` | Primitive navigation host belongs to core; product menu membership belongs to UX pack |
 | assets and fonts | `assets/*`, image/icon C files, font files | `ui_lvgl_core` or UX pack asset bundle | Common primitives can stay core; pack-specific icons should follow UX pack |
-| legacy presentation sources | `presentation_sources/legacy_*_source.*`, `legacy_map_presentation_source`, `legacy_gps_status_source` | `ui_legacy_adapters` | Phase 7 bounded these; Phase 8 decides rename/delete/stable adapter |
-| legacy action bridges | `legacy_chat_action_sink`, `legacy_chat_delivery_action_bridge`, `legacy_team_action_bridge`, `legacy_key_verification_action_sink` | `ui_legacy_adapters` | Adapter names should be normalized only after ownership replacement is clear |
+| runtime presentation sources | `presentation_sources/runtime_*_source.*`, `chat_presentation_source`, `team_*_presentation_source` | stay in `ui_shared` until a runtime-adapter split is warranted | Concrete legacy presentation adapters have been burned down; future moves should preserve active build ownership |
+| legacy alias bridges | `legacy_chat_delivery_action_bridge`, `legacy_team_action_bridge`, `legacy_key_verification_action_sink` | `ui_legacy_adapters` | Alias/deprecation names should remain explicit compatibility shims, not active presentation adapters |
 | chat screen runtime helpers | `chat_page_runtime_event_pump`, `chat_ui_refresh_sink`, chat runtime proxy, chat UI runtime helpers | `ui_chat_runtime` | Runtime scheduling helpers should stay outside renderer/widget ownership |
 | chat LVGL renderers/controllers | chat screen widgets, chat controller, key verification modal renderer | `ui_lvgl_ux_packs` with possible `ui_chat_runtime` split | UX pack chooses full/compact chat and modal implementation |
 | team picker renderer | `team_position_picker_renderer.*` | `ui_lvgl_ux_packs` | It is LVGL-specific picker lifecycle, not Team action ownership |
@@ -166,11 +166,14 @@ Phase 8 should classify each `Legacy*` object before renaming:
 
 Examples to classify:
 
-- `LegacyFilesystemMapTileSource`
+- `FilesystemMapTileSource`
 - `LegacyMapOverlaySource`
 - `LegacyTeamActionBridge`
-- `LegacyChatDeliveryEventBridge`
 - `LegacyKeyVerificationSource`
+
+`LegacyChatDeliveryEventBridge` was classified as dead legacy after the chat
+delivery event adapter moved to `ui_chat_runtime`; its forwarding headers and
+alias tests have been deleted.
 
 ## Non-Goals
 
@@ -216,7 +219,6 @@ Moved to `ui_map_runtime`:
 
 Moved to `ui_legacy_adapters`:
 
-- `LegacyChatDeliveryEventBridge`
 - `LegacyChatDeliveryActionBridge`
 - `LegacyKeyVerificationSource`
 - `LegacyKeyVerificationActionSink`
@@ -227,8 +229,7 @@ Moved to `ui_lvgl_ux_packs`:
 - `TeamPositionPickerRenderer`
 - key verification modal renderer
 
-`LegacyFilesystemMapTileSource` is now a compatibility alias for
-`FilesystemMapTileSource`. New code should include
+The old map tile source alias is retired. New code should include
 `ui_map_runtime/map_tiles/filesystem_map_tile_source.h`.
 
 ## Phase 8 Structural Consolidation Policy

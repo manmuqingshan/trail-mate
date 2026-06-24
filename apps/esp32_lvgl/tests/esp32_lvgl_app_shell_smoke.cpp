@@ -23,12 +23,6 @@ int main()
     assert(std::strcmp(config.build_entrypoint, "builds/esp_idf") == 0);
     assert(std::strcmp(config.component_sources,
                        "builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake") == 0);
-    assert(std::strcmp(config.historical_root_name,
-                       "removed root esp_idf") == 0);
-    assert(std::strcmp(config.historical_role,
-                       "pre-refactor ESP-IDF/LVGL implementation root") == 0);
-    assert(std::strcmp(config.replacement_owner,
-                       "apps/esp32_lvgl + builds/esp_idf") == 0);
     assert(ui_lvgl_ux::findUxPackById(shell.activeUxPackId()) != nullptr);
 
     ui::menu::MenuModel menu;

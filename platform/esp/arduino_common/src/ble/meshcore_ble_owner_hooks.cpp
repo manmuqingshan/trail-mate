@@ -159,35 +159,72 @@ void MeshCoreBleService::onSentRoute(bool sent_flood)
 bool MeshCoreBleService::lookupAdvertPath(const uint8_t* pubkey, size_t len,
                                           uint32_t* out_ts, uint8_t* out_path, size_t* inout_len) const
 {
-    if (!pubkey || len < kPubKeySize || !out_ts || !out_path || !inout_len)
+    if (!out_ts || !out_path || !inout_len)
+    {
+        return false;
+    }
+    phone::meshcore::MeshCorePhoneAdvertPath path{};
+    if (!lookupAdvertPathEx(pubkey, len, &path))
+    {
+        return false;
+    }
+    *out_ts = path.timestamp;
+    const size_t copy_len = std::min(static_cast<size_t>(path.path_len), *inout_len);
+    if (copy_len > 0)
+    {
+        std::memcpy(out_path, path.path, copy_len);
+    }
+    *inout_len = copy_len;
+    return true;
+}
+
+bool MeshCoreBleService::lookupAdvertPathEx(const uint8_t* pubkey, size_t len,
+                                            phone::meshcore::MeshCorePhoneAdvertPath* out) const
+{
+    if (!pubkey || len < kPubKeySize || !out)
     {
         return false;
     }
 
     if (const ContactRecord* rec = const_cast<MeshCoreBleService*>(this)->findManualContact(pubkey))
     {
-        *out_ts = rec->last_advert;
-        const size_t copy_len = std::min(static_cast<size_t>(rec->out_path_len), *inout_len);
+        *out = {};
+        out->timestamp = rec->last_advert;
+        const size_t copy_len = std::min(static_cast<size_t>(rec->out_path_len), sizeof(out->path));
         if (copy_len > 0)
         {
-            std::memcpy(out_path, rec->out_path, copy_len);
+            std::memcpy(out->path, rec->out_path, copy_len);
         }
-        *inout_len = copy_len;
+        out->path_len = static_cast<uint8_t>(copy_len);
+        out->meta.profile = rec->out_path_profile;
+        out->meta.hash_bytes = rec->out_path_hash_bytes == 0 ? 1 : rec->out_path_hash_bytes;
+        out->meta.hop_count = copy_len > 0
+                                  ? static_cast<uint8_t>(copy_len / out->meta.hash_bytes)
+                                  : 0;
         return true;
     }
 
     if (const auto* adapter = meshCoreAdapter())
     {
         chat::meshcore::MeshCoreAdapter::PeerInfo peer{};
-        if (adapter->lookupPeerByHash(pubkey[0], &peer))
+        if (adapter->lookupPeerByHash(pubkey[0], &peer) &&
+            peer.has_pubkey &&
+            std::memcmp(peer.pubkey, pubkey, kPubKeySize) == 0)
         {
-            *out_ts = peer.last_seen_ms / 1000U;
-            const size_t copy_len = std::min(static_cast<size_t>(peer.out_path_len), *inout_len);
+            *out = {};
+            out->timestamp = peer.last_seen_ms / 1000U;
+            const size_t copy_len = std::min(static_cast<size_t>(peer.out_path_len), sizeof(out->path));
             if (copy_len > 0)
             {
-                std::memcpy(out_path, peer.out_path, copy_len);
+                std::memcpy(out->path, peer.out_path, copy_len);
             }
-            *inout_len = copy_len;
+            out->path_len = static_cast<uint8_t>(copy_len);
+            out->meta.profile = static_cast<uint8_t>(peer.out_path_profile);
+            out->meta.hash_bytes = static_cast<uint8_t>(
+                chat::meshcore::payloadHashBytes(peer.out_path_profile));
+            out->meta.hop_count = copy_len > 0
+                                      ? static_cast<uint8_t>(copy_len / out->meta.hash_bytes)
+                                      : 0;
             return true;
         }
     }

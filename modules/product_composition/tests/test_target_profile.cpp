@@ -8,7 +8,7 @@ int main()
     std::size_t count = 0;
     const auto* all = product_composition::allTargetProfiles(&count);
     assert(all != nullptr);
-    assert(count == 10);
+    assert(count == 11);
 
     const auto* profiles = product_composition::esp32LvglTargetProfiles(&count);
     assert(profiles != nullptr);
@@ -39,21 +39,23 @@ int main()
     assert(tab5->display_orientation_policy ==
            product_composition::DisplayOrientationPolicy::SensorLandscapeOnly);
 
-    const auto* tft = product_composition::findTargetProfile("tdisplayp4_tft");
+    const auto* tft = product_composition::findTargetProfile("t_display_p4_tft");
     assert(tft != nullptr);
-    assert(std::strcmp(tft->board_id, "tdisplayp4") == 0);
+    assert(std::strcmp(tft->board_id, "t_display_p4") == 0);
     assert(tft->has_motion_sensor);
     assert(tft->has_wireless_companion);
     assert(tft->ble_backend == product_composition::BleBackend::C6Companion);
+    assert(tft->status == product_composition::TargetSupportStatus::Active);
     assert(tft->display_orientation_policy ==
            product_composition::DisplayOrientationPolicy::SensorLandscapeOnly);
 
-    const auto* amoled = product_composition::findTargetProfile("tdisplayp4_amoled");
+    const auto* amoled = product_composition::findTargetProfile("t_display_p4_amoled");
     assert(amoled != nullptr);
-    assert(std::strcmp(amoled->board_id, "tdisplayp4") == 0);
+    assert(std::strcmp(amoled->board_id, "t_display_p4") == 0);
     assert(amoled->has_motion_sensor);
     assert(amoled->has_wireless_companion);
     assert(amoled->ble_backend == product_composition::BleBackend::C6Companion);
+    assert(amoled->status == product_composition::TargetSupportStatus::Active);
     assert(amoled->display_orientation_policy ==
            product_composition::DisplayOrientationPolicy::SensorLandscapeOnly);
 

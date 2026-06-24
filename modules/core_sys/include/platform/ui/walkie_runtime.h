@@ -11,6 +11,7 @@ struct Status
 {
     bool active = false;
     bool tx = false;
+    bool monitor_enabled = false;
     uint8_t tx_level = 0;
     uint8_t rx_level = 0;
     float freq_mhz = 0.0f;
@@ -20,6 +21,9 @@ bool is_supported();
 bool start();
 void stop();
 bool is_active();
+void set_ptt(bool pressed);
+bool set_monitor_enabled(bool enabled);
+bool monitor_enabled();
 int volume();
 Status get_status();
 const char* last_error();

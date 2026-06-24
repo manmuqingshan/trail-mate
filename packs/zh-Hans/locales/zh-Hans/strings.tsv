@@ -42,6 +42,7 @@ Contacts (Meshtastic - %.3fMHz)	联系人(Meshtastic - %.3fMHz)
 Contacts (RNode)	联系人(RNode)
 Contacts (RNode - %.3fMHz)	联系人(RNode - %.3fMHz)
 Conversation protocol mismatch	会话协议不匹配
+Cyrillic keyboard	西里尔键盘
 Data Exchange	数据交换
 Debug Logs	调试日志
 Decoding: %d%%	解码中:%d%%
@@ -636,3 +637,14 @@ Restore failed	还原失败
 Settings restored. Restarting...	设置已还原，正在重启...
 Overwrite current settings and restart?	覆盖当前设置并重启?
 Restore	还原
+Date/Time	日期/时间
+Set Date/Time	设置日期/时间
+Date	日期
+Time	时间
+Invalid date/time	日期/时间无效
+Set time unsupported	不支持设置时间
+Date/time updated	日期/时间已更新
+Seen %um ago	%u 分钟前出现
+Seen %uh ago	%u 小时前出现
+Seen %ud ago	%u 天前出现
+Seen --	未见

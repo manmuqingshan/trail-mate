@@ -18,8 +18,6 @@ int main()
     assert(renderer.ready());
     assert(renderer.usingPrimaryScreenGraph());
     assert(renderer.usedPrimaryScreenGraph());
-    assert(!renderer.fallbackUsed());
-    assert(!renderer.usedFallback());
     assert(renderer.pageCount() > 0);
     assert(renderer.pages() != nullptr);
     assert(renderer.pages()[0].binding_id != nullptr);
@@ -30,11 +28,13 @@ int main()
     trailmate::apps::linux_uconsole_gtk::LinuxUConsoleGtkAppShell invalid_shell(
         invalid_config);
     trailmate::apps::linux_uconsole_gtk::LinuxUConsoleGtkPageRegistryAdoption
-        fallback_adoption;
-    assert(!fallback_adoption.load(invalid_shell));
-    assert(fallback_adoption.fallbackUsed());
-    assert(!renderer.render(fallback_adoption));
-    assert(renderer.fallbackUsed());
-    assert(renderer.usedFallback());
+        invalid_adoption;
+    assert(!invalid_adoption.load(invalid_shell));
+    assert(invalid_adoption.registrySource() ==
+           trailmate::apps::linux_uconsole_gtk::
+               LinuxUConsoleGtkPageRegistrySource::Unavailable);
+    assert(!renderer.render(invalid_adoption));
+    assert(!renderer.ready());
+    assert(!renderer.usingPrimaryScreenGraph());
     return 0;
 }

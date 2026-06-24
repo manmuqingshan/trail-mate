@@ -32,18 +32,12 @@ def rel(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
 
 
-def is_allowed_existing_deprecated_alias(path: Path) -> bool:
-    return rel(path).startswith("modules/ui_legacy_adapters/")
-
-
 def main() -> int:
     failures: list[str] = []
 
     for path in ROOT.rglob("*"):
         path_rel = rel(path)
         normalized = path_rel.lower()
-        if is_allowed_existing_deprecated_alias(path):
-            continue
         if normalized.startswith("docs/") or normalized.startswith("tools/"):
             continue
         for token in FORBIDDEN_PATH_PARTS:
@@ -56,8 +50,6 @@ def main() -> int:
             continue
         for path in root.rglob("*"):
             if not path.is_file() or path.suffix not in CODE_SUFFIXES:
-                continue
-            if is_allowed_existing_deprecated_alias(path):
                 continue
             text = path.read_text(encoding="utf-8", errors="ignore").lower()
             for token in FORBIDDEN_CONTENT:

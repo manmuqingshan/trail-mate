@@ -13,6 +13,8 @@
 #include "lvgl.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_presentation/chat/chat_message_ref.h"
+#include <memory>
+#include <utility>
 #include <vector>
 
 namespace ui::chat
@@ -33,6 +35,11 @@ class ChatConversationScreen
         Reply
     };
 
+    enum class MessageActionIntent
+    {
+        Retry
+    };
+
     ChatConversationScreen(lv_obj_t* parent, chat::ConversationId conv);
     ~ChatConversationScreen();
 
@@ -42,6 +49,11 @@ class ChatConversationScreen
     bool updateMessageStatus(chat::MessageId msg_id, chat::MessageStatus status);
 
     void setActionCallback(void (*cb)(ActionIntent intent, void*), void* user_data);
+    void setMessageActionCallback(
+        void (*cb)(MessageActionIntent intent,
+                   ::ui::chat::MessageRef ref,
+                   void*),
+        void* user_data);
     bool isAlive() const { return guard_ && guard_->alive; }
 
     lv_obj_t* getObj() const { return container_; }
@@ -97,6 +109,24 @@ class ChatConversationScreen
         void* user_data = nullptr;
     };
 
+    struct MessageActionContext
+    {
+        ChatConversationScreen* screen = nullptr;
+        MessageActionIntent intent = MessageActionIntent::Retry;
+        ::ui::chat::MessageRef ref;
+    };
+
+    struct MessageActionPayload
+    {
+        LifetimeGuard* guard = nullptr;
+        void (*message_action_cb)(MessageActionIntent intent,
+                                  ::ui::chat::MessageRef ref,
+                                  void*) = nullptr;
+        void* user_data = nullptr;
+        MessageActionIntent intent = MessageActionIntent::Retry;
+        ::ui::chat::MessageRef ref;
+    };
+
     lv_obj_t* container_ = nullptr;
     ::ui::widgets::TopBar top_bar_{};
     lv_obj_t* msg_list_ = nullptr;
@@ -110,16 +140,23 @@ class ChatConversationScreen
 
     void (*back_cb_)(void*) = nullptr;
     void* back_cb_user_data_ = nullptr;
+    void (*message_action_cb_)(MessageActionIntent intent,
+                               ::ui::chat::MessageRef ref,
+                               void*) = nullptr;
+    void* message_action_cb_user_data_ = nullptr;
 
     struct MessageItem
     {
         ::ui::chat::MessageRef ref;
         ::ui::chat::MessageDeliveryState delivery =
             ::ui::chat::MessageDeliveryState::Unknown;
-        lv_obj_t* container = nullptr;    // row
+        lv_obj_t* container = nullptr; // row
+        lv_obj_t* bubble = nullptr;
         lv_obj_t* text_label = nullptr;   // inside bubble
         lv_obj_t* time_label = nullptr;   // reserved (not used)
         lv_obj_t* status_label = nullptr; // reserved (not used)
+        std::unique_ptr<MessageActionContext> retry_ctx;
+        bool retry_enabled = false;
     };
 
     std::vector<MessageItem> messages_;
@@ -132,9 +169,13 @@ class ChatConversationScreen
     bool reply_enabled_ = true;
 
     void createMessageItem(const ::ui::chat::MessageRow& row);
+    void enableRetryAction(MessageItem& item);
+    void disableRetryAction(MessageItem& item);
 
     static void action_event_cb(lv_event_t* e);
+    static void message_action_event_cb(lv_event_t* e);
     static void async_action_cb(void* user_data);
+    static void async_message_action_cb(void* user_data);
     static void async_back_cb(void* user_data);
     static void on_root_deleted(lv_event_t* e);
     static void handle_back(void* user_data);
@@ -145,6 +186,8 @@ class ChatConversationScreen
     void handle_root_deleted();
 
     void schedule_action_async(ActionIntent intent);
+    void schedule_message_action_async(MessageActionIntent intent,
+                                       ::ui::chat::MessageRef ref);
     void schedule_back_async();
 };
 

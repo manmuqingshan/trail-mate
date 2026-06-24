@@ -56,7 +56,7 @@ bool s_backend_started = false;
 int32_t usbReadCallback(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize)
 {
     (void)offset;
-    ::platform::esp::common::SharedSpiLockGuard spi_guard{};
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(pdMS_TO_TICKS(50));
     if (!spi_guard.locked())
     {
         USB_MSC_LOG("read lock failed lba=%lu size=%lu\n",
@@ -87,7 +87,7 @@ int32_t usbReadCallback(uint32_t lba, uint32_t offset, void* buffer, uint32_t bu
 int32_t usbWriteCallback(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize)
 {
     (void)offset;
-    ::platform::esp::common::SharedSpiLockGuard spi_guard{};
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(pdMS_TO_TICKS(50));
     if (!spi_guard.locked())
     {
         USB_MSC_LOG("write lock failed lba=%lu size=%lu\n",

@@ -38,7 +38,6 @@ constexpr float kFloodSendTimeoutFactor = 16.0f;
 constexpr float kDirectSendPerhopFactor = 6.0f;
 constexpr uint32_t kDirectSendPerhopExtraMs = 250;
 constexpr size_t kCipherBlockSize = 16;
-constexpr size_t kCipherMacSize = 2;
 constexpr size_t kCipherKeySize = 16;
 constexpr size_t kCipherHmacKeySize = 32;
 
@@ -313,6 +312,76 @@ uint8_t buildHeader(uint8_t route_type, uint8_t payload_type, uint8_t payload_ve
     return (route_type & 0x03) | ((payload_type & 0x0F) << 2) | ((payload_ver & 0x03) << 6);
 }
 
+PayloadProfile payloadProfileFromVersion(uint8_t payload_ver)
+{
+    return payload_ver == kMeshCorePayloadVer2 ? PayloadProfile::V2 : PayloadProfile::V1;
+}
+
+uint8_t payloadVersion(PayloadProfile profile)
+{
+    return profile == PayloadProfile::V2 ? kMeshCorePayloadVer2 : kMeshCorePayloadVer1;
+}
+
+bool isSupportedPayloadVersion(uint8_t payload_ver)
+{
+    return payload_ver == kMeshCorePayloadVer1 || payload_ver == kMeshCorePayloadVer2;
+}
+
+size_t payloadHashBytes(PayloadProfile profile)
+{
+    return profile == PayloadProfile::V2 ? kMeshCoreV2HashBytes : kMeshCoreV1HashBytes;
+}
+
+size_t payloadMacBytes(PayloadProfile profile)
+{
+    return profile == PayloadProfile::V2 ? kMeshCoreV2CipherMacSize : kMeshCoreV1CipherMacSize;
+}
+
+bool pathIsWellFormed(PayloadProfile profile, size_t path_len)
+{
+    const size_t hash_bytes = payloadHashBytes(profile);
+    return hash_bytes != 0 && (path_len % hash_bytes) == 0;
+}
+
+size_t pathHopCount(PayloadProfile profile, size_t path_len)
+{
+    const size_t hash_bytes = payloadHashBytes(profile);
+    if (hash_bytes == 0 || (path_len % hash_bytes) != 0)
+    {
+        return 0;
+    }
+    return path_len / hash_bytes;
+}
+
+bool copyPublicHash(PayloadProfile profile,
+                    const uint8_t* pubkey,
+                    size_t pubkey_len,
+                    uint8_t* out_hash,
+                    size_t out_cap)
+{
+    const size_t hash_bytes = payloadHashBytes(profile);
+    if (!pubkey || pubkey_len < hash_bytes || !out_hash || out_cap < hash_bytes)
+    {
+        return false;
+    }
+    memcpy(out_hash, pubkey, hash_bytes);
+    return true;
+}
+
+bool hashesEqual(PayloadProfile profile,
+                 const uint8_t* lhs,
+                 size_t lhs_len,
+                 const uint8_t* rhs,
+                 size_t rhs_len)
+{
+    const size_t hash_bytes = payloadHashBytes(profile);
+    if (!lhs || !rhs || lhs_len < hash_bytes || rhs_len < hash_bytes)
+    {
+        return false;
+    }
+    return memcmp(lhs, rhs, hash_bytes) == 0;
+}
+
 bool parsePacket(const uint8_t* data, size_t len, ParsedPacket* out)
 {
     if (!data || len < 2 || !out)
@@ -356,6 +425,88 @@ bool parsePacket(const uint8_t* data, size_t len, ParsedPacket* out)
 
     out->payload = &data[index];
     out->payload_len = len - index;
+    return true;
+}
+
+size_t tracePathHashSize(uint8_t flags)
+{
+    const uint8_t path_hash_size_bits = flags & 0x03;
+    size_t path_hash_size = static_cast<size_t>(1U << path_hash_size_bits);
+    if (path_hash_size == 0 || path_hash_size > 4)
+    {
+        path_hash_size = 1;
+    }
+    return path_hash_size;
+}
+
+bool isValidTracePathHashBytes(uint8_t flags, size_t path_hashes_len, size_t max_hops)
+{
+    const size_t path_hash_size = tracePathHashSize(flags);
+    return (path_hashes_len % path_hash_size) == 0 &&
+           (path_hashes_len / path_hash_size) <= max_hops;
+}
+
+bool buildTracePayload(uint32_t tag, uint32_t auth, uint8_t flags,
+                       const uint8_t* path_hashes, size_t path_hashes_len,
+                       uint8_t* out_payload, size_t out_cap, size_t* out_len)
+{
+    if (!out_payload || !out_len ||
+        (path_hashes_len > 0 && !path_hashes) ||
+        out_cap < kMeshCoreTraceBasePayloadSize ||
+        (out_cap - kMeshCoreTraceBasePayloadSize) < path_hashes_len)
+    {
+        return false;
+    }
+
+    memcpy(out_payload, &tag, sizeof(tag));
+    memcpy(out_payload + sizeof(tag), &auth, sizeof(auth));
+    out_payload[8] = flags;
+    if (path_hashes_len > 0)
+    {
+        memcpy(out_payload + kMeshCoreTraceBasePayloadSize, path_hashes, path_hashes_len);
+    }
+    *out_len = kMeshCoreTraceBasePayloadSize + path_hashes_len;
+    return true;
+}
+
+bool buildTracePayload(uint32_t tag, uint32_t auth, uint8_t flags,
+                       uint8_t* out_payload, size_t out_cap, size_t* out_len)
+{
+    return buildTracePayload(tag, auth, flags, nullptr, 0, out_payload, out_cap, out_len);
+}
+
+bool decodeTracePayload(const uint8_t* payload, size_t payload_len,
+                        size_t path_len, DecodedTracePayload* out)
+{
+    if (!out)
+    {
+        return false;
+    }
+
+    *out = DecodedTracePayload{};
+    if (!payload || payload_len < kMeshCoreTraceBasePayloadSize)
+    {
+        return false;
+    }
+
+    DecodedTracePayload decoded{};
+    decoded.valid = true;
+    memcpy(&decoded.tag, payload, sizeof(decoded.tag));
+    memcpy(&decoded.auth, payload + sizeof(decoded.tag), sizeof(decoded.auth));
+    decoded.flags = payload[8];
+
+    decoded.path_hash_size = tracePathHashSize(decoded.flags);
+
+    decoded.trace_hashes = payload + kMeshCoreTraceBasePayloadSize;
+    decoded.trace_hashes_len = payload_len - kMeshCoreTraceBasePayloadSize;
+    decoded.offset = path_len * decoded.path_hash_size;
+    decoded.terminal = decoded.offset >= decoded.trace_hashes_len;
+    if (!decoded.terminal)
+    {
+        decoded.next_hash = decoded.trace_hashes[decoded.offset];
+    }
+
+    *out = decoded;
     return true;
 }
 
@@ -595,12 +746,18 @@ void sha256Trunc(uint8_t* out_hash, size_t out_len, const uint8_t* msg, size_t m
 uint8_t computeChannelHash(const uint8_t* key16)
 {
     uint8_t hash = 0;
-    if (!key16)
-    {
-        return hash;
-    }
-    sha256Trunc(&hash, 1, key16, kCipherKeySize);
+    computeChannelHashBytes(key16, &hash, 1);
     return hash;
+}
+
+bool computeChannelHashBytes(const uint8_t* key16, uint8_t* out_hash, size_t hash_len)
+{
+    if (!key16 || !out_hash || hash_len == 0 || hash_len > 32)
+    {
+        return false;
+    }
+    sha256Trunc(out_hash, hash_len, key16, kCipherKeySize);
+    return true;
 }
 
 size_t aesEncrypt(const uint8_t* key16, uint8_t* dest, const uint8_t* src, size_t src_len)
@@ -700,19 +857,28 @@ size_t encryptThenMac(const uint8_t* key16, const uint8_t* key32,
                       uint8_t* out, size_t out_cap,
                       const uint8_t* plain, size_t plain_len)
 {
-    if (!key16 || !key32 || !out || !plain || plain_len == 0 || out_cap <= kCipherMacSize)
+    return encryptThenMac(key16, key32, out, out_cap, plain, plain_len, kMeshCoreV1CipherMacSize);
+}
+
+size_t encryptThenMac(const uint8_t* key16, const uint8_t* key32,
+                      uint8_t* out, size_t out_cap,
+                      const uint8_t* plain, size_t plain_len,
+                      size_t mac_len)
+{
+    if (!key16 || !key32 || !out || !plain || plain_len == 0 ||
+        mac_len == 0 || mac_len > 32 || out_cap <= mac_len)
     {
         return 0;
     }
 
-    size_t max_cipher = out_cap - kCipherMacSize;
+    size_t max_cipher = out_cap - mac_len;
     size_t cipher_len = ((plain_len + (kCipherBlockSize - 1)) / kCipherBlockSize) * kCipherBlockSize;
     if (cipher_len == 0 || cipher_len > max_cipher)
     {
         return 0;
     }
 
-    size_t enc_len = aesEncrypt(key16, out + kCipherMacSize, plain, plain_len);
+    size_t enc_len = aesEncrypt(key16, out + mac_len, plain, plain_len);
     if (enc_len != cipher_len)
     {
         return 0;
@@ -720,57 +886,65 @@ size_t encryptThenMac(const uint8_t* key16, const uint8_t* key32,
 
 #if defined(ESP_PLATFORM) || defined(TRAIL_MATE_HAS_OPENSSL)
     uint8_t full_hash[32] = {};
-    if (!hmacSha256(key32, kCipherHmacKeySize, out + kCipherMacSize, enc_len, full_hash))
+    if (!hmacSha256(key32, kCipherHmacKeySize, out + mac_len, enc_len, full_hash))
     {
         return 0;
     }
-    memcpy(out, full_hash, kCipherMacSize);
+    memcpy(out, full_hash, mac_len);
 #elif defined(ARDUINO)
     SHA256 sha;
     sha.resetHMAC(key32, kCipherHmacKeySize);
-    sha.update(out + kCipherMacSize, enc_len);
-    sha.finalizeHMAC(key32, kCipherHmacKeySize, out, kCipherMacSize);
+    sha.update(out + mac_len, enc_len);
+    sha.finalizeHMAC(key32, kCipherHmacKeySize, out, mac_len);
 #else
     return 0;
 #endif
-    return kCipherMacSize + enc_len;
+    return mac_len + enc_len;
 }
 
 bool macThenDecrypt(const uint8_t* key16, const uint8_t* key32,
                     const uint8_t* src, size_t src_len, uint8_t* out_plain, size_t* out_plain_len)
 {
-    if (!key16 || !key32 || !src || src_len <= kCipherMacSize || !out_plain || !out_plain_len)
+    return macThenDecrypt(key16, key32, src, src_len, out_plain, out_plain_len, kMeshCoreV1CipherMacSize);
+}
+
+bool macThenDecrypt(const uint8_t* key16, const uint8_t* key32,
+                    const uint8_t* src, size_t src_len, uint8_t* out_plain,
+                    size_t* out_plain_len, size_t mac_len)
+{
+    if (!key16 || !key32 || !src || src_len <= mac_len || !out_plain || !out_plain_len ||
+        mac_len == 0 || mac_len > 32)
     {
         return false;
     }
-    size_t cipher_len = src_len - kCipherMacSize;
+    size_t cipher_len = src_len - mac_len;
     if ((cipher_len % kCipherBlockSize) != 0)
     {
         return false;
     }
 
-    uint8_t expected[kCipherMacSize];
+    uint8_t expected[32] = {};
 #if defined(ESP_PLATFORM) || defined(TRAIL_MATE_HAS_OPENSSL)
     uint8_t full_hash[32] = {};
-    if (!hmacSha256(key32, kCipherHmacKeySize, src + kCipherMacSize, cipher_len, full_hash))
+    if (!hmacSha256(key32, kCipherHmacKeySize, src + mac_len, cipher_len, full_hash))
     {
         return false;
     }
-    memcpy(expected, full_hash, sizeof(expected));
+    memcpy(expected, full_hash, mac_len);
 #elif defined(ARDUINO)
     SHA256 sha;
     sha.resetHMAC(key32, kCipherHmacKeySize);
-    sha.update(src + kCipherMacSize, cipher_len);
-    sha.finalizeHMAC(key32, kCipherHmacKeySize, expected, kCipherMacSize);
+    sha.update(src + mac_len, cipher_len);
+    sha.finalizeHMAC(key32, kCipherHmacKeySize, expected, mac_len);
 #else
     return false;
 #endif
-    if (memcmp(expected, src, kCipherMacSize) != 0)
+    if (memcmp(expected, src, mac_len) != 0)
     {
         return false;
     }
 
-    size_t plain_len = aesDecrypt(key16, out_plain, src + kCipherMacSize, cipher_len);
+    size_t plain_len = aesDecrypt(key16, out_plain, src + mac_len, cipher_len);
     if (plain_len == 0)
     {
         return false;

@@ -11,7 +11,8 @@ project_dir = env.get("PROJECT_DIR")
 pio_platform = (env.get("PIOPLATFORM") or "").lower()
 is_esp32_env = "espressif32" in pio_platform
 is_nrf52_env = "nordicnrf52" in pio_platform
-is_gat562_env = env.get("PIOENV") == "gat562_mesh_evb_pro"
+pio_env = env.get("PIOENV")
+is_nrf52_node_env = pio_env in ("gat562_mesh_evb_pro", "t-echo-lite")
 
 
 def read_text_best_effort(path):
@@ -27,6 +28,19 @@ def read_text_best_effort(path):
         raise last_error
     with open(path, "r", encoding="utf-8") as fp:
         return fp.read()
+
+
+def read_source_text_for_guard(path):
+    with open(path, "rb") as fp:
+        data = fp.read()
+
+    for encoding in ("utf-8-sig", "utf-8", "utf-16"):
+        try:
+            return data.decode(encoding)
+        except UnicodeError:
+            continue
+
+    return data.decode("utf-8", errors="ignore")
 
 
 def extract_version_from_changelog():
@@ -95,12 +109,91 @@ def update_library_build_metadata(library_json_path, desired_updates, descriptio
     print(f"[pio] pre: Trimmed {description} build metadata")
 
 
+def iter_active_project_source_files():
+    source_roots = ("apps", "boards", "modules", "platform")
+    source_extensions = (".c", ".cc", ".cpp", ".h", ".hpp", ".ino")
+    skipped_dirs = {
+        ".git",
+        ".pio",
+        ".tmp",
+        ".distinction",
+        "docs",
+        "Best Practices",
+        "build",
+        "dist",
+    }
+
+    for source_root in source_roots:
+        root_path = os.path.join(project_dir, source_root)
+        if not os.path.isdir(root_path):
+            continue
+
+        for current_dir, dir_names, file_names in os.walk(root_path):
+            dir_names[:] = [
+                name for name in dir_names
+                if name not in skipped_dirs and not name.startswith(".")
+            ]
+            for file_name in file_names:
+                if file_name.endswith(source_extensions):
+                    yield os.path.join(current_dir, file_name)
+
+
+def guard_no_arduino_sd_audio_paths():
+    if not is_esp32_env:
+        return
+
+    forbidden_patterns = (
+        (
+            "ESP8266Audio Arduino SD source",
+            re.compile(r"\bAudioFileSourceSD\b"),
+        ),
+        (
+            "Arduino SD include",
+            re.compile(r"#\s*include\s*[<\"]SD\.h[>\"]"),
+        ),
+        (
+            "Arduino FS include",
+            re.compile(r"#\s*include\s*[<\"]FS\.h[>\"]"),
+        ),
+        (
+            "Arduino SD singleton",
+            re.compile(r"(?<![A-Za-z0-9_])SD\."),
+        ),
+        (
+            "Arduino fs::FS binding",
+            re.compile(r"(?<![A-Za-z0-9_:])(?:::)?fs::FS\b"),
+        ),
+    )
+
+    violations = []
+    for path in iter_active_project_source_files():
+        text = read_source_text_for_guard(path)
+        for description, pattern in forbidden_patterns:
+            for match in pattern.finditer(text):
+                line_no = text.count("\n", 0, match.start()) + 1
+                rel_path = os.path.relpath(path, project_dir)
+                violations.append((rel_path, line_no, description))
+
+    if not violations:
+        return
+
+    print("[pio] pre: forbidden Arduino SD/FS path detected in active source:")
+    for rel_path, line_no, description in violations[:20]:
+        print(f"[pio] pre:   {rel_path}:{line_no}: {description}")
+    if len(violations) > 20:
+        print(f"[pio] pre:   ... {len(violations) - 20} more")
+    raise RuntimeError(
+        "Arduino SD/FS access is retired on ESP32; use SdRuntimeFile/SdRuntimeDir "
+        "or the LVGL/SdRuntime storage adapters."
+    )
+
+
 def configure_radiolib_for_gat562():
-    if not is_gat562_env:
+    if not is_nrf52_node_env:
         return
 
     project_dir = env.get("PROJECT_DIR")
-    radiolib_dir = os.path.join(project_dir, ".pio", "libdeps", env.get("PIOENV"), "RadioLib")
+    radiolib_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "RadioLib")
     library_json_path = os.path.join(radiolib_dir, "library.json")
     desired_src_filter = [
         "-<*>",
@@ -119,15 +212,15 @@ def configure_radiolib_for_gat562():
     update_library_build_metadata(
         library_json_path,
         {"srcFilter": desired_src_filter},
-        "RadioLib for gat562_mesh_evb_pro",
+        f"RadioLib for {pio_env}",
     )
 
 
 def configure_crypto_for_gat562():
-    if not is_gat562_env:
+    if not is_nrf52_node_env:
         return
 
-    crypto_dir = os.path.join(project_dir, ".pio", "libdeps", env.get("PIOENV"), "Crypto")
+    crypto_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "Crypto")
     library_json_path = os.path.join(crypto_dir, "library.json")
     desired_src_filter = [
         "-<*>",
@@ -148,12 +241,29 @@ def configure_crypto_for_gat562():
     update_library_build_metadata(
         library_json_path,
         {"srcFilter": desired_src_filter},
-        "Crypto for gat562_mesh_evb_pro",
+        f"Crypto for {pio_env}",
+    )
+
+
+def configure_esp8266audio_for_esp32():
+    if not is_esp32_env:
+        return
+
+    audio_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "ESP8266Audio")
+    library_json_path = os.path.join(audio_dir, "library.json")
+    desired_src_filter = [
+        "+<*>",
+        "-<AudioFileSourceSD.cpp>",
+    ]
+    update_library_build_metadata(
+        library_json_path,
+        {"srcFilter": desired_src_filter},
+        f"ESP8266Audio for {pio_env}",
     )
 
 
 def configure_nrf52_framework_libraries():
-    if not is_gat562_env or not is_nrf52_env:
+    if not is_nrf52_node_env or not is_nrf52_env:
         return
 
     platform = env.PioPlatform()
@@ -171,7 +281,7 @@ def configure_nrf52_framework_libraries():
         ("CFG_TUD_VIDEO_STREAMING", 0),
     ]
     env.AppendUnique(CPPDEFINES=tinyusb_cppdefines)
-    print("[pio] pre: Restricted TinyUSB device classes for gat562_mesh_evb_pro")
+    print(f"[pio] pre: Restricted TinyUSB device classes for {pio_env}")
 
     bluefruit_json_path = os.path.join(framework_dir, "libraries", "Bluefruit52Lib", "library.json")
     bluefruit_src_filter = [
@@ -195,7 +305,7 @@ def configure_nrf52_framework_libraries():
     update_library_build_metadata(
         bluefruit_json_path,
         {"srcFilter": bluefruit_src_filter},
-        "Bluefruit52Lib for gat562_mesh_evb_pro",
+        f"Bluefruit52Lib for {pio_env}",
     )
 
     tinyusb_json_path = os.path.join(framework_dir, "libraries", "Adafruit_TinyUSB_Arduino", "library.json")
@@ -216,7 +326,7 @@ def configure_nrf52_framework_libraries():
     update_library_build_metadata(
         tinyusb_json_path,
         {"srcFilter": tinyusb_src_filter, "libArchive": False},
-        "Adafruit_TinyUSB_Arduino for gat562_mesh_evb_pro",
+        f"Adafruit_TinyUSB_Arduino for {pio_env}",
     )
 
 
@@ -227,8 +337,10 @@ def inject_project_version_define():
     print(f"[pio] pre: Injected firmware version: {version}")
 
 
+guard_no_arduino_sd_audio_paths()
 configure_radiolib_for_gat562()
 configure_crypto_for_gat562()
+configure_esp8266audio_for_esp32()
 configure_nrf52_framework_libraries()
 inject_project_version_define()
 

@@ -1,15 +1,18 @@
 #include "ui/startup_ui_shell.h"
 
+#include <cstdint>
+#include <cstdio>
 #include <ctime>
 
 #include "lvgl.h"
 #include "platform/ui/time_runtime.h"
+#include "sys/clock.h"
 #include "ui/app_runtime.h"
 #include "ui/localization.h"
 #include "ui/menu/menu_layout.h"
 #include "ui/menu/menu_runtime.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/ui_boot.h"
-#include "ui/widgets/system_notification.h"
 #include "ui_lvgl_ux_packs/ux/ux_menu_provider.h"
 
 namespace ui::startup_ui_shell
@@ -20,10 +23,24 @@ namespace
 bool s_shell_initialized = false;
 ui::menu::MenuModel s_ux_menu_model;
 
+constexpr uint8_t kBootPresentFrameCount = 4;
+constexpr uint32_t kBootPresentFrameDelayMs = 16;
+
 void present_boot_overlay_now()
 {
-    lv_timer_handler();
-    lv_refr_now(nullptr);
+    for (uint8_t frame = 0; frame < kBootPresentFrameCount; ++frame)
+    {
+        if (lv_obj_t* top = lv_layer_top())
+        {
+            lv_obj_invalidate(top);
+        }
+        lv_timer_handler();
+        lv_refr_now(nullptr);
+        if (frame + 1U < kBootPresentFrameCount)
+        {
+            sys::sleep_ms(kBootPresentFrameDelayMs);
+        }
+    }
 }
 
 bool resolve_display_time(struct tm* out_tm)
@@ -96,11 +113,14 @@ void unlock_ui(const Hooks& hooks)
 
 } // namespace
 
-bool prepareBootUi(const Hooks& hooks, bool waking_from_sleep)
+bool beginBootUi(const Hooks& hooks, bool waking_from_sleep, const char* initial_line)
 {
+    std::printf("[BOOT][UI] show waking=%d line=%s\n",
+                waking_from_sleep ? 1 : 0,
+                initial_line ? initial_line : "");
+    std::fflush(stdout);
     if (waking_from_sleep)
     {
-        ::ui::i18n::reload_language();
         return true;
     }
     if (!lock_ui(hooks))
@@ -108,12 +128,18 @@ bool prepareBootUi(const Hooks& hooks, bool waking_from_sleep)
         return false;
     }
     ui::boot::show();
-    ui::boot::set_log_line("Loading language packs...");
+    std::printf("[BOOT][UI] log line=%s\n", initial_line ? initial_line : "");
+    std::fflush(stdout);
+    ui::boot::set_log_line(initial_line);
     present_boot_overlay_now();
     unlock_ui(hooks);
-    ::ui::i18n::reload_language();
-    ui::SystemNotification::init();
     return true;
+}
+
+void prepareBootResources()
+{
+    ::ui::i18n::reload_language();
+    ui::feedback::init();
 }
 
 bool initializeMenuSkeleton(const Hooks& hooks)
@@ -149,7 +175,8 @@ bool initializeMenuSkeleton(const Hooks& hooks)
 
 bool finalizeStartup(const Hooks& hooks, bool waking_from_sleep)
 {
-    (void)waking_from_sleep;
+    std::printf("[BOOT][UI] ready waking=%d\n", waking_from_sleep ? 1 : 0);
+    std::fflush(stdout);
     if (!lock_ui(hooks))
     {
         return false;

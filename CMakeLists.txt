@@ -3,8 +3,8 @@ cmake_minimum_required(VERSION 3.16.0)
 set(TRAIL_MATE_IDF_TARGET "tab5" CACHE STRING "Active ESP-IDF target")
 set_property(CACHE TRAIL_MATE_IDF_TARGET PROPERTY STRINGS
     tab5
-    tdisplayp4_tft
-    tdisplayp4_amoled
+    t_display_p4_tft
+    t_display_p4_amoled
 )
 
 set(TRAIL_MATE_IDF_TARGET_DIR "${CMAKE_SOURCE_DIR}/builds/esp_idf/targets/${TRAIL_MATE_IDF_TARGET}")

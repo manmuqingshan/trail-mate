@@ -1,13 +1,7 @@
 #include "nrf52_node_arduino_entry.h"
 
-// The nRF52 app shell library keeps the wrapper baseline small. The real
-// GAT562 environment consumes these final-owner runtime sources explicitly.
-#include "../../../apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp"
-#include "../../../apps/nrf52_node/src/nrf52_node_app_runtime_access.cpp"
-#include "../../../apps/nrf52_node/src/nrf52_node_arduino_entry.cpp"
-#include "../../../apps/nrf52_node/src/nrf52_node_loop_runtime.cpp"
-#include "../../../apps/nrf52_node/src/nrf52_node_startup_runtime.cpp"
-#include "../../../apps/nrf52_node/src/nrf52_node_ui_runtime.cpp"
+// GAT562 owns the board-level Arduino entrypoint. App runtime sources are
+// compiled by the nRF52 app shell library to keep one definition per symbol.
 
 extern "C" void setup()
 {

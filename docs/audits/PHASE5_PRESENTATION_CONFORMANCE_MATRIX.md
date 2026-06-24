@@ -19,13 +19,13 @@ Phase 5-ready does not mean fully clean.
 
 | Domain | Model | Snapshot | Source | Sink | Tests | Consumer | Legacy audit | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Device | `DeviceStatusModel` | `DeviceStatusSnapshot` | `IDeviceStatusSource` / `LegacyAirDeviceStatusSource` | read-only | `test_device_status_model.cpp` | status/probe consumers | known violations | ready |
-| GPS | `GpsStatusModel` | `GpsStatusSnapshot` | `IGpsStatusSource` / `LegacyGpsStatusSource` | read-only | `test_gps_status_model.cpp` | dashboard status, map source, probes | `GPS_CONSUMER_BOUNDARY_AUDIT.md` | ready-with-legacy |
-| Mesh | `MeshStatusModel` | `MeshStatusSnapshot` | `IMeshStatusSource` / `LegacyMeshStatusSource` | read-only | `test_mesh_status_model.cpp` | status/probe consumers | known violations | ready-with-legacy |
-| Settings | `SettingsModel` | `SettingsSnapshot` | `ISettingsSource` / `LegacySettingsSource` | `ISettingsActionSink` / `LegacySettingsActionSink` | `test_settings_model.cpp` | settings surface | known violations | ready-with-legacy |
-| Chat | `ChatWorkspaceModel` | `ChatWorkspaceSnapshot` | `ChatPresentationSource` | `LegacyChatActionSink` | chat workspace and source/sink tests | `ChatUiController` migrated path | `CHAT_UI_CONTROLLER_LEGACY_OWNERSHIP_AUDIT.md` | ready-with-legacy |
+| Device | `DeviceStatusModel` | `DeviceStatusSnapshot` | `IDeviceStatusSource` / `RuntimeDeviceStatusSource` | read-only | `test_device_status_model.cpp` | status/probe consumers | known violations | ready |
+| GPS | `GpsStatusModel` | `GpsStatusSnapshot` | `IGpsStatusSource` / `RuntimeGpsStatusSource` | read-only | `test_gps_status_model.cpp` | dashboard status, map source, probes | `GPS_CONSUMER_BOUNDARY_AUDIT.md` | ready-with-legacy |
+| Mesh | `MeshStatusModel` | `MeshStatusSnapshot` | `IMeshStatusSource` / `RuntimeMeshStatusSource` | read-only | `test_mesh_status_model.cpp` | status/probe consumers | known violations | ready-with-legacy |
+| Settings | `SettingsModel` | `SettingsSnapshot` | `ISettingsSource` / `RuntimeSettingsSource` | `ISettingsActionSink` / `RuntimeSettingsActionSink` | `test_settings_model.cpp` | settings surface | known violations | ready-with-legacy |
+| Chat | `ChatWorkspaceModel` | `ChatWorkspaceSnapshot` | `ChatPresentationSource` | `RuntimeChatActionSink` | chat workspace and source/sink tests | `ChatUiController` migrated path | `CHAT_UI_CONTROLLER_LEGACY_OWNERSHIP_AUDIT.md` | ready-with-legacy |
 | Team Chat | Team `ChatWorkspaceModel` | `ChatWorkspaceSnapshot` | `TeamChatPresentationSource` | `TeamChatActionSink` | Team chat source/sink tests | `ChatUiController` Team text path | `TEAM_CHAT_PRESENTATION_AUDIT.md` | ready-with-legacy |
-| Map | `MapWorkspaceModel` | `MapWorkspaceSnapshot` | `LegacyMapPresentationSource` | `LegacyMapActionSink` | map workspace and legacy adapter tests | LVGL, uConsole, ASCII probe | `MAP_UI_LEGACY_OWNERSHIP_AUDIT.md` | ready-with-legacy |
+| Map | `MapWorkspaceModel` | `MapWorkspaceSnapshot` | `RuntimeMapWorkspaceSource` | `RuntimeMapActionSink` | map workspace and runtime adapter tests | LVGL, uConsole, ASCII probe | `MAP_UI_LEGACY_OWNERSHIP_AUDIT.md` | ready-with-legacy |
 | Workspace | `PresentationWorkspace` | `PresentationWorkspaceSnapshot` | n/a | n/a | workspace/probe tests | ASCII workspace probe, uConsole smoke | `PHASE5_PRESENTATION_BOUNDARY_SUMMARY.md` | ready |
 | Renderer | n/a | presentation snapshots | n/a | presentation actions | renderer checker/probe tests | LVGL, GTK/uConsole, ASCII/headless | `PHASE5_RENDERER_HARDENING_SUMMARY.md` | ready-with-legacy |
 

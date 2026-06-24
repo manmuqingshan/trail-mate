@@ -24,6 +24,14 @@
 
 namespace app
 {
+namespace
+{
+constexpr uint32_t kConfigSaveTaskStackBytes = 8 * 1024;
+constexpr UBaseType_t kConfigSaveTaskPriority = 1;
+constexpr TickType_t kConfigSaveMutexWait = pdMS_TO_TICKS(20);
+constexpr TickType_t kConfigSaveDebounceTicks = pdMS_TO_TICKS(250);
+constexpr TickType_t kConfigSaveRetryDelayTicks = pdMS_TO_TICKS(1000);
+} // namespace
 
 AppContext& AppContext::getInstance()
 {
@@ -188,10 +196,163 @@ void AppContext::setChatUiRuntime(chat::ui::IChatUiRuntime* runtime)
 
 void AppContext::saveConfig()
 {
+    enqueueConfigSave();
+}
+
+void AppContext::requestSaveConfig()
+{
+    enqueueConfigSave();
+}
+
+void AppContext::ensureConfigSaveWorker()
+{
+    if (config_save_mutex_ == nullptr)
+    {
+        config_save_mutex_ = xSemaphoreCreateMutex();
+    }
+    if (config_save_queue_ == nullptr)
+    {
+        config_save_queue_ = xQueueCreate(1, sizeof(uint8_t));
+    }
+    if (config_save_task_ == nullptr &&
+        config_save_mutex_ != nullptr &&
+        config_save_queue_ != nullptr)
+    {
+        BaseType_t ok = xTaskCreate(configSaveTaskEntry,
+                                    "app_cfg_io",
+                                    kConfigSaveTaskStackBytes,
+                                    this,
+                                    kConfigSaveTaskPriority,
+                                    &config_save_task_);
+        if (ok != pdPASS)
+        {
+            Serial.printf("[AppCfg][SAVE_ASYNC] task_create_failed rc=%ld\n",
+                          static_cast<long>(ok));
+            config_save_task_ = nullptr;
+        }
+    }
+}
+
+void AppContext::enqueueConfigSave()
+{
     if (platform_bindings_.save_app_config)
     {
-        platform_bindings_.save_app_config(config_);
+        ensureConfigSaveWorker();
+        if (config_save_mutex_ == nullptr ||
+            config_save_queue_ == nullptr ||
+            config_save_task_ == nullptr)
+        {
+            Serial.println("[AppCfg][SAVE_ASYNC] unavailable");
+            return;
+        }
+
+        if (xSemaphoreTake(config_save_mutex_, kConfigSaveMutexWait) != pdTRUE)
+        {
+            Serial.println("[AppCfg][SAVE_ASYNC] enqueue_busy");
+            return;
+        }
+
+        pending_config_save_ = config_;
+        ++pending_config_save_generation_;
+        const uint32_t generation = pending_config_save_generation_;
+        config_save_pending_ = true;
+        config_save_failed_ = false;
+        xSemaphoreGive(config_save_mutex_);
+
+        const uint8_t signal = 1;
+        if (xQueueOverwrite(config_save_queue_, &signal) != pdTRUE)
+        {
+            Serial.printf("[AppCfg][SAVE_ASYNC] signal_failed gen=%lu\n",
+                          static_cast<unsigned long>(generation));
+            return;
+        }
+
+        Serial.printf("[AppCfg][SAVE_ASYNC] queued gen=%lu\n",
+                      static_cast<unsigned long>(generation));
     }
+}
+
+void AppContext::configSaveLoop()
+{
+    uint8_t signal = 0;
+    for (;;)
+    {
+        if (xQueueReceive(config_save_queue_, &signal, portMAX_DELAY) != pdTRUE)
+        {
+            continue;
+        }
+
+        vTaskDelay(kConfigSaveDebounceTicks);
+        for (;;)
+        {
+            AppConfig snapshot{};
+            uint32_t generation = 0;
+
+            if (xSemaphoreTake(config_save_mutex_, portMAX_DELAY) != pdTRUE)
+            {
+                break;
+            }
+            if (!config_save_pending_)
+            {
+                config_save_busy_ = false;
+                xSemaphoreGive(config_save_mutex_);
+                break;
+            }
+            snapshot = pending_config_save_;
+            generation = pending_config_save_generation_;
+            config_save_pending_ = false;
+            config_save_busy_ = true;
+            xSemaphoreGive(config_save_mutex_);
+
+            Serial.printf("[AppCfg][SAVE_ASYNC] flush begin gen=%lu\n",
+                          static_cast<unsigned long>(generation));
+            const bool ok = platform_bindings_.save_app_config
+                                ? platform_bindings_.save_app_config(snapshot)
+                                : false;
+
+            bool has_more = false;
+            if (xSemaphoreTake(config_save_mutex_, portMAX_DELAY) == pdTRUE)
+            {
+                config_save_busy_ = false;
+                config_save_failed_ = !ok;
+                if (ok)
+                {
+                    completed_config_save_generation_ = generation;
+                }
+                else if (!config_save_pending_)
+                {
+                    pending_config_save_ = snapshot;
+                    config_save_pending_ = true;
+                }
+                has_more = config_save_pending_;
+                xSemaphoreGive(config_save_mutex_);
+            }
+
+            Serial.printf("[AppCfg][SAVE_ASYNC] flush done gen=%lu ok=%u more=%u\n",
+                          static_cast<unsigned long>(generation),
+                          ok ? 1U : 0U,
+                          has_more ? 1U : 0U);
+            if (!ok)
+            {
+                vTaskDelay(kConfigSaveRetryDelayTicks);
+            }
+            if (!has_more)
+            {
+                break;
+            }
+            vTaskDelay(kConfigSaveDebounceTicks);
+        }
+    }
+}
+
+void AppContext::configSaveTaskEntry(void* context)
+{
+    auto* self = static_cast<AppContext*>(context);
+    if (self)
+    {
+        self->configSaveLoop();
+    }
+    vTaskDelete(nullptr);
 }
 
 void AppContext::applyMeshConfig()

@@ -29,7 +29,7 @@ struct TLoRaPagerBoardFacts
     bool audio_codec_present = true;
     bool motion_sensor_present = true;
     bool rtc_present = true;
-    bool nfc_present = true;
+    bool nfc_present = false;
 };
 
 inline constexpr TLoRaPagerBoardFacts kBoardFacts{};

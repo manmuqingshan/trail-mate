@@ -63,6 +63,21 @@ struct MeshCorePhoneTuningParams
     uint32_t airtime_factor_milli = 0;
 };
 
+struct MeshCorePhonePathMetadata
+{
+    uint8_t profile = 0;
+    uint8_t hash_bytes = 1;
+    uint8_t hop_count = 0;
+};
+
+struct MeshCorePhoneAdvertPath
+{
+    uint32_t timestamp = 0;
+    uint8_t path_len = 0;
+    uint8_t path[64] = {};
+    MeshCorePhonePathMetadata meta{};
+};
+
 class MeshCorePhoneHooks
 {
   public:
@@ -96,6 +111,26 @@ class MeshCorePhoneHooks
     virtual void onPendingPathDiscoveryRequest(uint32_t) {}
     virtual void onSentRoute(bool) {}
     virtual bool lookupAdvertPath(const uint8_t*, size_t, uint32_t*, uint8_t*, size_t*) const { return false; }
+    virtual bool lookupAdvertPathEx(const uint8_t* pubkey, size_t len,
+                                    MeshCorePhoneAdvertPath* out) const
+    {
+        if (!out)
+        {
+            return false;
+        }
+        uint32_t ts = 0;
+        size_t path_len = sizeof(out->path);
+        if (!lookupAdvertPath(pubkey, len, &ts, out->path, &path_len))
+        {
+            return false;
+        }
+        out->timestamp = ts;
+        out->path_len = static_cast<uint8_t>(path_len > sizeof(out->path) ? sizeof(out->path) : path_len);
+        out->meta.profile = 0;
+        out->meta.hash_bytes = 1;
+        out->meta.hop_count = out->path_len;
+        return true;
+    }
     virtual bool hasActiveConnection(const uint8_t*, size_t) const { return false; }
     virtual void logoutActiveConnection(const uint8_t*, size_t) {}
     virtual bool getRadioStats(MeshCorePhoneRadioStats*) const { return false; }

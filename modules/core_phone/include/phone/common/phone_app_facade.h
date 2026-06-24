@@ -148,6 +148,16 @@ class IPhoneAppFacade
                                      const uint8_t* payload,
                                      std::size_t payload_len,
                                      uint32_t* out_est_timeout) = 0;
+    virtual bool meshCoreSendRawDataEx(uint8_t profile,
+                                       const uint8_t* path,
+                                       std::size_t path_len,
+                                       const uint8_t* payload,
+                                       std::size_t payload_len,
+                                       uint32_t* out_est_timeout)
+    {
+        (void)profile;
+        return meshCoreSendRawData(path, path_len, payload, payload_len, out_est_timeout);
+    }
     virtual void meshCoreSetFloodScopeKey(const uint8_t* key, std::size_t len) = 0;
 };
 

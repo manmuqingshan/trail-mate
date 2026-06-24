@@ -196,7 +196,7 @@ Phase 5.6 introduced:
 - `ui_presentation` chat identity/snapshot/model
 - `chat_presentation_adapters` mapper
 - `ChatPresentationSource`
-- `LegacyChatActionSink`
+- `RuntimeChatActionSink`
 - partial `ChatUiController` integration
 
 Remaining legacy ownership:
@@ -230,8 +230,8 @@ Status: known, bounded.
 Phase 5.7 introduced:
 
 - `ui_presentation/map` snapshot/source/sink/model.
-- `LegacyMapPresentationSource`.
-- `LegacyMapActionSink`.
+- `RuntimeMapWorkspaceSource`.
+- `RuntimeMapActionSink`.
 - compact LVGL map runtime consumption of `MapWorkspaceModel`.
 - uConsole `presentation_workspace` bridge.
 - ASCII/headless `MapWorkspaceSnapshot` probe.
@@ -242,7 +242,7 @@ Migrated surfaces:
   compact LVGL map runtime.
 - Center-on-self action now flows through `MapWorkspaceModel` on the compact
   LVGL map runtime.
-- uConsole map center fix projection now consumes `LegacyGpsStatusSource`
+- uConsole map center fix projection now consumes `RuntimeGpsStatusSource`
   rather than including `platform/ui/gps_runtime.h` directly in the map model.
 - uConsole exposes portable `presentation_workspace` inside its legacy
   tile/cache map snapshot.

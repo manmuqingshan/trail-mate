@@ -10,8 +10,10 @@ namespace team
 namespace ui
 {
 
-TeamPageEventReducer::TeamPageEventReducer(TeamPageEventContext context)
-    : context_(context)
+TeamPageEventReducer::TeamPageEventReducer(
+    TeamPageEventContext context,
+    const ITeamPageMemberNameResolver& names)
+    : context_(context), names_(&names)
 {
 }
 
@@ -44,7 +46,7 @@ void TeamPageEventReducer::touchMember(TeamPageEventState& state,
     }
 
     auto& member = state.members[result.index];
-    member.name = resolveMemberName(node_id);
+    member.name = memberDisplayLabel(node_id);
     assignMemberColor(member);
 }
 
@@ -120,7 +122,7 @@ void TeamPageEventReducer::applyStatusRoster(
         entry.leader = (id == status.leader_id);
         if (entry.name.empty())
         {
-            entry.name = (node_id == 0) ? "You" : resolveMemberName(id);
+            entry.name = (node_id == 0) ? "You" : memberDisplayLabel(id);
         }
         if (node_id == 0 && entry.last_seen_s == 0)
         {
@@ -309,7 +311,7 @@ TeamPageEventEffects TeamPageEventReducer::reduceTransferLeader(
     {
         TeamMemberUi info;
         info.node_id = target;
-        info.name = resolveMemberName(target);
+        info.name = memberDisplayLabel(target);
         info.leader = true;
         info.last_seen_s = context_.now_s;
         assignMemberColor(info);
@@ -380,7 +382,7 @@ TeamPageEventEffects TeamPageEventReducer::reduceKeyDist(
         {
             TeamMemberUi leader;
             leader.node_id = leader_id;
-            leader.name = resolveMemberName(leader_id);
+            leader.name = memberDisplayLabel(leader_id);
             leader.leader = true;
             leader.last_seen_s = context_.now_s;
             assignMemberColor(leader);
@@ -600,27 +602,13 @@ bool TeamPageEventReducer::isPairingActive(TeamPairingState state) const
            state != TeamPairingState::Failed;
 }
 
-std::string TeamPageEventReducer::resolveMemberName(uint32_t node_id) const
+std::string TeamPageEventReducer::memberDisplayLabel(uint32_t node_id) const
 {
     if (node_id == 0)
     {
         return "You";
     }
-    if (context_.names)
-    {
-        std::string name = context_.names->resolveMemberName(node_id);
-        if (!name.empty())
-        {
-            return name;
-        }
-    }
-
-    char fallback[16];
-    std::snprintf(fallback,
-                  sizeof(fallback),
-                  "%08lX",
-                  static_cast<unsigned long>(node_id));
-    return std::string(fallback);
+    return names_->resolveMemberName(node_id);
 }
 
 void TeamPageEventReducer::assignMemberColor(TeamMemberUi& member) const

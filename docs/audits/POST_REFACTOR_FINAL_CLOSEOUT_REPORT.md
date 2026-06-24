@@ -7,7 +7,7 @@ This architecture refactor is complete.
 Next work is not architecture refactor.
 
 The remaining work is not a continuation of the refactor. It is feature work,
-targeted fallback deletion, targeted deprecated alias deletion, or normal
+targeted renderer migration, targeted deprecated alias deletion, or normal
 platform/build maintenance.
 
 ## Completed
@@ -16,10 +16,10 @@ platform/build maintenance.
 | --- | --- |
 | Phase 5-7 runtime ownership | Runtime ownership boundaries and legacy burn-down register established. |
 | Phase 8 directory/app shell/UX/menu/screen graph | `apps/` semantics converged, final app shells established, UX menu/screen graph became portable. |
-| Phase 9 runtime adoption and legacy burn-down | Runtime presenters and entry adoption paths established; ChatDelivery, KeyVerification, and MapOverlay legacy adapters burned down to deprecated aliases. |
-| Phase 10 primary path migration | LinuxSim, GTK page registry, and LVGL compatibility descriptor paths became primary; hardcoded paths became fallback-only. |
-| Phase 11 renderer descriptor consumption | LinuxSim renderer, GTK page registry renderer, and LVGL descriptor renderer probe consume primary descriptors. |
-| Phase 12 closeout | fallback deletion readiness, deprecated alias cleanup plan, architecture freeze, and final guardrail checker established. |
+| Phase 9 runtime adoption and legacy burn-down | Runtime presenters and entry adoption paths established; ChatDelivery, KeyVerification, and MapOverlay legacy adapters burned down to runtime modules with alias build include surface removed. |
+| Phase 10 primary path migration | LinuxSim, GTK page registry, and LVGL descriptor paths became primary; failed adoption is unavailable-on-failure. |
+| Phase 11 renderer descriptor consumption | LinuxSim renderer, GTK page registry renderer, and LVGL descriptor renderer probe consume primary descriptors; LinuxSim/GTK/LVGL fallback branches are deleted. |
+| Phase 12 closeout | fallback deletion guardrail, deprecated alias cleanup plan, architecture freeze, and final guardrail checker established. |
 | Batch 4 root legacy elimination | root `legacy/` removed; historical source roots are recorded only in `docs/archive/REMOVED_LEGACY_ROOTS.md`. |
 
 ## Remaining Contained Debt
@@ -28,9 +28,9 @@ platform/build maintenance.
 | --- | --- | --- |
 | GTK real widget rewrite | contained; descriptor page registry exists | targeted renderer migration |
 | LVGL real widget/menu rewrite | contained; descriptor menu model exists | targeted device renderer migration |
-| fallback deletion | readiness ledger exists | targeted fallback deletion |
+| LVGL fallback deletion | deleted; guardrail recorded | no active fallback remains |
 | removed legacy source roots | deleted; history recorded in docs/archive | no source archive retained |
-| compatibility alias headers | deprecated aliases only | targeted alias deletion after downstream includes disappear |
+| compatibility alias headers | retired from build include surface | keep runtime headers as the active API |
 | map tile/route/tracker remaining legacy surfaces | registered contained debt | targeted debt deletion |
 
 ## Post-Refactor Rule

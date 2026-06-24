@@ -55,6 +55,27 @@ ChatWorkspaceModel::markRead(id)
 
 The model forwards actions to `IChatActionSink`.
 
+## Protocol Send Eligibility
+
+Conversation protocol and active send protocol are separate facts.
+
+`ConversationId.protocol` identifies what protocol produced or owns the
+conversation. The active runtime protocol identifies which transport can send
+right now. If they differ, the conversation remains visible and selectable, but
+it is read-only for chat commands.
+
+Required behavior:
+
+- Read paths must continue to show cross-protocol conversations and messages.
+- Compose, reply, retry, and `sendMessage` must be disabled or rejected for
+  cross-protocol conversations.
+- `IChatActionSink` adapters must map `SendMessageView.conversation` back to a
+  full core `chat::ConversationId`; they must not drop the protocol and send by
+  bare `channel + peer`.
+- Devices that lack a channel creation entry may add one in their renderer, but
+  renderers that already provide channel selection must not grow a second
+  duplicate entry.
+
 ## Optimistic Selection
 
 `selectConversation(id)` uses optimistic UI selection.
@@ -86,6 +107,21 @@ or paging behavior.
 Renderers must not assume `message_offset` is already honored by the chat read
 projection.
 
+## Send Feedback
+
+`ChatWorkspaceModel::sendMessage(...)` submits a command and returns only local
+command acceptance/rejection.
+
+It must not:
+
+- wait for ACK
+- infer final send success
+- show send success/failure feedback
+- depend on the active page after the command is accepted
+
+Final outgoing send feedback is produced from runtime delivery result events as
+specified by `CHAT_DELIVERY_FEEDBACK_SPEC.md`.
+
 ## Source/Sink Adapter Contract
 
 `ChatPresentationSource` is the product chat read projection adapter. It may
@@ -101,7 +137,7 @@ It must not:
 - access LVGL widgets
 - access radio, mesh adapters, PKI, or packet builders
 
-`LegacyChatActionSink` is the Phase 5.6 compatibility command adapter. It may
+`RuntimeChatActionSink` is the runtime command adapter. It may
 translate UI actions into `ChatService` commands.
 
 It must not:

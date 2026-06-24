@@ -8,13 +8,27 @@ int main()
     std::size_t count = 0;
     const auto* bindings = product_composition::allTargetUxBindings(&count);
     assert(bindings != nullptr);
-    assert(count == 10);
+    assert(count == 11);
 
     const auto* tab5 = product_composition::findTargetUxBinding("tab5");
     assert(tab5 != nullptr);
     assert(std::strcmp(tab5->desired_ux_pack_id, "tab5_touch") == 0);
     assert(std::strcmp(tab5->active_ux_pack_id, "compatibility") == 0);
     assert(!tab5->final_ux_pack_available);
+
+    const auto* tft = product_composition::findTargetUxBinding("t_display_p4_tft");
+    assert(tft != nullptr);
+    assert(std::strcmp(tft->desired_ux_pack_id, "t_display_p4_touch") == 0);
+    assert(std::strcmp(tft->active_ux_pack_id, "t_display_p4_touch") == 0);
+    assert(tft->fallback_ux_pack_id == nullptr);
+    assert(tft->final_ux_pack_available);
+
+    const auto* amoled = product_composition::findTargetUxBinding("t_display_p4_amoled");
+    assert(amoled != nullptr);
+    assert(std::strcmp(amoled->desired_ux_pack_id, "t_display_p4_touch") == 0);
+    assert(std::strcmp(amoled->active_ux_pack_id, "t_display_p4_touch") == 0);
+    assert(amoled->fallback_ux_pack_id == nullptr);
+    assert(amoled->final_ux_pack_available);
 
     const auto* uconsole = product_composition::findTargetUxBinding("uconsole");
     assert(uconsole != nullptr);

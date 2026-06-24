@@ -21,6 +21,10 @@ struct ProtocolBuildContext
     uint32_t now_ms = 0;
     uint32_t packet_id = 0;
     uint8_t channel_hash = 0;
+    uint8_t meshcore_payload_ver = 0;
+    ByteView meshcore_local_hash{};
+    ByteView meshcore_peer_hash{};
+    ByteView meshcore_channel_hash{};
     uint8_t hop_limit = 2;
     uint8_t route_type = 0;
     ByteView route_path{};

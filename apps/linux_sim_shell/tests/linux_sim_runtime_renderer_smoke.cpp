@@ -16,8 +16,6 @@ int main()
     assert(renderer.ready());
     assert(renderer.usingPrimaryScreenGraph());
     assert(renderer.usedPrimaryScreenGraph());
-    assert(!renderer.fallbackUsed());
-    assert(!renderer.usedFallback());
     assert(renderer.lineCount() > 0);
     assert(renderer.lines() != nullptr);
     assert(renderer.line(0) != nullptr);
@@ -26,11 +24,13 @@ int main()
     invalid_config.ux_pack_id = "missing_phase11_pack";
     trailmate::apps::linux_sim_shell::LinuxSimAppShell invalid_shell(
         invalid_config);
-    trailmate::apps::linux_sim_shell::LinuxSimRuntimeEntry fallback_entry;
-    assert(!fallback_entry.start(invalid_shell));
-    assert(fallback_entry.fallbackUsed());
-    assert(!renderer.render(fallback_entry));
-    assert(renderer.fallbackUsed());
-    assert(renderer.usedFallback());
+    trailmate::apps::linux_sim_shell::LinuxSimRuntimeEntry invalid_entry;
+    assert(!invalid_entry.start(invalid_shell));
+    assert(invalid_entry.runtimeSource() ==
+           trailmate::apps::linux_sim_shell::LinuxSimRuntimeSource::
+               Unavailable);
+    assert(!renderer.render(invalid_entry));
+    assert(!renderer.ready());
+    assert(!renderer.usingPrimaryScreenGraph());
     return 0;
 }

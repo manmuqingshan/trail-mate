@@ -35,6 +35,7 @@ std::vector<std::string> s_route_names;
 std::vector<std::string> s_record_names;
 std::string s_record_empty_text = "No tracks yet";
 std::string s_route_empty_text = "No KML routes";
+lv_timer_t* s_record_list_refresh_timer = nullptr;
 
 constexpr uint32_t kPanelBtnBg = 0xFAF0D8;
 constexpr uint32_t kPanelBtnBorder = 0xE7C98F;
@@ -70,6 +71,8 @@ void update_start_stop_button();
 void update_record_page();
 void update_route_status();
 void update_route_page();
+void cancel_deferred_record_list_refresh();
+void schedule_deferred_record_list_refresh(uint32_t delay_ms);
 bool can_delete_selected_item();
 bool can_load_selected_route();
 bool can_unload_active_route();
@@ -422,6 +425,7 @@ lv_obj_t* create_list_item_button(const std::string& text, intptr_t user_data, b
     lv_obj_t* label = lv_label_create(btn);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, page_profile().dense ? 6 : 10, 0);
     lv_label_set_text(label, text.c_str());
+    ::ui::i18n::log_direct_text_route("tracker_list_item", label, text.c_str());
     lv_obj_add_style(label, &s_btn_label, LV_PART_MAIN);
     lv_obj_set_style_text_font(label, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
@@ -754,6 +758,44 @@ void refresh_record_list()
     }
 }
 
+void deferred_record_list_refresh_cb(lv_timer_t* timer)
+{
+    if (timer)
+    {
+        lv_timer_del(timer);
+    }
+    if (timer == s_record_list_refresh_timer)
+    {
+        s_record_list_refresh_timer = nullptr;
+    }
+
+    auto& state = g_tracker_state;
+    if (!state.root || !lv_obj_is_valid(state.root))
+    {
+        return;
+    }
+    refresh_record_list();
+}
+
+void cancel_deferred_record_list_refresh()
+{
+    if (s_record_list_refresh_timer)
+    {
+        lv_timer_del(s_record_list_refresh_timer);
+        s_record_list_refresh_timer = nullptr;
+    }
+}
+
+void schedule_deferred_record_list_refresh(uint32_t delay_ms)
+{
+    cancel_deferred_record_list_refresh();
+    s_record_list_refresh_timer = lv_timer_create(deferred_record_list_refresh_cb, delay_ms, nullptr);
+    if (s_record_list_refresh_timer)
+    {
+        lv_timer_set_repeat_count(s_record_list_refresh_timer, 1);
+    }
+}
+
 void update_route_status()
 {
     auto& state = g_tracker_state;
@@ -893,17 +935,30 @@ void sync_active_route_from_config()
 
 void on_start_stop_clicked(lv_event_t*)
 {
-    if (platform::ui::tracker::is_recording())
+    const bool was_recording = platform::ui::tracker::is_recording();
+    if (was_recording)
     {
         platform::ui::tracker::stop_recording();
     }
     else
     {
-        platform::ui::tracker::start_recording();
+        if (!platform::ui::tracker::start_recording())
+        {
+            update_record_status();
+            update_start_stop_button();
+            if (g_tracker_state.status_label)
+            {
+                ::ui::i18n::set_label_text(g_tracker_state.status_label, "Start failed");
+            }
+            return;
+        }
     }
     update_record_status();
     update_start_stop_button();
-    refresh_record_list();
+    if (was_recording)
+    {
+        schedule_deferred_record_list_refresh(120);
+    }
 }
 
 void on_mode_record_clicked(lv_event_t*)
@@ -1577,6 +1632,7 @@ void init_page(lv_obj_t* parent)
 void cleanup_page()
 {
     auto& state = g_tracker_state;
+    cancel_deferred_record_list_refresh();
     if (state.action_menu_modal)
     {
         lv_obj_del(state.action_menu_modal);

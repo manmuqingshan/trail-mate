@@ -5,6 +5,7 @@ currently has only these executable pack IDs:
 
 - `compatibility`
 - `cardputer_compact`
+- `t_display_p4_touch`
 - `uconsole_desktop`
 - `tiny_node_status`
 - `simulator_full`
@@ -15,8 +16,8 @@ runtime implementations.
 | target | desired ux_pack | current actual fallback | exit condition | owner |
 | --- | --- | --- | --- | --- |
 | `tab5` | `tab5_touch` | `compatibility` | executable `tab5_touch` pack registered and covered by app shell smoke | `modules/ui_lvgl_ux_packs + apps/esp32_lvgl` |
-| `tdisplayp4_tft` | `tdisplayp4_touch` | `compatibility` | executable `tdisplayp4_touch` pack registered for TFT panel route | `modules/ui_lvgl_ux_packs + apps/esp32_lvgl` |
-| `tdisplayp4_amoled` | `tdisplayp4_touch` | `compatibility` | executable `tdisplayp4_touch` pack registered for AMOLED panel route | `modules/ui_lvgl_ux_packs + apps/esp32_lvgl` |
+| `t_display_p4_tft` | `t_display_p4_touch` | `t_display_p4_touch` | closed; executable pack and page manifest are registered | `modules/ui_lvgl_ux_packs + apps/esp32_lvgl` |
+| `t_display_p4_amoled` | `t_display_p4_touch` | `t_display_p4_touch` | closed; executable pack and page manifest are registered | `modules/ui_lvgl_ux_packs + apps/esp32_lvgl` |
 | `tlora_pager` | `pager_compact` | `compatibility` | executable `pager_compact` pack registered after IDF route evidence is closed | `modules/ui_lvgl_ux_packs + apps/esp32_lvgl` |
 | `tdeck` | `deck_full` | `compatibility` | executable `deck_full` pack registered after IDF route evidence is closed | `modules/ui_lvgl_ux_packs + apps/esp32_lvgl` |
 | `twatch` | `watch_compact` | `compatibility` | executable `watch_compact` pack registered after IDF route evidence is closed | `modules/ui_lvgl_ux_packs + apps/esp32_lvgl` |

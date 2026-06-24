@@ -14,11 +14,6 @@ class ImeWidget;
 } // namespace widgets
 } // namespace ui
 
-namespace chat
-{
-class ChatService;
-}
-
 namespace input
 {
 class MorseEngine;
@@ -45,11 +40,6 @@ class ChatComposeScreen
     void setPositionButton(const char* label, bool visible);
     std::string getText() const;
     void clearText();
-
-    void beginSend(chat::ChatService* service,
-                   chat::MessageId msg_id,
-                   void (*done_cb)(bool ok, bool timeout, void*),
-                   void* user_data);
 
     void setActionCallback(void (*cb)(ActionIntent intent, void*), void* user_data);
     void setBackCallback(void (*cb)(void*), void* user_data);

@@ -4,6 +4,9 @@
 
 #include "esp_log.h"
 #include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "host/ble_att.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
@@ -22,6 +25,18 @@
 #include <string.h>
 
 static const char* TAG = "C6_BLE";
+
+enum
+{
+    TM_C6_BLE_NOTIFY_QUEUE_LEN = 8,
+};
+
+typedef struct tm_c6_ble_notify_item
+{
+    uint8_t profile;
+    uint16_t payload_len;
+    uint8_t payload[TM_C6_MAX_PAYLOAD];
+} tm_c6_ble_notify_item_t;
 
 void ble_store_config_init(void);
 
@@ -82,12 +97,15 @@ static uint16_t s_last_meshtastic_len;
 static uint32_t s_from_num_counter;
 static uint32_t s_active_passkey;
 static uint8_t s_adv_profile_cursor = TM_C6_BLE_PROFILE_MESHTASTIC;
+static QueueHandle_t s_notify_queue;
+static bool s_notify_task_started;
 
 static int gatt_access_cb(uint16_t conn_handle,
                           uint16_t attr_handle,
                           struct ble_gatt_access_ctxt* ctxt,
                           void* arg);
 static int gap_event_cb(struct ble_gap_event* event, void* arg);
+static esp_err_t send_downlink_now(uint8_t profile, const uint8_t* payload, size_t payload_len);
 
 static const struct ble_gatt_svc_def s_gatt_svcs[] = {
     {
@@ -220,6 +238,25 @@ static void emit_event(uint8_t kind, uint8_t profile, uint16_t mtu, uint16_t err
     (void)tm_services_send_ble_event(&event);
 }
 
+static uint16_t error_code_for_notify_result(esp_err_t err)
+{
+    switch (err)
+    {
+    case ESP_OK:
+        return TM_C6_OK;
+    case ESP_ERR_INVALID_STATE:
+        return TM_C6_ERROR_NOT_CONNECTED;
+    case ESP_ERR_NOT_SUPPORTED:
+        return TM_C6_ERROR_PROFILE_NOT_CONFIGURED;
+    case ESP_ERR_INVALID_SIZE:
+        return TM_C6_ERROR_PAYLOAD_TOO_LARGE;
+    case ESP_ERR_NO_MEM:
+        return TM_C6_ERROR_LOW_MEMORY;
+    default:
+        return TM_C6_ERROR_INTERNAL;
+    }
+}
+
 static void copy_device_name(char* out, size_t out_len)
 {
     if (out == NULL || out_len == 0)
@@ -290,6 +327,21 @@ static uint32_t active_passkey(void)
         s_active_passkey = 100000u + (uint32_t)(esp_random() % 900000u);
     }
     return s_active_passkey;
+}
+
+static bool passkey_action_needs_display(uint8_t action)
+{
+    if (action == BLE_SM_IOACT_DISP)
+    {
+        return true;
+    }
+#if defined(BLE_SM_IOACT_STATIC)
+    if (action == BLE_SM_IOACT_STATIC)
+    {
+        return true;
+    }
+#endif
+    return false;
 }
 
 static void apply_security_config(void)
@@ -375,6 +427,10 @@ static int gatt_access_cb(uint16_t conn_handle,
         {
             (void)ble_gap_security_initiate(conn_handle);
             return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+        }
+        if (!tm_services_can_accept_wireless_rx("ble_low_memory"))
+        {
+            return BLE_ATT_ERR_INSUFFICIENT_RES;
         }
         const uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
         if (len > TM_C6_MAX_PAYLOAD - TM_C6_BLE_PACKET_HEADER_LEN)
@@ -511,6 +567,10 @@ static int gap_event_cb(struct ble_gap_event* event, void* arg)
         return 0;
     case BLE_GAP_EVENT_DISCONNECT:
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        if (s_notify_queue != NULL)
+        {
+            xQueueReset(s_notify_queue);
+        }
         if (s_config.pairing_mode == TM_C6_PAIRING_RANDOM_PIN)
         {
             s_active_passkey = 0;
@@ -551,8 +611,7 @@ static int gap_event_cb(struct ble_gap_event* event, void* arg)
         return BLE_GAP_REPEAT_PAIRING_RETRY;
     }
     case BLE_GAP_EVENT_PASSKEY_ACTION:
-        if (event->passkey.params.action == BLE_SM_IOACT_DISP ||
-            event->passkey.params.action == BLE_SM_IOACT_STATIC)
+        if (passkey_action_needs_display(event->passkey.params.action))
         {
             struct ble_sm_io pkey;
             memset(&pkey, 0, sizeof(pkey));
@@ -600,9 +659,44 @@ static void host_task(void* param)
     nimble_port_freertos_deinit();
 }
 
+static void notify_task(void* param)
+{
+    (void)param;
+    tm_c6_ble_notify_item_t item = {};
+    for (;;)
+    {
+        if (xQueueReceive(s_notify_queue, &item, portMAX_DELAY) != pdTRUE)
+        {
+            continue;
+        }
+
+        const esp_err_t err = send_downlink_now(item.profile, item.payload, item.payload_len);
+        if (err == ESP_OK)
+        {
+            tm_services_note_ble_downlink();
+            continue;
+        }
+
+        const uint16_t error_code = error_code_for_notify_result(err);
+        tm_services_record_error(error_code, "ble_notify_failed");
+        emit_event(TM_C6_BLE_EVENT_NOTIFY_DROPPED,
+                   item.profile,
+                   0,
+                   error_code);
+    }
+}
+
 esp_err_t tm_ble_init(void)
 {
     memset(&s_config, 0, sizeof(s_config));
+    if (s_notify_queue == NULL)
+    {
+        s_notify_queue = xQueueCreate(TM_C6_BLE_NOTIFY_QUEUE_LEN, sizeof(tm_c6_ble_notify_item_t));
+        if (s_notify_queue == NULL)
+        {
+            return ESP_ERR_NO_MEM;
+        }
+    }
     return ESP_OK;
 }
 
@@ -619,6 +713,10 @@ esp_err_t tm_ble_apply_config(const tm_c6_ble_config_t* config)
         if (s_synced)
         {
             ble_gap_adv_stop();
+        }
+        if (s_notify_queue != NULL)
+        {
+            xQueueReset(s_notify_queue);
         }
         return ESP_OK;
     }
@@ -661,6 +759,15 @@ esp_err_t tm_ble_apply_config(const tm_c6_ble_config_t* config)
     {
         nimble_port_freertos_init(host_task);
         s_host_started = true;
+    }
+    if (!s_notify_task_started)
+    {
+        if (xTaskCreate(notify_task, "tm_ble_notify", 4096, NULL, 8, NULL) != pdPASS)
+        {
+            tm_services_record_error(TM_C6_ERROR_LOW_MEMORY, "ble_notify_task_failed");
+            return ESP_ERR_NO_MEM;
+        }
+        s_notify_task_started = true;
     }
 
     advertise();
@@ -708,7 +815,46 @@ esp_err_t tm_ble_send_downlink(uint8_t profile, const uint8_t* payload, size_t p
         tm_services_record_error(TM_C6_ERROR_PAYLOAD_TOO_LARGE, "ble_downlink_too_large");
         return ESP_ERR_INVALID_SIZE;
     }
+    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE)
+    {
+        tm_services_record_error(TM_C6_ERROR_NOT_CONNECTED, "ble_downlink_not_connected");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!connection_is_authenticated(s_conn_handle))
+    {
+        (void)ble_gap_security_initiate(s_conn_handle);
+        tm_services_record_error(TM_C6_ERROR_NOT_CONNECTED, "ble_downlink_not_authenticated");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_notify_queue == NULL)
+    {
+        tm_services_record_error(TM_C6_ERROR_INTERNAL, "ble_notify_queue_missing");
+        return ESP_ERR_INVALID_STATE;
+    }
 
+    tm_c6_ble_notify_item_t item = {
+        .profile = profile,
+        .payload_len = (uint16_t)payload_len,
+    };
+    if (payload_len > 0)
+    {
+        memcpy(item.payload, payload, payload_len);
+    }
+    if (xQueueSend(s_notify_queue, &item, 0) != pdTRUE)
+    {
+        tm_services_record_error(TM_C6_ERROR_QUEUE_FULL, "ble_notify_queue_full");
+        emit_event(TM_C6_BLE_EVENT_NOTIFY_DROPPED,
+                   profile,
+                   0,
+                   TM_C6_ERROR_QUEUE_FULL);
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t send_downlink_now(uint8_t profile, const uint8_t* payload, size_t payload_len)
+{
     esp_err_t err = ESP_ERR_NOT_SUPPORTED;
     switch ((tm_c6_ble_profile_t)profile)
     {
@@ -742,9 +888,5 @@ esp_err_t tm_ble_send_downlink(uint8_t profile, const uint8_t* payload, size_t p
         break;
     }
 
-    if (err == ESP_OK)
-    {
-        tm_services_note_ble_downlink();
-    }
     return err;
 }

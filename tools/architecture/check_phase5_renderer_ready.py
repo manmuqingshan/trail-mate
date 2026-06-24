@@ -159,9 +159,9 @@ def check_chat_presentation_adapters_are_renderer_free() -> int:
 
     paths = [
         "modules/ui_shared/include/ui/presentation_sources/chat_presentation_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_action_sink.h",
+        "modules/ui_shared/include/ui/presentation_sources/runtime_chat_action_sink.h",
         "modules/ui_shared/src/ui/presentation_sources/chat_presentation_source.cpp",
-        "modules/ui_shared/src/ui/presentation_sources/legacy_chat_action_sink.cpp",
+        "modules/ui_shared/src/ui/presentation_sources/runtime_chat_action_sink.cpp",
     ]
 
     failures = 0
@@ -189,10 +189,8 @@ def check_map_presentation_adapters_are_renderer_free() -> int:
     ]
 
     paths = [
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_presentation_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_action_sink.h",
-        "modules/ui_shared/src/ui/presentation_sources/legacy_map_presentation_source.cpp",
-        "modules/ui_shared/src/ui/presentation_sources/legacy_map_action_sink.cpp",
+        "modules/ui_shared/include/ui/presentation_sources/runtime_map_workspace_source.h",
+        "modules/ui_shared/src/ui/presentation_sources/runtime_map_workspace_source.cpp",
     ]
 
     failures = 0
@@ -311,8 +309,8 @@ def check_migrated_map_path_is_locked() -> int:
         for token in [
             "presentation_workspace",
             "MapWorkspaceModel presentation_model_",
-            "LegacyMapPresentationSource",
-            "LegacyMapActionSink",
+            "RuntimeMapWorkspaceSource",
+            "RuntimeMapActionSink",
         ]:
             if token not in text:
                 failures += fail(f"uConsole map header missing migrated token: {token}")
@@ -343,7 +341,7 @@ def check_migrated_dashboard_status_is_locked() -> int:
     failures = 0
     for token in [
         "ui_presentation/gps/gps_status_model.h",
-        "legacy_gps_status_source",
+        "runtime_gps_status_source",
         "dashboard_gps_status_model().snapshot()",
         "status_snapshot.fix_valid",
         "status_snapshot.fix_label",

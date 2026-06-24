@@ -20,11 +20,18 @@ constexpr PageManifestItem kTab5TouchItems[] = {
 
 constexpr PageManifestItem kTDisplayP4TouchItems[] = {
     {PageId::Dashboard, "dashboard", true, true},
-    {PageId::Map, "map", true, true},
-    {PageId::Gps, "gps", true, true},
     {PageId::Chat, "chat", true, true},
+    {PageId::Contacts, "contacts", true, true},
+    {PageId::Map, "map", true, true},
+    {PageId::SkyPlot, "sky_plot", true, true},
+    {PageId::Gps, "gps", true, true},
     {PageId::Team, "team", true, true},
     {PageId::Tracker, "tracker", true, true},
+    {PageId::PcLink, "pc_link", true, true},
+    {PageId::EnergySweep, "energy_sweep", true, true},
+    {PageId::WalkieTalkie, "walkie_talkie", true, true},
+    {PageId::Sstv, "sstv", true, true},
+    {PageId::Extensions, "extensions", true, true},
     {PageId::Settings, "settings", true, true},
 };
 
@@ -88,7 +95,7 @@ constexpr PageManifestItem kNodeHeadlessItems[] = {
 
 constexpr PageManifest kManifests[] = {
     {"tab5_touch_manifest", kTab5TouchItems, sizeof(kTab5TouchItems) / sizeof(kTab5TouchItems[0])},
-    {"tdisplayp4_touch_manifest", kTDisplayP4TouchItems, sizeof(kTDisplayP4TouchItems) / sizeof(kTDisplayP4TouchItems[0])},
+    {"t_display_p4_touch_manifest", kTDisplayP4TouchItems, sizeof(kTDisplayP4TouchItems) / sizeof(kTDisplayP4TouchItems[0])},
     {"pager_compact_manifest", kPagerCompactItems, sizeof(kPagerCompactItems) / sizeof(kPagerCompactItems[0])},
     {"deck_full_manifest", kDeckFullItems, sizeof(kDeckFullItems) / sizeof(kDeckFullItems[0])},
     {"watch_compact_manifest", kWatchCompactItems, sizeof(kWatchCompactItems) / sizeof(kWatchCompactItems[0])},

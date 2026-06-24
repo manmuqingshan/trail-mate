@@ -23,8 +23,8 @@ For the current ESP32-P4 targets:
 
 ```text
 tab5: sensor-aware, landscape locked
-tdisplayp4_tft: sensor-aware, landscape locked
-tdisplayp4_amoled: sensor-aware, landscape locked
+t_display_p4_tft: sensor-aware, landscape locked
+t_display_p4_amoled: sensor-aware, landscape locked
 ```
 
 The product may observe that a motion sensor exists, but the active screen
@@ -36,16 +36,16 @@ implemented by patching individual pages.
 
 The current implementation may initialize sensor/heading runtime so that board
 facts and future rotation signals are observable. It must still clamp the
-effective orientation to landscape for `tab5`, `tdisplayp4_tft`, and
-`tdisplayp4_amoled`.
+effective orientation to landscape for `tab5`, `t_display_p4_tft`, and
+`t_display_p4_amoled`.
 
 The six-axis sensor on each P4+C6 target is a board capability, not an
 orientation policy by itself:
 
 ```text
 tab5: BMI270+BMM150, fixed landscape in this release
-tdisplayp4_tft: ICM20948, fixed landscape in this release
-tdisplayp4_amoled: ICM20948, fixed landscape in this release
+t_display_p4_tft: ICM20948, fixed landscape in this release
+t_display_p4_amoled: ICM20948, fixed landscape in this release
 ```
 
 Sensor startup may be used for diagnostics and future orientation decisions.

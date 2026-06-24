@@ -1,14 +1,16 @@
 #pragma once
 
 #include <Arduino.h>
-#include <SD.h>
 #include <SPI.h>
-#if defined(ARDUINO_ARCH_ESP32)
-#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#if !defined(ARDUINO_ARCH_ESP32)
+#error "sd_utils requires the ESP32 SdFat runtime; Arduino SD fallback is intentionally unsupported."
 #endif
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 
 namespace sdutil
 {
+
+constexpr uint8_t kCardNone = 0;
 
 inline void setCsHigh(int pin)
 {
@@ -18,6 +20,26 @@ inline void setCsHigh(int pin)
     }
     pinMode(pin, OUTPUT);
     digitalWrite(pin, HIGH);
+}
+
+inline void releaseSdBusDevices(int sd_cs, const int* extra_cs, size_t extra_cs_count)
+{
+    for (size_t i = 0; i < extra_cs_count; ++i)
+    {
+        setCsHigh(extra_cs[i]);
+    }
+    setCsHigh(sd_cs);
+}
+
+inline void resetSharedSpiForSd(int sd_cs, const int* extra_cs, size_t extra_cs_count)
+{
+    releaseSdBusDevices(sd_cs, extra_cs, extra_cs_count);
+    pinMode(MISO, INPUT_PULLUP);
+    SPI.end();
+    delay(2);
+    SPI.begin(SCK, MISO, MOSI);
+    releaseSdBusDevices(sd_cs, extra_cs, extra_cs_count);
+    delay(2);
 }
 
 template <typename Lockable>
@@ -31,23 +53,12 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
         return false;
     }
 
-    for (size_t i = 0; i < extra_cs_count; ++i)
-    {
-        setCsHigh(extra_cs[i]);
-    }
-    setCsHigh(sd_cs);
+    bool ok = false;
+    uint8_t card_type = kCardNone;
+    uint32_t card_size_mb = 0;
 
-    pinMode(MISO, INPUT_PULLUP);
-    SPI.end();
-    delay(2);
-    SPI.begin(SCK, MISO, MOSI);
+    resetSharedSpiForSd(sd_cs, extra_cs, extra_cs_count);
     SPIClass& sd_bus = SPI;
-    for (size_t i = 0; i < extra_cs_count; ++i)
-    {
-        setCsHigh(extra_cs[i]);
-    }
-    setCsHigh(sd_cs);
-    delay(2);
     Serial.printf("[SD] SPI pins sck=%d miso=%d mosi=%d cs=%d hz=%lu\n",
                   SCK, MISO, MOSI, sd_cs, (unsigned long)spi_hz);
     for (size_t i = 0; i < extra_cs_count; ++i)
@@ -56,20 +67,11 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
     }
     Serial.printf("[SD] sd CS pin=%d level=%d\n", sd_cs, digitalRead(sd_cs));
 
-    bool ok = false;
-    uint8_t card_type = CARD_NONE;
-    uint32_t card_size_mb = 0;
-
     bool locked = true;
-#if defined(ARDUINO_ARCH_ESP32)
     if (use_lock)
     {
         locked = bus.lock(portMAX_DELAY);
     }
-#else
-    (void)bus;
-    (void)use_lock;
-#endif
 
     if (locked)
     {
@@ -97,38 +99,27 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
                 continue;
             }
             tried_freqs[tried_count++] = hz_try;
-            SD.end();
-            setCsHigh(sd_cs);
+            resetSharedSpiForSd(sd_cs, extra_cs, extra_cs_count);
             delay(10);
             Serial.printf("[SD] try hz=%lu\n", (unsigned long)hz_try);
-#if defined(ARDUINO_ARCH_ESP32)
             ok = ::platform::esp::arduino_common::storage::mount_sd_card(
                 sd_cs, sd_bus, hz_try, mount_point, max_files);
-#else
-            ok = SD.begin(sd_cs, sd_bus, hz_try, mount_point);
-            if (!ok)
-            {
-                ok = SD.begin(sd_cs, sd_bus, hz_try);
-            }
-#endif
-            Serial.printf("[SD] SD.begin -> %d\n", ok ? 1 : 0);
+            Serial.printf("[SD] mount -> %d\n", ok ? 1 : 0);
             if (ok)
             {
                 break;
             }
-            SD.end();
             delay(25);
         }
         if (ok)
         {
-#if defined(ARDUINO_ARCH_ESP32)
             const auto info = ::platform::esp::arduino_common::storage::sd_card_info();
             card_type = info.card_type;
             Serial.printf("[SD] cardType=%u backend=%s fs=%s\n",
                           (unsigned)card_type,
                           ::platform::esp::arduino_common::storage::sd_card_backend_name(),
                           ::platform::esp::arduino_common::storage::sd_card_filesystem_name());
-            if (card_type != CARD_NONE)
+            if (card_type != kCardNone)
             {
                 card_size_mb = static_cast<uint32_t>(info.card_size_bytes / (1024ULL * 1024ULL));
                 Serial.printf("[SD] card=%llu MB total=%llu MB sectors=%lu sector_size=%lu\n",
@@ -142,33 +133,11 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
                 ok = false;
                 ::platform::esp::arduino_common::storage::unmount_sd_card();
             }
-#else
-            card_type = SD.cardType();
-            Serial.printf("[SD] cardType=%u\n", (unsigned)card_type);
-            if (card_type != CARD_NONE)
-            {
-                const uint64_t card_size = SD.cardSize();
-                const uint64_t total_size = SD.totalBytes();
-                card_size_mb = static_cast<uint32_t>(card_size / (1024ULL * 1024ULL));
-                Serial.printf("[SD] card=%llu MB total=%llu MB sectors=%lu sector_size=%lu\n",
-                              static_cast<unsigned long long>(card_size / (1024ULL * 1024ULL)),
-                              static_cast<unsigned long long>(total_size / (1024ULL * 1024ULL)),
-                              static_cast<unsigned long>(SD.numSectors()),
-                              static_cast<unsigned long>(SD.sectorSize()));
-            }
-            else
-            {
-                ok = false;
-                SD.end();
-            }
-#endif
         }
-#if defined(ARDUINO_ARCH_ESP32)
         if (use_lock)
         {
             bus.unlock();
         }
-#endif
     }
     else
     {

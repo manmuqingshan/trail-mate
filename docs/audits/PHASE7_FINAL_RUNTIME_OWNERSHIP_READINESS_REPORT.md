@@ -16,7 +16,7 @@ contained, burned down, or explicitly deferred with removal conditions.
 | Team rich payload display | contained | `TeamRichPayloadProjector` / `TeamChatPresentationSource` |
 | Team position picker | burned-down | `TeamPositionPickerRenderer` |
 | Key verification | contained | `KeyVerificationModel` and source/sink adapters |
-| Map tile source/cache | contained | `MapTileResolver`, `LegacyFilesystemMapTileSource`, cache ports |
+| Map tile source/cache | contained | `MapTileResolver`, `FilesystemMapTileSource`, cache ports |
 | Map render queue/cache | contained | `MapTileRenderQueue`, `IMapTileDecoderCache`, LVGL cache wrapper |
 | Map overlay/route/tracker | contained/deferred | `MapOverlaySnapshot`, `LegacyMapOverlaySource`, route/tracker exit conditions |
 | GPS runtime scheduling | contained | `GpsPageRuntimePump`, `IGpsUiRefreshSink` |

@@ -38,6 +38,13 @@ void appendTraceRouteNodeAndSnr(meshtastic_RouteDiscovery* route,
                                 const chat::RxMeta* rx_meta,
                                 bool towards_destination,
                                 bool snr_only);
+bool updateTraceRoutePayload(meshtastic_Data* decoded,
+                             uint8_t flags,
+                             uint32_t node_id,
+                             const chat::RxMeta* rx_meta,
+                             bool is_response,
+                             bool to_us,
+                             meshtastic_RouteDiscovery* out_route);
 bool readPbString(pb_istream_t* stream, char* out, size_t out_len);
 bool makeEncryptedPacketFromWire(const uint8_t* wire_data, size_t wire_size,
                                  meshtastic_MeshPacket* out_packet);

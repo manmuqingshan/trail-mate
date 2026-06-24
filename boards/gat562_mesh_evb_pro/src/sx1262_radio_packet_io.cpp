@@ -2,7 +2,6 @@
 
 #include "boards/gat562_mesh_evb_pro/board_profile.h"
 #include "boards/gat562_mesh_evb_pro/gat562_board.h"
-#include "chat/infra/meshcore/mc_region_presets.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
 
 #include <Arduino.h>
@@ -54,17 +53,6 @@ Sx1262RadioPacketIo::AppliedRadioConfig deriveMeshCoreRadioConfig(const ::chat::
     float bw_khz = config.meshcore_bw_khz;
     uint8_t sf = config.meshcore_sf;
     uint8_t cr = config.meshcore_cr;
-
-    if (config.meshcore_region_preset > 0)
-    {
-        if (const auto* preset = ::chat::meshcore::findRegionPresetById(config.meshcore_region_preset))
-        {
-            freq_mhz = preset->freq_mhz;
-            bw_khz = preset->bw_khz;
-            sf = preset->sf;
-            cr = preset->cr;
-        }
-    }
 
     out.freq_mhz = std::clamp<float>(freq_mhz, 400.0f, 2500.0f);
     out.bw_khz = std::clamp<float>(normalizeBandwidthKhz(bw_khz), 7.8f, 500.0f);

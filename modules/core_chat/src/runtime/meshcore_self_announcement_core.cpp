@@ -2,6 +2,7 @@
 
 #include "chat/infra/meshcore/meshcore_identity_crypto.h"
 #include "chat/infra/meshcore/meshcore_payload_helpers.h"
+#include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 
 #include <array>
 #include <cstring>
@@ -18,6 +19,13 @@ constexpr uint8_t kAdvertTypeChat = 0x01;
 constexpr uint8_t kAdvertTypeRepeater = 0x02;
 constexpr uint8_t kAdvertFlagHasLocation = 0x10;
 constexpr uint8_t kAdvertFlagHasName = 0x80;
+
+chat::meshcore::PayloadProfile selectPayloadProfile(const MeshConfig& config)
+{
+    return config.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only
+               ? chat::meshcore::PayloadProfile::V1
+               : chat::meshcore::PayloadProfile::V2;
+}
 
 } // namespace
 
@@ -115,7 +123,9 @@ bool MeshCoreSelfAnnouncementCore::buildAdvertPacket(const MeshCoreAnnouncementR
     }
 
     size_t frame_size = sizeof(out_packet->frame);
-    if (!chat::meshcore::buildFrameNoTransport(request.broadcast ? kRouteTypeFlood : kRouteTypeDirect,
+    const chat::meshcore::PayloadProfile profile = selectPayloadProfile(request.mesh_config);
+    if (!chat::meshcore::buildFrameNoTransport(profile,
+                                               request.broadcast ? kRouteTypeFlood : kRouteTypeDirect,
                                                kPayloadTypeAdvert,
                                                nullptr,
                                                0,

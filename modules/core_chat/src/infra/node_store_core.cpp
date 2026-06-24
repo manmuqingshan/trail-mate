@@ -24,6 +24,48 @@ namespace contacts
 
 namespace
 {
+bool differentString(const char* lhs, const char* rhs, size_t rhs_size)
+{
+    if (!rhs || rhs[0] == '\0')
+    {
+        return false;
+    }
+    return std::strncmp(lhs, rhs, rhs_size) != 0;
+}
+
+bool differentBytes(const uint8_t* lhs, const uint8_t* rhs, size_t len)
+{
+    return std::memcmp(lhs, rhs, len) != 0;
+}
+
+bool differentPosition(const NodeEntry& lhs, const NodePosition& rhs)
+{
+    return lhs.position_valid != rhs.valid ||
+           lhs.position_latitude_i != rhs.latitude_i ||
+           lhs.position_longitude_i != rhs.longitude_i ||
+           lhs.position_has_altitude != rhs.has_altitude ||
+           lhs.position_altitude != rhs.altitude ||
+           lhs.position_precision_bits != rhs.precision_bits ||
+           lhs.position_pdop != rhs.pdop ||
+           lhs.position_hdop != rhs.hdop ||
+           lhs.position_vdop != rhs.vdop ||
+           lhs.position_gps_accuracy_mm != rhs.gps_accuracy_mm;
+}
+
+bool differentMetrics(const NodeDeviceMetrics& lhs, const NodeDeviceMetrics& rhs)
+{
+    return lhs.has_battery_level != rhs.has_battery_level ||
+           lhs.battery_level != rhs.battery_level ||
+           lhs.has_voltage != rhs.has_voltage ||
+           lhs.voltage != rhs.voltage ||
+           lhs.has_channel_utilization != rhs.has_channel_utilization ||
+           lhs.channel_utilization != rhs.channel_utilization ||
+           lhs.has_air_util_tx != rhs.has_air_util_tx ||
+           lhs.air_util_tx != rhs.air_util_tx ||
+           lhs.has_uptime_seconds != rhs.has_uptime_seconds ||
+           lhs.uptime_seconds != rhs.uptime_seconds;
+}
+
 TRAILMATE_PACK_PUSH
 struct PersistedNodeEntryV6
 {
@@ -331,15 +373,22 @@ void NodeStoreCore::applyUpdate(uint32_t node_id, const NodeUpdate& update)
         return;
     }
 
-    auto apply_to_entry = [&](NodeEntry& entry)
+    auto apply_to_entry = [&](NodeEntry& entry) -> bool
     {
+        bool persistent_changed = false;
         if (update.short_name && update.short_name[0] != '\0')
         {
+            persistent_changed =
+                differentString(entry.short_name, update.short_name, sizeof(entry.short_name)) ||
+                persistent_changed;
             strncpy(entry.short_name, update.short_name, sizeof(entry.short_name) - 1);
             entry.short_name[sizeof(entry.short_name) - 1] = '\0';
         }
         if (update.long_name && update.long_name[0] != '\0')
         {
+            persistent_changed =
+                differentString(entry.long_name, update.long_name, sizeof(entry.long_name)) ||
+                persistent_changed;
             strncpy(entry.long_name, update.long_name, sizeof(entry.long_name) - 1);
             entry.long_name[sizeof(entry.long_name) - 1] = '\0';
         }
@@ -365,48 +414,70 @@ void NodeStoreCore::applyUpdate(uint32_t node_id, const NodeUpdate& update)
         }
         if (update.has_next_hop)
         {
+            persistent_changed = (entry.next_hop != update.next_hop) || persistent_changed;
             entry.next_hop = update.next_hop;
         }
         if (update.has_protocol)
         {
+            persistent_changed = (entry.protocol != update.protocol) || persistent_changed;
             entry.protocol = update.protocol;
         }
         if (update.has_role)
         {
+            persistent_changed = (entry.role != update.role) || persistent_changed;
             entry.role = update.role;
         }
         if (update.has_hw_model)
         {
+            persistent_changed = (entry.hw_model != update.hw_model) || persistent_changed;
             entry.hw_model = update.hw_model;
         }
         if (update.has_macaddr)
         {
+            persistent_changed =
+                !entry.has_macaddr ||
+                differentBytes(entry.macaddr, update.macaddr, sizeof(entry.macaddr)) ||
+                persistent_changed;
             entry.has_macaddr = true;
             memcpy(entry.macaddr, update.macaddr, sizeof(entry.macaddr));
         }
         if (update.has_via_mqtt)
         {
+            persistent_changed = (entry.via_mqtt != update.via_mqtt) || persistent_changed;
             entry.via_mqtt = update.via_mqtt;
         }
         if (update.has_is_ignored)
         {
+            persistent_changed = (entry.is_ignored != update.is_ignored) || persistent_changed;
             entry.is_ignored = update.is_ignored;
         }
         if (update.has_public_key)
         {
+            persistent_changed =
+                (entry.has_public_key != update.public_key_present) || persistent_changed;
             entry.has_public_key = update.public_key_present;
         }
         if (update.has_key_manually_verified)
         {
+            persistent_changed =
+                (entry.key_manually_verified != update.key_manually_verified) ||
+                persistent_changed;
             entry.key_manually_verified = update.key_manually_verified;
         }
         if (update.has_device_metrics)
         {
+            persistent_changed =
+                !entry.has_device_metrics ||
+                differentMetrics(entry.device_metrics, update.device_metrics) ||
+                persistent_changed;
             entry.has_device_metrics = true;
             entry.device_metrics = update.device_metrics;
         }
         if (update.has_position)
         {
+            persistent_changed =
+                differentPosition(entry, update.position) ||
+                persistent_changed;
             entry.position_valid = update.position.valid;
             entry.position_latitude_i = update.position.latitude_i;
             entry.position_longitude_i = update.position.longitude_i;
@@ -419,6 +490,7 @@ void NodeStoreCore::applyUpdate(uint32_t node_id, const NodeUpdate& update)
             entry.position_vdop = update.position.vdop;
             entry.position_gps_accuracy_mm = update.position.gps_accuracy_mm;
         }
+        return persistent_changed;
     };
 
     for (auto& entry : entries_)
@@ -427,9 +499,11 @@ void NodeStoreCore::applyUpdate(uint32_t node_id, const NodeUpdate& update)
         {
             continue;
         }
-        apply_to_entry(entry);
-        dirty_ = true;
-        maybeSave();
+        if (apply_to_entry(entry))
+        {
+            dirty_ = true;
+            maybeSave();
+        }
         return;
     }
 
@@ -449,7 +523,7 @@ void NodeStoreCore::applyUpdate(uint32_t node_id, const NodeUpdate& update)
     entry.hops_away = 0xFF;
     entry.channel = 0xFF;
     entry.role = kNodeRoleUnknown;
-    apply_to_entry(entry);
+    (void)apply_to_entry(entry);
     entries_.push_back(entry);
     dirty_ = true;
     maybeSave();

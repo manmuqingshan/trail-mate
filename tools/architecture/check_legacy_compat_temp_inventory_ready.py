@@ -43,7 +43,6 @@ REQUIRED_SURFACES = [
     "linux_uconsole_gtk_legacy_source_descriptor",
     "ui_shared compatibility shims",
     "LegacyChatDeliveryActionBridge",
-    "LegacyChatDeliveryEventBridge",
     "LegacyKeyVerificationSource",
     "LegacyKeyVerificationActionSink",
     "LegacyKeyVerificationSession",

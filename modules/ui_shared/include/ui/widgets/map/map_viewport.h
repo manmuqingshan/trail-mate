@@ -117,6 +117,7 @@ class Runtime
     friend const Widgets& widgets(const Runtime& runtime);
     friend void set_size(Runtime& runtime, lv_coord_t width, lv_coord_t height);
     friend void apply_model(Runtime& runtime, const Model& model);
+    friend void apply_model_lightweight(Runtime& runtime, const Model& model);
     friend void apply_overlay(Runtime& runtime, const ui::map::MapOverlaySnapshot& overlay);
     friend void clear(Runtime& runtime);
     friend bool project_point(const Runtime& runtime, const GeoPoint& point, lv_point_t& out_screen_point);
@@ -127,11 +128,12 @@ class Runtime
     friend void set_gesture_callback(Runtime& runtime, GestureCallback callback, void* user_data);
 };
 
-Widgets create(Runtime& runtime, lv_obj_t* parent, uint32_t loader_interval_ms = 200);
+Widgets create(Runtime& runtime, lv_obj_t* parent, uint32_t loader_interval_ms = 50);
 void destroy(Runtime& runtime);
 const Widgets& widgets(const Runtime& runtime);
 void set_size(Runtime& runtime, lv_coord_t width, lv_coord_t height);
 void apply_model(Runtime& runtime, const Model& model);
+void apply_model_lightweight(Runtime& runtime, const Model& model);
 void apply_overlay(Runtime& runtime, const ui::map::MapOverlaySnapshot& overlay);
 void clear(Runtime& runtime);
 bool project_point(const Runtime& runtime, const GeoPoint& point, lv_point_t& out_screen_point);

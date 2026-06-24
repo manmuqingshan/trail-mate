@@ -6,19 +6,19 @@
 
 #include "ui/fonts/fusion_pixel_10_font.h"
 
-namespace ui::mono_128x64
+namespace ui::mono
 {
 
 extern const MonoFont kFusionPixel10Font;
 
-} // namespace ui::mono_128x64
+} // namespace ui::mono
 
 namespace platform::nrf52::ui::fonts
 {
 
-const ::ui::mono_128x64::MonoFont& fusion_pixel_10_font()
+const ::ui::mono::MonoFont& fusion_pixel_10_font()
 {
-    return ::ui::mono_128x64::kFusionPixel10Font;
+    return ::ui::mono::kFusionPixel10Font;
 }
 
 } // namespace platform::nrf52::ui::fonts

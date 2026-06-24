@@ -7,20 +7,12 @@ bool LvglRuntimeAdoptionProbe::load(
     const product_composition::PresentationBundle& presentation)
 {
     ready_ = adoption_.load(presentation);
-    // Phase 9 fallback: hardcoded LVGL menu/page creation remains until the
-    // compatibility runtime consumes screen graph descriptors as primary input.
-    fallback_ = !ready_;
     return ready_;
 }
 
 bool LvglRuntimeAdoptionProbe::ready() const
 {
     return ready_;
-}
-
-bool LvglRuntimeAdoptionProbe::fallbackUsed() const
-{
-    return fallback_;
 }
 
 std::size_t LvglRuntimeAdoptionProbe::menuCount() const

@@ -13,9 +13,9 @@ The following surfaces now have a `MapWorkspaceModel` boundary:
 
 - `ui_presentation/map` defines `MapWorkspaceSnapshot`,
   `IMapPresentationSource`, `IMapActionSink`, and `MapWorkspaceModel`.
-- `LegacyMapPresentationSource` projects GPS self-location, layer state,
+- `RuntimeMapWorkspaceSource` projects GPS self-location, layer state,
   measurement placeholder state, and Team overlay summary.
-- `LegacyMapActionSink` handles center-on-self, viewport, layer, active tool,
+- `RuntimeMapActionSink` handles center-on-self, viewport, layer, active tool,
   and clear-measurement actions.
 - The compact LVGL map runtime consumes `MapWorkspaceModel::snapshot()` for
   self-location focus and routes center-on-self through
@@ -24,7 +24,7 @@ The following surfaces now have a `MapWorkspaceModel` boundary:
   `presentation_workspace` snapshot while preserving its legacy tile/cache
   snapshot.
 - `UConsoleMapWorkspaceModel` no longer includes `platform/ui/gps_runtime.h`
-  directly for its map center fix path; it consumes `LegacyGpsStatusSource`.
+  directly for its map center fix path; it consumes `RuntimeGpsStatusSource`.
 - `trailmate_map_workspace_ascii_probe` renders a headless
   `MapWorkspaceSnapshot` without LVGL, GTK, GPS runtime, tile cache, or Team
   raw store dependencies.

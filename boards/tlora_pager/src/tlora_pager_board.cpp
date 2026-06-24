@@ -18,7 +18,7 @@
 #include "pins_arduino.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/settings_store.h"
-#include "ui/widgets/system_notification.h"
+#include "ui/runtime/ui_feedback.h"
 #include <Preferences.h>
 
 namespace boards::tlora_pager
@@ -77,9 +77,21 @@ static bool s_temp_cold = false;
 static uint32_t s_last_temp_notice_hot_ms = 0;
 static uint32_t s_last_temp_notice_cold_ms = 0;
 
-#ifdef USING_ST25R3916
-#include <rfal_rfst25r3916.h>
-#endif
+template <typename RadioT>
+uint32_t radio_tx_timeout_ms(RadioT& radio, size_t len)
+{
+    const uint64_t air_us = static_cast<uint64_t>(radio.getTimeOnAir(len));
+    uint64_t timeout_ms = 10ULL + ((air_us * 5ULL) + 999ULL) / 1000ULL;
+    if (timeout_ms < 100ULL)
+    {
+        timeout_ms = 100ULL;
+    }
+    if (timeout_ms > 120000ULL)
+    {
+        timeout_ms = 120000ULL;
+    }
+    return static_cast<uint32_t>(timeout_ms);
+}
 
 #ifdef USING_XL9555_EXPANDS
 #define BOSCH_BHI260_KLIO
@@ -117,11 +129,6 @@ static const LilyGoKeyboardConfigure_t keyboardConfig = {
     .char_b_value = 0x19,
     .backspace_value = 0x1D,
     .has_symbol_key = false};
-#endif
-
-#ifdef USING_ST25R3916
-static RfalRfST25R3916Class nfc_hw(&SPI, NFC_CS, NFC_INT);
-static RfalNfcClass NFCReader(&nfc_hw);
 #endif
 
 static QueueHandle_t rotaryMsg;
@@ -206,10 +213,6 @@ TLoRaPagerBoard::TLoRaPagerBoard()
                            // - Portrait orientations (0°, 180°): portrait_offset_y = 49
                            display::drivers::ST7796::getRotationConfig(DISP_WIDTH, DISP_HEIGHT, 49, 49),
                            display::drivers::ST7796::getTransferConfig())
-#ifdef USING_ST25R3916
-      ,
-      nfc(&NFCReader)
-#endif
 {
     devices_probe = 0;
 }
@@ -227,7 +230,6 @@ TLoRaPagerBoard* TLoRaPagerBoard::getInstance()
 void TLoRaPagerBoard::initShareSPIPins()
 {
     const uint8_t share_spi_bus_devices_cs_pins[] = {
-        NFC_CS,
         LORA_CS,
         SD_CS,
         LORA_RST,
@@ -280,28 +282,13 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
     {
         log_d("Battery gauge initialized successfully");
         devices_probe |= HW_GAUGE_ONLINE;
-
-        // Configure battery capacity (mAh) for BQ27220.
-        // Default 1500mAh, but allow overrides from NVS (for production tuning or advanced settings).
-        uint16_t designCapacity = 1500;
-        uint16_t fullChargeCapacity = 1500;
-        uint32_t d = ::platform::ui::settings_store::get_uint("power", "gauge_design_mah", designCapacity);
-        uint32_t f = ::platform::ui::settings_store::get_uint("power", "gauge_full_mah", fullChargeCapacity);
-        if (d > 0 && d <= 10000)
-        {
-            designCapacity = static_cast<uint16_t>(d);
-        }
-        if (f > 0 && f <= 10000)
-        {
-            fullChargeCapacity = static_cast<uint16_t>(f);
-        }
-
-        gauge.setNewCapacity(designCapacity, fullChargeCapacity);
-        log_d("Battery capacity set to design=%umAh full=%umAh", designCapacity, fullChargeCapacity);
+        Serial.printf("[TLoRaPagerBoard::begin] gauge capacity startup profile deferred\n");
     }
 
     // Initialize PMU (BQ25896 power management)
+    Serial.printf("[TLoRaPagerBoard::begin] PMU init begin\n");
     res = initPMU();
+    Serial.printf("[TLoRaPagerBoard::begin] PMU init end ok=%d\n", res ? 1 : 0);
     if (!res)
     {
         log_w("PMU (BQ25896) not found");
@@ -311,12 +298,17 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
         log_d("PMU initialized successfully");
         devices_probe |= HW_PMU_ONLINE;
     }
+    Serial.printf("[TLoRaPagerBoard::begin] PMU settle begin ms=20\n");
+    delay(20);
+    Serial.printf("[TLoRaPagerBoard::begin] PMU settle end\n");
 
     // Initialize GPIO expander (XL9555) - controls power for various peripherals
 #ifdef USING_XL9555_EXPANDS
+    Serial.printf("[TLoRaPagerBoard::begin] expander init begin addr=0x20\n");
     if (io.begin(Wire, 0x20))
     {
         log_d("GPIO expander (XL9555) initialized successfully");
+        Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=1\n");
         devices_probe |= HW_EXPAND_ONLINE;
 
         // Configure GPIO expander pins as outputs and set them HIGH (enable peripherals)
@@ -326,7 +318,6 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
             EXPANDS_GPS_EN,  // GPS enable
             EXPANDS_DRV_EN,  // Haptic driver enable
             EXPANDS_AMP_EN,  // Audio amplifier enable
-            EXPANDS_NFC_EN,  // NFC enable
 #ifdef EXPANDS_GPS_RST
             EXPANDS_GPS_RST, // GPS reset
 #endif
@@ -341,84 +332,139 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
 #endif
         };
 
+        Serial.printf("[TLoRaPagerBoard::begin] expander power rails begin count=%u\n",
+                      static_cast<unsigned>(sizeof(expand_pins) / sizeof(expand_pins[0])));
         for (auto pin : expand_pins)
         {
             io.pinMode(pin, OUTPUT);
             io.digitalWrite(pin, HIGH); // Enable peripheral power
             delay(1);                   // Small delay for power stabilization
         }
+        Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle begin ms=50\n");
+        delay(50);
+        Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle end\n");
+
+        io.pinMode(EXPANDS_UNUSED_SPI_AUX_EN, OUTPUT);
+        io.digitalWrite(EXPANDS_UNUSED_SPI_AUX_EN, LOW);
+        Serial.printf("[TLoRaPagerBoard::begin] unused spi aux rail off pin=%d\n", EXPANDS_UNUSED_SPI_AUX_EN);
 
         // SD card pull-up enable (input pin)
+        Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode begin\n");
         io.pinMode(EXPANDS_SD_PULLEN, INPUT);
+        Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode end\n");
     }
     else
     {
         log_w("GPIO expander (XL9555) initialization failed");
+        Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=0\n");
     }
 #endif
 
     // Initialize sensor (BHI260AP) - optional, can be disabled
     if (!(disable_hw_init & NO_HW_SENSOR))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] sensor init begin\n");
         if (initSensor())
         {
             log_d("Sensor (BHI260AP) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] sensor init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] sensor init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] sensor init skipped\n");
     }
 
     // Initialize backlight driver (AW9364)
+    Serial.printf("[TLoRaPagerBoard::begin] backlight init begin\n");
     backlight.begin(DISP_BL);
     log_d("Backlight driver initialized (pin %d)", DISP_BL);
+    Serial.printf("[TLoRaPagerBoard::begin] backlight init end\n");
 
-    // Initialize shared SPI pins (CS pins for LoRa, NFC, SD)
+    // Initialize shared SPI pins (CS pins for LoRa and SD)
+    Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init begin\n");
     initShareSPIPins();
+    Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init end\n");
 
     // Initialize display (ST7796)
+    Serial.printf("[TLoRaPagerBoard::begin] display bus init begin\n");
     LilyGoDispArduinoSPI::init(DISP_SCK, DISP_MISO, DISP_MOSI, DISP_CS, DISP_RST, DISP_DC, -1);
     log_d("Display (ST7796) initialized: logical=%dx%d raw=%dx%d",
           LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height, DISP_WIDTH, DISP_HEIGHT);
+    Serial.printf("[TLoRaPagerBoard::begin] display bus init end logical=%dx%d raw=%dx%d\n",
+                  LilyGoDispArduinoSPI::_width,
+                  LilyGoDispArduinoSPI::_height,
+                  DISP_WIDTH,
+                  DISP_HEIGHT);
 
-    // Initialize SPI bus for LoRa/SD/NFC (shared SPI bus)
+    // Initialize SPI bus for LoRa/SD (shared SPI bus)
+    Serial.printf("[TLoRaPagerBoard::begin] shared spi bus begin sck=%d miso=%d mosi=%d\n",
+                  LORA_SCK,
+                  LORA_MISO,
+                  LORA_MOSI);
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI);
     log_d("SPI bus initialized (SCK=%d, MISO=%d, MOSI=%d)", LORA_SCK, LORA_MISO, LORA_MOSI);
-
-    // Configure NFC interrupt pin
-    pinMode(NFC_INT, INPUT_PULLUP);
+    Serial.printf("[TLoRaPagerBoard::begin] shared spi bus end\n");
 
     // Initialize RTC (PCF85063) - optional
     if (!(disable_hw_init & NO_HW_RTC))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] rtc init begin\n");
         if (initRTC())
         {
             log_d("RTC (PCF85063) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] rtc init end ok=1\n");
+        }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] rtc init end ok=0\n");
         }
     }
-
-    // Initialize NFC (ST25R3916) - optional
-    if (!(disable_hw_init & NO_HW_NFC))
+    else
     {
-        if (initNFC())
-        {
-            log_d("NFC (ST25R3916) initialized successfully");
-        }
+        Serial.printf("[TLoRaPagerBoard::begin] rtc init skipped\n");
     }
 
     // Initialize keyboard (TCA8418) - optional
     if (!(disable_hw_init & NO_HW_KEYBOARD))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] keyboard init begin\n");
         if (initKeyboard())
         {
             log_d("Keyboard (TCA8418) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] keyboard init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] keyboard init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] keyboard init skipped\n");
     }
 
     // Initialize haptic driver (DRV2605) - optional
     if (!(disable_hw_init & NO_HW_DRV))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] haptic init begin\n");
         if (initDrv())
         {
             log_d("Haptic driver (DRV2605) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] haptic init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] haptic init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] haptic init skipped\n");
     }
 
     // GPS service is initialized by AppContext after configuration is loaded
@@ -426,15 +472,26 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
     // Initialize LoRa radio_ - optional
     if (!(disable_hw_init & NO_HW_LORA))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] lora init begin\n");
         if (initLoRa())
         {
             log_d("LoRa radio_ initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] lora init end ok=1\n");
         }
+        else
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] lora init end ok=0\n");
+        }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] lora init skipped\n");
     }
 
     // Initialize SD card - optional, with retry
     if (!(disable_hw_init & NO_HW_SD))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] sd init begin\n");
         const int max_retries = 2;
         for (int retry = 0; retry < max_retries; retry++)
         {
@@ -442,6 +499,7 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
             {
                 log_d("SD card initialized successfully");
                 devices_probe |= HW_SD_ONLINE;
+                Serial.printf("[TLoRaPagerBoard::begin] sd init end ok=1 retry=%d\n", retry);
                 break;
             }
             else if (retry < max_retries - 1)
@@ -452,19 +510,26 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
             else
             {
                 log_w("SD card not found after %d attempts", max_retries);
+                Serial.printf("[TLoRaPagerBoard::begin] sd init end ok=0 retries=%d\n", max_retries);
             }
         }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] sd init skipped\n");
     }
 
     // Initialize audio codec (ES8311) - optional
 #ifdef USING_AUDIO_CODEC
     if (!(disable_hw_init & NO_HW_CODEC))
     {
+        Serial.printf("[TLoRaPagerBoard::begin] audio codec init begin\n");
         codec.setPins(I2S_MCLK, I2S_SCK, I2S_WS, I2S_SDOUT, I2S_SDIN);
         if (codec.begin(Wire, 0x18, CODEC_TYPE_ES8311))
         {
             devices_probe |= HW_CODEC_ONLINE;
             log_d("Audio codec (ES8311) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] audio codec init end ok=1\n");
 
             // Set power amplifier control callback
             codec.setPaPinCallback([](bool enable, void* user_data)
@@ -474,41 +539,63 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
         else
         {
             log_w("Audio codec (ES8311) not found");
+            Serial.printf("[TLoRaPagerBoard::begin] audio codec init end ok=0\n");
         }
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] audio codec init skipped\n");
     }
 #endif
 
     // Create rotary encoder message queue and task
+    Serial.printf("[TLoRaPagerBoard::begin] rotary runtime init begin\n");
     rotaryMsg = xQueueCreate(5, sizeof(RotaryMsg_t));
     if (rotaryMsg == nullptr)
     {
         log_e("Failed to create rotary encoder message queue");
+        Serial.printf("[TLoRaPagerBoard::begin] rotary queue create ok=0\n");
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] rotary queue create ok=1\n");
     }
 
     rotaryTaskFlag = xEventGroupCreate();
     if (rotaryTaskFlag == nullptr)
     {
         log_e("Failed to create rotary encoder event group");
+        Serial.printf("[TLoRaPagerBoard::begin] rotary event group create ok=0\n");
+    }
+    else
+    {
+        Serial.printf("[TLoRaPagerBoard::begin] rotary event group create ok=1\n");
     }
 
     BaseType_t task_result = xTaskCreate(rotaryTask, "rotary", 2 * 1024, NULL, 10, &rotaryHandler);
     if (task_result != pdPASS)
     {
         log_e("Failed to create rotary encoder task");
+        Serial.printf("[TLoRaPagerBoard::begin] rotary task create ok=0 result=%ld\n", static_cast<long>(task_result));
     }
     else
     {
         log_d("Rotary encoder task created successfully");
+        Serial.printf("[TLoRaPagerBoard::begin] rotary task create ok=1\n");
     }
+    Serial.printf("[TLoRaPagerBoard::begin] rotary runtime init end\n");
 
     // Initialize power button handling
+    Serial.printf("[TLoRaPagerBoard::begin] power button init begin\n");
     if (!initPowerButton())
     {
         log_w("Power button initialization failed");
+        Serial.printf("[TLoRaPagerBoard::begin] power button init end ok=0\n");
     }
     else
     {
         log_d("Power button initialized successfully");
+        Serial.printf("[TLoRaPagerBoard::begin] power button init end ok=1\n");
     }
 
     log_d("Board initialization complete. Hardware online: 0x%08X", devices_probe);
@@ -517,25 +604,11 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
     const char* gps_state =
         (devices_probe & HW_GPS_ONLINE) ? "YES" : ((disable_hw_init & NO_HW_GPS) ? "SKIPPED" : "DEFERRED");
     Serial.printf("[TLoRaPagerBoard::begin] GPS online: %s\n", gps_state);
-    Serial.printf("[TLoRaPagerBoard::begin] NFC online: %s (HW_NFC_ONLINE=0x%08X)\n",
-                  (devices_probe & HW_NFC_ONLINE) ? "YES" : "NO", HW_NFC_ONLINE);
-
     return devices_probe;
 }
 
 void TLoRaPagerBoard::loop()
 {
-    // Process NFC worker if NFC is online
-#ifdef USING_ST25R3916
-    if (devices_probe & HW_NFC_ONLINE)
-    {
-        if (LilyGoDispArduinoSPI::lock(0))
-        { // Try to lock, don't wait
-            NFCReader.rfalNfcWorker();
-            LilyGoDispArduinoSPI::unlock();
-        }
-    }
-#endif
 }
 
 bool TLoRaPagerBoard::initPMU()
@@ -638,41 +711,6 @@ bool TLoRaPagerBoard::initDrv()
     return res;
 }
 
-bool TLoRaPagerBoard::initNFC()
-{
-#ifdef USING_ST25R3916
-    bool res = false;
-    ReturnCode rc = ERR_NONE;
-    log_d("Init NFC");
-
-    // Enable NFC power before initialization
-    powerControl(POWER_NFC, true);
-    delay(10); // Wait for power to stabilize
-
-    // Initialize NFC reader
-    rc = NFCReader.rfalNfcInitialize();
-    res = (rc == ERR_NONE);
-    if (!res)
-    {
-        log_e("Failed to find NFC Reader (rc=%d)", rc);
-        Serial.printf("[TLoRaPagerBoard::initNFC] NFC init failed rc=%d\n", rc);
-        powerControl(POWER_NFC, false);
-    }
-    else
-    {
-        log_d("Initializing NFC Reader succeeded");
-        Serial.printf("[TLoRaPagerBoard::initNFC] NFC init ok\n");
-        devices_probe |= HW_NFC_ONLINE;
-        detachInterrupt(NFC_INT);
-        // Turn off NFC power after initialization (will be enabled when needed)
-        powerControl(POWER_NFC, false);
-    }
-    return res;
-#else
-    return false;
-#endif
-}
-
 bool TLoRaPagerBoard::initKeyboard()
 {
 #ifdef USING_INPUT_DEV_KEYBOARD
@@ -755,6 +793,10 @@ bool TLoRaPagerBoard::initLoRa()
 
 bool TLoRaPagerBoard::installSD()
 {
+    static const int extra_cs_pins[] = {
+        LORA_CS,
+    };
+
     // Check SD card detection pin (if available)
 #ifdef EXPANDS_SD_DET
     if (devices_probe & HW_EXPAND_ONLINE)
@@ -771,10 +813,28 @@ bool TLoRaPagerBoard::installSD()
     // Ensure SPI pins are initialized
     initShareSPIPins();
 
-    uint8_t card_type = CARD_NONE;
+#ifdef EXPANDS_SD_EN
+    if (devices_probe & HW_EXPAND_ONLINE)
+    {
+        sdutil::releaseSdBusDevices(SD_CS, extra_cs_pins,
+                                    sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]));
+        Serial.println("[SD] power cycle begin");
+        powerControl(POWER_SD_CARD, false);
+        delay(120);
+        powerControl(POWER_SD_CARD, true);
+        delay(250);
+        sdutil::releaseSdBusDevices(SD_CS, extra_cs_pins,
+                                    sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]));
+        Serial.println("[SD] power cycle end");
+    }
+#endif
+
+    uint8_t card_type = sdutil::kCardNone;
     uint32_t card_size_mb = 0;
     bool ok = sdutil::installSpiSd(*this, SD_CS, SD_SPI_FREQUENCY, "/sd",
-                                   nullptr, 0, &card_type, &card_size_mb);
+                                   extra_cs_pins,
+                                   sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]),
+                                   &card_type, &card_size_mb);
     if (!ok)
     {
         log_w("SD card initialization failed");
@@ -783,6 +843,26 @@ bool TLoRaPagerBoard::installSD()
     log_d("SD card detected, type=%u size=%lu MB",
           (unsigned)card_type, (unsigned long)card_size_mb);
     return true;
+}
+
+bool TLoRaPagerBoard::ensureSDReady()
+{
+    if (isCardReady())
+    {
+        devices_probe |= HW_SD_ONLINE;
+        return true;
+    }
+
+    const bool ok = installSD();
+    if (ok)
+    {
+        devices_probe |= HW_SD_ONLINE;
+    }
+    else
+    {
+        devices_probe &= ~HW_SD_ONLINE;
+    }
+    return ok;
 }
 
 void TLoRaPagerBoard::uninstallSD()
@@ -832,11 +912,6 @@ void TLoRaPagerBoard::powerControl(PowerCtrlChannel_t ch, bool enable)
     case POWER_GPS:
 #ifdef USING_XL9555_EXPANDS
         io.digitalWrite(EXPANDS_GPS_EN, enable);
-#endif
-        break;
-    case POWER_NFC:
-#ifdef USING_XL9555_EXPANDS
-        io.digitalWrite(EXPANDS_NFC_EN, enable);
 #endif
         break;
     case POWER_SD_CARD:
@@ -1122,102 +1197,6 @@ int TLoRaPagerBoard::getKeyChar(char* c)
     return getKey(c);
 }
 
-#ifdef USING_ST25R3916
-bool TLoRaPagerBoard::startNFCDiscovery(uint16_t techs2Find, uint16_t totalDuration)
-{
-    if (!(devices_probe & HW_NFC_ONLINE))
-    {
-        log_e("NFC not initialized");
-        return false;
-    }
-
-    // Enable NFC power
-    powerControl(POWER_NFC, true);
-    delay(10); // Wait for power to stabilize
-
-    // Reinitialize NFC reader
-    ReturnCode rc = NFCReader.rfalNfcInitialize();
-    if (rc != ERR_NONE)
-    {
-        log_e("Failed to reinitialize NFC");
-        Serial.printf("[TLoRaPagerBoard::startNFCDiscovery] rfalNfcInitialize rc=%d\n", rc);
-        powerControl(POWER_NFC, false);
-        return false;
-    }
-    detachInterrupt(NFC_INT);
-
-    // Setup discovery parameters
-    rfalNfcDiscoverParam discover_params;
-    rfalNfcDefaultDiscParams(&discover_params);
-    discover_params.devLimit = 1;
-    discover_params.techs2Find = techs2Find;
-    discover_params.notifyCb = nullptr; // Can be set by user if needed
-    discover_params.totalDuration = totalDuration;
-
-    if (techs2Find & RFAL_NFC_LISTEN_TECH_A)
-    {
-        static bool nfcid_init = false;
-        static uint8_t nfcid[RFAL_NFCID1_TRIPLE_LEN] = {0};
-        if (!nfcid_init)
-        {
-            nfcid[0] = static_cast<uint8_t>(random(1, 255));
-            nfcid[1] = static_cast<uint8_t>(random(0, 256));
-            nfcid[2] = static_cast<uint8_t>(random(0, 256));
-            nfcid[3] = static_cast<uint8_t>(random(0, 256));
-            nfcid_init = true;
-        }
-        discover_params.lmConfigPA.nfcidLen = RFAL_LM_NFCID_LEN_04;
-        memcpy(discover_params.lmConfigPA.nfcid, nfcid, sizeof(nfcid));
-        discover_params.lmConfigPA.SENS_RES[0] = 0x04;
-        discover_params.lmConfigPA.SENS_RES[1] = 0x00;
-        discover_params.lmConfigPA.SEL_RES = RFAL_NFCA_SEL_RES_CONF_T4T;
-    }
-
-    // Start discovery
-    rc = NFCReader.rfalNfcDiscover(&discover_params);
-    if (rc != ERR_NONE)
-    {
-        log_e("Failed to start NFC discovery");
-        Serial.printf("[TLoRaPagerBoard::startNFCDiscovery] rfalNfcDiscover rc=%d\n", rc);
-        powerControl(POWER_NFC, false);
-        return false;
-    }
-
-    log_d("NFC discovery started");
-    return true;
-}
-
-void TLoRaPagerBoard::stopNFCDiscovery()
-{
-    if (!(devices_probe & HW_NFC_ONLINE))
-    {
-        return;
-    }
-
-    // Deactivate NFC
-    NFCReader.rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
-
-    // Turn off NFC power
-    powerControl(POWER_NFC, false);
-
-    log_d("NFC discovery stopped");
-}
-
-void TLoRaPagerBoard::pollNfcIrq()
-{
-    if (!nfc)
-    {
-        return;
-    }
-    RfalRfClass* rf = nfc->getRfalRf();
-    if (!rf)
-    {
-        return;
-    }
-    static_cast<RfalRfST25R3916Class*>(rf)->st25r3916CheckForReceivedInterrupts();
-}
-#endif
-
 bool TLoRaPagerBoard::initGPS()
 {
     GPS_BOARD_LOG("[TLoRaPagerBoard::initGPS] Starting GPS initialization...\n");
@@ -1303,9 +1282,39 @@ void TLoRaPagerBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t
 
 int TLoRaPagerBoard::transmitRadio(const uint8_t* data, size_t len)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50)))
+    const uint32_t timeout_ms = radio_tx_timeout_ms(radio_, len);
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx"))
     {
-        int rc = radio_.transmit(data, len);
+        int rc = radio_.startTransmit(data, len);
+        LilyGoDispArduinoSPI::unlock();
+        if (rc != RADIOLIB_ERR_NONE)
+        {
+            return rc;
+        }
+    }
+    else
+    {
+        return RADIOLIB_ERR_SPI_WRITE_FAILED;
+    }
+
+    const uint32_t started_ms = millis();
+    while (digitalRead(LORA_IRQ) == LOW)
+    {
+        if (static_cast<uint32_t>(millis() - started_ms) > timeout_ms)
+        {
+            if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
+            {
+                (void)radio_.finishTransmit();
+                LilyGoDispArduinoSPI::unlock();
+            }
+            return RADIOLIB_ERR_TX_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
+    {
+        const int rc = radio_.finishTransmit();
         LilyGoDispArduinoSPI::unlock();
         return rc;
     }
@@ -1314,7 +1323,7 @@ int TLoRaPagerBoard::transmitRadio(const uint8_t* data, size_t len)
 
 int TLoRaPagerBoard::radioStandby()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_cfg"))
     {
         int rc = radio_.standby();
         LilyGoDispArduinoSPI::unlock();
@@ -1325,7 +1334,7 @@ int TLoRaPagerBoard::radioStandby()
 
 int TLoRaPagerBoard::startRadioReceive()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
     {
         int rc = radio_.startReceive();
         LilyGoDispArduinoSPI::unlock();
@@ -1336,7 +1345,7 @@ int TLoRaPagerBoard::startRadioReceive()
 
 uint32_t TLoRaPagerBoard::getRadioIrqFlags()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
     {
         uint32_t flags = radio_.getIrqFlags();
         LilyGoDispArduinoSPI::unlock();
@@ -1347,7 +1356,7 @@ uint32_t TLoRaPagerBoard::getRadioIrqFlags()
 
 int TLoRaPagerBoard::getRadioPacketLength(bool update)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rx"))
     {
         int len = static_cast<int>(radio_.getPacketLength(update));
         LilyGoDispArduinoSPI::unlock();
@@ -1358,7 +1367,7 @@ int TLoRaPagerBoard::getRadioPacketLength(bool update)
 
 int TLoRaPagerBoard::readRadioData(uint8_t* buf, size_t len)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
     {
         int rc = radio_.readData(buf, len);
         LilyGoDispArduinoSPI::unlock();
@@ -1369,7 +1378,7 @@ int TLoRaPagerBoard::readRadioData(uint8_t* buf, size_t len)
 
 void TLoRaPagerBoard::clearRadioIrqFlags(uint32_t flags)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
     {
         radio_.clearIrqFlags(flags);
         LilyGoDispArduinoSPI::unlock();
@@ -1378,7 +1387,7 @@ void TLoRaPagerBoard::clearRadioIrqFlags(uint32_t flags)
 
 float TLoRaPagerBoard::getRadioRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
     {
         float rssi = radio_.getRSSI();
         LilyGoDispArduinoSPI::unlock();
@@ -1389,7 +1398,7 @@ float TLoRaPagerBoard::getRadioRSSI()
 
 float TLoRaPagerBoard::getRadioInstantRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
     {
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
         const float rssi = radio_.getRSSI(false);
@@ -1404,7 +1413,7 @@ float TLoRaPagerBoard::getRadioInstantRSSI()
 
 float TLoRaPagerBoard::getRadioSNR()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
     {
         float snr = radio_.getSNR();
         LilyGoDispArduinoSPI::unlock();
@@ -1422,7 +1431,7 @@ int TLoRaPagerBoard::configureFskRadio(float freq_mhz, float bit_rate_kbps, floa
         return -1;
     }
 
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(200)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(200), "radio_cfg"))
     {
         int rc = radio_.standby();
         if (rc == RADIOLIB_ERR_NONE)
@@ -1457,7 +1466,7 @@ int TLoRaPagerBoard::restoreLoRaRadio()
 {
     CachedLoRaConfig cached = lora_config_;
 
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(200)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(200), "radio_cfg"))
     {
 #if defined(ARDUINO_LILYGO_LORA_LR1121)
         int rc = radio_.begin(cached.valid ? cached.freq_mhz : 434.0f,
@@ -1495,7 +1504,7 @@ int TLoRaPagerBoard::restoreLoRaRadio()
 
 int TLoRaPagerBoard::startRadioTransmit(const uint8_t* data, size_t len)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx"))
     {
         int rc = radio_.startTransmit(const_cast<uint8_t*>(data), len);
         LilyGoDispArduinoSPI::unlock();
@@ -1528,7 +1537,7 @@ void TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t s
     lora_config_.sync_word = sync_word;
     lora_config_.crc_len = crc_len;
 
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100)))
+    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100), "radio_cfg"))
     {
         radio_.setFrequency(freq_mhz);
         radio_.setBandwidth(bw_khz);
@@ -2166,12 +2175,12 @@ int TLoRaPagerBoard::getBatteryLevel()
         const uint32_t now_ms = millis();
         if (s_temp_hot && (now_ms - s_last_temp_notice_hot_ms) > 60000)
         {
-            ::ui::SystemNotification::show("Device hot - limiting brightness", 3000);
+            ::ui::feedback::show_notice("Device hot - limiting brightness", 3000);
             s_last_temp_notice_hot_ms = now_ms;
         }
         if (s_temp_cold && (now_ms - s_last_temp_notice_cold_ms) > 600000)
         {
-            ::ui::SystemNotification::show("Low temp - battery may read wrong", 3000);
+            ::ui::feedback::show_notice("Low temp - battery may read wrong", 3000);
             s_last_temp_notice_cold_ms = now_ms;
         }
     }
@@ -2527,7 +2536,6 @@ void TLoRaPagerBoard::shutdown(bool save_data)
         EXPANDS_GPS_EN,
         EXPANDS_DRV_EN,
         EXPANDS_AMP_EN,
-        EXPANDS_NFC_EN,
 #ifdef EXPANDS_GPS_RST
         EXPANDS_GPS_RST,
 #endif /*EXPANDS_GPS_RST*/
@@ -2592,9 +2600,7 @@ void TLoRaPagerBoard::shutdown(bool save_data)
         ROTARY_B,
         ROTARY_C,
         RTC_INT,
-        NFC_INT,
         SENSOR_INT,
-        NFC_CS,
 #if defined(USING_PDM_MICROPHONE)
         MIC_SCK,
         MIC_DAT,
@@ -2670,7 +2676,7 @@ void TLoRaPagerBoard::softwareShutdown()
     if (isUsbPresent_bestEffort())
     {
         log_w("Cannot shutdown: USB is connected (PMIC will maintain power)");
-        ui::SystemNotification::show("Unplug USB to power off", 3500);
+        ui::feedback::show_notice("Unplug USB to power off", 3500);
         return;
     }
 
@@ -2686,16 +2692,13 @@ void TLoRaPagerBoard::wakeUp()
 
 void TLoRaPagerBoard::enterScreenSleep()
 {
-    // Turn off selected peripheral power to save current; LoRa stays on for mesh.
-    // GPS power is owned by GpsService/HalGps so screen sleep does not desync
-    // the hardware rail from the service's gps_powered_/HW_GPS_ONLINE state.
-    powerControl(POWER_NFC, false);
+    // LoRa stays on for mesh; GPS power is owned by GpsService/HalGps so
+    // screen sleep does not desync the hardware rail from service state.
 }
 
 void TLoRaPagerBoard::exitScreenSleep()
 {
     // Keep GPS power ownership in the GPS service path for consistent state.
-    powerControl(POWER_NFC, true);
 }
 
 void TLoRaPagerBoard::setPowerTier(int tier)

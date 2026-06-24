@@ -2,6 +2,7 @@
 
 #include "hostlink/c6/c6_frame_codec.h"
 #include "hostlink/c6/c6_protocol.h"
+#include "platform/ui/settings_store.h"
 
 #include <algorithm>
 #include <array>
@@ -9,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <string>
 #include <vector>
 
 #if defined(ESP_PLATFORM)
@@ -50,6 +52,11 @@ constexpr uint32_t kRequestedFeatures = TM_C6_FEATURE_BLE_MESHTASTIC |
                                         TM_C6_FEATURE_DIAG_LOG |
                                         TM_C6_FEATURE_HOSTLINK_PING;
 constexpr uint32_t kDefaultConfigSequence = 1;
+constexpr const char* kSettingsNamespace = "c6_companion";
+constexpr const char* kSharedSettingsNamespace = "settings";
+constexpr const char* kWifiEnabledKey = "wifi_enabled";
+constexpr const char* kWifiSsidKey = "wifi_ssid";
+constexpr const char* kWifiPasswordKey = "wifi_password";
 
 bool board_has_c6_companion()
 {
@@ -88,11 +95,213 @@ void write_le32(uint8_t* data, uint32_t value)
     data[3] = static_cast<uint8_t>((value >> 24) & 0xFFu);
 }
 
+uint8_t bool_byte(bool value)
+{
+    return value ? 1u : 0u;
+}
+
+template <size_t N>
+void copy_text(char (&out)[N], const char* text)
+{
+    std::snprintf(out, N, "%s", text ? text : "");
+}
+
+template <size_t N>
+void copy_text(char (&out)[N], const std::string& text)
+{
+    copy_text(out, text.c_str());
+}
+
 void set_detail(C6CompanionStatus& status, CompanionState state, const char* detail)
 {
     status.present = state == CompanionState::Present;
     status.state = state;
     status.detail = detail;
+}
+
+BleCompanionConfig load_ble_config_from_p4_settings()
+{
+    BleCompanionConfig config{};
+#if defined(ESP_PLATFORM)
+    config.enabled = ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_enabled", config.enabled);
+    config.meshtastic_enabled =
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_meshtastic", config.meshtastic_enabled);
+    config.meshcore_enabled =
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_meshcore", config.meshcore_enabled);
+    config.trailmate_enabled =
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_trailmate", config.trailmate_enabled);
+    config.fixed_pin_enabled =
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_fixed_pin_enabled", config.fixed_pin_enabled);
+
+    const int pairing_mode = ::platform::ui::settings_store::get_int(
+        kSettingsNamespace,
+        "ble_pairing_mode",
+        static_cast<int>(config.pairing_mode));
+    if (pairing_mode >= static_cast<int>(PairingMode::Disabled) &&
+        pairing_mode <= static_cast<int>(PairingMode::NoPinDebugOnly))
+    {
+        config.pairing_mode = static_cast<PairingMode>(pairing_mode);
+    }
+
+    const int mtu = ::platform::ui::settings_store::get_int(
+        kSettingsNamespace,
+        "ble_preferred_mtu",
+        static_cast<int>(config.preferred_mtu));
+    if (mtu > 0 && mtu <= static_cast<int>(TM_C6_MAX_PAYLOAD))
+    {
+        config.preferred_mtu = static_cast<uint16_t>(mtu);
+    }
+
+    std::string value;
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "ble_fixed_pin", value))
+    {
+        copy_text(config.fixed_pin, value);
+    }
+    value.clear();
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "ble_device_name", value))
+    {
+        copy_text(config.device_name, value);
+    }
+#endif
+    return config;
+}
+
+EspNowCompanionConfig load_espnow_config_from_p4_settings()
+{
+    EspNowCompanionConfig config{};
+#if defined(ESP_PLATFORM)
+    config.enabled = ::platform::ui::settings_store::get_bool(kSettingsNamespace, "espnow_enabled", config.enabled);
+    config.team_discovery_enabled = ::platform::ui::settings_store::get_bool(
+        kSettingsNamespace,
+        "espnow_team_discovery",
+        config.team_discovery_enabled);
+    const int channel = ::platform::ui::settings_store::get_int(kSettingsNamespace, "espnow_channel", config.channel);
+    if (channel >= 0 && channel <= 14)
+    {
+        config.channel = static_cast<uint8_t>(channel);
+    }
+    const int beacon_interval = ::platform::ui::settings_store::get_int(
+        kSettingsNamespace,
+        "espnow_beacon_interval_ms",
+        static_cast<int>(config.beacon_interval_ms));
+    if (beacon_interval > 0 && beacon_interval <= 60000)
+    {
+        config.beacon_interval_ms = static_cast<uint16_t>(beacon_interval);
+    }
+#endif
+    return config;
+}
+
+WifiCompanionConfig load_wifi_config_from_p4_settings()
+{
+    WifiCompanionConfig config{};
+#if defined(ESP_PLATFORM)
+    config.enabled =
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_enabled", config.enabled);
+    config.sta_enabled =
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_sta_enabled", config.enabled);
+    config.ap_enabled =
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_ap_enabled", config.ap_enabled);
+    config.persist_credentials =
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_persist_credentials", false);
+
+    std::string value;
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_sta_ssid", value) ||
+        ::platform::ui::settings_store::get_string(kSharedSettingsNamespace, kWifiSsidKey, value))
+    {
+        copy_text(config.sta_ssid, value);
+    }
+    value.clear();
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_sta_password", value) ||
+        ::platform::ui::settings_store::get_string(kSharedSettingsNamespace, kWifiPasswordKey, value))
+    {
+        copy_text(config.sta_password, value);
+    }
+    value.clear();
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_ap_ssid", value))
+    {
+        copy_text(config.ap_ssid, value);
+    }
+    value.clear();
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_ap_password", value))
+    {
+        copy_text(config.ap_password, value);
+    }
+
+    const bool shared_wifi_enabled =
+        ::platform::ui::settings_store::get_bool(kSharedSettingsNamespace, kWifiEnabledKey, false);
+    if (shared_wifi_enabled && config.sta_ssid[0] != '\0')
+    {
+        config.enabled = true;
+        config.sta_enabled = true;
+    }
+
+    const int sta_channel = ::platform::ui::settings_store::get_int(kSettingsNamespace, "wifi_sta_channel", 0);
+    if (sta_channel >= 0 && sta_channel <= 14)
+    {
+        config.sta_channel = static_cast<uint8_t>(sta_channel);
+    }
+    const int ap_channel = ::platform::ui::settings_store::get_int(kSettingsNamespace, "wifi_ap_channel", config.ap_channel);
+    if (ap_channel > 0 && ap_channel <= 14)
+    {
+        config.ap_channel = static_cast<uint8_t>(ap_channel);
+    }
+#endif
+    return config;
+}
+
+uint32_t requested_features_for(const BleCompanionConfig& ble,
+                                const EspNowCompanionConfig& espnow,
+                                const WifiCompanionConfig& wifi)
+{
+    uint32_t features = TM_C6_FEATURE_DIAG_LOG | TM_C6_FEATURE_HOSTLINK_PING;
+    if (ble.enabled)
+    {
+        if (ble.meshtastic_enabled)
+        {
+            features |= TM_C6_FEATURE_BLE_MESHTASTIC;
+        }
+        if (ble.meshcore_enabled)
+        {
+            features |= TM_C6_FEATURE_BLE_MESHCORE;
+        }
+        if (ble.trailmate_enabled)
+        {
+            features |= TM_C6_FEATURE_BLE_TRAILMATE;
+        }
+    }
+    if (espnow.enabled)
+    {
+        features |= TM_C6_FEATURE_ESPNOW_TEAM;
+    }
+    if (wifi.enabled)
+    {
+        if (wifi.sta_enabled)
+        {
+            features |= TM_C6_FEATURE_WIFI_STA;
+        }
+        if (wifi.ap_enabled)
+        {
+            features |= TM_C6_FEATURE_WIFI_AP;
+        }
+    }
+    return features & kRequestedFeatures;
+}
+
+uint8_t channel_for_ble_profile(BleProfile profile)
+{
+    switch (profile)
+    {
+    case BleProfile::Meshtastic:
+        return TM_C6_CH_BLE_MESHTASTIC;
+    case BleProfile::MeshCore:
+        return TM_C6_CH_BLE_MESHCORE;
+    case BleProfile::TrailMate:
+        return TM_C6_CH_BLE_TRAILMATE;
+    case BleProfile::None:
+        break;
+    }
+    return TM_C6_CH_CONTROL;
 }
 
 #if defined(ESP_PLATFORM)
@@ -486,6 +695,22 @@ class C6CompanionRuntime final : public WirelessCompanion
         status_.ble_state = 0;
         status_.espnow_state = 0;
         status_.wifi_state = 0;
+        status_.ble_uplink_count = 0;
+        status_.ble_event_count = 0;
+        status_.espnow_uplink_count = 0;
+        status_.espnow_event_count = 0;
+        status_.wifi_event_count = 0;
+        status_.wifi_connected = false;
+        status_.wifi_scanning = false;
+        status_.wifi_error = TM_C6_OK;
+        status_.wifi_ipv4_addr = 0;
+        status_.wifi_scan_result_count = 0;
+        status_.wifi_ssid[0] = '\0';
+        for (auto& result : status_.wifi_scan_results)
+        {
+            result = WifiScanResult{};
+        }
+        load_p4_settings();
 
         if (!status_.board_capable)
         {
@@ -507,7 +732,7 @@ class C6CompanionRuntime final : public WirelessCompanion
                  TM_C6_PROTO_MIN,
                  TM_C6_PROTO_MAX,
                  (unsigned long)TM_C6_P4_FIRMWARE_VERSION_UNKNOWN,
-                 (unsigned long)kRequestedFeatures,
+                 (unsigned long)requested_features_for(ble_config_, espnow_config_, wifi_config_),
                  TM_C6_MAX_PAYLOAD,
                  TM_C6_MAX_PAYLOAD,
                  kInitialSequence);
@@ -540,6 +765,105 @@ class C6CompanionRuntime final : public WirelessCompanion
             copy.detail = "not_started";
         }
         return copy;
+    }
+
+    bool configureBle(const BleCompanionConfig& config) override
+    {
+        ble_config_ = config;
+        return send_config_if_ready();
+    }
+
+    bool configureEspNow(const EspNowCompanionConfig& config) override
+    {
+        espnow_config_ = config;
+        return send_config_if_ready();
+    }
+
+    bool configureWifi(const WifiCompanionConfig& config) override
+    {
+        wifi_config_ = config;
+        return send_config_if_ready();
+    }
+
+    bool sendBleDownlink(BleProfile profile, const uint8_t* data, size_t len) override
+    {
+        if (!status_.present || profile == BleProfile::None ||
+            (data == nullptr && len != 0) ||
+            len > TM_C6_MAX_PAYLOAD - sizeof(tm_c6_ble_packet_header_t))
+        {
+            return false;
+        }
+
+        std::array<uint8_t, TM_C6_MAX_PAYLOAD> payload{};
+        tm_c6_ble_packet_header_t header{};
+        header.profile = static_cast<uint8_t>(profile);
+        header.connection_id = 0;
+        header.payload_len = static_cast<uint16_t>(len);
+        std::memcpy(payload.data(), &header, sizeof(header));
+        if (len > 0)
+        {
+            std::memcpy(payload.data() + sizeof(header), data, len);
+        }
+
+        return send_frame(TM_C6_FRAME_BLE_DOWNLINK,
+                          channel_for_ble_profile(profile),
+                          TM_C6_FLAG_ACK_REQUIRED,
+                          0,
+                          payload.data(),
+                          sizeof(header) + len);
+    }
+
+    bool sendEspNow(const EspNowPacket& packet) override
+    {
+        if (!status_.present || packet.payload_len > TM_C6_ESPNOW_PAYLOAD_MAX)
+        {
+            return false;
+        }
+
+        tm_c6_espnow_packet_t wire{};
+        std::memcpy(wire.peer_mac, packet.peer_mac, sizeof(wire.peer_mac));
+        wire.rssi_valid = bool_byte(packet.rssi_valid);
+        wire.rssi = packet.rssi;
+        wire.channel = packet.channel;
+        wire.payload_len = packet.payload_len;
+        if (packet.payload_len > 0)
+        {
+            std::memcpy(wire.payload, packet.payload, packet.payload_len);
+        }
+
+        return send_frame(TM_C6_FRAME_ESPNOW_DOWNLINK,
+                          TM_C6_CH_ESPNOW_TEAM,
+                          TM_C6_FLAG_ACK_REQUIRED,
+                          0,
+                          reinterpret_cast<const uint8_t*>(&wire),
+                          sizeof(wire));
+    }
+
+    bool sendWifiControl(const WifiControl& control) override
+    {
+        if (!status_.present)
+        {
+            return false;
+        }
+
+        tm_c6_wifi_control_t wire{};
+        wire.command = static_cast<uint8_t>(control.command);
+        wire.flags = control.flags;
+        copy_text(wire.ssid, control.ssid);
+        copy_text(wire.password, control.password);
+        wire.channel = control.channel;
+
+        if (control.command == WifiCommand::Scan)
+        {
+            status_.wifi_scanning = true;
+        }
+
+        return send_frame(TM_C6_FRAME_WIFI_CONTROL,
+                          TM_C6_CH_WIFI_MGMT,
+                          TM_C6_FLAG_ACK_REQUIRED,
+                          0,
+                          reinterpret_cast<const uint8_t*>(&wire),
+                          sizeof(wire));
     }
 
     void poll() override
@@ -659,10 +983,11 @@ class C6CompanionRuntime final : public WirelessCompanion
     bool send_hello()
     {
         uint8_t payload[sizeof(tm_c6_hello_t)] = {};
+        const uint32_t requested_features = requested_features_for(ble_config_, espnow_config_, wifi_config_);
         write_le16(payload, TM_C6_PROTO_MIN);
         write_le16(payload + 2, TM_C6_PROTO_MAX);
         write_le32(payload + 4, TM_C6_P4_FIRMWARE_VERSION_UNKNOWN);
-        write_le32(payload + 8, kRequestedFeatures);
+        write_le32(payload + 8, requested_features);
         write_le16(payload + 12, TM_C6_MAX_PAYLOAD);
         write_le16(payload + 14, TM_C6_MAX_PAYLOAD);
         return send_frame(TM_C6_FRAME_HELLO,
@@ -741,42 +1066,58 @@ class C6CompanionRuntime final : public WirelessCompanion
         return true;
     }
 
-    tm_c6_companion_config_t default_config() const
+    void load_p4_settings()
+    {
+        ble_config_ = load_ble_config_from_p4_settings();
+        espnow_config_ = load_espnow_config_from_p4_settings();
+        wifi_config_ = load_wifi_config_from_p4_settings();
+    }
+
+    tm_c6_companion_config_t build_config(uint32_t config_seq) const
     {
         tm_c6_companion_config_t config{};
-        config.config_seq = kDefaultConfigSequence;
-        config.requested_features = kRequestedFeatures;
+        config.config_seq = config_seq;
+        config.requested_features = requested_features_for(ble_config_, espnow_config_, wifi_config_);
 
-        config.ble.ble_enabled = 1;
-        config.ble.meshtastic_enabled = 1;
-        config.ble.meshcore_enabled = 1;
-        config.ble.trailmate_enabled = 1;
-        config.ble.pairing_mode = TM_C6_PAIRING_FIXED_PIN;
-        config.ble.fixed_pin_enabled = 1;
-        std::memcpy(config.ble.fixed_pin, "123456", 6);
-        std::memcpy(config.ble.device_name, "TrailMate-C6", 11);
-        config.ble.preferred_mtu = 247;
+        config.ble.ble_enabled = bool_byte(ble_config_.enabled);
+        config.ble.meshtastic_enabled = bool_byte(ble_config_.meshtastic_enabled);
+        config.ble.meshcore_enabled = bool_byte(ble_config_.meshcore_enabled);
+        config.ble.trailmate_enabled = bool_byte(ble_config_.trailmate_enabled);
+        config.ble.pairing_mode = static_cast<uint8_t>(ble_config_.pairing_mode);
+        config.ble.fixed_pin_enabled = bool_byte(ble_config_.fixed_pin_enabled);
+        copy_text(config.ble.fixed_pin, ble_config_.fixed_pin);
+        copy_text(config.ble.device_name, ble_config_.device_name);
+        config.ble.preferred_mtu = ble_config_.preferred_mtu;
 
-        config.espnow.espnow_enabled = 1;
-        config.espnow.team_discovery_enabled = 1;
-        config.espnow.channel = 0;
-        config.espnow.beacon_interval_ms = 1000;
-        std::fill(std::begin(config.espnow.broadcast_mac),
-                  std::end(config.espnow.broadcast_mac),
-                  static_cast<uint8_t>(0xFF));
+        config.espnow.espnow_enabled = bool_byte(espnow_config_.enabled);
+        config.espnow.team_discovery_enabled = bool_byte(espnow_config_.team_discovery_enabled);
+        config.espnow.channel = espnow_config_.channel;
+        config.espnow.beacon_interval_ms = espnow_config_.beacon_interval_ms;
+        std::memcpy(config.espnow.broadcast_mac,
+                    espnow_config_.broadcast_mac,
+                    sizeof(config.espnow.broadcast_mac));
 
-        config.wifi.wifi_enabled = 0;
-        config.wifi.sta_enabled = 0;
-        config.wifi.ap_enabled = 0;
-        config.wifi.persist_credentials = 0;
-        std::memcpy(config.wifi.ap_ssid, "TrailMate-C6", 11);
-        config.wifi.ap_channel = 1;
+        config.wifi.wifi_enabled = bool_byte(wifi_config_.enabled);
+        config.wifi.sta_enabled = bool_byte(wifi_config_.sta_enabled);
+        config.wifi.ap_enabled = bool_byte(wifi_config_.ap_enabled);
+        config.wifi.persist_credentials = bool_byte(wifi_config_.persist_credentials);
+        copy_text(config.wifi.sta_ssid, wifi_config_.sta_ssid);
+        copy_text(config.wifi.sta_password, wifi_config_.sta_password);
+        copy_text(config.wifi.ap_ssid, wifi_config_.ap_ssid);
+        copy_text(config.wifi.ap_password, wifi_config_.ap_password);
+        config.wifi.sta_channel = wifi_config_.sta_channel;
+        config.wifi.ap_channel = wifi_config_.ap_channel;
         return config;
     }
 
     bool send_config_set()
     {
-        const tm_c6_companion_config_t config = default_config();
+        const uint32_t config_seq = next_config_seq_++;
+        if (next_config_seq_ == 0)
+        {
+            next_config_seq_ = kDefaultConfigSequence;
+        }
+        const tm_c6_companion_config_t config = build_config(config_seq);
         status_.config_seq = config.config_seq;
         return send_frame(TM_C6_FRAME_CONFIG_SET,
                           TM_C6_CH_CONTROL,
@@ -784,6 +1125,20 @@ class C6CompanionRuntime final : public WirelessCompanion
                           0,
                           reinterpret_cast<const uint8_t*>(&config),
                           sizeof(config));
+    }
+
+    bool send_config_if_ready()
+    {
+        if (!status_.started || !status_.present)
+        {
+            return false;
+        }
+        if (!send_config_set())
+        {
+            return false;
+        }
+        hostlink::c6::Frame frame{};
+        return receive_frame(frame, kHandshakeTimeoutMs) && handle_config_report(frame);
     }
 
     bool handle_config_report(const hostlink::c6::Frame& frame)
@@ -830,6 +1185,7 @@ class C6CompanionRuntime final : public WirelessCompanion
             std::memcpy(&report, frame.payload.data(), sizeof(report));
             status_.free_heap = report.free_heap;
             status_.enabled_features = report.enabled_features;
+            status_.config_error = report.last_error_code;
             return;
         }
         if (frame.frame_type == TM_C6_FRAME_ERROR &&
@@ -838,6 +1194,98 @@ class C6CompanionRuntime final : public WirelessCompanion
             const auto* error = reinterpret_cast<const tm_c6_error_t*>(frame.payload.data());
             status_.config_error = error->error_code;
             set_detail(status_, CompanionState::Error, "c6_error_frame");
+            return;
+        }
+        if (frame.frame_type == TM_C6_FRAME_BLE_UPLINK &&
+            frame.payload.size() >= sizeof(tm_c6_ble_packet_header_t))
+        {
+            tm_c6_ble_packet_header_t header{};
+            std::memcpy(&header, frame.payload.data(), sizeof(header));
+            if (header.payload_len == frame.payload.size() - sizeof(header))
+            {
+                ++status_.ble_uplink_count;
+#if defined(ESP_PLATFORM)
+                ESP_LOGI(kTag,
+                         "C6 BLE uplink profile=%u channel=%u len=%u pending_business_router",
+                         static_cast<unsigned>(header.profile),
+                         static_cast<unsigned>(frame.channel),
+                         static_cast<unsigned>(header.payload_len));
+#endif
+            }
+            return;
+        }
+        if (frame.frame_type == TM_C6_FRAME_BLE_EVENT &&
+            frame.payload.size() == sizeof(tm_c6_ble_event_t))
+        {
+            ++status_.ble_event_count;
+            return;
+        }
+        if (frame.frame_type == TM_C6_FRAME_ESPNOW_UPLINK &&
+            frame.payload.size() == sizeof(tm_c6_espnow_packet_t))
+        {
+            ++status_.espnow_uplink_count;
+#if defined(ESP_PLATFORM)
+            const auto* packet = reinterpret_cast<const tm_c6_espnow_packet_t*>(frame.payload.data());
+            ESP_LOGI(kTag,
+                     "C6 ESP-NOW uplink channel=%u len=%u rssi_valid=%u pending_team_router",
+                     static_cast<unsigned>(packet->channel),
+                     static_cast<unsigned>(packet->payload_len),
+                     static_cast<unsigned>(packet->rssi_valid));
+#endif
+            return;
+        }
+        if (frame.frame_type == TM_C6_FRAME_ESPNOW_EVENT &&
+            frame.payload.size() == sizeof(tm_c6_espnow_event_t))
+        {
+            ++status_.espnow_event_count;
+            return;
+        }
+        if (frame.frame_type == TM_C6_FRAME_WIFI_EVENT &&
+            frame.payload.size() == sizeof(tm_c6_wifi_event_t))
+        {
+            ++status_.wifi_event_count;
+            tm_c6_wifi_event_t event{};
+            std::memcpy(&event, frame.payload.data(), sizeof(event));
+            status_.wifi_error = event.error_code;
+            copy_text(status_.wifi_ssid, event.ssid);
+            status_.wifi_ipv4_addr = event.ipv4_addr;
+            switch (event.event_kind)
+            {
+            case TM_C6_WIFI_EVENT_SCAN_DONE:
+                status_.wifi_scanning = false;
+                status_.wifi_scan_result_count = event.result_count <= 6 ? event.result_count : 6;
+                for (uint8_t i = 0; i < status_.wifi_scan_result_count; ++i)
+                {
+                    copy_text(status_.wifi_scan_results[i].ssid, event.results[i].ssid);
+                    status_.wifi_scan_results[i].rssi = event.results[i].rssi;
+                    status_.wifi_scan_results[i].channel = event.results[i].channel;
+                    status_.wifi_scan_results[i].authmode = event.results[i].authmode;
+                }
+                break;
+            case TM_C6_WIFI_EVENT_STA_CONNECTED:
+            case TM_C6_WIFI_EVENT_STA_GOT_IP:
+                status_.wifi_connected = true;
+                status_.wifi_scanning = false;
+                break;
+            case TM_C6_WIFI_EVENT_STA_DISCONNECTED:
+            case TM_C6_WIFI_EVENT_STOPPED:
+                status_.wifi_connected = false;
+                status_.wifi_scanning = false;
+                break;
+            case TM_C6_WIFI_EVENT_ERROR:
+                status_.wifi_scanning = false;
+                break;
+            default:
+                break;
+            }
+            return;
+        }
+        if (frame.frame_type == TM_C6_FRAME_LOG)
+        {
+#if defined(ESP_PLATFORM)
+            const std::string message(frame.payload.begin(), frame.payload.end());
+            ESP_LOGI(kTag, "C6 log: %s", message.c_str());
+#endif
         }
     }
 
@@ -918,6 +1366,10 @@ class C6CompanionRuntime final : public WirelessCompanion
 
     C6CompanionStatus status_{};
     uint16_t next_seq_ = kInitialSequence;
+    uint32_t next_config_seq_ = kDefaultConfigSequence;
+    BleCompanionConfig ble_config_{};
+    EspNowCompanionConfig espnow_config_{};
+    WifiCompanionConfig wifi_config_{};
 #if defined(ESP_PLATFORM)
     std::unique_ptr<C6Transport> transport_;
 #endif

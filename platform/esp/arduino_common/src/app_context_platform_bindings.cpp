@@ -2,7 +2,6 @@
 #include "platform/esp/arduino_common/app_config_store.h"
 
 #include <Arduino.h>
-#include <SD.h>
 
 #include "app/app_facades.h"
 #include "board/GpsBoard.h"
@@ -14,7 +13,7 @@
 #include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
 #include "platform/esp/arduino_common/chat/infra/meshtastic/node_store.h"
 #include "platform/esp/arduino_common/chat/infra/protocol_factory.h"
-#include "platform/esp/arduino_common/chat/infra/store/log_store.h"
+#include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
 #include "platform/esp/arduino_common/device_identity.h"
 #include "platform/esp/arduino_common/gps/gps_service.h"
 #include "platform/esp/arduino_common/gps/track_recorder.h"
@@ -113,19 +112,20 @@ void set_team_mode_active(bool active)
 
 std::unique_ptr<chat::IChatStore> create_chat_store()
 {
-    const bool sd_available =
-        ::platform::esp::arduino_common::storage::sd_card_uses_arduino_sd();
-    if (sd_available)
+    if (::platform::esp::arduino_common::storage::sd_card_ready())
     {
-        auto log_store = std::unique_ptr<chat::LogStore>(new chat::LogStore());
-        if (log_store->begin(SD))
+        std::unique_ptr<chat::SdStore> sd_store(new chat::SdStore());
+        if (sd_store && sd_store->isReady())
         {
-            Serial.printf("[AppContext] chat store=LogStore (SD)\n");
-            return log_store;
+            Serial.printf("[AppContext] chat store=SdStore backend=%s layout=/chat/index.bin+/chat/*.log\n",
+                          ::platform::esp::arduino_common::storage::sd_card_backend_name());
+            return std::unique_ptr<chat::IChatStore>(sd_store.release());
         }
+        Serial.printf("[AppContext] chat store=RamStore reason=sd_store_unavailable\n");
+        return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
     }
 
-    Serial.printf("[AppContext] chat store=RamStore\n");
+    Serial.printf("[AppContext] chat store=RamStore reason=sd_not_ready\n");
     return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
 }
 

@@ -11,7 +11,7 @@
 #define HW_PSRAM_ONLINE (_BV(5))
 #define HW_GPS_ONLINE (_BV(6))
 #define HW_SD_ONLINE (_BV(7))
-#define HW_NFC_ONLINE (_BV(8))
+#define HW_RESERVED_8 (_BV(8))
 #define HW_BHI260AP_ONLINE (_BV(9))
 #define HW_KEYBOARD_ONLINE (_BV(10))
 #define HW_GAUGE_ONLINE (_BV(11))
@@ -24,7 +24,7 @@
 #define NO_SCAN_I2C_DEV (_BV(2))
 #define NO_HW_TOUCH (_BV(3))
 #define NO_HW_SENSOR (_BV(4))
-#define NO_HW_NFC (_BV(5))
+#define NO_HW_RESERVED_5 (_BV(5))
 #define NO_HW_DRV (_BV(6))
 #define NO_HW_GPS (_BV(7))
 #define NO_HW_SD (_BV(8))
@@ -50,7 +50,6 @@ typedef enum PowerCtrlChannel
     POWER_RADIO,
     POWER_HAPTIC_DRIVER,
     POWER_GPS,
-    POWER_NFC,
     POWER_SD_CARD,
     POWER_SPEAK,
     POWER_SENSOR,

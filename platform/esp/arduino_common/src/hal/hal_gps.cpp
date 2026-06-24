@@ -7,6 +7,11 @@
 namespace hal
 {
 
+namespace
+{
+constexpr uint32_t kFreshFixMaxAgeMs = 15000;
+}
+
 void HalGps::begin(GpsBoard& board)
 {
     board_ = &board;
@@ -66,7 +71,12 @@ uint32_t HalGps::lastLoopReadBytes() const
 
 bool HalGps::hasFix() const
 {
-    return board_ != nullptr && board_->getGPS().location.isValid();
+    if (board_ == nullptr)
+    {
+        return false;
+    }
+    const auto& location = board_->getGPS().location;
+    return location.isValid() && location.age() <= kFreshFixMaxAgeMs;
 }
 
 double HalGps::latitude() const

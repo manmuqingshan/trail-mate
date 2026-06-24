@@ -8,6 +8,8 @@
 #include "chat/domain/contact_types.h"
 #include "chat/infra/meshcore/meshcore_payload_helpers.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
+#include "chat/runtime/meshcore_direct_route_policy.h"
+#include "chat/runtime/meshcore_direct_secret_core.h"
 #include "chat/time_utils.h"
 #include "mesh/protocol/meshcore/meshcore_protocol_strategy.h"
 #include "platform/esp/arduino_common/app_tasks.h"
@@ -24,6 +26,8 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <type_traits>
+#include <variant>
 #include <vector>
 
 namespace chat
@@ -49,11 +53,9 @@ constexpr uint8_t kPayloadTypeDirectData = kPayloadTypeAnonReq;
 constexpr uint8_t kPayloadTypeAck = 0x03;
 constexpr uint8_t kPayloadTypeAdvert = 0x04;
 constexpr uint8_t kPayloadTypePath = 0x08;
-constexpr uint8_t kPayloadTypeTrace = 0x09;
+constexpr uint8_t kPayloadTypeTrace = chat::meshcore::kMeshCorePayloadTypeTrace;
 constexpr uint8_t kPayloadTypeMultipart = 0x0A;
-constexpr uint8_t kPayloadTypeControl = 0x0B;
-constexpr uint8_t kPayloadVer1 = 0x00;
-constexpr size_t kMeshcorePathHashSize = 1;
+constexpr uint8_t kPayloadTypeControl = chat::meshcore::kMeshCorePayloadTypeControl;
 constexpr size_t kMeshcoreMaxPathSize = 64;
 constexpr size_t kMeshcoreMaxFrameSize = 255;
 constexpr size_t kMeshcoreMaxPayloadSize = 184;
@@ -68,7 +70,6 @@ constexpr uint32_t kAckDelayMs = 120;
 constexpr uint32_t kAckSpacingMs = 300;
 constexpr uint32_t kDiscoverRxGuardMs = 5000;
 constexpr size_t kCipherBlockSize = 16;
-constexpr size_t kCipherMacSize = 2;
 constexpr size_t kCipherKeySize = 16;
 constexpr size_t kCipherHmacKeySize = 32;
 constexpr size_t kGroupPlainPrefixSize = 5;
@@ -78,7 +79,6 @@ constexpr uint32_t kPathResponseDelayMs = 300;
 constexpr uint32_t kPathReciprocalDelayMs = 500;
 constexpr NodeId kSyntheticNodePrefix = 0x4D430000UL;
 constexpr uint32_t kAppAckTimeoutMs = 15000;
-constexpr size_t kMaxPendingAppAcks = 32;
 constexpr uint32_t kKeyVerifySessionTtlMs = 60000;
 constexpr uint32_t kSendTimeoutBaseMs = 500;
 constexpr float kFloodSendTimeoutFactor = 16.0f;
@@ -94,32 +94,19 @@ constexpr uint8_t kGroupDataMagic1 = 0x44; // 'D'
 constexpr uint8_t kLoraSyncWordPrivate = 0x12;
 constexpr uint8_t kControlMagic0 = 0x54; // 'T'
 constexpr uint8_t kControlMagic1 = 0x4D; // 'M'
-constexpr uint8_t kControlKindNodeInfo = 0x01;
 constexpr uint8_t kControlKindKeyVerify = 0x02;
-constexpr uint8_t kNodeInfoTypeQuery = 0x01;
-constexpr uint8_t kNodeInfoTypeInfo = 0x02;
-constexpr uint8_t kNodeInfoFlagRequestReply = 0x01;
-constexpr uint8_t kControlSubtypeDiscoverReq = 0x80;
-constexpr uint8_t kControlSubtypeDiscoverResp = 0x90;
-constexpr uint8_t kControlSubtypeMask = 0xF0;
-constexpr uint8_t kDiscoverPrefixOnlyMask = 0x01;
 constexpr uint8_t kKeyVerifyTypeInit = 0x01;
 constexpr uint8_t kKeyVerifyTypeReady = 0x02;
 constexpr uint8_t kKeyVerifyTypeFinal = 0x03;
-constexpr uint32_t kNodeInfoPortnum = 4;
 constexpr uint32_t kKeyVerifyPortnum = 12;
-constexpr size_t kNodeInfoShortNameFieldSize = 10;
-constexpr size_t kNodeInfoLongNameFieldSize = 32;
 constexpr uint8_t kAdvertTypeNone = 0x00;
 constexpr uint8_t kAdvertTypeChat = 0x01;
 constexpr uint8_t kAdvertTypeRepeater = 0x02;
-constexpr uint8_t kDiscoverTypeFilterAll = 0xFF;
 constexpr uint8_t kAdvertFlagHasLocation = 0x10;
 constexpr uint8_t kAdvertFlagHasFeature1 = 0x20;
 constexpr uint8_t kAdvertFlagHasFeature2 = 0x40;
 constexpr uint8_t kAdvertFlagHasName = 0x80;
 constexpr size_t kMeshcorePubKeySize = 32;
-constexpr size_t kMeshcorePubKeyPrefixSize = 8;
 constexpr size_t kAdvertSignatureSize = 64;
 constexpr size_t kAdvertMinPayloadSize =
     kMeshcorePubKeySize + sizeof(uint32_t) + kAdvertSignatureSize;
@@ -148,6 +135,32 @@ T clampValue(T value, T min_value, T max_value)
     return value;
 }
 
+uint8_t lowHashByte(PayloadProfile profile, const uint8_t* hash)
+{
+    (void)profile;
+    return hash ? hash[0] : 0;
+}
+
+void copyPeerHashBytes(PayloadProfile profile, const uint8_t* hash,
+                       uint8_t out_hash[chat::meshcore::kMeshCoreV2HashBytes],
+                       uint8_t* out_len)
+{
+    if (!out_hash)
+    {
+        return;
+    }
+    memset(out_hash, 0, chat::meshcore::kMeshCoreV2HashBytes);
+    const size_t hash_bytes = payloadHashBytes(profile);
+    if (hash && hash_bytes <= chat::meshcore::kMeshCoreV2HashBytes)
+    {
+        memcpy(out_hash, hash, hash_bytes);
+    }
+    if (out_len)
+    {
+        *out_len = static_cast<uint8_t>(hash_bytes);
+    }
+}
+
 #ifndef MESHCORE_LOG_ENABLE
 #define MESHCORE_LOG_ENABLE 0
 #endif
@@ -167,14 +180,13 @@ using chat::meshcore::computeRxDelayMs;
 using chat::meshcore::estimateLoRaAirtimeMs;
 using chat::meshcore::estimateSendTimeoutMs;
 using chat::meshcore::hashFrame;
+using chat::meshcore::isValidTracePathHashBytes;
 using chat::meshcore::isZeroKey;
 using chat::meshcore::packetSignature;
 using chat::meshcore::ParsedPacket;
 using chat::meshcore::parsePacket;
 using chat::meshcore::saturatingAddU32;
 using chat::meshcore::scoreFromSnr;
-using chat::meshcore::sha256Trunc;
-using chat::meshcore::sharedSecretToKeys;
 using chat::meshcore::toHex;
 using chat::meshcore::toHmacKey32;
 
@@ -184,8 +196,13 @@ using chat::meshcore::encryptThenMac;
 using chat::meshcore::macThenDecrypt;
 using chat::meshcore::trimTrailingZeros;
 
+using chat::meshcore::buildDiscoverRequestControlPayload;
+using chat::meshcore::buildDiscoverResponseControlPayload;
 using chat::meshcore::buildFrameNoTransport;
+using chat::meshcore::buildNodeInfoInfoControlPayload;
+using chat::meshcore::buildNodeInfoQueryControlPayload;
 using chat::meshcore::buildPeerDatagramPayload;
+using chat::meshcore::buildTracePayload;
 using chat::meshcore::copyPrintableAscii;
 using chat::meshcore::copySanitizedName;
 using chat::meshcore::decodeAdvertAppData;
@@ -197,15 +214,26 @@ using chat::meshcore::DecodedGroupAppPayload;
 using chat::meshcore::decodeDirectAppPayload;
 using chat::meshcore::decodeDiscoverRequest;
 using chat::meshcore::decodeDiscoverResponse;
+using chat::meshcore::DecodedNodeInfoControl;
+using chat::meshcore::DecodedTracePayload;
 using chat::meshcore::decodeGroupAppPayload;
+using chat::meshcore::decodeNodeInfoControlPayload;
+using chat::meshcore::decodeTracePayload;
 using chat::meshcore::deriveNodeIdFromPubkey;
-using chat::meshcore::discoverFilterMatchesType;
 using chat::meshcore::formatVerificationCode;
 using chat::meshcore::hasControlPrefix;
 using chat::meshcore::isAnonReqCipherShape;
 using chat::meshcore::isPeerCipherShape;
 using chat::meshcore::isPeerPayloadType;
+using chat::meshcore::kMeshCoreDiscoverTypeFilterAll;
+using chat::meshcore::kMeshCoreNodeInfoInfoPayloadSize;
+using chat::meshcore::kMeshCoreNodeInfoLongNameFieldSize;
+using chat::meshcore::kMeshCoreNodeInfoPortnum;
+using chat::meshcore::kMeshCoreNodeInfoShortNameFieldSize;
 using chat::meshcore::mapAdvertTypeToRole;
+using chat::meshcore::MeshCoreDiscoverRequestBuildInfo;
+using chat::meshcore::MeshCoreNodeInfoBuildInfo;
+using chat::meshcore::MeshCoreNodeInfoControlType;
 using chat::meshcore::publicGroupPsk;
 using chat::meshcore::selectChannelKey;
 using chat::meshcore::shouldUsePublicChannelFallback;
@@ -259,15 +287,6 @@ bool buildPathPlain(const uint8_t* out_path, size_t out_path_len,
     return true;
 }
 
-void formatMeshCoreFallbackShortName(uint8_t peer_hash, char* out, size_t out_len)
-{
-    if (!out || out_len == 0)
-    {
-        return;
-    }
-    std::snprintf(out, out_len, "%02X", static_cast<unsigned>(peer_hash));
-}
-
 } // namespace
 
 MeshCoreAdapter::MeshCoreAdapter(LoraBoard& board)
@@ -308,6 +327,17 @@ MeshCapabilities MeshCoreAdapter::getCapabilities() const
     caps.supports_node_info = true;
     caps.supports_pki = true;
     caps.supports_discovery_actions = true;
+    caps.supports_node_info_query = true;
+    caps.supports_node_info_reply = true;
+    caps.supports_node_info_reannounce = true;
+    caps.supports_trace_route_request = true;
+    caps.supports_trace_route_reply = true;
+    caps.supports_protocol_app_response = true;
+    caps.supports_protocol_ack_tracking = true;
+    caps.supports_meshcore_direct_route_table = true;
+    caps.supports_meshcore_identity_keys = true;
+    caps.supports_meshcore_peer_secret_derivation = true;
+    caps.supports_meshcore_rich_trace_projection = true;
     return caps;
 }
 
@@ -390,6 +420,14 @@ bool MeshCoreAdapter::sendPeerRequestPayload(const uint8_t* pubkey, size_t len,
 
     ensurePeerPublicKey(pubkey, len, false);
     const uint8_t peer_hash = pubkey[0];
+    uint8_t peer_hash_v2[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    copyPublicHash(PayloadProfile::V2, pubkey, len, peer_hash_v2, sizeof(peer_hash_v2));
+    const PeerRouteEntry* v2_route = selectPeerRouteByHash(PayloadProfile::V2, peer_hash_v2, now_ms);
+    const PeerRouteEntry* v1_route = selectPeerRouteByHash(peer_hash, now_ms);
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
 
     uint8_t shared_secret[kCipherHmacKeySize] = {};
     if (!identity_.deriveSharedSecret(pubkey, shared_secret))
@@ -399,7 +437,12 @@ bool MeshCoreAdapter::sendPeerRequestPayload(const uint8_t* pubkey, size_t len,
 
     uint8_t key16[kCipherKeySize] = {};
     uint8_t key32[kCipherHmacKeySize] = {};
-    sharedSecretToKeys(shared_secret, key16, key32);
+    if (!chat::runtime::MeshCoreDirectSecretCore::expandSharedSecret(shared_secret, sizeof(shared_secret),
+                                                                     key16, sizeof(key16),
+                                                                     key32, sizeof(key32)))
+    {
+        return false;
+    }
 
     uint8_t plain[kMeshcoreMaxPayloadSize] = {};
     size_t plain_len = 0;
@@ -415,7 +458,11 @@ bool MeshCoreAdapter::sendPeerRequestPayload(const uint8_t* pubkey, size_t len,
 
     uint8_t datagram[kMeshcoreMaxPayloadSize] = {};
     size_t datagram_len = 0;
-    if (!buildPeerDatagramPayload(peer_hash, self_hash_,
+    uint8_t peer_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    uint8_t self_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    if (!copyPublicHash(profile, pubkey, len, peer_hash_bytes, sizeof(peer_hash_bytes)) ||
+        !selfHash(profile, self_hash_bytes, sizeof(self_hash_bytes)) ||
+        !buildPeerDatagramPayload(profile, peer_hash_bytes, self_hash_bytes,
                                   key16, key32,
                                   plain, plain_len,
                                   datagram, sizeof(datagram), &datagram_len))
@@ -423,7 +470,7 @@ bool MeshCoreAdapter::sendPeerRequestPayload(const uint8_t* pubkey, size_t len,
         return false;
     }
 
-    const PeerRouteEntry* route = selectPeerRouteByHash(peer_hash, now_ms);
+    const PeerRouteEntry* route = (profile == PayloadProfile::V2) ? v2_route : v1_route;
     uint8_t route_type = kRouteTypeFlood;
     const uint8_t* out_path = nullptr;
     size_t out_path_len = 0;
@@ -436,7 +483,8 @@ bool MeshCoreAdapter::sendPeerRequestPayload(const uint8_t* pubkey, size_t len,
 
     uint8_t frame[kMeshcoreMaxFrameSize] = {};
     size_t frame_len = 0;
-    if (!buildFrameNoTransport(route_type, kPayloadTypeReq,
+    if (!buildFrameNoTransport(profile,
+                               route_type, kPayloadTypeReq,
                                out_path, out_path_len,
                                datagram, datagram_len,
                                frame, sizeof(frame), &frame_len))
@@ -461,7 +509,9 @@ bool MeshCoreAdapter::sendPeerRequestPayload(const uint8_t* pubkey, size_t len,
     if (out_est_timeout)
     {
         *out_est_timeout = estimateSendTimeoutMs(frame_len,
-                                                 (route_type == kRouteTypeDirect) ? out_path_len : 0,
+                                                 (route_type == kRouteTypeDirect)
+                                                     ? pathHopCount(profile, out_path_len)
+                                                     : 0,
                                                  route_type == kRouteTypeFlood,
                                                  config_.meshcore_bw_khz,
                                                  config_.meshcore_sf,
@@ -494,6 +544,14 @@ bool MeshCoreAdapter::sendAnonRequestPayload(const uint8_t* pubkey, size_t len,
 
     ensurePeerPublicKey(pubkey, len, false);
     const uint8_t peer_hash = pubkey[0];
+    uint8_t peer_hash_v2[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    copyPublicHash(PayloadProfile::V2, pubkey, len, peer_hash_v2, sizeof(peer_hash_v2));
+    const PeerRouteEntry* v2_route = selectPeerRouteByHash(PayloadProfile::V2, peer_hash_v2, now_ms);
+    const PeerRouteEntry* v1_route = selectPeerRouteByHash(peer_hash, now_ms);
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
 
     uint8_t shared_secret[kCipherHmacKeySize] = {};
     if (!identity_.deriveSharedSecret(pubkey, shared_secret))
@@ -503,12 +561,18 @@ bool MeshCoreAdapter::sendAnonRequestPayload(const uint8_t* pubkey, size_t len,
 
     uint8_t key16[kCipherKeySize] = {};
     uint8_t key32[kCipherHmacKeySize] = {};
-    sharedSecretToKeys(shared_secret, key16, key32);
+    if (!chat::runtime::MeshCoreDirectSecretCore::expandSharedSecret(shared_secret, sizeof(shared_secret),
+                                                                     key16, sizeof(key16),
+                                                                     key32, sizeof(key32)))
+    {
+        return false;
+    }
 
     uint8_t cipher[kMeshcoreMaxPayloadSize] = {};
     size_t cipher_len = encryptThenMac(key16, key32,
                                        cipher, sizeof(cipher),
-                                       payload, payload_len);
+                                       payload, payload_len,
+                                       payloadMacBytes(profile));
     if (cipher_len == 0)
     {
         return false;
@@ -516,17 +580,24 @@ bool MeshCoreAdapter::sendAnonRequestPayload(const uint8_t* pubkey, size_t len,
 
     uint8_t datagram[kMeshcoreMaxPayloadSize] = {};
     size_t datagram_len = 0;
-    if (1 + kMeshcorePubKeySize + cipher_len > sizeof(datagram))
+    uint8_t peer_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    if (!copyPublicHash(profile, pubkey, len, peer_hash_bytes, sizeof(peer_hash_bytes)))
     {
         return false;
     }
-    datagram[datagram_len++] = peer_hash;
+    const size_t hash_bytes = payloadHashBytes(profile);
+    if (hash_bytes + kMeshcorePubKeySize + cipher_len > sizeof(datagram))
+    {
+        return false;
+    }
+    memcpy(datagram + datagram_len, peer_hash_bytes, hash_bytes);
+    datagram_len += hash_bytes;
     memcpy(datagram + datagram_len, identity_.publicKey(), kMeshcorePubKeySize);
     datagram_len += kMeshcorePubKeySize;
     memcpy(datagram + datagram_len, cipher, cipher_len);
     datagram_len += cipher_len;
 
-    const PeerRouteEntry* route = selectPeerRouteByHash(peer_hash, now_ms);
+    const PeerRouteEntry* route = (profile == PayloadProfile::V2) ? v2_route : v1_route;
     uint8_t route_type = kRouteTypeFlood;
     const uint8_t* out_path = nullptr;
     size_t out_path_len = 0;
@@ -539,7 +610,8 @@ bool MeshCoreAdapter::sendAnonRequestPayload(const uint8_t* pubkey, size_t len,
 
     uint8_t frame[kMeshcoreMaxFrameSize] = {};
     size_t frame_len = 0;
-    if (!buildFrameNoTransport(route_type, kPayloadTypeAnonReq,
+    if (!buildFrameNoTransport(profile,
+                               route_type, kPayloadTypeAnonReq,
                                out_path, out_path_len,
                                datagram, datagram_len,
                                frame, sizeof(frame), &frame_len))
@@ -560,7 +632,9 @@ bool MeshCoreAdapter::sendAnonRequestPayload(const uint8_t* pubkey, size_t len,
     if (out_est_timeout)
     {
         *out_est_timeout = estimateSendTimeoutMs(frame_len,
-                                                 (route_type == kRouteTypeDirect) ? out_path_len : 0,
+                                                 (route_type == kRouteTypeDirect)
+                                                     ? pathHopCount(profile, out_path_len)
+                                                     : 0,
                                                  route_type == kRouteTypeFlood,
                                                  config_.meshcore_bw_khz,
                                                  config_.meshcore_sf,
@@ -573,8 +647,23 @@ bool MeshCoreAdapter::sendRawData(const uint8_t* path, size_t path_len,
                                   const uint8_t* payload, size_t payload_len,
                                   uint32_t* out_est_timeout)
 {
+    return sendRawDataEx(chat::meshcore::kMeshCorePayloadVer1,
+                         path, path_len, payload, payload_len, out_est_timeout);
+}
+
+bool MeshCoreAdapter::sendRawDataEx(uint8_t raw_profile, const uint8_t* path, size_t path_len,
+                                    const uint8_t* payload, size_t payload_len,
+                                    uint32_t* out_est_timeout)
+{
     if (!payload || payload_len == 0 || path_len > kMeshcoreMaxPathSize ||
         (path_len > 0 && !path))
+    {
+        return false;
+    }
+    const PayloadProfile profile = raw_profile == chat::meshcore::kMeshCorePayloadVer2
+                                       ? PayloadProfile::V2
+                                       : PayloadProfile::V1;
+    if (!pathIsWellFormed(profile, path_len))
     {
         return false;
     }
@@ -588,7 +677,8 @@ bool MeshCoreAdapter::sendRawData(const uint8_t* path, size_t path_len,
 
     uint8_t frame[kMeshcoreMaxFrameSize] = {};
     size_t frame_len = 0;
-    if (!buildFrameNoTransport(kRouteTypeDirect, kPayloadTypeRawCustom,
+    if (!buildFrameNoTransport(profile,
+                               kRouteTypeDirect, kPayloadTypeRawCustom,
                                path, path_len,
                                payload, payload_len,
                                frame, sizeof(frame), &frame_len))
@@ -603,7 +693,7 @@ bool MeshCoreAdapter::sendRawData(const uint8_t* path, size_t path_len,
     }
     if (out_est_timeout)
     {
-        *out_est_timeout = estimateSendTimeoutMs(frame_len, path_len, false,
+        *out_est_timeout = estimateSendTimeoutMs(frame_len, pathHopCount(profile, path_len), false,
                                                  config_.meshcore_bw_khz,
                                                  config_.meshcore_sf,
                                                  config_.meshcore_cr);
@@ -615,7 +705,8 @@ bool MeshCoreAdapter::sendTracePath(const uint8_t* path, size_t path_len,
                                     uint32_t tag, uint32_t auth, uint8_t flags,
                                     uint32_t* out_est_timeout)
 {
-    if (!path || path_len == 0 || path_len > kMeshcoreMaxPathSize)
+    if (!path || path_len == 0 ||
+        !isValidTracePathHashBytes(flags, path_len, kMeshcoreMaxPathSize))
     {
         return false;
     }
@@ -627,16 +718,24 @@ bool MeshCoreAdapter::sendTracePath(const uint8_t* path, size_t path_len,
         return false;
     }
 
-    uint8_t payload[9] = {};
-    memcpy(payload, &tag, sizeof(tag));
-    memcpy(payload + 4, &auth, sizeof(auth));
-    payload[8] = flags;
+    uint8_t payload[kMeshcoreMaxPayloadSize] = {};
+    size_t payload_len = 0;
+    if (!buildTracePayload(tag, auth, flags, path, path_len,
+                           payload, sizeof(payload), &payload_len))
+    {
+        return false;
+    }
 
     uint8_t frame[kMeshcoreMaxFrameSize] = {};
     size_t frame_len = 0;
-    if (!buildFrameNoTransport(kRouteTypeDirect, kPayloadTypeTrace,
-                               path, path_len,
-                               payload, sizeof(payload),
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
+    if (!buildFrameNoTransport(profile,
+                               kRouteTypeDirect, kPayloadTypeTrace,
+                               nullptr, 0,
+                               payload, payload_len,
                                frame, sizeof(frame), &frame_len))
     {
         return false;
@@ -673,7 +772,12 @@ bool MeshCoreAdapter::sendControlData(const uint8_t* payload, size_t payload_len
 
     uint8_t frame[kMeshcoreMaxFrameSize] = {};
     size_t frame_len = 0;
-    if (!buildFrameNoTransport(kRouteTypeDirect, kPayloadTypeControl,
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
+    if (!buildFrameNoTransport(profile,
+                               kRouteTypeDirect, kPayloadTypeControl,
                                nullptr, 0,
                                payload, payload_len,
                                frame, sizeof(frame), &frame_len))
@@ -727,7 +831,12 @@ bool MeshCoreAdapter::sendStoredAdvert(const uint8_t* pubkey, size_t len)
 
     uint8_t frame[kMeshcoreMaxFrameSize] = {};
     size_t frame_len = 0;
-    if (!buildFrameNoTransport(kRouteTypeDirect, kPayloadTypeAdvert,
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
+    if (!buildFrameNoTransport(profile,
+                               kRouteTypeDirect, kPayloadTypeAdvert,
                                nullptr, 0,
                                entry->last_advert, entry->last_advert_len,
                                frame, sizeof(frame), &frame_len))
@@ -757,6 +866,14 @@ bool MeshCoreAdapter::sendIdentityAdvertWithLocation(bool broadcast, bool includ
 
 bool MeshCoreAdapter::resolveGroupSecret(ChannelId channel, uint8_t out_key16[16],
                                          uint8_t out_key32[32], uint8_t* out_hash) const
+{
+    return resolveGroupSecret(channel, out_key16, out_key32,
+                              PayloadProfile::V1, out_hash, out_hash ? 1 : 0);
+}
+
+bool MeshCoreAdapter::resolveGroupSecret(ChannelId channel, uint8_t out_key16[16],
+                                         uint8_t out_key32[32], PayloadProfile profile,
+                                         uint8_t* out_hash, size_t out_hash_cap) const
 {
     if (!out_key16 || !out_key32)
     {
@@ -794,20 +911,39 @@ bool MeshCoreAdapter::resolveGroupSecret(ChannelId channel, uint8_t out_key16[16
     toHmacKey32(out_key16, out_key32);
     if (out_hash)
     {
-        *out_hash = computeChannelHash(out_key16);
+        if (out_hash_cap < payloadHashBytes(profile) ||
+            !computeChannelHashBytes(out_key16, out_hash, payloadHashBytes(profile)))
+        {
+            return false;
+        }
     }
     return true;
 }
 
 ChannelId MeshCoreAdapter::resolveChannelFromHash(uint8_t channel_hash, bool* out_match) const
 {
+    return resolveChannelFromHash(PayloadProfile::V1, &channel_hash, out_match);
+}
+
+ChannelId MeshCoreAdapter::resolveChannelFromHash(PayloadProfile profile,
+                                                  const uint8_t* channel_hash,
+                                                  bool* out_match) const
+{
     if (out_match)
     {
         *out_match = false;
     }
 
+    if (!channel_hash)
+    {
+        return ChannelId::PRIMARY;
+    }
+
+    const size_t hash_bytes = payloadHashBytes(profile);
+    uint8_t expected[chat::meshcore::kMeshCoreV2HashBytes] = {};
     if (!isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen) &&
-        computeChannelHash(config_.primary_key) == channel_hash)
+        computeChannelHashBytes(config_.primary_key, expected, hash_bytes) &&
+        memcmp(expected, channel_hash, hash_bytes) == 0)
     {
         if (out_match)
         {
@@ -816,7 +952,8 @@ ChannelId MeshCoreAdapter::resolveChannelFromHash(uint8_t channel_hash, bool* ou
         return ChannelId::PRIMARY;
     }
     if (!isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen) &&
-        computeChannelHash(config_.secondary_key) == channel_hash)
+        computeChannelHashBytes(config_.secondary_key, expected, hash_bytes) &&
+        memcmp(expected, channel_hash, hash_bytes) == 0)
     {
         if (out_match)
         {
@@ -826,7 +963,8 @@ ChannelId MeshCoreAdapter::resolveChannelFromHash(uint8_t channel_hash, bool* ou
     }
 
     if (shouldUsePublicChannelFallback(config_) &&
-        computeChannelHash(publicGroupPsk()) == channel_hash)
+        computeChannelHashBytes(publicGroupPsk(), expected, hash_bytes) &&
+        memcmp(expected, channel_hash, hash_bytes) == 0)
     {
         if (out_match)
         {
@@ -840,32 +978,81 @@ ChannelId MeshCoreAdapter::resolveChannelFromHash(uint8_t channel_hash, bool* ou
 
 MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::findPeerRouteByHash(uint8_t peer_hash)
 {
-    for (auto& entry : peer_routes_)
-    {
-        if (entry.peer_hash == peer_hash)
-        {
-            return &entry;
-        }
-    }
-    return nullptr;
+    return findPeerRouteByHash(PayloadProfile::V1, &peer_hash);
 }
 
 const MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::findPeerRouteByHash(uint8_t peer_hash) const
 {
-    for (const auto& entry : peer_routes_)
+    return findPeerRouteByHash(PayloadProfile::V1, &peer_hash);
+}
+
+MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::findPeerRouteByHash(PayloadProfile profile,
+                                                                      const uint8_t* peer_hash)
+{
+    if (!peer_hash)
     {
-        if (entry.peer_hash == peer_hash)
+        return nullptr;
+    }
+    const size_t hash_bytes = payloadHashBytes(profile);
+    PeerRouteEntry* low_match = nullptr;
+    for (auto& entry : peer_routes_)
+    {
+        if (entry.peer_hash != lowHashByte(profile, peer_hash))
+        {
+            continue;
+        }
+        if (entry.peer_hash_len >= hash_bytes &&
+            memcmp(entry.peer_hash_bytes, peer_hash, hash_bytes) == 0)
         {
             return &entry;
         }
+        if (!low_match && profile == PayloadProfile::V1)
+        {
+            low_match = &entry;
+        }
     }
-    return nullptr;
+    return low_match;
+}
+
+const MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::findPeerRouteByHash(PayloadProfile profile,
+                                                                            const uint8_t* peer_hash) const
+{
+    if (!peer_hash)
+    {
+        return nullptr;
+    }
+    const size_t hash_bytes = payloadHashBytes(profile);
+    const PeerRouteEntry* low_match = nullptr;
+    for (const auto& entry : peer_routes_)
+    {
+        if (entry.peer_hash != lowHashByte(profile, peer_hash))
+        {
+            continue;
+        }
+        if (entry.peer_hash_len >= hash_bytes &&
+            memcmp(entry.peer_hash_bytes, peer_hash, hash_bytes) == 0)
+        {
+            return &entry;
+        }
+        if (!low_match && profile == PayloadProfile::V1)
+        {
+            low_match = &entry;
+        }
+    }
+    return low_match;
 }
 
 MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::selectPeerRouteByHash(uint8_t peer_hash,
                                                                         uint32_t now_ms)
 {
-    PeerRouteEntry* entry = findPeerRouteByHash(peer_hash);
+    return selectPeerRouteByHash(PayloadProfile::V1, &peer_hash, now_ms);
+}
+
+MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::selectPeerRouteByHash(PayloadProfile profile,
+                                                                        const uint8_t* peer_hash,
+                                                                        uint32_t now_ms)
+{
+    PeerRouteEntry* entry = findPeerRouteByHash(profile, peer_hash);
     if (!entry)
     {
         return nullptr;
@@ -876,6 +1063,11 @@ MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::selectPeerRouteByHash(uint8_t 
     }
     if (entry->route_blackout_until_ms != 0 &&
         static_cast<int32_t>(now_ms - entry->route_blackout_until_ms) < 0)
+    {
+        return nullptr;
+    }
+    if (entry->out_path_profile != profile ||
+        !pathIsWellFormed(profile, entry->out_path_len))
     {
         return nullptr;
     }
@@ -885,7 +1077,14 @@ MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::selectPeerRouteByHash(uint8_t 
 const MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::selectPeerRouteByHash(uint8_t peer_hash,
                                                                               uint32_t now_ms) const
 {
-    const PeerRouteEntry* entry = findPeerRouteByHash(peer_hash);
+    return selectPeerRouteByHash(PayloadProfile::V1, &peer_hash, now_ms);
+}
+
+const MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::selectPeerRouteByHash(PayloadProfile profile,
+                                                                              const uint8_t* peer_hash,
+                                                                              uint32_t now_ms) const
+{
+    const PeerRouteEntry* entry = findPeerRouteByHash(profile, peer_hash);
     if (!entry)
     {
         return nullptr;
@@ -899,13 +1098,27 @@ const MeshCoreAdapter::PeerRouteEntry* MeshCoreAdapter::selectPeerRouteByHash(ui
     {
         return nullptr;
     }
+    if (entry->out_path_profile != profile ||
+        !pathIsWellFormed(profile, entry->out_path_len))
+    {
+        return nullptr;
+    }
     return entry;
 }
 
 MeshCoreAdapter::PeerRouteEntry& MeshCoreAdapter::upsertPeerRoute(uint8_t peer_hash, uint32_t now_ms)
 {
-    if (PeerRouteEntry* found = findPeerRouteByHash(peer_hash))
+    return upsertPeerRoute(PayloadProfile::V1, &peer_hash, now_ms);
+}
+
+MeshCoreAdapter::PeerRouteEntry& MeshCoreAdapter::upsertPeerRoute(PayloadProfile profile,
+                                                                  const uint8_t* peer_hash,
+                                                                  uint32_t now_ms)
+{
+    if (PeerRouteEntry* found = findPeerRouteByHash(profile, peer_hash))
     {
+        copyPeerHashBytes(profile, peer_hash, found->peer_hash_bytes, &found->peer_hash_len);
+        found->peer_hash = lowHashByte(profile, peer_hash);
         found->last_seen_ms = now_ms;
         return *found;
     }
@@ -922,7 +1135,8 @@ MeshCoreAdapter::PeerRouteEntry& MeshCoreAdapter::upsertPeerRoute(uint8_t peer_h
         peer_routes_.erase(oldest);
     }
     PeerRouteEntry entry;
-    entry.peer_hash = peer_hash;
+    entry.peer_hash = lowHashByte(profile, peer_hash);
+    copyPeerHashBytes(profile, peer_hash, entry.peer_hash_bytes, &entry.peer_hash_len);
     entry.last_seen_ms = now_ms;
     peer_routes_.push_back(entry);
     return peer_routes_.back();
@@ -964,6 +1178,7 @@ void MeshCoreAdapter::refreshBestPeerRoute(PeerRouteEntry& entry, uint32_t now_m
         entry.best_candidate = 0;
         entry.has_out_path = false;
         entry.out_path_len = 0;
+        entry.out_path_profile = PayloadProfile::V1;
         return;
     }
 
@@ -973,10 +1188,12 @@ void MeshCoreAdapter::refreshBestPeerRoute(PeerRouteEntry& entry, uint32_t now_m
     {
         PeerRouteEntry::PathCandidate& candidate = entry.candidates[i];
         const uint32_t age_ms = now_ms - candidate.last_seen_ms;
-        candidate.quality = computePathQuality(candidate.path_len,
-                                               candidate.snr_x10,
-                                               candidate.sample_count,
-                                               age_ms);
+        candidate.quality = computePathQuality(
+            static_cast<uint8_t>(pathHopCount(candidate.profile,
+                                              candidate.path_len)),
+            candidate.snr_x10,
+            candidate.sample_count,
+            age_ms);
         if (candidate.quality > best_quality)
         {
             best_quality = candidate.quality;
@@ -991,6 +1208,7 @@ void MeshCoreAdapter::refreshBestPeerRoute(PeerRouteEntry& entry, uint32_t now_m
         memcpy(entry.out_path, best.path, best.path_len);
     }
     entry.out_path_len = best.path_len;
+    entry.out_path_profile = best.profile;
     entry.has_out_path = true;
     entry.preferred_channel = best.channel;
 }
@@ -1032,15 +1250,22 @@ void MeshCoreAdapter::prunePeerRoutes(uint32_t now_ms)
 }
 
 void MeshCoreAdapter::rememberPeerPathCandidate(PeerRouteEntry& entry,
+                                                PayloadProfile profile,
                                                 const uint8_t* path, size_t path_len,
                                                 ChannelId channel, int16_t snr_x10,
                                                 uint32_t now_ms)
 {
+    if (!pathIsWellFormed(profile, path_len))
+    {
+        return;
+    }
     uint8_t found_idx = entry.candidate_count;
     for (uint8_t i = 0; i < entry.candidate_count; ++i)
     {
         const PeerRouteEntry::PathCandidate& candidate = entry.candidates[i];
-        if (candidate.channel != channel || candidate.path_len != path_len)
+        if (candidate.channel != channel ||
+            candidate.profile != profile ||
+            candidate.path_len != path_len)
         {
             continue;
         }
@@ -1074,6 +1299,7 @@ void MeshCoreAdapter::rememberPeerPathCandidate(PeerRouteEntry& entry,
 
         PeerRouteEntry::PathCandidate fresh{};
         fresh.path_len = static_cast<uint8_t>(path_len);
+        fresh.profile = profile;
         if (path_len > 0)
         {
             memcpy(fresh.path, path, path_len);
@@ -1083,7 +1309,8 @@ void MeshCoreAdapter::rememberPeerPathCandidate(PeerRouteEntry& entry,
         fresh.sample_count = 1;
         fresh.first_seen_ms = now_ms;
         fresh.last_seen_ms = now_ms;
-        fresh.quality = computePathQuality(fresh.path_len, fresh.snr_x10, fresh.sample_count, 0);
+        fresh.quality = computePathQuality(static_cast<uint8_t>(pathHopCount(profile, fresh.path_len)),
+                                           fresh.snr_x10, fresh.sample_count, 0);
         entry.candidates[found_idx] = fresh;
     }
     else
@@ -1091,6 +1318,7 @@ void MeshCoreAdapter::rememberPeerPathCandidate(PeerRouteEntry& entry,
         PeerRouteEntry::PathCandidate& candidate = entry.candidates[found_idx];
         candidate.channel = channel;
         candidate.path_len = static_cast<uint8_t>(path_len);
+        candidate.profile = profile;
         if (path_len > 0)
         {
             memcpy(candidate.path, path, path_len);
@@ -1112,7 +1340,8 @@ void MeshCoreAdapter::rememberPeerPathCandidate(PeerRouteEntry& entry,
             }
         }
         candidate.last_seen_ms = now_ms;
-        candidate.quality = computePathQuality(candidate.path_len, candidate.snr_x10, candidate.sample_count, 0);
+        candidate.quality = computePathQuality(static_cast<uint8_t>(pathHopCount(profile, candidate.path_len)),
+                                               candidate.snr_x10, candidate.sample_count, 0);
     }
 
     entry.last_seen_ms = now_ms;
@@ -1187,13 +1416,25 @@ NodeId MeshCoreAdapter::resolvePeerNodeId(uint8_t peer_hash) const
 void MeshCoreAdapter::rememberPeerPath(uint8_t peer_hash, const uint8_t* path, size_t path_len,
                                        ChannelId channel, uint32_t now_ms)
 {
+    rememberPeerPath(PayloadProfile::V1, &peer_hash, path, path_len, channel, now_ms);
+}
+
+void MeshCoreAdapter::rememberPeerPath(PayloadProfile profile, const uint8_t* peer_hash,
+                                       const uint8_t* path, size_t path_len,
+                                       ChannelId channel, uint32_t now_ms)
+{
     if (path_len > kMaxPeerPathLen || (path_len > 0 && !path))
     {
         return;
     }
-    PeerRouteEntry& entry = upsertPeerRoute(peer_hash, now_ms);
+    if (!peer_hash || !pathIsWellFormed(profile, path_len))
+    {
+        return;
+    }
+    PeerRouteEntry& entry = upsertPeerRoute(profile, peer_hash, now_ms);
     uint8_t prev_path[kMaxPeerPathLen] = {};
     const uint8_t prev_len = entry.has_out_path ? entry.out_path_len : 0;
+    const PayloadProfile prev_profile = entry.out_path_profile;
     const bool had_path = entry.has_out_path;
     if (had_path && prev_len > 0)
     {
@@ -1202,30 +1443,78 @@ void MeshCoreAdapter::rememberPeerPath(uint8_t peer_hash, const uint8_t* path, s
     const int16_t snr_x10 = std::isfinite(last_rx_snr_)
                                 ? static_cast<int16_t>(std::lround(last_rx_snr_ * 10.0f))
                                 : std::numeric_limits<int16_t>::min();
-    rememberPeerPathCandidate(entry, path, path_len, channel, snr_x10, now_ms);
+    rememberPeerPathCandidate(entry, profile, path, path_len, channel, snr_x10, now_ms);
     const bool has_path = entry.has_out_path;
     const uint8_t new_len = entry.out_path_len;
     const bool changed = (had_path != has_path) ||
+                         (entry.out_path_profile != prev_profile) ||
                          (new_len != prev_len) ||
                          (new_len > 0 && memcmp(entry.out_path, prev_path, new_len) != 0);
     if (changed)
     {
         Event ev{};
         ev.type = Event::Type::PathUpdated;
-        ev.peer_hash = peer_hash;
-        ev.peer_node = resolvePeerNodeId(peer_hash);
+        ev.peer_hash = lowHashByte(profile, peer_hash);
+        ev.peer_node = resolvePeerNodeId(ev.peer_hash);
+        ev.path_profile = entry.out_path_profile;
         pushEvent(std::move(ev));
     }
 }
 
+PayloadProfile MeshCoreAdapter::selectSendProfile(const PeerRouteEntry* route) const
+{
+    switch (config_.meshcore_send_profile)
+    {
+    case MeshCorePayloadSendProfile::V1Only:
+        return PayloadProfile::V1;
+    case MeshCorePayloadSendProfile::V2Only:
+        return PayloadProfile::V2;
+    case MeshCorePayloadSendProfile::AutoPreferV2:
+    default:
+        if (route && route->has_out_path && route->out_path_profile == PayloadProfile::V2)
+        {
+            return PayloadProfile::V2;
+        }
+        return PayloadProfile::V2;
+    }
+}
+
+bool MeshCoreAdapter::allowsForwardingProfile(PayloadProfile profile) const
+{
+    switch (config_.meshcore_forward_profile)
+    {
+    case MeshCoreForwardProfile::Any:
+        return true;
+    case MeshCoreForwardProfile::MultibyteOnly:
+    default:
+        return payloadHashBytes(profile) > chat::meshcore::kMeshCoreV1HashBytes;
+    }
+}
+
+bool MeshCoreAdapter::selfHash(PayloadProfile profile, uint8_t* out_hash, size_t out_cap) const
+{
+    if (!out_hash || out_cap < payloadHashBytes(profile) || !identity_.isReady())
+    {
+        return false;
+    }
+    return copyPublicHash(profile, identity_.publicKey(), MeshCoreIdentity::kPubKeySize,
+                          out_hash, out_cap);
+}
+
 bool MeshCoreAdapter::lookupPeerPubKey(uint8_t peer_hash,
+                                       uint8_t out_pubkey[MeshCoreIdentity::kPubKeySize]) const
+{
+    return lookupPeerPubKey(PayloadProfile::V1, &peer_hash, out_pubkey);
+}
+
+bool MeshCoreAdapter::lookupPeerPubKey(PayloadProfile profile, const uint8_t* peer_hash,
                                        uint8_t out_pubkey[MeshCoreIdentity::kPubKeySize]) const
 {
     if (!out_pubkey)
     {
         return false;
     }
-    const PeerRouteEntry* entry = findPeerRouteByHash(peer_hash);
+    const PeerRouteEntry* entry = findPeerRouteByHash(profile, peer_hash);
     // MeshCore peers can start using ECDH direct payloads immediately after DISCOVER_RESP
     // (before a signed ADVERT is observed). Accept any learned full pubkey here to remain
     // interoperable with upstream behavior.
@@ -1251,7 +1540,21 @@ void MeshCoreAdapter::rememberPeerPubKey(const uint8_t pubkey[MeshCoreIdentity::
         return;
     }
 
-    PeerRouteEntry& entry = upsertPeerRoute(peer_hash, now_ms);
+    uint8_t peer_hash2[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    copyPublicHash(PayloadProfile::V2, pubkey, MeshCoreIdentity::kPubKeySize,
+                   peer_hash2, sizeof(peer_hash2));
+    PeerRouteEntry* entry_ptr = findPeerRouteByHash(peer_hash);
+    if (!entry_ptr || (entry_ptr->has_pubkey &&
+                       memcmp(entry_ptr->pubkey, pubkey, MeshCoreIdentity::kPubKeySize) != 0))
+    {
+        entry_ptr = &upsertPeerRoute(PayloadProfile::V2, peer_hash2, now_ms);
+    }
+    else
+    {
+        copyPeerHashBytes(PayloadProfile::V2, peer_hash2,
+                          entry_ptr->peer_hash_bytes, &entry_ptr->peer_hash_len);
+    }
+    PeerRouteEntry& entry = *entry_ptr;
     const bool changed = !entry.has_pubkey ||
                          (memcmp(entry.pubkey, pubkey, MeshCoreIdentity::kPubKeySize) != 0) ||
                          (!entry.pubkey_verified && verified);
@@ -1315,7 +1618,10 @@ void MeshCoreAdapter::loadPeerPubKeysFromPrefs()
             continue;
         }
 
-        PeerRouteEntry& entry = upsertPeerRoute(persisted.peer_hash, now_ms);
+        uint8_t peer_hash2[chat::meshcore::kMeshCoreV2HashBytes] = {};
+        copyPublicHash(PayloadProfile::V2, persisted.pubkey, sizeof(persisted.pubkey),
+                       peer_hash2, sizeof(peer_hash2));
+        PeerRouteEntry& entry = upsertPeerRoute(PayloadProfile::V2, peer_hash2, now_ms);
         entry.has_pubkey = true;
         entry.pubkey_verified = (persisted.flags & kPersistedPeerFlagVerified) != 0;
         memcpy(entry.pubkey, persisted.pubkey, sizeof(entry.pubkey));
@@ -1411,29 +1717,39 @@ void MeshCoreAdapter::savePeerPubKeysToPrefs()
 
 void MeshCoreAdapter::maybeAutoDiscoverMissingPeer(uint8_t peer_hash, uint32_t now_ms)
 {
-    if (peer_hash == 0x00 || peer_hash == 0xFF || peer_hash == self_hash_)
+    runtime::MeshCoreAutoDiscoverMissingPeerInput input{};
+    input.peer_hash = peer_hash;
+    input.self_hash = self_hash_;
+    input.type_filter = kMeshCoreDiscoverTypeFilterAll;
+    input.rx_guard_ms = kDiscoverRxGuardMs;
+
+    runtime::RuntimeContext context = buildRuntimeContext();
+    context.now_ms = now_ms;
+    const runtime::ProtocolEffects effects =
+        protocol_runtime_.prepareAutoDiscoverMissingPeer(input, context);
+    if (effects.items.empty())
     {
         return;
     }
 
-    const bool same_peer = (peer_hash == last_auto_discover_hash_);
-    if (same_peer && last_auto_discover_ms_ != 0 &&
-        (now_ms - last_auto_discover_ms_) < kAutoDiscoverCooldownMs)
+    const MeshActionResult result = executeDiscoveryEffectsDetailed(effects);
+    protocol_runtime_.markAutoDiscoverMissingPeerTxResult(peer_hash, context, result.ok);
+    if (result.ok)
     {
-        return;
-    }
-
-    if (sendDiscoverRequestLocal())
-    {
-        last_auto_discover_hash_ = peer_hash;
-        last_auto_discover_ms_ = now_ms;
         MESHCORE_LOG("[MESHCORE] auto discover trigger src=%02X cooldown=%lums\n",
                      static_cast<unsigned>(peer_hash),
-                     static_cast<unsigned long>(kAutoDiscoverCooldownMs));
+                     static_cast<unsigned long>(runtime::kMeshCoreAutoDiscoverCooldownMs));
     }
 }
 
 bool MeshCoreAdapter::deriveIdentitySecret(uint8_t peer_hash,
+                                           uint8_t out_key16[16],
+                                           uint8_t out_key32[32]) const
+{
+    return deriveIdentitySecret(PayloadProfile::V1, &peer_hash, out_key16, out_key32);
+}
+
+bool MeshCoreAdapter::deriveIdentitySecret(PayloadProfile profile, const uint8_t* peer_hash,
                                            uint8_t out_key16[16],
                                            uint8_t out_key32[32]) const
 {
@@ -1443,7 +1759,7 @@ bool MeshCoreAdapter::deriveIdentitySecret(uint8_t peer_hash,
     }
 
     uint8_t peer_pubkey[MeshCoreIdentity::kPubKeySize] = {};
-    if (!lookupPeerPubKey(peer_hash, peer_pubkey))
+    if (!lookupPeerPubKey(profile, peer_hash, peer_pubkey))
     {
         return false;
     }
@@ -1454,46 +1770,35 @@ bool MeshCoreAdapter::deriveIdentitySecret(uint8_t peer_hash,
         return false;
     }
 
-    sharedSecretToKeys(shared_secret, out_key16, out_key32);
-    return true;
-}
-
-bool MeshCoreAdapter::deriveLegacyDirectSecret(ChannelId channel, uint8_t peer_hash,
-                                               uint8_t out_key16[16], uint8_t out_key32[32]) const
-{
-    if (!out_key16 || !out_key32)
-    {
-        return false;
-    }
-
-    uint8_t base_key16[16];
-    uint8_t base_key32[32];
-    if (!resolveGroupSecret(channel, base_key16, base_key32, nullptr))
-    {
-        return false;
-    }
-
-    uint8_t material[18];
-    memcpy(material, base_key16, sizeof(base_key16));
-    material[16] = (peer_hash < self_hash_) ? peer_hash : self_hash_;
-    material[17] = (peer_hash < self_hash_) ? self_hash_ : peer_hash;
-
-    sha256Trunc(out_key32, 32, material, sizeof(material));
-    memcpy(out_key16, out_key32, 16);
-    return true;
+    return chat::runtime::MeshCoreDirectSecretCore::expandSharedSecret(shared_secret, sizeof(shared_secret),
+                                                                       out_key16, 16,
+                                                                       out_key32, 32);
 }
 
 bool MeshCoreAdapter::deriveDirectSecret(ChannelId channel, uint8_t peer_hash,
                                          uint8_t out_key16[16], uint8_t out_key32[32]) const
 {
-    if (deriveIdentitySecret(peer_hash, out_key16, out_key32))
-    {
-        return true;
-    }
-    return deriveLegacyDirectSecret(channel, peer_hash, out_key16, out_key32);
+    return deriveDirectSecret(channel, PayloadProfile::V1, &peer_hash, out_key16, out_key32);
+}
+
+bool MeshCoreAdapter::deriveDirectSecret(ChannelId channel, PayloadProfile profile,
+                                         const uint8_t* peer_hash,
+                                         uint8_t out_key16[16], uint8_t out_key32[32]) const
+{
+    (void)channel;
+    return deriveIdentitySecret(profile, peer_hash, out_key16, out_key32);
 }
 
 bool MeshCoreAdapter::tryDecryptPeerPayload(uint8_t src_hash,
+                                            const uint8_t* cipher, size_t cipher_len,
+                                            uint8_t* out_plain, size_t* out_plain_len,
+                                            ChannelId* out_channel) const
+{
+    return tryDecryptPeerPayload(PayloadProfile::V1, &src_hash, cipher, cipher_len,
+                                 out_plain, out_plain_len, out_channel);
+}
+
+bool MeshCoreAdapter::tryDecryptPeerPayload(PayloadProfile profile, const uint8_t* src_hash,
                                             const uint8_t* cipher, size_t cipher_len,
                                             uint8_t* out_plain, size_t* out_plain_len,
                                             ChannelId* out_channel) const
@@ -1505,7 +1810,7 @@ bool MeshCoreAdapter::tryDecryptPeerPayload(uint8_t src_hash,
 
     ChannelId order[3] = {ChannelId::PRIMARY, ChannelId::SECONDARY, ChannelId::PRIMARY};
     size_t order_len = 0;
-    const PeerRouteEntry* known = findPeerRouteByHash(src_hash);
+    const PeerRouteEntry* known = findPeerRouteByHash(profile, src_hash);
     if (known)
     {
         order[order_len++] = known->preferred_channel;
@@ -1545,7 +1850,8 @@ bool MeshCoreAdapter::tryDecryptPeerPayload(uint8_t src_hash,
         ++tried;
 
         size_t plain_len = 0;
-        if (!macThenDecrypt(key16, key32, cipher, cipher_len, out_plain, &plain_len))
+        if (!macThenDecrypt(key16, key32, cipher, cipher_len, out_plain, &plain_len,
+                            payloadMacBytes(profile)))
         {
             return false;
         }
@@ -1562,25 +1868,7 @@ bool MeshCoreAdapter::tryDecryptPeerPayload(uint8_t src_hash,
         {
             uint8_t key16[16] = {};
             uint8_t key32[32] = {};
-            if (deriveIdentitySecret(src_hash, key16, key32) &&
-                tryCandidate(order[i], key16, key32))
-            {
-                return true;
-            }
-        }
-        {
-            uint8_t key16[16] = {};
-            uint8_t key32[32] = {};
-            if (deriveLegacyDirectSecret(order[i], src_hash, key16, key32) &&
-                tryCandidate(order[i], key16, key32))
-            {
-                return true;
-            }
-        }
-        {
-            uint8_t key16[16] = {};
-            uint8_t key32[32] = {};
-            if (deriveDirectSecret(order[i], src_hash, key16, key32) &&
+            if (deriveDirectSecret(order[i], profile, src_hash, key16, key32) &&
                 tryCandidate(order[i], key16, key32))
             {
                 return true;
@@ -1684,12 +1972,15 @@ MeshActionResult MeshCoreAdapter::transmitFrameNowDetailed(const uint8_t* data, 
 #if defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_SX1280) || \
     defined(ARDUINO_LILYGO_LORA_LR1121)
     app::AppTasks::requestRadioReceiveRestart();
-    state = board_.transmitRadio(data, len);
+    {
+        app::AppTasks::ScopedRadioTransmitActivity tx_activity;
+        state = board_.transmitRadio(data, len);
+    }
 #endif
     if (state == RADIOLIB_ERR_NONE)
     {
         ParsedPacket parsed;
-        if (parsePacket(data, len, &parsed) && parsed.payload_ver == kPayloadVer1)
+        if (parsePacket(data, len, &parsed) && isSupportedPayloadVersion(parsed.payload_ver))
         {
             const uint32_t packet_sig = packetSignature(parsed.payload_type, parsed.path_len,
                                                         parsed.payload, parsed.payload_len);
@@ -1752,9 +2043,9 @@ bool MeshCoreAdapter::enqueueScheduled(const uint8_t* data, size_t len, uint32_t
     return true;
 }
 
-void MeshCoreAdapter::armDiscoverRxGuard(uint32_t now_ms)
+void MeshCoreAdapter::armDiscoverRxGuard(uint32_t now_ms, uint32_t duration_ms)
 {
-    discover_rx_guard_until_ms_ = now_ms + kDiscoverRxGuardMs;
+    discover_rx_guard_until_ms_ = now_ms + (duration_ms == 0 ? kDiscoverRxGuardMs : duration_ms);
 }
 
 bool MeshCoreAdapter::isDiscoverRxGuardActive(uint32_t now_ms) const
@@ -1799,119 +2090,53 @@ bool MeshCoreAdapter::hasSeenSignature(uint32_t signature, uint32_t now_ms)
 
 void MeshCoreAdapter::prunePendingAppAcks(uint32_t now_ms)
 {
-    while (!pending_app_acks_.empty())
+    runtime::RuntimeContext context = buildRuntimeContext();
+    context.now_ms = now_ms;
+    runtime::FixedProtocolRuntimeContextProvider context_provider(context);
+    const auto bundle = protocolRuntimeBundle(context_provider);
+    if (!bundle.valid())
     {
-        const PendingAppAck& front = pending_app_acks_.front();
-        if (static_cast<int32_t>(now_ms - front.expire_ms) < 0)
-        {
-            break;
-        }
-        const uint8_t peer_hash = static_cast<uint8_t>(front.dest & 0xFFU);
-        MESHCORE_LOG("[MESHCORE] ACK timeout sig=%08lX dest=%08lX port=%u age=%lums\n",
-                     static_cast<unsigned long>(front.signature),
-                     static_cast<unsigned long>(front.dest),
-                     static_cast<unsigned>(front.portnum),
-                     static_cast<unsigned long>(now_ms - front.created_ms));
-        penalizePeerRoute(peer_hash, now_ms);
-        if (front.chat_msg_id != 0)
-        {
-            sys::EventBus::publish(new sys::ChatSendResultEvent(front.chat_msg_id, false), 0);
-        }
-        pending_app_acks_.pop_front();
+        return;
     }
+    auto facade = bundle.createFacade(runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+    facade.tick();
 }
 
 void MeshCoreAdapter::trackPendingAppAck(uint32_t signature, NodeId dest, uint32_t portnum, uint32_t now_ms)
 {
-    if (signature == 0 || dest == 0)
-    {
-        return;
-    }
-
-    prunePendingAppAcks(now_ms);
-    for (PendingAppAck& entry : pending_app_acks_)
-    {
-        if (entry.signature == signature)
-        {
-            entry.dest = dest;
-            entry.portnum = portnum;
-            entry.chat_msg_id = 0;
-            entry.created_ms = now_ms;
-            entry.expire_ms = now_ms + kAppAckTimeoutMs;
-            return;
-        }
-    }
-
-    if (pending_app_acks_.size() >= kMaxPendingAppAcks)
-    {
-        const PendingAppAck& evicted = pending_app_acks_.front();
-        if (evicted.chat_msg_id != 0)
-        {
-            sys::EventBus::publish(new sys::ChatSendResultEvent(evicted.chat_msg_id, false), 0);
-        }
-        pending_app_acks_.pop_front();
-    }
-
-    PendingAppAck entry;
-    entry.signature = signature;
-    entry.dest = dest;
-    entry.portnum = portnum;
-    entry.chat_msg_id = 0;
-    entry.created_ms = now_ms;
-    entry.expire_ms = now_ms + kAppAckTimeoutMs;
-    pending_app_acks_.push_back(entry);
+    runtime::RuntimeContext context = buildRuntimeContext();
+    context.now_ms = now_ms;
+    runtime::MeshCoreAppAckRegistration ack{};
+    ack.signature = signature;
+    ack.peer = dest;
+    ack.portnum = portnum;
+    ack.timeout_ms = kAppAckTimeoutMs;
+    executeProtocolEffects(protocol_runtime_.trackAppAck(ack, context));
 }
 
 void MeshCoreAdapter::bindPendingAppAckToChatMessage(uint32_t signature, MessageId msg_id)
 {
-    if (signature == 0 || msg_id == 0)
-    {
-        return;
-    }
-
-    for (PendingAppAck& entry : pending_app_acks_)
-    {
-        if (entry.signature == signature)
-        {
-            entry.chat_msg_id = msg_id;
-            return;
-        }
-    }
+    executeProtocolEffects(protocol_runtime_.bindAppAckToMessage(signature, msg_id));
 }
 
 bool MeshCoreAdapter::consumePendingAppAck(uint32_t signature, uint32_t now_ms)
 {
-    if (signature == 0)
+    runtime::RuntimeContext context = buildRuntimeContext();
+    context.now_ms = now_ms;
+    const auto effects = protocol_runtime_.handleAppAck(signature, context);
+    bool matched = false;
+    for (const auto& effect : effects.items)
     {
-        return false;
-    }
-
-    prunePendingAppAcks(now_ms);
-    for (auto it = pending_app_acks_.begin(); it != pending_app_acks_.end(); ++it)
-    {
-        if (it->signature != signature)
+        if (const auto* result = std::get_if<runtime::EmitActionResultEffect>(&effect))
         {
-            continue;
+            matched = matched ||
+                      (result->protocol == MeshProtocol::MeshCore &&
+                       result->request_id == signature &&
+                       result->state == runtime::ProtocolActionState::Completed);
         }
-
-        MESHCORE_LOG("[MESHCORE] ACK matched sig=%08lX dest=%08lX port=%u age=%lums\n",
-                     static_cast<unsigned long>(signature),
-                     static_cast<unsigned long>(it->dest),
-                     static_cast<unsigned>(it->portnum),
-                     static_cast<unsigned long>(now_ms - it->created_ms));
-        Event ev{};
-        ev.type = Event::Type::SendConfirmed;
-        ev.tag = signature;
-        ev.trip_ms = now_ms - it->created_ms;
-        pushEvent(std::move(ev));
-        if (it->chat_msg_id != 0)
-        {
-            sys::EventBus::publish(new sys::ChatSendResultEvent(it->chat_msg_id, true), 0);
-        }
-        pending_app_acks_.erase(it);
-        return true;
     }
-    return false;
+    executeProtocolEffects(effects);
+    return matched;
 }
 
 void MeshCoreAdapter::pushEvent(Event&& ev)
@@ -1996,30 +2221,19 @@ uint32_t MeshCoreAdapter::computeVerificationNumber(NodeId peer, uint64_t nonce)
 
 bool MeshCoreAdapter::sendNodeInfoFrame(NodeId dest, bool is_query, bool request_reply)
 {
-    uint8_t payload[4 + 1 + 1 + 4 + 4 + kNodeInfoShortNameFieldSize + kNodeInfoLongNameFieldSize] = {};
+    uint8_t payload[kMeshCoreNodeInfoInfoPayloadSize] = {};
     size_t payload_len = 0;
-    payload[payload_len++] = kControlMagic0;
-    payload[payload_len++] = kControlMagic1;
-    payload[payload_len++] = kControlKindNodeInfo;
-    payload[payload_len++] = is_query ? kNodeInfoTypeQuery : kNodeInfoTypeInfo;
 
     if (is_query)
     {
-        payload[payload_len++] = request_reply ? kNodeInfoFlagRequestReply : 0x00;
+        if (!buildNodeInfoQueryControlPayload(request_reply, payload, sizeof(payload), &payload_len))
+        {
+            return false;
+        }
     }
     else
     {
-        payload[payload_len++] = static_cast<uint8_t>(chat::contacts::NodeRoleType::Client);
-        payload[payload_len++] = 0;
-
-        const uint32_t node = node_id_;
-        const uint32_t ts = now_message_timestamp();
-        memcpy(&payload[payload_len], &node, sizeof(node));
-        payload_len += sizeof(node);
-        memcpy(&payload[payload_len], &ts, sizeof(ts));
-        payload_len += sizeof(ts);
-
-        char short_name[kNodeInfoShortNameFieldSize] = {};
+        char short_name[kMeshCoreNodeInfoShortNameFieldSize] = {};
         if (!user_short_name_.empty())
         {
             strncpy(short_name, user_short_name_.c_str(), sizeof(short_name) - 1);
@@ -2029,10 +2243,8 @@ bool MeshCoreAdapter::sendNodeInfoFrame(NodeId dest, bool is_query, bool request
             snprintf(short_name, sizeof(short_name), "%04lX",
                      static_cast<unsigned long>(node_id_ & 0xFFFFUL));
         }
-        memcpy(&payload[payload_len], short_name, sizeof(short_name));
-        payload_len += sizeof(short_name);
 
-        char long_name[kNodeInfoLongNameFieldSize] = {};
+        char long_name[kMeshCoreNodeInfoLongNameFieldSize] = {};
         if (!user_long_name_.empty())
         {
             strncpy(long_name, user_long_name_.c_str(), sizeof(long_name) - 1);
@@ -2041,8 +2253,18 @@ bool MeshCoreAdapter::sendNodeInfoFrame(NodeId dest, bool is_query, bool request
         {
             strncpy(long_name, short_name, sizeof(long_name) - 1);
         }
-        memcpy(&payload[payload_len], long_name, sizeof(long_name));
-        payload_len += sizeof(long_name);
+
+        MeshCoreNodeInfoBuildInfo info{};
+        info.role = static_cast<uint8_t>(chat::contacts::NodeRoleType::Client);
+        info.hops = 0;
+        info.node_id = node_id_;
+        info.timestamp = now_message_timestamp();
+        info.short_name = short_name;
+        info.long_name = long_name;
+        if (!buildNodeInfoInfoControlPayload(info, payload, sizeof(payload), &payload_len))
+        {
+            return false;
+        }
     }
 
     NodeId tx_dest = dest;
@@ -2063,7 +2285,7 @@ bool MeshCoreAdapter::sendNodeInfoFrame(NodeId dest, bool is_query, bool request
         }
     }
 
-    return sendAppData(channel, kNodeInfoPortnum, payload, payload_len, tx_dest, false);
+    return sendAppData(channel, kMeshCoreNodeInfoPortnum, payload, payload_len, tx_dest, false);
 }
 
 bool MeshCoreAdapter::requestNodeInfo(NodeId dest, bool want_response)
@@ -2073,21 +2295,337 @@ bool MeshCoreAdapter::requestNodeInfo(NodeId dest, bool want_response)
         return false;
     }
 
-    NodeId target = dest;
-    if (target == 0xFFFFFFFFUL)
+    runtime::FixedProtocolRuntimeContextProvider context_provider(buildRuntimeContext());
+    const auto bundle = protocolRuntimeBundle(context_provider);
+    if (!bundle.valid())
     {
-        target = 0;
+        return false;
     }
+    auto facade = bundle.createFacade(runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+    return facade.requestNodeInfo(dest, want_response).ok();
+}
 
-    if (target == 0)
+runtime::RuntimeContext MeshCoreAdapter::buildRuntimeContext() const
+{
+    runtime::RuntimeContext context{};
+    context.protocol = MeshProtocol::MeshCore;
+    context.self_node = node_id_;
+    context.now_ms = millis();
+    context.meshcore_discover_node_type = config_.meshcore_client_repeat
+                                              ? kAdvertTypeRepeater
+                                              : kAdvertTypeChat;
+    context.meshcore_local_modified_epoch = now_epoch_seconds();
+    return context;
+}
+
+runtime::ProtocolRuntimeBundle MeshCoreAdapter::protocolRuntimeBundle(
+    const runtime::IProtocolRuntimeContextProvider& context_provider)
+{
+    runtime::ProtocolRuntimeSelection selection{};
+    selection.meshcore = &protocol_runtime_;
+    return runtime::protocolRuntimeFor(MeshProtocol::MeshCore,
+                                       selection,
+                                       *this,
+                                       context_provider);
+}
+
+bool MeshCoreAdapter::execute(const runtime::ProtocolEffect& effect)
+{
+    return executeProtocolEffect(effect);
+}
+
+bool MeshCoreAdapter::executeProtocolEffects(const runtime::ProtocolEffects& effects)
+{
+    bool ok = true;
+    for (const auto& effect : effects.items)
     {
-        return sendNodeInfoFrame(0, want_response, want_response);
+        ok = execute(effect) && ok;
     }
-    if (want_response)
-    {
-        return sendNodeInfoFrame(target, true, true);
-    }
-    return sendNodeInfoFrame(target, false, false);
+    return ok;
+}
+
+bool MeshCoreAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effect)
+{
+    bool ok = false;
+    runtime::visitProtocolEffect(
+        effect,
+        [this, &ok](const auto& item)
+        {
+            using Effect = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<Effect, runtime::SendNodeInfoEffect>)
+            {
+                if (item.protocol == MeshProtocol::MeshCore)
+                {
+                    ok = sendNodeInfoFrame(item.peer, item.want_response, item.want_response);
+                }
+            }
+            else if constexpr (std::is_same_v<Effect, runtime::SendTraceRouteEffect>)
+            {
+                if (item.protocol == MeshProtocol::MeshCore)
+                {
+                    const uint8_t peer_hash = static_cast<uint8_t>(item.peer & 0xFFU);
+                    uint8_t path[kMeshcoreMaxPathSize] = {};
+                    size_t path_len = 0;
+                    const uint32_t now_ms = millis();
+                    if (peer_hash != 0x00 && peer_hash != 0xFF && peer_hash != self_hash_)
+                    {
+                        if (const PeerRouteEntry* route = selectPeerRouteByHash(peer_hash, now_ms);
+                            route && route->has_out_path && route->out_path_len > 0)
+                        {
+                            path_len = route->out_path_len;
+                            memcpy(path, route->out_path, path_len);
+                        }
+                        else
+                        {
+                            path[path_len++] = peer_hash;
+                        }
+                    }
+
+                    uint32_t timeout_ms = item.timeout_ms;
+                    ok = path_len > 0 &&
+                         sendTracePath(path,
+                                       path_len,
+                                       item.request_id,
+                                       item.auth,
+                                       item.flags,
+                                       &timeout_ms);
+
+                    runtime::TxResult result{};
+                    result.protocol = MeshProtocol::MeshCore;
+                    result.request_id = item.request_id;
+                    result.peer = item.peer;
+                    result.ok = ok;
+                    result.detail = ok ? static_cast<int32_t>(timeout_ms) : 0;
+                    runtime::FixedProtocolRuntimeContextProvider context_provider(
+                        buildRuntimeContext());
+                    const auto bundle = protocolRuntimeBundle(context_provider);
+                    if (bundle.valid())
+                    {
+                        auto facade = bundle.createFacade(
+                            runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+                        facade.handleTxResult(result);
+                    }
+                }
+            }
+            else if constexpr (std::is_same_v<Effect, runtime::SendDiscoverRequestEffect>)
+            {
+                if (item.protocol == MeshProtocol::MeshCore)
+                {
+                    ok = sendDiscoverRequestLocalDetailed(item).ok;
+                }
+            }
+            else if constexpr (std::is_same_v<Effect, runtime::SendDiscoverResponseEffect>)
+            {
+                if (item.protocol == MeshProtocol::MeshCore)
+                {
+                    if (!identity_.isReady())
+                    {
+                        MESHCORE_LOG("[MESHCORE] RX DISCOVER_REQ ignored (identity unavailable)\n");
+                        ok = true;
+                    }
+                    else
+                    {
+                        const uint8_t local_type = config_.meshcore_client_repeat
+                                                       ? kAdvertTypeRepeater
+                                                       : kAdvertTypeChat;
+                        const size_t key_len = item.prefix_only ? chat::meshcore::kMeshCorePubKeyPrefixSize : kMeshcorePubKeySize;
+                        uint8_t resp_payload[6 + kMeshcorePubKeySize] = {};
+                        size_t resp_len = 0;
+                        ok = buildDiscoverResponseControlPayload(local_type,
+                                                                 std::isfinite(last_rx_snr_)
+                                                                     ? static_cast<int8_t>(std::lround(last_rx_snr_ * 4.0f))
+                                                                     : 0,
+                                                                 item.tag,
+                                                                 identity_.publicKey(),
+                                                                 key_len,
+                                                                 resp_payload,
+                                                                 sizeof(resp_payload),
+                                                                 &resp_len);
+                        if (ok)
+                        {
+                            uint8_t frame[kMeshcoreMaxFrameSize] = {};
+                            size_t frame_len = 0;
+                            const PayloadProfile profile =
+                                (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+                                    ? PayloadProfile::V1
+                                    : PayloadProfile::V2;
+                            ok = buildFrameNoTransport(profile,
+                                                       kRouteTypeDirect, kPayloadTypeControl,
+                                                       nullptr, 0,
+                                                       resp_payload, resp_len,
+                                                       frame, sizeof(frame), &frame_len);
+                            if (ok)
+                            {
+                                float air_ms_f = estimateLoRaAirtimeMs(frame_len,
+                                                                       config_.meshcore_bw_khz,
+                                                                       config_.meshcore_sf,
+                                                                       config_.meshcore_cr);
+                                if (!std::isfinite(air_ms_f) || air_ms_f <= 0.0f)
+                                {
+                                    air_ms_f = 50.0f;
+                                }
+                                uint32_t t_ms = static_cast<uint32_t>(std::lround((air_ms_f * 52.0f / 50.0f) / 2.0f));
+                                if (t_ms == 0)
+                                {
+                                    t_ms = 1;
+                                }
+                                const uint32_t delay_ms = static_cast<uint32_t>(random(1, 5)) * t_ms * 4U;
+                                if (config_.tx_enabled)
+                                {
+                                    enqueueScheduled(frame, frame_len, delay_ms);
+                                }
+                                MESHCORE_LOG("[MESHCORE] RX DISCOVER_REQ tag=%08lX prefix=%u -> RESP len=%u delay=%lu\n",
+                                             static_cast<unsigned long>(item.tag),
+                                             item.prefix_only ? 1U : 0U,
+                                             static_cast<unsigned>(resp_len),
+                                             static_cast<unsigned long>(delay_ms));
+                            }
+                        }
+                    }
+                }
+            }
+            else if constexpr (std::is_same_v<Effect, runtime::SendSelfAnnouncementEffect>)
+            {
+                if (item.protocol == MeshProtocol::MeshCore)
+                {
+                    ok = sendIdentityAdvertDetailed(item.broadcast,
+                                                    item.include_location,
+                                                    item.lat_i6,
+                                                    item.lon_i6)
+                             .ok;
+                }
+            }
+            else if constexpr (std::is_same_v<Effect, runtime::PublishNodeInfoEffect>)
+            {
+                if (item.protocol == MeshProtocol::MeshCore && item.node_id != 0)
+                {
+                    float snr = 0.0f;
+                    if (item.rx_meta.snr_db_x10 != std::numeric_limits<int16_t>::min())
+                    {
+                        snr = static_cast<float>(item.rx_meta.snr_db_x10) / 10.0f;
+                    }
+                    else if (std::isfinite(last_rx_snr_))
+                    {
+                        snr = last_rx_snr_;
+                    }
+
+                    float rssi = 0.0f;
+                    if (item.rx_meta.rssi_dbm_x10 != std::numeric_limits<int16_t>::min())
+                    {
+                        rssi = static_cast<float>(item.rx_meta.rssi_dbm_x10) / 10.0f;
+                    }
+                    else if (std::isfinite(last_rx_rssi_))
+                    {
+                        rssi = last_rx_rssi_;
+                    }
+
+                    const uint32_t ts = is_valid_epoch(item.timestamp)
+                                            ? item.timestamp
+                                            : now_message_timestamp();
+                    sys::EventBus::publish(
+                        new sys::NodeInfoUpdateEvent(
+                            item.node_id,
+                            item.short_name.c_str(),
+                            item.long_name.c_str(),
+                            snr,
+                            rssi,
+                            ts,
+                            static_cast<uint8_t>(chat::contacts::NodeProtocolType::MeshCore),
+                            item.role,
+                            item.hops,
+                            0,
+                            0xFF,
+                            false,
+                            nullptr,
+                            false,
+                            false,
+                            item.has_public_key,
+                            item.key_manually_verified),
+                        0);
+                    ok = true;
+                }
+            }
+            else if constexpr (std::is_same_v<Effect, runtime::UpdatePeerRouteEffect>)
+            {
+                if (item.protocol == MeshProtocol::MeshCore)
+                {
+                    const uint32_t now_ms = millis();
+                    const uint8_t peer_hash = item.peer_hash != 0
+                                                  ? item.peer_hash
+                                                  : static_cast<uint8_t>(item.peer & 0xFFU);
+                    if (peer_hash != 0)
+                    {
+                        rememberPeerNodeId(peer_hash, item.peer, now_ms);
+                        if (item.public_key.size() == kMeshcorePubKeySize)
+                        {
+                            rememberPeerPubKey(item.public_key.data(), now_ms, item.public_key_verified);
+                        }
+
+                        Event ev{};
+                        ev.type = Event::Type::ControlData;
+                        ev.peer_hash = peer_hash;
+                        ev.peer_node = item.peer;
+                        ev.flags = item.hops;
+                        ev.tag = item.tag;
+                        ev.payload = item.payload;
+                        pushEvent(std::move(ev));
+                    }
+                    ok = true;
+                }
+            }
+            else if constexpr (std::is_same_v<Effect, runtime::EmitActionResultEffect>)
+            {
+                if (item.protocol == MeshProtocol::MeshCore)
+                {
+                    const bool is_app_ack =
+                        item.request_id != 0 &&
+                        (item.action == runtime::ProtocolActionKind::SendText ||
+                         item.action == runtime::ProtocolActionKind::Unknown);
+                    if (is_app_ack &&
+                        item.state == runtime::ProtocolActionState::Completed)
+                    {
+                        Event ev{};
+                        ev.type = Event::Type::SendConfirmed;
+                        ev.tag = item.request_id;
+                        ev.trip_ms = item.detail > 0 ? static_cast<uint32_t>(item.detail) : 0;
+                        pushEvent(std::move(ev));
+                        if (item.message_id != 0)
+                        {
+                            sys::EventBus::publish(
+                                new sys::ChatSendResultEvent(item.message_id, true),
+                                0);
+                        }
+                    }
+                    else if (is_app_ack &&
+                             (item.state == runtime::ProtocolActionState::Failed ||
+                              item.state == runtime::ProtocolActionState::TimedOut))
+                    {
+                        const uint8_t peer_hash = static_cast<uint8_t>(item.peer & 0xFFU);
+                        MESHCORE_LOG("[MESHCORE] ACK timeout sig=%08lX dest=%08lX age=%ldms\n",
+                                     static_cast<unsigned long>(item.request_id),
+                                     static_cast<unsigned long>(item.peer),
+                                     static_cast<long>(item.detail));
+                        penalizePeerRoute(peer_hash, millis());
+                        if (item.message_id != 0)
+                        {
+                            sys::EventBus::publish(
+                                new sys::ChatSendResultEvent(item.message_id, false),
+                                0);
+                        }
+                    }
+
+                    MESHCORE_LOG("[MESHCORE] action result action=%u state=%u peer=%08lX req=%08lX detail=%ld\n",
+                                 static_cast<unsigned>(item.action),
+                                 static_cast<unsigned>(item.state),
+                                 static_cast<unsigned long>(item.peer),
+                                 static_cast<unsigned long>(item.request_id),
+                                 static_cast<long>(item.detail));
+                    ok = item.state != runtime::ProtocolActionState::Failed &&
+                         item.state != runtime::ProtocolActionState::TimedOut;
+                }
+            }
+        });
+    return ok;
 }
 
 bool MeshCoreAdapter::triggerDiscoveryAction(MeshDiscoveryAction action)
@@ -2097,20 +2635,41 @@ bool MeshCoreAdapter::triggerDiscoveryAction(MeshDiscoveryAction action)
 
 MeshActionResult MeshCoreAdapter::triggerDiscoveryActionDetailed(MeshDiscoveryAction action)
 {
-    switch (action)
-    {
-    case MeshDiscoveryAction::ScanLocal:
-        return sendDiscoverRequestLocalDetailed();
-    case MeshDiscoveryAction::SendIdLocal:
-        return sendIdentityAdvertDetailed(false);
-    case MeshDiscoveryAction::SendIdBroadcast:
-        return sendIdentityAdvertDetailed(true);
-    default:
-        return MeshActionResult::fail(MeshOperationFailure::Unsupported);
-    }
+    return executeDiscoverIntentDetailed(action);
 }
 
-MeshActionResult MeshCoreAdapter::sendDiscoverRequestLocalDetailed()
+MeshActionResult MeshCoreAdapter::executeDiscoverIntentDetailed(MeshDiscoveryAction action)
+{
+    runtime::DiscoverIntent intent{};
+    intent.action = action;
+    intent.type_filter = kMeshCoreDiscoverTypeFilterAll;
+    intent.rx_guard_ms = kDiscoverRxGuardMs;
+    return executeDiscoveryEffectsDetailed(
+        protocol_runtime_.prepareOutgoing(intent, buildRuntimeContext()));
+}
+
+MeshActionResult MeshCoreAdapter::executeDiscoveryEffectsDetailed(const runtime::ProtocolEffects& effects)
+{
+    MeshActionResult result = MeshActionResult::fail(MeshOperationFailure::Unsupported);
+    for (const runtime::ProtocolEffect& effect : effects.items)
+    {
+        if (const auto* discover = std::get_if<runtime::SendDiscoverRequestEffect>(&effect))
+        {
+            result = sendDiscoverRequestLocalDetailed(*discover);
+            continue;
+        }
+        if (const auto* announce = std::get_if<runtime::SendSelfAnnouncementEffect>(&effect))
+        {
+            result = sendIdentityAdvertDetailed(announce->broadcast,
+                                                announce->include_location,
+                                                announce->lat_i6,
+                                                announce->lon_i6);
+        }
+    }
+    return result;
+}
+
+MeshActionResult MeshCoreAdapter::sendDiscoverRequestLocalDetailed(const runtime::SendDiscoverRequestEffect& effect)
 {
     const uint32_t now_ms = millis();
     const TxGateReason tx_gate = checkTxGate(now_ms);
@@ -2121,17 +2680,29 @@ MeshActionResult MeshCoreAdapter::sendDiscoverRequestLocalDetailed()
         return MeshActionResult::fail(txGateFailure(tx_gate));
     }
 
-    const uint32_t tag = static_cast<uint32_t>(esp_random());
-    uint8_t payload[6] = {};
-    payload[0] = kControlSubtypeDiscoverReq; // prefix_only = 0
-    payload[1] = kDiscoverTypeFilterAll;
-    memcpy(payload + 2, &tag, sizeof(tag));
+    MeshCoreDiscoverRequestBuildInfo request{};
+    request.prefix_only = effect.prefix_only;
+    request.type_filter = effect.type_filter;
+    request.tag = effect.tag == 0 ? static_cast<uint32_t>(esp_random()) : effect.tag;
+    request.since = effect.since;
+
+    uint8_t payload[10] = {};
+    size_t payload_len = 0;
+    if (!buildDiscoverRequestControlPayload(request, payload, sizeof(payload), &payload_len))
+    {
+        return MeshActionResult::fail(MeshOperationFailure::EncodeFailed);
+    }
 
     uint8_t frame[kMeshcoreMaxFrameSize] = {};
     size_t frame_len = 0;
-    if (!buildFrameNoTransport(kRouteTypeDirect, kPayloadTypeControl,
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
+    if (!buildFrameNoTransport(profile,
+                               kRouteTypeDirect, kPayloadTypeControl,
                                nullptr, 0,
-                               payload, sizeof(payload),
+                               payload, payload_len,
                                frame, sizeof(frame), &frame_len))
     {
         return MeshActionResult::fail(MeshOperationFailure::EncodeFailed);
@@ -2140,22 +2711,19 @@ MeshActionResult MeshCoreAdapter::sendDiscoverRequestLocalDetailed()
     MeshActionResult result = transmitFrameNowDetailed(frame, frame_len, now_ms);
     if (result.ok)
     {
-        armDiscoverRxGuard(millis());
+        armDiscoverRxGuard(millis(), effect.rx_guard_ms);
     }
-    MESHCORE_LOG("[MESHCORE] TX DISCOVER_REQ mode=local tag=%08lX filter=%02X prefix=0 len=%u ok=%u guard=%lums detail=%d hex=%s\n",
-                 static_cast<unsigned long>(tag),
-                 static_cast<unsigned>(payload[1]),
+    MESHCORE_LOG("[MESHCORE] TX DISCOVER_REQ mode=local tag=%08lX filter=%02X prefix=%u since=%lu len=%u ok=%u guard=%lums detail=%d hex=%s\n",
+                 static_cast<unsigned long>(request.tag),
+                 static_cast<unsigned>(request.type_filter),
+                 request.prefix_only ? 1U : 0U,
+                 static_cast<unsigned long>(request.since),
                  static_cast<unsigned>(frame_len),
                  result.ok ? 1U : 0U,
-                 result.ok ? static_cast<unsigned long>(kDiscoverRxGuardMs) : 0UL,
+                 result.ok ? static_cast<unsigned long>(effect.rx_guard_ms == 0 ? kDiscoverRxGuardMs : effect.rx_guard_ms) : 0UL,
                  result.detail,
                  toHex(frame, frame_len, frame_len).c_str());
     return result;
-}
-
-bool MeshCoreAdapter::sendDiscoverRequestLocal()
-{
-    return sendDiscoverRequestLocalDetailed().ok;
 }
 
 bool MeshCoreAdapter::sendIdentityAdvert(bool broadcast)
@@ -2263,7 +2831,12 @@ MeshActionResult MeshCoreAdapter::sendIdentityAdvertDetailed(bool broadcast, boo
     uint8_t frame[kMeshcoreMaxFrameSize] = {};
     size_t frame_len = 0;
     const uint8_t route_type = broadcast ? kRouteTypeFlood : kRouteTypeDirect;
-    if (!buildFrameNoTransport(route_type, kPayloadTypeAdvert,
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
+    if (!buildFrameNoTransport(profile,
+                               route_type, kPayloadTypeAdvert,
                                nullptr, 0,
                                payload, payload_len,
                                frame, sizeof(frame), &frame_len))
@@ -2387,7 +2960,12 @@ bool MeshCoreAdapter::exportAdvertFrame(const uint8_t* pubkey, size_t len,
 
         uint8_t frame[kMeshcoreMaxFrameSize] = {};
         size_t frame_len = 0;
-        if (!buildFrameNoTransport(kRouteTypeFlood, kPayloadTypeAdvert,
+        const PayloadProfile profile =
+            (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+                ? PayloadProfile::V1
+                : PayloadProfile::V2;
+        if (!buildFrameNoTransport(profile,
+                                   kRouteTypeFlood, kPayloadTypeAdvert,
                                    nullptr, 0,
                                    payload, payload_len,
                                    frame, sizeof(frame), &frame_len))
@@ -2410,7 +2988,12 @@ bool MeshCoreAdapter::exportAdvertFrame(const uint8_t* pubkey, size_t len,
 
     uint8_t frame[kMeshcoreMaxFrameSize] = {};
     size_t frame_len = 0;
-    if (!buildFrameNoTransport(kRouteTypeFlood, kPayloadTypeAdvert,
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
+    if (!buildFrameNoTransport(profile,
+                               kRouteTypeFlood, kPayloadTypeAdvert,
                                nullptr, 0,
                                entry->last_advert, entry->last_advert_len,
                                frame, sizeof(frame), &frame_len))
@@ -2432,7 +3015,7 @@ bool MeshCoreAdapter::importAdvertFrame(const uint8_t* frame, size_t len)
     {
         return false;
     }
-    if (parsed.payload_ver != kPayloadVer1 ||
+    if (!isSupportedPayloadVersion(parsed.payload_ver) ||
         parsed.payload_type != kPayloadTypeAdvert ||
         parsed.payload_len < kAdvertMinPayloadSize)
     {
@@ -2579,7 +3162,7 @@ bool MeshCoreAdapter::hasPkiKey(NodeId dest) const
 
 bool MeshCoreAdapter::handleControlAppData(const MeshIncomingData& incoming)
 {
-    if (incoming.portnum == kNodeInfoPortnum)
+    if (incoming.portnum == kMeshCoreNodeInfoPortnum)
     {
         return handleNodeInfoControl(incoming);
     }
@@ -2592,100 +3175,43 @@ bool MeshCoreAdapter::handleControlAppData(const MeshIncomingData& incoming)
 
 bool MeshCoreAdapter::handleNodeInfoControl(const MeshIncomingData& incoming)
 {
-    if (!hasControlPrefix(incoming.payload.data(), incoming.payload.size(), kControlKindNodeInfo))
+    DecodedNodeInfoControl decoded{};
+    if (!decodeNodeInfoControlPayload(incoming.payload.data(), incoming.payload.size(), &decoded))
     {
         return false;
     }
 
-    const uint8_t type = incoming.payload[3];
-    if (type == kNodeInfoTypeQuery)
+    runtime::IncomingPacket packet{};
+    packet.protocol = MeshProtocol::MeshCore;
+    packet.channel = incoming.channel;
+    packet.from = incoming.from;
+    packet.to = incoming.to;
+    packet.packet_id = incoming.packet_id;
+    packet.request_id = incoming.request_id;
+    packet.portnum = incoming.portnum;
+    packet.want_response = incoming.want_response;
+    packet.payload = incoming.payload;
+    packet.rx_meta = incoming.rx_meta;
+
+    runtime::FixedProtocolRuntimeContextProvider context_provider(buildRuntimeContext());
+    const auto bundle = protocolRuntimeBundle(context_provider);
+    if (bundle.valid())
     {
-        const bool request_reply = (incoming.payload.size() > 4) &&
-                                   ((incoming.payload[4] & kNodeInfoFlagRequestReply) != 0);
-        if (incoming.from != 0 && request_reply)
+        auto facade = bundle.createFacade(runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+        facade.handleIncoming(packet);
+    }
+    if (decoded.type == MeshCoreNodeInfoControlType::Info && decoded.complete)
+    {
+        NodeId node = decoded.info.node_id;
+        if (node == 0)
         {
-            sendNodeInfoFrame(incoming.from, false, false);
+            node = incoming.from;
         }
-        return true;
+        if (node != 0)
+        {
+            rememberPeerNodeId(static_cast<uint8_t>(node & 0xFFU), node, millis());
+        }
     }
-
-    if (type != kNodeInfoTypeInfo)
-    {
-        return true;
-    }
-
-    constexpr size_t kInfoSize = 4 + 1 + 1 + 4 + 4 + kNodeInfoShortNameFieldSize + kNodeInfoLongNameFieldSize;
-    if (incoming.payload.size() < kInfoSize)
-    {
-        return true;
-    }
-
-    size_t index = 4;
-    const uint8_t role = incoming.payload[index++];
-    uint8_t hops = incoming.payload[index++];
-
-    NodeId node = 0;
-    memcpy(&node, incoming.payload.data() + index, sizeof(node));
-    index += sizeof(node);
-
-    uint32_t ts = 0;
-    memcpy(&ts, incoming.payload.data() + index, sizeof(ts));
-    index += sizeof(ts);
-    if (!is_valid_epoch(ts))
-    {
-        ts = now_message_timestamp();
-    }
-
-    char short_name[kNodeInfoShortNameFieldSize + 1] = {};
-    memcpy(short_name, incoming.payload.data() + index, kNodeInfoShortNameFieldSize);
-    short_name[kNodeInfoShortNameFieldSize] = '\0';
-    index += kNodeInfoShortNameFieldSize;
-
-    char long_name[kNodeInfoLongNameFieldSize + 1] = {};
-    memcpy(long_name, incoming.payload.data() + index, kNodeInfoLongNameFieldSize);
-    long_name[kNodeInfoLongNameFieldSize] = '\0';
-
-    if (node == 0)
-    {
-        node = incoming.from;
-    }
-    if (node == 0)
-    {
-        return true;
-    }
-
-    const uint32_t now_ms = millis();
-    rememberPeerNodeId(static_cast<uint8_t>(node & 0xFFU), node, now_ms);
-    if (incoming.rx_meta.hop_count != 0xFF)
-    {
-        hops = incoming.rx_meta.hop_count;
-    }
-
-    float snr = 0.0f;
-    if (incoming.rx_meta.snr_db_x10 != std::numeric_limits<int16_t>::min())
-    {
-        snr = static_cast<float>(incoming.rx_meta.snr_db_x10) / 10.0f;
-    }
-    else if (std::isfinite(last_rx_snr_))
-    {
-        snr = last_rx_snr_;
-    }
-
-    float rssi = 0.0f;
-    if (incoming.rx_meta.rssi_dbm_x10 != std::numeric_limits<int16_t>::min())
-    {
-        rssi = static_cast<float>(incoming.rx_meta.rssi_dbm_x10) / 10.0f;
-    }
-    else if (std::isfinite(last_rx_rssi_))
-    {
-        rssi = last_rx_rssi_;
-    }
-
-    sys::EventBus::publish(
-        new sys::NodeInfoUpdateEvent(node, short_name, long_name, snr, rssi, ts,
-                                     static_cast<uint8_t>(chat::contacts::NodeProtocolType::MeshCore),
-                                     role, hops),
-        0);
     return true;
 }
 
@@ -2842,8 +3368,13 @@ MeshSendResult MeshCoreAdapter::sendTextDetailed(ChannelId channel, const std::s
 
     uint8_t channel_key16[16];
     uint8_t channel_key32[32];
-    uint8_t channel_hash = 0;
-    if (!resolveGroupSecret(channel, channel_key16, channel_key32, &channel_hash))
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
+    uint8_t channel_hash[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    if (!resolveGroupSecret(channel, channel_key16, channel_key32,
+                            profile, channel_hash, sizeof(channel_hash)))
     {
         MESHCORE_LOG("[MESHCORE] TX text dropped (no channel secret)\n");
         return MeshSendResult::fail(MeshOperationFailure::ChannelKeyMissing);
@@ -2859,18 +3390,20 @@ MeshSendResult MeshCoreAdapter::sendTextDetailed(ChannelId channel, const std::s
         decorated = user_long_name_ + ": " + text;
     }
 
-    constexpr size_t kGroupCipherBudget =
-        ((kMeshcoreMaxPayloadSize - 1 - kCipherMacSize) / kCipherBlockSize) * kCipherBlockSize;
+    const size_t channel_hash_len = payloadHashBytes(profile);
+    const size_t mac_len = payloadMacBytes(profile);
+    const size_t kGroupCipherBudget =
+        ((kMeshcoreMaxPayloadSize - channel_hash_len - mac_len) / kCipherBlockSize) * kCipherBlockSize;
     constexpr size_t kGroupPlainPrefix = kGroupPlainPrefixSize; // ts(4) + txt_type(1)
-    constexpr size_t kGroupTextBudget = (kGroupCipherBudget > kGroupPlainPrefix)
-                                            ? (kGroupCipherBudget - kGroupPlainPrefix)
-                                            : 0;
+    const size_t kGroupTextBudget = (kGroupCipherBudget > kGroupPlainPrefix)
+                                        ? (kGroupCipherBudget - kGroupPlainPrefix)
+                                        : 0;
     if (decorated.size() > kGroupTextBudget)
     {
         decorated.resize(kGroupTextBudget);
     }
 
-    uint8_t plain[kGroupCipherBudget];
+    uint8_t plain[kMeshcoreMaxPayloadSize];
     size_t plain_len = 0;
     uint32_t msg_ts = now_message_timestamp();
     memcpy(&plain[plain_len], &msg_ts, sizeof(msg_ts));
@@ -2883,8 +3416,9 @@ MeshSendResult MeshCoreAdapter::sendTextDetailed(ChannelId channel, const std::s
     uint8_t encrypted[kMeshcoreMaxPayloadSize];
     size_t encrypted_len = encryptThenMac(channel_key16, channel_key32,
                                           encrypted, sizeof(encrypted),
-                                          plain, plain_len);
-    if (encrypted_len == 0 || encrypted_len > (kMeshcoreMaxPayloadSize - 1))
+                                          plain, plain_len,
+                                          mac_len);
+    if (encrypted_len == 0 || encrypted_len > (kMeshcoreMaxPayloadSize - channel_hash_len))
     {
         MESHCORE_LOG("[MESHCORE] TX text dropped (encrypt fail) ch=%u plain_len=%u\n",
                      static_cast<unsigned>(channel),
@@ -2894,9 +3428,10 @@ MeshSendResult MeshCoreAdapter::sendTextDetailed(ChannelId channel, const std::s
 
     uint8_t buffer[256];
     size_t index = 0;
-    buffer[index++] = buildHeader(kRouteTypeFlood, kPayloadTypeGrpTxt, kPayloadVer1);
+    buffer[index++] = buildHeader(kRouteTypeFlood, kPayloadTypeGrpTxt, payloadVersion(profile));
     buffer[index++] = 0; // path_len = 0
-    buffer[index++] = channel_hash;
+    memcpy(buffer + index, channel_hash, channel_hash_len);
+    index += channel_hash_len;
     memcpy(&buffer[index], encrypted, encrypted_len);
     index += encrypted_len;
 
@@ -2937,45 +3472,64 @@ MeshActionResult MeshCoreAdapter::sendDirectTextDetailed(ChannelId channel, cons
     const uint8_t peer_hash = static_cast<uint8_t>(peer & 0xFFU);
     rememberPeerNodeId(peer_hash, peer, now_ms);
 
-    if (identity_.isReady())
+    const PeerRouteEntry* peer_route = findPeerRouteByHash(peer_hash);
+    const PayloadProfile profile = selectSendProfile(peer_route);
+    uint8_t peer_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    if (profile == PayloadProfile::V2)
     {
-        const PeerRouteEntry* peer_route = findPeerRouteByHash(peer_hash);
-        if (!peer_route || !peer_route->has_pubkey)
+        if (peer_route && peer_route->has_pubkey)
         {
-            sendDiscoverRequestLocal();
-            return MeshActionResult::fail(MeshOperationFailure::PeerKeyMissing);
+            copyPublicHash(profile, peer_route->pubkey, sizeof(peer_route->pubkey),
+                           peer_hash_bytes, sizeof(peer_hash_bytes));
         }
     }
-
-    uint8_t route_type = kRouteTypeFlood;
-    const uint8_t* out_path = nullptr;
-    size_t out_path_len = 0;
-    ChannelId tx_channel = channel;
-    if (const PeerRouteEntry* route = selectPeerRouteByHash(peer_hash, now_ms))
+    else
     {
-        route_type = kRouteTypeDirect;
-        out_path = route->out_path;
-        out_path_len = route->out_path_len;
-        tx_channel = route->preferred_channel;
+        peer_hash_bytes[0] = peer_hash;
     }
+    const PeerRouteEntry* selected_route =
+        (profile == PayloadProfile::V2 && peer_route && peer_route->has_pubkey)
+            ? selectPeerRouteByHash(profile, peer_hash_bytes, now_ms)
+            : selectPeerRouteByHash(peer_hash, now_ms);
+    chat::runtime::MeshCoreDirectRouteFacts route_facts{};
+    route_facts.identity_ready = identity_.isReady();
+    route_facts.has_peer_route = peer_route != nullptr;
+    route_facts.peer_has_public_key = peer_route && peer_route->has_pubkey;
+    route_facts.has_selected_route = selected_route != nullptr;
+    route_facts.requested_channel = channel;
+    route_facts.selected_route_channel = selected_route ? selected_route->preferred_channel : channel;
+
+    const auto route_decision = chat::runtime::resolveMeshCoreDirectRoutePolicy(route_facts);
+    if (route_decision.status == chat::runtime::MeshCoreDirectRouteStatus::MissingPeerPublicKey)
+    {
+        if (route_decision.should_discover)
+        {
+            executeDiscoverIntentDetailed(MeshDiscoveryAction::ScanLocal);
+        }
+        return MeshActionResult::fail(MeshOperationFailure::PeerKeyMissing);
+    }
+
+    const bool use_direct_route =
+        route_decision.route_mode == chat::runtime::MeshCoreRouteMode::Direct;
+    const uint8_t route_type = use_direct_route ? kRouteTypeDirect : kRouteTypeFlood;
+    const uint8_t* out_path = (use_direct_route && selected_route) ? selected_route->out_path : nullptr;
+    const size_t out_path_len = (use_direct_route && selected_route) ? selected_route->out_path_len : 0;
 
     uint8_t peer_key16[16];
     uint8_t peer_key32[32];
-    if (!deriveDirectSecret(tx_channel, peer_hash, peer_key16, peer_key32))
+    if (!deriveDirectSecret(route_decision.tx_channel, profile, peer_hash_bytes, peer_key16, peer_key32))
     {
-        if (tx_channel == channel ||
-            !deriveDirectSecret(channel, peer_hash, peer_key16, peer_key32))
-        {
-            return MeshActionResult::fail(MeshOperationFailure::PeerKeyMissing);
-        }
+        return MeshActionResult::fail(MeshOperationFailure::PeerKeyMissing);
     }
 
     constexpr size_t kDirectPlainPrefixSize = 5; // ts(4) + flags(1)
-    constexpr size_t kDirectCipherBudget =
-        ((kMeshcoreMaxPayloadSize - 2 - kCipherMacSize) / kCipherBlockSize) * kCipherBlockSize;
-    constexpr size_t kDirectTextBudget = (kDirectCipherBudget > kDirectPlainPrefixSize)
-                                             ? (kDirectCipherBudget - kDirectPlainPrefixSize)
-                                             : 0;
+    const size_t hash_bytes = payloadHashBytes(profile);
+    const size_t mac_len = payloadMacBytes(profile);
+    const size_t kDirectCipherBudget =
+        ((kMeshcoreMaxPayloadSize - (hash_bytes * 2U) - mac_len) / kCipherBlockSize) * kCipherBlockSize;
+    const size_t kDirectTextBudget = (kDirectCipherBudget > kDirectPlainPrefixSize)
+                                         ? (kDirectCipherBudget - kDirectPlainPrefixSize)
+                                         : 0;
 
     std::string body = text;
     if (body.size() > kDirectTextBudget)
@@ -2983,7 +3537,7 @@ MeshActionResult MeshCoreAdapter::sendDirectTextDetailed(ChannelId channel, cons
         body.resize(kDirectTextBudget);
     }
 
-    uint8_t plain[kDirectCipherBudget];
+    uint8_t plain[kMeshcoreMaxPayloadSize];
     size_t plain_len = 0;
     uint32_t msg_ts = now_message_timestamp();
     memcpy(&plain[plain_len], &msg_ts, sizeof(msg_ts));
@@ -3003,7 +3557,9 @@ MeshActionResult MeshCoreAdapter::sendDirectTextDetailed(ChannelId channel, cons
 
     uint8_t payload[kMeshcoreMaxPayloadSize];
     size_t payload_len = 0;
-    if (!buildPeerDatagramPayload(peer_hash, self_hash_,
+    uint8_t self_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    if (!selfHash(profile, self_hash_bytes, sizeof(self_hash_bytes)) ||
+        !buildPeerDatagramPayload(profile, peer_hash_bytes, self_hash_bytes,
                                   peer_key16, peer_key32,
                                   plain, plain_len,
                                   payload, sizeof(payload), &payload_len))
@@ -3014,7 +3570,8 @@ MeshActionResult MeshCoreAdapter::sendDirectTextDetailed(ChannelId channel, cons
     uint8_t frame[kMeshcoreMaxFrameSize];
     size_t frame_len = 0;
 
-    if (!buildFrameNoTransport(route_type, kPayloadTypeTxtMsg,
+    if (!buildFrameNoTransport(profile,
+                               route_type, kPayloadTypeTxtMsg,
                                out_path, out_path_len,
                                payload, payload_len,
                                frame, sizeof(frame), &frame_len))
@@ -3042,7 +3599,9 @@ MeshActionResult MeshCoreAdapter::sendDirectTextDetailed(ChannelId channel, cons
     if (out_timeout)
     {
         *out_timeout = estimateSendTimeoutMs(frame_len,
-                                             (route_type == kRouteTypeDirect) ? out_path_len : 0,
+                                             (route_type == kRouteTypeDirect)
+                                                 ? pathHopCount(profile, out_path_len)
+                                                 : 0,
                                              route_type == kRouteTypeFlood,
                                              config_.meshcore_bw_khz,
                                              config_.meshcore_sf,
@@ -3112,44 +3671,61 @@ bool MeshCoreAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         const uint8_t peer_hash = static_cast<uint8_t>(dest & 0xFFU);
         rememberPeerNodeId(peer_hash, dest, now_ms);
 
-        if (identity_.isReady())
+        const PeerRouteEntry* peer_route = findPeerRouteByHash(peer_hash);
+        const PayloadProfile profile = selectSendProfile(peer_route);
+        uint8_t peer_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
+        if (profile == PayloadProfile::V2)
         {
-            const PeerRouteEntry* peer_route = findPeerRouteByHash(peer_hash);
-            if (!peer_route || !peer_route->has_pubkey)
+            if (peer_route && peer_route->has_pubkey)
             {
-                MESHCORE_LOG("[MESHCORE] TX direct app-data dropped (missing peer pubkey) peer=%08lX hash=%02X port=%u -> discover\n",
-                             static_cast<unsigned long>(dest),
-                             static_cast<unsigned>(peer_hash),
-                             static_cast<unsigned>(portnum));
-                sendDiscoverRequestLocal();
-                return false;
+                copyPublicHash(profile, peer_route->pubkey, sizeof(peer_route->pubkey),
+                               peer_hash_bytes, sizeof(peer_hash_bytes));
             }
         }
-
-        uint8_t route_type = kRouteTypeFlood;
-        const uint8_t* out_path = nullptr;
-        size_t out_path_len = 0;
-        ChannelId tx_channel = channel;
-        if (const PeerRouteEntry* route = selectPeerRouteByHash(peer_hash, now_ms))
+        else
         {
-            route_type = kRouteTypeDirect;
-            out_path = route->out_path;
-            out_path_len = route->out_path_len;
-            tx_channel = route->preferred_channel;
+            peer_hash_bytes[0] = peer_hash;
         }
+        const PeerRouteEntry* selected_route =
+            (profile == PayloadProfile::V2 && peer_route && peer_route->has_pubkey)
+                ? selectPeerRouteByHash(profile, peer_hash_bytes, now_ms)
+                : selectPeerRouteByHash(peer_hash, now_ms);
+        chat::runtime::MeshCoreDirectRouteFacts route_facts{};
+        route_facts.identity_ready = identity_.isReady();
+        route_facts.has_peer_route = peer_route != nullptr;
+        route_facts.peer_has_public_key = peer_route && peer_route->has_pubkey;
+        route_facts.has_selected_route = selected_route != nullptr;
+        route_facts.requested_channel = channel;
+        route_facts.selected_route_channel = selected_route ? selected_route->preferred_channel : channel;
+
+        const auto route_decision = chat::runtime::resolveMeshCoreDirectRoutePolicy(route_facts);
+        if (route_decision.status == chat::runtime::MeshCoreDirectRouteStatus::MissingPeerPublicKey)
+        {
+            MESHCORE_LOG("[MESHCORE] TX direct app-data dropped (missing peer pubkey) peer=%08lX hash=%02X port=%u -> discover\n",
+                         static_cast<unsigned long>(dest),
+                         static_cast<unsigned>(peer_hash),
+                         static_cast<unsigned>(portnum));
+            if (route_decision.should_discover)
+            {
+                executeDiscoverIntentDetailed(MeshDiscoveryAction::ScanLocal);
+            }
+            return false;
+        }
+
+        const bool use_direct_route =
+            route_decision.route_mode == chat::runtime::MeshCoreRouteMode::Direct;
+        const uint8_t route_type = use_direct_route ? kRouteTypeDirect : kRouteTypeFlood;
+        const uint8_t* out_path = (use_direct_route && selected_route) ? selected_route->out_path : nullptr;
+        const size_t out_path_len = (use_direct_route && selected_route) ? selected_route->out_path_len : 0;
 
         uint8_t peer_key16[16];
         uint8_t peer_key32[32];
-        if (!deriveDirectSecret(tx_channel, peer_hash, peer_key16, peer_key32))
+        if (!deriveDirectSecret(route_decision.tx_channel, profile, peer_hash_bytes, peer_key16, peer_key32))
         {
-            if (tx_channel == channel ||
-                !deriveDirectSecret(channel, peer_hash, peer_key16, peer_key32))
-            {
-                MESHCORE_LOG("[MESHCORE] TX direct app-data dropped (no peer secret) peer=%08lX port=%u\n",
-                             static_cast<unsigned long>(dest),
-                             static_cast<unsigned>(portnum));
-                return false;
-            }
+            MESHCORE_LOG("[MESHCORE] TX direct app-data dropped (no peer secret) peer=%08lX port=%u\n",
+                         static_cast<unsigned long>(dest),
+                         static_cast<unsigned>(portnum));
+            return false;
         }
         (void)peer_key16;
 
@@ -3159,6 +3735,16 @@ bool MeshCoreAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         core_context.channel_key = ::mesh::ByteView{peer_key32, sizeof(peer_key32)};
         core_context.route_type = route_type;
         core_context.route_path = ::mesh::ByteView{out_path, out_path_len};
+        core_context.meshcore_payload_ver = payloadVersion(profile);
+        core_context.meshcore_peer_hash =
+            ::mesh::ByteView{peer_hash_bytes, payloadHashBytes(profile)};
+        uint8_t self_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
+        if (!selfHash(profile, self_hash_bytes, sizeof(self_hash_bytes)))
+        {
+            return false;
+        }
+        core_context.meshcore_local_hash =
+            ::mesh::ByteView{self_hash_bytes, payloadHashBytes(profile)};
 
         ::mesh::DirectMessageCommand core_command{
             ::mesh::NodeId{dest},
@@ -3205,8 +3791,13 @@ bool MeshCoreAdapter::sendAppData(ChannelId channel, uint32_t portnum,
 
     uint8_t channel_key16[16];
     uint8_t channel_key32[32];
-    uint8_t channel_hash = 0;
-    if (!resolveGroupSecret(channel, channel_key16, channel_key32, &channel_hash))
+    const PayloadProfile profile =
+        (config_.meshcore_send_profile == MeshCorePayloadSendProfile::V1Only)
+            ? PayloadProfile::V1
+            : PayloadProfile::V2;
+    uint8_t channel_hash[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    if (!resolveGroupSecret(channel, channel_key16, channel_key32,
+                            profile, channel_hash, sizeof(channel_hash)))
     {
         MESHCORE_LOG("[MESHCORE] TX group app-data dropped (no channel secret) ch=%u port=%u\n",
                      static_cast<unsigned>(channel),
@@ -3219,7 +3810,10 @@ bool MeshCoreAdapter::sendAppData(ChannelId channel, uint32_t portnum,
     ::mesh::ProtocolBuildContext core_context{};
     core_context.local_node = ::mesh::NodeId{node_id_};
     core_context.channel_key = ::mesh::ByteView{channel_key32, sizeof(channel_key32)};
-    core_context.channel_hash = channel_hash;
+    core_context.channel_hash = channel_hash[0];
+    core_context.meshcore_payload_ver = payloadVersion(profile);
+    core_context.meshcore_channel_hash =
+        ::mesh::ByteView{channel_hash, payloadHashBytes(profile)};
 
     ::mesh::DirectMessageCommand core_command{
         ::mesh::NodeId{},
@@ -3264,6 +3858,16 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
     config_.meshcore_airtime_factor = clampValue<float>(config_.meshcore_airtime_factor, 0.0f, 9.0f);
     config_.meshcore_flood_max = clampValue<uint8_t>(config_.meshcore_flood_max, 0, 64);
     config_.meshcore_channel_slot = clampValue<uint8_t>(config_.meshcore_channel_slot, 0, 14);
+    if (static_cast<uint8_t>(config_.meshcore_send_profile) >
+        static_cast<uint8_t>(MeshCorePayloadSendProfile::V2Only))
+    {
+        config_.meshcore_send_profile = MeshCorePayloadSendProfile::AutoPreferV2;
+    }
+    if (static_cast<uint8_t>(config_.meshcore_forward_profile) >
+        static_cast<uint8_t>(MeshCoreForwardProfile::MultibyteOnly))
+    {
+        config_.meshcore_forward_profile = MeshCoreForwardProfile::MultibyteOnly;
+    }
 
     if (config_.meshcore_channel_name[0] == '\0')
     {
@@ -3295,7 +3899,7 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
     const uint8_t secondary_hash = has_secondary_key ? computeChannelHash(config_.secondary_key) : 0xFF;
     const bool has_public = shouldUsePublicChannelFallback(config_);
     const uint8_t public_hash = has_public ? computeChannelHash(publicGroupPsk()) : 0xFF;
-    MESHCORE_LOG("[MESHCORE] apply cfg preset=%u freq=%.3f bw=%.3f sf=%u cr=%u(4/%u) txp=%d tx_en=%u repeat=%u flood_max=%u multi_acks=%u slot=%u ch='%s' hash[p=%02X s=%02X pub=%02X] identity[ready=%u self=%02X]\n",
+    MESHCORE_LOG("[MESHCORE] apply cfg preset=%u freq=%.3f bw=%.3f sf=%u cr=%u(4/%u) txp=%d tx_en=%u repeat=%u flood_max=%u multi_acks=%u send_profile=%u fwd_profile=%u slot=%u ch='%s' hash[p=%02X s=%02X pub=%02X] identity[ready=%u self=%02X]\n",
                  static_cast<unsigned>(config_.meshcore_region_preset),
                  static_cast<double>(config_.meshcore_freq_mhz),
                  static_cast<double>(config_.meshcore_bw_khz),
@@ -3307,6 +3911,8 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
                  config_.meshcore_client_repeat ? 1U : 0U,
                  static_cast<unsigned>(config_.meshcore_flood_max),
                  config_.meshcore_multi_acks ? 1U : 0U,
+                 static_cast<unsigned>(static_cast<uint8_t>(config_.meshcore_send_profile)),
+                 static_cast<unsigned>(static_cast<uint8_t>(config_.meshcore_forward_profile)),
                  static_cast<unsigned>(config_.meshcore_channel_slot),
                  config_.meshcore_channel_name,
                  static_cast<unsigned>(primary_hash),
@@ -3317,11 +3923,9 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
 
     scheduled_tx_.clear();
     peer_routes_.clear();
-    pending_app_acks_.clear();
     key_verify_session_ = KeyVerifySession{};
     verified_peers_.clear();
-    last_auto_discover_ms_ = 0;
-    last_auto_discover_hash_ = 0;
+    protocol_runtime_.resetAutoDiscoverState();
     loadPeerPubKeysFromPrefs();
 
 #if defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_SX1280) || \
@@ -3465,16 +4069,30 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                      toHex(data, size).c_str());
         return;
     }
-    if (parsed.payload_ver != kPayloadVer1)
+    if (!isSupportedPayloadVersion(parsed.payload_ver))
     {
-        MESHCORE_LOG("[MESHCORE] RX drop payload ver=%u (want=%u) len=%u type=%u route=%u\n",
+        MESHCORE_LOG("[MESHCORE] RX drop payload ver=%u len=%u type=%u route=%u\n",
                      static_cast<unsigned>(parsed.payload_ver),
-                     static_cast<unsigned>(kPayloadVer1),
                      static_cast<unsigned>(size),
                      static_cast<unsigned>(parsed.payload_type),
                      static_cast<unsigned>(parsed.route_type));
         return;
     }
+    const PayloadProfile profile = payloadProfileFromVersion(parsed.payload_ver);
+    const size_t hash_bytes = payloadHashBytes(profile);
+    const size_t mac_len = payloadMacBytes(profile);
+    const bool trace_path = (parsed.payload_type == kPayloadTypeTrace);
+    if (!trace_path && !pathIsWellFormed(profile, parsed.path_len))
+    {
+        MESHCORE_LOG("[MESHCORE] RX drop malformed path ver=%u path_len=%u hash_bytes=%u type=%u route=%u\n",
+                     static_cast<unsigned>(parsed.payload_ver),
+                     static_cast<unsigned>(parsed.path_len),
+                     static_cast<unsigned>(hash_bytes),
+                     static_cast<unsigned>(parsed.payload_type),
+                     static_cast<unsigned>(parsed.route_type));
+        return;
+    }
+    const size_t path_hops = trace_path ? parsed.path_len : pathHopCount(profile, parsed.path_len);
 
     const uint32_t now_ms = millis();
     prunePendingAppAcks(now_ms);
@@ -3535,7 +4153,8 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         {
             uint8_t frame[kMeshcoreMaxFrameSize];
             size_t frame_len = 0;
-            if (!buildFrameNoTransport(kRouteTypeDirect, payload_type,
+            if (!buildFrameNoTransport(profile,
+                                       kRouteTypeDirect, payload_type,
                                        path, path_len,
                                        payload, payload_len,
                                        frame, sizeof(frame), &frame_len))
@@ -3649,194 +4268,43 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             0);
     };
 
-    auto handleDiscoverControl = [&]() -> bool
-    {
-        if (parsed.payload_len == 0)
-        {
-            return false;
-        }
-
-        DecodedDiscoverRequest req{};
-        if (decodeDiscoverRequest(parsed.payload, parsed.payload_len, &req))
-        {
-            const uint8_t local_type = config_.meshcore_client_repeat
-                                           ? kAdvertTypeRepeater
-                                           : kAdvertTypeChat;
-            if (!discoverFilterMatchesType(req.type_filter, local_type))
-            {
-                return true;
-            }
-
-            const uint32_t local_mod_ts = now_epoch_seconds();
-            if (req.since != 0 && is_valid_epoch(req.since) &&
-                is_valid_epoch(local_mod_ts) && local_mod_ts < req.since)
-            {
-                return true;
-            }
-
-            uint8_t resp_payload[6 + kMeshcorePubKeySize] = {};
-            size_t resp_len = 0;
-            resp_payload[resp_len++] = static_cast<uint8_t>(kControlSubtypeDiscoverResp |
-                                                            (local_type & 0x0F));
-            resp_payload[resp_len++] = quantizeSnrQuarterDb();
-            memcpy(resp_payload + resp_len, &req.tag, sizeof(req.tag));
-            resp_len += sizeof(req.tag);
-            if (!identity_.isReady())
-            {
-                MESHCORE_LOG("[MESHCORE] RX DISCOVER_REQ ignored (identity unavailable)\n");
-                return true;
-            }
-
-            const size_t key_len = req.prefix_only ? kMeshcorePubKeyPrefixSize : kMeshcorePubKeySize;
-            memcpy(resp_payload + resp_len, identity_.publicKey(), key_len);
-            resp_len += key_len;
-
-            uint8_t frame[kMeshcoreMaxFrameSize] = {};
-            size_t frame_len = 0;
-            if (!buildFrameNoTransport(kRouteTypeDirect, kPayloadTypeControl,
-                                       nullptr, 0,
-                                       resp_payload, resp_len,
-                                       frame, sizeof(frame), &frame_len))
-            {
-                return true;
-            }
-
-            float air_ms_f = estimateLoRaAirtimeMs(frame_len,
-                                                   config_.meshcore_bw_khz,
-                                                   config_.meshcore_sf,
-                                                   config_.meshcore_cr);
-            if (!std::isfinite(air_ms_f) || air_ms_f <= 0.0f)
-            {
-                air_ms_f = 50.0f;
-            }
-            // Align with upstream MeshCore getRetransmitDelay()*4:
-            //   t = (airtime * 52 / 50) / 2; delay = random(0..4) * t * 4
-            uint32_t t_ms = static_cast<uint32_t>(std::lround((air_ms_f * 52.0f / 50.0f) / 2.0f));
-            if (t_ms == 0)
-            {
-                t_ms = 1;
-            }
-            const uint32_t delay_ms = static_cast<uint32_t>(random(1, 5)) * t_ms * 4U;
-            if (config_.tx_enabled)
-            {
-                enqueueScheduled(frame, frame_len, delay_ms);
-            }
-
-            MESHCORE_LOG("[MESHCORE] RX DISCOVER_REQ tag=%08lX filter=%02X since=%lu prefix=%u -> RESP len=%u delay=%lu\n",
-                         static_cast<unsigned long>(req.tag),
-                         static_cast<unsigned>(req.type_filter),
-                         static_cast<unsigned long>(req.since),
-                         req.prefix_only ? 1U : 0U,
-                         static_cast<unsigned>(resp_len),
-                         static_cast<unsigned long>(delay_ms));
-            return true;
-        }
-
-        DecodedDiscoverResponse resp{};
-        if (decodeDiscoverResponse(parsed.payload, parsed.payload_len, &resp))
-        {
-            if (resp.pubkey_len == 0 || !resp.pubkey)
-            {
-                return true;
-            }
-            if (resp.pubkey[0] == self_hash_)
-            {
-                return true;
-            }
-
-            const NodeId node = deriveNodeIdFromPubkey(resp.pubkey, resp.pubkey_len);
-            const uint8_t hops = (parsed.path_len <= 255) ? static_cast<uint8_t>(parsed.path_len) : 0xFF;
-            const float snr = static_cast<float>(resp.snr_qdb) / 4.0f;
-            const float rssi = std::isfinite(last_rx_rssi_) ? last_rx_rssi_ : NAN;
-            const uint32_t ts = now_message_timestamp();
-            const bool full_key = resp.pubkey_len == kMeshcorePubKeySize;
-
-            rememberPeerNodeId(resp.pubkey[0], node, now_ms);
-            if (full_key)
-            {
-                rememberPeerPubKey(resp.pubkey, now_ms, false);
-            }
-            char fallback_short_name[8] = {};
-            formatMeshCoreFallbackShortName(resp.pubkey[0], fallback_short_name,
-                                            sizeof(fallback_short_name));
-            sys::EventBus::publish(
-                new sys::NodeInfoUpdateEvent(node,
-                                             fallback_short_name,
-                                             fallback_short_name,
-                                             snr,
-                                             rssi,
-                                             ts,
-                                             static_cast<uint8_t>(chat::contacts::NodeProtocolType::MeshCore),
-                                             mapAdvertTypeToRole(resp.node_type),
-                                             hops,
-                                             0,
-                                             0xFF,
-                                             false,
-                                             nullptr,
-                                             false,
-                                             false,
-                                             full_key,
-                                             false),
-                0);
-
-            Event ev{};
-            ev.type = Event::Type::ControlData;
-            ev.peer_hash = resp.pubkey[0];
-            ev.peer_node = node;
-            ev.flags = hops;
-            ev.tag = resp.tag;
-            ev.payload.assign(parsed.payload, parsed.payload + parsed.payload_len);
-            pushEvent(std::move(ev));
-
-            MESHCORE_LOG("[MESHCORE] RX DISCOVER_RESP route=%u path=%u tag=%08lX type=%u snr_qdb=%d hash=%02X key_len=%u full_key=%u node=%08lX\n",
-                         static_cast<unsigned>(parsed.route_type),
-                         static_cast<unsigned>(parsed.path_len),
-                         static_cast<unsigned long>(resp.tag),
-                         static_cast<unsigned>(resp.node_type),
-                         static_cast<int>(resp.snr_qdb),
-                         static_cast<unsigned>(resp.pubkey[0]),
-                         static_cast<unsigned>(resp.pubkey_len),
-                         full_key ? 1U : 0U,
-                         static_cast<unsigned long>(node));
-            return true;
-        }
-
-        MESHCORE_LOG("[MESHCORE] RX DISCOVER_CTRL unknown route=%u path=%u len=%u first=%02X\n",
-                     static_cast<unsigned>(parsed.route_type),
-                     static_cast<unsigned>(parsed.path_len),
-                     static_cast<unsigned>(parsed.payload_len),
-                     parsed.payload_len > 0 ? static_cast<unsigned>(parsed.payload[0]) : 0U);
-        return false;
-    };
-
     // TRACE direct packets use path[] for accumulated SNR and route hashes live in payload.
     if (is_direct_route && parsed.payload_type == kPayloadTypeTrace && parsed.payload_len >= 9)
     {
-        const uint8_t flags = parsed.payload[8];
-        const uint8_t path_hash_size_bits = flags & 0x03;
-        size_t path_hash_size = static_cast<size_t>(1U << path_hash_size_bits);
-        if (path_hash_size == 0 || path_hash_size > 4)
+        DecodedTracePayload trace{};
+        if (!decodeTracePayload(parsed.payload, parsed.payload_len, parsed.path_len, &trace))
         {
-            path_hash_size = 1;
+            return;
         }
 
-        const size_t trace_hashes_len = parsed.payload_len - 9;
-        const size_t offset = parsed.path_len * path_hash_size;
-        if (offset >= trace_hashes_len)
+        if (trace.terminal)
         {
-            uint32_t tag = 0;
-            uint32_t auth = 0;
-            memcpy(&tag, parsed.payload, sizeof(tag));
-            memcpy(&auth, parsed.payload + 4, sizeof(auth));
+            runtime::IncomingPacket packet{};
+            packet.protocol = MeshProtocol::MeshCore;
+            packet.payload_type = kPayloadTypeTrace;
+            packet.payload.assign(parsed.payload, parsed.payload + parsed.payload_len);
+            if (parsed.path_len > 0)
+            {
+                packet.path.assign(parsed.path, parsed.path + parsed.path_len);
+            }
+            runtime::FixedProtocolRuntimeContextProvider context_provider(buildRuntimeContext());
+            const auto bundle = protocolRuntimeBundle(context_provider);
+            if (bundle.valid())
+            {
+                auto facade = bundle.createFacade(
+                    runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+                facade.handleIncoming(packet);
+            }
+
             MESHCORE_LOG("[MESHCORE] RX TRACE done tag=%08lX auth=%08lX hops=%u route=%s\n",
-                         static_cast<unsigned long>(tag),
-                         static_cast<unsigned long>(auth),
+                         static_cast<unsigned long>(trace.tag),
+                         static_cast<unsigned long>(trace.auth),
                          static_cast<unsigned>(parsed.path_len),
                          is_flood_route ? "flood" : "direct");
             return;
         }
 
-        if (parsed.payload[9 + offset] != self_hash_)
+        if (trace.next_hash != self_hash_)
         {
             return;
         }
@@ -3874,8 +4342,40 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
     {
         if (parsed.path_len == 0)
         {
-            if (!handleDiscoverControl())
+            runtime::IncomingPacket packet{};
+            packet.protocol = MeshProtocol::MeshCore;
+            packet.payload_type = kPayloadTypeControl;
+            packet.payload.assign(parsed.payload, parsed.payload + parsed.payload_len);
+            if (std::isfinite(last_rx_snr_))
             {
+                packet.rx_meta.snr_db_x10 = static_cast<int16_t>(std::lround(last_rx_snr_ * 10.0f));
+            }
+            if (std::isfinite(last_rx_rssi_))
+            {
+                packet.rx_meta.rssi_dbm_x10 = static_cast<int16_t>(std::lround(last_rx_rssi_ * 10.0f));
+            }
+
+            runtime::FixedProtocolRuntimeContextProvider context_provider(buildRuntimeContext());
+            const auto bundle = protocolRuntimeBundle(context_provider);
+            if (bundle.valid())
+            {
+                auto facade = bundle.createFacade(
+                    runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+                facade.handleIncoming(packet);
+            }
+
+            DecodedDiscoverRequest discover_request{};
+            DecodedDiscoverResponse discover_response{};
+            const bool known_discover_control =
+                decodeDiscoverRequest(parsed.payload, parsed.payload_len, &discover_request) ||
+                decodeDiscoverResponse(parsed.payload, parsed.payload_len, &discover_response);
+            if (!known_discover_control)
+            {
+                MESHCORE_LOG("[MESHCORE] RX DISCOVER_CTRL unknown route=%u path=%u len=%u first=%02X\n",
+                             static_cast<unsigned>(parsed.route_type),
+                             static_cast<unsigned>(parsed.path_len),
+                             static_cast<unsigned>(parsed.payload_len),
+                             parsed.payload_len > 0 ? static_cast<unsigned>(parsed.payload[0]) : 0U);
                 Event ev{};
                 ev.type = Event::Type::ControlData;
                 ev.peer_hash = parsed.payload_len > 0 ? parsed.payload[0] : 0;
@@ -3896,6 +4396,9 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         return;
     }
 
+    uint8_t self_hash_bytes[chat::meshcore::kMeshCoreV2HashBytes] = {};
+    const bool have_self_hash = selfHash(profile, self_hash_bytes, sizeof(self_hash_bytes));
+
     // Direct routing hop forwarding: only the addressed next-hop should retransmit.
     if (is_direct_route && parsed.path_len > 0)
     {
@@ -3915,18 +4418,20 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             }
         }
 
-        if (parsed.path[0] != self_hash_)
+        if (!have_self_hash ||
+            parsed.path_len < hash_bytes ||
+            memcmp(parsed.path, self_hash_bytes, hash_bytes) != 0)
         {
             return;
         }
 
-        if (!config_.meshcore_client_repeat || size <= 2)
+        if (!config_.meshcore_client_repeat || !allowsForwardingProfile(profile) || size <= 2)
         {
             return;
         }
 
         const size_t payload_start = static_cast<size_t>(parsed.payload - data);
-        const size_t new_path_len = parsed.path_len - 1;
+        const size_t new_path_len = parsed.path_len - hash_bytes;
 
         auto copyForwardPath = [&](uint8_t* out_path) -> void
         {
@@ -3934,7 +4439,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             {
                 return;
             }
-            memcpy(out_path, parsed.path + 1, new_path_len);
+            memcpy(out_path, parsed.path + hash_bytes, new_path_len);
         };
 
         if (parsed.payload_type == kPayloadTypeAck && parsed.payload_len >= sizeof(uint32_t))
@@ -3967,12 +4472,12 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             return;
         }
 
-        std::vector<uint8_t> fwd(size - 1);
+        std::vector<uint8_t> fwd(size - hash_bytes);
         memcpy(fwd.data(), data, parsed.path_len_index);
         fwd[parsed.path_len_index] = static_cast<uint8_t>(new_path_len);
         if (new_path_len > 0)
         {
-            memcpy(&fwd[parsed.path_len_index + 1], parsed.path + 1, new_path_len);
+            memcpy(&fwd[parsed.path_len_index + 1], parsed.path + hash_bytes, new_path_len);
         }
         const size_t new_payload_start = parsed.path_len_index + 1 + new_path_len;
         memcpy(&fwd[new_payload_start], &data[payload_start], size - payload_start);
@@ -4005,35 +4510,38 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
     };
 
     const bool is_anon_req_payload = (parsed.payload_type == kPayloadTypeAnonReq) &&
-                                     isAnonReqCipherShape(parsed.payload_len) &&
-                                     !isPeerCipherShape(parsed.payload_len);
+                                     isAnonReqCipherShape(profile, parsed.payload_len) &&
+                                     !isPeerCipherShape(profile, parsed.payload_len);
     const bool is_peer_payload_candidate = isPeerPayloadType(parsed.payload_type) &&
-                                           isPeerCipherShape(parsed.payload_len) &&
+                                           isPeerCipherShape(profile, parsed.payload_len) &&
                                            !is_anon_req_payload;
     const bool flood_peer_for_self = is_flood_route &&
                                      is_peer_payload_candidate &&
-                                     parsed.payload_len >= 1 &&
-                                     parsed.payload[0] == self_hash_;
+                                     parsed.payload_len >= hash_bytes &&
+                                     have_self_hash &&
+                                     memcmp(parsed.payload, self_hash_bytes, hash_bytes) == 0;
     const bool flood_anon_for_self = is_flood_route &&
                                      is_anon_req_payload &&
-                                     parsed.payload_len >= 1 &&
-                                     parsed.payload[0] == self_hash_;
+                                     parsed.payload_len >= hash_bytes &&
+                                     have_self_hash &&
+                                     memcmp(parsed.payload, self_hash_bytes, hash_bytes) == 0;
     const bool is_multipart_ack = (parsed.payload_type == kPayloadTypeMultipart &&
                                    parsed.payload_len > 0 &&
                                    ((parsed.payload[0] & 0x0F) == kPayloadTypeAck));
     if (config_.meshcore_client_repeat && is_flood_route &&
+        allowsForwardingProfile(profile) &&
         !flood_peer_for_self &&
         !flood_anon_for_self &&
         !is_multipart_ack &&
         shouldFloodRepeatPayload(parsed.payload_type) &&
-        parsed.path_len < config_.meshcore_flood_max &&
-        (parsed.path_len + kMeshcorePathHashSize) <= kMeshcoreMaxPathSize &&
-        (size + kMeshcorePathHashSize) <= kMeshcoreMaxFrameSize)
+        path_hops < config_.meshcore_flood_max &&
+        (parsed.path_len + hash_bytes) <= kMeshcoreMaxPathSize &&
+        (size + hash_bytes) <= kMeshcoreMaxFrameSize)
     {
         bool self_in_path = false;
-        for (size_t i = 0; i < parsed.path_len; ++i)
+        for (size_t i = 0; i + hash_bytes <= parsed.path_len; i += hash_bytes)
         {
-            if (parsed.path[i] == self_hash_)
+            if (memcmp(parsed.path + i, self_hash_bytes, hash_bytes) == 0)
             {
                 self_in_path = true;
                 break;
@@ -4045,11 +4553,11 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             const size_t path_start = parsed.path_len_index + 1;
             const size_t payload_start = static_cast<size_t>(parsed.payload - data);
 
-            std::vector<uint8_t> fwd(size + kMeshcorePathHashSize);
+            std::vector<uint8_t> fwd(size + hash_bytes);
             memcpy(fwd.data(), data, path_start + parsed.path_len);
-            fwd[parsed.path_len_index] = static_cast<uint8_t>(parsed.path_len + 1);
-            fwd[path_start + parsed.path_len] = self_hash_;
-            memcpy(&fwd[path_start + parsed.path_len + 1],
+            fwd[parsed.path_len_index] = static_cast<uint8_t>(parsed.path_len + hash_bytes);
+            memcpy(&fwd[path_start + parsed.path_len], self_hash_bytes, hash_bytes);
+            memcpy(&fwd[path_start + parsed.path_len + hash_bytes],
                    &data[payload_start],
                    size - payload_start);
 
@@ -4069,38 +4577,34 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             enqueueScheduled(fwd.data(), fwd.size(), total_delay);
 
             MESHCORE_LOG("[MESHCORE] REPEAT queued path=%u->%u flood_max=%u delay=%lu\n",
-                         static_cast<unsigned>(parsed.path_len),
-                         static_cast<unsigned>(parsed.path_len + 1),
+                         static_cast<unsigned>(path_hops),
+                         static_cast<unsigned>(path_hops + 1),
                          static_cast<unsigned>(config_.meshcore_flood_max),
                          static_cast<unsigned long>(total_delay));
         }
     }
 
     const bool is_peer_payload = isPeerPayloadType(parsed.payload_type) &&
-                                 isPeerCipherShape(parsed.payload_len) &&
+                                 isPeerCipherShape(profile, parsed.payload_len) &&
                                  !is_anon_req_payload;
-    const bool is_legacy_text_payload = (parsed.payload_type == kPayloadTypeTxtMsg &&
-                                         parsed.payload_len > 1 &&
-                                         !is_peer_payload);
     const bool is_group_text_payload = (parsed.payload_type == kPayloadTypeGrpTxt &&
-                                        parsed.payload_len > (1 + kCipherMacSize));
+                                        parsed.payload_len > (hash_bytes + mac_len));
     const bool is_group_data_payload = (parsed.payload_type == kPayloadTypeGrpData &&
-                                        parsed.payload_len > (1 + kCipherMacSize));
+                                        parsed.payload_len > (hash_bytes + mac_len));
     const bool is_raw_payload = (parsed.payload_type == kPayloadTypeRawCustom &&
                                  parsed.payload_len > sizeof(uint32_t));
 
-    // Legacy ACK behavior for legacy text/raw payloads.
-    if (config_.tx_enabled && (is_legacy_text_payload || is_raw_payload))
+    if (config_.tx_enabled && is_raw_payload)
     {
         uint8_t ack_frame[6] = {};
-        ack_frame[0] = buildHeader(kRouteTypeFlood, kPayloadTypeAck, kPayloadVer1);
+        ack_frame[0] = buildHeader(kRouteTypeFlood, kPayloadTypeAck, payloadVersion(profile));
         ack_frame[1] = 0;
         memcpy(&ack_frame[2], &frame_sig, sizeof(frame_sig));
 
         if (config_.meshcore_multi_acks)
         {
             uint8_t multi_ack[7] = {};
-            multi_ack[0] = buildHeader(kRouteTypeFlood, kPayloadTypeMultipart, kPayloadVer1);
+            multi_ack[0] = buildHeader(kRouteTypeFlood, kPayloadTypeMultipart, payloadVersion(profile));
             multi_ack[1] = 0;
             multi_ack[2] = static_cast<uint8_t>((1U << 4) | kPayloadTypeAck);
             memcpy(&multi_ack[3], &frame_sig, sizeof(frame_sig));
@@ -4129,13 +4633,16 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         }
         meta.origin = RxOrigin::Mesh;
         meta.direct = direct;
-        meta.hop_count = (parsed.path_len <= 255) ? static_cast<uint8_t>(parsed.path_len) : 0xFF;
+        meta.hop_count = (path_hops <= 255) ? static_cast<uint8_t>(path_hops) : 0xFF;
         meta.hop_limit = 0xFF;
         meta.wire_flags = data[0];
         if (parsed.path_len > 0)
         {
             meta.next_hop = parsed.path[0];
-            meta.relay_node = parsed.path[parsed.path_len - 1];
+            const size_t relay_offset = !trace_path && parsed.path_len >= hash_bytes
+                                            ? parsed.path_len - hash_bytes
+                                            : parsed.path_len - 1;
+            meta.relay_node = parsed.path[relay_offset];
         }
         if (std::isfinite(last_rx_rssi_))
         {
@@ -4147,7 +4654,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         }
     };
 
-    auto sendPeerDatagram = [&](uint8_t payload_type, uint8_t dest_hash, ChannelId channel,
+    auto sendPeerDatagram = [&](uint8_t payload_type, const uint8_t* dest_hash, ChannelId channel,
                                 const uint8_t* plain, size_t plain_len,
                                 uint8_t route_type, const uint8_t* route_path, size_t route_path_len,
                                 uint32_t delay_ms) -> bool
@@ -4159,14 +4666,15 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
 
         uint8_t key16[16];
         uint8_t key32[32];
-        if (!deriveDirectSecret(channel, dest_hash, key16, key32))
+        if (!deriveDirectSecret(channel, profile, dest_hash, key16, key32))
         {
             return false;
         }
 
         uint8_t payload[kMeshcoreMaxPayloadSize];
         size_t payload_len = 0;
-        if (!buildPeerDatagramPayload(dest_hash, self_hash_,
+        if (!have_self_hash ||
+            !buildPeerDatagramPayload(profile, dest_hash, self_hash_bytes,
                                       key16, key32,
                                       plain, plain_len,
                                       payload, sizeof(payload), &payload_len))
@@ -4176,7 +4684,8 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
 
         uint8_t frame[kMeshcoreMaxFrameSize];
         size_t frame_len = 0;
-        if (!buildFrameNoTransport(route_type, payload_type,
+        if (!buildFrameNoTransport(profile,
+                                   route_type, payload_type,
                                    route_path, route_path_len,
                                    payload, payload_len,
                                    frame, sizeof(frame), &frame_len))
@@ -4197,7 +4706,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         return enqueueScheduled(frame, frame_len, 50);
     };
 
-    auto sendPathReturn = [&](uint8_t dest_hash, ChannelId channel,
+    auto sendPathReturn = [&](const uint8_t* dest_hash, ChannelId channel,
                               const uint8_t* return_path, size_t return_path_len,
                               uint8_t route_type, const uint8_t* route_path, size_t route_path_len,
                               uint8_t extra_type, const uint8_t* extra, size_t extra_len,
@@ -4217,7 +4726,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                                 delay_ms);
     };
 
-    auto sendPeerAck = [&](uint8_t src_hash, ChannelId channel, uint32_t ack_value) -> void
+    auto sendPeerAck = [&](const uint8_t* src_hash, ChannelId channel, uint32_t ack_value) -> void
     {
         if (!config_.tx_enabled)
         {
@@ -4237,7 +4746,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             return;
         }
 
-        const PeerRouteEntry* route = selectPeerRouteByHash(src_hash, now_ms);
+        const PeerRouteEntry* route = selectPeerRouteByHash(profile, src_hash, now_ms);
         uint8_t route_type = kRouteTypeFlood;
         const uint8_t* route_path = nullptr;
         size_t route_path_len = 0;
@@ -4257,8 +4766,8 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
 
     if (is_anon_req_payload)
     {
-        const uint8_t dest_hash = parsed.payload[0];
-        if (dest_hash != self_hash_)
+        const uint8_t* dest_hash = parsed.payload;
+        if (!have_self_hash || memcmp(dest_hash, self_hash_bytes, hash_bytes) != 0)
         {
             return;
         }
@@ -4270,29 +4779,37 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             return;
         }
 
-        const uint8_t* sender_pubkey = parsed.payload + 1;
-        const uint8_t src_hash = sender_pubkey[0];
-        const uint8_t* cipher = parsed.payload + 1 + kMeshcorePubKeySize;
-        const size_t cipher_len = parsed.payload_len - 1 - kMeshcorePubKeySize;
+        const uint8_t* sender_pubkey = parsed.payload + hash_bytes;
+        uint8_t src_hash[chat::meshcore::kMeshCoreV2HashBytes] = {};
+        copyPublicHash(profile, sender_pubkey, kMeshcorePubKeySize, src_hash, sizeof(src_hash));
+        const uint8_t* cipher = parsed.payload + hash_bytes + kMeshcorePubKeySize;
+        const size_t cipher_len = parsed.payload_len - hash_bytes - kMeshcorePubKeySize;
 
         uint8_t shared_secret[kCipherHmacKeySize] = {};
         if (!identity_.deriveSharedSecret(sender_pubkey, shared_secret))
         {
             MESHCORE_LOG("[MESHCORE] RX ANON_REQ drop (shared secret failed) src=%02X\n",
-                         static_cast<unsigned>(src_hash));
+                         static_cast<unsigned>(src_hash[0]));
             return;
         }
 
         uint8_t key16[kCipherKeySize] = {};
         uint8_t key32[kCipherHmacKeySize] = {};
-        sharedSecretToKeys(shared_secret, key16, key32);
+        if (!chat::runtime::MeshCoreDirectSecretCore::expandSharedSecret(shared_secret, sizeof(shared_secret),
+                                                                         key16, sizeof(key16),
+                                                                         key32, sizeof(key32)))
+        {
+            MESHCORE_LOG("[MESHCORE] RX ANON_REQ drop (shared secret expand failed) src=%02X\n",
+                         static_cast<unsigned>(src_hash[0]));
+            return;
+        }
 
         uint8_t plain[kMeshcoreMaxPayloadSize] = {};
         size_t plain_len = 0;
-        if (!macThenDecrypt(key16, key32, cipher, cipher_len, plain, &plain_len))
+        if (!macThenDecrypt(key16, key32, cipher, cipher_len, plain, &plain_len, mac_len))
         {
             MESHCORE_LOG("[MESHCORE] RX ANON_REQ decrypt failed src=%02X len=%u\n",
-                         static_cast<unsigned>(src_hash),
+                         static_cast<unsigned>(src_hash[0]),
                          static_cast<unsigned>(parsed.payload_len));
             return;
         }
@@ -4300,7 +4817,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
 
         const NodeId sender_node = deriveNodeIdFromPubkey(sender_pubkey, kMeshcorePubKeySize);
         rememberPeerPubKey(sender_pubkey, now_ms, true);
-        rememberPeerNodeId(src_hash, sender_node, now_ms);
+        rememberPeerNodeId(src_hash[0], sender_node, now_ms);
 
         uint32_t tag = 0;
         if (plain_len >= sizeof(tag))
@@ -4308,7 +4825,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             memcpy(&tag, plain, sizeof(tag));
         }
         MESHCORE_LOG("[MESHCORE] RX ANON_REQ src=%02X node=%08lX len=%u route=%s tag=%08lX\n",
-                     static_cast<unsigned>(src_hash),
+                     static_cast<unsigned>(src_hash[0]),
                      static_cast<unsigned long>(sender_node),
                      static_cast<unsigned>(plain_len),
                      is_flood_route ? "flood" : "direct",
@@ -4318,9 +4835,9 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
 
     if (is_peer_payload)
     {
-        const uint8_t dest_hash = parsed.payload[0];
-        const uint8_t src_hash = parsed.payload[1];
-        if (dest_hash != self_hash_)
+        const uint8_t* dest_hash = parsed.payload;
+        const uint8_t* src_hash = parsed.payload + hash_bytes;
+        if (!have_self_hash || memcmp(dest_hash, self_hash_bytes, hash_bytes) != 0)
         {
             return;
         }
@@ -4328,29 +4845,30 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         uint8_t plain[kMeshcoreMaxPayloadSize];
         size_t plain_len = 0;
         ChannelId peer_channel = ChannelId::PRIMARY;
-        if (!tryDecryptPeerPayload(src_hash,
-                                   parsed.payload + 2, parsed.payload_len - 2,
+        if (!tryDecryptPeerPayload(profile, src_hash,
+                                   parsed.payload + (hash_bytes * 2U),
+                                   parsed.payload_len - (hash_bytes * 2U),
                                    plain, &plain_len, &peer_channel))
         {
-            const PeerRouteEntry* route = findPeerRouteByHash(src_hash);
+            const PeerRouteEntry* route = findPeerRouteByHash(profile, src_hash);
             const bool has_pubkey = (route && route->has_pubkey);
             MESHCORE_LOG("[MESHCORE] RX peer decrypt failed type=%u src=%02X has_pubkey=%u\n",
                          static_cast<unsigned>(parsed.payload_type),
-                         static_cast<unsigned>(src_hash),
+                         static_cast<unsigned>(src_hash[0]),
                          has_pubkey ? 1U : 0U);
             if (!has_pubkey)
             {
-                maybeAutoDiscoverMissingPeer(src_hash, now_ms);
+                maybeAutoDiscoverMissingPeer(src_hash[0], now_ms);
             }
             return;
         }
         plain_len = trimTrailingZeros(plain, plain_len);
         // Do not infer zero-hop route from direct packets that already traversed a path.
         // Route candidates should be learned from PATH payloads (or flood-derived returns).
-        PeerRouteEntry& route = upsertPeerRoute(src_hash, now_ms);
+        PeerRouteEntry& route = upsertPeerRoute(profile, src_hash, now_ms);
         route.preferred_channel = peer_channel;
 
-        const NodeId from_node = resolvePeerNodeId(src_hash);
+        const NodeId from_node = resolvePeerNodeId(src_hash[0]);
 
         if (parsed.payload_type == kPayloadTypeTxtMsg && plain_len > 5)
         {
@@ -4375,7 +4893,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
 
                 uint32_t ack_value = packet_sig;
                 uint8_t sender_pubkey[kMeshcorePubKeySize] = {};
-                if (lookupPeerPubKey(src_hash, sender_pubkey))
+                if (lookupPeerPubKey(profile, src_hash, sender_pubkey))
                 {
                     size_t text_len = 0;
                     const size_t text_cap = plain_len - 5;
@@ -4392,7 +4910,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                 else
                 {
                     MESHCORE_LOG("[MESHCORE] RX text ACK fallback src=%02X reason=no_pubkey\n",
-                                 static_cast<unsigned>(src_hash));
+                                 static_cast<unsigned>(src_hash[0]));
                 }
                 sendPeerAck(src_hash, peer_channel, ack_value);
                 return;
@@ -4435,7 +4953,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                 else
                 {
                     MESHCORE_LOG("[MESHCORE] RX signed text ACK fallback src=%02X reason=no_identity\n",
-                                 static_cast<unsigned>(src_hash));
+                                 static_cast<unsigned>(src_hash[0]));
                 }
                 sendPeerAck(src_hash, peer_channel, ack_value);
                 return;
@@ -4489,7 +5007,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             }
             else
             {
-                const PeerRouteEntry* route = selectPeerRouteByHash(src_hash, now_ms);
+                const PeerRouteEntry* route = selectPeerRouteByHash(profile, src_hash, now_ms);
                 uint8_t route_type = kRouteTypeFlood;
                 const uint8_t* route_path = nullptr;
                 size_t route_path_len = 0;
@@ -4510,12 +5028,12 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         if (parsed.payload_type == kPayloadTypeResponse)
         {
             MESHCORE_LOG("[MESHCORE] RX RESPONSE src=%02X len=%u route=%s\n",
-                         static_cast<unsigned>(src_hash),
+                         static_cast<unsigned>(src_hash[0]),
                          static_cast<unsigned>(plain_len),
                          is_flood_route ? "flood" : "direct");
             Event ev{};
             ev.type = Event::Type::Response;
-            ev.peer_hash = src_hash;
+            ev.peer_hash = src_hash[0];
             ev.peer_node = from_node;
             ev.payload.assign(plain, plain + plain_len);
             pushEvent(std::move(ev));
@@ -4534,9 +5052,9 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                 const uint8_t* extra = &plain[index];
                 const size_t extra_len = plain_len - index;
 
-                rememberPeerPath(src_hash, out_path, out_path_len, peer_channel, now_ms);
+                rememberPeerPath(profile, src_hash, out_path, out_path_len, peer_channel, now_ms);
                 MESHCORE_LOG("[MESHCORE] RX PATH src=%02X out_path_len=%u extra_type=%u extra_len=%u route=%s\n",
-                             static_cast<unsigned>(src_hash),
+                             static_cast<unsigned>(src_hash[0]),
                              static_cast<unsigned>(out_path_len),
                              static_cast<unsigned>(extra_type),
                              static_cast<unsigned>(extra_len),
@@ -4553,11 +5071,11 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                 else if (extra_type == kPayloadTypeResponse && extra_len > 0)
                 {
                     MESHCORE_LOG("[MESHCORE] RX PATH/RESPONSE src=%02X len=%u\n",
-                                 static_cast<unsigned>(src_hash),
+                                 static_cast<unsigned>(src_hash[0]),
                                  static_cast<unsigned>(extra_len));
                     Event ev{};
                     ev.type = Event::Type::PathResponse;
-                    ev.peer_hash = src_hash;
+                    ev.peer_hash = src_hash[0];
                     ev.peer_node = from_node;
                     if (extra_len >= sizeof(uint32_t))
                     {
@@ -4585,7 +5103,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         }
     }
 
-    auto logUnknownGroupHash = [&](const char* kind, uint8_t channel_hash) -> void
+    auto logUnknownGroupHash = [&](const char* kind, const uint8_t* channel_hash) -> void
     {
         const bool has_primary_key = !isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen);
         const bool has_secondary_key = !isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen);
@@ -4593,9 +5111,9 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         const uint8_t secondary_hash = has_secondary_key ? computeChannelHash(config_.secondary_key) : 0xFF;
         const bool has_public = shouldUsePublicChannelFallback(config_);
         const uint8_t public_hash = has_public ? computeChannelHash(publicGroupPsk()) : 0xFF;
-        MESHCORE_LOG("[MESHCORE] RX group %s drop unknown hash=%02X local[p=%02X s=%02X pub=%02X]\n",
+        MESHCORE_LOG("[MESHCORE] RX group %s drop unknown hash=%s local[p=%02X s=%02X pub=%02X]\n",
                      kind,
-                     static_cast<unsigned>(channel_hash),
+                     toHex(channel_hash, hash_bytes).c_str(),
                      static_cast<unsigned>(primary_hash),
                      static_cast<unsigned>(secondary_hash),
                      static_cast<unsigned>(public_hash));
@@ -4603,9 +5121,9 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
 
     if (is_group_text_payload)
     {
-        const uint8_t channel_hash = parsed.payload[0];
+        const uint8_t* channel_hash = parsed.payload;
         bool channel_match = false;
-        const ChannelId rx_channel = resolveChannelFromHash(channel_hash, &channel_match);
+        const ChannelId rx_channel = resolveChannelFromHash(profile, channel_hash, &channel_match);
         if (!channel_match)
         {
             logUnknownGroupHash("text", channel_hash);
@@ -4622,11 +5140,11 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         uint8_t plain[kMeshcoreMaxPayloadSize];
         size_t plain_len = 0;
         if (!macThenDecrypt(key16, key32,
-                            parsed.payload + 1, parsed.payload_len - 1,
-                            plain, &plain_len))
+                            parsed.payload + hash_bytes, parsed.payload_len - hash_bytes,
+                            plain, &plain_len, mac_len))
         {
-            MESHCORE_LOG("[MESHCORE] RX group text decrypt fail hash=%02X len=%u ch=%u\n",
-                         static_cast<unsigned>(channel_hash),
+            MESHCORE_LOG("[MESHCORE] RX group text decrypt fail hash=%s len=%u ch=%u\n",
+                         toHex(channel_hash, hash_bytes).c_str(),
                          static_cast<unsigned>(parsed.payload_len),
                          static_cast<unsigned>(rx_channel));
             return;
@@ -4668,7 +5186,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         incoming.hop_limit = 0;
         incoming.encrypted = true;
         fill_rx_meta(incoming.rx_meta, false);
-        incoming.rx_meta.channel_hash = channel_hash;
+        incoming.rx_meta.channel_hash = channel_hash[0];
         if (incoming.from != 0)
         {
             rememberPeerNodeId(static_cast<uint8_t>(incoming.from & 0xFFU), incoming.from, now_ms);
@@ -4677,9 +5195,9 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
     }
     else if (is_group_data_payload)
     {
-        const uint8_t channel_hash = parsed.payload[0];
+        const uint8_t* channel_hash = parsed.payload;
         bool channel_match = false;
-        const ChannelId rx_channel = resolveChannelFromHash(channel_hash, &channel_match);
+        const ChannelId rx_channel = resolveChannelFromHash(profile, channel_hash, &channel_match);
         if (!channel_match)
         {
             logUnknownGroupHash("data", channel_hash);
@@ -4696,11 +5214,11 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         uint8_t plain[kMeshcoreMaxPayloadSize];
         size_t plain_len = 0;
         if (!macThenDecrypt(key16, key32,
-                            parsed.payload + 1, parsed.payload_len - 1,
-                            plain, &plain_len))
+                            parsed.payload + hash_bytes, parsed.payload_len - hash_bytes,
+                            plain, &plain_len, mac_len))
         {
-            MESHCORE_LOG("[MESHCORE] RX group data decrypt fail hash=%02X len=%u ch=%u\n",
-                         static_cast<unsigned>(channel_hash),
+            MESHCORE_LOG("[MESHCORE] RX group data decrypt fail hash=%s len=%u ch=%u\n",
+                         toHex(channel_hash, hash_bytes).c_str(),
                          static_cast<unsigned>(parsed.payload_len),
                          static_cast<unsigned>(rx_channel));
             return;
@@ -4723,11 +5241,11 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         incoming.to = 0xFFFFFFFF;
         incoming.packet_id = next_msg_id_++;
         incoming.channel = rx_channel;
-        incoming.channel_hash = channel_hash;
+        incoming.channel_hash = channel_hash[0];
         incoming.want_response = false;
         incoming.payload.assign(decoded.payload, decoded.payload + decoded.payload_len);
         fill_rx_meta(incoming.rx_meta, false);
-        incoming.rx_meta.channel_hash = channel_hash;
+        incoming.rx_meta.channel_hash = channel_hash[0];
         if (incoming.from != 0)
         {
             rememberPeerNodeId(static_cast<uint8_t>(incoming.from & 0xFFU), incoming.from, now_ms);
@@ -4792,7 +5310,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             return;
         }
 
-        const uint8_t hops = (parsed.path_len <= 255) ? static_cast<uint8_t>(parsed.path_len) : 0xFF;
+        const uint8_t hops = (path_hops <= 255) ? static_cast<uint8_t>(path_hops) : 0xFF;
         const float snr = std::isfinite(last_rx_snr_) ? last_rx_snr_ : NAN;
         const float rssi = std::isfinite(last_rx_rssi_) ? last_rx_rssi_ : NAN;
         const uint32_t ts = is_valid_epoch(advert_ts) ? advert_ts : now_message_timestamp();
@@ -4825,6 +5343,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         ev.type = Event::Type::Advert;
         ev.peer_hash = peer_hash;
         ev.peer_node = node;
+        ev.path_profile = profile;
         ev.advert_is_new = is_new_peer;
         pushEvent(std::move(ev));
 
@@ -4836,27 +5355,6 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                      name,
                      advert.has_location ? 1U : 0U,
                      static_cast<unsigned>(app_data_len));
-    }
-    else if (is_legacy_text_payload)
-    {
-        MeshIncomingText incoming;
-        incoming.channel = (parsed.payload[0] == 1) ? ChannelId::SECONDARY : ChannelId::PRIMARY;
-        incoming.from = 0;
-        incoming.to = 0xFFFFFFFF;
-        incoming.msg_id = next_msg_id_++;
-        incoming.timestamp = now_message_timestamp();
-        std::vector<uint8_t> text_bytes(parsed.payload + 1, parsed.payload + parsed.payload_len);
-        if (encrypt_mode_ > 0)
-        {
-            size_t key_len = 0;
-            const uint8_t* key = selectChannelKey(config_, &key_len);
-            xorCrypt(text_bytes.data(), text_bytes.size(), key, key_len);
-        }
-        incoming.text.assign(reinterpret_cast<const char*>(text_bytes.data()), text_bytes.size());
-        incoming.hop_limit = 0;
-        incoming.encrypted = (encrypt_mode_ > 0);
-        fill_rx_meta(incoming.rx_meta, false);
-        receive_queue_.push(incoming);
     }
     else if (is_raw_payload)
     {
@@ -4915,32 +5413,39 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
     }
     else if (parsed.payload_type == kPayloadTypeTrace && parsed.payload_len >= 9)
     {
-        const uint8_t flags = parsed.payload[8];
-        const uint8_t path_hash_size_bits = flags & 0x03;
-        size_t path_hash_size = static_cast<size_t>(1U << path_hash_size_bits);
-        if (path_hash_size == 0 || path_hash_size > 4)
+        DecodedTracePayload trace{};
+        if (decodeTracePayload(parsed.payload, parsed.payload_len, parsed.path_len, &trace) &&
+            trace.terminal)
         {
-            path_hash_size = 1;
-        }
-        const size_t trace_meta_len = parsed.payload_len - 9;
-        const size_t offset = parsed.path_len * path_hash_size;
-        if (offset >= trace_meta_len)
-        {
-            uint32_t tag = 0;
-            uint32_t auth = 0;
-            memcpy(&tag, parsed.payload, sizeof(tag));
-            memcpy(&auth, parsed.payload + 4, sizeof(auth));
+            runtime::IncomingPacket packet{};
+            packet.protocol = MeshProtocol::MeshCore;
+            packet.payload_type = kPayloadTypeTrace;
+            packet.payload.assign(parsed.payload, parsed.payload + parsed.payload_len);
+            if (parsed.path_len > 0)
+            {
+                packet.path.assign(parsed.path, parsed.path + parsed.path_len);
+            }
+            runtime::FixedProtocolRuntimeContextProvider context_provider(buildRuntimeContext());
+            const auto bundle = protocolRuntimeBundle(context_provider);
+            if (bundle.valid())
+            {
+                auto facade = bundle.createFacade(
+                    runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+                facade.handleIncoming(packet);
+            }
+
             MESHCORE_LOG("[MESHCORE] RX TRACE done tag=%08lX auth=%08lX hops=%u route=%s\n",
-                         static_cast<unsigned long>(tag),
-                         static_cast<unsigned long>(auth),
+                         static_cast<unsigned long>(trace.tag),
+                         static_cast<unsigned long>(trace.auth),
                          static_cast<unsigned>(parsed.path_len),
                          is_flood_route ? "flood" : "direct");
             Event ev{};
             ev.type = Event::Type::TraceData;
-            ev.tag = tag;
-            ev.auth = auth;
-            ev.flags = flags;
-            ev.trace_hashes.assign(parsed.payload + 9, parsed.payload + parsed.payload_len);
+            ev.tag = trace.tag;
+            ev.auth = trace.auth;
+            ev.flags = trace.flags;
+            ev.trace_hashes.assign(trace.trace_hashes,
+                                   trace.trace_hashes + trace.trace_hashes_len);
             if (parsed.path_len > 0)
             {
                 ev.trace_snrs.assign(parsed.path, parsed.path + parsed.path_len);
@@ -4959,6 +5464,13 @@ void MeshCoreAdapter::processSendQueue()
     uint32_t now_ms = millis();
     prunePendingAppAcks(now_ms);
     prunePeerRoutes(now_ms);
+    runtime::FixedProtocolRuntimeContextProvider context_provider(buildRuntimeContext());
+    const auto bundle = protocolRuntimeBundle(context_provider);
+    if (bundle.valid())
+    {
+        auto facade = bundle.createFacade(runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+        facade.tick();
+    }
 
     if (scheduled_tx_.empty())
     {
@@ -5005,6 +5517,8 @@ bool MeshCoreAdapter::getPeerInfos(std::vector<PeerInfo>& out) const
     {
         PeerInfo info;
         info.peer_hash = entry.peer_hash;
+        info.peer_hash_len = entry.peer_hash_len;
+        memcpy(info.peer_hash_bytes, entry.peer_hash_bytes, sizeof(info.peer_hash_bytes));
         info.node_id = entry.node_id_guess;
         info.has_pubkey = entry.has_pubkey;
         info.pubkey_verified = entry.pubkey_verified;
@@ -5012,6 +5526,7 @@ bool MeshCoreAdapter::getPeerInfos(std::vector<PeerInfo>& out) const
         {
             memcpy(info.pubkey, entry.pubkey, sizeof(info.pubkey));
         }
+        info.out_path_profile = entry.out_path_profile;
         info.out_path_len = entry.has_out_path ? entry.out_path_len : 0;
         if (info.out_path_len > 0)
         {
@@ -5037,6 +5552,8 @@ bool MeshCoreAdapter::lookupPeerByHash(uint8_t hash, PeerInfo* out) const
     }
     PeerInfo info;
     info.peer_hash = entry->peer_hash;
+    info.peer_hash_len = entry->peer_hash_len;
+    memcpy(info.peer_hash_bytes, entry->peer_hash_bytes, sizeof(info.peer_hash_bytes));
     info.node_id = entry->node_id_guess;
     info.has_pubkey = entry->has_pubkey;
     info.pubkey_verified = entry->pubkey_verified;
@@ -5044,6 +5561,7 @@ bool MeshCoreAdapter::lookupPeerByHash(uint8_t hash, PeerInfo* out) const
     {
         memcpy(info.pubkey, entry->pubkey, sizeof(info.pubkey));
     }
+    info.out_path_profile = entry->out_path_profile;
     info.out_path_len = entry->has_out_path ? entry->out_path_len : 0;
     if (info.out_path_len > 0)
     {
@@ -5067,6 +5585,8 @@ bool MeshCoreAdapter::lookupPeerByNodeId(NodeId node_id, PeerInfo* out) const
         {
             PeerInfo info;
             info.peer_hash = entry.peer_hash;
+            info.peer_hash_len = entry.peer_hash_len;
+            memcpy(info.peer_hash_bytes, entry.peer_hash_bytes, sizeof(info.peer_hash_bytes));
             info.node_id = entry.node_id_guess;
             info.has_pubkey = entry.has_pubkey;
             info.pubkey_verified = entry.pubkey_verified;
@@ -5074,6 +5594,7 @@ bool MeshCoreAdapter::lookupPeerByNodeId(NodeId node_id, PeerInfo* out) const
             {
                 memcpy(info.pubkey, entry.pubkey, sizeof(info.pubkey));
             }
+            info.out_path_profile = entry.out_path_profile;
             info.out_path_len = entry.has_out_path ? entry.out_path_len : 0;
             if (info.out_path_len > 0)
             {
@@ -5160,12 +5681,14 @@ bool MeshCoreAdapter::clearPeerPath(uint8_t peer_hash)
         return false;
     }
     entry->out_path_len = 0;
+    entry->out_path_profile = PayloadProfile::V1;
     entry->has_out_path = false;
     memset(entry->out_path, 0, sizeof(entry->out_path));
     Event ev{};
     ev.type = Event::Type::PathUpdated;
     ev.peer_hash = peer_hash;
     ev.peer_node = resolvePeerNodeId(peer_hash);
+    ev.path_profile = PayloadProfile::V1;
     pushEvent(std::move(ev));
     return true;
 }

@@ -218,7 +218,10 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
     const bool selected_supported =
         request.selected.kind == ui::chat::ConversationKind::DirectPeer ||
         request.selected.kind == ui::chat::ConversationKind::Channel;
-    out.can_send = request.selected.isValid() && selected_supported;
+    out.can_send = request.selected.isValid() && selected_supported &&
+                   chat_presentation_adapters::toCoreConversationId(request.selected,
+                                                                    core_selected) &&
+                   chat_service_.canSendToConversation(core_selected);
     out.composer_enabled = out.can_send;
     return true;
 }

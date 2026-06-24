@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdio>
 #include <cstdint>
 
 #include "lvgl.h"
@@ -15,6 +16,10 @@
 #define lv_font_montserrat_18 lv_font_montserrat_14
 #endif
 
+#ifndef UI_I18N_ROUTE_LOG_ENABLE
+#define UI_I18N_ROUTE_LOG_ENABLE 0
+#endif
+
 namespace ui::fonts
 {
 
@@ -23,6 +28,11 @@ enum class FontScope : uint8_t
     Ui = 0,
     Content,
 };
+
+inline const char* font_scope_name(FontScope scope)
+{
+    return scope == FontScope::Content ? "content" : "ui";
+}
 
 struct LocalizedFontBinding
 {
@@ -168,6 +178,44 @@ inline void refresh_locale_font_bindings()
     }
 }
 
+inline void log_localized_font_route(FontScope scope,
+                                     const char* text,
+                                     const lv_font_t* base_font,
+                                     const lv_font_t* resolved_font)
+{
+#if UI_I18N_ROUTE_LOG_ENABLE
+    if (!utf8_has_non_ascii(text))
+    {
+        return;
+    }
+
+    static unsigned ui_logs = 0;
+    static unsigned content_logs = 0;
+    unsigned& logs = scope == FontScope::Content ? content_logs : ui_logs;
+    constexpr unsigned kMaxRouteLogs = 80;
+    if (logs >= kMaxRouteLogs)
+    {
+        return;
+    }
+    ++logs;
+
+    const lv_font_t* fallback = scope == FontScope::Content
+                                    ? ::ui::i18n::active_content_font_fallback()
+                                    : ::ui::i18n::active_ui_font_fallback();
+    std::printf("[I18N][route] route=%s via=localized_font base=%p fallback=%p resolved=%p text='%.32s'\n",
+                font_scope_name(scope),
+                static_cast<const void*>(base_font),
+                static_cast<const void*>(fallback),
+                static_cast<const void*>(resolved_font),
+                text ? text : "");
+#else
+    (void)scope;
+    (void)text;
+    (void)base_font;
+    (void)resolved_font;
+#endif
+}
+
 inline const lv_font_t* localized_font(FontScope scope,
                                        const char* text,
                                        const lv_font_t* ascii_font = nullptr)
@@ -186,14 +234,17 @@ inline const lv_font_t* localized_font(FontScope scope,
     if (LocalizedFontBinding* existing = find_localized_font_binding(base_font, scope))
     {
         sync_localized_font_binding(*existing);
+        log_localized_font_route(scope, text, base_font, &existing->composed);
         return &existing->composed;
     }
 
     if (LocalizedFontBinding* created = acquire_localized_font_binding(base_font, scope))
     {
+        log_localized_font_route(scope, text, base_font, &created->composed);
         return &created->composed;
     }
 
+    log_localized_font_route(scope, text, base_font, base_font);
     return base_font;
 }
 

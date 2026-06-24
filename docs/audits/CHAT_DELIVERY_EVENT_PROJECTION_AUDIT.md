@@ -47,7 +47,7 @@ coarse timeout/failure, while lower-level mesh send code can expose
 Phase 7.3 introduces an adapter hook:
 
 ```text
-LegacyChatDeliveryEventBridge::onAckTimeout(...)
+ChatDeliveryEventProjectionAdapter::onAckTimeout(...)
 ```
 
 This hook projects:
@@ -72,8 +72,8 @@ Phase 7.3 introduces:
 
 - `IChatDeliveryEventPort`
 - `ProjectingChatDeliveryEventPort`
-- `LegacyChatSendResultMapper`
-- `LegacyChatDeliveryEventBridge`
+- `ChatDeliverySendResultProjection`
+- `ChatDeliveryEventProjectionAdapter`
 
 `ChatPresentationSource` continues to read `ChatDeliveryReadModel` and
 enrich `MessageRow.delivery` / `MessageRow.failure`.

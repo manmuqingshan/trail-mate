@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "archive_layout": "trailmate-pack-v1",
-  "generated_at": "2026-05-19T06:23:34.333290Z",
+  "generated_at": "2026-06-16T21:20:43.050954Z",
   "packages": [
     {
       "id": "ar",
@@ -56,8 +56,8 @@
       "archive": {
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/ar-1.1.1.zip",
-        "size_bytes": 32700,
-        "sha256": "3b2ec0d350168161e687fa2155d656fb36d38d6f7e288418dea7ed46fb8a2e7a"
+        "size_bytes": 32776,
+        "sha256": "ff8bc2e051ff4b113335ed1f100e40e5ebaa17d598b0d7b8efa8ac24a772bd8f"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -68,13 +68,13 @@
     {
       "id": "europe-cyrillic-ext",
       "package_type": "locale-bundle",
-      "version": "1.1.1",
+      "version": "1.2.0",
       "display_name": "European Cyrillic Extended",
-      "summary": "Shared Cyrillic font coverage plus a Russian review locale pack; display-only until native review is complete.",
-      "description": "European Cyrillic Extended installs the Russian locale together with a shared\nCyrillic external font pack so interface labels and Russian content can render\nwithout inflating the firmware image.\n\nThis bundle is display-only today. It does not add a Russian IME, and the locale\nremains in review status until native-language review is complete.\n\nCredits: Russian translations were contributed by polarikus, based on the\npolarikus/trail-mate Russian localization PR.",
+      "summary": "Shared Cyrillic font coverage, a Russian review locale pack, and a Russian Cyrillic keyboard layout.",
+      "description": "European Cyrillic Extended installs the Russian locale together with a shared\nCyrillic external font pack so interface labels and Russian content can render\nwithout inflating the firmware image. It also registers a Russian Cyrillic\nkeyboard layout backed by the firmware's direct keyboard-layout runtime.\n\nThe locale remains in review status until native-language review is complete.\nThe keyboard layout is a direct virtual-keyboard layout; it does not provide\ncandidate conversion or physical keyboard remapping.\n\nCredits: Russian translations were contributed by polarikus, based on the\npolarikus/trail-mate Russian localization PR.",
       "author": "Trail Mate",
       "homepage": "https://vicliu624.github.io/trail-mate/",
-      "min_firmware_version": "0.1.24-alpha",
+      "min_firmware_version": "0.1.25-alpha",
       "supported_memory_profiles": [
         "constrained",
         "standard",
@@ -85,7 +85,8 @@
         "cyrillic",
         "europe",
         "russian",
-        "review"
+        "review",
+        "ime"
       ],
       "provides": {
         "locales": [
@@ -98,7 +99,7 @@
             "translation_status": "review",
             "direction": "ltr",
             "preferred_content_supplement_pack_ids": [],
-            "ime_pack_id": ""
+            "ime_pack_id": "ru-cyrillic-keyboard"
           }
         ],
         "fonts": [
@@ -109,19 +110,26 @@
             "estimated_ram_bytes": 12000
           }
         ],
-        "ime": []
+        "ime": [
+          {
+            "id": "ru-cyrillic-keyboard",
+            "display_name": "Russian Cyrillic Keyboard",
+            "backend": "builtin-keyboard-layout",
+            "layout": "ru-cyrillic"
+          }
+        ]
       },
       "runtime": {
         "estimated_unique_font_ram_bytes": 12000,
         "locale_count": 1,
         "font_count": 1,
-        "ime_count": 0
+        "ime_count": 1
       },
       "archive": {
         "layout": "trailmate-pack-v1",
-        "path": "assets/packs/europe-cyrillic-ext-1.1.1.zip",
-        "size_bytes": 15883,
-        "sha256": "ba2a677fb3abc7e10b9e672eee429697049e4986a10401735af3c3cc291a2638"
+        "path": "assets/packs/europe-cyrillic-ext-1.2.0.zip",
+        "size_bytes": 16448,
+        "sha256": "a43324feb9cdae8527ecc136096c891e30d48c692518aa3f912c6c668810f148"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -249,8 +257,8 @@
       "archive": {
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/europe-latin-ext-1.1.1.zip",
-        "size_bytes": 65761,
-        "sha256": "f3517d6d037326a3d6e1391c5d08ca9b15b57cff0251e8500c71b9b5699d987e"
+        "size_bytes": 66529,
+        "sha256": "8cb5e215aa91a38717ebc51d6d557708ca39c3e73215f9479fe43626cfb37750"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -312,8 +320,8 @@
       "archive": {
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/ja-1.1.1.zip",
-        "size_bytes": 19770,
-        "sha256": "81566b99fcedea55f62343c45c07c779c47d5946bc5c1ad889c34c35ef17a3df"
+        "size_bytes": 19843,
+        "sha256": "e1f6a419deafdb214b800a33c877ec95d293a0d3cccf5090ee0bdd71d96337cb"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -375,8 +383,8 @@
       "archive": {
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/ko-1.1.1.zip",
-        "size_bytes": 16579,
-        "sha256": "d38a6dd3b1c3b02dd1dd0c8affc10596f69a687dfbf95a0d74442bc4d7d80ff6"
+        "size_bytes": 16667,
+        "sha256": "a79b873399db6a5a102be79cae97c823f182fd8af63edecbd62406dcadd94eb9"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -438,7 +446,8 @@
           {
             "id": "zh-hans-pinyin",
             "display_name": "Pinyin",
-            "backend": "builtin-pinyin"
+            "backend": "builtin-pinyin",
+            "layout": ""
           }
         ]
       },
@@ -451,8 +460,8 @@
       "archive": {
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/zh-Hans-1.1.1.zip",
-        "size_bytes": 339968,
-        "sha256": "cac31038da4ca4512f05c34ddb6cc0315d9a217f17b64f6bbf5581149f61b1bc"
+        "size_bytes": 340058,
+        "sha256": "64716ff7f6b937b05ebcccf8418801825690767e57b4276c79da79ecb767ab35"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -515,8 +524,8 @@
       "archive": {
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/zh-Hant-1.1.1.zip",
-        "size_bytes": 19264,
-        "sha256": "1d119629f87cbbdcfe67b758f746f3498de46586bb6fdba32c88b2e68de1302d"
+        "size_bytes": 19355,
+        "sha256": "67914623ae80cd54b3ba4607e2087222ee8823b6d03ff630714ca0ae5574b6d1"
       },
       "files": {
         "package_manifest": "package.ini",

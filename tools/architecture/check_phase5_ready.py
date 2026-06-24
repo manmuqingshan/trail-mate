@@ -44,7 +44,8 @@ def check_required_files() -> int:
         "modules/ui_shared/include/ui/presentation_sources/chat_presentation_source.h",
         "modules/ui_shared/src/ui/presentation_sources/chat_presentation_source.cpp",
         "modules/ui_shared/tests/test_chat_presentation_source.cpp",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_action_sink.h",
+        "modules/ui_shared/include/ui/presentation_sources/runtime_chat_action_sink.h",
+        "modules/ui_shared/src/ui/presentation_sources/runtime_chat_action_sink.cpp",
         "modules/ui_shared/include/ui/presentation_sources/team_chat_presentation_source.h",
         "modules/ui_shared/include/ui/presentation_sources/team_chat_action_sink.h",
         "modules/ui_shared/src/ui/presentation_sources/team_chat_presentation_source.cpp",
@@ -61,12 +62,9 @@ def check_required_files() -> int:
         "modules/ui_presentation/include/ui_presentation/map/map_workspace_model.h",
         "modules/ui_presentation/src/map/map_workspace_model.cpp",
         "modules/ui_presentation/tests/test_map_workspace_model.cpp",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_presentation_state.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_presentation_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_action_sink.h",
-        "modules/ui_shared/src/ui/presentation_sources/legacy_map_presentation_source.cpp",
-        "modules/ui_shared/src/ui/presentation_sources/legacy_map_action_sink.cpp",
-        "modules/ui_shared/tests/test_legacy_map_presentation_adapters.cpp",
+        "modules/ui_shared/include/ui/presentation_sources/runtime_map_workspace_source.h",
+        "modules/ui_shared/src/ui/presentation_sources/runtime_map_workspace_source.cpp",
+        "modules/ui_shared/tests/test_runtime_map_presentation_adapters.cpp",
         "legacy/app_implementations/linux_sim/tests/map_workspace_ascii_probe.cpp",
     ]
 
@@ -235,10 +233,8 @@ def check_map_presentation_sources_are_bounded() -> int:
 
     failures = 0
     paths = [
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_presentation_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_action_sink.h",
-        "modules/ui_shared/src/ui/presentation_sources/legacy_map_presentation_source.cpp",
-        "modules/ui_shared/src/ui/presentation_sources/legacy_map_action_sink.cpp",
+        "modules/ui_shared/include/ui/presentation_sources/runtime_map_workspace_source.h",
+        "modules/ui_shared/src/ui/presentation_sources/runtime_map_workspace_source.cpp",
     ]
     for path in paths:
         if not exists(path):
@@ -248,26 +244,30 @@ def check_map_presentation_sources_are_bounded() -> int:
         for token in forbidden_tokens:
             if token in code_text:
                 failures += fail(
-                    f"{path} contains forbidden legacy map adapter token {token}"
+                    f"{path} contains forbidden runtime map adapter token {token}"
                 )
 
-    source = "modules/ui_shared/src/ui/presentation_sources/legacy_map_presentation_source.cpp"
+    source = "modules/ui_shared/src/ui/presentation_sources/runtime_map_workspace_source.cpp"
     if exists(source):
         text = read_text(source)
-        if "buildMapWorkspaceSnapshot" not in text:
-            failures += fail("LegacyMapPresentationSource does not build map snapshots")
+        sink_start = text.find("RuntimeMapActionSink::RuntimeMapActionSink")
+        source_text = text if sink_start == -1 else text[:sink_start]
+        if "buildMapWorkspaceSnapshot" not in source_text:
+            failures += fail("RuntimeMapWorkspaceSource does not build map snapshots")
         for token in ["setLayer(", "setViewport(", "setActiveTool(", "clearMeasurement("]:
-            if token in text:
-                failures += fail(f"LegacyMapPresentationSource contains action token {token}")
+            if token in source_text:
+                failures += fail(f"RuntimeMapWorkspaceSource contains action token {token}")
 
-    sink = "modules/ui_shared/src/ui/presentation_sources/legacy_map_action_sink.cpp"
+    sink = "modules/ui_shared/src/ui/presentation_sources/runtime_map_workspace_source.cpp"
     if exists(sink):
         text = read_text(sink)
-        if "MapWorkspaceSnapshot" in text:
-            failures += fail("LegacyMapActionSink builds or references MapWorkspaceSnapshot")
+        sink_start = text.find("RuntimeMapActionSink::RuntimeMapActionSink")
+        sink_text = "" if sink_start == -1 else text[sink_start:]
+        if "MapWorkspaceSnapshot" in sink_text:
+            failures += fail("RuntimeMapActionSink builds or references MapWorkspaceSnapshot")
         for token in ["buildMapWorkspaceSnapshot", "status_line", "TeamOverlaySummary"]:
-            if token in text:
-                failures += fail(f"LegacyMapActionSink contains projection token {token}")
+            if token in sink_text:
+                failures += fail(f"RuntimeMapActionSink contains projection token {token}")
 
     return failures
 
@@ -281,8 +281,8 @@ def check_lvgl_map_surface_uses_workspace_model() -> int:
     failures = 0
     for token in [
         "ui_presentation/map/map_workspace_model.h",
-        "LegacyMapPresentationSource",
-        "LegacyMapActionSink",
+        "RuntimeMapWorkspaceSource",
+        "RuntimeMapActionSink",
         "map_workspace_model().snapshot()",
         "map_workspace_model().centerOnSelf()",
     ]:
@@ -304,9 +304,9 @@ def check_uconsole_map_surface_uses_workspace_model() -> int:
             "ui_presentation/map/map_workspace_model.h",
             "presentation_workspace",
             "MapWorkspaceModel presentation_model_",
-            "LegacyMapPresentationSource",
-            "LegacyMapActionSink",
-            "LegacyGpsStatusSource",
+            "RuntimeMapWorkspaceSource",
+            "RuntimeMapActionSink",
+            "runtime_gps_status_source.h",
         ]:
             if token not in text:
                 failures += fail(f"uConsole map header missing token: {token}")
@@ -317,7 +317,8 @@ def check_uconsole_map_surface_uses_workspace_model() -> int:
         text = read_text(source)
         for token in [
             "presentation_model_.snapshot()",
-            "legacy_gps_source_.buildGpsStatusSnapshot",
+            "runtime_gps_status_source()",
+            "buildGpsStatusSnapshot(gps)",
             "syncPresentationWorkspace",
         ]:
             if token not in text:

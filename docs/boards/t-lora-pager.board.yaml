@@ -73,7 +73,7 @@ facts:
     power_key_pin: 0
 
   peripherals:
-    nfc: true
+    nfc: false
     audio_codec: true
     motion_sensor: true
     rtc: true

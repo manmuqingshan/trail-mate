@@ -4,8 +4,8 @@
 
 #include "input/morse_engine.h"
 #include "ui/localization.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/ui_theme.h"
-#include "ui/widgets/system_notification.h"
 #include <cstdio>
 
 #if !defined(TRAIL_MATE_WATCH_MORSE_PDM_SCK) || !defined(TRAIL_MATE_WATCH_MORSE_PDM_DATA)
@@ -91,17 +91,6 @@ std::string ChatComposeScreen::getText() const
 void ChatComposeScreen::clearText()
 {
     selected_text_.clear();
-}
-
-void ChatComposeScreen::beginSend(chat::ChatService*,
-                                  chat::MessageId,
-                                  void (*done_cb)(bool ok, bool timeout, void*),
-                                  void* user_data)
-{
-    if (done_cb)
-    {
-        done_cb(true, false, user_data);
-    }
 }
 
 void ChatComposeScreen::setActionCallback(void (*cb)(ActionIntent intent, void*), void* user_data)
@@ -332,7 +321,7 @@ void ChatComposeScreen::showMorse()
     {
         delete morse_;
         morse_ = nullptr;
-        ::ui::SystemNotification::show(::ui::i18n::tr("Mic init failed"), 1200);
+        ::ui::feedback::show_notice(::ui::i18n::tr("Mic init failed"), 1200);
         showMain();
         return;
     }
@@ -471,7 +460,7 @@ void ChatComposeScreen::main_event_cb(lv_event_t* e)
     lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
     if (target == screen->mic_btn_)
     {
-        ::ui::SystemNotification::show(::ui::i18n::tr("Mic TBD"), 1200);
+        ::ui::feedback::show_notice(::ui::i18n::tr("Mic TBD"), 1200);
         return;
     }
     if (target == screen->morse_btn_)

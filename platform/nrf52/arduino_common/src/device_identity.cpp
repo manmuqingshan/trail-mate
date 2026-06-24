@@ -93,7 +93,9 @@ std::array<uint8_t, 6> deriveMacAddressFromDeviceAddress(uint32_t deviceaddr0, u
                              const ::chat::contacts::INodeStore* node_store)
 {
     ::chat::NodeId node_id = deriveNodeIdFromDeviceAddress(deviceaddr0, deviceaddr1);
-    if (!isReservedNodeId(node_id) && !nodeIdInUse(node_id, node_store))
+    // The node store may contain our own previously persisted NodeInfo. Treating
+    // that as a collision makes the device identity drift after a reboot.
+    if (!isReservedNodeId(node_id))
     {
         return node_id;
     }

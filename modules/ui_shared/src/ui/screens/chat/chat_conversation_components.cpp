@@ -299,8 +299,8 @@ ChatConversationScreen::ChatConversationScreen(lv_obj_t* parent, chat::Conversat
     chat::ui::conversation::styles::apply_action_bar(action_bar_);
     chat::ui::conversation::styles::apply_reply_btn(reply_btn_);
 
-    // Reply label text + style
-    ::ui::i18n::set_label_text(w.reply_label, "Reply");
+    // Primary compose entry label.
+    ::ui::i18n::set_label_text(w.reply_label, "Send");
     chat::ui::conversation::styles::apply_reply_label(w.reply_label);
     ::ui::fonts::apply_localized_font(w.reply_label, lv_label_get_text(w.reply_label), ::ui::fonts::ui_chrome_font());
 
@@ -425,6 +425,7 @@ bool ChatConversationScreen::updateMessageStatus(const chat::MessageId msg_id,
             ::ui::fonts::apply_localized_font(
                 item.status_label, lv_label_get_text(item.status_label), ::ui::fonts::ui_chrome_font());
             lv_obj_clear_flag(item.status_label, LV_OBJ_FLAG_HIDDEN);
+            enableRetryAction(item);
         }
         else
         {
@@ -432,6 +433,7 @@ bool ChatConversationScreen::updateMessageStatus(const chat::MessageId msg_id,
             ::ui::fonts::apply_localized_font(
                 item.status_label, lv_label_get_text(item.status_label), ::ui::fonts::ui_chrome_font());
             lv_obj_add_flag(item.status_label, LV_OBJ_FLAG_HIDDEN);
+            disableRetryAction(item);
         }
         return true;
     }
@@ -447,6 +449,20 @@ void ChatConversationScreen::setActionCallback(void (*cb)(ActionIntent intent, v
     }
     action_cb_ = cb;
     action_cb_user_data_ = user_data;
+}
+
+void ChatConversationScreen::setMessageActionCallback(
+    void (*cb)(MessageActionIntent intent,
+               ::ui::chat::MessageRef ref,
+               void*),
+    void* user_data)
+{
+    if (!guard_ || !guard_->alive)
+    {
+        return;
+    }
+    message_action_cb_ = cb;
+    message_action_cb_user_data_ = user_data;
 }
 
 void ChatConversationScreen::setHeaderText(const char* title, const char* status)
@@ -548,6 +564,7 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     }
 
     lv_obj_t* bubble = chat::ui::layout::create_bubble(item.container);
+    item.bubble = bubble;
     chat::ui::conversation::styles::apply_bubble(bubble, is_self);
     chat::ui::layout::set_bubble_max_width(bubble, max_bubble_w);
 
@@ -658,6 +675,7 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
         ::ui::fonts::apply_localized_font(
             item.status_label, lv_label_get_text(item.status_label), ::ui::fonts::ui_chrome_font());
         lv_obj_clear_flag(item.status_label, LV_OBJ_FLAG_HIDDEN);
+        enableRetryAction(item);
     }
     else
     {
@@ -670,7 +688,44 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     // Align row based on sender (same behavior)
     chat::ui::layout::align_message_row(item.container, is_self);
 
-    messages_.push_back(item);
+    messages_.push_back(std::move(item));
+}
+
+void ChatConversationScreen::enableRetryAction(MessageItem& item)
+{
+    if (!item.bubble || item.retry_enabled)
+    {
+        return;
+    }
+    if (!item.retry_ctx)
+    {
+        item.retry_ctx.reset(new MessageActionContext());
+    }
+    item.retry_ctx->screen = this;
+    item.retry_ctx->intent = MessageActionIntent::Retry;
+    item.retry_ctx->ref = item.ref;
+    lv_obj_add_flag(item.bubble, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(
+        item.bubble,
+        message_action_event_cb,
+        LV_EVENT_CLICKED,
+        item.retry_ctx.get());
+    item.retry_enabled = true;
+}
+
+void ChatConversationScreen::disableRetryAction(MessageItem& item)
+{
+    if (!item.bubble || !item.retry_enabled)
+    {
+        return;
+    }
+    lv_obj_remove_event_cb(item.bubble, message_action_event_cb);
+    lv_obj_clear_flag(item.bubble, LV_OBJ_FLAG_CLICKABLE);
+    item.retry_enabled = false;
+    if (item.retry_ctx)
+    {
+        item.retry_ctx->screen = nullptr;
+    }
 }
 
 void ChatConversationScreen::action_event_cb(lv_event_t* e)
@@ -692,6 +747,21 @@ void ChatConversationScreen::action_event_cb(lv_event_t* e)
     screen->schedule_action_async(ctx->intent);
 }
 
+void ChatConversationScreen::message_action_event_cb(lv_event_t* e)
+{
+    auto* ctx = static_cast<MessageActionContext*>(lv_event_get_user_data(e));
+    if (!ctx || !ctx->screen)
+    {
+        return;
+    }
+    ChatConversationScreen* screen = ctx->screen;
+    if (!screen->guard_ || !screen->guard_->alive)
+    {
+        return;
+    }
+    screen->schedule_message_action_async(ctx->intent, ctx->ref);
+}
+
 void ChatConversationScreen::async_action_cb(void* user_data)
 {
     auto* payload = static_cast<ActionPayload*>(user_data);
@@ -703,6 +773,32 @@ void ChatConversationScreen::async_action_cb(void* user_data)
     if (guard && guard->alive && payload->action_cb)
     {
         payload->action_cb(payload->intent, payload->user_data);
+    }
+    if (guard && guard->pending_async > 0)
+    {
+        guard->pending_async--;
+        if (!guard->alive && guard->pending_async == 0)
+        {
+            delete guard;
+        }
+    }
+    delete payload;
+}
+
+void ChatConversationScreen::async_message_action_cb(void* user_data)
+{
+    auto* payload = static_cast<MessageActionPayload*>(user_data);
+    if (!payload)
+    {
+        return;
+    }
+    LifetimeGuard* guard = payload->guard;
+    if (guard && guard->alive && payload->message_action_cb)
+    {
+        payload->message_action_cb(
+            payload->intent,
+            payload->ref,
+            payload->user_data);
     }
     if (guard && guard->pending_async > 0)
     {
@@ -825,6 +921,8 @@ void ChatConversationScreen::handle_root_deleted()
     }
     action_cb_ = nullptr;
     action_cb_user_data_ = nullptr;
+    message_action_cb_ = nullptr;
+    message_action_cb_user_data_ = nullptr;
     back_cb_ = nullptr;
     back_cb_user_data_ = nullptr;
     reply_ctx_.screen = nullptr;
@@ -857,6 +955,24 @@ void ChatConversationScreen::schedule_action_async(ActionIntent intent)
     payload->intent = intent;
     guard_->pending_async++;
     lv_async_call(async_action_cb, payload);
+}
+
+void ChatConversationScreen::schedule_message_action_async(
+    MessageActionIntent intent,
+    ::ui::chat::MessageRef ref)
+{
+    if (!guard_ || !guard_->alive || !message_action_cb_)
+    {
+        return;
+    }
+    auto* payload = new MessageActionPayload();
+    payload->guard = guard_;
+    payload->message_action_cb = message_action_cb_;
+    payload->user_data = message_action_cb_user_data_;
+    payload->intent = intent;
+    payload->ref = ref;
+    guard_->pending_async++;
+    lv_async_call(async_message_action_cb, payload);
 }
 
 void ChatConversationScreen::schedule_back_async()

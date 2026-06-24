@@ -5,6 +5,7 @@
 #include <ctime>
 
 #include "boards/tab5/rtc_runtime.h"
+#include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
@@ -27,10 +28,23 @@ namespace
 {
 
 constexpr const char* kTag = "Tab5Board";
+constexpr uint32_t kRadioTxBaseTimeoutMs = 500;
+constexpr uint32_t kRadioTxPerByteTimeoutMs = 100;
+constexpr uint32_t kRadioTxMaxTimeoutMs = 30000;
 
 platform::esp::idf_common::Sx126xRadio& radio()
 {
     return platform::esp::idf_common::Sx126xRadio::instance();
+}
+
+TickType_t radio_tx_timeout_ticks(size_t len)
+{
+    uint64_t timeout_ms = kRadioTxBaseTimeoutMs + static_cast<uint64_t>(len) * kRadioTxPerByteTimeoutMs;
+    if (timeout_ms > kRadioTxMaxTimeoutMs)
+    {
+        timeout_ms = kRadioTxMaxTimeoutMs;
+    }
+    return pdMS_TO_TICKS(static_cast<uint32_t>(timeout_ms));
 }
 
 } // namespace
@@ -563,7 +577,31 @@ int Tab5Board::transmitRadio(const uint8_t* data, size_t len)
     {
         return -1;
     }
-    return radio().startTransmit(data, len);
+    const int state = radio().startTransmit(data, len);
+    if (state != 0)
+    {
+        return state;
+    }
+
+    const TickType_t started = xTaskGetTickCount();
+    const TickType_t timeout = radio_tx_timeout_ticks(len);
+    while (true)
+    {
+        if (profile().lora_module.irq >= 0 &&
+            gpio_get_level(static_cast<gpio_num_t>(profile().lora_module.irq)) != 0)
+        {
+            radio().clearIrqFlags(0xFFFF);
+            radio().standby();
+            return 0;
+        }
+        if (static_cast<TickType_t>(xTaskGetTickCount() - started) > timeout)
+        {
+            radio().clearIrqFlags(0xFFFF);
+            radio().standby();
+            return -5;
+        }
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
 }
 
 int Tab5Board::startRadioReceive()

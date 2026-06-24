@@ -4,8 +4,8 @@ Board-owned runtime and hardware truth for `LILYGO T-Display-P4`.
 
 This board family now maps to two explicit ESP-IDF target environments:
 
-- `tdisplayp4_tft`
-- `tdisplayp4_amoled`
+- `t_display_p4_tft`
+- `t_display_p4_amoled`
 
 The family-level code here stays shared. Variant selection belongs to the target descriptor layer, not to ad-hoc build commands or undocumented menuconfig toggles.
 
@@ -35,6 +35,32 @@ Primary source reference:
 - Boot key: `35`
 - Expander interrupt: `5`
 - Backlight: `51`
+- Optional keyboard module:
+  - software I2C: `SDA=46`, `SCL=45`
+  - TCA8418: `0x34`, 10 x 7 scan window, interrupt `48`
+  - keyboard backlight: `47`
+
+## Display Runtime Baseline
+
+The official `.tmp/T-Display-P4` LVGL demo uses a full-screen RGB565 draw
+buffer allocated from `SPIRAM | 8BIT | DMA`, a 1 ms LVGL tick, and direct DPI
+panel flush callbacks. The TrailMate IDF runtime keeps the panel timing and pin
+facts aligned with that demo, uses a 1 ms LVGL tick, allocates RGB565 draw
+buffers from PSRAM with DMA capability, enables the ESP32-P4 PPA rotation path,
+and defaults `CONFIG_TRAIL_MATE_T_DISPLAY_P4_LVGL_BUFFER_LINES` to 200 for both
+TFT and AMOLED targets. If real-device animation still feels slower than the
+official demo after functional bring-up, tune this display-runtime policy in
+`platform/esp/idf_components/t_display_p4` rather than changing board pin facts.
+
+## Keyboard Runtime Policy
+
+T-Display-P4 Keyboard is an accessory, not a base-board invariant. Runtime
+probing owns the distinction:
+
+- TCA8418 probe succeeds: register an LVGL keypad input device and suppress the
+  large touch IME keyboard.
+- TCA8418 probe fails or the module is absent: keep touch input active and show
+  the virtual keyboard on large-touch compose surfaces.
 
 ## What Lives Here
 

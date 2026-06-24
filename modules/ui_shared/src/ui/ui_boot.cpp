@@ -92,7 +92,7 @@ void refresh_log_label()
     }
 
     lv_label_set_text(s_log_label, s_log_text);
-    lv_refr_now(nullptr);
+    lv_obj_invalidate(s_log_label);
 }
 
 } // namespace

@@ -1,6 +1,7 @@
 #ifndef Pins_Arduino_h
 #define Pins_Arduino_h
 
+#include "../common/sd_spi_frequency.h"
 #include <stdint.h>
 
 #define USB_VID 0x303A
@@ -83,7 +84,6 @@ static const uint8_t SCK = 40;
 
 // SD
 #define SD_CS (39)
-#define SD_SPI_FREQUENCY (75000000U)
 // Battery ADC (per LilyGo utilities.h)
 #define BOARD_BAT_ADC (4)
 

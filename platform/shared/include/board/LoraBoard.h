@@ -11,6 +11,9 @@ class LoraBoard
 
     virtual bool isRadioOnline() const = 0;
 
+    // Synchronous contract: returns only after the packet transmission has
+    // completed or failed. Implementations must not hold a shared display/SD
+    // SPI bus lock while merely waiting for the air-time TX-done interrupt.
     virtual int transmitRadio(const uint8_t* data, size_t len) = 0;
     virtual int startRadioReceive() = 0;
     virtual uint32_t getRadioIrqFlags() = 0;

@@ -79,6 +79,7 @@ void show(State& state, lv_obj_t* parent)
 
     lv_obj_t* body = lv_label_create(state.root);
     lv_label_set_text(body, state.body ? state.body : "");
+    ::ui::i18n::log_direct_text_route("placeholder_body", body, state.body ? state.body : "");
     lv_obj_set_width(body, LV_PCT(100));
     lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(body, LV_TEXT_ALIGN_CENTER, 0);

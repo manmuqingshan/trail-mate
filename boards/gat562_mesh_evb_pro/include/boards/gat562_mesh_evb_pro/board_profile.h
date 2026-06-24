@@ -133,7 +133,7 @@ inline constexpr BoardProfile kBoardProfile{
     {{43, 45, 44, 42}, 47, 46, 38, 37, true, 1.8f},
     {{15, 16, -1}, 17, 9600},
     {5, 12, 3.0f, 1.73f},
-    {21, true},
+    {33, true},
     34,
     true,
     true,

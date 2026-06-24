@@ -34,8 +34,5 @@ class FilesystemMapTileSource final : public IMapTileSource
     MapTileResolver resolver_;
 };
 
-using LegacyFilesystemMapTileSource [[deprecated("Use FilesystemMapTileSource")]] =
-    FilesystemMapTileSource;
-
 } // namespace map_tiles
 } // namespace ui

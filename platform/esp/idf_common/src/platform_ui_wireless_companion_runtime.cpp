@@ -91,6 +91,11 @@ Status status()
     out.ble_state = c6_status.ble_state;
     out.espnow_state = c6_status.espnow_state;
     out.wifi_state = c6_status.wifi_state;
+    out.ble_uplink_count = c6_status.ble_uplink_count;
+    out.ble_event_count = c6_status.ble_event_count;
+    out.espnow_uplink_count = c6_status.espnow_uplink_count;
+    out.espnow_event_count = c6_status.espnow_event_count;
+    out.wifi_event_count = c6_status.wifi_event_count;
     copy_text(out.message, sizeof(out.message), message_for_state(out.state));
     copy_text(out.detail, sizeof(out.detail), c6_status.detail);
     return out;

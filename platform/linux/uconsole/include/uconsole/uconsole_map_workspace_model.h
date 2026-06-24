@@ -8,9 +8,8 @@
 
 #include "platform/linux/map_contour_tile_generator.h"
 #include "platform/linux/map_tile_cache.h"
-#include "ui/presentation_sources/legacy_gps_status_source.h"
-#include "ui/presentation_sources/legacy_map_action_sink.h"
-#include "ui/presentation_sources/legacy_map_presentation_source.h"
+#include "ui/presentation_sources/runtime_gps_status_source.h"
+#include "ui/presentation_sources/runtime_map_workspace_source.h"
 #include "ui_presentation/map/map_workspace_model.h"
 #include "ui_presentation/map/map_workspace_snapshot.h"
 
@@ -168,12 +167,11 @@ class UConsoleMapWorkspaceModel final
     void clearPersistedManualCenter() const;
 
     linux_app::LinuxAppServices& services_;
-    mutable ::ui::presentation_sources::LegacyGpsStatusSource legacy_gps_source_{};
-    mutable ::ui::presentation_sources::LegacyMapPresentationState
-        legacy_map_state_{};
-    mutable ::ui::presentation_sources::LegacyMapPresentationSource
-        legacy_map_source_;
-    mutable ::ui::presentation_sources::LegacyMapActionSink legacy_map_sink_;
+    mutable ::ui::presentation_sources::RuntimeMapWorkspaceState
+        map_workspace_state_{};
+    mutable ::ui::presentation_sources::RuntimeMapWorkspaceSource
+        map_workspace_source_;
+    mutable ::ui::presentation_sources::RuntimeMapActionSink map_action_sink_;
     mutable ::ui::map::MapWorkspaceModel presentation_model_;
     ::platform::linux_runtime::MapTileCache tile_cache_{};
     ::platform::linux_runtime::MapContourTileStore contour_store_{};

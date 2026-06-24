@@ -32,12 +32,6 @@
                              "name":  "RadioLib"
                          },
                          {
-                             "name":  "STM32duino ST25R3916"
-                         },
-                         {
-                             "name":  "STM32duino NFC-RFAL"
-                         },
-                         {
                              "name":  "Adafruit TCA8418"
                          },
                          {

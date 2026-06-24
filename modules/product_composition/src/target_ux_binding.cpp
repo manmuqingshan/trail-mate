@@ -9,8 +9,8 @@ namespace
 
 constexpr TargetUxBinding kTargetUxBindings[] = {
     {"tab5", "tab5_touch", "compatibility", "compatibility", false},
-    {"tdisplayp4_tft", "tdisplayp4_touch", "compatibility", "compatibility", false},
-    {"tdisplayp4_amoled", "tdisplayp4_touch", "compatibility", "compatibility", false},
+    {"t_display_p4_tft", "t_display_p4_touch", "t_display_p4_touch", nullptr, true},
+    {"t_display_p4_amoled", "t_display_p4_touch", "t_display_p4_touch", nullptr, true},
     {"tlora_pager", "pager_compact", "compatibility", "compatibility", false},
     {"tdeck", "deck_full", "compatibility", "compatibility", false},
     {"twatch", "watch_compact", "compatibility", "compatibility", false},
@@ -18,6 +18,7 @@ constexpr TargetUxBinding kTargetUxBindings[] = {
     {"linux_sim", "simulator_full", "simulator_full", nullptr, true},
     {"cardputerzero", "cardputer_compact", "cardputer_compact", nullptr, true},
     {"gat562_mesh_evb_pro", "node_headless", "tiny_node_status", "tiny_node_status", false},
+    {"t-echo-lite", "node_headless", "tiny_node_status", "tiny_node_status", false},
 };
 
 } // namespace

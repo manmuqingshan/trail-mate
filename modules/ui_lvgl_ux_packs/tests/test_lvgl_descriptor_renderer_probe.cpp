@@ -26,16 +26,17 @@ int main()
     assert(probe.ready());
     assert(probe.usingPrimaryScreenGraph());
     assert(probe.usedPrimaryScreenGraph());
-    assert(!probe.fallbackUsed());
-    assert(!probe.usedFallback());
     assert(probe.itemCount() > 0);
     assert(probe.items() != nullptr);
 
-    ui_lvgl_ux::LvglPrimaryScreenGraphRuntime fallback_runtime;
+    ui_lvgl_ux::LvglPrimaryScreenGraphRuntime unavailable_runtime;
     product_composition::PresentationBundle empty;
-    assert(!fallback_runtime.load(empty));
-    assert(!probe.render(fallback_runtime));
-    assert(probe.fallbackUsed());
-    assert(probe.usedFallback());
+    assert(!unavailable_runtime.load(empty));
+    assert(unavailable_runtime.runtimeSource() ==
+           ui_lvgl_ux::LvglScreenGraphRuntimeSource::Unavailable);
+    assert(!probe.render(unavailable_runtime));
+    assert(!probe.ready());
+    assert(!probe.usingPrimaryScreenGraph());
+    assert(!probe.usedPrimaryScreenGraph());
     return 0;
 }

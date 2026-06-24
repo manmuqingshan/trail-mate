@@ -42,15 +42,17 @@ void SystemNotification::init()
     const auto& profile = ::ui::page_profile::current();
     lv_coord_t margin = profile.large_touch_hitbox ? 40 : 30;
     lv_coord_t container_width = screen_width - (margin * 2);
-    lv_obj_set_size(container_, container_width, profile.large_touch_hitbox ? 72 : 50);
-    lv_obj_set_pos(container_, margin, profile.large_touch_hitbox ? -84 : -60);
+    const lv_coord_t container_height = profile.large_touch_hitbox ? 61 : 39;
+    const lv_coord_t hidden_y = profile.large_touch_hitbox ? -73 : -49;
+    lv_obj_set_size(container_, container_width, container_height);
+    lv_obj_set_pos(container_, margin, hidden_y);
     lv_obj_set_style_bg_color(container_, lv_color_hex(0xFFF0D3), 0);
     lv_obj_set_style_bg_opa(container_, LV_OPA_COVER, 0);
     // Set radius for bottom corners only
     // Since LVGL doesn't support per-corner radius, we'll set a larger radius (20)
     // and position the container at y=0 so top corners are effectively square (clipped by screen edge)
     lv_obj_set_style_radius(container_, 20, 0); // Larger radius for bottom corners (increased from 8 to 20)
-    lv_obj_set_style_pad_all(container_, 8, 0);
+    lv_obj_set_style_pad_all(container_, profile.large_touch_hitbox ? 7 : 5, 0);
     lv_obj_set_style_border_width(container_, 0, 0);
     lv_obj_set_style_shadow_width(container_, 10, 0);
     lv_obj_set_style_shadow_color(container_, lv_color_hex(0xD9B06A), 0);
@@ -64,8 +66,8 @@ void SystemNotification::init()
     // Create icon
     icon_ = lv_image_create(container_);
     lv_image_set_src(icon_, &alert);
-    lv_obj_set_style_width(icon_, 24, 0);
-    lv_obj_set_style_height(icon_, 24, 0);
+    lv_obj_set_style_width(icon_, profile.large_touch_hitbox ? 24 : 22, 0);
+    lv_obj_set_style_height(icon_, profile.large_touch_hitbox ? 24 : 22, 0);
 
     // Create label with larger font
     label_ = lv_label_create(container_);
@@ -121,7 +123,7 @@ void SystemNotification::show(const char* text, uint32_t duration_ms)
     }
 
     // Set initial position (above screen)
-    lv_obj_set_y(container_, ::ui::page_profile::current().large_touch_hitbox ? -84 : -60);
+    lv_obj_set_y(container_, ::ui::page_profile::current().large_touch_hitbox ? -73 : -49);
 
     // Show container
     lv_obj_clear_flag(container_, LV_OBJ_FLAG_HIDDEN);
@@ -131,7 +133,7 @@ void SystemNotification::show(const char* text, uint32_t duration_ms)
     lv_anim_t anim;
     lv_anim_init(&anim);
     lv_anim_set_var(&anim, container_);
-    lv_anim_set_values(&anim, ::ui::page_profile::current().large_touch_hitbox ? -84 : -60, 0);
+    lv_anim_set_values(&anim, ::ui::page_profile::current().large_touch_hitbox ? -73 : -49, 0);
     lv_anim_set_time(&anim, 300);
     lv_anim_set_exec_cb(&anim, (lv_anim_exec_xcb_t)lv_obj_set_y);
     lv_anim_set_ready_cb(&anim, animReadyCallback);
@@ -160,7 +162,7 @@ void SystemNotification::hide()
     lv_anim_t anim;
     lv_anim_init(&anim);
     lv_anim_set_var(&anim, container_);
-    lv_anim_set_values(&anim, lv_obj_get_y(container_), ::ui::page_profile::current().large_touch_hitbox ? -84 : -60);
+    lv_anim_set_values(&anim, lv_obj_get_y(container_), ::ui::page_profile::current().large_touch_hitbox ? -73 : -49);
     lv_anim_set_time(&anim, 300);
     lv_anim_set_exec_cb(&anim, (lv_anim_exec_xcb_t)lv_obj_set_y);
     lv_anim_set_ready_cb(&anim, [](lv_anim_t* a)

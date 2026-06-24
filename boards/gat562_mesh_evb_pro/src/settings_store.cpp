@@ -673,19 +673,7 @@ void normalizeConfig(app::AppConfig& config)
                    static_cast<int>(config.meshtastic_config.tx_power),
                    static_cast<int>(config.meshcore_config.tx_power));
 
-    if (chat::meshcore::isValidRegionPresetId(config.meshcore_config.meshcore_region_preset) &&
-        config.meshcore_config.meshcore_region_preset > 0)
-    {
-        if (const chat::meshcore::RegionPreset* preset =
-                chat::meshcore::findRegionPresetById(config.meshcore_config.meshcore_region_preset))
-        {
-            config.meshcore_config.meshcore_freq_mhz = preset->freq_mhz;
-            config.meshcore_config.meshcore_bw_khz = preset->bw_khz;
-            config.meshcore_config.meshcore_sf = preset->sf;
-            config.meshcore_config.meshcore_cr = preset->cr;
-        }
-    }
-    else
+    if (!chat::meshcore::isValidRegionPresetId(config.meshcore_config.meshcore_region_preset))
     {
         config.meshcore_config.meshcore_region_preset = 0;
     }

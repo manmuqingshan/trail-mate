@@ -16,10 +16,10 @@ tile source, or filesystem state directly.
 
 | Question | Current owner before 7.12 | 7.12 owner |
 | --- | --- | --- |
-| Current GPS marker facts | ESP GPS page/map runtime reads `platform::ui::gps::get_data()`; Linux map workspace reads `LegacyGpsStatusSource` | `LegacyMapOverlaySource` via `IMapOverlayGpsSource` |
+| Current GPS marker facts | ESP GPS page/map runtime reads `platform::ui::gps::get_data()`; Linux map workspace reads `RuntimeGpsStatusSource` | `LegacyMapOverlaySource` via `IMapOverlayGpsSource` |
 | Team member marker facts | Team posring reads are contained in `TeamMapOverlaySource`; ESP GPS, Linux GPS, and uConsole dashboard consume that source | `TeamMapOverlaySource` via `IMapOverlayTeamSource` |
 | Route / tracker / breadcrumb facts | ESP route/tracker overlay code still owns platform-specific drawing state | Explicitly deferred with exit condition |
-| Measurement state | `LegacyMapPresentationState` / `MapWorkspaceSnapshot::measurement` | Deferred overlay projection until measurement tool runtime is split |
+| Measurement state | `RuntimeMapWorkspaceState` / `MapWorkspaceSnapshot::measurement` | Deferred overlay projection until measurement tool runtime is split |
 | Renderer access to GPS/team | `map_viewport` does not read GPS/team; ESP GPS map page still has contained legacy marker paths | Shared map renderer remains forbidden from reading GPS/team; ESP marker legacy remains contained |
 
 ## GPS Current Position Marker

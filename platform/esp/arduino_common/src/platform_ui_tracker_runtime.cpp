@@ -4,8 +4,99 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/device_runtime.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+
+#include <atomic>
+
 namespace platform::ui::tracker
 {
+namespace
+{
+
+enum class TrackerCommand : uint8_t
+{
+    Start,
+    Stop,
+};
+
+QueueHandle_t s_command_queue = nullptr;
+TaskHandle_t s_worker_task = nullptr;
+std::atomic_bool s_desired_recording{false};
+std::atomic_bool s_start_pending{false};
+std::atomic_bool s_stop_pending{false};
+
+void tracker_worker_task(void*)
+{
+    TrackerCommand command = TrackerCommand::Start;
+    while (true)
+    {
+        if (xQueueReceive(s_command_queue, &command, portMAX_DELAY) != pdPASS)
+        {
+            continue;
+        }
+
+        switch (command)
+        {
+        case TrackerCommand::Start:
+        {
+            s_start_pending.store(true);
+            s_stop_pending.store(false);
+            const bool ok = ::gps::TrackRecorder::getInstance().start();
+            s_desired_recording.store(ok);
+            s_start_pending.store(false);
+            break;
+        }
+        case TrackerCommand::Stop:
+            s_stop_pending.store(true);
+            s_start_pending.store(false);
+            ::gps::TrackRecorder::getInstance().stop();
+            s_desired_recording.store(false);
+            s_stop_pending.store(false);
+            break;
+        }
+    }
+}
+
+bool ensure_worker()
+{
+    if (s_command_queue == nullptr)
+    {
+        s_command_queue = xQueueCreate(4, sizeof(TrackerCommand));
+        if (s_command_queue == nullptr)
+        {
+            return false;
+        }
+    }
+    if (s_worker_task == nullptr)
+    {
+        BaseType_t ok = xTaskCreate(tracker_worker_task,
+                                    "tracker_io",
+                                    4096,
+                                    nullptr,
+                                    1,
+                                    &s_worker_task);
+        if (ok != pdPASS)
+        {
+            s_worker_task = nullptr;
+            return false;
+        }
+    }
+    return true;
+}
+
+bool enqueue_command(TrackerCommand command)
+{
+    if (!ensure_worker())
+    {
+        return false;
+    }
+    xQueueReset(s_command_queue);
+    return xQueueSend(s_command_queue, &command, 0) == pdPASS;
+}
+
+} // namespace
 
 bool is_supported()
 {
@@ -14,17 +105,34 @@ bool is_supported()
 
 bool is_recording()
 {
-    return ::gps::TrackRecorder::getInstance().isRecording();
+    return s_desired_recording.load() ||
+           s_start_pending.load() ||
+           (!s_stop_pending.load() && ::gps::TrackRecorder::getInstance().isRecording());
 }
 
 bool start_recording()
 {
-    return ::gps::TrackRecorder::getInstance().start();
+    s_desired_recording.store(true);
+    s_start_pending.store(true);
+    s_stop_pending.store(false);
+    if (enqueue_command(TrackerCommand::Start))
+    {
+        return true;
+    }
+    s_start_pending.store(false);
+    s_desired_recording.store(::gps::TrackRecorder::getInstance().isRecording());
+    return false;
 }
 
 void stop_recording()
 {
-    ::gps::TrackRecorder::getInstance().stop();
+    s_desired_recording.store(false);
+    s_stop_pending.store(true);
+    s_start_pending.store(false);
+    if (!enqueue_command(TrackerCommand::Stop))
+    {
+        s_stop_pending.store(false);
+    }
 }
 
 bool current_path(std::string& out_path)
@@ -55,6 +163,15 @@ bool list_tracks(std::vector<std::string>& out_tracks, std::size_t max_count)
         out_tracks.emplace_back(names[index].c_str());
     }
     return !out_tracks.empty();
+}
+
+void poll()
+{
+    (void)ensure_worker();
+    if (!s_start_pending.load() && !s_stop_pending.load())
+    {
+        s_desired_recording.store(::gps::TrackRecorder::getInstance().isRecording());
+    }
 }
 
 bool remove_track(const std::string& path)

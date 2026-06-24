@@ -50,15 +50,17 @@ burn-down move, not a legacy maintenance expansion.
 
 ## Remaining Fallback
 
-The following paths still need Phase 9.2 real entry adoption:
+The LinuxSim and uConsole GTK entry paths now have real adoption consumers.
+Their failed-adoption behavior is unavailable-on-failure rather than a second
+hardcoded UI source.
 
-- real Linux simulator UI selection
-- real GTK uConsole page switching
+The following path still needs real renderer burn-down:
+
 - real LVGL menu/page renderer
 - hardcoded screen creation fallback
 
-Fallback remains contained until each real runtime entry consumes its presenter
-and treats hardcoded routing as a compatibility fallback only.
+Fallback remains contained only for the LVGL descriptor/runtime bridge until a
+real LVGL renderer consumes descriptors before creating menu/page objects.
 
 ## Phase 9.2 Entry Adoption
 
@@ -98,8 +100,9 @@ entry-facing consumers that still avoid `legacy/app_implementations`:
   compatibility runtime landing point.
 
 These paths do not create widgets, do not choose UX packs, and do not replace
-the existing hardcoded UI behavior. They mark the hardcoded paths as contained
-fallback until descriptors become the primary route/page/menu source.
+device-specific renderer behavior. LinuxSim and GTK now treat failed adoption
+as unavailable-on-failure; LVGL also treats failed adoption as
+unavailable-on-failure after LVGL fallback burn-down.
 
 The fallback inventory is tracked in
 `docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md`.

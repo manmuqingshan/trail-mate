@@ -35,6 +35,27 @@ int listItemHeight()
     return ::ui::page_profile::current().list_item_height;
 }
 
+int memberListItemHeight()
+{
+    return listItemHeight() + (::ui::page_profile::is_dense() ? 10 : 18);
+}
+
+void applyMemberTagStyle(lv_obj_t* label, uint8_t color_index)
+{
+    lv_obj_set_style_bg_opa(label, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(
+        label,
+        lv_color_hex(team_color_from_index(color_index)),
+        0);
+    lv_obj_set_style_pad_hor(label, 5, 0);
+    lv_obj_set_style_pad_ver(label, 3, 0);
+    lv_obj_set_style_radius(label, 6, 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(label,
+                                color_index == 3 ? lv_color_black() : lv_color_white(),
+                                0);
+}
+
 } // namespace
 
 TeamPageLvglRenderer::TeamPageLvglRenderer(uint32_t now_s)
@@ -243,6 +264,62 @@ lv_obj_t* TeamPageLvglRenderer::createListItem(
     return btn;
 }
 
+lv_obj_t* TeamPageLvglRenderer::createMemberListItem(
+    TeamPageLvglRendererContext& context,
+    const TeamMemberRowView& member) const
+{
+    lv_obj_t* btn = lv_btn_create(context.body);
+    lv_obj_set_size(btn, LV_PCT(100), memberListItemHeight());
+    lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(btn, ::ui::page_profile::is_dense() ? 2 : 4, 0);
+    style::apply_list_item(btn);
+
+    lv_obj_t* name_row = lv_obj_create(btn);
+    lv_obj_set_width(name_row, LV_PCT(100));
+    lv_obj_set_height(name_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(name_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(name_row, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_bg_opa(name_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(name_row, 0, 0);
+    lv_obj_set_style_pad_all(name_row, 0, 0);
+    lv_obj_set_style_pad_column(name_row, 6, 0);
+    lv_obj_clear_flag(name_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* name_label = lv_label_create(name_row);
+    ::ui::i18n::set_content_label_text_raw(name_label, member.name.c_str());
+    lv_label_set_long_mode(name_label, LV_LABEL_LONG_CLIP);
+    lv_obj_set_width(name_label, LV_SIZE_CONTENT);
+    applyMemberTagStyle(name_label, member.color_index);
+
+    if (member.leader)
+    {
+        lv_obj_t* role = lv_label_create(name_row);
+        ::ui::i18n::set_label_text(role, "Leader");
+        lv_label_set_long_mode(role, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(role, LV_SIZE_CONTENT);
+        style::apply_meta_label(role);
+    }
+
+    if (!member.self)
+    {
+        lv_obj_t* seen_label = lv_label_create(btn);
+        const std::string seen = formatLastSeen(member.last_seen);
+        ::ui::i18n::set_label_text_raw(seen_label, seen.c_str());
+        lv_label_set_long_mode(seen_label, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(seen_label, LV_PCT(100));
+        style::apply_meta_label(seen_label);
+    }
+
+    if (context.list_items)
+    {
+        context.list_items->push_back(btn);
+    }
+    return btn;
+}
+
 void TeamPageLvglRenderer::renderMemberChipRow(
     TeamPageLvglRendererContext& context,
     const std::vector<TeamMemberRowView>& rows) const
@@ -250,37 +327,43 @@ void TeamPageLvglRenderer::renderMemberChipRow(
     lv_obj_t* row = lv_obj_create(context.body);
     lv_obj_set_width(row, LV_PCT(100));
     lv_obj_set_height(row, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
-    lv_obj_set_style_pad_column(row, 4, 0);
+    lv_obj_set_style_pad_row(row, 4, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     for (const auto& member : rows)
     {
-        lv_obj_t* label = lv_label_create(row);
+        lv_obj_t* member_row = lv_obj_create(row);
+        lv_obj_set_width(member_row, LV_PCT(100));
+        lv_obj_set_height(member_row, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(member_row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(member_row, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_bg_opa(member_row, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(member_row, 0, 0);
+        lv_obj_set_style_pad_all(member_row, 0, 0);
+        lv_obj_set_style_pad_column(member_row, 6, 0);
+        lv_obj_clear_flag(member_row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t* label = lv_label_create(member_row);
         ::ui::i18n::set_content_label_text_raw(label, member.name.c_str());
         lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
-        lv_obj_set_width(label, LV_PCT(24));
-        lv_obj_set_style_bg_opa(label, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(
-            label,
-            lv_color_hex(team_color_from_index(member.color_index)),
-            0);
-        lv_obj_set_style_pad_hor(label, 4, 0);
-        lv_obj_set_style_pad_ver(label, 3, 0);
-        lv_obj_set_style_radius(label, 6, 0);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        if (member.color_index == 3)
+        lv_obj_set_width(label, LV_SIZE_CONTENT);
+        applyMemberTagStyle(label, member.color_index);
+
+        if (!member.self)
         {
-            lv_obj_set_style_text_color(label, lv_color_black(), 0);
-        }
-        else
-        {
-            lv_obj_set_style_text_color(label, lv_color_white(), 0);
+            lv_obj_t* seen = lv_label_create(member_row);
+            const std::string seen_text = formatLastSeen(member.last_seen);
+            ::ui::i18n::set_label_text_raw(seen, seen_text.c_str());
+            lv_label_set_long_mode(seen, LV_LABEL_LONG_DOT);
+            lv_obj_set_width(seen, LV_PCT(68));
+            style::apply_meta_label(seen);
         }
     }
 }
@@ -346,12 +429,6 @@ void TeamPageLvglRenderer::renderStatusInTeam(
                  .c_str(),
              false,
              true);
-    addLabel(context.body,
-             ::ui::i18n::format("Online: %u",
-                                static_cast<unsigned>(summary.online_count))
-                 .c_str(),
-             false,
-             true);
     if (!summary.has_security_round)
     {
         addLabel(context.body, ::ui::i18n::tr("KeyId: --"), false, true);
@@ -379,11 +456,7 @@ void TeamPageLvglRenderer::renderStatusInTeam(
 
     addLabel(context.body, ::ui::i18n::tr("Team Health"), true, false);
     std::string last_update = formatLastUpdate(summary.last_update);
-    const std::string leader_health =
-        std::string("- ") + ::ui::i18n::tr("Leader online") +
-        "\n- " + last_update +
-        "\n- " + ::ui::i18n::tr("1 member stale");
-    addLabel(context.body, leader_health.c_str(), false, true);
+    addLabel(context.body, last_update.c_str(), false, true);
 
     if (context.action_btns && context.action_btn_count > 0)
     {
@@ -423,9 +496,8 @@ void TeamPageLvglRenderer::renderTeamHome(
              true,
              false);
     addLabel(context.body,
-             ::ui::i18n::format("Members: %u  Online: %u",
-                                static_cast<unsigned>(summary.member_count),
-                                static_cast<unsigned>(summary.online_count))
+             ::ui::i18n::format("Members: %u",
+                                static_cast<unsigned>(summary.member_count))
                  .c_str(),
              false,
              true);
@@ -533,13 +605,7 @@ void TeamPageLvglRenderer::renderMembers(
     }
     for (const auto& member : rows)
     {
-        const char* dot = member.online ? "\xE2\x97\x8F " : "\xE2\x97\x8B ";
-        std::string left = std::string(dot) + member.name;
-        if (member.leader)
-        {
-            left += " (" + std::string(::ui::i18n::tr("Leader")) + ")";
-        }
-        lv_obj_t* item = createListItem(context, left.c_str(), "Select");
+        lv_obj_t* item = createMemberListItem(context, member);
         lv_obj_set_user_data(item, (void*)(intptr_t)member.source_index);
         lv_obj_add_event_cb(item, handlers.member_clicked, LV_EVENT_CLICKED, nullptr);
         registerFocus(context,
@@ -563,16 +629,12 @@ void TeamPageLvglRenderer::renderMemberDetail(
         ::ui::i18n::format("Member: %s", detail.member.name.c_str());
     updateTopBarTitle(context, title.c_str());
 
-    const std::string status =
-        detail.member.online ? std::string(::ui::i18n::tr("Online"))
-                             : formatLastSeen(detail.last_seen);
+    const std::string status = formatLastSeen(detail.last_seen);
     char line[64];
     std::snprintf(line,
                   sizeof(line),
                   "%s",
-                  ::ui::i18n::format("Status: %s",
-                                     ::ui::i18n::tr(status.c_str()))
-                      .c_str());
+                  status.c_str());
     addLabel(context.body, line, true, false);
     std::snprintf(line,
                   sizeof(line),
@@ -678,19 +740,20 @@ std::string TeamPageLvglRenderer::formatLastSeen(
 {
     switch (view.kind)
     {
-    case TeamRelativeTimeKind::Online:
-        return ::ui::i18n::tr("Online");
     case TeamRelativeTimeKind::MinutesAgo:
-        return ::ui::i18n::format("Last seen %um ago",
+        return ::ui::i18n::format("Seen %um ago",
                                   static_cast<unsigned>(view.value));
     case TeamRelativeTimeKind::HoursAgo:
-        return ::ui::i18n::format("Last seen %uh ago",
+        return ::ui::i18n::format("Seen %uh ago",
+                                  static_cast<unsigned>(view.value));
+    case TeamRelativeTimeKind::DaysAgo:
+        return ::ui::i18n::format("Seen %ud ago",
                                   static_cast<unsigned>(view.value));
     case TeamRelativeTimeKind::Unknown:
     default:
         break;
     }
-    return ::ui::i18n::tr("Last seen --");
+    return ::ui::i18n::tr("Seen --");
 }
 
 std::string TeamPageLvglRenderer::formatLastUpdate(

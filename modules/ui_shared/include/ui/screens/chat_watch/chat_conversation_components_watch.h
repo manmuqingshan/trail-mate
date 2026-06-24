@@ -21,6 +21,11 @@ class ChatConversationScreen
         Reply
     };
 
+    enum class MessageActionIntent
+    {
+        Retry
+    };
+
     ChatConversationScreen(lv_obj_t* parent, chat::ConversationId conv);
     ~ChatConversationScreen();
 
@@ -30,6 +35,11 @@ class ChatConversationScreen
     bool updateMessageStatus(chat::MessageId msg_id, chat::MessageStatus status);
 
     void setActionCallback(void (*cb)(ActionIntent intent, void*), void* user_data);
+    void setMessageActionCallback(
+        void (*cb)(MessageActionIntent intent,
+                   ::ui::chat::MessageRef ref,
+                   void*),
+        void* user_data);
     bool isAlive() const { return guard_ && guard_->alive; }
 
     lv_obj_t* getObj() const { return container_; }

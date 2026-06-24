@@ -46,8 +46,8 @@ def main() -> int:
 
     all_targets = [
         "tab5",
-        "tdisplayp4_tft",
-        "tdisplayp4_amoled",
+        "t_display_p4_tft",
+        "t_display_p4_amoled",
         "tlora_pager",
         "tdeck",
         "twatch",
@@ -102,8 +102,8 @@ def main() -> int:
         "docs/targets/TARGET_MATRIX.md",
         [
             "tab5",
-            "tdisplayp4_tft",
-            "tdisplayp4_amoled",
+            "t_display_p4_tft",
+            "t_display_p4_amoled",
             "tdeck",
             "tlora_pager",
             "twatch",

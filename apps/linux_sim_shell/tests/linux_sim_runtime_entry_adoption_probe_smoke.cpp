@@ -10,7 +10,6 @@ int main()
 
     assert(probe.load(shell));
     assert(probe.ready());
-    assert(!probe.fallbackUsed());
     assert(probe.menuCount() > 0);
     assert(probe.screenCount() > 0);
     assert(probe.adoption().presenter().menuLines()[0].route.valid);

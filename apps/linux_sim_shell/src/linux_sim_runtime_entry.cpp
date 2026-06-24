@@ -9,19 +9,10 @@ bool LinuxSimRuntimeEntry::start(const LinuxSimAppShell& shell)
     if (ready_)
     {
         runtime_source_ = LinuxSimRuntimeSource::ScreenGraphAdoption;
-        fallback_ = false;
         return true;
     }
 
-    runtime_source_ = LinuxSimRuntimeSource::HardcodedFallback;
-    fallback_ = true;
-    return startFallback(shell);
-}
-
-bool LinuxSimRuntimeEntry::startFallback(const LinuxSimAppShell&)
-{
-    // Phase 10 fallback containment: old simulator routing remains available
-    // until the renderer fully consumes AsciiRuntimeEntryAdoption descriptors.
+    runtime_source_ = LinuxSimRuntimeSource::Unavailable;
     return false;
 }
 
@@ -33,12 +24,7 @@ bool LinuxSimRuntimeEntry::ready() const
 bool LinuxSimRuntimeEntry::usingPrimaryScreenGraph() const noexcept
 {
     return runtime_source_ == LinuxSimRuntimeSource::ScreenGraphAdoption &&
-           ready_ && !fallback_;
-}
-
-bool LinuxSimRuntimeEntry::fallbackUsed() const
-{
-    return fallback_;
+           ready_;
 }
 
 LinuxSimRuntimeSource LinuxSimRuntimeEntry::runtimeSource() const noexcept

@@ -56,6 +56,31 @@ MeshSendResult ChatService::sendTextDetailed(ChannelId channel, const std::strin
     return sendTextWithIdDetailed(channel, text, 0, peer);
 }
 
+bool ChatService::canSendToConversation(const ConversationId& conversation) const
+{
+    return conversation.protocol == active_protocol_;
+}
+
+MessageId ChatService::sendTextToConversation(const ConversationId& conversation,
+                                              const std::string& text)
+{
+    const MeshSendResult result =
+        sendTextToConversationDetailed(conversation, text);
+    return result.ok ? result.msg_id : 0;
+}
+
+MeshSendResult ChatService::sendTextToConversationDetailed(
+    const ConversationId& conversation,
+    const std::string& text)
+{
+    if (!canSendToConversation(conversation))
+    {
+        return MeshSendResult::fail(MeshOperationFailure::Unsupported);
+    }
+
+    return sendTextDetailed(conversation.channel, text, conversation.peer);
+}
+
 MeshSendResult ChatService::sendTextWithIdDetailed(ChannelId channel, const std::string& text,
                                                    MessageId forced_msg_id, NodeId peer)
 {
@@ -146,8 +171,24 @@ bool ChatService::resendFailed(MessageId msg_id)
     {
         return false;
     }
+    if (msg.protocol != active_protocol_)
+    {
+        return false;
+    }
 
-    return sendText(msg.channel, msg.text, msg.peer) != 0;
+    const MeshSendResult result =
+        adapter_.sendTextDetailed(msg.channel, msg.text, msg.msg_id, msg.peer);
+    if (!result.ok || result.msg_id != msg.msg_id)
+    {
+        return false;
+    }
+
+    if (model_enabled_)
+    {
+        model_.updateMessageStatus(msg.msg_id, MessageStatus::Queued);
+    }
+    store_.updateMessageStatus(msg.msg_id, MessageStatus::Queued);
+    return true;
 }
 
 std::vector<ChatMessage> ChatService::getRecentMessages(const ConversationId& conv, size_t limit) const

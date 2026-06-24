@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 #if defined(ESP_PLATFORM)
 #include "esp_log.h"
@@ -49,6 +50,7 @@ struct MenuAppUi
     lv_obj_t* icon = nullptr;
     lv_obj_t* button = nullptr;
     lv_obj_t* label = nullptr;
+    std::string rendered_name;
 };
 
 struct BottomBarChipUi
@@ -65,6 +67,7 @@ lv_obj_t* s_bottom_bar = nullptr;
 lv_obj_t* s_bottom_bar_left = nullptr;
 lv_obj_t* s_bottom_bar_right = nullptr;
 BottomBarChipUi s_bottom_node_chip{};
+BottomBarChipUi s_bottom_help_chip{};
 BottomBarChipUi s_bottom_ram_chip{};
 BottomBarChipUi s_bottom_psram_chip{};
 MenuAppUi s_menu_apps[kMaxMenuApps];
@@ -74,8 +77,19 @@ InitOptions s_init_options{};
 uint32_t s_name_change_id = 0;
 #endif
 AppScreen* s_pending_app_launch = nullptr;
+std::string s_last_refresh_locale;
+std::string s_desc_rendered_name;
 
 void syncFocusedDescLabel();
+
+bool showBottomHelpShortcut()
+{
+#if defined(ARDUINO_T_LORA_PAGER)
+    return true;
+#else
+    return false;
+#endif
+}
 
 lv_obj_t* firstMenuButton()
 {
@@ -863,6 +877,7 @@ BottomBarChipUi createBottomBarChip(lv_obj_t* parent,
     lv_obj_set_style_text_font(chip.label, profile.node_id_font, 0);
     lv_label_set_long_mode(chip.label, LV_LABEL_LONG_CLIP);
     lv_label_set_text(chip.label, text ? text : "");
+    ::ui::i18n::log_direct_text_route("menu_bottom_chip", chip.label, text ? text : "");
     lv_obj_center(chip.label);
     return chip;
 }
@@ -906,6 +921,7 @@ void setBottomBarChipText(const BottomBarChipUi& chip, const char* text)
         return;
     }
     lv_label_set_text(chip.label, text ? text : "");
+    ::ui::i18n::log_direct_text_route("menu_bottom_chip_update", chip.label, text ? text : "");
 }
 
 void setBottomBarChipVisible(const BottomBarChipUi& chip, bool visible)
@@ -1071,9 +1087,14 @@ void createAppGrid()
     s_bottom_bar_left = createBottomBarGroup(s_bottom_bar);
     s_bottom_bar_right = nullptr;
     s_bottom_node_chip = {};
+    s_bottom_help_chip = {};
     s_bottom_ram_chip = {};
     s_bottom_psram_chip = {};
     s_bottom_node_chip = createBottomBarChip(s_bottom_bar_left, profile, lv_color_hex(0xF1B75A), "-");
+    if (showBottomHelpShortcut())
+    {
+        s_bottom_help_chip = createBottomBarChip(s_bottom_bar_left, profile, lv_color_hex(0xFAF0D8), "H Help");
+    }
     if (profile.show_memory_stats)
     {
         createBottomBarSpacer(s_bottom_bar);
@@ -1146,6 +1167,11 @@ void bringContentToFront()
 
 void refresh_localized_text()
 {
+    const char* locale = ::ui::i18n::current_locale_id();
+    const std::string locale_key = locale ? locale : "";
+    const bool locale_changed = locale_key != s_last_refresh_locale;
+    bool any_changed = locale_changed;
+
     for (auto& item : s_menu_apps)
     {
         if (item.app == nullptr)
@@ -1153,10 +1179,22 @@ void refresh_localized_text()
             continue;
         }
 
-        item.name = item.app->name();
+        const char* current_name = item.app->name();
+        item.name = current_name;
         if (item.label != nullptr)
         {
-            ::ui::i18n::set_label_text(item.label, item.name);
+            const char* existing = lv_label_get_text(item.label);
+            const bool label_changed =
+                existing == nullptr ||
+                current_name == nullptr ||
+                std::strcmp(existing, current_name) != 0;
+            if (locale_changed || item.rendered_name != (current_name ? current_name : "") ||
+                label_changed)
+            {
+                ::ui::i18n::set_label_text(item.label, current_name);
+                item.rendered_name = current_name ? current_name : "";
+                any_changed = true;
+            }
         }
     }
 
@@ -1166,16 +1204,39 @@ void refresh_localized_text()
         const int index = findMenuButtonIndex(focused);
         if (index >= 0 && static_cast<size_t>(index) < kMaxMenuApps)
         {
-            ::ui::i18n::set_label_text(s_desc_label, s_menu_apps[index].name);
+            const char* desc = s_menu_apps[index].name ? s_menu_apps[index].name : "";
+            const char* existing = lv_label_get_text(s_desc_label);
+            const bool label_changed = existing == nullptr || std::strcmp(existing, desc) != 0;
+            if (locale_changed || s_desc_rendered_name != desc || label_changed)
+            {
+                ::ui::i18n::set_label_text(s_desc_label, desc);
+                s_desc_rendered_name = desc;
+                any_changed = true;
+            }
         }
     }
 
-    ui::menu::dashboard::refresh_localized_text();
+    if (locale_changed)
+    {
+        ui::menu::dashboard::refresh_localized_text();
+    }
+    if (any_changed)
+    {
+        std::printf("[UI][Lifecycle] menu localized_refresh locale=%s locale_changed=%d\n",
+                    locale_key.empty() ? "<none>" : locale_key.c_str(),
+                    locale_changed ? 1 : 0);
+    }
+    s_last_refresh_locale = locale_key;
 }
 
 void set_bottom_bar_node_text(const char* text)
 {
     setBottomBarChipText(s_bottom_node_chip, text);
+}
+
+void set_bottom_bar_help_text(const char* text)
+{
+    setBottomBarChipText(s_bottom_help_chip, text);
 }
 
 void set_bottom_bar_ram_text(const char* text)
@@ -1197,6 +1258,13 @@ void setMenuVisible(bool visible)
 {
     if (s_menu_panel != nullptr)
     {
+        const bool was_visible = !lv_obj_has_flag(s_menu_panel, LV_OBJ_FLAG_HIDDEN);
+        if (was_visible != visible)
+        {
+            std::printf("[UI][Lifecycle] menu visible=%d previous=%d\n",
+                        visible ? 1 : 0,
+                        was_visible ? 1 : 0);
+        }
         if (visible)
         {
             lv_obj_clear_flag(s_menu_panel, LV_OBJ_FLAG_HIDDEN);

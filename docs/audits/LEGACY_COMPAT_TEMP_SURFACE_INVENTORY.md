@@ -258,8 +258,7 @@ Current location:
 
 Current callers:
 - docs and checkers recognize it as archive-only.
-- final app shell records it through
-  `apps/linux_sim_shell/src/linux_sim_historical_source_descriptor.*`.
+- active app shells do not retain source-descriptor metadata for it.
 
 Current responsibility:
 - archive-only historical simulator source and scripts.
@@ -284,7 +283,8 @@ Delete condition:
 - Satisfied by Batch 4 Root Legacy Elimination.
 
 Risk:
-- medium; source is archive-only but still referenced by descriptors and docs.
+- low-medium; source is archive-only and now referenced only by historical
+  documentation and retirement checkers.
 
 ## Surface: legacy/app_implementations/linux_uconsole
 
@@ -299,8 +299,7 @@ Current location:
 
 Current callers:
 - docs and checkers recognize it as archive-only.
-- final app shell records it through
-  `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_historical_source_descriptor.*`.
+- active app shells do not retain source-descriptor metadata for it.
 
 Current responsibility:
 - archive-only historical uConsole GTK source, packaging files, scripts, and
@@ -327,7 +326,8 @@ Delete condition:
 
 Risk:
 - high; this archive still contains real business/page/packaging history that
-  must be migrated or deliberately replaced before deletion.
+  must be migrated or deliberately replaced before deletion, but no active app
+  shell descriptor keeps it alive.
 
 ## Surface: legacy/app_implementations/linux_unoq
 
@@ -379,7 +379,6 @@ Current location:
 
 Current callers:
 - docs and inventory only after Batch 2.
-- `apps/esp32_lvgl` uses `esp32_lvgl_historical_source_descriptor.*`.
 - `builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake` owns migrated ESP-IDF
   source lists.
 
@@ -390,8 +389,8 @@ Is this final architecture?
 - No.
 
 Final owner:
-- `apps/esp32_lvgl` for app shell metadata and `builds/esp_idf` for build
-  entrypoint wiring.
+- `apps/esp32_lvgl` for app shell/runtime ownership and `builds/esp_idf` for
+  build entrypoint wiring.
 
 Disposition:
 - Deleted.
@@ -419,8 +418,6 @@ Current location:
 
 Current callers:
 - docs and inventory only after Batch 1.
-- `builds/pio_nrf52/src/nrf52_node_wrapper_baseline.cpp` now uses
-  `apps/nrf52_node/src/nrf52_historical_source_descriptor.*`.
 - `builds/pio_nrf52/platformio.ini` no longer adds the legacy root include path.
 
 Current responsibility:
@@ -527,144 +524,152 @@ Risk:
 ## Surface: linux_sim_historical_source_descriptor (formerly linux_sim_legacy_source_descriptor)
 
 Category:
-- transitional descriptors
+- retired descriptors
 
 Current location:
-- `apps/linux_sim_shell/src/linux_sim_historical_source_descriptor.*`
-- `apps/linux_sim_shell/tests/linux_sim_historical_source_descriptor_smoke.cpp`
+- removed from active app source and tests.
 
 Current callers:
-- `apps/linux_sim_shell/src/linux_sim_app_shell.*`
-- `apps/linux_sim_shell/CMakeLists.txt`
-- `tools/architecture/check_legacy_app_roots_burndown_ready.py`
-- `tools/architecture/check_phase8_layout_ready.py`
+- none from active app or build code.
+- `tools/architecture/check_legacy_disposition_execution_ready.py` and
+  `tools/architecture/check_no_root_legacy_ready.py` assert it stays retired.
 
 Current responsibility:
-- records `historical_root_name`, `historical_role`, and replacement owner
-  metadata for the final LinuxSim app shell.
+- Historical descriptor retired from active app shell. Removed root history is
+  documented only in `docs/archive/REMOVED_LEGACY_ROOTS.md`.
 
 Is this final architecture?
-- No.
+- Yes.
 
 Final owner:
-- `apps/linux_sim_shell` as historical source metadata, not runtime-reachable
-  legacy root path.
+- `apps/linux_sim_shell` owns the app shell; docs/archive owns removed root
+  history.
 
 Disposition:
-- Must Rename.
+- Deleted.
+
+Final status:
+- Historical descriptor retired from active app shell.
 
 Delete condition:
-- rename to historical source descriptor or delete once docs/archive records
-  the legacy root history; remove the concrete `legacy/...` root_path field.
-  Batch 1 completed the rename and removed the `root_path` field.
+- Satisfied once docs/archive records removed root history and active app/build
+  code has no descriptor files, targets, includes, or fields.
 
 Risk:
-- medium; app shell validation currently reads this descriptor.
+- low; app shell validation no longer reads this descriptor.
 
 ## Surface: linux_uconsole_gtk_historical_source_descriptor (formerly linux_uconsole_gtk_legacy_source_descriptor)
 
 Category:
-- transitional descriptors
+- retired descriptors
 
 Current location:
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_historical_source_descriptor.*`
-- `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_historical_source_descriptor_smoke.cpp`
+- removed from active app source and tests.
 
 Current callers:
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_app_shell.*`
-- `apps/linux_uconsole_gtk/CMakeLists.txt`
-- `tools/architecture/check_legacy_app_roots_burndown_ready.py`
-- `tools/architecture/check_phase8_layout_ready.py`
+- none from active app or build code.
+- `tools/architecture/check_legacy_disposition_execution_ready.py` and
+  `tools/architecture/check_no_root_legacy_ready.py` assert it stays retired.
 
 Current responsibility:
-- records `historical_root_name`, `historical_role`, and replacement owner
-  metadata for the final uConsole GTK app shell.
+- Historical descriptor retired from active app shell. Removed root history is
+  documented only in `docs/archive/REMOVED_LEGACY_ROOTS.md`.
 
 Is this final architecture?
-- No.
+- Yes.
 
 Final owner:
-- `apps/linux_uconsole_gtk` as historical source metadata, plus
-  `builds/linux_cmake` for package/build metadata.
+- `apps/linux_uconsole_gtk` owns the app shell; `builds/linux_cmake` owns
+  build metadata; docs/archive owns removed root history.
 
 Disposition:
-- Must Rename.
+- Deleted.
+
+Final status:
+- Historical descriptor retired from active app shell.
 
 Delete condition:
-- rename to historical source descriptor or delete once docs/archive records
-  the legacy root history; remove the concrete `legacy/...` root_path field.
-  Batch 1 completed the rename and removed the `root_path` field.
+- Satisfied once docs/archive records removed root history and active app/build
+  code has no descriptor files, targets, includes, or fields.
 
 Risk:
-- high; it currently hides the fact that uConsole archive still contains
-  page and packaging material that may need migration.
+- medium; uConsole history is still important, but no descriptor keeps it in
+  the active app shell.
 
 ## Surface: nrf52_historical_source_descriptor
 
 Category:
-- transitional descriptors
+- retired descriptors
 
 Current location:
-- `apps/nrf52_node/src/nrf52_historical_source_descriptor.*`
-- `apps/nrf52_node/tests/nrf52_historical_source_descriptor_smoke.cpp`
+- removed from active app source and tests.
 
 Current callers:
-- `apps/nrf52_node/src/nrf52_node_app_shell.*`
-- `builds/pio_nrf52/src/nrf52_node_wrapper_baseline.cpp`
+- none from active app or build code.
+- `tools/architecture/check_legacy_disposition_execution_ready.py` and
+  `tools/architecture/check_no_root_legacy_ready.py` assert it stays retired.
 
 Current responsibility:
-- records historical PIO and GAT562 root identity after active wrapper stopped
-  including `nrf52_pio_legacy_implementation_adapter.h`.
+- Historical descriptor retired from active app shell. Removed root history is
+  documented only in `docs/archive/REMOVED_LEGACY_ROOTS.md`.
 
 Is this final architecture?
-- No as a permanent source descriptor; yes as a short-lived historical record
-  during root deletion preparation.
+- Yes.
 
 Final owner:
-- `apps/nrf52_node`, `builds/pio_nrf52`, and `boards/gat562_mesh_evb_pro`.
+- `apps/nrf52_node`, `builds/pio_nrf52`, and
+  `boards/gat562_mesh_evb_pro`; docs/archive owns removed root history.
 
 Disposition:
-- Must Rename.
+- Deleted.
+
+Final status:
+- Historical descriptor retired from active app shell.
 
 Delete condition:
-- delete once `docs/archive` records removed root history and PIO/GAT562 source
-  ownership no longer requires historical source identity in app/runtime code.
+- Satisfied once docs/archive records removed root history and active app/build
+  code has no descriptor files, targets, includes, or fields.
 
 Risk:
-- medium; it is intentionally metadata-only and does not expose a root path
-  field, but it still names historical roots.
+- low-medium; the wrapper no longer compiles or includes this descriptor.
 
 ## Surface: esp32_lvgl_historical_source_descriptor
 
 Category:
-- transitional descriptors
+- retired descriptors
 
 Current location:
-- `apps/esp32_lvgl/src/esp32_lvgl_historical_source_descriptor.*`
-- `apps/esp32_lvgl/tests/esp32_lvgl_historical_source_descriptor_smoke.cpp`
+- removed from active app source and tests.
 
 Current callers:
-- `apps/esp32_lvgl/src/esp32_lvgl_app_shell.*`
+- none from active app or build code.
+- `tools/architecture/check_legacy_disposition_execution_ready.py` and
+  `tools/architecture/check_no_root_legacy_ready.py` assert it stays retired.
 
 Current responsibility:
-- records historical ESP-IDF root identity while the ESP-IDF final owner
-  migration plan is established.
+- Historical descriptor retired from active app shell. Removed root history is
+  documented only in `docs/archive/REMOVED_LEGACY_ROOTS.md`.
 
 Is this final architecture?
-- No as a permanent source descriptor; it is a migration landing record only.
+- Yes.
 
 Final owner:
-- `apps/esp32_lvgl` and `builds/esp_idf`.
+- `apps/esp32_lvgl` and `builds/esp_idf`; docs/archive owns removed root
+  history.
 
 Disposition:
-- Must Rename.
+- Deleted.
+
+Final status:
+- Historical descriptor retired from active app shell.
 
 Delete condition:
-- delete once ESP-IDF component/source ownership has moved out of
-  `legacy/app_implementations/esp_idf` and historical root removal is recorded.
+- Satisfied once docs/archive records removed root history and active app/build
+  code has no descriptor files, targets, includes, or fields.
 
 Risk:
-- medium-high; ESP-IDF is still an active build dependency.
+- medium; ESP-IDF remains an active build path, but descriptor metadata is no
+  longer part of the app shell contract.
 
 ## Surface: ui_headless_runtime descriptor consumer
 
@@ -706,36 +711,38 @@ Category:
 - compatibility shims
 
 Current location:
-- `modules/ui_shared/include/ui/presentation_sources/legacy_*`
-- `modules/ui_shared/include/ui/map_tiles/legacy_filesystem_map_tile_source.h`
-- `modules/ui_shared/include/ui/team_actions/legacy_team_action_bridge.h`
-- `docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md`
+- removed from active include and build surfaces.
 
 Current callers:
-- `cmake/TrailMateLinuxSources.cmake`
-- compatibility tests and historical include paths
-- docs and checker policy
+- none from active source or build inputs.
+- docs and checker policy assert the shim surface stays retired.
 
 Current responsibility:
-- preserves old include paths while stable runtime modules own replacements.
+- historical record of removed forwarding shims and Linux compatibility
+  translation units.
 
 Is this final architecture?
-- No.
+- Yes.
 
 Final owner:
 - stable modules such as `ui_chat_runtime`, `ui_key_verification_runtime`,
-  `ui_map_runtime`, `ui_presentation`, and `ui_legacy_adapters` only where
-  compatibility aliasing is explicitly allowed.
+  `ui_map_runtime`, `ui_presentation`, `platform/linux/common`, and
+  docs/archive for history.
 
 Disposition:
-- Keep as Deprecated Alias Temporarily.
+- Deleted.
+
+Final status:
+- Retired from active include and build surfaces.
 
 Delete condition:
-- no production or downstream include path uses the old `ui_shared` forwarding
-  headers and compatibility tests can be removed or relocated.
+- Satisfied: no production include path uses the old `ui_shared` forwarding
+  headers, and Linux `gps_shared_compat.cpp` / `mt_protocol_air_compat.cpp`
+  have left `cmake/TrailMateLinuxSources.cmake`.
 
 Risk:
-- medium; deleting early breaks downstream includes.
+- low-medium; downstream consumers must use the stable runtime/module headers
+  directly.
 
 ## Surface: LegacyChatDeliveryActionBridge
 
@@ -752,37 +759,6 @@ Current callers:
 
 Current responsibility:
 - deprecated alias to `ui_chat_runtime::ChatDeliveryActionPortAdapter`.
-
-Is this final architecture?
-- No.
-
-Final owner:
-- `modules/ui_chat_runtime`.
-
-Disposition:
-- Keep as Deprecated Alias Temporarily.
-
-Delete condition:
-- no downstream includes of either alias header remain.
-
-Risk:
-- low-medium; alias may be used by external or untracked downstream code.
-
-## Surface: LegacyChatDeliveryEventBridge
-
-Category:
-- deprecated aliases
-
-Current location:
-- `modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_event_bridge.h`
-- `modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_event_bridge.h`
-
-Current callers:
-- `modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge_legacy_alias.cpp`
-- docs and checker policy
-
-Current responsibility:
-- deprecated alias to `ui_chat_runtime::ChatDeliveryEventProjectionAdapter`.
 
 Is this final architecture?
 - No.
@@ -928,19 +904,20 @@ Risk:
 ## Surface: LinuxSim hardcoded runtime routing
 
 Category:
-- fallback-only paths
+- deleted fallback paths
 
 Current location:
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry.*`
 - `apps/linux_sim_shell/src/linux_sim_runtime_renderer.*`
-- `apps/linux_sim_shell/tests/linux_sim_runtime_entry_fallback_smoke.cpp`
+- removed `apps/linux_sim_shell/tests/linux_sim_runtime_entry_fallback_smoke.cpp`
 
 Current callers:
 - LinuxSim runtime entry and renderer tests.
 - Phase 10/11 checkers.
 
 Current responsibility:
-- fallback-only route when screen graph adoption fails.
+- burned-down fallback route; failed screen graph adoption is
+  unavailable-on-failure.
 
 Is this final architecture?
 - No.
@@ -949,14 +926,17 @@ Final owner:
 - `apps/linux_sim_shell` and `modules/ui_ascii_runtime`.
 
 Disposition:
-- Must Delete.
+- Deleted.
+
+Final status:
+- Removed in LinuxSim/uConsole fallback burn-down.
 
 Delete condition:
-- real simulator workflows no longer need hardcoded route fallback and fallback
-  smoke can be removed or converted to error-path validation.
+- Satisfied: real simulator workflows no longer need hardcoded route fallback
+  and renderer smoke covers the failed-adoption false-return path.
 
 Risk:
-- medium; removing early hides failed-adoption behavior.
+- medium; handled by explicit unavailable-on-failure assertions.
 
 ## Surface: GTK hardcoded page registry
 
@@ -966,7 +946,7 @@ Category:
 Current location:
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.*`
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_renderer.*`
-- `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_page_registry_fallback_smoke.cpp`
+- removed `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_page_registry_fallback_smoke.cpp`
 - archived old page registry under `legacy/app_implementations/linux_uconsole/archive/gtk/gtk/gtk_uconsole_pages.*`
 
 Current callers:
@@ -974,7 +954,8 @@ Current callers:
 - Phase 10/11 checkers.
 
 Current responsibility:
-- fallback-only registry when descriptor adoption fails.
+- burned-down fallback registry; failed descriptor adoption is
+  unavailable-on-failure.
 
 Is this final architecture?
 - No.
@@ -983,14 +964,18 @@ Final owner:
 - `apps/linux_uconsole_gtk` and `modules/ui_gtk_runtime`.
 
 Disposition:
-- Must Delete.
+- Deleted.
+
+Final status:
+- Removed in LinuxSim/uConsole fallback burn-down.
 
 Delete condition:
-- real GTK widget/page creation consumes `GtkDescriptorPage` as the primary page
-  source and fallback smoke is no longer required.
+- Satisfied for the page-registry adoption path: `GtkDescriptorPageRegistry`
+  is the only active page-registry source and fallback smoke is removed.
 
 Risk:
-- high; current GTK widget code has not been fully migrated out of archive.
+- medium-high; real GTK widget rewrite is still separate debt, but this active
+  page-registry fallback no longer carries it.
 
 ## Surface: LVGL hardcoded menu/page creation
 
@@ -1008,24 +993,29 @@ Current callers:
 - Phase 10/11 checkers.
 
 Current responsibility:
-- fallback-only descriptor fallback while real LVGL menu/page renderers still
-  have compatibility paths.
+- historical record of the deleted LVGL hardcoded menu/page fallback. Failed
+  adoption is unavailable-on-failure.
 
 Is this final architecture?
-- No.
+- Yes for fallback deletion; real widget/menu migration remains separate debt.
 
 Final owner:
 - `modules/ui_lvgl_ux_packs` real renderer path.
 
 Disposition:
-- Must Delete.
+- Deleted.
+
+Final status:
+- Removed in LVGL fallback burn-down.
 
 Delete condition:
-- at least one real LVGL target consumes `LvglDescriptorMenuModel` before
-  menu/page object creation.
+- Satisfied for descriptor runtime failure: no `HardcodedFallback`,
+  `fallbackUsed`, `usedFallback`, or `loadFallback` remains in
+  `modules/ui_lvgl_ux_packs`.
 
 Risk:
-- medium-high; premature deletion may break LVGL compatibility behavior.
+- medium; real LVGL widget/menu migration remains, but failed descriptor
+  adoption no longer selects a second hardcoded UI source.
 
 ## Surface: legacy/app_implementations/linux_sim/archive
 

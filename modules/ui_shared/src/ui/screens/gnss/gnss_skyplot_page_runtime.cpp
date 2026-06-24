@@ -47,6 +47,8 @@ constexpr int kWide720MinLongSide = 1200;
 constexpr int kWide720MinShortSide = 680;
 constexpr int kWide720FallbackScreenW = 1280;
 constexpr int kWide720FallbackScreenH = 720;
+constexpr int kLargeTouchMinLongSide = 900;
+constexpr int kLargeTouchMinShortSide = 500;
 
 constexpr int kMaxSats = 32;
 constexpr int kTableRows = 7;
@@ -55,6 +57,7 @@ struct SkyPlotLayout
 {
     bool compact_layout = false;
     bool wide_720_layout = false;
+    bool large_touch_layout = false;
 
     lv_coord_t screen_w = kClassicScreenW;
     lv_coord_t screen_h = kClassicScreenH;
@@ -149,6 +152,13 @@ bool is_wide_720_canvas(lv_coord_t width, lv_coord_t height)
     const lv_coord_t long_side = std::max(width, height);
     const lv_coord_t short_side = std::min(width, height);
     return long_side >= kWide720MinLongSide && short_side >= kWide720MinShortSide;
+}
+
+bool is_large_touch_canvas(lv_coord_t width, lv_coord_t height)
+{
+    const lv_coord_t long_side = std::max(width, height);
+    const lv_coord_t short_side = std::min(width, height);
+    return long_side >= kLargeTouchMinLongSide && short_side >= kLargeTouchMinShortSide;
 }
 
 SkyPlotLayout make_classic_layout(bool compact, lv_coord_t parent_w, lv_coord_t parent_h)
@@ -361,11 +371,154 @@ SkyPlotLayout make_wide_720_layout(lv_coord_t parent_w, lv_coord_t parent_h, lv_
     return layout;
 }
 
+SkyPlotLayout make_large_touch_layout(lv_coord_t parent_w, lv_coord_t parent_h, lv_coord_t top_bar_h)
+{
+    SkyPlotLayout layout{};
+    layout.large_touch_layout = true;
+    layout.screen_w = parent_w > 0 ? parent_w : 1168;
+    layout.screen_h = parent_h > 0 ? parent_h : 540;
+
+    layout.root_radius = 0;
+    layout.panel_radius = 14;
+    layout.panel_border_width = 2;
+
+    const bool landscape = layout.screen_w >= layout.screen_h;
+    const lv_coord_t side_margin = 14;
+    const lv_coord_t panel_gap = 14;
+    const lv_coord_t content_top = top_bar_h + 12;
+    const lv_coord_t content_bottom_margin = 14;
+    const lv_coord_t content_h =
+        std::max<lv_coord_t>(360, layout.screen_h - content_top - content_bottom_margin);
+
+    layout.sky_panel_x = side_margin;
+    layout.sky_panel_y = content_top;
+    layout.status_panel_right_margin = side_margin;
+
+    if (landscape)
+    {
+        layout.status_panel_w =
+            std::min<lv_coord_t>(420, std::max<lv_coord_t>(320, layout.screen_w / 3));
+        layout.status_panel_x = layout.screen_w - layout.status_panel_w - side_margin;
+        layout.status_panel_y = content_top;
+        layout.sky_panel_w = layout.status_panel_x - layout.sky_panel_x - panel_gap;
+        layout.sky_panel_h = content_h;
+        layout.status_panel_h = content_h;
+
+        layout.sky_area_x = 24;
+        layout.sky_area_y = 36;
+        layout.sky_area_size = std::min<lv_coord_t>(
+            440,
+            std::min<lv_coord_t>(layout.sky_panel_h - 72, layout.sky_panel_w - 240));
+        layout.legend_snr_x = layout.sky_area_x + layout.sky_area_size + 28;
+        layout.legend_snr_y = 58;
+        layout.legend_sys_x = layout.legend_snr_x;
+        layout.legend_sys_y = 248;
+    }
+    else
+    {
+        layout.sky_panel_w = layout.screen_w - (side_margin * 2);
+        layout.sky_panel_h = std::min<lv_coord_t>(640, std::max<lv_coord_t>(560, (content_h * 58) / 100));
+        layout.status_panel_x = side_margin;
+        layout.status_panel_y = layout.sky_panel_y + layout.sky_panel_h + panel_gap;
+        layout.status_panel_w = layout.sky_panel_w;
+        layout.status_panel_h =
+            std::max<lv_coord_t>(360, layout.screen_h - layout.status_panel_y - content_bottom_margin);
+
+        layout.sky_area_x = (layout.sky_panel_w - 440) / 2;
+        if (layout.sky_area_x < 18)
+        {
+            layout.sky_area_x = 18;
+        }
+        layout.sky_area_y = 26;
+        layout.sky_area_size = std::min<lv_coord_t>(
+            440,
+            std::min<lv_coord_t>(layout.sky_panel_w - 36, layout.sky_panel_h - 156));
+        layout.legend_snr_x = 28;
+        layout.legend_snr_y = layout.sky_area_y + layout.sky_area_size + 26;
+        layout.legend_sys_x = layout.sky_panel_w / 2 + 16;
+        layout.legend_sys_y = layout.legend_snr_y;
+    }
+
+    layout.sky_center = layout.sky_area_size / 2;
+    layout.sky_radius = (layout.sky_area_size / 2) - 12;
+    layout.sky_radius60 = (layout.sky_radius * 2) / 3;
+    layout.sky_radius30 = layout.sky_radius / 3;
+    layout.outer_ring_border_width = 3;
+    layout.inner_ring_border_width = 2;
+    layout.axis_line_width = 2;
+
+    layout.center_dot_size = 7;
+    layout.center_dot_radius = 4;
+
+    layout.dot_radius = 14;
+    layout.dot_size = 28;
+    layout.dot_border_width = 2;
+    layout.use_tag_anchor_dx = 16;
+    layout.use_tag_anchor_dy = 16;
+    layout.use_tag_radius = 8;
+    layout.use_tag_pad_h = 6;
+    layout.use_tag_pad_v = 3;
+
+    layout.label_n_top = 8;
+    layout.label_e_gap = 16;
+    layout.label_e_y_adjust = 13;
+    layout.label_w_x = 10;
+    layout.label_w_y_adjust = 13;
+    layout.horizon_offset_y = 18;
+
+    layout.legend_snr_row = 32;
+    layout.legend_sys_row = 32;
+    layout.legend_block_size = 15;
+    layout.legend_block_radius = 4;
+    layout.legend_block_y_offset = 7;
+    layout.legend_label_x_offset = 22;
+
+    layout.status_header_h = 50;
+    layout.table_header_y = layout.status_header_h;
+    layout.table_header_h = 38;
+    layout.table_row_start_y = layout.table_header_y + layout.table_header_h;
+    layout.table_row_h = std::max<lv_coord_t>(
+        36,
+        std::min<lv_coord_t>(
+            58,
+            (layout.status_panel_h - layout.status_header_h - layout.table_header_h - 16) / kTableRows));
+    layout.table_row_step = layout.table_row_h;
+
+    layout.top_bar_title_font = ::ui::page_profile::resolve_title_font();
+    layout.compass_font = &lv_font_montserrat_20;
+    layout.ring_label_font = &lv_font_montserrat_16;
+    layout.horizon_font = &lv_font_montserrat_14;
+    layout.legend_font = &lv_font_montserrat_14;
+    layout.status_header_font = &lv_font_montserrat_18;
+    layout.table_header_font = &lv_font_montserrat_14;
+    layout.table_row_font = &lv_font_montserrat_16;
+    layout.sat_dot_font = &lv_font_montserrat_12;
+    layout.use_tag_font = &lv_font_montserrat_12;
+    layout.status_toggle_font = &lv_font_montserrat_14;
+
+    layout.table_col_w[0] = (layout.status_panel_w * 14) / 100;
+    layout.table_col_w[1] = (layout.status_panel_w * 20) / 100;
+    layout.table_col_w[2] = (layout.status_panel_w * 20) / 100;
+    layout.table_col_w[3] = (layout.status_panel_w * 16) / 100;
+    layout.table_col_w[4] = layout.status_panel_w -
+                            layout.table_col_w[0] -
+                            layout.table_col_w[1] -
+                            layout.table_col_w[2] -
+                            layout.table_col_w[3];
+    return layout;
+}
+
 SkyPlotLayout resolve_layout(lv_coord_t parent_w, lv_coord_t parent_h, lv_coord_t top_bar_h)
 {
     if (is_wide_720_canvas(parent_w, parent_h))
     {
         return make_wide_720_layout(parent_w, parent_h, top_bar_h);
+    }
+
+    if (::ui::page_profile::current().large_touch_hitbox &&
+        is_large_touch_canvas(parent_w, parent_h))
+    {
+        return make_large_touch_layout(parent_w, parent_h, top_bar_h);
     }
 
     if (::ui::page_profile::is_dense() && parent_w > 0 && parent_w <= kCompactMaxWidth)

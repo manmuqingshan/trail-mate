@@ -39,11 +39,7 @@ bool Nrf52NodeAppShell::validate() const
            product_composition::findTargetUxBinding(targetId()) != nullptr &&
            config_.target_family != nullptr &&
            config_.default_ux_pack_id != nullptr &&
-           std::strcmp(config_.default_ux_pack_id, activeUxPackId()) == 0 &&
-           config_.historical_generic_root_name != nullptr &&
-           config_.historical_board_root_name != nullptr &&
-           config_.historical_role != nullptr &&
-           config_.replacement_owner != nullptr;
+           std::strcmp(config_.default_ux_pack_id, activeUxPackId()) == 0;
 }
 
 } // namespace nrf52_node

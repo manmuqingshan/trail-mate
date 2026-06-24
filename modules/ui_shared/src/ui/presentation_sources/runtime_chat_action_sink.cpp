@@ -81,7 +81,7 @@ ui::UiActionResult RuntimeChatActionSink::sendMessage(
 
     const std::string text(message.text, message.text_len);
     const ::chat::MeshSendResult result =
-        chat_service_.sendTextDetailed(core_id.channel, text, core_id.peer);
+        chat_service_.sendTextToConversationDetailed(core_id, text);
     if (!result.ok || result.msg_id == 0)
     {
         return ui::UiActionResult::fail(mapMeshFailure(result.failure));

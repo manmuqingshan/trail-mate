@@ -9,7 +9,7 @@
                   "srcDir":  "src",
                   "srcFilter":  [
                                     "+<*>",
-                                    "-<ui/assets/fonts/lv_font_noto_cjk_16_2bpp.c>"
+                                    "-<ui/screens/gps/>"
                                 ],
                   "flags":  [
                                 "-I../../../platform/shared/include",
@@ -17,7 +17,6 @@
                                 "-I../../../modules/ui_chat_runtime/include",
                                 "-I../../../modules/ui_map_runtime/include",
                                 "-I../../../modules/ui_gps_runtime/include",
-                                "-I../../../modules/ui_legacy_adapters/include",
                                 "-I../../../modules/ui_lvgl_core/include",
                                 "-I../../../modules/ui_lvgl_ux_packs/include",
                                 "-I../../../modules/core_device/include",

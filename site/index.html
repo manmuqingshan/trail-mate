@@ -91,15 +91,14 @@
         <main class="main-content">
           <section class="hero" id="overview">
             <div class="hero-copy">
-              <p class="eyebrow" data-i18n="hero.eyebrow">Offline Navigation + LoRa Communication</p>
+              <p class="eyebrow" data-i18n="hero.eyebrow">Offline Maps + LoRa for the Field</p>
               <h1>Trail Mate</h1>
               <p class="hero-tagline" data-i18n="hero.tagline">
-                Field firmware for offline maps, LoRa messaging, and team coordination.
+                Carry maps, messages, and teammate positions on a small LoRa device.
               </p>
               <p class="lede" data-i18n="hero.lede">
-                A low-power firmware stack for outdoor navigation, GNSS diagnostics, LoRa chat,
-                installable multilingual UI support, team coordination, and protocol interoperability
-                on compact devices you can actually carry into the field.
+                Trail Mate helps hikers and field groups stay oriented when cell service is gone: browse offline maps
+                from SD, send LoRa messages, check GPS health, and keep team movement visible on compact handhelds.
               </p>
               <div class="hero-actions">
                 <a class="button button-primary" href="#webflasher" data-i18n="hero.primaryAction">
@@ -128,9 +127,9 @@
                 <p class="hero-note-value" data-release-version>Waiting for first tagged release</p>
               </div>
               <div class="hero-note hero-note-proof">
-                <p class="feature-kicker" data-i18n="hero.proofKicker">Screenshot Policy</p>
+                <p class="feature-kicker" data-i18n="hero.proofKicker">Device Photos</p>
                 <p class="hero-note-value" data-i18n="hero.proofText">
-                  Device pages only claim screenshots that belong to that device. Pager SX1262 has the complete capture lane today; Pager LR1121 has its own release and flasher lane.
+                  Screenshots are grouped by device so you can tell which screens match the hardware you plan to carry.
                 </p>
               </div>
             </div>
@@ -138,9 +137,8 @@
 
           <section class="overview-ribbon" aria-label="Project overview">
             <p class="overview-copy" data-i18n="overview.copy">
-              Trail Mate is a compact offline field stack: navigation, direct LoRa messaging,
-              team coordination, RF diagnostics, utility tooling, and installable language packs
-              shaped for embedded hardware with tight power and UI constraints.
+              Built for days when a phone is not enough: keep maps on SD, send messages without mobile networks,
+              record tracks, check signal and GPS, and install extra language packs when you need them.
             </p>
             <div class="overview-tags" aria-label="Core capabilities">
               <span data-i18n="tag.maps">Offline Maps</span>
@@ -158,55 +156,59 @@
           <section class="capability-section" id="capabilities">
             <div class="section-heading">
               <div>
-                <p class="eyebrow" data-i18n="capabilities.eyebrow">Capability Map</p>
-                <h2 data-i18n="capabilities.title">The homepage now has room for the whole product, not just a few screenshots.</h2>
+                <p class="eyebrow" data-i18n="capabilities.eyebrow">What It Does</p>
+                <h2 data-i18n="capabilities.title">Prepare the device before you leave signal behind.</h2>
               </div>
               <p class="section-note" data-i18n="capabilities.note">
-                These lanes make future growth explicit: each area can gain pages, captures, docs, release notes, and board-specific detail without overloading the top navigation.
+                Pick the right hardware, flash the matching firmware, load maps and language packs, then use the
+                device when the phone network disappears.
               </p>
             </div>
 
             <div class="capability-grid">
               <article class="capability-card capability-device">
                 <p class="feature-kicker" data-i18n="capabilities.deviceKicker">Devices</p>
-                <h3 data-i18n="capabilities.deviceTitle">Board-owned product lanes</h3>
+                <h3 data-i18n="capabilities.deviceTitle">Choose your hardware</h3>
                 <p data-i18n="capabilities.deviceText">
-                  Every board can carry its own screenshots, interaction notes, install state, and hardware caveats.
+                  Each supported board has its own firmware, install notes, and hardware caveats.
                 </p>
               </article>
               <article class="capability-card capability-navigation">
                 <p class="feature-kicker" data-i18n="capabilities.navigationKicker">Navigation</p>
-                <h3 data-i18n="capabilities.navigationTitle">Offline map workflows</h3>
+                <h3 data-i18n="capabilities.navigationTitle">Maps that work offline</h3>
                 <p data-i18n="capabilities.navigationText">
-                  Map layers, GNSS diagnostics, route review, and tracker views stay grouped as field navigation.
+                  Load map tiles from SD, switch layers, check GPS fix quality, and review routes or tracks in the field.
                 </p>
               </article>
               <article class="capability-card capability-protocol">
-                <p class="feature-kicker" data-i18n="capabilities.protocolKicker">Protocols</p>
-                <h3 data-i18n="capabilities.protocolTitle">Mesh and radio compatibility</h3>
+                <p class="feature-kicker" data-i18n="capabilities.protocolKicker">LoRa</p>
+                <h3 data-i18n="capabilities.protocolTitle">Messages without cell service</h3>
                 <p data-i18n="capabilities.protocolText">
-                  Meshtastic, MeshCore, LoRa runtime work, RF diagnostics, and future protocol notes have a dedicated lane.
+                  Send direct, channel, or team messages over supported LoRa mesh modes and keep clear feedback when a
+                  send fails.
                 </p>
               </article>
               <article class="capability-card capability-install">
                 <p class="feature-kicker" data-i18n="capabilities.installKicker">Install</p>
-                <h3 data-i18n="capabilities.installTitle">Release-first flashing</h3>
+                <h3 data-i18n="capabilities.installTitle">Flash the right firmware</h3>
                 <p data-i18n="capabilities.installText">
-                  Web flashing, manual downloads, OTA assets, and per-board availability can evolve together.
+                  Supported ESP32 devices can be flashed from the browser; other boards use downloaded firmware files.
                 </p>
               </article>
               <article class="capability-card capability-locale">
                 <p class="feature-kicker" data-i18n="capabilities.localeKicker">Localization</p>
-                <h3 data-i18n="capabilities.localeTitle">Installable language packs</h3>
+                <h3 data-i18n="capabilities.localeTitle">Add languages when needed</h3>
                 <p data-i18n="capabilities.localeText">
-                  The site distinguishes homepage language switching from firmware language-pack releases.
+                  Install fonts, translations, and keyboard layouts from Extensions instead of filling the firmware with
+                  every language.
                 </p>
               </article>
               <article class="capability-card capability-field">
                 <p class="feature-kicker" data-i18n="capabilities.fieldKicker">Field Tools</p>
-                <h3 data-i18n="capabilities.fieldTitle">Utilities beyond chat and maps</h3>
+                <h3 data-i18n="capabilities.fieldTitle">Tools for the trip</h3>
                 <p data-i18n="capabilities.fieldText">
-                  SSTV, Energy Sweep, USB data exchange, and diagnostics can become their own focused pages later.
+                  Use track recording, GPS views, signal checks, SSTV, and USB data exchange when the trip calls for more
+                  than chat.
                 </p>
               </article>
             </div>
@@ -217,12 +219,11 @@
           <section class="device-section" id="devices">
             <div class="section-heading">
               <div>
-                <p class="eyebrow" data-i18n="devices.eyebrow">Device Library</p>
-                <h2 data-i18n="devices.title">Each supported board gets its own product lane.</h2>
+                <p class="eyebrow" data-i18n="devices.eyebrow">Devices</p>
+                <h2 data-i18n="devices.title">Pick the device you are holding.</h2>
               </div>
               <p class="section-note" data-i18n="devices.note">
-                The left navigation is ready for a growing hardware catalog. Select a device to see its
-                release status, interaction notes, and only the screenshot set that belongs to that device.
+                Choose the exact hardware before flashing. Some boards look similar but need different firmware.
               </p>
             </div>
 
@@ -256,11 +257,11 @@
                     <p class="feature-kicker" data-device-kicker>ESP32-S3</p>
                     <h3 data-device-title>LilyGo T-LoRa Pager SX1262</h3>
                     <p class="device-summary" data-device-summary>
-                      SX1262 keyboard Pager target with the most complete captured UI surface today.
+                      Keyboard Pager with the most complete screenshots and field testing.
                     </p>
                   </div>
                   <div class="device-status-card">
-                    <span data-device-status>Complete screenshot set</span>
+                    <span data-device-status>Recommended 0.1.30 target</span>
                   </div>
                 </div>
 
@@ -275,7 +276,7 @@
                   </figure>
 
                   <div class="device-detail-panel">
-                    <p class="feature-kicker" data-i18n="devices.interactionKicker">Interaction Notes</p>
+                    <p class="feature-kicker" data-i18n="devices.interactionKicker">What To Know</p>
                     <ul class="device-interactions" data-device-interactions></ul>
                   </div>
                 </div>
@@ -291,10 +292,10 @@
             <article class="story-section">
               <div class="story-copy">
                 <p class="eyebrow" data-i18n="features.navEyebrow">Navigation</p>
-                <h2 data-i18n="features.navTitle">Offline mapping is a first-class workflow.</h2>
+                <h2 data-i18n="features.navTitle">Carry maps without cell service.</h2>
                 <p class="story-lede" data-i18n="features.navLead">
-                  North-up rendering, SD card map tiles, terrain and satellite layers, sky plot, and fix diagnostics
-                  keep field navigation readable on constrained hardware.
+                  Put map tiles on the SD card before the trip, then browse OSM, terrain, and satellite layers from the
+                  device. GPS screens help you understand whether the current fix is trustworthy.
                 </p>
               </div>
               <div class="story-media">
@@ -316,10 +317,10 @@
             <article class="story-section">
               <div class="story-copy">
                 <p class="eyebrow" data-i18n="features.commEyebrow">Communication</p>
-                <h2 data-i18n="features.commTitle">Messaging and team coordination stay practical under low bandwidth.</h2>
+                <h2 data-i18n="features.commTitle">Stay in touch when phones stop helping.</h2>
                 <p class="story-lede" data-i18n="features.commLead">
-                  Compose LoRa messages on-device, review contacts and activity, and keep small teams aligned without
-                  assuming a phone or cloud connection.
+                  Write messages on the device, retry failed sends from the message bubble, and keep team conversations
+                  separate from ordinary channel traffic.
                 </p>
               </div>
               <div class="story-media">
@@ -341,10 +342,10 @@
             <article class="story-section">
               <div class="story-copy">
                 <p class="eyebrow" data-i18n="features.toolsEyebrow">Field Utilities</p>
-                <h2 data-i18n="features.toolsTitle">The firmware expands into a toolkit.</h2>
+                <h2 data-i18n="features.toolsTitle">Bring a few field tools with you.</h2>
                 <p class="story-lede" data-i18n="features.toolsLead">
-                  Energy Sweep, SSTV receive, USB data exchange, and tracker views make the device useful beyond a
-                  single chat or map screen.
+                  Use signal scanning, SSTV receive, USB data exchange, and track views when you need to inspect the
+                  environment or recover data.
                 </p>
               </div>
               <div class="story-media">
@@ -370,41 +371,43 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow" data-i18n="languages.eyebrow">Localization</p>
-                <h2 data-i18n="languages.title">English stays built in; installable packs extend the interface.</h2>
+                <h2 data-i18n="languages.title">Keep the firmware small, then install the languages you need.</h2>
               </div>
               <p class="section-note" data-i18n="languages.note">
-                The homepage itself now switches between English and Chinese. On-device language packs remain release
-                artifacts, with review status visible instead of hidden.
+                English is always available. Other fonts, translations, and keyboard layouts can be installed from
+                Extensions, including the Cyrillic keyboard pack added for 0.1.30.
               </p>
             </div>
 
             <div class="language-highlights">
               <article class="language-highlight">
                 <p class="feature-kicker" data-i18n="languages.defaultKicker">Built-In Default</p>
-                <h3 data-i18n="languages.defaultTitle">English is always available.</h3>
+                <h3 data-i18n="languages.defaultTitle">The device can always fall back to English.</h3>
                 <p data-i18n="languages.defaultText">
                   The device can boot, recover, and stay usable even when no external language packs are installed.
                 </p>
               </article>
 
               <article class="language-highlight">
-                <p class="feature-kicker" data-i18n="languages.catalogKicker">Pack Catalog</p>
+                <p class="feature-kicker" data-i18n="languages.catalogKicker">Pack List</p>
                 <h3>
                   <span data-pack-count>0</span>
                   <span data-i18n="languages.bundleSuffix">bundles covering</span>
                   <span data-locale-count>0</span>
-                  <span data-i18n="languages.localeSuffix">cataloged locales.</span>
+                  <span data-i18n="languages.localeSuffix">available locales.</span>
                 </h3>
                 <p data-i18n="languages.catalogText">
-                  Locale, font, and IME resources are shipped as packages so firmware builds stay lean.
+                  Language packs can include translations, fonts, and keyboard layouts. Install them from the device
+                  instead of rebuilding firmware.
                 </p>
               </article>
 
               <article class="language-highlight">
-                <p class="feature-kicker" data-i18n="languages.gateKicker">Release Gate</p>
-                <h3 data-i18n="languages.gateTitle">Review packs are visible but not treated as finished UI choices.</h3>
+                <p class="feature-kicker" data-i18n="languages.gateKicker">Pack Status</p>
+                <h3 data-i18n="languages.gateTitle">Review labels stay visible.</h3>
                 <p data-i18n="languages.gateText">
-                  Package metadata carries translation status, archive hashes, and package versions for every release.
+                  Some languages are ready for daily use; others still need review from native speakers. The list keeps
+                  that visible.
                 </p>
               </article>
             </div>
@@ -412,7 +415,7 @@
             <div class="language-pack-grid" data-pack-grid>
               <article class="language-pack-card language-pack-empty">
                 <p class="feature-kicker" data-i18n="languages.loadingKicker">Catalog</p>
-                <h3 data-i18n="languages.loadingTitle">Loading package catalog...</h3>
+                <h3 data-i18n="languages.loadingTitle">Loading package list...</h3>
                 <p class="language-pack-summary" data-i18n="languages.loadingText">
                   Published locale bundles from the current Pages build will appear here.
                 </p>
@@ -438,7 +441,7 @@
                 <h3>LilyGo T-LoRa Pager SX1262</h3>
                 <p class="board-copy" data-i18n="install.pagerCopy">SX1262 radio build for the keyboard Pager. Do not use this card for LR1121 hardware.</p>
                 <div class="board-install" data-install-slot>
-                  <p class="board-hint" data-i18n="install.checking">Checking release assets...</p>
+                  <p class="board-hint" data-i18n="install.checking">Checking firmware...</p>
                 </div>
                 <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">
                   Open latest release
@@ -450,7 +453,7 @@
                 <h3>LilyGo T-LoRa Pager LR1121</h3>
                 <p class="board-copy" data-i18n="install.pagerLr1121Copy">LR1121 radio build for the Sub-GHz + 2.4 GHz keyboard Pager. Do not flash this onto SX1262 hardware.</p>
                 <div class="board-install" data-install-slot>
-                  <p class="board-hint" data-i18n="install.checking">Checking release assets...</p>
+                  <p class="board-hint" data-i18n="install.checking">Checking firmware...</p>
                 </div>
                 <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">
                   Open latest release
@@ -462,7 +465,7 @@
                 <h3>LilyGo T-Deck</h3>
                 <p class="board-copy" data-i18n="install.tdeckCopy">Keyboard + touch build tuned for the T-Deck layout.</p>
                 <div class="board-install" data-install-slot>
-                  <p class="board-hint" data-i18n="install.checking">Checking release assets...</p>
+                  <p class="board-hint" data-i18n="install.checking">Checking firmware...</p>
                 </div>
                 <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">
                   Open latest release
@@ -474,7 +477,7 @@
                 <h3>LilyGo T-Watch-S3</h3>
                 <p class="board-copy" data-i18n="install.twatchCopy">Touch-first watch build for compact field experiments.</p>
                 <div class="board-install" data-install-slot>
-                  <p class="board-hint" data-i18n="install.checking">Checking release assets...</p>
+                  <p class="board-hint" data-i18n="install.checking">Checking firmware...</p>
                 </div>
                 <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">
                   Open latest release
@@ -485,7 +488,7 @@
                 <p class="board-chip">nRF52</p>
                 <h3>GAT562 Mesh EVB Pro</h3>
                 <p class="board-copy" data-i18n="install.gatCopy">
-                  Browser flashing is not wired up for the nRF52 target yet. Use the release package for manual flashing.
+                  Browser flashing is not available for the nRF52 board yet. Use the downloaded firmware file for manual flashing.
                 </p>
                 <div class="board-install">
                   <p class="board-hint" data-i18n="install.gatHint">
@@ -508,10 +511,10 @@
           <section class="links-section" id="docs">
             <article>
               <p class="feature-kicker" data-i18n="docs.eyebrow">Read More</p>
-              <h2 data-i18n="docs.title">Long-form project material belongs in the wiki.</h2>
+              <h2 data-i18n="docs.title">Need deeper setup details?</h2>
               <p data-i18n="docs.copy">
-                The homepage is now a product surface and device library. The wiki carries architecture,
-                supported hardware, flashing, configuration, protocol boundaries, troubleshooting, and development notes.
+                The wiki has hardware notes, flashing steps, map preparation, configuration help, troubleshooting, and
+                full release notes.
               </p>
               <div class="hero-actions">
                 <a class="button button-secondary" href="https://github.com/vicliu624/trail-mate/wiki" data-i18n="docs.wiki">
@@ -534,10 +537,10 @@
         <div class="site-footer-card">
           <div>
             <p class="feature-kicker" data-i18n="footer.eyebrow">Trail Mate Field Notes</p>
-            <h2 data-i18n="footer.title">Built for the quiet work between signal and terrain.</h2>
+            <h2 data-i18n="footer.title">For the places where maps and signal both matter.</h2>
             <p data-i18n="footer.copy">
-              Follow the repository for releases, device captures, hardware notes, and language-pack updates as the
-              project grows beyond a single board.
+              Follow the repository for firmware releases, device notes, map and language-pack updates, and field-focused
+              fixes.
             </p>
           </div>
           <div class="site-footer-links">

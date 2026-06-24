@@ -5,29 +5,24 @@
     "includeDir": "include",
     "srcDir": "src",
     "srcFilter": [
-      "+<*>"
+      "+<*>",
+      "-<ble/>",
+      "-<ble/**>"
     ],
     "flags": [
       "-std=gnu++17",
       "-Iinclude",
       "-I../../..",
-      "-I../../../boards/gat562_mesh_evb_pro/include",
       "-I../../../platform/shared/include",
       "-I../../../modules/core_mesh/include",
-      "-I../../../modules/core_phone/include",
       "-I../../../modules/core_sys/include",
       "-I../../../modules/core_chat/include",
       "-I../../../modules/core_chat/generated",
       "-I../../../modules/core_gps/include",
-      "-I../../../modules/ui_mono_128x64/include",
+      "-I../../../modules/ui_mono/include",
       "-I../../../modules/ui_shared/include",
-      "-I../../../variants/gat562_mesh_evb_pro",
-      "-I../../../.pio/libdeps/gat562_mesh_evb_pro/RadioLib/src",
-      "-I../../../.pio/libdeps/gat562_mesh_evb_pro/TinyGPSPlus/src",
       "-IC:/Users/VicLi/.platformio/packages/framework-arduinoadafruitnrf52/libraries/SPI",
       "-IC:/Users/VicLi/.platformio/packages/framework-arduinoadafruitnrf52/libraries/Wire",
-      "-IC:/Users/VicLi/.platformio/packages/framework-arduinoadafruitnrf52/libraries/Bluefruit52Lib/src",
-      "-IC:/Users/VicLi/.platformio/packages/framework-arduinoadafruitnrf52/libraries/Bluefruit52Lib/src/services",
       "-IC:/Users/VicLi/.platformio/packages/framework-arduinoadafruitnrf52/libraries/Adafruit_TinyUSB_Arduino/src",
       "-IC:/Users/VicLi/.platformio/packages/framework-arduinoadafruitnrf52/libraries/Adafruit_nRFCrypto/src",
       "-IC:/Users/VicLi/.platformio/packages/framework-arduinoadafruitnrf52/libraries/Adafruit_LittleFS/src",
@@ -37,9 +32,6 @@
   "dependencies": [
     {
       "name": "core_mesh"
-    },
-    {
-      "name": "core_phone"
     }
   ]
 }

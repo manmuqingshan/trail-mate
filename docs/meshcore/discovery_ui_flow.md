@@ -1,4 +1,4 @@
-# MeshCore Discovery UI Flow (Contacts / Filter Panel)
+# MeshCore Discovery UI Flow
 
 ## Goal
 
@@ -10,7 +10,25 @@ Add an active discovery entry in Contacts page for MeshCore mode, so users can:
 
 Current issue: device can respond to discovery but cannot initiate it from UI.
 
-## Entry Point
+## Shared Use Case Contract
+
+All UI entry points must call:
+
+- `ChatService::triggerDiscoveryActionDetailed(MeshDiscoveryAction::ScanLocal)`
+- `ChatService::triggerDiscoveryActionDetailed(MeshDiscoveryAction::SendIdLocal)`
+- `ChatService::triggerDiscoveryActionDetailed(MeshDiscoveryAction::SendIdBroadcast)`
+
+The UI must not build MeshCore discover packets, choose route types, or duplicate
+the discover decision table. Those rules belong to the shared protocol runtime:
+
+`UI -> ChatService -> IMeshAdapter -> MeshProtocolFacade::discover -> MeshCoreRuntime -> ProtocolEffect`
+
+Platform adapters only execute the effects returned by the runtime and publish
+the results into their local presentation/storage ports.
+
+## Entry Points
+
+### ESP32 / LVGL Contacts
 
 Location: Contacts page, `Filter Panel` (left column).
 
@@ -27,11 +45,33 @@ Rationale:
 - unify with existing left-column mode buttons
 - avoid dual-state confusion between `CHECKED`(mode) and `FOCUSED`(cursor)
 
+### nRF / Mono Root Menu
+
+Location: root menu, immediately above `SETTINGS`.
+
+Menu item:
+
+- label: `DISCOVER`
+- visible only when active protocol is `MeshCore`
+- hidden in `Meshtastic` mode
+- opens a mono action page with the same command set:
+  1. `SCAN LOCAL`
+  2. `ID LOCAL`
+  3. `ID BROADCAST`
+  4. `CANCEL`
+
+Rationale:
+
+- nRF mono UI does not use the LVGL Contacts filter panel
+- root menu placement keeps the discover use case reachable without creating a
+  second protocol implementation
+- action execution remains delegated to `ChatService` and the shared runtime
+
 ## Interaction Flow
 
 ### 1) Enter Discover Mode
 
-When user focuses/clicks `Discover`, second column (`List Container`) shows four action items:
+On LVGL Contacts, when user focuses/clicks `Discover`, second column (`List Container`) shows four action items:
 
 1. `Scan Local`
 2. `Send ID Local`
@@ -39,6 +79,9 @@ When user focuses/clicks `Discover`, second column (`List Container`) shows four
 4. `Cancel`
 
 Focus/encoder flow remains identical to other modes: left column selects mode, right column executes row action.
+
+On nRF mono, selecting root menu `DISCOVER` opens the Discover action page. `Back`
+or `CANCEL` returns to the root menu.
 
 ### 2) Scan Local
 
@@ -54,6 +97,12 @@ UI behavior:
 2. show non-blocking toast: `Scanning 5s...`
 3. update nearby list as responses arrive (background data update)
 4. after timeout, show summary toast with gained/total nearby count
+
+nRF mono behavior:
+
+1. keep Discover action page visible
+2. show non-blocking popup: `SCANNING 5S`
+3. update `NODES` through `PublishNodeInfoEffect -> ContactService`
 
 Protocol mapping:
 
@@ -77,6 +126,11 @@ UI behavior:
    - success: `ID sent (local)`
    - failure: `ID send failed (local)`
 
+nRF mono behavior:
+
+1. stay on Discover action page
+2. show non-blocking popup: `ID SENT LOCAL` or a mapped `MeshActionResult` failure
+
 Protocol mapping:
 
 - route type: `DIRECT`, `path_len=0`
@@ -97,6 +151,11 @@ UI behavior:
    - success: `ID sent (broadcast)`
    - failure: `ID send failed (broadcast)`
 
+nRF mono behavior:
+
+1. stay on Discover action page
+2. show non-blocking popup: `ID SENT BROADCAST` or a mapped `MeshActionResult` failure
+
 Protocol mapping:
 
 - route type: `FLOOD`, `path_len=0`
@@ -116,6 +175,10 @@ On discovery response:
 - create/update node entry with protocol = `MeshCore`
 - update `Nearby` list immediately
 - do not auto-promote to named contact
+
+On nRF mono, the same `PublishNodeInfoEffect` must update `ContactService`, so
+the root `NODES` page sees discovered MeshCore nodes without an nRF-specific
+discover table.
 
 Broadcast list remains channel-centric and protocol-tagged (already separated by MT/MC labels).
 

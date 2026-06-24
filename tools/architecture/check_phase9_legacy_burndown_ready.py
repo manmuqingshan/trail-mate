@@ -66,19 +66,7 @@ def iter_code_files(root: Path):
 
 
 def is_allowed_legacy_chat_include(path: Path) -> bool:
-    rel = path.relative_to(ROOT).as_posix()
     name = path.name
-    allowed = {
-        "modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge_legacy_alias.cpp",
-    }
-    if rel in allowed:
-        return True
-    if rel in {
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_action_bridge.h",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_event_bridge.h",
-    }:
-        return True
     return (
         name.endswith("_legacy_alias_test.cpp")
         or name.endswith("_legacy_alias.cpp")
@@ -87,22 +75,7 @@ def is_allowed_legacy_chat_include(path: Path) -> bool:
 
 
 def is_allowed_legacy_key_map_include(path: Path) -> bool:
-    rel = path.relative_to(ROOT).as_posix()
     name = path.name
-    allowed = {
-        "modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_session.h",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_source.h",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_action_sink.h",
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_map_overlay_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h",
-    }
-    if rel in allowed:
-        return True
     return (
         name.endswith("_legacy_alias_test.cpp")
         or name.endswith("_legacy_alias.cpp")
@@ -114,6 +87,7 @@ def check_main_code_no_legacy_chat_includes(failures: list[str]) -> None:
     forbidden_includes = [
         '#include "ui_legacy_adapters/legacy_chat_delivery_action_bridge.h"',
         '#include "ui_legacy_adapters/legacy_chat_delivery_event_bridge.h"',
+        '#include "ui/presentation_sources/legacy_chat_delivery_action_bridge.h"',
     ]
     for root_name in ["apps", "legacy/app_implementations", "modules", "platform", "boards"]:
         for path in iter_code_files(ROOT / root_name):
@@ -131,6 +105,10 @@ def check_main_code_no_legacy_key_map_includes(failures: list[str]) -> None:
         '#include "ui_legacy_adapters/legacy_key_verification_action_sink.h"',
         '#include "ui_legacy_adapters/legacy_key_verification_session.h"',
         '#include "ui_legacy_adapters/legacy_map_overlay_source.h"',
+        '#include "ui/presentation_sources/legacy_key_verification_source.h"',
+        '#include "ui/presentation_sources/legacy_key_verification_action_sink.h"',
+        '#include "ui/presentation_sources/legacy_key_verification_session.h"',
+        '#include "ui/presentation_sources/legacy_map_overlay_source.h"',
     ]
     for root_name in ["apps", "legacy/app_implementations", "modules", "platform", "boards"]:
         for path in iter_code_files(ROOT / root_name):
@@ -143,105 +121,25 @@ def check_main_code_no_legacy_key_map_includes(failures: list[str]) -> None:
 
 
 def check_legacy_headers_are_aliases(failures: list[str]) -> None:
-    headers = {
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_action_bridge.h": [
-            "ui_chat_runtime/chat_delivery_action_port_adapter.h",
-            "using LegacyChatDeliveryActionBridge",
-            "ChatDeliveryActionPortAdapter",
-            "[[deprecated",
-        ],
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_event_bridge.h": [
-            "ui_chat_runtime/chat_delivery_event_projection_adapter.h",
-            "using LegacyChatDeliveryEventBridge",
-            "ChatDeliveryEventProjectionAdapter",
-            "[[deprecated",
-        ],
-    }
-    for rel, tokens in headers.items():
-        require_tokens(rel, tokens, failures)
-        forbid_tokens(
-            rel,
-            [
-                "class LegacyChatDelivery",
-                "struct LegacyChatDelivery",
-                "handleMessageAction(",
-                "onChatSendResult(",
-                "onAckTimeout(",
-                "ChatService&",
-                "IChatDeliveryActionSink&",
-            ],
-            failures,
-        )
+    for rel in [
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_action_bridge.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h",
+    ]:
+        require_absent(rel, failures)
 
 
 def check_key_map_legacy_headers_are_aliases(failures: list[str]) -> None:
-    headers = {
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_session.h": [
-            "ui_key_verification_runtime/key_verification_session_adapter.h",
-            "using LegacyKeyVerificationSession",
-            "KeyVerificationSessionAdapter",
-            "[[deprecated",
-        ],
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_source.h": [
-            "ui_key_verification_runtime/key_verification_presentation_source.h",
-            "using LegacyKeyVerificationSource",
-            "KeyVerificationPresentationSource",
-            "[[deprecated",
-        ],
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_action_sink.h": [
-            "ui_key_verification_runtime/key_verification_action_sink.h",
-            "using LegacyKeyVerificationActionSink",
-            "KeyVerificationActionSink",
-            "[[deprecated",
-        ],
-        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_map_overlay_source.h": [
-            "ui_map_runtime/map_overlay_snapshot_source.h",
-            "using LegacyMapOverlaySource",
-            "MapOverlaySnapshotSource",
-            "[[deprecated",
-        ],
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h": [
-            "ui_key_verification_runtime/key_verification_session_adapter.h",
-            "using LegacyKeyVerificationSession",
-            "KeyVerificationSessionAdapter",
-            "[[deprecated",
-        ],
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h": [
-            "ui_key_verification_runtime/key_verification_presentation_source.h",
-            "using LegacyKeyVerificationSource",
-            "KeyVerificationPresentationSource",
-            "[[deprecated",
-        ],
-        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h": [
-            "ui_key_verification_runtime/key_verification_action_sink.h",
-            "using LegacyKeyVerificationActionSink",
-            "KeyVerificationActionSink",
-            "[[deprecated",
-        ],
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h": [
-            "ui_map_runtime/map_overlay_snapshot_source.h",
-            "using LegacyMapOverlaySource",
-            "MapOverlaySnapshotSource",
-            "[[deprecated",
-        ],
-    }
-    for rel, tokens in headers.items():
-        require_tokens(rel, tokens, failures)
-        forbid_tokens(
-            rel,
-            [
-                "class LegacyKeyVerification",
-                "struct LegacyKeyVerification",
-                "class LegacyMapOverlaySource",
-                "struct LegacyMapOverlaySource",
-                "buildKeyVerificationSnapshot(",
-                "buildMapOverlaySnapshot(",
-                "submitKeyVerificationNumber(",
-                "setNodeKeyManuallyVerified(",
-                "projectCurrentPosition(",
-            ],
-            failures,
-        )
+    for rel in [
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_session.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_source.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_action_sink.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_map_overlay_source.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h",
+    ]:
+        require_absent(rel, failures)
 
 
 def check_build_lists(failures: list[str]) -> None:
@@ -250,12 +148,16 @@ def check_build_lists(failures: list[str]) -> None:
         "legacy_chat_delivery_event_bridge.cpp",
         "test_legacy_chat_delivery_action_bridge.cpp",
         "test_legacy_chat_delivery_event_bridge.cpp",
+        "test_legacy_chat_delivery_action_bridge_legacy_alias.cpp",
         "legacy_key_verification_source.cpp",
         "legacy_key_verification_action_sink.cpp",
         "legacy_key_verification_session.cpp",
         "legacy_map_overlay_source.cpp",
         "test_legacy_key_verification_adapters.cpp",
         "test_legacy_map_overlay_source.cpp",
+        "test_legacy_key_verification_adapters_legacy_alias.cpp",
+        "test_legacy_map_overlay_source_legacy_alias.cpp",
+        "ui_legacy_adapters/include",
     ]
     checked = [
         "cmake/TrailMateLinuxSources.cmake",
@@ -317,8 +219,6 @@ def main() -> int:
         "modules/ui_chat_runtime/src/chat_delivery_event_projection_adapter.cpp",
         "modules/ui_chat_runtime/tests/test_chat_delivery_action_port_adapter.cpp",
         "modules/ui_chat_runtime/tests/test_chat_delivery_event_projection_adapter.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge_legacy_alias.cpp",
         "modules/ui_key_verification_runtime/README.md",
         "modules/ui_key_verification_runtime/library.json",
         "modules/ui_key_verification_runtime/include/ui_key_verification_runtime/key_verification_session_adapter.h",
@@ -332,8 +232,6 @@ def main() -> int:
         "modules/ui_map_runtime/src/map_overlay_snapshot_source.cpp",
         "modules/ui_map_runtime/src/map_overlay_projection_adapter.cpp",
         "modules/ui_map_runtime/tests/test_map_overlay_snapshot_source.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp",
-        "modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp",
         "docs/audits/CHAT_LEGACY_DELIVERY_BURN_DOWN_AUDIT.md",
         "docs/audits/KEY_VERIFICATION_MAP_OVERLAY_LEGACY_BURN_DOWN_AUDIT.md",
         "docs/audits/LEGACY_BURNDOWN_REGISTER.md",
@@ -349,10 +247,23 @@ def main() -> int:
         "modules/ui_legacy_adapters/src/legacy_key_verification_action_sink.cpp",
         "modules/ui_legacy_adapters/src/legacy_key_verification_session.cpp",
         "modules/ui_legacy_adapters/src/legacy_map_overlay_source.cpp",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_action_bridge.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_session.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_source.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_action_sink.h",
+        "modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_map_overlay_source.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_source.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h",
+        "modules/ui_shared/include/ui/presentation_sources/legacy_map_overlay_source.h",
         "modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge.cpp",
         "modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge.cpp",
         "modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters.cpp",
         "modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source.cpp",
+        "modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp",
+        "modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp",
+        "modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp",
     ]:
         require_absent(rel, failures)
 
@@ -405,9 +316,7 @@ def main() -> int:
             rel,
             [
                 "LegacyChatDeliveryActionBridge",
-                "LegacyChatDeliveryEventBridge",
                 "ui_legacy_adapters/legacy_chat_delivery_action_bridge.h",
-                "ui_legacy_adapters/legacy_chat_delivery_event_bridge.h",
             ],
             failures,
         )
@@ -507,7 +416,7 @@ def main() -> int:
             "Replacement",
             "Migration decision",
             "main runtime callers",
-            "deprecated forwarding aliases",
+            "alias build include surface removed",
         ],
         failures,
     )
@@ -521,7 +430,7 @@ def main() -> int:
             "KeyVerificationSessionAdapter",
             "MapOverlaySnapshotSource",
             "MapOverlayProjectionAdapter",
-            "burned-down to deprecated alias",
+            "retired from build include surface",
         ],
         failures,
     )
@@ -531,7 +440,7 @@ def main() -> int:
             "Burned Down In Phase 9.4",
             "Burned Down In Phase 9.5",
             "main runtime callers removed",
-            "deprecated aliases",
+            "alias build include surface removed",
         ],
         failures,
     )
@@ -539,7 +448,7 @@ def main() -> int:
         "docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md",
         [
             "Chat LegacyDelivery bridges",
-            "burned down to deprecated alias",
+            "retired from build include surface",
             "ChatDeliveryActionPortAdapter",
             "ChatDeliveryEventProjectionAdapter",
             "KeyVerificationPresentationSource",
@@ -562,7 +471,7 @@ def main() -> int:
             "docs references",
             "replacement",
             "migration decision",
-            "deprecated compatibility aliases only",
+            "alias build include surface removed",
         ],
         failures,
     )

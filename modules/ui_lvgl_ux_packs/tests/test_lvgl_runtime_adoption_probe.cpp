@@ -21,7 +21,6 @@ int main()
     ui_lvgl_ux::LvglRuntimeAdoptionProbe probe;
     assert(probe.load(presentation));
     assert(probe.ready());
-    assert(!probe.fallbackUsed());
     assert(probe.menuCount() > 0);
     assert(probe.screenCount() > 0);
     const ui_lvgl_ux::LvglRuntimeEntryAdoption& adoption = probe.adoption();
@@ -30,7 +29,6 @@ int main()
     product_composition::PresentationBundle empty;
     assert(!probe.load(empty));
     assert(!probe.ready());
-    assert(probe.fallbackUsed());
     assert(probe.menuCount() == 0);
     assert(probe.screenCount() == 0);
     return 0;

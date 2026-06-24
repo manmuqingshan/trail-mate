@@ -1,0 +1,34 @@
+{
+  "name": "boards_t_echo_lite",
+  "version": "0.1.0",
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "nordicnrf52"
+  ],
+  "build": {
+    "includeDir": "include",
+    "srcDir": "src",
+    "flags": [
+      "-std=gnu++17",
+      "-Iinclude",
+      "-I../..",
+      "-I../../platform/shared/include",
+      "-I../../modules/core_sys/include",
+      "-I../../modules/core_chat/include",
+      "-I../../modules/core_chat/generated",
+      "-I../../modules/core_gps/include",
+      "-I../../modules/ui_mono/include",
+      "-I../../modules/ui_shared/include",
+      "-I../../platform/nrf52/arduino_common/include",
+      "-I../../variants/t_echo_lite_nrf52840",
+      "-I../../.pio/libdeps/t-echo-lite/RadioLib/src",
+      "-I../../.pio/libdeps/t-echo-lite/TinyGPSPlus/src",
+      "-I../../.pio/libdeps/t-echo-lite/Adafruit\\ GFX\\ Library",
+      "-I../../.pio/libdeps/t-echo-lite/lilygo_adafruit_epd/src",
+      "-I../../.pio/libdeps/t-echo-lite/Adafruit\\ TCA8418",
+      "-I../../.pio/libdeps/t-echo-lite/Adafruit\\ BusIO"
+    ]
+  }
+}

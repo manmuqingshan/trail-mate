@@ -30,7 +30,8 @@ struct RuntimeImpl
     ui::map_tiles::MapTileRenderQueue render_queue{};
     TileContext tile_ctx{};
     lv_timer_t* loader_timer = nullptr;
-    uint32_t loader_interval_ms = 200;
+    uint32_t loader_interval_ms = 50;
+    uint32_t last_loader_active_log_ms = 0;
     bool alive = false;
     bool has_map_data = false;
     bool has_visible_map_data = false;
@@ -39,6 +40,7 @@ struct RuntimeImpl
     bool gesture_enabled = false;
     bool gesture_pressed = false;
     bool gesture_dragging = false;
+    bool drag_preview_active = false;
     lv_point_t gesture_start{};
     lv_point_t gesture_last{};
 };
@@ -46,7 +48,18 @@ struct RuntimeImpl
 namespace
 {
 
+#ifndef MAP_VIEWPORT_DEBUG
+#define MAP_VIEWPORT_DEBUG 0
+#endif
+
+#if MAP_VIEWPORT_DEBUG
 #define MAP_VIEWPORT_LOG(...) std::printf("[MapViewport] " __VA_ARGS__)
+#else
+#define MAP_VIEWPORT_LOG(...) \
+    do                        \
+    {                         \
+    } while (0)
+#endif
 
 constexpr double kCoordPi = 3.14159265358979323846;
 constexpr double kCoordA = 6378245.0;
@@ -343,7 +356,7 @@ GeoPoint transformed_focus(const Model& model)
     return out;
 }
 
-void refresh_tiles(RuntimeImpl& impl, const char* reason)
+void refresh_tiles(RuntimeImpl& impl, const char* reason, bool prime_visible)
 {
     if (!is_runtime_alive(impl))
     {
@@ -383,7 +396,10 @@ void refresh_tiles(RuntimeImpl& impl, const char* reason)
                              impl.model.pan_x,
                              impl.model.pan_y,
                              true);
-    prime_visible_tiles(impl, reason);
+    if (prime_visible)
+    {
+        prime_visible_tiles(impl, reason);
+    }
     MAP_VIEWPORT_LOG("refresh_tiles reason=%s zoom=%d pan=%d,%d src=%u contour=%d anchor=%d size=%dx%d map_data=%d visible_map=%d\n",
                      reason ? reason : "<none>",
                      impl.model.zoom,
@@ -426,6 +442,59 @@ void clear_overlay_layer(RuntimeImpl& impl)
     }
 }
 
+uint32_t child_count(lv_obj_t* obj)
+{
+    if (!obj)
+    {
+        return 0;
+    }
+#if LVGL_VERSION_MAJOR >= 9
+    return lv_obj_get_child_count(obj);
+#else
+    return static_cast<uint32_t>(lv_obj_get_child_cnt(obj));
+#endif
+}
+
+void translate_children(lv_obj_t* parent, int dx, int dy)
+{
+    if (!parent || !lv_obj_is_valid(parent) || (dx == 0 && dy == 0))
+    {
+        return;
+    }
+
+    const uint32_t count = child_count(parent);
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        lv_obj_t* child = lv_obj_get_child(parent, static_cast<int32_t>(i));
+        if (!child || !lv_obj_is_valid(child))
+        {
+            continue;
+        }
+        lv_obj_set_pos(child,
+                       static_cast<lv_coord_t>(lv_obj_get_x(child) + dx),
+                       static_cast<lv_coord_t>(lv_obj_get_y(child) + dy));
+    }
+}
+
+void translate_loaded_tiles(RuntimeImpl& impl, int dx, int dy)
+{
+    if (dx == 0 && dy == 0)
+    {
+        return;
+    }
+
+    for (auto& tile : impl.tiles)
+    {
+        if (!tile.img_obj || !lv_obj_is_valid(tile.img_obj))
+        {
+            continue;
+        }
+        lv_obj_set_pos(tile.img_obj,
+                       static_cast<lv_coord_t>(lv_obj_get_x(tile.img_obj) + dx),
+                       static_cast<lv_coord_t>(lv_obj_get_y(tile.img_obj) + dy));
+    }
+}
+
 bool project_geo_point(const RuntimeImpl& impl, const GeoPoint& point, lv_point_t& out_screen_point)
 {
     if (!is_runtime_alive(impl) || !impl.anchor.valid || !point.valid)
@@ -448,6 +517,57 @@ bool project_geo_point(const RuntimeImpl& impl, const GeoPoint& point, lv_point_
 
     out_screen_point.x = static_cast<lv_coord_t>(screen_x);
     out_screen_point.y = static_cast<lv_coord_t>(screen_y);
+    return true;
+}
+
+bool screen_center_from_model_pan(const RuntimeImpl& impl, double& lat, double& lon)
+{
+    if (!impl.anchor.valid)
+    {
+        return false;
+    }
+
+    const int32_t world_px = static_cast<int32_t>(impl.anchor.n * TILE_SIZE);
+    if (world_px <= 0)
+    {
+        return false;
+    }
+
+    const int64_t cx =
+        static_cast<int64_t>(impl.anchor.gps_global_pixel_x) - static_cast<int64_t>(impl.model.pan_x);
+    const int64_t cy =
+        static_cast<int64_t>(impl.anchor.gps_global_pixel_y) - static_cast<int64_t>(impl.model.pan_y);
+
+    int64_t x = cx % world_px;
+    if (x < 0)
+    {
+        x += world_px;
+    }
+
+    int64_t y = cy;
+    if (y < 0)
+    {
+        y = 0;
+    }
+    if (y >= world_px)
+    {
+        y = world_px - 1;
+    }
+
+    lon = (static_cast<double>(x) / static_cast<double>(world_px)) * 360.0 - 180.0;
+    const double y_ratio = static_cast<double>(y) / static_cast<double>(world_px);
+    const double lat_rad = std::atan(std::sinh(kCoordPi * (1.0 - 2.0 * y_ratio)));
+    lat = lat_rad * 180.0 / kCoordPi;
+
+    constexpr double kMaxMercatorLat = 85.05112878;
+    if (lat > kMaxMercatorLat)
+    {
+        lat = kMaxMercatorLat;
+    }
+    if (lat < -kMaxMercatorLat)
+    {
+        lat = -kMaxMercatorLat;
+    }
     return true;
 }
 
@@ -497,6 +617,7 @@ void render_overlay(RuntimeImpl& impl)
         {
             lv_obj_t* label = lv_label_create(impl.widgets.overlay_layer);
             lv_label_set_text(label, item.label.c_str());
+            ::ui::i18n::log_direct_text_route("map_overlay", label, item.label.c_str());
             lv_obj_set_style_text_color(label, overlay_color(item.style), 0);
             lv_obj_set_pos(label,
                            static_cast<lv_coord_t>(point.x + 6),
@@ -508,9 +629,25 @@ void render_overlay(RuntimeImpl& impl)
 void loader_timer_cb(lv_timer_t* timer)
 {
     auto* impl = static_cast<RuntimeImpl*>(lv_timer_get_user_data(timer));
-    if (!impl || !is_runtime_alive(*impl) || !impl->model.focus_point.valid)
+    if (!impl || !is_runtime_alive(*impl) || !impl->model.focus_point.valid ||
+        impl->gesture_pressed || impl->gesture_dragging || impl->drag_preview_active)
     {
         return;
+    }
+
+    const uint32_t now_ms = lv_tick_get();
+    if (impl->last_loader_active_log_ms == 0 ||
+        now_ms - impl->last_loader_active_log_ms >= 5000U)
+    {
+        impl->last_loader_active_log_ms = now_ms;
+        std::printf("[UI][Lifecycle] map tile_loader active root=%p interval_ms=%lu focus=%.6f,%.6f zoom=%d visible=%d data=%d\n",
+                    impl->widgets.root,
+                    static_cast<unsigned long>(impl->loader_interval_ms),
+                    impl->model.focus_point.lat,
+                    impl->model.focus_point.lon,
+                    impl->model.zoom,
+                    impl->has_visible_map_data ? 1 : 0,
+                    impl->has_map_data ? 1 : 0);
     }
 
     tile_loader_step(impl->tile_ctx);
@@ -626,7 +763,13 @@ Widgets create(Runtime& runtime, lv_obj_t* parent, uint32_t loader_interval_ms)
                       &impl->has_visible_map_data);
 
     impl->loader_timer = lv_timer_create(loader_timer_cb, loader_interval_ms, impl);
+    impl->loader_interval_ms = loader_interval_ms;
     impl->alive = true;
+    std::printf("[UI][Lifecycle] map runtime create root=%p tile=%p loader=%p interval_ms=%lu\n",
+                impl->widgets.root,
+                impl->widgets.tile_layer,
+                impl->loader_timer,
+                static_cast<unsigned long>(loader_interval_ms));
 
     MAP_VIEWPORT_LOG("create root=%p tile=%p overlay=%p loader_timer=%p interval=%u\n",
                      impl->widgets.root,
@@ -649,6 +792,12 @@ void destroy(Runtime& runtime)
                      impl->widgets.root,
                      impl->loader_timer,
                      impl->alive ? 1 : 0);
+    std::printf("[UI][Lifecycle] map runtime destroy root=%p loader=%p alive=%d visible=%d data=%d\n",
+                impl->widgets.root,
+                impl->loader_timer,
+                impl->alive ? 1 : 0,
+                impl->has_visible_map_data ? 1 : 0,
+                impl->has_map_data ? 1 : 0);
     impl->alive = false;
 
     if (impl->loader_timer)
@@ -706,6 +855,7 @@ void apply_model(Runtime& runtime, const Model& model)
         runtime.impl_->tiles.reserve(TILE_RECORD_LIMIT);
     }
     RuntimeImpl* impl = runtime.impl_;
+    impl->drag_preview_active = false;
     impl->model = model;
     impl->model.map_source = sanitize_map_source(impl->model.map_source);
     MAP_VIEWPORT_LOG("apply_model focus_valid=%d lat=%.7f lon=%.7f zoom=%d pan=%d,%d src=%u contour=%d coord=%u\n",
@@ -718,8 +868,35 @@ void apply_model(Runtime& runtime, const Model& model)
                      static_cast<unsigned>(impl->model.map_source),
                      impl->model.contour_enabled ? 1 : 0,
                      static_cast<unsigned>(impl->model.coord_system));
-    refresh_tiles(*impl, "apply_model");
+    refresh_tiles(*impl, "apply_model", true);
     render_overlay(*impl);
+}
+
+void apply_model_lightweight(Runtime& runtime, const Model& model)
+{
+    if (!runtime.impl_)
+    {
+        runtime.impl_ = new RuntimeImpl();
+        runtime.impl_->tiles.reserve(TILE_RECORD_LIMIT);
+    }
+    RuntimeImpl* impl = runtime.impl_;
+    const int dx = model.pan_x - impl->model.pan_x;
+    const int dy = model.pan_y - impl->model.pan_y;
+    impl->model = model;
+    impl->model.map_source = sanitize_map_source(impl->model.map_source);
+    MAP_VIEWPORT_LOG("apply_model_lightweight focus_valid=%d lat=%.7f lon=%.7f zoom=%d pan=%d,%d src=%u contour=%d coord=%u\n",
+                     impl->model.focus_point.valid ? 1 : 0,
+                     impl->model.focus_point.lat,
+                     impl->model.focus_point.lon,
+                     impl->model.zoom,
+                     impl->model.pan_x,
+                     impl->model.pan_y,
+                     static_cast<unsigned>(impl->model.map_source),
+                     impl->model.contour_enabled ? 1 : 0,
+                     static_cast<unsigned>(impl->model.coord_system));
+    translate_loaded_tiles(*impl, dx, dy);
+    translate_children(impl->widgets.overlay_layer, dx, dy);
+    impl->drag_preview_active = true;
 }
 
 void apply_overlay(Runtime& runtime, const ui::map::MapOverlaySnapshot& overlay)
@@ -747,6 +924,7 @@ void clear(Runtime& runtime)
     clear_overlay_layer(*impl);
     cleanup_tiles(impl->tile_ctx);
     impl->anchor.valid = false;
+    impl->drag_preview_active = false;
     reset_gesture_state(*impl);
     MAP_VIEWPORT_LOG("clear root=%p\n", impl->widgets.root);
 }
@@ -768,7 +946,10 @@ bool screen_center(const Runtime& runtime, GeoPoint& out_center)
 
     double lat = 0.0;
     double lon = 0.0;
-    get_screen_center_lat_lng(impl->tile_ctx, lat, lon);
+    if (!screen_center_from_model_pan(*impl, lat, lon))
+    {
+        return false;
+    }
     if (!std::isfinite(lat) || !std::isfinite(lon))
     {
         return false;
@@ -972,7 +1153,7 @@ bool set_layer_map_source(uint8_t map_source, LayerNotice* out_notice)
     if (changed)
     {
         config_api.getConfig().map_source = normalized;
-        config_api.saveConfig();
+        config_api.requestSaveConfig();
     }
 
     if (!platform::ui::device::sd_ready())
@@ -1004,7 +1185,7 @@ bool toggle_layer_contour(LayerNotice* out_notice)
                      static_cast<unsigned>(sanitize_map_source(config_api.getConfig().map_source)));
 
     config_api.getConfig().map_contour_enabled = enabled;
-    config_api.saveConfig();
+    config_api.requestSaveConfig();
 
     if (enabled)
     {

@@ -61,10 +61,10 @@ Main code must include the new owning module path.
 - new chat runtime helpers
 - new LVGL UX pack renderers
 
-## Deprecated Alias Policy
+## Retired Alias Policy
 
-`LegacyFilesystemMapTileSource` is a deprecated compatibility alias for
-`FilesystemMapTileSource`.
+The old map tile source alias is retired. New and active code must use
+`FilesystemMapTileSource` directly.
 
 New code must use:
 
@@ -73,8 +73,8 @@ New code must use:
 ui::map_tiles::FilesystemMapTileSource
 ```
 
-The old alias may appear only in the compatibility alias declaration, docs, and
-explicit compatibility tests.
+Old map tile aliases must not reappear in active code, forwarding headers, or
+compatibility tests.
 
 ## Exit Conditions
 

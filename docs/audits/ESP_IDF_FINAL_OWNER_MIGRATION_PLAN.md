@@ -44,8 +44,7 @@ entrypoints must not compile or include it.
 ## Delete Condition For `esp_idf_legacy_implementation_adapter`
 
 - no new calls are added;
-- `apps/esp32_lvgl` uses `esp32_lvgl_historical_source_descriptor` for
-  historical identity;
+- historical descriptor retired from active app shell;
 - build/component/source ownership no longer requires compiling
   `esp_idf_legacy_implementation_adapter.cpp`;
 - active checker forbids new ESP-IDF legacy adapter callers.

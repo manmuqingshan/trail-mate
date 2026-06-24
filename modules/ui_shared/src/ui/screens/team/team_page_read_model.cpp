@@ -1,7 +1,7 @@
 #include "ui/screens/team/team_page_read_model.h"
 
 #include "platform/ui/team_ui_snapshot_store.h"
-#include "ui/team_presence/team_presence_model.h"
+#include "ui/team_presentation/team_member_label.h"
 
 #include <cstdio>
 
@@ -65,15 +65,6 @@ TeamPageSummaryView TeamPageReadModel::buildSummary(
     else
     {
         summary.team_name = "Unknown";
-    }
-
-    for (const auto& member : input.members)
-    {
-        if (::ui::team_presence::isTeamMemberOnline(now_s_,
-                                                    member.last_seen_s))
-        {
-            ++summary.online_count;
-        }
     }
 
     return summary;
@@ -162,22 +153,23 @@ TeamRelativeTimeView TeamPageReadModel::buildLastSeen(uint32_t last_seen_s) cons
     {
         return view;
     }
-    if (::ui::team_presence::isTeamMemberOnline(now_s_, last_seen_s))
-    {
-        view.kind = TeamRelativeTimeKind::Online;
-        return view;
-    }
 
-    const uint32_t age = now_s_ - last_seen_s;
+    const uint32_t age = now_s_ > last_seen_s ? now_s_ - last_seen_s : 0;
     if (age < 3600)
     {
         view.kind = TeamRelativeTimeKind::MinutesAgo;
         view.value = age / 60;
         return view;
     }
+    if (age < 86400)
+    {
+        view.kind = TeamRelativeTimeKind::HoursAgo;
+        view.value = age / 3600;
+        return view;
+    }
 
-    view.kind = TeamRelativeTimeKind::HoursAgo;
-    view.value = age / 3600;
+    view.kind = TeamRelativeTimeKind::DaysAgo;
+    view.value = age / 86400;
     return view;
 }
 
@@ -203,9 +195,11 @@ TeamMemberRowView TeamPageReadModel::buildMemberRow(
     TeamMemberRowView row;
     row.source_index = source_index;
     row.node_id = member.node_id;
-    row.name = member.name;
-    row.online = ::ui::team_presence::isTeamMemberOnline(now_s_,
-                                                         member.last_seen_s);
+    row.self = member.node_id == 0;
+    row.name = member.node_id == 0
+                   ? member.name
+                   : ::ui::team_presentation::shortTeamMemberLabel(member.node_id);
+    row.last_seen = buildLastSeen(member.last_seen_s);
     row.leader = member.leader;
     row.color_index = member.color_index;
     return row;

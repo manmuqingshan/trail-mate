@@ -10,12 +10,17 @@ namespace platform::esp::boards::detail
 inline void initializeBoard(bool waking_from_sleep)
 {
     (void)waking_from_sleep;
-    ::boards::tdeck_pro::board.begin();
+    ::boards::tdeck_pro::instance.begin(NO_HW_SD);
 }
 
 inline void initializeDisplay()
 {
     beginLvglHelper(static_cast<LilyGo_Display&>(::boards::tdeck_pro::instance));
+}
+
+inline bool initializeStorage()
+{
+    return ::boards::tdeck_pro::instance.ensureSDReady();
 }
 
 inline bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles)

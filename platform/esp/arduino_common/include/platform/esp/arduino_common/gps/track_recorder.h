@@ -5,6 +5,8 @@
 
 #include <Arduino.h>
 
+#include <cstddef>
+
 namespace gps
 {
 
@@ -42,6 +44,7 @@ class TrackRecorder
 
     // Append a single point if recording is active and SD is ready.
     void appendPoint(const TrackPoint& pt);
+    void flushPending(bool force = false);
 
     // List GPX files under /trackers; returns count.
     size_t listTracks(String* out_names, size_t max_names) const;
@@ -61,6 +64,11 @@ class TrackRecorder
     void updateActiveStateLocked();
     bool writeActiveStateLocked() const;
     void clearActiveStateLocked() const;
+    bool shouldAcceptPointLocked(const TrackPoint& pt, uint32_t now_ms) const;
+    void markPointAcceptedLocked(const TrackPoint& pt, uint32_t now_ms);
+    bool writePendingPointsLocked(bool force);
+
+    static constexpr size_t kPendingPointCapacity = 16;
 
     SemaphoreHandle_t mutex_ = xSemaphoreCreateMutex();
     bool recording_ = false;
@@ -74,6 +82,9 @@ class TrackRecorder
     uint32_t min_interval_ms_ = 0;
     bool distance_only_ = false;
     TrackFormat format_ = TrackFormat::GPX;
+    TrackPoint pending_points_[kPendingPointCapacity]{};
+    size_t pending_point_count_ = 0;
+    uint32_t last_flush_ms_ = 0;
 };
 
 } // namespace gps

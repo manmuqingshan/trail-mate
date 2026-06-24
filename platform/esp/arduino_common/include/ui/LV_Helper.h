@@ -4,8 +4,8 @@
 
 class LilyGo_Display;
 
-#if LV_USE_FS_POSIX != 1 || LV_FS_POSIX_LETTER != 'A'
-#warning "Lvgl fs mismatch, may not be able to use fs function"
+#if !defined(TRAIL_MATE_LVGL_SD_FS_LETTER) || TRAIL_MATE_LVGL_SD_FS_LETTER != 'A'
+#warning "TrailMate LVGL SD fs mismatch, A: paths may not resolve"
 #endif
 
 void beginLvglHelper(LilyGo_Display& display, bool debug = false);

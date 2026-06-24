@@ -134,6 +134,12 @@ class AppPhoneFacade final : public phone::IPhoneAppFacade,
                              const uint8_t* payload,
                              std::size_t payload_len,
                              uint32_t* out_est_timeout) override;
+    bool meshCoreSendRawDataEx(uint8_t profile,
+                               const uint8_t* path,
+                               std::size_t path_len,
+                               const uint8_t* payload,
+                               std::size_t payload_len,
+                               uint32_t* out_est_timeout) override;
     void meshCoreSetFloodScopeKey(const uint8_t* key, std::size_t len) override;
 
   private:

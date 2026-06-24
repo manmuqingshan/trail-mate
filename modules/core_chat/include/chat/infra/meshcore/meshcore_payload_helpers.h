@@ -6,6 +6,7 @@
 #pragma once
 
 #include "chat/domain/chat_types.h"
+#include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -15,6 +16,29 @@ namespace chat
 {
 namespace meshcore
 {
+
+constexpr uint32_t kMeshCoreNodeInfoPortnum = 4;
+constexpr uint8_t kMeshCoreControlKindNodeInfo = 0x01;
+constexpr uint8_t kMeshCoreNodeInfoFlagRequestReply = 0x01;
+constexpr size_t kMeshCoreNodeInfoShortNameFieldSize = 10;
+constexpr size_t kMeshCoreNodeInfoLongNameFieldSize = 32;
+constexpr size_t kMeshCoreNodeInfoQueryPayloadSize = 5;
+constexpr size_t kMeshCoreNodeInfoInfoPayloadSize =
+    4 + 1 + 1 + sizeof(NodeId) + sizeof(uint32_t) +
+    kMeshCoreNodeInfoShortNameFieldSize + kMeshCoreNodeInfoLongNameFieldSize;
+constexpr uint8_t kMeshCoreAdvertTypeChat = 0x01;
+constexpr uint8_t kMeshCoreAdvertTypeRepeater = 0x02;
+constexpr uint8_t kMeshCoreDiscoverTypeFilterAll = 0xFF;
+constexpr size_t kMeshCorePubKeyPrefixSize = 8;
+constexpr size_t kMeshCoreDiscoverRequestBasePayloadSize = 6;
+constexpr size_t kMeshCoreDiscoverResponseBasePayloadSize = 6;
+
+enum class MeshCoreNodeInfoControlType : uint8_t
+{
+    Unknown = 0,
+    Query = 0x01,
+    Info = 0x02,
+};
 
 struct DecodedAdvertAppData
 {
@@ -46,6 +70,14 @@ struct DecodedDiscoverResponse
     size_t pubkey_len = 0;
 };
 
+struct MeshCoreDiscoverRequestBuildInfo
+{
+    bool prefix_only = false;
+    uint8_t type_filter = kMeshCoreDiscoverTypeFilterAll;
+    uint32_t tag = 0;
+    uint32_t since = 0;
+};
+
 struct DecodedDirectAppPayload
 {
     uint32_t portnum = 0;
@@ -62,14 +94,50 @@ struct DecodedGroupAppPayload
     size_t payload_len = 0;
 };
 
+struct MeshCoreNodeInfoBuildInfo
+{
+    uint8_t role = 0;
+    uint8_t hops = 0;
+    NodeId node_id = 0;
+    uint32_t timestamp = 0;
+    const char* short_name = nullptr;
+    const char* long_name = nullptr;
+};
+
+struct MeshCoreNodeInfoInfo
+{
+    uint8_t role = 0;
+    uint8_t hops = 0;
+    NodeId node_id = 0;
+    uint32_t timestamp = 0;
+    char short_name[kMeshCoreNodeInfoShortNameFieldSize + 1] = {};
+    char long_name[kMeshCoreNodeInfoLongNameFieldSize + 1] = {};
+};
+
+struct DecodedNodeInfoControl
+{
+    bool valid = false;
+    bool complete = false;
+    MeshCoreNodeInfoControlType type = MeshCoreNodeInfoControlType::Unknown;
+    bool request_reply = false;
+    MeshCoreNodeInfoInfo info{};
+};
+
 bool shouldUsePublicChannelFallback(const chat::MeshConfig& cfg);
 const uint8_t* publicGroupPsk();
 void xorCrypt(uint8_t* data, size_t len, const uint8_t* key, size_t key_len);
 const uint8_t* selectChannelKey(const chat::MeshConfig& cfg, size_t* out_len);
 bool isPeerPayloadType(uint8_t payload_type);
 bool isPeerCipherShape(size_t payload_len);
+bool isPeerCipherShape(PayloadProfile profile, size_t payload_len);
 bool isAnonReqCipherShape(size_t payload_len);
+bool isAnonReqCipherShape(PayloadProfile profile, size_t payload_len);
 bool buildFrameNoTransport(uint8_t route_type, uint8_t payload_type,
+                           const uint8_t* path, size_t path_len,
+                           const uint8_t* payload, size_t payload_len,
+                           uint8_t* out_frame, size_t out_cap, size_t* out_len);
+bool buildFrameNoTransport(PayloadProfile profile,
+                           uint8_t route_type, uint8_t payload_type,
                            const uint8_t* path, size_t path_len,
                            const uint8_t* payload, size_t payload_len,
                            uint8_t* out_frame, size_t out_cap, size_t* out_len);
@@ -77,9 +145,24 @@ bool buildPeerDatagramPayload(uint8_t dest_hash, uint8_t src_hash,
                               const uint8_t key16[16], const uint8_t key32[32],
                               const uint8_t* plain, size_t plain_len,
                               uint8_t* out_payload, size_t out_cap, size_t* out_len);
+bool buildPeerDatagramPayload(PayloadProfile profile,
+                              const uint8_t* dest_hash, const uint8_t* src_hash,
+                              const uint8_t key16[16], const uint8_t key32[32],
+                              const uint8_t* plain, size_t plain_len,
+                              uint8_t* out_payload, size_t out_cap, size_t* out_len);
 bool decodeDirectAppPayload(const uint8_t* plain, size_t plain_len, DecodedDirectAppPayload* out);
 bool decodeGroupAppPayload(const uint8_t* plain, size_t plain_len, DecodedGroupAppPayload* out);
 bool hasControlPrefix(const uint8_t* payload, size_t len, uint8_t kind);
+bool buildNodeInfoQueryControlPayload(bool request_reply,
+                                      uint8_t* out_payload, size_t out_cap, size_t* out_len);
+bool buildNodeInfoInfoControlPayload(const MeshCoreNodeInfoBuildInfo& info,
+                                     uint8_t* out_payload, size_t out_cap, size_t* out_len);
+bool decodeNodeInfoControlPayload(const uint8_t* payload, size_t len, DecodedNodeInfoControl* out);
+bool buildDiscoverRequestControlPayload(const MeshCoreDiscoverRequestBuildInfo& request,
+                                        uint8_t* out_payload, size_t out_cap, size_t* out_len);
+bool buildDiscoverResponseControlPayload(uint8_t node_type, int8_t snr_qdb, uint32_t tag,
+                                         const uint8_t* pubkey, size_t pubkey_len,
+                                         uint8_t* out_payload, size_t out_cap, size_t* out_len);
 size_t copySanitizedName(char* out, size_t out_len, const uint8_t* src, size_t src_len);
 size_t copyPrintableAscii(const std::string& src, char* out, size_t out_len);
 uint8_t mapAdvertTypeToRole(uint8_t node_type);

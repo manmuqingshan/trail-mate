@@ -17,7 +17,7 @@ namespace ui::menu_profile
 namespace
 {
 
-#if !defined(TRAIL_MATE_ESP_BOARD_TAB5) && !defined(ARDUINO_T_LORA_PAGER) && !defined(ARDUINO_T_DECK) && !defined(ARDUINO_T_DECK_PRO)
+#if !defined(TRAIL_MATE_ESP_BOARD_TAB5) && !defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) && !defined(ARDUINO_T_LORA_PAGER) && !defined(ARDUINO_T_DECK) && !defined(ARDUINO_T_DECK_PRO)
 lv_coord_t display_width()
 {
     lv_coord_t width = lv_display_get_physical_horizontal_resolution(nullptr);
@@ -191,6 +191,25 @@ MenuLayoutProfile make_tab5_profile()
     return profile;
 }
 
+MenuLayoutProfile make_t_display_p4_profile()
+{
+    MenuLayoutProfile profile = make_tab5_profile();
+    profile.name = "t_display_p4";
+    profile.card_width = 104;
+    profile.card_height = 112;
+    profile.grid_height_pct = 84;
+    profile.grid_top_offset = 52;
+    profile.top_bar_height = 42;
+    profile.top_bar_side_inset = 8;
+    profile.status_row_offset_y = 5;
+    profile.node_id_offset_x = 8;
+    profile.node_id_offset_y = -5;
+    profile.badge_offset_x = 2;
+    profile.badge_offset_y = -3;
+    profile.max_columns = 4;
+    return profile;
+}
+
 MenuLayoutProfile make_cardputer_zero_profile()
 {
     MenuLayoutProfile profile = make_pager_profile();
@@ -243,6 +262,8 @@ const MenuLayoutProfile& current()
     {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
         return make_tab5_profile();
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+        return make_t_display_p4_profile();
 #elif defined(ARDUINO_T_LORA_PAGER)
         return make_pager_profile();
 #elif defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)

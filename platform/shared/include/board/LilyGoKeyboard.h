@@ -68,6 +68,7 @@ class LilyGoKeyboard : public Adafruit_TCA8418
     int _backlight = -1;
     uint8_t _brightness;
     uint8_t _irq;
+    bool _backlight_attached = false;
     bool symbol_key_pressed = false;
     bool cap_key_pressed = false;
     bool alt_key_pressed = false;

@@ -43,11 +43,12 @@ struct MapAnchor
 // Decoded tile image cache entry (for RAM cache to avoid re-decoding)
 struct DecodedTileCache
 {
-    int32_t x, y, z;         // Tile coordinates
-    uint8_t map_source;      // Base map source (OSM/Terrain/Satellite)
-    lv_image_dsc_t* img_dsc; // Decoded image descriptor (RGB565 data in RAM)
-    uint32_t last_used_ms;   // For LRU eviction
-    bool in_use;             // True if currently used by a visible tile
+    int32_t x, y, z;                   // Tile coordinates
+    uint8_t map_source;                // Base map source (OSM/Terrain/Satellite)
+    ui::map_tiles::MapTileLayer layer; // Base or contour layer represented by this cache entry
+    lv_image_dsc_t* img_dsc;           // Decoded image descriptor (RGB565 data in RAM)
+    uint32_t last_used_ms;             // For LRU eviction
+    uint8_t lvgl_ref_count;            // Number of live LVGL image objects referencing img_dsc
 };
 
 // Map tile structure
@@ -60,16 +61,23 @@ struct MapTile
     lv_obj_t* img_obj;     // NULL = not loaded, non-NULL = loaded (image or label placeholder)
     lv_obj_t* contour_obj; // Optional contour overlay object (child of img_obj)
     bool visible;
-    bool ever_visible;            // Track if tile was ever visible (for eviction priority)
-    uint32_t last_used_ms;        // For LRU cache eviction
-    uint32_t obj_evicted_ms;      // Timestamp when object was evicted (0 = not evicted)
-    bool record_evicted;          // Record should be removed from vector
-    int priority;                 // Loading priority (distance from screen center, lower = higher priority)
-    bool has_png_file;            // True if tile has loaded base image file (PNG/JPG)
-    bool base_missing;            // True if the base tile file was confirmed missing for this render state
-    bool contour_checked;         // True if contour file lookup was attempted for this tile
-    bool contour_loaded;          // True if contour overlay object is present
-    DecodedTileCache* cached_img; // Pointer to decoded image cache entry (NULL if not cached)
+    bool ever_visible;                    // Track if tile was ever visible (for eviction priority)
+    uint32_t last_used_ms;                // For LRU cache eviction
+    uint32_t obj_evicted_ms;              // Timestamp when object was evicted (0 = not evicted)
+    bool record_evicted;                  // Record should be removed from vector
+    int priority;                         // Loading priority (distance from screen center, lower = higher priority)
+    bool has_png_file;                    // True if tile has loaded base image file (PNG/JPG)
+    bool base_missing;                    // True if the base tile file was confirmed missing for this render state
+    bool base_request_pending;            // True while a worker request is in flight for the base tile
+    uint32_t base_request_generation;     // Generation associated with the in-flight base request
+    uint32_t base_retry_not_before_ms;    // Backoff deadline after resource pressure/busy failures
+    bool contour_checked;                 // True if contour file lookup was attempted for this tile
+    bool contour_loaded;                  // True if contour overlay object is present
+    bool contour_request_pending;         // True while a worker request is in flight for the contour tile
+    uint32_t contour_request_generation;  // Generation associated with the in-flight contour request
+    uint32_t contour_retry_not_before_ms; // Backoff deadline after contour resource pressure/busy failures
+    DecodedTileCache* cached_img;         // Decoded image entry currently bound to img_obj (NULL if not cached)
+    DecodedTileCache* contour_cached_img; // Decoded contour entry currently bound to contour_obj
 };
 
 // Tile management context (passed to functions instead of using global state)

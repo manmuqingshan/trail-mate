@@ -11,8 +11,8 @@ namespace trailmate::apps::linux_sim_shell
 
 enum class LinuxSimRuntimeSource
 {
+    Unavailable,
     ScreenGraphAdoption,
-    HardcodedFallback,
 };
 
 class LinuxSimRuntimeEntry
@@ -22,7 +22,6 @@ class LinuxSimRuntimeEntry
 
     bool ready() const;
     bool usingPrimaryScreenGraph() const noexcept;
-    bool fallbackUsed() const;
     LinuxSimRuntimeSource runtimeSource() const noexcept;
     std::size_t menuCount() const;
     std::size_t screenCount() const;
@@ -30,14 +29,9 @@ class LinuxSimRuntimeEntry
     const trailmate::linux_sim::AsciiRuntimeEntryAdoption& adoption() const;
 
   private:
-    bool startFallback(const LinuxSimAppShell& shell);
-
-  private:
     LinuxSimRuntimeEntryAdoptionProbe adoption_probe_{};
-    LinuxSimRuntimeSource runtime_source_ =
-        LinuxSimRuntimeSource::HardcodedFallback;
+    LinuxSimRuntimeSource runtime_source_ = LinuxSimRuntimeSource::Unavailable;
     bool ready_ = false;
-    bool fallback_ = true;
 };
 
 } // namespace trailmate::apps::linux_sim_shell

@@ -389,6 +389,15 @@ class LinuxLoopbackMeshAdapter final : public ::chat::IMeshAdapter
             .supports_node_info = true,
             .supports_pki = true,
             .supports_discovery_actions = true,
+            .supports_node_info_query = true,
+            .supports_node_info_reply = true,
+            .supports_node_info_reannounce = true,
+            .supports_position_request = true,
+            .supports_position_reply = true,
+            .supports_trace_route_request = true,
+            .supports_trace_route_reply = true,
+            .supports_protocol_app_response = true,
+            .supports_protocol_ack_tracking = true,
         };
     }
 

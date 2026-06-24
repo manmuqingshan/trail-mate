@@ -111,6 +111,7 @@ class TDeckProBoard : public BoardBase,
 
     bool hasCellularModem() const { return profile().optional.has_a7682e; }
     bool hasAudioDac() const { return profile().optional.has_pcm512a; }
+    bool ensureSDReady() override;
 
   private:
     TDeckProBoard();

@@ -3,14 +3,13 @@
  * @brief T-LoRa-Pager board hardware abstraction layer
  *
  * This class provides a unified interface to all hardware components on the
- * LilyGo T-LoRa-Pager board, including display, GPS, LoRa, NFC, sensors, etc.
+ * LilyGo T-LoRa-Pager board, including display, GPS, LoRa, sensors, etc.
  */
 
 #pragma once
 
 #include <AW9364LedDriver.hpp>
 #include <Arduino.h>
-#include <SD.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <memory>
@@ -41,11 +40,6 @@ class AppContext;
 
 // Audio codec
 #include "audio/codec/esp_codec.h"
-
-// NFC
-#ifdef USING_ST25R3916
-#include "board/nfc_include.h"
-#endif
 
 // Keyboard
 #ifdef USING_INPUT_DEV_KEYBOARD
@@ -109,7 +103,7 @@ class TLoRaPagerBoard : public BoardBase,
     /**
      * @brief Main loop function - call this periodically in your main loop
      *
-     * This function processes background tasks such as NFC worker.
+     * This function processes board background tasks.
      */
     void loop();
 
@@ -118,12 +112,12 @@ class TLoRaPagerBoard : public BoardBase,
     bool initGPS() override;
     void deinitGPS() override;
     bool initLoRa();
-    bool initNFC();
     bool initKeyboard();
     bool initDrv();
     bool initSensor();
     bool initRTC();
     bool installSD();
+    bool ensureSDReady() override;
     void uninstallSD();
     bool isCardReady() override;
 
@@ -192,9 +186,9 @@ class TLoRaPagerBoard : public BoardBase,
      */
     void wakeUp() override;
 
-    /** @brief Turn off GPS/NFC/sensor power when screen sleeps to save power */
+    /** @brief Turn off screen-owned peripheral power when screen sleeps to save power */
     void enterScreenSleep() override;
-    /** @brief Restore GPS/NFC/sensor power when screen wakes */
+    /** @brief Restore screen-owned peripheral power when screen wakes */
     void exitScreenSleep() override;
 
     void setPowerTier(int tier) override;
@@ -256,33 +250,6 @@ class TLoRaPagerBoard : public BoardBase,
     uint8_t keyboardGetBrightness() override;
     int getKey(char* c);
     int getKeyChar(char* c) override;
-
-    // NFC functions
-#ifdef USING_ST25R3916
-    /**
-     * @brief Start NFC discovery mode
-     * @param techs2Find Technologies to find (e.g., RFAL_NFC_POLL_TECH_A)
-     * @param totalDuration Total discovery duration in ms
-     * @return true if successful, false otherwise
-     */
-    bool startNFCDiscovery(uint16_t techs2Find = RFAL_NFC_POLL_TECH_A, uint16_t totalDuration = 1000);
-
-    /**
-     * @brief Stop NFC discovery mode
-     */
-    void stopNFCDiscovery();
-
-    /**
-     * @brief Poll NFC interrupt registers (IRQ line free)
-     */
-    void pollNfcIrq();
-
-    /**
-     * @brief Check if NFC is ready
-     * @return true if NFC is initialized and online
-     */
-    bool isNFCReady() const { return (devices_probe & HW_NFC_ONLINE) != 0; }
-#endif
 
     // Hardware status queries
     /**
@@ -459,10 +426,6 @@ class TLoRaPagerBoard : public BoardBase,
 
 #ifdef USING_INPUT_DEV_KEYBOARD
     LilyGoKeyboard kb;
-#endif
-
-#ifdef USING_ST25R3916
-    RfalNfcClass* nfc;
 #endif
 
 #ifdef USING_AUDIO_CODEC

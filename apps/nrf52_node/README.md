@@ -19,7 +19,8 @@ UX Pack presents.
 
 Build entrypoint = `builds/pio_nrf52`
 
-Historical source identity = `removed root esp_pio` and `removed root gat562_mesh_evb_pro`
+Removed root history is documented only in
+`docs/archive/REMOVED_LEGACY_ROOTS.md`.
 
 ## Future Responsibilities
 
@@ -55,10 +56,6 @@ Current config:
 ```text
 target_family = nrf52_node
 default_ux_pack_id = tiny_node_status
-historical_generic_root_name = removed root esp_pio
-historical_board_root_name = removed root gat562_mesh_evb_pro
-historical_role = pre-refactor PlatformIO/nRF52 implementation roots
-replacement_owner = apps/nrf52_node + builds/pio_nrf52 + boards/gat562_mesh_evb_pro
 ```
 
-No behavior change in Phase 8 Build/AppShell Executable Convergence.
+No behavior change in the app shell baseline.

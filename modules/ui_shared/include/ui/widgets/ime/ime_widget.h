@@ -12,7 +12,7 @@
 #include "ui/widgets/ime/pinyin_ime.h"
 
 #ifndef UI_SHARED_TOUCH_IME_ENABLED
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 #define UI_SHARED_TOUCH_IME_ENABLED 1
 #else
 #define UI_SHARED_TOUCH_IME_ENABLED 0
@@ -33,7 +33,8 @@ class ImeWidget
     enum class Mode
     {
         EN,
-        CN,
+        SCRIPT,
+        CN = SCRIPT,
         NUM
     };
 
@@ -57,7 +58,10 @@ class ImeWidget
     void refresh_touch_candidates();
     void sync_textarea();
     bool handle_key_code(uint32_t key);
+    bool handle_text_token(const char* token);
     bool commit_candidate(int candidate_index);
+    bool pinyin_mode() const;
+    bool direct_keyboard_mode() const;
 
     static void on_toggle_clicked(lv_event_t* e);
     static void on_touch_key_event(lv_event_t* e);
@@ -81,6 +85,7 @@ class ImeWidget
     std::string committed_text_;
     bool touch_keyboard_enabled_ = false;
     int candidate_window_start_ = 0;
+    int script_input_index_ = 0;
 };
 
 } // namespace widgets

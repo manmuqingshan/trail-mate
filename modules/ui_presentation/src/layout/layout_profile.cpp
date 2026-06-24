@@ -9,7 +9,7 @@ namespace
 
 constexpr LayoutProfile kLayoutProfiles[] = {
     {"tab5_large_touch", 0, 0, true, false, false, true, false, false, false, 8, 18, 14},
-    {"tdisplayp4_touch", 0, 0, true, false, false, true, false, false, false, 7, 18, 14},
+    {"t_display_p4_touch", 0, 0, true, false, false, true, false, false, false, 7, 18, 14},
     {"pager_compact", 480, 222, false, true, true, false, false, false, true, 6, 14, 11},
     {"deck_wide", 320, 240, false, true, false, false, false, false, true, 8, 14, 11},
     {"watch_compact", 240, 240, false, true, true, false, false, true, false, 5, 13, 10},

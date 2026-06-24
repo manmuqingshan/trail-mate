@@ -903,6 +903,12 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         meshcore_config.meshcore_airtime_factor = get_float("mc_airtime", meshcore_config.meshcore_airtime_factor);
         meshcore_config.meshcore_flood_max = get_uchar("mc_flood_max", meshcore_config.meshcore_flood_max);
         meshcore_config.meshcore_multi_acks = get_bool("mc_multi_acks", false);
+        meshcore_config.meshcore_send_profile = static_cast<chat::MeshCorePayloadSendProfile>(
+            get_uchar("mc_send_prof",
+                      static_cast<uint8_t>(meshcore_config.meshcore_send_profile)));
+        meshcore_config.meshcore_forward_profile = static_cast<chat::MeshCoreForwardProfile>(
+            get_uchar("mc_fwd_prof",
+                      static_cast<uint8_t>(meshcore_config.meshcore_forward_profile)));
         meshcore_config.meshcore_channel_slot = get_uchar("mc_ch_slot", 0);
         meshcore_config.tx_enabled = get_bool("mc_tx_en", meshcore_config.tx_enabled);
         String mc_name = get_string("mc_ch_name", meshcore_config.meshcore_channel_name);
@@ -1251,6 +1257,8 @@ bool saveAppConfigToPreferences(AppConfig& config,
         put_float("mc_airtime", meshcore_config.meshcore_airtime_factor);
         put_uchar("mc_flood_max", meshcore_config.meshcore_flood_max);
         put_bool("mc_multi_acks", meshcore_config.meshcore_multi_acks);
+        put_uchar("mc_send_prof", static_cast<uint8_t>(meshcore_config.meshcore_send_profile));
+        put_uchar("mc_fwd_prof", static_cast<uint8_t>(meshcore_config.meshcore_forward_profile));
         put_uchar("mc_ch_slot", meshcore_config.meshcore_channel_slot);
         put_bool("mc_tx_en", meshcore_config.tx_enabled);
         put_string("mc_ch_name", meshcore_config.meshcore_channel_name);

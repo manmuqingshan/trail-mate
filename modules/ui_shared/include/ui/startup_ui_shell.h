@@ -16,7 +16,8 @@ struct Hooks
     uint32_t lock_timeout_ms = 1000;
 };
 
-bool prepareBootUi(const Hooks& hooks, bool waking_from_sleep);
+bool beginBootUi(const Hooks& hooks, bool waking_from_sleep, const char* initial_line);
+void prepareBootResources();
 bool initializeMenuSkeleton(const Hooks& hooks);
 bool finalizeStartup(const Hooks& hooks, bool waking_from_sleep);
 

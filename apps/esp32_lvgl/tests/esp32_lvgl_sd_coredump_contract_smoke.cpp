@@ -43,10 +43,23 @@ int main(int argc, char** argv)
     const std::size_t begin_log = position_of(
         arduino_startup,
         "debug::begin_sd_debug_log");
+    const std::size_t display_init = position_of(
+        arduino_startup,
+        "display_runtime::initialize");
+    const std::size_t begin_boot = position_of(
+        arduino_startup,
+        "startup_shell::beginBootUi");
+    const std::size_t storage_init = position_of(
+        arduino_startup,
+        "boards::initializeStorage");
     const std::size_t export_core = position_of(
         arduino_startup,
         "debug::export_previous_coredump_to_sd");
-    assert(board_init < begin_log);
+    assert(board_init < display_init);
+    assert(display_init < begin_boot);
+    assert(begin_boot < storage_init);
+    assert(storage_init < begin_log);
+    assert(begin_boot < begin_log);
     assert(begin_log < export_core);
 
     const std::string header = read_file(
@@ -87,12 +100,20 @@ int main(int argc, char** argv)
 
     const std::string idf_startup = read_file(
         repo_root / "apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp");
+    const std::size_t idf_display = position_of(
+        idf_startup,
+        "boards::initializeDisplay");
+    const std::size_t idf_begin_boot = position_of(
+        idf_startup,
+        "showBootUi(config");
     const std::size_t idf_sd_ready = position_of(
         idf_startup,
         "bsp_runtime::ensure_sdcard_ready");
     const std::size_t idf_export_core = position_of(
         idf_startup,
         "idf_common::debug::export_previous_coredump_to_sd");
+    assert(idf_display < idf_begin_boot);
+    assert(idf_begin_boot < idf_sd_ready);
     assert(idf_sd_ready < idf_export_core);
 
     const std::string idf_header = read_file(
@@ -121,8 +142,8 @@ int main(int argc, char** argv)
     const char* idf_targets[] = {
         "tab5",
         "tdeck",
-        "tdisplayp4_amoled",
-        "tdisplayp4_tft",
+        "t_display_p4_amoled",
+        "t_display_p4_tft",
         "tlora_pager",
         "twatch",
     };

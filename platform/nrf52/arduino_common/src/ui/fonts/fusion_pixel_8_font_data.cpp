@@ -6,7 +6,7 @@
 
 #include "ui/fonts/fusion_pixel_8_font_generated.h"
 
-namespace ui::mono_128x64
+namespace ui::mono
 {
 
 static const uint8_t kFusionPixel8Bitmap[] = {
@@ -71361,6 +71361,6 @@ const MonoFont kFusionPixel8Font = MonoFont::makeCompact16(
     8,
     8);
 
-} // namespace ui::mono_128x64
+} // namespace ui::mono
 
 #endif

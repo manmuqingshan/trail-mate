@@ -71,10 +71,10 @@ def main() -> int:
     ]:
         require_file(rel, failures)
 
-    if not (ROOT / "builds/esp_idf/targets/tdisplayp4_tft/sdkconfig.defaults").is_file():
+    if not (ROOT / "builds/esp_idf/targets/t_display_p4_tft/sdkconfig.defaults").is_file():
         require_tokens(
             "docs/audits/ESP_IDF_TARGET_DEFAULTS_MIGRATION_AUDIT.md",
-            ["tdisplayp4_tft", "missing / deferred"],
+            ["t_display_p4_tft", "missing / deferred"],
             failures,
         )
 
@@ -85,8 +85,18 @@ def main() -> int:
             "esp32_lvgl_startup_runtime.cpp",
             "esp32_lvgl_loop_runtime.cpp",
             "esp32_lvgl_runtime_config.cpp",
-            "TRAILMATE_ESP_IDF_PLATFORM_SOURCES",
+            "TRAILMATE_ESP_IDF_PLATFORM_COMMON_SOURCES",
             "platform/esp/radio/meshtastic_radio_adapter.cpp",
+        ],
+        failures,
+    )
+    require_tokens(
+        "builds/esp_idf/main/CMakeLists.txt",
+        [
+            "TRAILMATE_ESP_IDF_PLATFORM_SOURCES",
+            "TRAILMATE_ESP_IDF_T_DISPLAY_P4_BOARD_SOURCES",
+            "t_display_p4_tft",
+            "t_display_p4_amoled",
         ],
         failures,
     )

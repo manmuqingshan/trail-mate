@@ -25,6 +25,7 @@ enum class MapTileRenderState : uint8_t
     Loading,
     Ready,
     Error,
+    Cancelled,
 };
 
 struct MapTileRenderRef

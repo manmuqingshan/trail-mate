@@ -10,12 +10,15 @@
 #include "display/DisplayInterface.h"
 #include "input/morse_engine.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/common/shared_spi_lock.h"
 #include "screen_sleep.h"
 #include "ui/LV_Helper.h"
 #include "ui/app_runtime.h"
+#include "ui/menu/menu_runtime.h"
 #include "ui/support/lvgl_fs_utils.h"
 #include "walkie/walkie_service.h"
 #include <Arduino.h>
+#include <cstring>
 #include <dirent.h>
 #include <errno.h>
 #include <esp_heap_caps.h>
@@ -44,6 +47,11 @@ namespace
 {
 constexpr char kLvglFlashFsLetter = 'F';
 constexpr const char* kLvglFlashFsMountPoint = "/fs";
+// LVGL's SD drive callback can still be reached by resource-pack and image
+// paths. Keep every callback acquisition extremely short: a busy shared
+// bus must surface as LV_FS_RES_BUSY/failed open, not as a blocked UI frame.
+constexpr TickType_t kLvglSdFsWait = pdMS_TO_TICKS(2);
+constexpr TickType_t kLvglSdFsCloseWait = pdMS_TO_TICKS(10);
 
 lv_fs_drv_t s_flash_fs_drv;
 lv_fs_drv_t s_sd_fs_drv;
@@ -107,6 +115,14 @@ bool sd_fs_ready_cb(lv_fs_drv_t* drv)
 void* sd_fs_open(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
 {
     LV_UNUSED(drv);
+    // This is a platform adapter boundary. Product/UI code must not use LVGL
+    // FS as a synchronous SD probe; callers should submit runtime work and let
+    // worker-domain code handle retry/backpressure.
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    if (!spi_guard.locked())
+    {
+        return nullptr;
+    }
 
     const char* open_mode = "r";
     if (mode == LV_FS_MODE_WR)
@@ -139,6 +155,7 @@ lv_fs_res_t sd_fs_close(lv_fs_drv_t* drv, void* file_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsCloseWait);
     file->close();
     delete file;
     return LV_FS_RES_OK;
@@ -151,6 +168,11 @@ lv_fs_res_t sd_fs_read(lv_fs_drv_t* drv, void* file_p, void* buf, uint32_t btr, 
     if (file == nullptr || buf == nullptr)
     {
         return LV_FS_RES_INV_PARAM;
+    }
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    if (!spi_guard.locked())
+    {
+        return LV_FS_RES_BUSY;
     }
 
     const int result = file->read(buf, btr);
@@ -177,6 +199,11 @@ lv_fs_res_t sd_fs_write(lv_fs_drv_t* drv,
     {
         return LV_FS_RES_INV_PARAM;
     }
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    if (!spi_guard.locked())
+    {
+        return LV_FS_RES_BUSY;
+    }
 
     const std::size_t result = file->write(buf, btw);
     if (bw != nullptr)
@@ -193,6 +220,11 @@ lv_fs_res_t sd_fs_seek(lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whenc
     if (file == nullptr)
     {
         return LV_FS_RES_INV_PARAM;
+    }
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    if (!spi_guard.locked())
+    {
+        return LV_FS_RES_BUSY;
     }
 
     uint64_t target = pos;
@@ -221,6 +253,11 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    if (!spi_guard.locked())
+    {
+        return LV_FS_RES_BUSY;
+    }
     *pos_p = static_cast<uint32_t>(file->position());
     return LV_FS_RES_OK;
 }
@@ -228,6 +265,11 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
 void* sd_fs_dir_open(lv_fs_drv_t* drv, const char* path)
 {
     LV_UNUSED(drv);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    if (!spi_guard.locked())
+    {
+        return nullptr;
+    }
 
     auto* dir = new (std::nothrow)::platform::esp::arduino_common::storage::SdRuntimeDir();
     if (dir == nullptr)
@@ -249,6 +291,11 @@ lv_fs_res_t sd_fs_dir_read(lv_fs_drv_t* drv, void* dir_p, char* fn, uint32_t fn_
     if (dir == nullptr || fn == nullptr || fn_len == 0)
     {
         return LV_FS_RES_INV_PARAM;
+    }
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    if (!spi_guard.locked())
+    {
+        return LV_FS_RES_BUSY;
     }
 
     bool is_dir = false;
@@ -274,6 +321,7 @@ lv_fs_res_t sd_fs_dir_close(lv_fs_drv_t* drv, void* dir_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsCloseWait);
     dir->close();
     delete dir;
     return LV_FS_RES_OK;
@@ -552,7 +600,7 @@ void init_sd_fs_driver()
     }
 
     lv_fs_drv_init(&s_sd_fs_drv);
-    s_sd_fs_drv.letter = LV_FS_POSIX_LETTER;
+    s_sd_fs_drv.letter = TRAIL_MATE_LVGL_SD_FS_LETTER;
     s_sd_fs_drv.ready_cb = sd_fs_ready_cb;
     s_sd_fs_drv.open_cb = sd_fs_open;
     s_sd_fs_drv.close_cb = sd_fs_close;
@@ -570,8 +618,8 @@ void init_sd_fs_driver()
     letters[0] = '\0';
     lv_fs_get_letters(letters);
     Serial.printf("[LVGL][FS] SD driver registered letter=%c ready=%d letters=%s\n",
-                  LV_FS_POSIX_LETTER,
-                  lv_fs_is_ready(LV_FS_POSIX_LETTER) ? 1 : 0,
+                  TRAIL_MATE_LVGL_SD_FS_LETTER,
+                  lv_fs_is_ready(TRAIL_MATE_LVGL_SD_FS_LETTER) ? 1 : 0,
                   letters);
 }
 } // namespace
@@ -766,34 +814,6 @@ static void lv_encoder_read(lv_indev_t* drv, lv_indev_data_t* data)
         return;
     }
 
-    if (walkie::is_active())
-    {
-        if (msg.dir == ROTARY_DIR_UP)
-        {
-            walkie::adjust_volume(1);
-            updateUserActivity();
-        }
-        else if (msg.dir == ROTARY_DIR_DOWN)
-        {
-            walkie::adjust_volume(-1);
-            updateUserActivity();
-        }
-
-        if (msg.centerBtnPressed)
-        {
-            data->enc_diff = 0;
-            data->state = LV_INDEV_STATE_PRESSED;
-            plane->feedback((void*)drv);
-            return;
-        }
-
-#if !defined(ARDUINO_T_DECK) && !defined(ARDUINO_T_DECK_PRO)
-        data->enc_diff = 0;
-        data->state = LV_INDEV_STATE_RELEASED;
-#endif
-        return;
-    }
-
     // Screen is awake, process input normally
     if (msg.dir != ROTARY_DIR_NONE || msg.centerBtnPressed)
     {
@@ -889,7 +909,32 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
     // Screen is awake, process input normally
     if (!from_nav && (state == KEYBOARD_PRESSED || state == KEYBOARD_RELEASED))
     {
-        walkie::on_key_event(c, state);
+        AppScreen* active_app = ui_get_active_app();
+        const bool on_menu = active_app == nullptr;
+        const bool on_walkie_page =
+            active_app != nullptr && active_app->stable_id() != nullptr &&
+            std::strcmp(active_app->stable_id(), "walkie_talkie") == 0;
+
+        if (on_menu && ui::menu_runtime::handleWalkieKey(c, state))
+        {
+            updateUserActivity();
+            plane->feedback((void*)drv);
+            data->state = LV_INDEV_STATE_REL;
+            return;
+        }
+
+        if (on_menu && ui::menu_runtime::handleShortcutKey(c, state))
+        {
+            updateUserActivity();
+            plane->feedback((void*)drv);
+            data->state = LV_INDEV_STATE_REL;
+            return;
+        }
+
+        if (on_walkie_page)
+        {
+            walkie::on_key_event(c, state);
+        }
     }
 
 #if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
@@ -955,11 +1000,11 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
 
     // Allocate display buffers
     // Use DMA-capable memory if board supports DMA, otherwise use PSRAM
-    bool useDMA = board.useDMA();
+    bool use_dma_draw_buffers = board.useDMA();
 #if LV_TEST_FORCE_DMA_BUF
-    useDMA = true;
+    use_dma_draw_buffers = true;
 #endif
-    Serial.printf("[LVGL] buffer alloc start (useDMA=%d)\n", useDMA ? 1 : 0);
+    Serial.printf("[LVGL] buffer alloc start (use_dma_draw_buffers=%d)\n", use_dma_draw_buffers ? 1 : 0);
     Serial.printf("[LVGL] free heap internal=%u dma=%u psram=%u\n",
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
@@ -967,7 +1012,7 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
     size_t lv_buffer_size = board.width() * board.height() * sizeof(lv_color16_t);
     size_t full_screen_size = lv_buffer_size;
 
-    if (useDMA)
+    if (use_dma_draw_buffers)
     {
         // For DMA, keep internal RAM pressure low to avoid starving other subsystems.
 #if LV_TEST_FORCE_DMA_FULL_SIZE
@@ -992,10 +1037,10 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
             }
             buf = nullptr;
             buf1 = nullptr;
-            useDMA = false;
+            use_dma_draw_buffers = false;
         }
     }
-    if (!useDMA)
+    if (!use_dma_draw_buffers)
     {
         lv_buffer_size = board.width() * board.height() * sizeof(lv_color16_t);
 #if HAS_PSRAM

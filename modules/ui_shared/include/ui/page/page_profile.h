@@ -74,6 +74,7 @@ struct ResolvedSize
 PageLayoutProfile make_pager_profile();
 PageLayoutProfile make_tdeck_profile();
 PageLayoutProfile make_tab5_profile();
+PageLayoutProfile make_t_display_p4_profile();
 PageLayoutProfile make_cardputer_zero_profile();
 PageLayoutProfile make_default_profile(lv_coord_t width, lv_coord_t height);
 const PageLayoutProfile& current();

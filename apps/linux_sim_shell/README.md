@@ -20,7 +20,8 @@ UX Pack presents.
 
 Build entrypoint = `builds/linux_cmake`
 
-Historical source identity = `removed root linux_sim`
+Removed root history is documented only in
+`docs/archive/REMOVED_LEGACY_ROOTS.md`.
 
 ## Future Responsibilities
 
@@ -52,7 +53,6 @@ Current source:
 ```text
 target_id = linux_sim
 ux_pack_id = simulator_full
-historical_source = removed root linux_sim
 ```
 
-No simulator runtime behavior changes in Phase 8 Correction.
+No simulator runtime behavior changes in the app shell baseline.

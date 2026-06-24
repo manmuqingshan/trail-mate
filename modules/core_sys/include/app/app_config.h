@@ -223,6 +223,8 @@ struct AppConfig
         meshcore_config.meshcore_airtime_factor = 1.0f;
         meshcore_config.meshcore_flood_max = 16;
         meshcore_config.meshcore_multi_acks = false;
+        meshcore_config.meshcore_send_profile = chat::MeshCorePayloadSendProfile::AutoPreferV2;
+        meshcore_config.meshcore_forward_profile = chat::MeshCoreForwardProfile::MultibyteOnly;
         meshcore_config.meshcore_channel_slot = 0;
         strncpy(meshcore_config.meshcore_channel_name, "Public",
                 sizeof(meshcore_config.meshcore_channel_name) - 1);

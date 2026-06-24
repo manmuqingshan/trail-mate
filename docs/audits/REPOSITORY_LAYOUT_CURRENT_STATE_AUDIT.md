@@ -192,13 +192,16 @@ Legacy* adapters remain bounded but not renamed/deleted.
 
 Examples recorded by Phase 7 include:
 
-- `LegacyChatDeliveryEventBridge`
 - `LegacyChatDeliveryActionBridge`
 - `LegacyTeamActionBridge`
 - `LegacyKeyVerificationSource`
 - `LegacyKeyVerificationActionSink`
-- `LegacyFilesystemMapTileSource`
+- `FilesystemMapTileSource`
 - `LegacyMapOverlaySource`
+
+`LegacyChatDeliveryEventBridge` was one of the recorded Phase 7 examples but
+has since been removed after `ChatDeliveryEventProjectionAdapter` became the
+only active chat send-result projection owner.
 
 Phase 7 contained these surfaces behind ports and reports. Phase 8 should sort
 them into:

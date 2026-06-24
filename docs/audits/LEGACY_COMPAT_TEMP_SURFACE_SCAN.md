@@ -9,19 +9,19 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 
 | Keyword | Matches | Paths |
 | --- | ---: | ---: |
-| `legacy` | 2948 | 247 |
-| `compat` | 675 | 194 |
-| `compatibility` | 527 | 158 |
-| `transitional` | 153 | 40 |
+| `legacy` | 2848 | 246 |
+| `compat` | 705 | 204 |
+| `compatibility` | 536 | 163 |
+| `transitional` | 147 | 41 |
 | `temporary` | 41 | 18 |
-| `fallback` | 785 | 162 |
-| `shim` | 43 | 14 |
-| `deprecated` | 160 | 40 |
-| `archive-only` | 36 | 8 |
-| `adapter` | 2738 | 311 |
-| `bridge` | 903 | 151 |
-| `probe` | 549 | 100 |
-| `smoke` | 424 | 77 |
+| `fallback` | 880 | 193 |
+| `shim` | 45 | 15 |
+| `deprecated` | 151 | 38 |
+| `archive-only` | 38 | 9 |
+| `adapter` | 2982 | 341 |
+| `bridge` | 804 | 138 |
+| `probe` | 645 | 114 |
+| `smoke` | 670 | 95 |
 
 ## Matched Paths
 
@@ -29,6 +29,8 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | --- | --- |
 | `.github/PULL_REQUEST_TEMPLATE.md` | `adapter` |
 | `.github/workflows/cardputer-zero-linux.yml` | `smoke` |
+| `.github/workflows/linux-simulator.yml` | `adapter`, `legacy`, `smoke` |
+| `.github/workflows/uconsole-linux.yml` | `smoke` |
 | `CMakeLists.txt` | `legacy` |
 | `NOTICE.md` | `compat` |
 | `README.md` | `adapter`, `compat`, `compatibility` |
@@ -36,13 +38,21 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `apps/esp32_lvgl/APP_SHELL_MANIFEST.md` | `adapter`, `compat`, `compatibility`, `legacy` |
 | `apps/esp32_lvgl/CMakeLists.txt` | `smoke` |
 | `apps/esp32_lvgl/README.md` | `adapter`, `compat`, `compatibility`, `legacy` |
+| `apps/esp32_lvgl/library.json` | `adapter`, `legacy` |
 | `apps/esp32_lvgl/src/esp32_lvgl_app_shell.h` | `compat`, `compatibility` |
 | `apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp` | `probe` |
 | `apps/esp32_lvgl/tests/esp32_lvgl_app_shell_smoke.cpp` | `compat`, `compatibility`, `smoke` |
 | `apps/esp32_lvgl/tests/esp32_lvgl_historical_source_descriptor_smoke.cpp` | `smoke` |
 | `apps/esp32_lvgl/tests/esp32_lvgl_loop_runtime_smoke.cpp` | `smoke` |
 | `apps/esp32_lvgl/tests/esp32_lvgl_runtime_config_smoke.cpp` | `smoke` |
+| `apps/esp32_lvgl/tests/esp32_lvgl_sd_coredump_contract_smoke.cpp` | `smoke` |
 | `apps/esp32_lvgl/tests/esp32_lvgl_startup_runtime_smoke.cpp` | `smoke` |
+| `apps/linux_cardputer_zero/APP_SHELL_MANIFEST.md` | `bridge`, `fallback` |
+| `apps/linux_cardputer_zero/CMakeLists.txt` | `fallback`, `legacy`, `smoke` |
+| `apps/linux_cardputer_zero/README.md` | `adapter`, `compat`, `compatibility`, `fallback`, `legacy`, `probe` |
+| `apps/linux_cardputer_zero/tests/linux_cardputer_zero_app_shell_smoke.cpp` | `smoke` |
+| `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp` | `adapter`, `fallback`, `legacy`, `probe`, `smoke` |
+| `apps/linux_cardputer_zero/tests/linux_cardputer_zero_packaging_smoke.cpp` | `legacy`, `smoke` |
 | `apps/linux_sim_shell/APP_SHELL_MANIFEST.md` | `smoke`, `transitional` |
 | `apps/linux_sim_shell/CMakeLists.txt` | `adapter`, `bridge`, `compat`, `compatibility`, `fallback`, `legacy`, `probe`, `smoke` |
 | `apps/linux_sim_shell/README.md` | `smoke`, `transitional` |
@@ -59,7 +69,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `apps/linux_sim_shell/tests/linux_sim_runtime_entry_smoke.cpp` | `fallback`, `smoke` |
 | `apps/linux_sim_shell/tests/linux_sim_runtime_renderer_smoke.cpp` | `fallback`, `smoke` |
 | `apps/linux_uconsole_gtk/APP_SHELL_MANIFEST.md` | `smoke`, `transitional` |
-| `apps/linux_uconsole_gtk/CMakeLists.txt` | `adapter`, `bridge`, `fallback`, `probe`, `smoke` |
+| `apps/linux_uconsole_gtk/CMakeLists.txt` | `adapter`, `bridge`, `fallback`, `legacy`, `probe`, `smoke` |
 | `apps/linux_uconsole_gtk/README.md` | `smoke`, `transitional` |
 | `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp` | `fallback`, `legacy`, `probe` |
 | `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.h` | `fallback`, `probe` |
@@ -67,14 +77,30 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_renderer.h` | `fallback` |
 | `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp` | `compat`, `compatibility`, `fallback`, `probe` |
 | `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.h` | `fallback`, `probe` |
+| `apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_mqtt_settings.cpp` | `fallback` |
+| `apps/linux_uconsole_gtk/src/targets/uconsole_main.cpp` | `fallback`, `legacy` |
 | `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_app_shell_smoke.cpp` | `smoke` |
 | `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_historical_source_descriptor_smoke.cpp` | `smoke` |
 | `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_page_registry_adoption_smoke.cpp` | `fallback`, `smoke` |
 | `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_page_registry_fallback_smoke.cpp` | `fallback`, `smoke` |
 | `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_page_registry_renderer_smoke.cpp` | `fallback`, `smoke` |
 | `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_runtime_entry_adoption_probe_smoke.cpp` | `fallback`, `probe`, `smoke` |
+| `apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp` | `adapter`, `smoke` |
+| `apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp` | `adapter`, `smoke` |
+| `apps/linux_uconsole_gtk/tests/uconsole_chat_workspace_smoke.cpp` | `smoke` |
+| `apps/linux_uconsole_gtk/tests/uconsole_map_workspace_smoke.cpp` | `smoke` |
+| `apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp` | `fallback`, `legacy`, `smoke` |
+| `apps/linux_uconsole_gtk/tools/sx1262_probe.cpp` | `probe` |
+| `apps/nrf52_node/library.json` | `adapter` |
+| `apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp` | `adapter`, `bridge` |
+| `apps/nrf52_node/src/nrf52_node_app_facade_runtime.h` | `adapter`, `bridge` |
+| `apps/nrf52_node/src/nrf52_node_app_runtime_access.cpp` | `adapter` |
+| `apps/nrf52_node/src/nrf52_node_self_identity_provider.h` | `bridge` |
+| `apps/nrf52_node/src/nrf52_node_ui_runtime.cpp` | `probe` |
+| `apps/nrf52_node/src/nrf52_node_ui_runtime.h` | `probe` |
 | `apps/nrf52_node/tests/nrf52_historical_source_descriptor_smoke.cpp` | `smoke` |
 | `apps/nrf52_node/tests/nrf52_node_app_shell_smoke.cpp` | `smoke` |
+| `apps/nrf52_node/tests/nrf52_node_runtime_config_smoke.cpp` | `smoke` |
 | `boards/t_display_p4/README.md` | `fallback` |
 | `boards/t_display_p4/src/t_display_p4_board.cpp` | `probe` |
 | `boards/tab5/README.md` | `adapter` |
@@ -82,7 +108,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `boards/tab5/src/codec_compat.cpp` | `compat` |
 | `boards/tdeck/README.md` | `adapter` |
 | `boards/tdeck/include/boards/tdeck/tdeck_board.h` | `probe` |
-| `boards/tdeck/src/tdeck_board.cpp` | `compat`, `compatibility`, `fallback`, `legacy`, `probe` |
+| `boards/tdeck/src/tdeck_board.cpp` | `fallback`, `legacy`, `probe` |
 | `boards/tdeck_pro/src/tdeck_pro_board.cpp` | `probe` |
 | `boards/tlora_pager/README.md` | `adapter` |
 | `boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h` | `probe` |
@@ -91,11 +117,11 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `boards/twatchs3/include/boards/twatchs3/twatchs3_board.h` | `probe` |
 | `boards/twatchs3/src/twatchs3_board.cpp` | `probe` |
 | `builds/README.md` | `transitional` |
-| `builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake` | `adapter`, `legacy` |
+| `builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake` | `adapter`, `compat`, `compatibility` |
 | `builds/esp_idf/README.md` | `legacy` |
 | `builds/linux_cmake/README.md` | `transitional` |
 | `builds/pio_nrf52/README.md` | `transitional` |
-| `builds/pio_nrf52/platformio.ini` | `transitional` |
+| `builds/pio_nrf52/platformio.ini` | `adapter`, `transitional` |
 | `cmake/TrailMateLinuxSources.cmake` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy` |
 | `cmake/TrailMateUxPacks.cmake` | `adapter`, `bridge`, `compat`, `compatibility`, `probe` |
 | `docs/ARCHITECTURE.md` | `adapter`, `compat`, `compatibility`, `temporary` |
@@ -103,6 +129,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `docs/Best Practices/GAT562_STATUS_SNAPSHOT.md` | `adapter`, `compat`, `compatibility` |
 | `docs/Best Practices/NRF52_MESHTASTIC_ALIGNMENT_PLAN.md` | `adapter` |
 | `docs/Best Practices/new_hardware_adaptation_prompt.md` | `adapter`, `bridge`, `fallback` |
+| `docs/C6.md` | `adapter`, `bridge`, `compat` |
 | `docs/LINUX_ADAPTATION_GUIDE.md` | `adapter`, `bridge`, `fallback`, `smoke` |
 | `docs/MESHTASTIC_PHONE_PROTOCOL_REFERENCE.md` | `adapter` |
 | `docs/MESHTASTIC_PROTOBUF_USAGE.md` | `adapter` |
@@ -111,6 +138,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `docs/RETICULUM_LXMF_DEVICE_MODE.md` | `adapter`, `bridge`, `compat` |
 | `docs/RETICULUM_LXMF_RUNTIME_ALIGNMENT_PLAN.md` | `adapter`, `bridge`, `compat` |
 | `docs/UI_SHARED_IDF_PHASE_PLAN.md` | `adapter`, `fallback` |
+| `docs/archive/REMOVED_LEGACY_ROOTS.md` | `adapter`, `archive-only`, `compat`, `compatibility`, `fallback`, `legacy`, `probe`, `smoke` |
 | `docs/audits/APPCONTEXT_LEGACY_BRIDGE_AUDIT.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy` |
 | `docs/audits/APP_SHELL_CURRENT_STATE_AUDIT.md` | `adapter`, `compat`, `compatibility`, `legacy`, `probe`, `smoke`, `transitional` |
 | `docs/audits/BUILD_ENTRYPOINT_NORMALIZATION_AUDIT.md` | `adapter`, `compat`, `compatibility`, `legacy`, `transitional` |
@@ -119,8 +147,8 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `docs/audits/CHAT_DELIVERY_OWNERSHIP_AUDIT.md` | `adapter` |
 | `docs/audits/CHAT_LEGACY_DELIVERY_BURN_DOWN_AUDIT.md` | `adapter`, `bridge`, `compat`, `compatibility`, `deprecated`, `legacy` |
 | `docs/audits/CHAT_PENDING_FAILURE_AUDIT.md` | `adapter`, `compat`, `compatibility`, `fallback`, `legacy` |
-| `docs/audits/CHAT_RUNTIME_EVENT_PUMP_AUDIT.md` | `adapter`, `bridge`, `legacy` |
-| `docs/audits/CHAT_UI_CONTROLLER_BURNDOWN_AUDIT.md` | `adapter`, `bridge`, `legacy`, `temporary` |
+| `docs/audits/CHAT_RUNTIME_EVENT_PUMP_AUDIT.md` | `adapter`, `legacy` |
+| `docs/audits/CHAT_UI_CONTROLLER_BURNDOWN_AUDIT.md` | `adapter`, `legacy`, `temporary` |
 | `docs/audits/CHAT_UI_CONTROLLER_LEGACY_OWNERSHIP_AUDIT.md` | `compat`, `compatibility`, `fallback`, `legacy` |
 | `docs/audits/ESP_IDF_FINAL_OWNER_MIGRATION_PLAN.md` | `adapter`, `compat`, `compatibility`, `legacy` |
 | `docs/audits/ESP_IDF_RUNTIME_SOURCE_OWNER_EXTRACTION_AUDIT.md` | `adapter`, `legacy` |
@@ -159,11 +187,11 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `docs/audits/PHASE7_13_GPS_RUNTIME_SCHEDULING_REPORT.md` | `adapter` |
 | `docs/audits/PHASE7_6_LEGACY_BURNDOWN_REPORT.md` | `adapter`, `bridge`, `legacy` |
 | `docs/audits/PHASE7_7_EVENT_PUMP_BURNDOWN_REPORT.md` | `adapter`, `bridge`, `legacy` |
-| `docs/audits/PHASE7_8_TEAM_RICH_PAYLOAD_BURNDOWN_REPORT.md` | `adapter`, `bridge`, `compat`, `legacy`, `smoke` |
-| `docs/audits/PHASE7_9_TEAM_POSITION_PICKER_BURNDOWN_REPORT.md` | `adapter`, `bridge`, `legacy` |
-| `docs/audits/PHASE7_FINAL_LEGACY_SURFACE_MATRIX.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy` |
+| `docs/audits/PHASE7_8_TEAM_RICH_PAYLOAD_BURNDOWN_REPORT.md` | `bridge`, `compat`, `legacy`, `smoke` |
+| `docs/audits/PHASE7_9_TEAM_POSITION_PICKER_BURNDOWN_REPORT.md` | `bridge`, `legacy` |
+| `docs/audits/PHASE7_FINAL_LEGACY_SURFACE_MATRIX.md` | `adapter`, `bridge`, `compat`, `compatibility`, `fallback`, `legacy` |
 | `docs/audits/PHASE7_FINAL_RUNTIME_OWNERSHIP_READINESS_REPORT.md` | `adapter`, `legacy` |
-| `docs/audits/PHASE7_RUNTIME_OWNERSHIP_REGISTER.md` | `adapter`, `bridge`, `compat`, `legacy` |
+| `docs/audits/PHASE7_RUNTIME_OWNERSHIP_REGISTER.md` | `adapter`, `bridge`, `compat`, `fallback`, `legacy` |
 | `docs/audits/PHASE8_RUNTIME_UI_ADOPTION_REPORT.md` | `adapter`, `bridge`, `compat`, `compatibility`, `fallback`, `smoke` |
 | `docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md` | `adapter`, `bridge`, `compat`, `compatibility`, `deprecated`, `fallback`, `legacy`, `probe` |
 | `docs/audits/PHASE9_FINAL_READINESS_REPORT.md` | `adapter`, `compat`, `compatibility`, `deprecated`, `fallback`, `legacy`, `probe` |
@@ -172,19 +200,21 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `docs/audits/PHASE9_RUNTIME_ENTRY_ADOPTION_REPORT.md` | `bridge`, `compat`, `compatibility`, `fallback`, `legacy`, `probe`, `smoke`, `temporary`, `transitional` |
 | `docs/audits/POST_REFACTOR_FINAL_CLOSEOUT_REPORT.md` | `adapter`, `bridge`, `compat`, `compatibility`, `deprecated`, `fallback`, `legacy`, `probe`, `transitional` |
 | `docs/audits/PRODUCT_COMPOSITION_BOUNDARY_AUDIT.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy`, `probe`, `smoke` |
+| `docs/audits/RELEASE_0_1_28_ALPHA_FIX_AUDIT.md` | `adapter`, `compat`, `compatibility`, `legacy`, `shim`, `smoke`, `transitional` |
 | `docs/audits/RENDERER_BOUNDARY_AUDIT.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy`, `probe`, `smoke` |
 | `docs/audits/RENDERER_HARDENING_BASELINE.md` | `bridge`, `compat`, `compatibility`, `legacy`, `probe` |
 | `docs/audits/REPOSITORY_LAYOUT_CURRENT_STATE_AUDIT.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy`, `temporary`, `transitional` |
 | `docs/audits/TARGET_UI_FINAL_OWNERSHIP_REPORT.md` | `adapter`, `fallback`, `legacy`, `transitional` |
 | `docs/audits/TARGET_UX_PACK_GAP_REPORT.md` | `compat`, `compatibility`, `fallback`, `smoke` |
-| `docs/audits/TEAM_ACTION_OWNERSHIP_AUDIT.md` | `adapter`, `bridge`, `legacy` |
+| `docs/audits/TEAM_ACTION_OWNERSHIP_AUDIT.md` | `adapter`, `legacy` |
 | `docs/audits/TEAM_CHAT_PRESENTATION_AUDIT.md` | `adapter`, `legacy` |
-| `docs/audits/TEAM_RICH_PAYLOAD_PRESENTATION_AUDIT.md` | `compat`, `compatibility`, `legacy`, `temporary` |
+| `docs/audits/TEAM_RICH_PAYLOAD_PRESENTATION_AUDIT.md` | `compat`, `compatibility`, `fallback`, `legacy` |
 | `docs/audits/TRANSITIONAL_BUILD_ENTRYPOINTS.md` | `compat`, `compatibility`, `legacy`, `transitional` |
 | `docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md` | `adapter`, `compat`, `compatibility`, `deprecated`, `legacy`, `shim`, `transitional` |
 | `docs/audits/UI_SHARED_SPLIT_AUDIT.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy`, `shim`, `temporary`, `transitional` |
 | `docs/boards/uconsole-aio2.board.yaml` | `probe` |
 | `docs/decisions/ADR_BUILD_ENTRYPOINTS.md` | `adapter`, `compat`, `compatibility`, `legacy`, `transitional` |
+| `docs/devices/esp32-sd-debug-coredump.md` | `compat`, `compatibility`, `legacy` |
 | `docs/devices/gps-settings-guide.md` | `compat`, `compatibility`, `legacy`, `probe` |
 | `docs/devices/lilygo-t-lora-pager.md` | `adapter`, `probe` |
 | `docs/devices/lilygo-tdeck-gps-uart-lora-noise.md` | `temporary` |
@@ -193,18 +223,21 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `docs/meshcore/payloads.md` | `deprecated` |
 | `docs/meshtastic_ble_timing.md` | `legacy` |
 | `docs/review/CROSS_PLATFORM_PRODUCT_ARCHITECTURE_REVIEW_CHECKLIST.md` | `adapter`, `fallback` |
-| `docs/specification/APP_SHELL_ARCHITECTURE_SPEC.md` | `adapter`, `compat`, `compatibility`, `temporary`, `transitional` |
+| `docs/specification/APP_SHELL_ARCHITECTURE_SPEC.md` | `adapter`, `compat`, `compatibility`, `legacy`, `transitional` |
 | `docs/specification/BOARD_PACKAGE_SPEC.md` | `adapter` |
+| `docs/specification/C6_COMPANION_ARCHITECTURE_SPEC.md` | `compat`, `legacy`, `probe`, `smoke`, `temporary` |
 | `docs/specification/CAPABILITY_AUTHORITY_GLOSSARY.md` | `adapter` |
 | `docs/specification/CHAT_DELIVERY_ACTION_RUNTIME_SPEC.md` | `bridge`, `compat`, `compatibility`, `legacy` |
-| `docs/specification/CHAT_DELIVERY_RUNTIME_SPEC.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy` |
+| `docs/specification/CHAT_DELIVERY_RUNTIME_SPEC.md` | `adapter`, `compat`, `compatibility` |
 | `docs/specification/CHAT_PRESENTATION_IDENTITY_SPEC.md` | `adapter`, `compat`, `compatibility`, `legacy` |
-| `docs/specification/CHAT_RUNTIME_EVENT_PUMP_SPEC.md` | `bridge`, `legacy` |
+| `docs/specification/CHAT_RUNTIME_EVENT_PUMP_SPEC.md` | `adapter`, `legacy` |
 | `docs/specification/CHAT_WORKSPACE_MODEL_SPEC.md` | `adapter`, `compat`, `compatibility`, `legacy` |
 | `docs/specification/CROSS_PLATFORM_PRODUCT_ARCHITECTURE_SPEC.md` | `adapter`, `compat`, `compatibility` |
 | `docs/specification/DEVICE_UX_PACK_ARCHITECTURE_SPEC.md` | `adapter`, `compat`, `compatibility`, `legacy` |
 | `docs/specification/GPS_RUNTIME_SCHEDULING_SPEC.md` | `adapter`, `legacy` |
 | `docs/specification/KEY_VERIFICATION_RUNTIME_SPEC.md` | `adapter`, `bridge`, `legacy` |
+| `docs/specification/LOCALE_PACKS.md` | `fallback` |
+| `docs/specification/LOCALIZATION_SPEC.md` | `compat`, `compatibility`, `fallback` |
 | `docs/specification/MAP_OVERLAY_ROUTE_TRACKER_RUNTIME_SPEC.md` | `adapter`, `legacy` |
 | `docs/specification/MAP_TILE_RENDER_QUEUE_CACHE_SPEC.md` | `adapter`, `compat` |
 | `docs/specification/MAP_TILE_SOURCE_CACHE_RUNTIME_SPEC.md` | `adapter`, `legacy` |
@@ -213,24 +246,23 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `docs/specification/PRESENTATION_WORKSPACE_SPEC.md` | `adapter`, `probe` |
 | `docs/specification/PRODUCT_COMPOSITION_ARCHITECTURE_SPEC.md` | `adapter`, `bridge`, `legacy` |
 | `docs/specification/REPOSITORY_LAYOUT_ARCHITECTURE_SPEC.md` | `adapter`, `compat`, `compatibility`, `legacy`, `transitional` |
-| `docs/specification/TEAM_ACTION_RUNTIME_SPEC.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy` |
-| `docs/specification/TEAM_RICH_PAYLOAD_PRESENTATION_SPEC.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy`, `temporary` |
+| `docs/specification/TEAM_ACTION_RUNTIME_SPEC.md` | `adapter` |
+| `docs/specification/TEAM_RICH_PAYLOAD_PRESENTATION_SPEC.md` | `adapter`, `compat`, `fallback`, `legacy`, `temporary` |
 | `docs/specification/UI_PRESENTATION_ARCHITECTURE_SPEC.md` | `adapter` |
 | `docs/specs/Cross_Platform_Product_Architecture_Specification.md` | `adapter` |
-| `docs/specs/LOCALE_PACKS.md` | `fallback` |
-| `docs/specs/LOCALIZATION_SPEC.md` | `compat`, `compatibility`, `fallback` |
 | `docs/specs/gps.md` | `compat`, `compatibility`, `legacy`, `probe` |
 | `docs/specs/meshtastic-node-payload-parsing.md` | `adapter`, `fallback`, `legacy` |
 | `docs/specs/uconsole-aio2-linux.md` | `adapter`, `compat`, `compatibility`, `fallback`, `legacy`, `smoke` |
 | `docs/targets/TARGET_MANIFEST_TEMPLATE.yaml` | `legacy` |
 | `docs/targets/TARGET_MATRIX.md` | `compat`, `compatibility`, `fallback` |
+| `docs/targets/cardputerzero-adaptation.md` | `adapter`, `compat`, `compatibility`, `fallback`, `legacy`, `probe`, `smoke`, `temporary` |
+| `docs/targets/cardputerzero-dense-ui.md` | `adapter`, `compat`, `compatibility`, `legacy`, `smoke` |
 | `docs/targets/esp-t-deck-lvgl.capabilities.yaml` | `legacy` |
-| `docs/targets/esp-t-lora-pager-lvgl.capabilities.yaml` | `legacy` |
-| `docs/targets/esp32_lvgl_targets.md` | `legacy`, `transitional` |
+| `docs/targets/esp32_lvgl_targets.md` | `fallback`, `legacy`, `transitional` |
 | `docs/targets/linux-headless.capabilities.yaml` | `legacy` |
 | `docs/targets/linux-uconsole-ascii.capabilities.yaml` | `legacy` |
 | `docs/targets/linux-uconsole-gtk.capabilities.yaml` | `legacy` |
-| `docs/targets/linux_targets.md` | `adapter`, `legacy`, `transitional` |
+| `docs/targets/linux_targets.md` | `adapter`, `fallback`, `legacy`, `transitional` |
 | `docs/targets/nrf52-gat562-node.capabilities.yaml` | `legacy` |
 | `docs/targets/nrf52_node_targets.md` | `legacy`, `transitional` |
 | `docs/ux_profiles/uconsole_desktop.md` | `adapter`, `compat`, `compatibility`, `fallback`, `legacy` |
@@ -265,8 +297,6 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `modules/core_chat/generated/meshtastic/telemetry.pb.h` | `compat`, `compatibility` |
 | `modules/core_chat/generated/meshtastic/xmodem.pb.h` | `compat`, `compatibility` |
 | `modules/core_chat/include/chat/ble/meshtastic_phone_config_bridge.h` | `bridge` |
-| `modules/core_chat/include/chat/delivery/legacy_chat_delivery_bridge.h` | `bridge`, `legacy` |
-| `modules/core_chat/include/chat/delivery/legacy_chat_send_result_mapper.h` | `legacy` |
 | `modules/core_chat/include/chat/domain/chat_types.h` | `compat` |
 | `modules/core_chat/include/chat/infra/mesh_adapter_router_core.h` | `adapter` |
 | `modules/core_chat/include/chat/infra/mesh_protocol_utils.h` | `fallback` |
@@ -278,8 +308,6 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `modules/core_chat/include/chat/runtime/self_identity_provider.h` | `fallback` |
 | `modules/core_chat/include/chat/usecase/chat_service.h` | `adapter` |
 | `modules/core_chat/include/chat/usecase/contact_service.h` | `adapter` |
-| `modules/core_chat/src/delivery/legacy_chat_delivery_bridge.cpp` | `bridge`, `legacy` |
-| `modules/core_chat/src/delivery/legacy_chat_send_result_mapper.cpp` | `legacy` |
 | `modules/core_chat/src/infra/lxmf/lxmf_wire.cpp` | `adapter` |
 | `modules/core_chat/src/infra/mesh_adapter_router_core.cpp` | `adapter` |
 | `modules/core_chat/src/infra/mesh_protocol_utils.cpp` | `fallback` |
@@ -292,8 +320,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `modules/core_chat/src/infra/node_store_core.cpp` | `legacy` |
 | `modules/core_chat/src/runtime/self_identity_policy.cpp` | `fallback` |
 | `modules/core_chat/src/usecase/chat_service.cpp` | `adapter` |
-| `modules/core_chat/tests/test_legacy_chat_delivery_bridge.cpp` | `bridge`, `legacy` |
-| `modules/core_chat/tests/test_legacy_chat_send_result_mapper.cpp` | `legacy` |
+| `modules/core_chat/tests/test_mesh_adapter_router_core.cpp` | `adapter` |
 | `modules/core_chat/third_party/nanopb/pb.h` | `compat`, `compatibility`, `legacy` |
 | `modules/core_chat/third_party/nanopb/pb_common.c` | `compat` |
 | `modules/core_chat/third_party/nanopb/pb_decode.h` | `compat`, `compatibility` |
@@ -304,6 +331,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `modules/core_gps/src/protocol/nmea/nmea_parser.cpp` | `fallback` |
 | `modules/core_gps/src/usecase/time_authority.cpp` | `fallback` |
 | `modules/core_hostlink/hostlink_protocol.md` | `adapter`, `compat`, `compatibility` |
+| `modules/core_hostlink/include/hostlink/c6/c6_protocol.h` | `compat` |
 | `modules/core_hostlink/src/hostlink_service_codec.cpp` | `legacy` |
 | `modules/core_phone/include/phone/meshtastic/meshtastic_defaults.h` | `compat` |
 | `modules/core_phone/include/phone/meshtastic/meshtastic_phone_config_bridge.h` | `bridge`, `legacy` |
@@ -311,18 +339,25 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `modules/core_phone/src/meshtastic/meshtastic_phone_core.cpp` | `bridge`, `compat`, `legacy` |
 | `modules/core_phone/tests/test_phone_core_smoke.cpp` | `smoke` |
 | `modules/core_sys/README.md` | `fallback`, `transitional` |
-| `modules/core_sys/include/app/app_config.h` | `probe` |
+| `modules/core_sys/include/app/app_config.h` | `legacy`, `probe` |
 | `modules/core_sys/include/app/app_context_platform_bindings.h` | `adapter` |
 | `modules/core_sys/include/app/app_facades.h` | `adapter` |
+| `modules/core_sys/include/platform/ui/gps_runtime.h` | `fallback` |
 | `modules/core_sys/include/platform/ui/pack_repository_runtime.h` | `compat` |
-| `modules/core_sys/include/platform/ui/team_ui_store_runtime.h` | `fallback` |
+| `modules/core_sys/include/platform/ui/team_ui_snapshot_store.h` | `fallback` |
+| `modules/core_sys/include/platform/ui/timezone_profile.h` | `legacy` |
+| `modules/core_sys/include/power/battery_estimator.h` | `fallback` |
+| `modules/core_sys/src/platform/ui/timezone_profile.cpp` | `legacy` |
+| `modules/core_sys/src/power/battery_estimator.cpp` | `fallback` |
 | `modules/core_sys/src/sys/clock.cpp` | `fallback` |
+| `modules/core_sys/tests/test_battery_estimator.cpp` | `fallback` |
+| `modules/core_sys/tests/test_timezone_profile.cpp` | `legacy` |
 | `modules/core_team/README.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy`, `shim`, `transitional` |
 | `modules/core_team/include/team/usecase/team_service.h` | `adapter` |
 | `modules/core_team/src/usecase/team_service.cpp` | `adapter` |
+| `modules/core_team/tests/test_team_app_data_poll_order.cpp` | `adapter` |
 | `modules/product_composition/include/product_composition/target_profile.h` | `fallback` |
 | `modules/product_composition/include/product_composition/target_ux_binding.h` | `fallback` |
-| `modules/product_composition/src/target_build_binding.cpp` | `fallback` |
 | `modules/product_composition/src/target_profile.cpp` | `fallback` |
 | `modules/product_composition/src/target_ux_binding.cpp` | `compat`, `compatibility` |
 | `modules/product_composition/tests/test_target_profile.cpp` | `fallback` |
@@ -342,10 +377,10 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `modules/ui_ascii_runtime/tests/ascii_screen_host_adapter_smoke.cpp` | `adapter`, `smoke` |
 | `modules/ui_ascii_runtime/tests/test_ascii_descriptor_renderer.cpp` | `compat`, `compatibility` |
 | `modules/ui_chat_runtime/include/ui_chat_runtime/chat_delivery_action_port_adapter.h` | `adapter` |
-| `modules/ui_chat_runtime/include/ui_chat_runtime/chat_delivery_event_projection_adapter.h` | `adapter`, `legacy` |
+| `modules/ui_chat_runtime/include/ui_chat_runtime/chat_delivery_event_projection_adapter.h` | `adapter` |
 | `modules/ui_chat_runtime/include/ui_chat_runtime/chat_page_runtime_event_pump.h` | `adapter` |
 | `modules/ui_chat_runtime/src/chat_delivery_action_port_adapter.cpp` | `adapter` |
-| `modules/ui_chat_runtime/src/chat_delivery_event_projection_adapter.cpp` | `adapter`, `bridge`, `legacy` |
+| `modules/ui_chat_runtime/src/chat_delivery_event_projection_adapter.cpp` | `adapter` |
 | `modules/ui_chat_runtime/src/chat_page_runtime_event_pump.cpp` | `adapter` |
 | `modules/ui_chat_runtime/tests/test_chat_delivery_action_port_adapter.cpp` | `adapter` |
 | `modules/ui_chat_runtime/tests/test_chat_delivery_event_projection_adapter.cpp` | `adapter` |
@@ -373,14 +408,12 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `modules/ui_key_verification_runtime/tests/test_key_verification_runtime_adapters.cpp` | `adapter` |
 | `modules/ui_legacy_adapters/README.md` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy` |
 | `modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_action_bridge.h` | `adapter`, `bridge`, `deprecated`, `legacy` |
-| `modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_chat_delivery_event_bridge.h` | `adapter`, `bridge`, `deprecated`, `legacy` |
 | `modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_action_sink.h` | `adapter`, `deprecated`, `legacy` |
 | `modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_session.h` | `adapter`, `deprecated`, `legacy` |
 | `modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_key_verification_source.h` | `adapter`, `deprecated`, `legacy` |
 | `modules/ui_legacy_adapters/include/ui_legacy_adapters/legacy_map_overlay_source.h` | `adapter`, `deprecated`, `legacy` |
 | `modules/ui_legacy_adapters/library.json` | `adapter`, `legacy` |
 | `modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp` | `adapter`, `bridge`, `legacy` |
-| `modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge_legacy_alias.cpp` | `adapter`, `bridge`, `legacy` |
 | `modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp` | `adapter`, `legacy` |
 | `modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp` | `adapter`, `legacy` |
 | `modules/ui_lvgl_core/README.md` | `transitional` |
@@ -447,7 +480,6 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `modules/ui_shared/include/ui/presentation_sources/legacy_air_device_status_source.h` | `legacy` |
 | `modules/ui_shared/include/ui/presentation_sources/legacy_chat_action_sink.h` | `adapter`, `compat`, `compatibility`, `legacy` |
 | `modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_action_bridge.h` | `adapter`, `bridge`, `deprecated`, `legacy` |
-| `modules/ui_shared/include/ui/presentation_sources/legacy_chat_delivery_event_bridge.h` | `adapter`, `bridge`, `deprecated`, `legacy` |
 | `modules/ui_shared/include/ui/presentation_sources/legacy_gps_status_source.h` | `legacy` |
 | `modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_action_sink.h` | `deprecated`, `legacy` |
 | `modules/ui_shared/include/ui/presentation_sources/legacy_key_verification_session.h` | `adapter`, `deprecated`, `legacy` |
@@ -461,60 +493,77 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `modules/ui_shared/include/ui/presentation_sources/legacy_settings_source.h` | `legacy` |
 | `modules/ui_shared/include/ui/presentation_sources/team_chat_action_sink.h` | `adapter`, `legacy` |
 | `modules/ui_shared/include/ui/presentation_sources/team_chat_presentation_source.h` | `adapter` |
+| `modules/ui_shared/include/ui/presentation_sources/team_map_overlay_source.h` | `adapter` |
 | `modules/ui_shared/include/ui/screens/chat/chat_conversation_components.h` | `compat`, `compatibility` |
 | `modules/ui_shared/include/ui/screens/chat/chat_protocol_support.h` | `adapter` |
-| `modules/ui_shared/include/ui/screens/chat/chat_ui_controller.h` | `compat`, `compatibility`, `legacy` |
+| `modules/ui_shared/include/ui/screens/chat/chat_ui_controller.h` | `legacy` |
 | `modules/ui_shared/include/ui/screens/common/page_shell_fallback.h` | `fallback` |
+| `modules/ui_shared/include/ui/screens/contacts/contacts_team_snapshot_source.h` | `fallback` |
 | `modules/ui_shared/include/ui/screens/settings/settings_state.h` | `probe` |
-| `modules/ui_shared/include/ui/team_actions/legacy_team_action_bridge.h` | `adapter`, `bridge`, `legacy` |
+| `modules/ui_shared/include/ui/screens/team/team_page_activity_sink.h` | `adapter`, `fallback` |
+| `modules/ui_shared/include/ui/screens/team/team_page_deferred_dispatch.h` | `adapter` |
+| `modules/ui_shared/include/ui/screens/team/team_page_runtime_port.h` | `adapter` |
+| `modules/ui_shared/include/ui/team_actions/team_action_runtime_sink.h` | `adapter`, `compat`, `compatibility` |
+| `modules/ui_shared/include/ui/team_actions/team_runtime_adapters.h` | `adapter` |
+| `modules/ui_shared/include/ui/team_presence/team_presence_model.h` | `fallback` |
 | `modules/ui_shared/library.json` | `adapter`, `legacy` |
-| `modules/ui_shared/src/ui/components/air_status_footer.cpp` | `legacy` |
 | `modules/ui_shared/src/ui/components/two_pane_nav.cpp` | `adapter` |
-| `modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp` | `fallback`, `legacy`, `shim` |
-| `modules/ui_shared/src/ui/menu/dashboard/dashboard_gps_widget.cpp` | `legacy` |
-| `modules/ui_shared/src/ui/menu/dashboard/dashboard_mesh_widget.cpp` | `legacy` |
+| `modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp` | `fallback`, `legacy`, `probe`, `shim` |
 | `modules/ui_shared/src/ui/page/page_profile.cpp` | `fallback` |
-| `modules/ui_shared/src/ui/presentation_sources/chat_presentation_source.cpp` | `adapter`, `bridge`, `legacy` |
+| `modules/ui_shared/src/ui/presentation_sources/chat_presentation_source.cpp` | `adapter` |
 | `modules/ui_shared/src/ui/presentation_sources/legacy_air_device_status_source.cpp` | `legacy` |
-| `modules/ui_shared/src/ui/presentation_sources/legacy_chat_action_sink.cpp` | `adapter`, `legacy` |
+| `modules/ui_shared/src/ui/presentation_sources/legacy_chat_action_sink.cpp` | `legacy` |
 | `modules/ui_shared/src/ui/presentation_sources/legacy_gps_status_source.cpp` | `legacy` |
 | `modules/ui_shared/src/ui/presentation_sources/legacy_map_action_sink.cpp` | `legacy` |
 | `modules/ui_shared/src/ui/presentation_sources/legacy_map_presentation_source.cpp` | `legacy` |
-| `modules/ui_shared/src/ui/presentation_sources/legacy_mesh_status_source.cpp` | `bridge`, `legacy` |
+| `modules/ui_shared/src/ui/presentation_sources/legacy_mesh_status_source.cpp` | `legacy` |
 | `modules/ui_shared/src/ui/presentation_sources/legacy_settings_action_sink.cpp` | `legacy` |
 | `modules/ui_shared/src/ui/presentation_sources/legacy_settings_source.cpp` | `legacy` |
+| `modules/ui_shared/src/ui/presentation_sources/runtime_chat_action_sink.cpp` | `adapter` |
+| `modules/ui_shared/src/ui/presentation_sources/runtime_mesh_status_source.cpp` | `bridge` |
 | `modules/ui_shared/src/ui/screens/chat/chat_message_list_input.cpp` | `adapter` |
-| `modules/ui_shared/src/ui/screens/chat/chat_page_runtime.cpp` | `adapter`, `bridge`, `legacy` |
+| `modules/ui_shared/src/ui/screens/chat/chat_page_runtime.cpp` | `adapter` |
 | `modules/ui_shared/src/ui/screens/chat/chat_protocol_support.cpp` | `adapter` |
-| `modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp` | `adapter`, `legacy` |
+| `modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp` | `adapter` |
 | `modules/ui_shared/src/ui/screens/contacts/contacts_page_components.cpp` | `adapter`, `bridge`, `fallback` |
 | `modules/ui_shared/src/ui/screens/contacts/contacts_page_input.cpp` | `adapter` |
+| `modules/ui_shared/src/ui/screens/contacts/contacts_team_snapshot_source.cpp` | `fallback` |
 | `modules/ui_shared/src/ui/screens/energy_sweep/energy_sweep_page_shell.cpp` | `fallback` |
 | `modules/ui_shared/src/ui/screens/extensions/extensions_page_runtime.cpp` | `compat`, `compatibility` |
 | `modules/ui_shared/src/ui/screens/gnss/gnss_skyplot_page_runtime.cpp` | `fallback` |
 | `modules/ui_shared/src/ui/screens/gnss/gnss_skyplot_page_shell.cpp` | `fallback` |
-| `modules/ui_shared/src/ui/screens/gps/gps_page_runtime.cpp` | `legacy` |
+| `modules/ui_shared/src/ui/screens/gps/gps_page_runtime.cpp` | `fallback` |
 | `modules/ui_shared/src/ui/screens/gps/gps_page_shell.cpp` | `fallback` |
+| `modules/ui_shared/src/ui/screens/node_info/node_info_page_components.cpp` | `fallback` |
 | `modules/ui_shared/src/ui/screens/pc_link/pc_link_page_runtime.cpp` | `bridge` |
 | `modules/ui_shared/src/ui/screens/pc_link/pc_link_page_shell.cpp` | `fallback` |
 | `modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp` | `bridge`, `legacy`, `probe` |
 | `modules/ui_shared/src/ui/screens/settings/settings_page_input.cpp` | `adapter` |
 | `modules/ui_shared/src/ui/screens/sstv/sstv_page_shell.cpp` | `fallback` |
-| `modules/ui_shared/src/ui/screens/team/team_page_components.cpp` | `fallback` |
+| `modules/ui_shared/src/ui/screens/team/team_page_activity_adapters.cpp` | `adapter` |
+| `modules/ui_shared/src/ui/screens/team/team_page_activity_sink.cpp` | `fallback` |
+| `modules/ui_shared/src/ui/screens/team/team_page_components.cpp` | `adapter`, `fallback` |
+| `modules/ui_shared/src/ui/screens/team/team_page_deferred_dispatch_adapters.cpp` | `adapter` |
+| `modules/ui_shared/src/ui/screens/team/team_page_event_reducer.cpp` | `fallback` |
+| `modules/ui_shared/src/ui/screens/team/team_page_runtime_adapters.cpp` | `adapter` |
 | `modules/ui_shared/src/ui/screens/tracker/tracker_page_input.cpp` | `adapter` |
 | `modules/ui_shared/src/ui/screens/tracker/tracker_page_shell.cpp` | `fallback` |
 | `modules/ui_shared/src/ui/screens/usb/usb_page_shell.cpp` | `fallback` |
 | `modules/ui_shared/src/ui/screens/walkie_talkie/walkie_talkie_page_shell.cpp` | `fallback` |
-| `modules/ui_shared/src/ui/team_actions/legacy_team_action_bridge.cpp` | `bridge`, `legacy` |
-| `modules/ui_shared/src/ui/ui_status.cpp` | `legacy` |
-| `modules/ui_shared/tests/test_chat_presentation_source.cpp` | `adapter`, `bridge`, `legacy` |
+| `modules/ui_shared/src/ui/team_actions/team_runtime_adapters.cpp` | `adapter` |
+| `modules/ui_shared/src/ui/team_presence/team_presence_model.cpp` | `fallback` |
+| `modules/ui_shared/tests/test_chat_presentation_source.cpp` | `adapter`, `legacy` |
 | `modules/ui_shared/tests/test_legacy_map_presentation_adapters.cpp` | `adapter`, `legacy` |
-| `modules/ui_shared/tests/test_legacy_team_action_bridge.cpp` | `bridge`, `legacy` |
+| `modules/ui_shared/tests/test_team_page_key_request_action.cpp` | `fallback` |
+| `modules/ui_shared/tests/test_team_page_kick_confirm_action.cpp` | `fallback` |
+| `modules/ui_shared/tests/test_team_page_pairing_command_action.cpp` | `fallback` |
+| `modules/ui_shared/tests/test_team_presence_and_snapshot_codec.cpp` | `compat`, `compatibility` |
 | `platform/README.md` | `adapter` |
 | `platform/esp/arduino_audio_codec/README.md` | `legacy` |
 | `platform/esp/arduino_audio_codec/audio/codec/esp_codec.cpp` | `legacy` |
 | `platform/esp/arduino_audio_codec/audio/codec/platform/audio_codec_data_i2s.c` | `compat` |
 | `platform/esp/arduino_common/README.md` | `adapter` |
+| `platform/esp/arduino_common/include/app/app_context.h` | `adapter`, `bridge` |
 | `platform/esp/arduino_common/include/ble/app_phone_facade.h` | `bridge` |
 | `platform/esp/arduino_common/include/ble/meshcore_ble.h` | `adapter` |
 | `platform/esp/arduino_common/include/ble/meshtastic_ble.h` | `bridge` |
@@ -539,6 +588,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `platform/esp/arduino_common/library.json` | `adapter`, `legacy` |
 | `platform/esp/arduino_common/src/LV_Helper_v9.cpp` | `fallback` |
 | `platform/esp/arduino_common/src/app_config_store.cpp` | `compat`, `legacy`, `probe` |
+| `platform/esp/arduino_common/src/app_context.cpp` | `adapter`, `bridge`, `fallback` |
 | `platform/esp/arduino_common/src/app_context_platform_bindings.cpp` | `adapter`, `bridge`, `probe` |
 | `platform/esp/arduino_common/src/app_event_runtime_support.cpp` | `bridge`, `fallback` |
 | `platform/esp/arduino_common/src/app_runtime_bootstrap_support.cpp` | `adapter` |
@@ -553,7 +603,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `platform/esp/arduino_common/src/chat/infra/chat_event_bus_bridge.cpp` | `bridge` |
 | `platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_adapter.cpp` | `adapter`, `probe` |
 | `platform/esp/arduino_common/src/chat/infra/mesh_adapter_router.cpp` | `adapter` |
-| `platform/esp/arduino_common/src/chat/infra/meshcore/meshcore_adapter.cpp` | `adapter`, `fallback`, `legacy` |
+| `platform/esp/arduino_common/src/chat/infra/meshcore/meshcore_adapter.cpp` | `adapter`, `compat`, `fallback`, `legacy` |
 | `platform/esp/arduino_common/src/chat/infra/meshtastic/mt_adapter.cpp` | `adapter`, `bridge`, `compat`, `fallback`, `legacy` |
 | `platform/esp/arduino_common/src/chat/infra/protocol_factory.cpp` | `adapter` |
 | `platform/esp/arduino_common/src/chat/infra/rnode/rnode_adapter.cpp` | `adapter`, `compat` |
@@ -570,13 +620,13 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `platform/esp/arduino_common/src/mesh/esp_preferences_mesh_identity_store.cpp` | `legacy` |
 | `platform/esp/arduino_common/src/platform_ui_firmware_update_runtime.cpp` | `fallback` |
 | `platform/esp/arduino_common/src/platform_ui_hostlink_runtime.cpp` | `bridge` |
+| `platform/esp/arduino_common/src/platform_ui_settings_backup_runtime.cpp` | `fallback`, `probe` |
 | `platform/esp/arduino_common/src/rnode_kiss/rnode_kiss_service.cpp` | `adapter` |
 | `platform/esp/arduino_common/src/sstv/sstv_service.cpp` | `compat` |
 | `platform/esp/arduino_common/src/team/event/team_app_data_event_bus_bridge.cpp` | `bridge` |
-| `platform/esp/arduino_common/src/ui/assets/fonts/lv_font_noto_cjk_16_2bpp.c` | `fallback` |
-| `platform/esp/arduino_common/src/ui/runtime/pack_repository.cpp` | `compat`, `legacy` |
-| `platform/esp/arduino_common/src/ui/screens/gps/gps_page_map.cpp` | `fallback` |
+| `platform/esp/arduino_common/src/ui/runtime/pack_repository.cpp` | `compat`, `legacy`, `probe` |
 | `platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp` | `fallback` |
+| `platform/esp/arduino_common/src/ui_common.cpp` | `legacy` |
 | `platform/esp/arduino_common/src/walkie/walkie_service.cpp` | `fallback` |
 | `platform/esp/arduino_common/src/walkie_runtime.cpp` | `probe` |
 | `platform/esp/common/include/platform/esp/common/settings_store_impl.h` | `legacy` |
@@ -586,9 +636,11 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `platform/esp/idf_common/include/platform/esp/idf_common/sx126x_radio.h` | `probe` |
 | `platform/esp/idf_common/include/platform/esp/idf_common/tab5_codec_compat.h` | `compat` |
 | `platform/esp/idf_common/include/platform/esp/idf_common/ui_dispatcher.h` | `compat` |
+| `platform/esp/idf_common/src/c6_companion_runtime.cpp` | `probe` |
 | `platform/esp/idf_common/src/gps_runtime.cpp` | `probe` |
 | `platform/esp/idf_common/src/screen_sleep.cpp` | `bridge`, `legacy` |
 | `platform/esp/idf_common/src/sx126x_radio.cpp` | `fallback`, `probe` |
+| `platform/esp/idf_common/src/ui_common.cpp` | `legacy` |
 | `platform/esp/idf_common/src/walkie_runtime.cpp` | `compat` |
 | `platform/esp/idf_components/m5stack_tab5/CMakeLists.txt` | `deprecated` |
 | `platform/esp/idf_components/m5stack_tab5/m5stack_tab5.c` | `legacy`, `probe` |
@@ -616,7 +668,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `platform/linux/common/include/platform/linux/sx126x_radio.h` | `probe` |
 | `platform/linux/common/include/ui/shell_ui_runner.h` | `compat` |
 | `platform/linux/common/src/app/linux_app_facade.cpp` | `adapter` |
-| `platform/linux/common/src/app/linux_app_services.cpp` | `adapter`, `bridge`, `fallback` |
+| `platform/linux/common/src/app/linux_app_services.cpp` | `adapter`, `bridge`, `fallback`, `probe` |
 | `platform/linux/common/src/app/linux_demo_world.cpp` | `adapter` |
 | `platform/linux/common/src/chat/linux_noop_mesh_adapter.cpp` | `adapter` |
 | `platform/linux/common/src/chat/linux_raw_lora_mesh_adapter.cpp` | `adapter`, `fallback`, `legacy` |
@@ -629,12 +681,11 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `platform/linux/common/src/platform/ui/lora_runtime.cpp` | `fallback` |
 | `platform/linux/common/src/platform/ui/pack_repository_runtime.cpp` | `compat` |
 | `platform/linux/common/src/platform/ui/sstv_runtime.cpp` | `fallback` |
-| `platform/linux/common/src/platform/ui/time_runtime.cpp` | `fallback` |
+| `platform/linux/common/src/platform/ui/time_runtime.cpp` | `fallback`, `legacy` |
 | `platform/linux/common/src/platform/ui/walkie_runtime.cpp` | `fallback` |
 | `platform/linux/common/src/ui/gps_shared_compat.cpp` | `compat` |
 | `platform/linux/common/src/ui/localization.cpp` | `fallback` |
 | `platform/linux/common/src/ui/mt_protocol_air_compat.cpp` | `compat`, `compatibility` |
-| `platform/linux/common/src/ui/shared_ui_shell.cpp` | `adapter` |
 | `platform/linux/common/src/ui/shell_ui_runner.cpp` | `compat` |
 | `platform/linux/rpi/README.md` | `adapter` |
 | `platform/linux/rpi/src/platform/device/evdev_input.cpp` | `fallback` |
@@ -646,6 +697,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `platform/linux/uconsole/src/uconsole_hardware_probe.cpp` | `probe` |
 | `platform/linux/uconsole/src/uconsole_map_workspace_model.cpp` | `legacy`, `probe` |
 | `platform/linux/unoq/README.md` | `adapter` |
+| `platform/nrf52/README.md` | `adapter` |
 | `platform/nrf52/arduino_common/include/ble/app_phone_facade.h` | `bridge` |
 | `platform/nrf52/arduino_common/include/ble/meshtastic_ble.h` | `bridge` |
 | `platform/nrf52/arduino_common/include/ble/meshtastic_ble_observer_bridge.h` | `bridge` |
@@ -664,15 +716,18 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `platform/nrf52/arduino_common/src/chat/infra/meshtastic/meshtastic_radio_adapter.cpp` | `adapter`, `fallback`, `probe` |
 | `platform/nrf52/arduino_common/src/chat/infra/store/internal_fs_store.cpp` | `legacy` |
 | `platform/nrf52/arduino_common/src/device_identity.cpp` | `fallback` |
+| `platform/nrf52/arduino_common/src/platform_ui_time_runtime.cpp` | `legacy` |
 | `platform/nrf52/arduino_common/src/self_identity_bridge.cpp` | `bridge`, `fallback` |
 | `platform/nrf52/arduino_common/tools/gen_fusion_pixel_font.py` | `fallback` |
 | `platform/nrf52/arduino_common/tools/gen_scaled_fusion_pixel_font.py` | `fallback` |
+| `platform/nrf52/protocol/nrf52_protocol_factory.cpp` | `adapter` |
+| `platform/nrf52/protocol/nrf52_protocol_factory.h` | `adapter` |
+| `platform/nrf52/runtime/nrf52_runtime_apply_service.cpp` | `adapter` |
+| `platform/nrf52/runtime/nrf52_runtime_apply_service.h` | `adapter` |
 | `platform/shared/include/platform/shared/ble/app_config_phone_snapshot_bridge.h` | `bridge` |
 | `platform/shared/include/platform/shared/ble/meshtastic_phone_runtime_bridge.h` | `bridge` |
 | `platform/shared/include/platform/shared/ble/phone_ble_runtime.h` | `bridge` |
-| `platformio.ini` | `adapter`, `legacy` |
 | `scripts/check_platform_ui_boundaries.py` | `legacy`, `shim` |
-| `src/CMakeLists.txt` | `legacy` |
 | `tools/architecture/KNOWN_PRODUCT_ARCHITECTURE_VIOLATIONS.md` | `adapter`, `bridge`, `compat`, `compatibility`, `fallback`, `legacy`, `probe` |
 | `tools/architecture/check_all_target_architecture_ready.py` | `adapter`, `legacy`, `transitional` |
 | `tools/architecture/check_esp_idf_final_owner_extraction_ready.py` | `adapter`, `legacy`, `smoke` |
@@ -681,6 +736,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `tools/architecture/check_legacy_disposition_execution_ready.py` | `adapter`, `compat`, `legacy`, `smoke` |
 | `tools/architecture/check_no_intermediate_ui_layer_ready.py` | `adapter`, `deprecated`, `legacy`, `temporary`, `transitional` |
 | `tools/architecture/check_no_root_legacy_preflight_ready.py` | `compat`, `legacy` |
+| `tools/architecture/check_no_root_legacy_ready.py` | `legacy` |
 | `tools/architecture/check_phase10_primary_path_ready.py` | `fallback`, `smoke` |
 | `tools/architecture/check_phase11_renderer_consumption_ready.py` | `fallback`, `probe`, `smoke` |
 | `tools/architecture/check_phase45_ready.py` | `adapter`, `bridge`, `legacy`, `smoke` |
@@ -694,81 +750,84 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `tools/architecture/check_phase9_final_ready.py` | `adapter`, `bridge`, `compat`, `compatibility`, `deprecated`, `fallback`, `legacy` |
 | `tools/architecture/check_phase9_legacy_burndown_ready.py` | `adapter`, `bridge`, `compat`, `compatibility`, `deprecated`, `fallback`, `legacy` |
 | `tools/architecture/check_phase9_runtime_adoption_ready.py` | `adapter`, `bridge`, `compat`, `compatibility`, `fallback`, `legacy`, `probe`, `smoke` |
+| `tools/architecture/check_pio_real_env_restored.py` | `legacy` |
 | `tools/architecture/check_post_refactor_final_ready.py` | `adapter`, `bridge`, `compat`, `compatibility`, `deprecated`, `fallback`, `legacy`, `probe`, `shim` |
 | `tools/architecture/check_product_architecture_boundaries.py` | `adapter`, `legacy` |
+| `tools/architecture/check_real_target_regression_recovery_ready.py` | `legacy` |
 | `tools/architecture/check_target_architecture_foundation_ready.py` | `fallback` |
+| `tools/architecture/check_uconsole_real_ui_restored.py` | `probe` |
 | `tools/architecture/phase5_renderer_legacy_baseline.json` | `bridge`, `compat`, `compatibility`, `legacy` |
 | `tools/architecture/phase6_composition_legacy_baseline.json` | `adapter`, `bridge`, `compat`, `compatibility`, `legacy` |
 | `tools/architecture/scan_legacy_compat_temp_surfaces.py` | `adapter`, `archive-only`, `bridge`, `compat`, `compatibility`, `deprecated`, `fallback`, `legacy`, `probe`, `shim`, `smoke`, `temporary`, `transitional` |
 | `tools/generate_binfont_with_lv_font_conv.py` | `fallback`, `temporary` |
 | `tools/validate_locale_packs.py` | `bridge`, `fallback` |
-| `variants/gat562_mesh_evb_pro/envs/gat562_mesh_evb_pro.ini` | `legacy` |
+| `variants/gat562_mesh_evb_pro/envs/gat562_mesh_evb_pro.ini` | `adapter`, `legacy` |
 
 ## Sample Matches By Keyword
 
 ### `legacy`
 
+- `.github/workflows/linux-simulator.yml:14`: - "modules/ui_legacy_adapters/**"
+- `.github/workflows/linux-simulator.yml:30`: - "modules/ui_legacy_adapters/**"
 - `CMakeLists.txt:21`: # `builds/esp_idf` owns ESP-IDF target defaults after root legacy removal.
 - `apps/esp32_lvgl/APP_SHELL_MANIFEST.md:79`: - `esp_idf_legacy_implementation_adapter.cpp`
 - `apps/esp32_lvgl/README.md:76`: `esp_idf_legacy_implementation_adapter.cpp`.
-- `apps/linux_sim_shell/CMakeLists.txt:98`: add_executable(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:99`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:100`: target_include_directories(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:102`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `apps/linux_sim_shell/CMakeLists.txt:106`: target_compile_features(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:108`: add_test(NAME trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:109`: COMMAND trailmate_legacy_chat_delivery_action_bridge_alias_smoke)
-- `apps/linux_sim_shell/CMakeLists.txt:111`: add_executable(trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:112`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:113`: target_include_directories(trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:115`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `apps/linux_sim_shell/CMakeLists.txt:118`: target_compile_features(trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:120`: add_test(NAME trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:121`: COMMAND trailmate_legacy_chat_delivery_event_bridge_alias_smoke)
-- `apps/linux_sim_shell/CMakeLists.txt:140`: add_executable(trailmate_legacy_key_verification_adapters_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:141`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:142`: target_include_directories(trailmate_legacy_key_verification_adapters_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:144`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `apps/linux_sim_shell/CMakeLists.txt:148`: target_compile_features(trailmate_legacy_key_verification_adapters_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:150`: add_test(NAME trailmate_legacy_key_verification_adapters_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:151`: COMMAND trailmate_legacy_key_verification_adapters_alias_smoke)
-- `apps/linux_sim_shell/CMakeLists.txt:167`: add_executable(trailmate_legacy_map_overlay_source_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:168`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:169`: target_include_directories(trailmate_legacy_map_overlay_source_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:171`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `apps/linux_sim_shell/CMakeLists.txt:174`: target_compile_features(trailmate_legacy_map_overlay_source_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:176`: add_test(NAME trailmate_legacy_map_overlay_source_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:177`: COMMAND trailmate_legacy_map_overlay_source_alias_smoke)
+- `apps/esp32_lvgl/library.json:33`: "-I../../modules/ui_legacy_adapters/include",
+- `apps/esp32_lvgl/library.json:63`: "name": "ui_legacy_adapters"
+- `apps/linux_cardputer_zero/CMakeLists.txt:86`: NO_LEGACY_PRESENTATION)
+- `apps/linux_cardputer_zero/README.md:49`: this target opts out of legacy chat-delivery and legacy presentation source
+- `apps/linux_cardputer_zero/README.md:50`: compilation, and the Linux CMake helper withholds the legacy-adapter include
+- `apps/linux_cardputer_zero/README.md:51`: root for this target, so `Legacy*` compatibility adapters cannot become the
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:86`: assert(contains(cardputer_cmake, "NO_LEGACY_PRESENTATION"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:87`: assert(not_contains(cardputer_cmake, "ui_legacy_adapters"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:142`: "set(TRAIL_MATE_LINUX_UI_LEGACY_PRESENTATION_SOURCES");
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:143`: assert(not_contains(common_includes, "TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:144`: assert(not_contains(shell_includes, "TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:145`: assert(contains(linux_sources_cmake, "if(NOT ARG_NO_LEGACY_PRESENTATION)"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:226`: assert(not_contains(gps_runtime, "legacy_gps_status_source"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:227`: assert(not_contains(gps_runtime, "LegacyMapPresentationSource"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:228`: assert(not_contains(gps_runtime, "LegacyMapActionSink"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:271`: assert(not_contains(chat_runtime, "LegacyChatActionSink"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:272`: assert(not_contains(chat_runtime, "legacy_chat_action_sink"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:277`: assert(not_contains(settings_components, "legacy_settings_source"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:278`: assert(not_contains(settings_components, "legacy_settings_action_sink"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_packaging_smoke.cpp:90`: assert(contains(cmake, "NO_LEGACY_PRESENTATION"));
+- `apps/linux_sim_shell/CMakeLists.txt:100`: add_executable(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:101`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp")
+- `apps/linux_sim_shell/CMakeLists.txt:102`: target_include_directories(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:104`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
+- `apps/linux_sim_shell/CMakeLists.txt:108`: target_compile_features(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:110`: add_test(NAME trailmate_legacy_chat_delivery_action_bridge_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:111`: COMMAND trailmate_legacy_chat_delivery_action_bridge_alias_smoke)
+- `apps/linux_sim_shell/CMakeLists.txt:125`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/legacy_chat_action_sink.cpp"
+- `apps/linux_sim_shell/CMakeLists.txt:245`: add_executable(trailmate_legacy_key_verification_adapters_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:246`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp")
+- `apps/linux_sim_shell/CMakeLists.txt:247`: target_include_directories(trailmate_legacy_key_verification_adapters_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:249`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
+- `apps/linux_sim_shell/CMakeLists.txt:253`: target_compile_features(trailmate_legacy_key_verification_adapters_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:255`: add_test(NAME trailmate_legacy_key_verification_adapters_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:256`: COMMAND trailmate_legacy_key_verification_adapters_alias_smoke)
+- `apps/linux_sim_shell/CMakeLists.txt:272`: add_executable(trailmate_legacy_map_overlay_source_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:273`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp")
+- `apps/linux_sim_shell/CMakeLists.txt:274`: target_include_directories(trailmate_legacy_map_overlay_source_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:276`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
+- `apps/linux_sim_shell/CMakeLists.txt:279`: target_compile_features(trailmate_legacy_map_overlay_source_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:281`: add_test(NAME trailmate_legacy_map_overlay_source_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:282`: COMMAND trailmate_legacy_map_overlay_source_alias_smoke)
+- `apps/linux_uconsole_gtk/CMakeLists.txt:84`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/legacy_gps_status_source.cpp"
+- `apps/linux_uconsole_gtk/CMakeLists.txt:85`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/legacy_map_presentation_source.cpp"
+- `apps/linux_uconsole_gtk/CMakeLists.txt:86`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/legacy_map_action_sink.cpp"
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp:26`: // Phase 10 fallback containment: the legacy hardcoded GTK page registry
-- `boards/tdeck/src/tdeck_board.cpp:36`: constexpr uint8_t kGpsProfileUbxLegacy = 2;
-- `boards/tdeck/src/tdeck_board.cpp:253`: const bool explicit_ubx_profile = gps_init_config_.profile == kGpsProfileUbxLegacy ||
-- `boards/tdeck/src/tdeck_board.cpp:256`: const char* selected_source = "legacy_default";
-- `boards/tdeck/src/tdeck_board.cpp:283`: else if (gps_init_config_.profile == kGpsProfileUbxLegacy ||
-- `boards/tdeck/src/tdeck_board.cpp:288`: selected_source = gps_init_config_.profile == kGpsProfileUbxLegacy ? "ubx_legacy" : "ubx_modern";
-- `builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake:4`: # legacy component root while component registration is being moved. The source
-- `builds/esp_idf/README.md:32`: Root legacy source has been removed. Any future physical ESP-IDF
-- `cmake/TrailMateLinuxSources.cmake:102`: set(TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT
-- `cmake/TrailMateLinuxSources.cmake:103`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `cmake/TrailMateLinuxSources.cmake:105`: set(TRAIL_MATE_UI_LEGACY_ADAPTERS_SRC_ROOT
-- `cmake/TrailMateLinuxSources.cmake:106`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/src"
-- `cmake/TrailMateLinuxSources.cmake:187`: "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/legacy_chat_delivery_bridge.cpp"
-- `cmake/TrailMateLinuxSources.cmake:188`: "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/legacy_chat_send_result_mapper.cpp"
-- `cmake/TrailMateLinuxSources.cmake:319`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/legacy_air_device_status_source.cpp"
-- `cmake/TrailMateLinuxSources.cmake:320`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/legacy_gps_status_source.cpp"
-- `cmake/TrailMateLinuxSources.cmake:321`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/legacy_mesh_status_source.cpp"
-- `cmake/TrailMateLinuxSources.cmake:322`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/legacy_settings_source.cpp"
-- `cmake/TrailMateLinuxSources.cmake:323`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/legacy_settings_action_sink.cpp"
-- `cmake/TrailMateLinuxSources.cmake:325`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/legacy_chat_action_sink.cpp"
-- `cmake/TrailMateLinuxSources.cmake:332`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/team_actions/legacy_team_action_bridge.cpp"
-- `cmake/TrailMateLinuxSources.cmake:340`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/legacy_map_presentation_source.cpp"
-- `cmake/TrailMateLinuxSources.cmake:341`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/legacy_map_action_sink.cpp"
-- `cmake/TrailMateLinuxSources.cmake:485`: "${TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT}"
-- `cmake/TrailMateLinuxSources.cmake:502`: "${TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT}"
-- `docs/REPOSITORY_MIGRATION_PLAN.md:161`: - `event_bus` stays in the legacy tree until its chat/team coupling is split apart
-- `docs/REPOSITORY_MIGRATION_PLAN.md:170`: - selected legacy use-case headers now include module paths directly
-- `docs/REPOSITORY_MIGRATION_PLAN.md:171`: - legacy headers under `src/chat/domain` and `src/chat/ports` remain as compatibility shims
-- `docs/REPOSITORY_MIGRATION_PLAN.md:183`: - `chat_service.cpp` remains in the legacy tree for now because it still publishes through legacy `event_bus`
-- ... 2888 additional matches omitted
+- `apps/linux_uconsole_gtk/src/targets/uconsole_main.cpp:11`: #if defined(TRAIL_MATE_UCONSOLE_HAS_LEGACY_SURFACE)
+- `apps/linux_uconsole_gtk/src/targets/uconsole_main.cpp:139`: #if defined(TRAIL_MATE_UCONSOLE_HAS_LEGACY_SURFACE)
+- `apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp:263`: meshtastic_User legacy_user = meshtastic_User_init_default;
+- `apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp:264`: std::strncpy(legacy_user.short_name,
+- `apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp:266`: sizeof(legacy_user.short_name) - 1);
+- `apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp:267`: std::strncpy(legacy_user.long_name,
+- `apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp:268`: "Legacy User",
+- `apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp:269`: sizeof(legacy_user.long_name) - 1);
+- `apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp:270`: legacy_user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
+- ... 2788 additional matches omitted
 
 ### `compat`
 
@@ -776,22 +835,23 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `README.md:93`: ### 📡 LoRa Chat (Meshtastic + MeshCore Compatible)
 - `README.md:103`: * Compatible with the **Meshtastic public mesh** (LongFast/PSK)
 - `README.md:104`: * Compatible with **MeshCore networks** (native MeshCore packet path)
-- `README.md:488`: ### 📝 LoRa Messaging (Meshtastic + MeshCore Compatible)
-- `README.md:491`: - Meshtastic public mesh compatibility (LongFast/PSK)
-- `README.md:492`: - MeshCore network compatibility (native MeshCore packet path)
-- `README.md:554`: - The relay edition already covers Meshtastic-compatible LoRa RX/TX, Text / NodeInfo / Position handling, and the corresponding persistence paths
-- `README.md:562`: ### 🔗 Enhanced Meshtastic Compatibility
-- `README.md:568`: * [x] **Meshcore network compatibility** (selectable adapter)
-- `README.md:620`: **Trail-mate** is an offline-first field communication and situational-awareness system built around low-power radio devices (LoRa and compatible sub-GHz radios).
-- `apps/README.md:21`: that may be reached only through declared compatibility adapters.
+- `README.md:487`: ### 📝 LoRa Messaging (Meshtastic + MeshCore Compatible)
+- `README.md:490`: - Meshtastic public mesh compatibility (LongFast/PSK)
+- `README.md:491`: - MeshCore network compatibility (native MeshCore packet path)
+- `README.md:553`: - The relay edition already covers Meshtastic-compatible LoRa RX/TX, Text / NodeInfo / Position handling, and the corresponding persistence paths
+- `README.md:561`: ### 🔗 Enhanced Meshtastic Compatibility
+- `README.md:567`: * [x] **Meshcore network compatibility** (selectable adapter)
+- `README.md:622`: **Trail-mate** is an offline-first field communication and situational-awareness system built around low-power radio devices (LoRa and compatible sub-GHz radios).
+- `apps/README.md:25`: that may be reached only through declared compatibility adapters.
 - `apps/esp32_lvgl/APP_SHELL_MANIFEST.md:60`: - `compatibility`
 - `apps/esp32_lvgl/README.md:59`: default_ux_pack_id = compatibility
 - `apps/esp32_lvgl/src/esp32_lvgl_app_shell.h:18`: const char* default_ux_pack_id = "compatibility";
 - `apps/esp32_lvgl/tests/esp32_lvgl_app_shell_smoke.cpp:19`: assert(std::strcmp(config.default_ux_pack_id, "compatibility") == 0);
 - `apps/esp32_lvgl/tests/esp32_lvgl_app_shell_smoke.cpp:20`: assert(std::strcmp(shell.activeUxPackId(), "compatibility") == 0);
-- `apps/linux_sim_shell/CMakeLists.txt:192`: compatibility_screen_factory
-- `apps/linux_sim_shell/CMakeLists.txt:201`: compatibility_menu_binding
-- `apps/linux_sim_shell/CMakeLists.txt:202`: compatibility_ux_pack
+- `apps/linux_cardputer_zero/README.md:51`: root for this target, so `Legacy*` compatibility adapters cannot become the
+- `apps/linux_sim_shell/CMakeLists.txt:723`: compatibility_screen_factory
+- `apps/linux_sim_shell/CMakeLists.txt:732`: compatibility_menu_binding
+- `apps/linux_sim_shell/CMakeLists.txt:734`: compatibility_ux_pack
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry_adoption_probe.cpp:3`: #include "ui_lvgl_ux_packs/runtime/compatibility_screen_factory.h"
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry_adoption_probe.cpp:23`: ui_lvgl_ux::CompatibilityScreenFactory screen_factory;
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:3`: #include "ui_lvgl_ux_packs/runtime/compatibility_screen_factory.h"
@@ -818,46 +878,46 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `boards/tab5/src/codec_compat.cpp:319`: void CodecCompat::setGain(float db_value)
 - `boards/tab5/src/codec_compat.cpp:336`: float CodecCompat::getGain() const
 - `boards/tab5/src/codec_compat.cpp:341`: bool CodecCompat::ready() const
-- `boards/tdeck/src/tdeck_board.cpp:660`: // Prefer a practical default speed; fallback ladder inside sd_utils preserves compatibility.
-- `cmake/TrailMateLinuxSources.cmake:293`: "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/ui/gps_shared_compat.cpp"
-- `cmake/TrailMateLinuxSources.cmake:294`: "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/ui/mt_protocol_air_compat.cpp"
-- `cmake/TrailMateLinuxSources.cmake:383`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/runtime/compatibility_screen_factory.cpp"
-- `cmake/TrailMateLinuxSources.cmake:387`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/packs/compatibility_ux_pack.cpp"
+- `builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake:72`: "${TRAILMATE_ROOT}/modules/ui_lvgl_ux_packs/src/packs/compatibility_ux_pack.cpp"
+- `builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake:105`: "${TRAILMATE_ROOT}/boards/tab5/src/codec_compat.cpp"
+- `cmake/TrailMateLinuxSources.cmake:299`: "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/ui/gps_shared_compat.cpp"
+- `cmake/TrailMateLinuxSources.cmake:300`: "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/ui/mt_protocol_air_compat.cpp"
+- `cmake/TrailMateLinuxSources.cmake:398`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/runtime/compatibility_screen_factory.cpp"
+- `cmake/TrailMateLinuxSources.cmake:403`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/packs/compatibility_ux_pack.cpp"
 - `cmake/TrailMateUxPacks.cmake:24`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/runtime/compatibility_screen_factory.cpp"
-- `cmake/TrailMateUxPacks.cmake:34`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/compatibility_ux_pack.cpp"
+- `cmake/TrailMateUxPacks.cmake:35`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/compatibility_ux_pack.cpp"
 - `docs/ARCHITECTURE.md:463`: Temporary wrappers, forwarding headers, and compatibility glue are acceptable if they reduce migration risk.
 - `docs/Best Practices/GAT562_STATUS_SNAPSHOT.md:30`: - GAT562 app facade still implements Team-related interface slots only as compatibility stubs returning `nullptr`, so Team capability stays structurally excluded instead of half-en
-- `docs/REPOSITORY_MIGRATION_PLAN.md:7`: For the current UI/shared-page migration and ESP-IDF compatibility work,
-- `docs/REPOSITORY_MIGRATION_PLAN.md:171`: - legacy headers under `src/chat/domain` and `src/chat/ports` remain as compatibility shims
-- `docs/REPOSITORY_MIGRATION_PLAN.md:202`: - legacy include path `src/chat/infra/store/ram_store.h` remains as a compatibility shim
-- `docs/REPOSITORY_MIGRATION_PLAN.md:214`: - legacy headers remain as compatibility shims
-- `docs/REPOSITORY_MIGRATION_PLAN.md:271`: - legacy headers under `src/team/domain`, `src/team/ports`, and `src/team/protocol` remain as compatibility shims
-- ... 615 additional matches omitted
+- `docs/C6.md:563`: 1. Meshtastic-compatible BLE facade
+- `docs/C6.md:564`: 2. MeshCore-compatible BLE facade
+- `docs/C6.md:1217`: 1. C6 暴露 Meshtastic-compatible BLE profile。
+- ... 645 additional matches omitted
 
 ### `compatibility`
 
-- `README.md:491`: - Meshtastic public mesh compatibility (LongFast/PSK)
-- `README.md:492`: - MeshCore network compatibility (native MeshCore packet path)
-- `README.md:562`: ### 🔗 Enhanced Meshtastic Compatibility
-- `README.md:568`: * [x] **Meshcore network compatibility** (selectable adapter)
-- `apps/README.md:21`: that may be reached only through declared compatibility adapters.
+- `README.md:490`: - Meshtastic public mesh compatibility (LongFast/PSK)
+- `README.md:491`: - MeshCore network compatibility (native MeshCore packet path)
+- `README.md:561`: ### 🔗 Enhanced Meshtastic Compatibility
+- `README.md:567`: * [x] **Meshcore network compatibility** (selectable adapter)
+- `apps/README.md:25`: that may be reached only through declared compatibility adapters.
 - `apps/esp32_lvgl/APP_SHELL_MANIFEST.md:60`: - `compatibility`
 - `apps/esp32_lvgl/README.md:59`: default_ux_pack_id = compatibility
 - `apps/esp32_lvgl/src/esp32_lvgl_app_shell.h:18`: const char* default_ux_pack_id = "compatibility";
 - `apps/esp32_lvgl/tests/esp32_lvgl_app_shell_smoke.cpp:19`: assert(std::strcmp(config.default_ux_pack_id, "compatibility") == 0);
 - `apps/esp32_lvgl/tests/esp32_lvgl_app_shell_smoke.cpp:20`: assert(std::strcmp(shell.activeUxPackId(), "compatibility") == 0);
-- `apps/linux_sim_shell/CMakeLists.txt:192`: compatibility_screen_factory
-- `apps/linux_sim_shell/CMakeLists.txt:201`: compatibility_menu_binding
-- `apps/linux_sim_shell/CMakeLists.txt:202`: compatibility_ux_pack
+- `apps/linux_cardputer_zero/README.md:51`: root for this target, so `Legacy*` compatibility adapters cannot become the
+- `apps/linux_sim_shell/CMakeLists.txt:723`: compatibility_screen_factory
+- `apps/linux_sim_shell/CMakeLists.txt:732`: compatibility_menu_binding
+- `apps/linux_sim_shell/CMakeLists.txt:734`: compatibility_ux_pack
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry_adoption_probe.cpp:3`: #include "ui_lvgl_ux_packs/runtime/compatibility_screen_factory.h"
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry_adoption_probe.cpp:23`: ui_lvgl_ux::CompatibilityScreenFactory screen_factory;
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:3`: #include "ui_lvgl_ux_packs/runtime/compatibility_screen_factory.h"
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:24`: ui_lvgl_ux::CompatibilityScreenFactory screen_factory;
-- `boards/tdeck/src/tdeck_board.cpp:660`: // Prefer a practical default speed; fallback ladder inside sd_utils preserves compatibility.
-- `cmake/TrailMateLinuxSources.cmake:383`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/runtime/compatibility_screen_factory.cpp"
-- `cmake/TrailMateLinuxSources.cmake:387`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/packs/compatibility_ux_pack.cpp"
+- `builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake:72`: "${TRAILMATE_ROOT}/modules/ui_lvgl_ux_packs/src/packs/compatibility_ux_pack.cpp"
+- `cmake/TrailMateLinuxSources.cmake:398`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/runtime/compatibility_screen_factory.cpp"
+- `cmake/TrailMateLinuxSources.cmake:403`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/packs/compatibility_ux_pack.cpp"
 - `cmake/TrailMateUxPacks.cmake:24`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/runtime/compatibility_screen_factory.cpp"
-- `cmake/TrailMateUxPacks.cmake:34`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/compatibility_ux_pack.cpp"
+- `cmake/TrailMateUxPacks.cmake:35`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/compatibility_ux_pack.cpp"
 - `docs/ARCHITECTURE.md:463`: Temporary wrappers, forwarding headers, and compatibility glue are acceptable if they reduce migration risk.
 - `docs/Best Practices/GAT562_STATUS_SNAPSHOT.md:30`: - GAT562 app facade still implements Team-related interface slots only as compatibility stubs returning `nullptr`, so Team capability stays structurally excluded instead of half-en
 - `docs/REPOSITORY_MIGRATION_PLAN.md:7`: For the current UI/shared-page migration and ESP-IDF compatibility work,
@@ -873,6 +933,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/REPOSITORY_MIGRATION_PLAN.md:920`: - the legacy compatibility header `src/app/app_event_runtime.h` has been removed as well
 - `docs/REPOSITORY_MIGRATION_PLAN.md:1173`: - The temporary `src/sys/clock.h` and `src/sys/ringbuf.h` compatibility shims have been removed, so `sys/clock.h` and `sys/ringbuf.h` now resolve directly from `modules/core_sys`.
 - `docs/REPOSITORY_MIGRATION_PLAN.md:1283`: - Dropped the now-unused `apps/esp_pio/include/apps/esp_pio/*` compatibility headers for those menu-shell internals, keeping `apps/esp_pio` focused on entry/runtime composition and
+- `docs/archive/REMOVED_LEGACY_ROOTS.md:30`: - Continue deleting remaining compatibility aliases and fallback-only paths by
 - `docs/audits/APPCONTEXT_LEGACY_BRIDGE_AUDIT.md:16`: `AppContext` currently acts as a legacy service locator and compatibility
 - `docs/audits/APPCONTEXT_LEGACY_BRIDGE_AUDIT.md:22`: - ChatService compatibility
 - `docs/audits/APPCONTEXT_LEGACY_BRIDGE_AUDIT.md:23`: - ContactService compatibility
@@ -894,13 +955,11 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/audits/APP_SHELL_CURRENT_STATE_AUDIT.md:83`: Compatibility adapter targets and descriptors:
 - `docs/audits/APP_SHELL_CURRENT_STATE_AUDIT.md:125`: - legacy compatibility adapters have explicit exit conditions
 - `docs/audits/BUILD_ENTRYPOINT_NORMALIZATION_AUDIT.md:36`: | `legacy/app_implementations/esp_pio` | PlatformIO/Arduino compatibility entrypoint and legacy ESP app glue | split into `builds/pio_nrf52` for nRF52 authority and possible legacy
-- `docs/audits/BUILD_ENTRYPOINT_NORMALIZATION_AUDIT.md:42`: | root `platformio.ini` | current PlatformIO build authority for Arduino/PIO targets | invoked or wrapped by `builds/pio_nrf52` and any legacy PIO compatibility entrypoint | Enviro
-- `docs/audits/BUILD_ENTRYPOINT_NORMALIZATION_AUDIT.md:55`: build entrypoint and compatibility shell.
-- ... 467 additional matches omitted
+- ... 476 additional matches omitted
 
 ### `transitional`
 
-- `apps/README.md:20`: `removed root linux_uconsole` are transitional historical roots
+- `apps/README.md:24`: `removed root linux_uconsole` are transitional historical roots
 - `apps/linux_sim_shell/APP_SHELL_MANIFEST.md:21`: Current transitional path:
 - `apps/linux_sim_shell/APP_SHELL_MANIFEST.md:72`: Transitional implementation root:
 - `apps/linux_sim_shell/README.md:9`: the transitional simulator implementation root.
@@ -908,7 +967,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `apps/linux_uconsole_gtk/APP_SHELL_MANIFEST.md:72`: Transitional implementation root:
 - `apps/linux_uconsole_gtk/README.md:10`: the transitional GTK implementation root.
 - `builds/README.md:29`: Current transitional paths remain valid until wrapper migration is proven:
-- `builds/linux_cmake/README.md:18`: Current transitional implementation roots:
+- `builds/linux_cmake/README.md:29`: Current transitional implementation roots:
 - `builds/pio_nrf52/README.md:11`: Current transitional path may be:
 - `builds/pio_nrf52/platformio.ini:12`: ; The existing root/platform app environments remain transitional until the
 - `docs/REPOSITORY_MIGRATION_PLAN.md:1245`: - this means `apps/esp_idf_tab5` should be treated as a transitional shell, not the final IDF app-layer shape
@@ -953,14 +1012,14 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:567`: - transitional descriptors
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:605`: - transitional descriptors
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:640`: - transitional descriptors
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1160`: - `docs/audits/TRANSITIONAL_BUILD_ENTRYPOINTS.md`
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1205`: - app shell docs, build docs, legacy root checker, and transitional wrappers.
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1322`: - `docs/audits/TRANSITIONAL_BUILD_ENTRYPOINTS.md`
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1383`: ## Surface: legacy/transitional/compatibility/shim/fallback names
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1386`: - legacy/transitional/compatibility/shim/fallback names
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1389`: - filenames and APIs containing `legacy`, `transitional`, `compatibility`,
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1129`: - `docs/audits/TRANSITIONAL_BUILD_ENTRYPOINTS.md`
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1174`: - app shell docs, build docs, legacy root checker, and transitional wrappers.
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1291`: - `docs/audits/TRANSITIONAL_BUILD_ENTRYPOINTS.md`
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1352`: ## Surface: legacy/transitional/compatibility/shim/fallback names
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1355`: - legacy/transitional/compatibility/shim/fallback names
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1358`: - filenames and APIs containing `legacy`, `transitional`, `compatibility`,
 - `docs/audits/PHASE12_FALLBACK_DELETION_READINESS.md:20`: | `legacy/app_implementations` roots | historical implementation roots only | final app shells plus stable modules | No | roots still provide transitional build/runtime compatibili
-- ... 93 additional matches omitted
+- ... 87 additional matches omitted
 
 ### `temporary`
 
@@ -979,15 +1038,15 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/audits/CHAT_UI_CONTROLLER_BURNDOWN_AUDIT.md:9`: ## A. Temporary UI Responsibilities
 - `docs/audits/GPS_CONSUMER_BOUNDARY_AUDIT.md:38`: are accepted only as temporary inputs to the Phase 5 replacement plan.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1`: # Legacy / Compatibility / Temporary Surface Inventory
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1397`: - mixed: some names describe real final adapters, some describe temporary debt,
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1472`: - No as a long-term module name; yes only as temporary compatibility
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1366`: - mixed: some names describe real final adapters, some describe temporary debt,
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1441`: - No as a long-term module name; yes only as temporary compatibility
 - `docs/audits/PHASE9_RUNTIME_ENTRY_ADOPTION_REPORT.md:89`: app-shell probes may adapt the selected UX pack into a temporary
-- `docs/audits/REPOSITORY_LAYOUT_CURRENT_STATE_AUDIT.md:206`: - temporary bridge to burn down
-- `docs/audits/TEAM_RICH_PAYLOAD_PRESENTATION_AUDIT.md:62`: ## Temporary Text Projection
+- `docs/audits/REPOSITORY_LAYOUT_CURRENT_STATE_AUDIT.md:209`: - temporary bridge to burn down
 - `docs/audits/UI_SHARED_SPLIT_AUDIT.md:163`: | Temporary bridge | exists only to strangle old caller/source | keep `Legacy*` until removal path is active |
 - `docs/devices/lilygo-tdeck-gps-uart-lora-noise.md:398`: A temporary `4.7k` to `10k` pull-up to `3V3` is a useful diagnostic. If LoRa
-- `docs/specification/APP_SHELL_ARCHITECTURE_SPEC.md:124`: `AppShellCompatibilityAdapter` is a temporary adapter from current historical
+- `docs/specification/C6_COMPANION_ARCHITECTURE_SPEC.md:73`: Any temporary key material needed by BLE or ESP-NOW must be supplied by P4 and
 - `docs/specification/TEAM_RICH_PAYLOAD_PRESENTATION_SPEC.md:73`: The projector may read legacy payload strings after decode, but it must not allocate temporary strings while projecting display rows.
+- `docs/targets/cardputerzero-adaptation.md:285`: temporary arm64 container. HTTP mirrors are acceptable for this bootstrap path
 - `platform/esp/idf_components/sensor_bmi270/src/bmi2.c:63`: /*! @name Structure to store temporary accelerometer/gyroscope values */
 - `platform/esp/idf_components/sensor_bmi270/src/bmi2.c:1904`: /* Variable to define temporary buffer */
 - `platform/esp/idf_components/sensor_bmi270/src/bmi2.c:5301`: /* Store the data in a temporary structure */
@@ -1001,18 +1060,27 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `platform/esp/idf_components/sensor_bmi270/src/bmi2_ois.c:108`: /* Variable to define temporary buffer */
 - `tools/architecture/check_no_intermediate_ui_layer_ready.py:14`: "temporary_ui_profile",
 - `tools/architecture/check_no_intermediate_ui_layer_ready.py:24`: "temporary_ui_profile",
-- `tools/architecture/check_phase7_runtime_ownership_ready.py:499`: "Temporary UI Responsibilities",
+- `tools/architecture/check_phase7_runtime_ownership_ready.py:553`: "Temporary UI Responsibilities",
 - `tools/architecture/scan_legacy_compat_temp_surfaces.py:18`: "temporary",
 - `tools/architecture/scan_legacy_compat_temp_surfaces.py:140`: "# Legacy / Compatibility / Temporary Surface Scan",
 - `tools/generate_binfont_with_lv_font_conv.py:119`: with tempfile.TemporaryDirectory(prefix="lv-font-conv-") as temp_dir_name:
 
 ### `fallback`
 
-- `apps/linux_sim_shell/CMakeLists.txt:70`: add_executable(trailmate_linux_sim_runtime_entry_fallback_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:71`: tests/linux_sim_runtime_entry_fallback_smoke.cpp)
-- `apps/linux_sim_shell/CMakeLists.txt:72`: target_link_libraries(trailmate_linux_sim_runtime_entry_fallback_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:74`: add_test(NAME trailmate_linux_sim_runtime_entry_fallback_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:75`: COMMAND trailmate_linux_sim_runtime_entry_fallback_smoke)
+- `apps/linux_cardputer_zero/APP_SHELL_MANIFEST.md:15`: only as an explicit device-debug fallback, not as the APPLaunch product path.
+- `apps/linux_cardputer_zero/APP_SHELL_MANIFEST.md:63`: - own explicit framebuffer/evdev debug fallback details for this device
+- `apps/linux_cardputer_zero/APP_SHELL_MANIFEST.md:101`: an explicit framebuffer debug fallback. Real Wayland session startup,
+- `apps/linux_cardputer_zero/APP_SHELL_MANIFEST.md:102`: Fcitx5/notifyd session validation, hardware framebuffer debug fallback, and
+- `apps/linux_cardputer_zero/CMakeLists.txt:20`: "Build the Cardputer Zero Wayland device executable and fbdev fallback."
+- `apps/linux_cardputer_zero/README.md:10`: entry and a separate explicit fbdev/evdev debug fallback; hardware validation
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:239`: assert(contains(linux_gps_runtime, "FallbackMode::LiveOnly"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:297`: assert(contains(linux_services, "platform::ui::gps::set_fallback_mode"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:298`: assert(contains(linux_services, "FallbackMode::LiveOnly"));
+- `apps/linux_sim_shell/CMakeLists.txt:72`: add_executable(trailmate_linux_sim_runtime_entry_fallback_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:73`: tests/linux_sim_runtime_entry_fallback_smoke.cpp)
+- `apps/linux_sim_shell/CMakeLists.txt:74`: target_link_libraries(trailmate_linux_sim_runtime_entry_fallback_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:76`: add_test(NAME trailmate_linux_sim_runtime_entry_fallback_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:77`: COMMAND trailmate_linux_sim_runtime_entry_fallback_smoke)
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry.cpp:12`: fallback_ = false;
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry.cpp:16`: runtime_source_ = LinuxSimRuntimeSource::HardcodedFallback;
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry.cpp:17`: fallback_ = true;
@@ -1059,16 +1127,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `apps/linux_sim_shell/tests/linux_sim_runtime_renderer_smoke.cpp:30`: assert(!fallback_entry.start(invalid_shell));
 - `apps/linux_sim_shell/tests/linux_sim_runtime_renderer_smoke.cpp:31`: assert(fallback_entry.fallbackUsed());
 - `apps/linux_sim_shell/tests/linux_sim_runtime_renderer_smoke.cpp:32`: assert(!renderer.render(fallback_entry));
-- `apps/linux_sim_shell/tests/linux_sim_runtime_renderer_smoke.cpp:33`: assert(renderer.fallbackUsed());
-- `apps/linux_sim_shell/tests/linux_sim_runtime_renderer_smoke.cpp:34`: assert(renderer.usedFallback());
-- `apps/linux_uconsole_gtk/CMakeLists.txt:70`: add_executable(trailmate_linux_uconsole_gtk_page_registry_fallback_smoke
-- `apps/linux_uconsole_gtk/CMakeLists.txt:71`: tests/linux_uconsole_gtk_page_registry_fallback_smoke.cpp)
-- `apps/linux_uconsole_gtk/CMakeLists.txt:72`: target_link_libraries(trailmate_linux_uconsole_gtk_page_registry_fallback_smoke
-- `apps/linux_uconsole_gtk/CMakeLists.txt:74`: add_test(NAME trailmate_linux_uconsole_gtk_page_registry_fallback_smoke
-- `apps/linux_uconsole_gtk/CMakeLists.txt:75`: COMMAND trailmate_linux_uconsole_gtk_page_registry_fallback_smoke)
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp:14`: fallback_ = false;
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp:18`: registry_source_ = LinuxUConsoleGtkPageRegistrySource::HardcodedFallback;
-- ... 725 additional matches omitted
+- ... 820 additional matches omitted
 
 ### `shim`
 
@@ -1088,39 +1147,40 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:703`: ## Surface: ui_shared compatibility shims
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:706`: - compatibility shims
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:712`: - `docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md`
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1383`: ## Surface: legacy/transitional/compatibility/shim/fallback names
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1386`: - legacy/transitional/compatibility/shim/fallback names
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1390`: `compat`, `shim`, `fallback`, `adapter`, `bridge`, `probe`, or `smoke` across
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1420`: - compatibility shims
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1455`: - compatibility shims
-- `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md:31`: compatibility shims with checker coverage.
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1352`: ## Surface: legacy/transitional/compatibility/shim/fallback names
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1355`: - legacy/transitional/compatibility/shim/fallback names
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1359`: `compat`, `shim`, `fallback`, `adapter`, `bridge`, `probe`, or `smoke` across
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1389`: - compatibility shims
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1424`: - compatibility shims
+- `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md:30`: compatibility shims with checker coverage.
 - `docs/audits/PHASE12_FALLBACK_DELETION_READINESS.md:19`: | `ui_shared` forwarding shims | deprecated forwarding shims only | stable runtime module headers | No | they protect old include paths while downstream references burn down | no p
+- `docs/audits/RELEASE_0_1_28_ALPHA_FIX_AUDIT.md:48`: compatibility shim was introduced to hide the MeshCore breakage. Remaining
+- `docs/audits/RELEASE_0_1_28_ALPHA_FIX_AUDIT.md:54`: - `docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md`
 - `docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md`: path match
 - `docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md:1`: # UI Shared Compatibility Shim Policy
 - `docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md:16`: they are compatibility shims only.
-- `docs/audits/UI_SHARED_SPLIT_AUDIT.md:238`: `docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md`.
-- `docs/audits/UI_SHARED_SPLIT_AUDIT.md:241`: compatibility shims. Main code must include the authoritative new module paths:
+- `docs/audits/UI_SHARED_SPLIT_AUDIT.md:240`: `docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md`.
+- `docs/audits/UI_SHARED_SPLIT_AUDIT.md:243`: compatibility shims. Main code must include the authoritative new module paths:
 - `modules/core_gps/README.md:49`: - legacy shim headers under `src/gps/*` have been removed
 - `modules/core_team/README.md:50`: - legacy shim headers under `src/team/*` have been removed
 - `modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp:46`: constexpr const char* kFlashImePackRoot = "/fs/trailmate/packs/ime";
-- `modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp:1774`: kFlashPackRoot, kFlashFontPackRoot, kFlashImePackRoot, kFlashLocalePackRoot);
+- `modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp:1917`: kFlashPackRoot, kFlashFontPackRoot, kFlashImePackRoot, kFlashLocalePackRoot);
 - `scripts/check_platform_ui_boundaries.py:51`: name="legacy-platform-ui-shim-include",
 - `tools/architecture/check_legacy_compat_temp_inventory_ready.py:14`: "compatibility shims",
 - `tools/architecture/check_legacy_compat_temp_inventory_ready.py:26`: "legacy/transitional/compatibility/shim/fallback names",
 - `tools/architecture/check_legacy_compat_temp_inventory_ready.py:44`: "ui_shared compatibility shims",
 - `tools/architecture/check_phase8_layout_ready.py:50`: "docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md",
-- `tools/architecture/check_phase8_layout_ready.py:404`: "UI_SHARED_COMPATIBILITY_SHIM_POLICY.md",
-- `tools/architecture/check_phase8_layout_ready.py:413`: "docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md",
-- `tools/architecture/check_phase8_layout_ready.py:416`: "compatibility shims only",
-- `tools/architecture/check_phase8_layout_ready.py:437`: "ui_shared compatibility shim policy",
+- `tools/architecture/check_phase8_layout_ready.py:402`: "UI_SHARED_COMPATIBILITY_SHIM_POLICY.md",
+- `tools/architecture/check_phase8_layout_ready.py:411`: "docs/audits/UI_SHARED_COMPATIBILITY_SHIM_POLICY.md",
+- `tools/architecture/check_phase8_layout_ready.py:414`: "compatibility shims only",
+- `tools/architecture/check_phase8_layout_ready.py:435`: "ui_shared compatibility shim policy",
 - `tools/architecture/check_post_refactor_final_ready.py:188`: "`ui_shared` forwarding shims",
 - `tools/architecture/scan_legacy_compat_temp_surfaces.py:20`: "shim",
 
 ### `deprecated`
 
-- `docs/audits/CHAT_LEGACY_DELIVERY_BURN_DOWN_AUDIT.md:23`: | Legacy UI bridge headers | Downstream source compatibility only | deprecated forwarding aliases; no implementation ownership |
-- `docs/audits/CHAT_LEGACY_DELIVERY_BURN_DOWN_AUDIT.md:35`: | Migration decision | main runtime code includes `ui_chat_runtime/chat_delivery_action_port_adapter.h`; the old header is a deprecated alias only |
-- `docs/audits/CHAT_LEGACY_DELIVERY_BURN_DOWN_AUDIT.md:56`: | Migration decision | main runtime code includes `ui_chat_runtime/chat_delivery_event_projection_adapter.h`; the old header is a deprecated alias only |
+- `docs/audits/CHAT_LEGACY_DELIVERY_BURN_DOWN_AUDIT.md:27`: | Legacy UI bridge headers | Downstream source compatibility only | action bridge remains a deprecated forwarding alias; event bridge is deleted |
+- `docs/audits/CHAT_LEGACY_DELIVERY_BURN_DOWN_AUDIT.md:39`: | Migration decision | main runtime code includes `ui_chat_runtime/chat_delivery_action_port_adapter.h`; the old header is a deprecated alias only |
 - `docs/audits/KEY_VERIFICATION_MAP_OVERLAY_LEGACY_BURN_DOWN_AUDIT.md:8`: owners and leave old `Legacy*` headers as deprecated compatibility aliases only.
 - `docs/audits/KEY_VERIFICATION_MAP_OVERLAY_LEGACY_BURN_DOWN_AUDIT.md:19`: | Current implementation source | none; deprecated alias only |
 - `docs/audits/KEY_VERIFICATION_MAP_OVERLAY_LEGACY_BURN_DOWN_AUDIT.md:21`: | Current callers | deprecated alias headers and `test_legacy_key_verification_adapters_legacy_alias.cpp` only |
@@ -1131,17 +1191,16 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/audits/KEY_VERIFICATION_MAP_OVERLAY_LEGACY_BURN_DOWN_AUDIT.md:85`: - deprecated alias headers under `modules/ui_legacy_adapters/include`
 - `docs/audits/KEY_VERIFICATION_MAP_OVERLAY_LEGACY_BURN_DOWN_AUDIT.md:86`: - deprecated alias headers under `modules/ui_shared/include/ui/presentation_sources`
 - `docs/audits/KEY_VERIFICATION_MAP_OVERLAY_LEGACY_BURN_DOWN_AUDIT.md:104`: - deprecated forwarding aliases
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:19`: | `LegacyChatDeliveryEventBridge` | `ChatDeliveryEventProjectionAdapter` / `IChatDeliveryEventPort` / `ChatDeliveryEventProjector` | no main runtime callers; deprecated alias heade
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:20`: | `LegacyChatDeliveryActionBridge` | `ChatDeliveryActionPortAdapter` / `IChatDeliveryActionPort` | no main runtime callers; deprecated alias headers and legacy alias tests only | r
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:22`: | `LegacyKeyVerificationSource` | `KeyVerificationPresentationSource` / `IKeyVerificationPresentationSource` in `modules/ui_key_verification_runtime` | no main runtime callers; dep
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:23`: | `LegacyKeyVerificationActionSink` | `KeyVerificationActionSink` / `IKeyVerificationActionSink` in `modules/ui_key_verification_runtime` | no main runtime callers; deprecated alia
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:34`: | `Map overlay current/team marker projection` | `MapOverlaySnapshotSource` / `MapOverlayProjectionAdapter` / `MapOverlayProjector` in `modules/ui_map_runtime` | no main runtime ca
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:46`: | Chat delivery legacy bridge pair | `modules/ui_chat_runtime` formal ports and adapters | no main runtime callers; `ui_legacy_adapters` and `ui_shared` headers are deprecated alia
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:47`: | Key verification legacy source/sink/session | `modules/ui_key_verification_runtime` stable `KeyVerificationPresentationSource`, `KeyVerificationActionSink`, and `KeyVerificationS
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:48`: | Map overlay legacy source | `modules/ui_map_runtime` stable snapshot source and projection adapter | no main runtime callers; `ui_legacy_adapters` and `ui_shared` headers are dep
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:75`: - Chat delivery legacy bridge pair: main runtime callers removed; deprecated
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:79`: deprecated aliases only; stable owner is `KeyVerificationPresentationSource`,
-- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:81`: - Map overlay legacy source: main runtime callers removed; deprecated aliases
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:19`: | `LegacyChatDeliveryActionBridge` | `ChatDeliveryActionPortAdapter` / `IChatDeliveryActionPort` | no main runtime callers; deprecated alias headers and legacy alias tests only | r
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:21`: | `LegacyKeyVerificationSource` | `KeyVerificationPresentationSource` / `IKeyVerificationPresentationSource` in `modules/ui_key_verification_runtime` | no main runtime callers; dep
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:22`: | `LegacyKeyVerificationActionSink` | `KeyVerificationActionSink` / `IKeyVerificationActionSink` in `modules/ui_key_verification_runtime` | no main runtime callers; deprecated alia
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:43`: | `Map overlay current/team marker projection` | `MapOverlaySnapshotSource` / `MapOverlayProjectionAdapter` / `MapOverlayProjector` in `modules/ui_map_runtime` | no main runtime ca
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:55`: | Chat delivery legacy bridge pair | `modules/ui_chat_runtime` formal ports and adapters | no main runtime callers; `ui_legacy_adapters` and `ui_shared` headers are deprecated alia
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:56`: | Key verification legacy source/sink/session | `modules/ui_key_verification_runtime` stable `KeyVerificationPresentationSource`, `KeyVerificationActionSink`, and `KeyVerificationS
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:57`: | Map overlay legacy source | `modules/ui_map_runtime` stable snapshot source and projection adapter | no main runtime callers; `ui_legacy_adapters` and `ui_shared` headers are dep
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:93`: - Chat delivery legacy bridge pair: main runtime callers removed; deprecated
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:97`: deprecated aliases only; stable owner is `KeyVerificationPresentationSource`,
+- `docs/audits/LEGACY_BURNDOWN_REGISTER.md:99`: - Map overlay legacy source: main runtime callers removed; deprecated aliases
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:18`: - deprecated aliases
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:38`: - Keep as Deprecated Alias Temporarily
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:731`: - Keep as Deprecated Alias Temporarily.
@@ -1149,39 +1208,43 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:754`: - deprecated alias to `ui_chat_runtime::ChatDeliveryActionPortAdapter`.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:763`: - Keep as Deprecated Alias Temporarily.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:774`: - deprecated aliases
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:785`: - deprecated alias to `ui_chat_runtime::ChatDeliveryEventProjectionAdapter`.
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:794`: - Keep as Deprecated Alias Temporarily.
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:805`: - deprecated aliases
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:816`: - deprecated alias to
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:785`: - deprecated alias to
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:795`: - Keep as Deprecated Alias Temporarily.
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:806`: - deprecated aliases
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:817`: - deprecated alias to `ui_key_verification_runtime::KeyVerificationActionSink`.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:826`: - Keep as Deprecated Alias Temporarily.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:837`: - deprecated aliases
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:848`: - deprecated alias to `ui_key_verification_runtime::KeyVerificationActionSink`.
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:857`: - Keep as Deprecated Alias Temporarily.
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:868`: - deprecated aliases
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:879`: - deprecated alias to
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:848`: - deprecated alias to
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:858`: - Keep as Deprecated Alias Temporarily.
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:869`: - deprecated aliases
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:880`: - deprecated alias to `ui::map_overlay::MapOverlaySnapshotSource`.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:889`: - Keep as Deprecated Alias Temporarily.
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:900`: - deprecated aliases
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:911`: - deprecated alias to `ui::map_overlay::MapOverlaySnapshotSource`.
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:920`: - Keep as Deprecated Alias Temporarily.
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1320`: - `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md`
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1465`: - deprecated alias tests
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1479`: - Keep as Deprecated Alias Temporarily.
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1289`: - `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md`
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1434`: - deprecated alias tests
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1448`: - Keep as Deprecated Alias Temporarily.
 - `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md`: path match
 - `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md:1`: # Phase 12 Deprecated Alias Cleanup Plan
 - `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md:5`: Phase 9 burned selected `Legacy*` surfaces down to deprecated aliases. Phase 12
-- `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md:21`: - Main code must not include deprecated alias headers.
-- `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md:22`: - Compatibility tests may include deprecated alias headers.
-- `docs/audits/PHASE12_FALLBACK_DELETION_READINESS.md:16`: | Chat legacy alias headers | deprecated alias only | `ChatDeliveryActionPortAdapter`, `ChatDeliveryEventProjectionAdapter` | No | compatibility alias tests and possible downstream
+- `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md:20`: - Main code must not include deprecated alias headers.
+- `docs/audits/PHASE12_DEPRECATED_ALIAS_CLEANUP_PLAN.md:21`: - Compatibility tests may include deprecated alias headers.
+- `docs/audits/PHASE12_FALLBACK_DELETION_READINESS.md:16`: | Chat legacy alias headers | deprecated alias only | `ChatDeliveryActionPortAdapter` | No | action compatibility alias tests and possible downstream includes still define the dele
 - `docs/audits/PHASE12_FALLBACK_DELETION_READINESS.md:17`: | KeyVerification legacy alias headers | deprecated alias only | `KeyVerificationPresentationSource`, `KeyVerificationActionSink`, `KeyVerificationSessionAdapter` | No | compatibil
 - `docs/audits/PHASE12_FALLBACK_DELETION_READINESS.md:18`: | MapOverlay legacy alias header | deprecated alias only | `MapOverlaySnapshotSource`, `MapOverlayProjectionAdapter` | No | compatibility alias tests and possible downstream includ
 - `docs/audits/PHASE12_FALLBACK_DELETION_READINESS.md:19`: | `ui_shared` forwarding shims | deprecated forwarding shims only | stable runtime module headers | No | they protect old include paths while downstream references burn down | no p
 - `docs/audits/PHASE12_FALLBACK_DELETION_READINESS.md:35`: No fallback or deprecated alias is deleted in Phase 12. Phase 12 records
 - `docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md:13`: | Chat LegacyDelivery bridges | deprecated alias headers in `modules/ui_legacy_adapters` and `modules/ui_shared` | downstream compatibility include paths may still exist outside ma
 - `docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md:14`: | KeyVerification legacy source/sink | deprecated alias headers in `modules/ui_legacy_adapters` and `modules/ui_shared` | downstream compatibility include paths may still exist out
-- ... 100 additional matches omitted
+- `docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md:15`: | MapOverlay legacy source | deprecated alias headers in `modules/ui_legacy_adapters` and `modules/ui_shared` | downstream compatibility include paths may still exist outside main
+- `docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md:29`: - Chat LegacyDelivery bridges: main runtime callers removed; deprecated aliases
+- `docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md:31`: - KeyVerification legacy source/sink: main runtime callers removed; deprecated
+- `docs/audits/PHASE9_FALLBACK_CONTAINMENT_LEDGER.md:33`: - MapOverlay legacy source: main runtime callers removed; deprecated aliases
+- `docs/audits/PHASE9_FINAL_READINESS_REPORT.md:38`: | ChatDelivery | main runtime callers removed; burned down to formal adapters | `ChatDeliveryActionPortAdapter`, `ChatDeliveryEventProjectionAdapter`, `IChatDeliveryActionPort`, `I
+- ... 91 additional matches omitted
 
 ### `archive-only`
 
+- `docs/archive/REMOVED_LEGACY_ROOTS.md:156`: - The legacy-local root had been reduced to archive-only and is now removed.
+- `docs/archive/REMOVED_LEGACY_ROOTS.md:183`: - The legacy-local root had been reduced to archive-only and is now removed
 - `docs/audits/LEGACY_APP_IMPLEMENTATION_ROOT_BURN_DOWN_AUDIT.md:149`: - Current purpose: archive-only historical simulator implementation root.
 - `docs/audits/LEGACY_APP_IMPLEMENTATION_ROOT_BURN_DOWN_AUDIT.md:158`: CMake file is archive-only.
 - `docs/audits/LEGACY_APP_IMPLEMENTATION_ROOT_BURN_DOWN_AUDIT.md:162`: - Runtime ownership status: archive-only root. Phase 9-11 runtime entry
@@ -1197,9 +1260,9 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:301`: - docs and checkers recognize it as archive-only.
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:306`: - archive-only historical uConsole GTK source, packaging files, scripts, and
 - `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:486`: - low; it is archive-only but still enforced by legacy root checker.
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1033`: - archive-only roots
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1071`: - archive-only roots
-- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1126`: - keeps old build ownership alive or documents archive-only local roots.
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1002`: - archive-only roots
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1040`: - archive-only roots
+- `docs/audits/LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md:1095`: - keeps old build ownership alive or documents archive-only local roots.
 - `docs/audits/LEGACY_LINUX_APP_ADAPTER_BURN_DOWN_AUDIT.md:19`: none. `legacy/app_implementations/linux_sim/CMakeLists.txt` is archive-only.
 - `docs/audits/LEGACY_LINUX_APP_ADAPTER_BURN_DOWN_AUDIT.md:47`: archive-only. `apps/linux_uconsole_gtk/CMakeLists.txt` no longer compiles this
 - `docs/audits/LEGACY_LINUX_APP_ADAPTER_BURN_DOWN_AUDIT.md:66`: legacy-local compatibility only; archive-only.
@@ -1215,94 +1278,98 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `tools/architecture/check_legacy_app_roots_burndown_ready.py:275`: "archive-only",
 - `tools/architecture/check_legacy_app_roots_burndown_ready.py:296`: "archive-only",
 - `tools/architecture/check_legacy_compat_temp_inventory_ready.py:18`: "archive-only roots",
-- `tools/architecture/check_phase8_layout_ready.py:1621`: "archive-only",
-- `tools/architecture/check_phase8_layout_ready.py:1630`: "archive-only",
+- `tools/architecture/check_phase8_layout_ready.py:1619`: "archive-only",
+- `tools/architecture/check_phase8_layout_ready.py:1628`: "archive-only",
 - `tools/architecture/scan_legacy_compat_temp_surfaces.py:22`: "archive-only",
 
 ### `adapter`
 
 - `.github/PULL_REQUEST_TEMPLATE.md:23`: - [ ] Radio adapters do not own direct message, PKI, peer key, or contact policy.
-- `README.md:568`: * [x] **Meshcore network compatibility** (selectable adapter)
+- `.github/workflows/linux-simulator.yml:14`: - "modules/ui_legacy_adapters/**"
+- `.github/workflows/linux-simulator.yml:30`: - "modules/ui_legacy_adapters/**"
+- `README.md:567`: * [x] **Meshcore network compatibility** (selectable adapter)
 - `apps/README.md:9`: - selecting platform adapters
-- `apps/README.md:21`: that may be reached only through declared compatibility adapters.
+- `apps/README.md:25`: that may be reached only through declared compatibility adapters.
 - `apps/esp32_lvgl/APP_SHELL_MANIFEST.md:79`: - `esp_idf_legacy_implementation_adapter.cpp`
 - `apps/esp32_lvgl/README.md:76`: `esp_idf_legacy_implementation_adapter.cpp`.
+- `apps/esp32_lvgl/library.json:29`: "-I../../modules/chat_presentation_adapters/include",
+- `apps/esp32_lvgl/library.json:33`: "-I../../modules/ui_legacy_adapters/include",
+- `apps/esp32_lvgl/library.json:51`: "name": "chat_presentation_adapters"
+- `apps/esp32_lvgl/library.json:63`: "name": "ui_legacy_adapters"
+- `apps/linux_cardputer_zero/README.md:50`: compilation, and the Linux CMake helper withholds the legacy-adapter include
+- `apps/linux_cardputer_zero/README.md:51`: root for this target, so `Legacy*` compatibility adapters cannot become the
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:87`: assert(not_contains(cardputer_cmake, "ui_legacy_adapters"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:143`: assert(not_contains(common_includes, "TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:144`: assert(not_contains(shell_includes, "TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:300`: assert(contains(linux_services, "impl_->tickMeshAdapter();"));
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:346`: repo_root / "platform/linux/common/include/chat/linux_raw_lora_mesh_adapter.h");
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:348`: repo_root / "platform/linux/common/src/chat/linux_raw_lora_mesh_adapter.cpp");
 - `apps/linux_sim_shell/CMakeLists.txt:22`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_ascii_runtime/src/ascii_menu_runtime_adapter.cpp"
 - `apps/linux_sim_shell/CMakeLists.txt:23`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_ascii_runtime/src/ascii_screen_host_adapter.cpp"
-- `apps/linux_sim_shell/CMakeLists.txt:99`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:102`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `apps/linux_sim_shell/CMakeLists.txt:112`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:115`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `apps/linux_sim_shell/CMakeLists.txt:123`: add_executable(trailmate_key_verification_runtime_adapters_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:124`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_key_verification_runtime/tests/test_key_verification_runtime_adapters.cpp"
-- `apps/linux_sim_shell/CMakeLists.txt:129`: target_include_directories(trailmate_key_verification_runtime_adapters_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:135`: target_compile_features(trailmate_key_verification_runtime_adapters_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:137`: add_test(NAME trailmate_key_verification_runtime_adapters_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:138`: COMMAND trailmate_key_verification_runtime_adapters_smoke)
-- `apps/linux_sim_shell/CMakeLists.txt:140`: add_executable(trailmate_legacy_key_verification_adapters_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:141`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:142`: target_include_directories(trailmate_legacy_key_verification_adapters_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:144`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `apps/linux_sim_shell/CMakeLists.txt:148`: target_compile_features(trailmate_legacy_key_verification_adapters_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:150`: add_test(NAME trailmate_legacy_key_verification_adapters_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:151`: COMMAND trailmate_legacy_key_verification_adapters_alias_smoke)
-- `apps/linux_sim_shell/CMakeLists.txt:156`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/src/map_overlay_projection_adapter.cpp"
-- `apps/linux_sim_shell/CMakeLists.txt:168`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:171`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `apps/linux_sim_shell/CMakeLists.txt:189`: ux_screen_menu_adapter
-- `apps/linux_sim_shell/CMakeLists.txt:191`: lvgl_menu_runtime_adapter
-- `apps/linux_sim_shell/CMakeLists.txt:193`: lvgl_screen_host_adapter
-- `apps/linux_uconsole_gtk/CMakeLists.txt:22`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_gtk_runtime/src/gtk_menu_runtime_adapter.cpp"
-- `apps/linux_uconsole_gtk/CMakeLists.txt:23`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_gtk_runtime/src/gtk_screen_host_adapter.cpp"
-- `boards/tab5/README.md:3`: Board-owned home for Tab5 support and board-specific ESP adapters.
-- `boards/tdeck/README.md:8`: - own T-Deck-specific ESP adapter glue under `boards/tdeck/platform_esp_board_runtime.h`
-- `boards/tlora_pager/README.md:8`: - own T-LoRa Pager-specific ESP adapter glue under `boards/tlora_pager/platform_esp_board_runtime.h`
-- `boards/twatchs3/README.md:8`: - own T-Watch S3-specific ESP adapter glue under `boards/twatchs3/platform_esp_board_runtime.h`
-- `builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake:21`: "${TRAILMATE_ROOT}/platform/esp/radio/meshtastic_radio_adapter.cpp")
-- `cmake/TrailMateLinuxSources.cmake:102`: set(TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT
-- `cmake/TrailMateLinuxSources.cmake:103`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
-- `cmake/TrailMateLinuxSources.cmake:105`: set(TRAIL_MATE_UI_LEGACY_ADAPTERS_SRC_ROOT
-- `cmake/TrailMateLinuxSources.cmake:106`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/src"
-- `cmake/TrailMateLinuxSources.cmake:123`: set(TRAIL_MATE_CHAT_PRESENTATION_ADAPTERS_INCLUDE_ROOT
-- `cmake/TrailMateLinuxSources.cmake:124`: "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/include"
-- `cmake/TrailMateLinuxSources.cmake:126`: set(TRAIL_MATE_CHAT_PRESENTATION_ADAPTERS_SRC_ROOT
-- `cmake/TrailMateLinuxSources.cmake:127`: "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/src"
-- `cmake/TrailMateLinuxSources.cmake:145`: "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/chat/linux_noop_mesh_adapter.cpp"
-- `cmake/TrailMateLinuxSources.cmake:146`: "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/chat/linux_raw_lora_mesh_adapter.cpp"
-- `cmake/TrailMateLinuxSources.cmake:281`: # modules/chat_presentation_adapters
-- `cmake/TrailMateLinuxSources.cmake:282`: "${TRAIL_MATE_CHAT_PRESENTATION_ADAPTERS_SRC_ROOT}/chat_conversation_mapper.cpp"
-- `cmake/TrailMateLinuxSources.cmake:283`: "${TRAIL_MATE_CHAT_PRESENTATION_ADAPTERS_SRC_ROOT}/chat_message_mapper.cpp"
-- `cmake/TrailMateLinuxSources.cmake:326`: "${TRAIL_MATE_UI_CHAT_RUNTIME_SRC_ROOT}/chat_delivery_action_port_adapter.cpp"
-- `cmake/TrailMateLinuxSources.cmake:327`: "${TRAIL_MATE_UI_CHAT_RUNTIME_SRC_ROOT}/chat_delivery_event_projection_adapter.cpp"
-- `cmake/TrailMateLinuxSources.cmake:333`: "${TRAIL_MATE_UI_MAP_RUNTIME_SRC_ROOT}/map_overlay_projection_adapter.cpp"
-- `cmake/TrailMateLinuxSources.cmake:380`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/ux/ux_screen_menu_adapter.cpp"
-- `cmake/TrailMateLinuxSources.cmake:384`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/runtime/lvgl_menu_runtime_adapter.cpp"
-- `cmake/TrailMateLinuxSources.cmake:385`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/runtime/lvgl_screen_host_adapter.cpp"
-- `cmake/TrailMateLinuxSources.cmake:477`: "${TRAIL_MATE_CHAT_PRESENTATION_ADAPTERS_INCLUDE_ROOT}"
-- `cmake/TrailMateLinuxSources.cmake:485`: "${TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT}"
-- `cmake/TrailMateLinuxSources.cmake:502`: "${TRAIL_MATE_UI_LEGACY_ADAPTERS_INCLUDE_ROOT}"
-- ... 2678 additional matches omitted
+- `apps/linux_sim_shell/CMakeLists.txt:101`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp")
+- `apps/linux_sim_shell/CMakeLists.txt:104`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
+- `apps/linux_sim_shell/CMakeLists.txt:126`: "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/src/chat_conversation_mapper.cpp"
+- `apps/linux_sim_shell/CMakeLists.txt:127`: "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/src/chat_message_mapper.cpp")
+- `apps/linux_sim_shell/CMakeLists.txt:134`: "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/include")
+- `apps/linux_sim_shell/CMakeLists.txt:140`: add_executable(trailmate_mesh_adapter_router_core_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:141`: "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_adapter_router_core.cpp"
+- `apps/linux_sim_shell/CMakeLists.txt:142`: "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_adapter_router_core.cpp")
+- `apps/linux_sim_shell/CMakeLists.txt:143`: target_include_directories(trailmate_mesh_adapter_router_core_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:146`: target_compile_features(trailmate_mesh_adapter_router_core_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:148`: add_test(NAME trailmate_mesh_adapter_router_core_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:149`: COMMAND trailmate_mesh_adapter_router_core_smoke)
+- `apps/linux_sim_shell/CMakeLists.txt:228`: add_executable(trailmate_key_verification_runtime_adapters_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:229`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_key_verification_runtime/tests/test_key_verification_runtime_adapters.cpp"
+- `apps/linux_sim_shell/CMakeLists.txt:234`: target_include_directories(trailmate_key_verification_runtime_adapters_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:240`: target_compile_features(trailmate_key_verification_runtime_adapters_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:242`: add_test(NAME trailmate_key_verification_runtime_adapters_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:243`: COMMAND trailmate_key_verification_runtime_adapters_smoke)
+- `apps/linux_sim_shell/CMakeLists.txt:245`: add_executable(trailmate_legacy_key_verification_adapters_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:246`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_key_verification_adapters_legacy_alias.cpp")
+- `apps/linux_sim_shell/CMakeLists.txt:247`: target_include_directories(trailmate_legacy_key_verification_adapters_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:249`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
+- `apps/linux_sim_shell/CMakeLists.txt:253`: target_compile_features(trailmate_legacy_key_verification_adapters_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:255`: add_test(NAME trailmate_legacy_key_verification_adapters_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:256`: COMMAND trailmate_legacy_key_verification_adapters_alias_smoke)
+- `apps/linux_sim_shell/CMakeLists.txt:261`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/src/map_overlay_projection_adapter.cpp"
+- `apps/linux_sim_shell/CMakeLists.txt:273`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_map_overlay_source_legacy_alias.cpp")
+- `apps/linux_sim_shell/CMakeLists.txt:276`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/include"
+- `apps/linux_sim_shell/CMakeLists.txt:720`: ux_screen_menu_adapter
+- `apps/linux_sim_shell/CMakeLists.txt:722`: lvgl_menu_runtime_adapter
+- `apps/linux_sim_shell/CMakeLists.txt:724`: lvgl_screen_host_adapter
+- `apps/linux_uconsole_gtk/CMakeLists.txt:50`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_gtk_runtime/src/gtk_menu_runtime_adapter.cpp"
+- `apps/linux_uconsole_gtk/CMakeLists.txt:51`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_gtk_runtime/src/gtk_screen_host_adapter.cpp"
+- `apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp:3`: #include "chat/ports/i_mesh_adapter.h"
+- `apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp:17`: class FakeMeshAdapter final : public ::chat::IMeshAdapter
+- `apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp:110`: FakeMeshAdapter adapter;
+- `apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp:113`: adapter,
+- `apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp:120`: adapter.pushIncoming(0x1234ABCDU, 0x42U, "test");
+- ... 2922 additional matches omitted
 
 ### `bridge`
 
+- `apps/linux_cardputer_zero/APP_SHELL_MANIFEST.md:44`: - IME display bridge: `cardputerzero-ui` Fcitx5 UI addon exports panel state to
 - `apps/linux_sim_shell/CMakeLists.txt:24`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_ascii_runtime/src/ascii_screen_graph_bridge.cpp"
-- `apps/linux_sim_shell/CMakeLists.txt:98`: add_executable(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:99`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:100`: target_include_directories(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:106`: target_compile_features(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:108`: add_test(NAME trailmate_legacy_chat_delivery_action_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:109`: COMMAND trailmate_legacy_chat_delivery_action_bridge_alias_smoke)
-- `apps/linux_sim_shell/CMakeLists.txt:111`: add_executable(trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:112`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_event_bridge_legacy_alias.cpp")
-- `apps/linux_sim_shell/CMakeLists.txt:113`: target_include_directories(trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:118`: target_compile_features(trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:120`: add_test(NAME trailmate_legacy_chat_delivery_event_bridge_alias_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:121`: COMMAND trailmate_legacy_chat_delivery_event_bridge_alias_smoke)
-- `apps/linux_sim_shell/CMakeLists.txt:194`: lvgl_screen_graph_bridge
-- `apps/linux_uconsole_gtk/CMakeLists.txt:24`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_gtk_runtime/src/gtk_uconsole_screen_graph_bridge.cpp"
-- `cmake/TrailMateLinuxSources.cmake:187`: "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/legacy_chat_delivery_bridge.cpp"
-- `cmake/TrailMateLinuxSources.cmake:332`: "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/team_actions/legacy_team_action_bridge.cpp"
-- `cmake/TrailMateLinuxSources.cmake:386`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/runtime/lvgl_screen_graph_bridge.cpp"
+- `apps/linux_sim_shell/CMakeLists.txt:100`: add_executable(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:101`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_legacy_adapters/tests/test_legacy_chat_delivery_action_bridge_legacy_alias.cpp")
+- `apps/linux_sim_shell/CMakeLists.txt:102`: target_include_directories(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:108`: target_compile_features(trailmate_legacy_chat_delivery_action_bridge_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:110`: add_test(NAME trailmate_legacy_chat_delivery_action_bridge_alias_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:111`: COMMAND trailmate_legacy_chat_delivery_action_bridge_alias_smoke)
+- `apps/linux_sim_shell/CMakeLists.txt:725`: lvgl_screen_graph_bridge
+- `apps/linux_uconsole_gtk/CMakeLists.txt:52`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_gtk_runtime/src/gtk_uconsole_screen_graph_bridge.cpp"
+- `apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp:19`: #include "platform/nrf52/arduino_common/self_identity_bridge.h"
+- `apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp:161`: identity_bridge_ = std::unique_ptr<platform::nrf52::arduino_common::SelfIdentityBridge>(
+- `apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp:162`: new platform::nrf52::arduino_common::SelfIdentityBridge(config_,
+- `apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp:167`: identity_bridge_->setNodeId(resolved_self_node_id);
+- `apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp:278`: if (!identity_bridge_)
+- `apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp:284`: if (!identity_bridge_->readSelfIdentityInput(&input))
+- `apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp:294`: return identity_bridge_.get();
+- `apps/nrf52_node/src/nrf52_node_app_facade_runtime.h:35`: class SelfIdentityBridge;
+- `apps/nrf52_node/src/nrf52_node_app_facade_runtime.h:138`: std::unique_ptr<platform::nrf52::arduino_common::SelfIdentityBridge> identity_bridge_;
+- `apps/nrf52_node/src/nrf52_node_self_identity_provider.h:3`: #include "platform/nrf52/arduino_common/self_identity_bridge.h"
+- `apps/nrf52_node/src/nrf52_node_self_identity_provider.h:8`: using SelfIdentityProvider = platform::nrf52::arduino_common::SelfIdentityBridge;
+- `cmake/TrailMateLinuxSources.cmake:401`: "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/runtime/lvgl_screen_graph_bridge.cpp"
 - `cmake/TrailMateUxPacks.cmake:27`: "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/runtime/lvgl_screen_graph_bridge.cpp"
 - `docs/Best Practices/GAT562_IMPLEMENTATION_MAP.md:91`: - `platform/nrf52/arduino_common/include/platform/nrf52/arduino_common/self_identity_bridge.h`
 - `docs/Best Practices/GAT562_IMPLEMENTATION_MAP.md:92`: - `platform/nrf52/arduino_common/src/self_identity_bridge.cpp`
@@ -1323,6 +1390,17 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/Best Practices/new_hardware_adaptation_prompt.md:622`: - `platform` 层可以保留 runtime / bridge / adapter，但不能长期把同一板级真值分散在多个 runtime 里各自维护
 - `docs/Best Practices/new_hardware_adaptation_prompt.md:649`: - `platform/<chip>/` ɸõƽ̨ջ繲 `BleManager` BLE service radio transport ӿڡƽ̨ bridge
 - `docs/Best Practices/new_hardware_adaptation_prompt.md:652`: - `settings` ֵֻһ owner runtime Ҫȡʱͨ bridge/provider  BLE / radio / UI / host config á
+- `docs/C6.md:42`: - Wi-Fi data server or general TCP/UDP business bridge.
+- `docs/C6.md:200`: C6BleBridge.hpp
+- `docs/C6.md:201`: C6BleBridge.cpp
+- `docs/C6.md:202`: C6EspNowBridge.hpp
+- `docs/C6.md:203`: C6EspNowBridge.cpp
+- `docs/C6.md:204`: C6WifiBridge.hpp
+- `docs/C6.md:205`: C6WifiBridge.cpp
+- `docs/C6.md:641`: C6 只做 MeshCore companion transport bridge，不实现 MeshCore mesh 逻辑。
+- `docs/C6.md:789`: 可选实现 TCP/UDP bridge 或 HTTP diagnostic server。
+- `docs/C6.md:965`: ### 10.4 P4 新增 ESP-NOW Team Mode bridge
+- `docs/C6.md:970`: class TeamModeNearFieldBridge {
 - `docs/LINUX_ADAPTATION_GUIDE.md:212`: | 开发体验 | 较好 | Windows PowerShell、Linux shell、WSL validate、Docker dev container 脚本齐全 | 本地环境变量和 path bridge 还在演进；不同 host 的路径/权限策略需要统一文档化 |
 - `docs/LINUX_ADAPTATION_GUIDE.md:773`: - event bus bridge
 - `docs/REPOSITORY_MIGRATION_PLAN.md:193`: - a legacy bridge under `src/chat/infra` translates that hook back into `sys::EventBus` events for the current app shell
@@ -1330,34 +1408,24 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/REPOSITORY_MIGRATION_PLAN.md:393`: The legacy `hostlink_bridge_radio.cpp` still owns event-bus observation, runtime team-state tracking,
 - `docs/REPOSITORY_MIGRATION_PLAN.md:398`: The next `core_hostlink` slice extracts more bridge-side pure payload encoding:
 - `docs/REPOSITORY_MIGRATION_PLAN.md:406`: The legacy `hostlink_bridge_radio.cpp` still owns event-bus subscription, runtime team-state tracking,
-- `docs/REPOSITORY_MIGRATION_PLAN.md:734`: The Arduino ESP board bootstrap is no longer routed through one catch-all legacy bridge:
-- `docs/REPOSITORY_MIGRATION_PLAN.md:738`: - `src/platform_bridge/esp_arduino_legacy_bridge.*` is reduced to the remaining temporary `AppContext` / menu-layout accessors
-- `docs/REPOSITORY_MIGRATION_PLAN.md:740`: This shrinks the old bridge layer and moves board-instance ownership closer to the platform board shells where it belongs.
-- `docs/REPOSITORY_MIGRATION_PLAN.md:748`: - the legacy Arduino `src/main.cpp` and Arduino-only legacy bridge are now excluded from the IDF component source list
-- `docs/REPOSITORY_MIGRATION_PLAN.md:754`: The remaining Arduino PlatformIO `AppContext` bridge logic is no longer parked under `src/platform_bridge`:
-- `docs/REPOSITORY_MIGRATION_PLAN.md:758`: - the temporary `src/platform_bridge` layer can now be retired from the active PlatformIO shell path
-- `docs/REPOSITORY_MIGRATION_PLAN.md:820`: - `hostlink::bridge::on_event(...)` moved out of `AppContext` and into target-specific event runtime hooks
-- `docs/REPOSITORY_MIGRATION_PLAN.md:1016`: - `AppContext` no longer directly constructs the Arduino mesh runtime router or the event-bus chat observer bridge; both now arrive through `AppContextPlatformBindings` factories.
-- `docs/REPOSITORY_MIGRATION_PLAN.md:1018`: - `platform/esp/arduino_common` remains the place that creates `MeshAdapterRouter` and `ChatEventBusBridge`, while `apps/esp_pio` injects that platform bundle during startup.
-- `docs/REPOSITORY_MIGRATION_PLAN.md:1030`: - `AppContext` no longer directly constructs `team::infra::TeamCrypto`, `TeamEventBusSink`, `TeamAppDataEventBusBridge`, or `TeamPairingEventBusSink`; those now come through `AppCo
-- `docs/REPOSITORY_MIGRATION_PLAN.md:1105`: - The remaining ESP/Arduino hostlink runtime shell (`hostlink_service`, `hostlink_bridge_radio`, and `hostlink_config_service`) has moved out of `src/hostlink` and into `platform/e
-- `docs/REPOSITORY_MIGRATION_PLAN.md:1119`: - The remaining ESP/Arduino team runtime adapters (`team_crypto`, event-bus bridges/sinks, ESP-NOW pairing transport/service shell, Arduino runtime adapter, and GPS-backed team tra
-- `docs/RETICULUM_LXMF_DEVICE_MODE.md:17`: - a USB CDC RNode KISS bridge so a real Reticulum host can use the device as a modem
-- `docs/RETICULUM_LXMF_DEVICE_MODE.md:35`: - `RNode Bridge`: host-controlled modem mode for an external Reticulum/LXMF stack
-- `docs/RETICULUM_LXMF_DEVICE_MODE.md:40`: - `RNode Bridge` is a modem/bridge mode
-- ... 843 additional matches omitted
+- ... 744 additional matches omitted
 
 ### `probe`
 
-- `apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp:57`: "GNSS runtime config applied: enabled=%d interval_ms=%lu mode=%u sat_mask=0x%02X strategy=%u external_nmea=%u/%u motion_idle_ms=%lu sensor=%u startup_probe=deferred",
+- `apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp:58`: "GNSS runtime config applied: enabled=%d interval_ms=%lu mode=%u sat_mask=0x%02X strategy=%u external_nmea=%u/%u motion_idle_ms=%lu sensor=%u startup_probe=deferred",
+- `apps/linux_cardputer_zero/README.md:161`: unset, the resident GPS service probes `TRAIL_MATE_GPS_DEVICE_CANDIDATES` and
+- `apps/linux_cardputer_zero/README.md:252`: `open spidev failed`, `configure spidev failed`, or `probe failed` mean the
+- `apps/linux_cardputer_zero/README.md:277`: - `GPS serial no traffic` means the currently opened auto-probed source
+- `apps/linux_cardputer_zero/README.md:286`: every configured/auto-probed serial path is absent, or
+- `apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp:128`: assert(contains(adaptation_doc, "`TRAIL_MATE_GPS_DEVICE_CANDIDATES` supplies the auto-probe list"));
 - `apps/linux_sim_shell/CMakeLists.txt:18`: src/linux_sim_runtime_entry_adoption_probe.cpp
-- `apps/linux_sim_shell/CMakeLists.txt:56`: add_executable(trailmate_linux_sim_runtime_entry_adoption_probe_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:57`: tests/linux_sim_runtime_entry_adoption_probe_smoke.cpp)
-- `apps/linux_sim_shell/CMakeLists.txt:58`: target_link_libraries(trailmate_linux_sim_runtime_entry_adoption_probe_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:60`: add_test(NAME trailmate_linux_sim_runtime_entry_adoption_probe_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:61`: COMMAND trailmate_linux_sim_runtime_entry_adoption_probe_smoke)
-- `apps/linux_sim_shell/CMakeLists.txt:197`: lvgl_runtime_adoption_probe
-- `apps/linux_sim_shell/CMakeLists.txt:200`: lvgl_descriptor_renderer_probe
+- `apps/linux_sim_shell/CMakeLists.txt:58`: add_executable(trailmate_linux_sim_runtime_entry_adoption_probe_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:59`: tests/linux_sim_runtime_entry_adoption_probe_smoke.cpp)
+- `apps/linux_sim_shell/CMakeLists.txt:60`: target_link_libraries(trailmate_linux_sim_runtime_entry_adoption_probe_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:62`: add_test(NAME trailmate_linux_sim_runtime_entry_adoption_probe_smoke
+- `apps/linux_sim_shell/CMakeLists.txt:63`: COMMAND trailmate_linux_sim_runtime_entry_adoption_probe_smoke)
+- `apps/linux_sim_shell/CMakeLists.txt:728`: lvgl_runtime_adoption_probe
+- `apps/linux_sim_shell/CMakeLists.txt:731`: lvgl_descriptor_renderer_probe
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry.cpp:8`: ready_ = adoption_probe_.load(shell);
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry.cpp:51`: return ready_ ? adoption_probe_.menuCount() : 0;
 - `apps/linux_sim_shell/src/linux_sim_runtime_entry.cpp:56`: return ready_ ? adoption_probe_.screenCount() : 0;
@@ -1383,12 +1451,20 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `apps/linux_sim_shell/tests/linux_sim_runtime_entry_adoption_probe_smoke.cpp:14`: assert(probe.menuCount() > 0);
 - `apps/linux_sim_shell/tests/linux_sim_runtime_entry_adoption_probe_smoke.cpp:15`: assert(probe.screenCount() > 0);
 - `apps/linux_sim_shell/tests/linux_sim_runtime_entry_adoption_probe_smoke.cpp:16`: assert(probe.adoption().presenter().menuLines()[0].route.valid);
-- `apps/linux_uconsole_gtk/CMakeLists.txt:19`: src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp
-- `apps/linux_uconsole_gtk/CMakeLists.txt:56`: add_executable(trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke
-- `apps/linux_uconsole_gtk/CMakeLists.txt:57`: tests/linux_uconsole_gtk_runtime_entry_adoption_probe_smoke.cpp)
-- `apps/linux_uconsole_gtk/CMakeLists.txt:58`: target_link_libraries(trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke
-- `apps/linux_uconsole_gtk/CMakeLists.txt:60`: add_test(NAME trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke
-- `apps/linux_uconsole_gtk/CMakeLists.txt:61`: COMMAND trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke)
+- `apps/linux_uconsole_gtk/CMakeLists.txt:47`: src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp
+- `apps/linux_uconsole_gtk/CMakeLists.txt:89`: "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/src/uconsole_hardware_probe.cpp"
+- `apps/linux_uconsole_gtk/CMakeLists.txt:119`: add_executable(trailmate_sx1262_probe
+- `apps/linux_uconsole_gtk/CMakeLists.txt:120`: tools/sx1262_probe.cpp)
+- `apps/linux_uconsole_gtk/CMakeLists.txt:121`: target_link_libraries(trailmate_sx1262_probe
+- `apps/linux_uconsole_gtk/CMakeLists.txt:123`: target_compile_features(trailmate_sx1262_probe PRIVATE cxx_std_20)
+- `apps/linux_uconsole_gtk/CMakeLists.txt:124`: set_target_properties(trailmate_sx1262_probe
+- `apps/linux_uconsole_gtk/CMakeLists.txt:125`: PROPERTIES OUTPUT_NAME "trailmate-sx1262-probe")
+- `apps/linux_uconsole_gtk/CMakeLists.txt:164`: install(TARGETS trailmate_uconsole trailmate_sx1262_probe
+- `apps/linux_uconsole_gtk/CMakeLists.txt:215`: add_executable(trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke
+- `apps/linux_uconsole_gtk/CMakeLists.txt:216`: tests/linux_uconsole_gtk_runtime_entry_adoption_probe_smoke.cpp)
+- `apps/linux_uconsole_gtk/CMakeLists.txt:217`: target_link_libraries(trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke
+- `apps/linux_uconsole_gtk/CMakeLists.txt:219`: add_test(NAME trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke
+- `apps/linux_uconsole_gtk/CMakeLists.txt:220`: COMMAND trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke)
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp:9`: ready_ = adoption_probe_.load(shell);
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp:57`: return ready_ ? adoption_probe_.menuCount() : 0;
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp:62`: return ready_ ? adoption_probe_.screenCount() : 0;
@@ -1396,81 +1472,68 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp:74`: return adoption_probe_.adoption().presenter().screenDescriptors();
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp:80`: return adoption_probe_.adoption();
 - `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.h:4`: #include "linux_uconsole_gtk_runtime_entry_adoption_probe.h"
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.h:38`: LinuxUConsoleGtkRuntimeEntryAdoptionProbe adoption_probe_{};
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp`: path match
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:1`: #include "linux_uconsole_gtk_runtime_entry_adoption_probe.h"
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:9`: bool LinuxUConsoleGtkRuntimeEntryAdoptionProbe::load(
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:34`: bool LinuxUConsoleGtkRuntimeEntryAdoptionProbe::ready() const
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:39`: bool LinuxUConsoleGtkRuntimeEntryAdoptionProbe::fallbackUsed() const
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:44`: std::size_t LinuxUConsoleGtkRuntimeEntryAdoptionProbe::menuCount() const
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:49`: std::size_t LinuxUConsoleGtkRuntimeEntryAdoptionProbe::screenCount() const
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp:55`: LinuxUConsoleGtkRuntimeEntryAdoptionProbe::adoption() const
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.h`: path match
-- `apps/linux_uconsole_gtk/src/linux_uconsole_gtk_runtime_entry_adoption_probe.h:14`: class LinuxUConsoleGtkRuntimeEntryAdoptionProbe
-- `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_runtime_entry_adoption_probe_smoke.cpp`: path match
-- `apps/linux_uconsole_gtk/tests/linux_uconsole_gtk_runtime_entry_adoption_probe_smoke.cpp:2`: #include "linux_uconsole_gtk_runtime_entry_adoption_probe.h"
-- ... 489 additional matches omitted
+- ... 585 additional matches omitted
 
 ### `smoke`
 
-- `.github/workflows/cardputer-zero-linux.yml:43`: - name: Configure smoke tests
-- `.github/workflows/cardputer-zero-linux.yml:47`: - name: Build smoke tests
-- `.github/workflows/cardputer-zero-linux.yml:51`: - name: Run smoke tests
-- `apps/esp32_lvgl/CMakeLists.txt:35`: add_executable(trailmate_esp32_lvgl_app_shell_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:36`: tests/esp32_lvgl_app_shell_smoke.cpp)
-- `apps/esp32_lvgl/CMakeLists.txt:37`: target_link_libraries(trailmate_esp32_lvgl_app_shell_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:39`: add_test(NAME trailmate_esp32_lvgl_app_shell_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:40`: COMMAND trailmate_esp32_lvgl_app_shell_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:42`: add_executable(trailmate_esp32_lvgl_historical_source_descriptor_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:43`: tests/esp32_lvgl_historical_source_descriptor_smoke.cpp)
-- `apps/esp32_lvgl/CMakeLists.txt:44`: target_link_libraries(trailmate_esp32_lvgl_historical_source_descriptor_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:46`: add_test(NAME trailmate_esp32_lvgl_historical_source_descriptor_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:47`: COMMAND trailmate_esp32_lvgl_historical_source_descriptor_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:49`: add_executable(trailmate_esp32_lvgl_startup_runtime_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:50`: tests/esp32_lvgl_startup_runtime_smoke.cpp)
-- `apps/esp32_lvgl/CMakeLists.txt:51`: target_link_libraries(trailmate_esp32_lvgl_startup_runtime_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:53`: add_test(NAME trailmate_esp32_lvgl_startup_runtime_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:54`: COMMAND trailmate_esp32_lvgl_startup_runtime_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:56`: add_executable(trailmate_esp32_lvgl_loop_runtime_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:57`: tests/esp32_lvgl_loop_runtime_smoke.cpp)
-- `apps/esp32_lvgl/CMakeLists.txt:58`: target_link_libraries(trailmate_esp32_lvgl_loop_runtime_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:60`: add_test(NAME trailmate_esp32_lvgl_loop_runtime_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:61`: COMMAND trailmate_esp32_lvgl_loop_runtime_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:63`: add_executable(trailmate_esp32_lvgl_runtime_config_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:64`: tests/esp32_lvgl_runtime_config_smoke.cpp)
-- `apps/esp32_lvgl/CMakeLists.txt:65`: target_link_libraries(trailmate_esp32_lvgl_runtime_config_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:67`: add_test(NAME trailmate_esp32_lvgl_runtime_config_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:68`: COMMAND trailmate_esp32_lvgl_runtime_config_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:70`: add_executable(trailmate_product_target_profile_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:72`: target_link_libraries(trailmate_product_target_profile_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:74`: add_test(NAME trailmate_product_target_profile_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:75`: COMMAND trailmate_product_target_profile_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:77`: add_executable(trailmate_product_target_build_binding_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:79`: target_link_libraries(trailmate_product_target_build_binding_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:81`: add_test(NAME trailmate_product_target_build_binding_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:82`: COMMAND trailmate_product_target_build_binding_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:84`: add_executable(trailmate_product_target_ux_binding_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:86`: target_link_libraries(trailmate_product_target_ux_binding_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:88`: add_test(NAME trailmate_product_target_ux_binding_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:89`: COMMAND trailmate_product_target_ux_binding_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:91`: add_executable(trailmate_ui_presentation_target_ui_profile_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:93`: target_link_libraries(trailmate_ui_presentation_target_ui_profile_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:95`: add_test(NAME trailmate_ui_presentation_target_ui_profile_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:96`: COMMAND trailmate_ui_presentation_target_ui_profile_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:98`: add_executable(trailmate_ui_presentation_page_manifest_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:100`: target_link_libraries(trailmate_ui_presentation_page_manifest_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:102`: add_test(NAME trailmate_ui_presentation_page_manifest_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:103`: COMMAND trailmate_ui_presentation_page_manifest_smoke)
-- `apps/esp32_lvgl/CMakeLists.txt:105`: add_executable(trailmate_ui_presentation_layout_profile_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:107`: target_link_libraries(trailmate_ui_presentation_layout_profile_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:109`: add_test(NAME trailmate_ui_presentation_layout_profile_smoke
-- `apps/esp32_lvgl/CMakeLists.txt:110`: COMMAND trailmate_ui_presentation_layout_profile_smoke)
-- `apps/esp32_lvgl/tests/esp32_lvgl_app_shell_smoke.cpp`: path match
-- `apps/esp32_lvgl/tests/esp32_lvgl_historical_source_descriptor_smoke.cpp`: path match
-- `apps/esp32_lvgl/tests/esp32_lvgl_loop_runtime_smoke.cpp`: path match
-- `apps/esp32_lvgl/tests/esp32_lvgl_runtime_config_smoke.cpp`: path match
-- `apps/esp32_lvgl/tests/esp32_lvgl_startup_runtime_smoke.cpp`: path match
-- `apps/linux_sim_shell/APP_SHELL_MANIFEST.md:61`: - `tests/linux_sim_app_shell_smoke.cpp`
-- `apps/linux_sim_shell/CMakeLists.txt:42`: add_executable(trailmate_linux_sim_app_shell_smoke
-- `apps/linux_sim_shell/CMakeLists.txt:43`: tests/linux_sim_app_shell_smoke.cpp)
-- ... 364 additional matches omitted
+- `.github/workflows/cardputer-zero-linux.yml:48`: - name: Run Cardputer Zero smoke tests
+- `.github/workflows/linux-simulator.yml:61`: - name: Run simulator smoke tests
+- `.github/workflows/uconsole-linux.yml:45`: - name: Run uConsole smoke tests
+- `apps/esp32_lvgl/CMakeLists.txt:36`: add_executable(trailmate_esp32_lvgl_app_shell_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:37`: tests/esp32_lvgl_app_shell_smoke.cpp)
+- `apps/esp32_lvgl/CMakeLists.txt:38`: target_link_libraries(trailmate_esp32_lvgl_app_shell_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:40`: add_test(NAME trailmate_esp32_lvgl_app_shell_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:41`: COMMAND trailmate_esp32_lvgl_app_shell_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:43`: add_executable(trailmate_esp32_lvgl_historical_source_descriptor_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:44`: tests/esp32_lvgl_historical_source_descriptor_smoke.cpp)
+- `apps/esp32_lvgl/CMakeLists.txt:45`: target_link_libraries(trailmate_esp32_lvgl_historical_source_descriptor_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:47`: add_test(NAME trailmate_esp32_lvgl_historical_source_descriptor_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:48`: COMMAND trailmate_esp32_lvgl_historical_source_descriptor_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:50`: add_executable(trailmate_esp32_lvgl_startup_runtime_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:51`: tests/esp32_lvgl_startup_runtime_smoke.cpp)
+- `apps/esp32_lvgl/CMakeLists.txt:52`: target_link_libraries(trailmate_esp32_lvgl_startup_runtime_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:54`: add_test(NAME trailmate_esp32_lvgl_startup_runtime_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:55`: COMMAND trailmate_esp32_lvgl_startup_runtime_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:57`: add_executable(trailmate_esp32_lvgl_loop_runtime_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:58`: tests/esp32_lvgl_loop_runtime_smoke.cpp)
+- `apps/esp32_lvgl/CMakeLists.txt:59`: target_link_libraries(trailmate_esp32_lvgl_loop_runtime_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:61`: add_test(NAME trailmate_esp32_lvgl_loop_runtime_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:62`: COMMAND trailmate_esp32_lvgl_loop_runtime_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:64`: add_executable(trailmate_esp32_lvgl_runtime_config_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:65`: tests/esp32_lvgl_runtime_config_smoke.cpp)
+- `apps/esp32_lvgl/CMakeLists.txt:66`: target_link_libraries(trailmate_esp32_lvgl_runtime_config_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:68`: add_test(NAME trailmate_esp32_lvgl_runtime_config_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:69`: COMMAND trailmate_esp32_lvgl_runtime_config_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:71`: add_executable(trailmate_esp32_lvgl_sd_coredump_contract_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:72`: tests/esp32_lvgl_sd_coredump_contract_smoke.cpp)
+- `apps/esp32_lvgl/CMakeLists.txt:73`: target_compile_features(trailmate_esp32_lvgl_sd_coredump_contract_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:75`: add_test(NAME trailmate_esp32_lvgl_sd_coredump_contract_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:76`: COMMAND trailmate_esp32_lvgl_sd_coredump_contract_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:79`: add_executable(trailmate_product_target_profile_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:81`: target_link_libraries(trailmate_product_target_profile_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:83`: add_test(NAME trailmate_product_target_profile_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:84`: COMMAND trailmate_product_target_profile_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:86`: add_executable(trailmate_c6_hostlink_frame_codec_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:90`: target_include_directories(trailmate_c6_hostlink_frame_codec_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:93`: target_compile_features(trailmate_c6_hostlink_frame_codec_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:95`: add_test(NAME trailmate_c6_hostlink_frame_codec_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:96`: COMMAND trailmate_c6_hostlink_frame_codec_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:98`: add_executable(trailmate_product_target_build_binding_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:100`: target_link_libraries(trailmate_product_target_build_binding_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:102`: add_test(NAME trailmate_product_target_build_binding_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:103`: COMMAND trailmate_product_target_build_binding_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:105`: add_executable(trailmate_product_target_ux_binding_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:107`: target_link_libraries(trailmate_product_target_ux_binding_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:109`: add_test(NAME trailmate_product_target_ux_binding_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:110`: COMMAND trailmate_product_target_ux_binding_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:112`: add_executable(trailmate_ui_presentation_target_ui_profile_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:114`: target_link_libraries(trailmate_ui_presentation_target_ui_profile_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:116`: add_test(NAME trailmate_ui_presentation_target_ui_profile_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:117`: COMMAND trailmate_ui_presentation_target_ui_profile_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:119`: add_executable(trailmate_ui_presentation_page_manifest_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:121`: target_link_libraries(trailmate_ui_presentation_page_manifest_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:123`: add_test(NAME trailmate_ui_presentation_page_manifest_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:124`: COMMAND trailmate_ui_presentation_page_manifest_smoke)
+- `apps/esp32_lvgl/CMakeLists.txt:126`: add_executable(trailmate_ui_presentation_layout_profile_smoke
+- `apps/esp32_lvgl/CMakeLists.txt:128`: target_link_libraries(trailmate_ui_presentation_layout_profile_smoke
+- ... 610 additional matches omitted

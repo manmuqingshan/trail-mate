@@ -105,6 +105,8 @@ struct SettingsData
     char mc_airtime[16] = "1";
     int mc_flood_max = 16;
     bool mc_multi_acks = false;
+    int mc_send_profile = 1;
+    int mc_forward_profile = 1;
     int mc_channel_slot = 0;
     char mc_channel_name[32] = "Public";
     char mc_channel_key[65] = {};
@@ -119,6 +121,12 @@ struct SettingsData
     int screen_brightness = 16;
     int timezone_offset_min = 0;
     int timezone_profile_id = 0;
+    char manual_time_year[5] = "";
+    char manual_time_month[3] = "";
+    char manual_time_day[3] = "";
+    char manual_time_hour[3] = "";
+    char manual_time_minute[3] = "";
+    char manual_time_second[3] = "";
     int speaker_volume = 45;
     int display_locale_index = 0;
     char c6_companion_status[96] = "";

@@ -14,7 +14,6 @@ class LvglRuntimeAdoptionProbe
     bool load(const product_composition::PresentationBundle& presentation);
 
     bool ready() const;
-    bool fallbackUsed() const;
     std::size_t menuCount() const;
     std::size_t screenCount() const;
 
@@ -23,7 +22,6 @@ class LvglRuntimeAdoptionProbe
   private:
     LvglRuntimeEntryAdoption adoption_{};
     bool ready_ = false;
-    bool fallback_ = true;
 };
 
 } // namespace ui_lvgl_ux

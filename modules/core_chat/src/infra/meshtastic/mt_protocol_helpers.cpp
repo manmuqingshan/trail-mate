@@ -6,6 +6,7 @@
 #include "chat/infra/meshtastic/mt_protocol_helpers.h"
 
 #include "pb_decode.h"
+#include "pb_encode.h"
 
 #include <algorithm>
 #include <cmath>
@@ -288,6 +289,46 @@ void appendTraceRouteNodeAndSnr(meshtastic_RouteDiscovery* route,
         route_nodes[*route_count] = node_id;
         *route_count += 1;
     }
+}
+
+bool updateTraceRoutePayload(meshtastic_Data* decoded,
+                             uint8_t flags,
+                             uint32_t node_id,
+                             const chat::RxMeta* rx_meta,
+                             bool is_response,
+                             bool to_us,
+                             meshtastic_RouteDiscovery* out_route)
+{
+    if (!decoded || decoded->portnum != meshtastic_PortNum_TRACEROUTE_APP)
+    {
+        return false;
+    }
+
+    meshtastic_RouteDiscovery route = meshtastic_RouteDiscovery_init_zero;
+    if (decoded->payload.size > 0)
+    {
+        pb_istream_t istream = pb_istream_from_buffer(decoded->payload.bytes, decoded->payload.size);
+        if (!pb_decode(&istream, meshtastic_RouteDiscovery_fields, &route))
+        {
+            return false;
+        }
+    }
+
+    insertTraceRouteUnknownHops(flags, &route, !is_response);
+    appendTraceRouteNodeAndSnr(&route, node_id, rx_meta, !is_response, to_us);
+
+    pb_ostream_t ostream = pb_ostream_from_buffer(decoded->payload.bytes, sizeof(decoded->payload.bytes));
+    if (!pb_encode(&ostream, meshtastic_RouteDiscovery_fields, &route))
+    {
+        return false;
+    }
+
+    decoded->payload.size = static_cast<pb_size_t>(ostream.bytes_written);
+    if (out_route)
+    {
+        *out_route = route;
+    }
+    return true;
 }
 
 bool readPbString(pb_istream_t* stream, char* out, size_t out_len)

@@ -81,7 +81,11 @@ bool MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(const MeshtasticAnnounc
 
     *out_packet = MeshtasticAnnouncementPacket{};
 
-    const std::string user_id = buildMeshtasticUserId(request.identity.node_id);
+    const std::string default_user_id = buildMeshtasticUserId(request.identity.node_id);
+    const std::string user_id =
+        (request.user_id_override && request.user_id_override[0] != '\0')
+            ? std::string(request.user_id_override)
+            : default_user_id;
     uint8_t payload[192] = {};
     size_t payload_size = sizeof(payload);
 
@@ -114,7 +118,7 @@ bool MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(const MeshtasticAnnounc
                                            request.dest_node,
                                            out_packet->channel_hash,
                                            request.hop_limit,
-                                           false,
+                                           request.want_ack,
                                            key,
                                            key_len,
                                            out_packet->wire,

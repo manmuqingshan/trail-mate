@@ -38,6 +38,13 @@ class IMeshCoreBleBackend
     virtual bool sendRawData(const uint8_t* path, size_t path_len,
                              const uint8_t* payload, size_t payload_len,
                              uint32_t* out_est_timeout) = 0;
+    virtual bool sendRawDataEx(uint8_t profile, const uint8_t* path, size_t path_len,
+                               const uint8_t* payload, size_t payload_len,
+                               uint32_t* out_est_timeout)
+    {
+        (void)profile;
+        return sendRawData(path, path_len, payload, payload_len, out_est_timeout);
+    }
     virtual void setFloodScopeKey(const uint8_t* key, size_t len) = 0;
 };
 

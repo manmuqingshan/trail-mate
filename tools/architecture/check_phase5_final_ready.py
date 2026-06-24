@@ -68,12 +68,11 @@ def check_known_domain_files() -> int:
         "modules/ui_presentation/include/ui_presentation/settings/settings_model.h",
         "modules/ui_presentation/include/ui_presentation/chat/chat_workspace_model.h",
         "modules/ui_shared/include/ui/presentation_sources/chat_presentation_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_chat_action_sink.h",
+        "modules/ui_shared/include/ui/presentation_sources/runtime_chat_action_sink.h",
         "modules/ui_shared/include/ui/presentation_sources/team_chat_presentation_source.h",
         "modules/ui_shared/include/ui/presentation_sources/team_chat_action_sink.h",
         "modules/ui_presentation/include/ui_presentation/map/map_workspace_model.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_presentation_source.h",
-        "modules/ui_shared/include/ui/presentation_sources/legacy_map_action_sink.h",
+        "modules/ui_shared/include/ui/presentation_sources/runtime_map_workspace_source.h",
     ]
 
     failures = 0

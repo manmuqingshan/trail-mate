@@ -225,50 +225,66 @@ static bool handle_config_set(const tm_c6_frame_view_t* frame)
     memcpy(&config, frame->payload, sizeof(config));
 
     tm_c6_config_report_t report = {};
-    esp_err_t err = tm_services_apply_config(&config, &report);
+    esp_err_t err = tm_services_apply_config(&config, NULL);
+    esp_err_t final_err = err;
+    uint16_t report_error = TM_C6_OK;
+    const char* report_detail = "config_applied";
+    bool has_report_failure = false;
     if (err == ESP_OK && config.ble.ble_enabled)
     {
-        err = tm_ble_apply_config(&config.ble);
-        if (err != ESP_OK)
+        const esp_err_t ble_err = tm_ble_apply_config(&config.ble);
+        tm_services_mark_ble_configured(ble_err, "ble_config_failed");
+        if (ble_err != ESP_OK)
         {
-            tm_services_record_error(TM_C6_ERROR_INTERNAL, "ble_config_failed");
-            tm_services_fill_config_report(config.config_seq,
-                                           TM_C6_ERROR_INTERNAL,
-                                           "ble_config_failed",
-                                           &report);
+            final_err = final_err == ESP_OK ? ble_err : final_err;
+            report_error = TM_C6_ERROR_INTERNAL;
+            report_detail = "ble_config_failed";
+            has_report_failure = true;
         }
     }
     if (err == ESP_OK && config.wifi.wifi_enabled)
     {
-        err = tm_wifi_apply_config(&config.wifi);
-        if (err != ESP_OK)
+        const esp_err_t wifi_err = tm_wifi_apply_config(&config.wifi);
+        tm_services_mark_wifi_configured(wifi_err, "wifi_config_failed");
+        if (wifi_err != ESP_OK)
         {
-            tm_services_record_error(TM_C6_ERROR_INTERNAL, "wifi_config_failed");
-            tm_services_fill_config_report(config.config_seq,
-                                           TM_C6_ERROR_INTERNAL,
-                                           "wifi_config_failed",
-                                           &report);
+            final_err = final_err == ESP_OK ? wifi_err : final_err;
+            report_error = TM_C6_ERROR_INTERNAL;
+            if (!has_report_failure)
+            {
+                report_detail = "wifi_config_failed";
+                has_report_failure = true;
+            }
         }
     }
     if (err == ESP_OK && config.espnow.espnow_enabled)
     {
-        err = tm_espnow_apply_config(&config.espnow);
-        if (err != ESP_OK)
+        const esp_err_t espnow_err = tm_espnow_apply_config(&config.espnow);
+        tm_services_mark_espnow_configured(espnow_err, "espnow_config_failed");
+        if (espnow_err != ESP_OK)
         {
-            tm_services_record_error(TM_C6_ERROR_INTERNAL, "espnow_config_failed");
-            tm_services_fill_config_report(config.config_seq,
-                                           TM_C6_ERROR_INTERNAL,
-                                           "espnow_config_failed",
-                                           &report);
+            final_err = final_err == ESP_OK ? espnow_err : final_err;
+            report_error = TM_C6_ERROR_INTERNAL;
+            if (!has_report_failure)
+            {
+                report_detail = "espnow_config_failed";
+                has_report_failure = true;
+            }
         }
     }
+    if (final_err != ESP_OK && report_error == TM_C6_OK)
+    {
+        report_error = TM_C6_ERROR_INTERNAL;
+        report_detail = "config_failed";
+    }
+    tm_services_fill_config_report(config.config_seq, report_error, report_detail, &report);
 
     ESP_LOGI(TAG,
              "CONFIG_SET seq=%u config_seq=%lu enabled=0x%08lx err=%s",
              frame->seq,
              (unsigned long)config.config_seq,
              (unsigned long)tm_services_enabled_features(),
-             esp_err_to_name(err));
+             esp_err_to_name(final_err));
     return send_frame(TM_C6_FRAME_CONFIG_REPORT,
                       TM_C6_CH_CONTROL,
                       TM_C6_FLAG_IS_ACK,
@@ -306,7 +322,19 @@ static bool handle_ble_downlink(const tm_c6_frame_view_t* frame)
                                                header.payload_len);
     if (err != ESP_OK)
     {
-        return send_error_frame(frame, TM_C6_ERROR_NOT_CONNECTED, "ble_downlink_failed");
+        switch (err)
+        {
+        case ESP_ERR_INVALID_STATE:
+            return send_error_frame(frame, TM_C6_ERROR_NOT_CONNECTED, "ble_downlink_not_connected");
+        case ESP_ERR_NOT_SUPPORTED:
+            return send_error_frame(frame, TM_C6_ERROR_PROFILE_NOT_CONFIGURED, "ble_profile_not_configured");
+        case ESP_ERR_INVALID_SIZE:
+            return send_error_frame(frame, TM_C6_ERROR_PAYLOAD_TOO_LARGE, "ble_downlink_too_large");
+        case ESP_ERR_NO_MEM:
+            return send_error_frame(frame, TM_C6_ERROR_QUEUE_FULL, "ble_notify_queue_full");
+        default:
+            return send_error_frame(frame, TM_C6_ERROR_INTERNAL, "ble_downlink_failed");
+        }
     }
     return true;
 }
@@ -347,12 +375,17 @@ static bool handle_diag_request(const tm_c6_frame_view_t* frame)
 {
     tm_c6_diag_report_t report = {};
     tm_services_fill_diag_report((uint8_t)s_state, &report);
-    return send_frame(TM_C6_FRAME_DIAG_REPORT,
-                      TM_C6_CH_DIAG,
-                      TM_C6_FLAG_IS_ACK,
-                      frame->seq,
-                      (const uint8_t*)&report,
-                      sizeof(report));
+    const bool sent = send_frame(TM_C6_FRAME_DIAG_REPORT,
+                                 TM_C6_CH_DIAG,
+                                 TM_C6_FLAG_IS_ACK,
+                                 frame->seq,
+                                 (const uint8_t*)&report,
+                                 sizeof(report));
+    if (sent)
+    {
+        tm_services_flush_logs();
+    }
+    return sent;
 }
 
 static void hostlink_task(void* arg)

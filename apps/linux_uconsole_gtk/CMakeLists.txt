@@ -41,7 +41,6 @@ set(TRAIL_MATE_UCONSOLE_REAL_GTK_SOURCES
 
 add_library(trailmate_linux_uconsole_gtk_shell
     src/linux_uconsole_gtk_app_shell.cpp
-    src/linux_uconsole_gtk_historical_source_descriptor.cpp
     src/linux_uconsole_gtk_page_registry_adoption.cpp
     src/linux_uconsole_gtk_page_registry_renderer.cpp
     src/linux_uconsole_gtk_runtime_entry_adoption_probe.cpp
@@ -81,9 +80,9 @@ if(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
         add_library(trailmate_uconsole_runtime_models
             "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/runtime_gps_status_source.cpp"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/legacy_gps_status_source.cpp"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/legacy_map_presentation_source.cpp"
-            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/legacy_map_action_sink.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/runtime_map_workspace_source.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/runtime/meshtastic_position_core.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/runtime/meshtastic_waypoint_core.cpp"
             "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/src/uconsole_chat_workspace_model.cpp"
             "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/src/uconsole_dashboard_model.cpp"
             "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/src/uconsole_hardware_probe.cpp"
@@ -205,13 +204,6 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_linux_uconsole_gtk_app_shell_smoke
              COMMAND trailmate_linux_uconsole_gtk_app_shell_smoke)
 
-    add_executable(trailmate_linux_uconsole_gtk_historical_source_descriptor_smoke
-        tests/linux_uconsole_gtk_historical_source_descriptor_smoke.cpp)
-    target_link_libraries(trailmate_linux_uconsole_gtk_historical_source_descriptor_smoke
-        PRIVATE trailmate_linux_uconsole_gtk_shell)
-    add_test(NAME trailmate_linux_uconsole_gtk_historical_source_descriptor_smoke
-             COMMAND trailmate_linux_uconsole_gtk_historical_source_descriptor_smoke)
-
     add_executable(trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke
         tests/linux_uconsole_gtk_runtime_entry_adoption_probe_smoke.cpp)
     target_link_libraries(trailmate_linux_uconsole_gtk_runtime_entry_adoption_probe_smoke
@@ -225,13 +217,6 @@ if(BUILD_TESTING)
         PRIVATE trailmate_linux_uconsole_gtk_shell)
     add_test(NAME trailmate_linux_uconsole_gtk_page_registry_adoption_smoke
              COMMAND trailmate_linux_uconsole_gtk_page_registry_adoption_smoke)
-
-    add_executable(trailmate_linux_uconsole_gtk_page_registry_fallback_smoke
-        tests/linux_uconsole_gtk_page_registry_fallback_smoke.cpp)
-    target_link_libraries(trailmate_linux_uconsole_gtk_page_registry_fallback_smoke
-        PRIVATE trailmate_linux_uconsole_gtk_shell)
-    add_test(NAME trailmate_linux_uconsole_gtk_page_registry_fallback_smoke
-             COMMAND trailmate_linux_uconsole_gtk_page_registry_fallback_smoke)
 
     add_executable(trailmate_linux_uconsole_gtk_page_registry_renderer_smoke
         tests/linux_uconsole_gtk_page_registry_renderer_smoke.cpp)

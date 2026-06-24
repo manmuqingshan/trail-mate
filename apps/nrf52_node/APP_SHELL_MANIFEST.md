@@ -18,10 +18,8 @@ Future authoritative build entrypoint:
 
 - `builds/pio_nrf52`
 
-Historical source identities:
-
-- `removed root esp_pio`
-- `removed root gat562_mesh_evb_pro`
+Removed root history is documented only in
+`docs/archive/REMOVED_LEGACY_ROOTS.md`.
 
 ## Future Responsibilities
 
@@ -65,9 +63,5 @@ UX Pack Runtime Binding:
 - `Nrf52NodeAppShell::validate()` resolves `default_ux_pack_id` through
   product-composition target UX binding. The nRF52 shell stays independent of
   LVGL UX pack runtime code.
-
-Historical source descriptor:
-
-- `nrf52_historical_source_descriptor`
 
 No behavior change in Phase 8 Build/AppShell Executable Convergence.

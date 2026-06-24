@@ -43,10 +43,7 @@ bool Esp32LvglAppShell::validate() const
            std::strcmp(config_.default_ux_pack_id, activeUxPackId()) == 0 &&
            ui_lvgl_ux::findUxPackById(activeUxPackId()) != nullptr &&
            config_.build_entrypoint != nullptr &&
-           config_.component_sources != nullptr &&
-           config_.historical_root_name != nullptr &&
-           config_.historical_role != nullptr &&
-           config_.replacement_owner != nullptr;
+           config_.component_sources != nullptr;
 }
 
 } // namespace esp32_lvgl
