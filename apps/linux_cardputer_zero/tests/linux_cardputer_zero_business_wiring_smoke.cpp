@@ -229,8 +229,9 @@ int main(int argc, char** argv)
     assert(contains(gps_runtime, "lv_obj_add_flag(s_map_help_modal, LV_OBJ_FLAG_IGNORE_LAYOUT)"));
     assert(contains(gps_runtime, "lv_label_set_text(title, \"Map Help\")"));
     assert(contains(gps_runtime, "add_help_row(\"WASD\", nullptr, \"Move map\")"));
-    assert(contains(gps_runtime, "add_help_row(\"-\", \"+\", \"Zoom map\")"));
+    assert(contains(gps_runtime, "add_help_row(\"Q\", \"E\", \"Zoom map\")"));
     assert(contains(gps_runtime, "add_help_row(\"P\", \"Pos\", \"Center current position\")"));
+    assert(contains(gps_runtime, "add_help_row(\"L\", nullptr, \"Change base layer\")"));
     assert(contains(gps_runtime, "add_help_row(\"T\", \"Track\", \"Select track file\")"));
     assert(contains(gps_runtime, "add_help_row(\"O\", \"Contour\", \"Toggle contour overlay\")"));
     assert(contains(gps_runtime, "add_help_row(\"Route\", nullptr, \"Shown when route active\")"));
