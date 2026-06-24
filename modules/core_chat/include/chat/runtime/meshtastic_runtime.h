@@ -2,8 +2,8 @@
 
 #include "chat/infra/meshtastic/mt_protocol_helpers.h"
 #include "chat/runtime/meshtastic_app_action_runtime.h"
-#include "chat/runtime/meshtastic_protocol_policy.h"
 #include "chat/runtime/meshtastic_position_core.h"
+#include "chat/runtime/meshtastic_protocol_policy.h"
 #include "chat/runtime/meshtastic_waypoint_core.h"
 #include "chat/runtime/protocol_runtime.h"
 #include "meshtastic/mesh.pb.h"

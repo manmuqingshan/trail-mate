@@ -4,8 +4,8 @@
 
 #include "input/morse_engine.h"
 #include "ui/localization.h"
-#include "ui/ui_theme.h"
 #include "ui/runtime/ui_feedback.h"
+#include "ui/ui_theme.h"
 #include <cstdio>
 
 #if !defined(TRAIL_MATE_WATCH_MORSE_PDM_SCK) || !defined(TRAIL_MATE_WATCH_MORSE_PDM_DATA)

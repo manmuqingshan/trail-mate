@@ -81,48 +81,52 @@ static const uint8_t ti_270w3_gray4_lut_code[] = {
 
 // clang-format on
 
-class ThinkInk_270_Grayscale4_W3 : public Adafruit_IL91874 {
-private:
-public:
-  ThinkInk_270_Grayscale4_W3(int16_t SID, int16_t SCLK, int16_t DC, int16_t RST,
-                             int16_t CS, int16_t SRCS, int16_t MISO,
-                             int16_t BUSY = -1)
-      : Adafruit_IL91874(264, 176, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY){};
+class ThinkInk_270_Grayscale4_W3 : public Adafruit_IL91874
+{
+  private:
+  public:
+    ThinkInk_270_Grayscale4_W3(int16_t SID, int16_t SCLK, int16_t DC, int16_t RST,
+                               int16_t CS, int16_t SRCS, int16_t MISO,
+                               int16_t BUSY = -1)
+        : Adafruit_IL91874(264, 176, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY){};
 
-  ThinkInk_270_Grayscale4_W3(int16_t DC, int16_t RST, int16_t CS, int16_t SRCS,
-                             int16_t BUSY = -1, SPIClass *spi = &SPI)
-      : Adafruit_IL91874(264, 176, DC, RST, CS, SRCS, BUSY, spi){};
+    ThinkInk_270_Grayscale4_W3(int16_t DC, int16_t RST, int16_t CS, int16_t SRCS,
+                               int16_t BUSY = -1, SPIClass* spi = &SPI)
+        : Adafruit_IL91874(264, 176, DC, RST, CS, SRCS, BUSY, spi){};
 
-  void begin(thinkinkmode_t mode = THINKINK_MONO) {
-    Adafruit_IL91874::begin(true);
+    void begin(thinkinkmode_t mode = THINKINK_MONO)
+    {
+        Adafruit_IL91874::begin(true);
 
-    setBlackBuffer(0, true); // black defaults to inverted
-    setColorBuffer(1, true); // red defaults to not inverted
+        setBlackBuffer(0, true); // black defaults to inverted
+        setColorBuffer(1, true); // red defaults to not inverted
 
-    if (mode == THINKINK_MONO) {
-      _epd_init_code = NULL;
-      _epd_lut_code = NULL;
-      layer_colors[EPD_WHITE] = 0b00;
-      layer_colors[EPD_BLACK] = 0b10;
-      layer_colors[EPD_RED] = 0b10;
-      layer_colors[EPD_GRAY] = 0b10;
-      layer_colors[EPD_LIGHT] = 0b00;
-      layer_colors[EPD_DARK] = 0b10;
-    }
-    if (mode == THINKINK_GRAYSCALE4) {
-      _epd_init_code = ti_270w3_gray4_init_code;
-      _epd_lut_code = ti_270w3_gray4_lut_code;
-      layer_colors[EPD_WHITE] = 0b00;
-      layer_colors[EPD_BLACK] = 0b11;
-      layer_colors[EPD_RED] = 0b10;
-      layer_colors[EPD_GRAY] = 0b10;
-      layer_colors[EPD_LIGHT] = 0b10;
-      layer_colors[EPD_DARK] = 0b01;
-    }
+        if (mode == THINKINK_MONO)
+        {
+            _epd_init_code = NULL;
+            _epd_lut_code = NULL;
+            layer_colors[EPD_WHITE] = 0b00;
+            layer_colors[EPD_BLACK] = 0b10;
+            layer_colors[EPD_RED] = 0b10;
+            layer_colors[EPD_GRAY] = 0b10;
+            layer_colors[EPD_LIGHT] = 0b00;
+            layer_colors[EPD_DARK] = 0b10;
+        }
+        if (mode == THINKINK_GRAYSCALE4)
+        {
+            _epd_init_code = ti_270w3_gray4_init_code;
+            _epd_lut_code = ti_270w3_gray4_lut_code;
+            layer_colors[EPD_WHITE] = 0b00;
+            layer_colors[EPD_BLACK] = 0b11;
+            layer_colors[EPD_RED] = 0b10;
+            layer_colors[EPD_GRAY] = 0b10;
+            layer_colors[EPD_LIGHT] = 0b10;
+            layer_colors[EPD_DARK] = 0b01;
+        }
 
-    default_refresh_delay = 1000;
-    powerDown();
-  };
+        default_refresh_delay = 1000;
+        powerDown();
+    };
 };
 
 #endif // _THINKINK_270_GRAY4_W3_H

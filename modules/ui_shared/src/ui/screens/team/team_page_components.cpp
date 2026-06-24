@@ -16,6 +16,7 @@
 #include "ui/chat_ui_runtime.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/team/team_page_activity_sink.h"
 #include "ui/screens/team/team_page_command_reducer.h"
 #include "ui/screens/team/team_page_create_team_action.h"
@@ -38,7 +39,6 @@
 #include "ui/screens/team/team_page_transfer_leader_action.h"
 #include "ui/team_presentation/team_member_label.h"
 #include "ui/ui_common.h"
-#include "ui/runtime/ui_feedback.h"
 #include "ui/widgets/top_bar.h"
 
 #include <array>
@@ -1734,10 +1734,7 @@ void render_page()
     input.read_model = read_model_input;
     input.pairing_peer_id = team_page_state().pairing_peer_id;
 
-    TeamPageLvglRenderer(now_secs()).render(context,
-                                            input,
-                                            handlers,
-                                            team_page_name_resolver());
+    TeamPageLvglRenderer(now_secs()).render(context, input, handlers, team_page_name_resolver());
 
     ui_update_top_bar_battery(team_page_lvgl_context().top_bar_widget);
     refresh_team_input(input_context_from_lvgl());

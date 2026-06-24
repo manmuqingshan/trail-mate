@@ -8,8 +8,8 @@
 #include "chat/domain/contact_types.h"
 #include "chat/infra/meshcore/meshcore_payload_helpers.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
-#include "chat/runtime/meshcore_direct_secret_core.h"
 #include "chat/runtime/meshcore_direct_route_policy.h"
+#include "chat/runtime/meshcore_direct_secret_core.h"
 #include "chat/time_utils.h"
 #include "mesh/protocol/meshcore/meshcore_protocol_strategy.h"
 #include "platform/esp/arduino_common/app_tasks.h"
@@ -196,9 +196,9 @@ using chat::meshcore::encryptThenMac;
 using chat::meshcore::macThenDecrypt;
 using chat::meshcore::trimTrailingZeros;
 
-using chat::meshcore::buildFrameNoTransport;
 using chat::meshcore::buildDiscoverRequestControlPayload;
 using chat::meshcore::buildDiscoverResponseControlPayload;
+using chat::meshcore::buildFrameNoTransport;
 using chat::meshcore::buildNodeInfoInfoControlPayload;
 using chat::meshcore::buildNodeInfoQueryControlPayload;
 using chat::meshcore::buildPeerDatagramPayload;
@@ -211,29 +211,29 @@ using chat::meshcore::DecodedDirectAppPayload;
 using chat::meshcore::DecodedDiscoverRequest;
 using chat::meshcore::DecodedDiscoverResponse;
 using chat::meshcore::DecodedGroupAppPayload;
-using chat::meshcore::DecodedNodeInfoControl;
-using chat::meshcore::DecodedTracePayload;
 using chat::meshcore::decodeDirectAppPayload;
 using chat::meshcore::decodeDiscoverRequest;
 using chat::meshcore::decodeDiscoverResponse;
+using chat::meshcore::DecodedNodeInfoControl;
+using chat::meshcore::DecodedTracePayload;
 using chat::meshcore::decodeGroupAppPayload;
 using chat::meshcore::decodeNodeInfoControlPayload;
 using chat::meshcore::decodeTracePayload;
 using chat::meshcore::deriveNodeIdFromPubkey;
 using chat::meshcore::formatVerificationCode;
 using chat::meshcore::hasControlPrefix;
+using chat::meshcore::isAnonReqCipherShape;
+using chat::meshcore::isPeerCipherShape;
+using chat::meshcore::isPeerPayloadType;
 using chat::meshcore::kMeshCoreDiscoverTypeFilterAll;
 using chat::meshcore::kMeshCoreNodeInfoInfoPayloadSize;
 using chat::meshcore::kMeshCoreNodeInfoLongNameFieldSize;
 using chat::meshcore::kMeshCoreNodeInfoPortnum;
 using chat::meshcore::kMeshCoreNodeInfoShortNameFieldSize;
-using chat::meshcore::MeshCoreNodeInfoBuildInfo;
-using chat::meshcore::MeshCoreNodeInfoControlType;
-using chat::meshcore::isAnonReqCipherShape;
-using chat::meshcore::isPeerCipherShape;
-using chat::meshcore::isPeerPayloadType;
 using chat::meshcore::mapAdvertTypeToRole;
 using chat::meshcore::MeshCoreDiscoverRequestBuildInfo;
+using chat::meshcore::MeshCoreNodeInfoBuildInfo;
+using chat::meshcore::MeshCoreNodeInfoControlType;
 using chat::meshcore::publicGroupPsk;
 using chat::meshcore::selectChannelKey;
 using chat::meshcore::shouldUsePublicChannelFallback;
@@ -1189,11 +1189,11 @@ void MeshCoreAdapter::refreshBestPeerRoute(PeerRouteEntry& entry, uint32_t now_m
         PeerRouteEntry::PathCandidate& candidate = entry.candidates[i];
         const uint32_t age_ms = now_ms - candidate.last_seen_ms;
         candidate.quality = computePathQuality(
-                                               static_cast<uint8_t>(pathHopCount(candidate.profile,
-                                                                                 candidate.path_len)),
-                                               candidate.snr_x10,
-                                               candidate.sample_count,
-                                               age_ms);
+            static_cast<uint8_t>(pathHopCount(candidate.profile,
+                                              candidate.path_len)),
+            candidate.snr_x10,
+            candidate.sample_count,
+            age_ms);
         if (candidate.quality > best_quality)
         {
             best_quality = candidate.quality;
@@ -1771,8 +1771,8 @@ bool MeshCoreAdapter::deriveIdentitySecret(PayloadProfile profile, const uint8_t
     }
 
     return chat::runtime::MeshCoreDirectSecretCore::expandSharedSecret(shared_secret, sizeof(shared_secret),
-                                                                      out_key16, 16,
-                                                                      out_key32, 32);
+                                                                       out_key16, 16,
+                                                                       out_key32, 32);
 }
 
 bool MeshCoreAdapter::deriveDirectSecret(ChannelId channel, uint8_t peer_hash,
@@ -2312,8 +2312,8 @@ runtime::RuntimeContext MeshCoreAdapter::buildRuntimeContext() const
     context.self_node = node_id_;
     context.now_ms = millis();
     context.meshcore_discover_node_type = config_.meshcore_client_repeat
-                                               ? kAdvertTypeRepeater
-                                               : kAdvertTypeChat;
+                                              ? kAdvertTypeRepeater
+                                              : kAdvertTypeChat;
     context.meshcore_local_modified_epoch = now_epoch_seconds();
     return context;
 }

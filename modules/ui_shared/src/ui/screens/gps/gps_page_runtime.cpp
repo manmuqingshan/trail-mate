@@ -1,6 +1,5 @@
 #include "ui/screens/gps/gps_page_runtime.h"
 
-
 using Host = gps::ui::shell::Host;
 using Projection = gps::ui::shell::Projection;
 
@@ -18,12 +17,12 @@ using Projection = gps::ui::shell::Projection;
 #include "ui/presentation_sources/runtime_gps_status_source.h"
 #include "ui/presentation_sources/runtime_map_workspace_source.h"
 #include "ui/presentation_sources/team_map_overlay_source.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/gps/gps_constants.h"
 #include "ui/support/lvgl_fs_utils.h"
 #include "ui/team_presentation/team_member_label.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/map/map_viewport.h"
-#include "ui/runtime/ui_feedback.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_gps_runtime/gps_page_runtime_pump.h"
 #include "ui_map_runtime/map_overlay_snapshot_source.h"
@@ -1784,7 +1783,7 @@ void open_tracker_modal()
 
     const bool touch_layout = ::ui::page_profile::current().large_touch_hitbox;
     const auto size = ::ui::page_profile::resolve_modal_size(touch_layout ? 520 : 300,
-                                                            touch_layout ? 520 : 178);
+                                                             touch_layout ? 520 : 178);
     lv_obj_t* panel = lv_obj_create(s_tracker_modal);
     lv_obj_set_size(panel, size.width, size.height);
     lv_obj_center(panel);

@@ -38,20 +38,24 @@ Adafruit_IL0398::Adafruit_IL0398(int width, int height, int16_t SID,
                                  int16_t SCLK, int16_t DC, int16_t RST,
                                  int16_t CS, int16_t SRCS, int16_t MISO,
                                  int16_t BUSY)
-    : Adafruit_EPD(width, height, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY) {
+    : Adafruit_EPD(width, height, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY)
+{
 
-  buffer1_size = ((uint32_t)width * (uint32_t)height) / 8;
-  buffer2_size = buffer1_size;
+    buffer1_size = ((uint32_t)width * (uint32_t)height) / 8;
+    buffer2_size = buffer1_size;
 
-  if (SRCS >= 0) {
-    use_sram = true;
-    buffer1_addr = 0;
-    buffer2_addr = buffer1_size;
-    buffer1 = buffer2 = NULL;
-  } else {
-    buffer1 = (uint8_t *)malloc(buffer1_size);
-    buffer2 = (uint8_t *)malloc(buffer2_size);
-  }
+    if (SRCS >= 0)
+    {
+        use_sram = true;
+        buffer1_addr = 0;
+        buffer2_addr = buffer1_size;
+        buffer1 = buffer2 = NULL;
+    }
+    else
+    {
+        buffer1 = (uint8_t*)malloc(buffer1_size);
+        buffer2 = (uint8_t*)malloc(buffer2_size);
+    }
 }
 
 // constructor for hardware SPI - we indicate DataCommand, ChipSelect, Reset
@@ -69,21 +73,25 @@ Adafruit_IL0398::Adafruit_IL0398(int width, int height, int16_t SID,
 /**************************************************************************/
 Adafruit_IL0398::Adafruit_IL0398(int width, int height, int16_t DC, int16_t RST,
                                  int16_t CS, int16_t SRCS, int16_t BUSY,
-                                 SPIClass *spi)
-    : Adafruit_EPD(width, height, DC, RST, CS, SRCS, BUSY, spi) {
+                                 SPIClass* spi)
+    : Adafruit_EPD(width, height, DC, RST, CS, SRCS, BUSY, spi)
+{
 
-  buffer1_size = ((uint32_t)width * (uint32_t)height) / 8;
-  buffer2_size = buffer1_size;
+    buffer1_size = ((uint32_t)width * (uint32_t)height) / 8;
+    buffer2_size = buffer1_size;
 
-  if (SRCS >= 0) {
-    use_sram = true;
-    buffer1_addr = 0;
-    buffer2_addr = buffer1_size;
-    buffer1 = buffer2 = NULL;
-  } else {
-    buffer1 = (uint8_t *)malloc(buffer1_size);
-    buffer2 = (uint8_t *)malloc(buffer2_size);
-  }
+    if (SRCS >= 0)
+    {
+        use_sram = true;
+        buffer1_addr = 0;
+        buffer2_addr = buffer1_size;
+        buffer1 = buffer2 = NULL;
+    }
+    else
+    {
+        buffer1 = (uint8_t*)malloc(buffer1_size);
+        buffer2 = (uint8_t*)malloc(buffer2_size);
+    }
 }
 
 /**************************************************************************/
@@ -91,16 +99,21 @@ Adafruit_IL0398::Adafruit_IL0398(int width, int height, int16_t DC, int16_t RST,
     @brief wait for busy signal to end
 */
 /**************************************************************************/
-void Adafruit_IL0398::busy_wait(void) {
-  if (_busy_pin > -1) {
-    do {
-      EPD_command(IL0398_GETSTATUS);
-      delay(10);
-    } while (!digitalRead(_busy_pin)); // wait for busy HIGH
-    delay(200);
-  } else {
-    delay(BUSY_WAIT);
-  }
+void Adafruit_IL0398::busy_wait(void)
+{
+    if (_busy_pin > -1)
+    {
+        do
+        {
+            EPD_command(IL0398_GETSTATUS);
+            delay(10);
+        } while (!digitalRead(_busy_pin)); // wait for busy HIGH
+        delay(200);
+    }
+    else
+    {
+        delay(BUSY_WAIT);
+    }
 }
 
 /**************************************************************************/
@@ -109,13 +122,14 @@ void Adafruit_IL0398::busy_wait(void) {
     @param reset if true the reset pin will be toggled.
 */
 /**************************************************************************/
-void Adafruit_IL0398::begin(bool reset) {
-  Adafruit_EPD::begin(reset);
-  setBlackBuffer(0, true); // black defaults to inverted
-  setColorBuffer(1, true); // red defaults to inverted
+void Adafruit_IL0398::begin(bool reset)
+{
+    Adafruit_EPD::begin(reset);
+    setBlackBuffer(0, true); // black defaults to inverted
+    setColorBuffer(1, true); // red defaults to inverted
 
-  setRotation(1);
-  powerDown();
+    setRotation(1);
+    powerDown();
 }
 
 /**************************************************************************/
@@ -123,14 +137,16 @@ void Adafruit_IL0398::begin(bool reset) {
     @brief signal the display to update
 */
 /**************************************************************************/
-void Adafruit_IL0398::update() {
-  EPD_command(IL0398_DISPLAY_REFRESH);
-  delay(100);
+void Adafruit_IL0398::update()
+{
+    EPD_command(IL0398_DISPLAY_REFRESH);
+    delay(100);
 
-  busy_wait();
-  if (_busy_pin <= -1) {
-    delay(15000);
-  }
+    busy_wait();
+    if (_busy_pin <= -1)
+    {
+        delay(15000);
+    }
 }
 
 /**************************************************************************/
@@ -138,28 +154,31 @@ void Adafruit_IL0398::update() {
     @brief start up the display
 */
 /**************************************************************************/
-void Adafruit_IL0398::powerUp() {
-  uint8_t buf[4];
+void Adafruit_IL0398::powerUp()
+{
+    uint8_t buf[4];
 
-  hardwareReset();
+    hardwareReset();
 
-  const uint8_t *init_code = il0398_default_init_code;
-  if (_epd_init_code != NULL) {
-    init_code = _epd_init_code;
-  }
-  EPD_commandList(init_code);
+    const uint8_t* init_code = il0398_default_init_code;
+    if (_epd_init_code != NULL)
+    {
+        init_code = _epd_init_code;
+    }
+    EPD_commandList(init_code);
 
-  if (_epd_lut_code) {
-    EPD_commandList(_epd_lut_code);
-  }
+    if (_epd_lut_code)
+    {
+        EPD_commandList(_epd_lut_code);
+    }
 
-  buf[0] = (HEIGHT >> 8) & 0xFF;
-  buf[1] = HEIGHT & 0xFF;
-  buf[2] = (WIDTH >> 8) & 0xFF;
-  buf[3] = WIDTH & 0xFF;
-  EPD_command(IL0398_RESOLUTION, buf, 4);
+    buf[0] = (HEIGHT >> 8) & 0xFF;
+    buf[1] = HEIGHT & 0xFF;
+    buf[2] = (WIDTH >> 8) & 0xFF;
+    buf[3] = WIDTH & 0xFF;
+    EPD_command(IL0398_RESOLUTION, buf, 4);
 
-  delay(20);
+    delay(20);
 }
 
 /**************************************************************************/
@@ -167,20 +186,22 @@ void Adafruit_IL0398::powerUp() {
     @brief wind down the display
 */
 /**************************************************************************/
-void Adafruit_IL0398::powerDown() {
-  uint8_t buf[4];
+void Adafruit_IL0398::powerDown()
+{
+    uint8_t buf[4];
 
-  // power off
-  buf[0] = 0xF7; // border floating
-  EPD_command(IL0398_VCOM, buf, 1);
-  EPD_command(IL0398_POWER_OFF);
-  busy_wait();
-  // Only deep sleep if we can get out of it
-  if (_reset_pin >= 0) {
-    buf[0] = 0xA5; // deep sleep
-    EPD_command(UC8276_DEEPSLEEP, buf, 1);
-  }
-  delay(100);
+    // power off
+    buf[0] = 0xF7; // border floating
+    EPD_command(IL0398_VCOM, buf, 1);
+    EPD_command(IL0398_POWER_OFF);
+    busy_wait();
+    // Only deep sleep if we can get out of it
+    if (_reset_pin >= 0)
+    {
+        buf[0] = 0xA5; // deep sleep
+        EPD_command(UC8276_DEEPSLEEP, buf, 1);
+    }
+    delay(100);
 }
 
 /**************************************************************************/
@@ -192,14 +213,17 @@ void Adafruit_IL0398::powerDown() {
    command
 */
 /**************************************************************************/
-uint8_t Adafruit_IL0398::writeRAMCommand(uint8_t index) {
-  if (index == 0) {
-    return EPD_command(EPD_RAM_BW, false);
-  }
-  if (index == 1) {
-    return EPD_command(EPD_RAM_RED, false);
-  }
-  return 0;
+uint8_t Adafruit_IL0398::writeRAMCommand(uint8_t index)
+{
+    if (index == 0)
+    {
+        return EPD_command(EPD_RAM_BW, false);
+    }
+    if (index == 1)
+    {
+        return EPD_command(EPD_RAM_RED, false);
+    }
+    return 0;
 }
 
 /**************************************************************************/
@@ -209,8 +233,9 @@ uint8_t Adafruit_IL0398::writeRAMCommand(uint8_t index) {
     @param y Y address counter value
 */
 /**************************************************************************/
-void Adafruit_IL0398::setRAMAddress(uint16_t x, uint16_t y) {
-  // on this chip we do nothing
-  (void)x;
-  (void)y;
+void Adafruit_IL0398::setRAMAddress(uint16_t x, uint16_t y)
+{
+    // on this chip we do nothing
+    (void)x;
+    (void)y;
 }

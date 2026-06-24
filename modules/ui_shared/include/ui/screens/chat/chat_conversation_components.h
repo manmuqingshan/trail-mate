@@ -150,7 +150,7 @@ class ChatConversationScreen
         ::ui::chat::MessageRef ref;
         ::ui::chat::MessageDeliveryState delivery =
             ::ui::chat::MessageDeliveryState::Unknown;
-        lv_obj_t* container = nullptr;    // row
+        lv_obj_t* container = nullptr; // row
         lv_obj_t* bubble = nullptr;
         lv_obj_t* text_label = nullptr;   // inside bubble
         lv_obj_t* time_label = nullptr;   // reserved (not used)

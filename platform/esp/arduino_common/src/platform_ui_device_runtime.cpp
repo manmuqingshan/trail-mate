@@ -98,6 +98,11 @@ bool supports_screen_brightness()
     return true;
 }
 
+bool supports_keyboard_backlight()
+{
+    return board.hasKeyboard();
+}
+
 bool supports_configurable_battery_gauge()
 {
 #if defined(ARDUINO_T_LORA_PAGER)
@@ -122,6 +127,26 @@ uint8_t screen_brightness()
 void set_screen_brightness(uint8_t level)
 {
     board.setBrightness(level);
+}
+
+uint8_t keyboard_backlight()
+{
+    return board.hasKeyboard() ? board.keyboardGetBrightness() : 0;
+}
+
+uint8_t keyboard_backlight_max()
+{
+    return DEVICE_MAX_BRIGHTNESS_LEVEL;
+}
+
+void set_keyboard_backlight(uint8_t level)
+{
+    if (!board.hasKeyboard())
+    {
+        return;
+    }
+    const uint8_t clamped = level > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : level;
+    board.keyboardSetBrightness(clamped);
 }
 
 void trigger_haptic()

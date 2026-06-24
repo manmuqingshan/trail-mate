@@ -19,9 +19,9 @@ const char* button_label(CandidateSet set);
 std::size_t count(CandidateSet set);
 const char* at(CandidateSet set, std::size_t index);
 
-std::uint8_t* emoji_core_binfont_data();
+const std::uint8_t* emoji_core_binfont_data();
 std::size_t emoji_core_binfont_size();
-std::uint8_t* symbol_core_binfont_data();
+const std::uint8_t* symbol_core_binfont_data();
 std::size_t symbol_core_binfont_size();
 
 } // namespace ui::widgets::text_candidates

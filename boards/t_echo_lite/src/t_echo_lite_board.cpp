@@ -12,8 +12,8 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
-#include <hal/nrf_i2s.h>
 #include <hal/nrf_gpio.h>
+#include <hal/nrf_i2s.h>
 
 #include <algorithm>
 #include <cmath>
@@ -216,7 +216,7 @@ bool configureAw21009(TEchoLiteBoard& board)
     delay(2);
 
     bool ok = true;
-    ok &= writeAw21009(board, kAw21009Gcr, 0x85);          // APSE=1, PWMRES=12-bit, CHIPEN=1
+    ok &= writeAw21009(board, kAw21009Gcr, 0x85);           // APSE=1, PWMRES=12-bit, CHIPEN=1
     ok &= writeAw21009(board, kAw21009GlobalCurrent, 0x40); // Conservative current limit
     for (uint8_t channel = 0; channel < kAw21009ChannelCount; ++channel)
     {
@@ -255,7 +255,8 @@ uint16_t fillCooToneBuffer(unsigned start_frequency_hz,
     constexpr double kPi = 3.14159265358979323846;
     const unsigned safe_start = start_frequency_hz == 0U ? 1U : start_frequency_hz;
     const unsigned safe_end = end_frequency_hz == 0U ? safe_start : end_frequency_hz;
-    auto smoothStep = [](double value) {
+    auto smoothStep = [](double value)
+    {
         const double x = std::max(0.0, std::min(1.0, value));
         return x * x * (3.0 - (2.0 * x));
     };
@@ -524,10 +525,10 @@ void TEchoLiteBoard::applyKeyboardBacklight()
     }
 
     const uint16_t brightness = keyboard_light_enabled_
-        ? static_cast<uint16_t>((static_cast<uint32_t>(keyboard_brightness_) *
-                                 kBoardProfile.keyboard_backlight.max_brightness) /
-                                DEVICE_MAX_BRIGHTNESS_LEVEL)
-        : 0U;
+                                    ? static_cast<uint16_t>((static_cast<uint32_t>(keyboard_brightness_) *
+                                                             kBoardProfile.keyboard_backlight.max_brightness) /
+                                                            DEVICE_MAX_BRIGHTNESS_LEVEL)
+                                    : 0U;
     (void)applyAw21009Brightness(*this, brightness);
 }
 
@@ -627,9 +628,9 @@ bool TEchoLiteBoard::playMessageToneStep(unsigned start_frequency_hz,
     }
 
     const uint16_t word_count = fillCooToneBuffer(start_frequency_hz,
-                                                 end_frequency_hz,
-                                                 message_tone_volume_,
-                                                 duration_ms);
+                                                  end_frequency_hz,
+                                                  message_tone_volume_,
+                                                  duration_ms);
 
     nrf_i2s_disable(NRF_I2S);
     nrf_i2s_event_clear(NRF_I2S, NRF_I2S_EVENT_TXPTRUPD);
@@ -1182,9 +1183,9 @@ uint32_t TEchoLiteBoard::gpsLastMotionMs() const
 }
 
 bool TEchoLiteBoard::gpsGnssSnapshot(::gps::GnssSatInfo* out,
-                                  std::size_t max,
-                                  std::size_t* out_count,
-                                  ::gps::GnssStatus* status) const
+                                     std::size_t max,
+                                     std::size_t* out_count,
+                                     ::gps::GnssStatus* status) const
 {
     return gps_runtime_ ? gps_runtime_->gnssSnapshot(out, max, out_count, status) : false;
 }

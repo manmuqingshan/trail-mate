@@ -923,6 +923,14 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
             return;
         }
 
+        if (on_menu && ui::menu_runtime::handleShortcutKey(c, state))
+        {
+            updateUserActivity();
+            plane->feedback((void*)drv);
+            data->state = LV_INDEV_STATE_REL;
+            return;
+        }
+
         if (on_walkie_page)
         {
             walkie::on_key_event(c, state);

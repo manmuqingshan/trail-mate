@@ -1,5 +1,5 @@
-#include "chat/runtime/meshtastic_runtime.h"
 #include "chat/infra/meshtastic/mt_protocol_helpers.h"
+#include "chat/runtime/meshtastic_runtime.h"
 
 #include "pb_decode.h"
 #include "pb_encode.h"

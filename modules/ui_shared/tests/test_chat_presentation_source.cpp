@@ -1,5 +1,5 @@
-#include "chat/delivery/chat_delivery_read_model.h"
 #include "chat/delivery/chat_delivery_message_projection.h"
+#include "chat/delivery/chat_delivery_read_model.h"
 #include "chat/domain/chat_model.h"
 #include "chat/infra/store/ram_store.h"
 #include "chat/ports/i_mesh_adapter.h"

@@ -37,25 +37,26 @@
     @brief  Class for interfacing with IL0373 EPD drivers
 */
 /**************************************************************************/
-class Adafruit_IL0373 : public Adafruit_EPD {
-private:
-public:
-  Adafruit_IL0373(int width, int height, int16_t SID, int16_t SCLK, int16_t DC,
-                  int16_t RST, int16_t CS, int16_t SRCS, int16_t MISO,
-                  int16_t BUSY = -1);
-  Adafruit_IL0373(int width, int height, int16_t DC, int16_t RST, int16_t CS,
-                  int16_t SRCS, int16_t BUSY = -1, SPIClass *spi = &SPI);
+class Adafruit_IL0373 : public Adafruit_EPD
+{
+  private:
+  public:
+    Adafruit_IL0373(int width, int height, int16_t SID, int16_t SCLK, int16_t DC,
+                    int16_t RST, int16_t CS, int16_t SRCS, int16_t MISO,
+                    int16_t BUSY = -1);
+    Adafruit_IL0373(int width, int height, int16_t DC, int16_t RST, int16_t CS,
+                    int16_t SRCS, int16_t BUSY = -1, SPIClass* spi = &SPI);
 
-  void begin(bool reset = true);
-  void powerUp();
-  void powerDown();
-  void update();
-  void displayPartial(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
+    void begin(bool reset = true);
+    void powerUp();
+    void powerDown();
+    void update();
+    void displayPartial(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
 
-protected:
-  uint8_t writeRAMCommand(uint8_t index);
-  void setRAMAddress(uint16_t x, uint16_t y);
-  void busy_wait();
+  protected:
+    uint8_t writeRAMCommand(uint8_t index);
+    void setRAMAddress(uint16_t x, uint16_t y);
+    void busy_wait();
 };
 
 #endif

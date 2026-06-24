@@ -2903,7 +2903,7 @@ void Runtime::handleInput(InputAction action)
                 else if (action == InputAction::Left)
                 {
                     compose_charset_index_ = (compose_charset_index_ == 0) ? (key_count - 1U)
-                                                                             : (compose_charset_index_ - 1U);
+                                                                           : (compose_charset_index_ - 1U);
                 }
                 else if (action == InputAction::Right)
                 {
@@ -2948,7 +2948,7 @@ void Runtime::handleInput(InputAction action)
                 else if (action == InputAction::Left)
                 {
                     compose_charset_index_ = (compose_charset_index_ == page_start) ? (page_end - 1U)
-                                                                                     : (compose_charset_index_ - 1U);
+                                                                                    : (compose_charset_index_ - 1U);
                 }
                 else if (action == InputAction::Right)
                 {
@@ -5085,10 +5085,10 @@ void Runtime::renderGnssPage()
         if (wide)
         {
             const int bars = snr >= 40 ? 5 : snr >= 30 ? 4
-                                      : snr >= 20   ? 3
-                                      : snr >= 10   ? 2
-                                      : snr > 0     ? 1
-                                                    : 0;
+                                         : snr >= 20   ? 3
+                                         : snr >= 10   ? 2
+                                         : snr > 0     ? 1
+                                                       : 0;
             for (int bar = 0; bar < bars; ++bar)
             {
                 const int bar_h = 2 + bar * 2;
@@ -6172,7 +6172,7 @@ void Runtime::adjustSettingPopup(int delta)
         case RadioSettingItem::McFrequency:
             cfg.meshcore_config.meshcore_freq_mhz =
                 stepClampedFloat(cfg.meshcore_config.meshcore_freq_mhz <= 0.0f ? 869.525f
-                                                                                : cfg.meshcore_config.meshcore_freq_mhz,
+                                                                               : cfg.meshcore_config.meshcore_freq_mhz,
                                  delta,
                                  kRadioFrequencyStepMhz,
                                  kRadioFrequencyMinMhz,
@@ -6268,8 +6268,8 @@ void Runtime::adjustSettingPopup(int delta)
             break;
         case DeviceSettingItem::TimeZone:
             setting_popup_timezone_min_ = clampValue(setting_popup_timezone_min_ + delta * kTimezoneStep,
-                                                      kTimezoneMin,
-                                                      kTimezoneMax);
+                                                     kTimezoneMin,
+                                                     kTimezoneMax);
             break;
         default:
             break;
@@ -7171,7 +7171,8 @@ void Runtime::drawTitleBar(const char* left, const char* right)
 void Runtime::drawMenuList(const char* title, const char* const* items, size_t count, size_t selected)
 {
     auto draw_with_renderer = [&](const TextRenderer& renderer, int x, int y, int w,
-                                  const char* text, bool inverse = false) {
+                                  const char* text, bool inverse = false)
+    {
         if (!text || w <= 0)
         {
             return;

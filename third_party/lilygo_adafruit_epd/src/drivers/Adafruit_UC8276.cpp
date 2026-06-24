@@ -36,25 +36,30 @@ Adafruit_UC8276::Adafruit_UC8276(int width, int height, int16_t SID,
                                  int16_t SCLK, int16_t DC, int16_t RST,
                                  int16_t CS, int16_t SRCS, int16_t MISO,
                                  int16_t BUSY)
-    : Adafruit_EPD(width, height, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY) {
-  if ((height % 8) != 0) {
-    height += 8 - (height % 8);
-  }
+    : Adafruit_EPD(width, height, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY)
+{
+    if ((height % 8) != 0)
+    {
+        height += 8 - (height % 8);
+    }
 
-  buffer1_size = width * height / 8;
-  buffer2_size = buffer1_size;
+    buffer1_size = width * height / 8;
+    buffer2_size = buffer1_size;
 
-  if (SRCS >= 0) {
-    use_sram = true;
-    buffer1_addr = 0;
-    buffer2_addr = buffer1_size;
-    buffer1 = buffer2 = NULL;
-  } else {
-    buffer1 = (uint8_t *)malloc(buffer1_size);
-    buffer2 = (uint8_t *)malloc(buffer2_size);
-  }
+    if (SRCS >= 0)
+    {
+        use_sram = true;
+        buffer1_addr = 0;
+        buffer2_addr = buffer1_size;
+        buffer1 = buffer2 = NULL;
+    }
+    else
+    {
+        buffer1 = (uint8_t*)malloc(buffer1_size);
+        buffer2 = (uint8_t*)malloc(buffer2_size);
+    }
 
-  singleByteTxns = true;
+    singleByteTxns = true;
 }
 
 // constructor for hardware SPI - we indicate DataCommand, ChipSelect, Reset
@@ -73,26 +78,31 @@ Adafruit_UC8276::Adafruit_UC8276(int width, int height, int16_t SID,
 /**************************************************************************/
 Adafruit_UC8276::Adafruit_UC8276(int width, int height, int16_t DC, int16_t RST,
                                  int16_t CS, int16_t SRCS, int16_t BUSY,
-                                 SPIClass *spi)
-    : Adafruit_EPD(width, height, DC, RST, CS, SRCS, BUSY, spi) {
-  if ((height % 8) != 0) {
-    height += 8 - (height % 8);
-  }
+                                 SPIClass* spi)
+    : Adafruit_EPD(width, height, DC, RST, CS, SRCS, BUSY, spi)
+{
+    if ((height % 8) != 0)
+    {
+        height += 8 - (height % 8);
+    }
 
-  buffer1_size = width * height / 8;
-  buffer2_size = buffer1_size;
+    buffer1_size = width * height / 8;
+    buffer2_size = buffer1_size;
 
-  if (SRCS >= 0) {
-    use_sram = true;
-    buffer1_addr = 0;
-    buffer2_addr = buffer1_size;
-    buffer1 = buffer2 = NULL;
-  } else {
-    buffer1 = (uint8_t *)malloc(buffer1_size);
-    buffer2 = (uint8_t *)malloc(buffer2_size);
-  }
+    if (SRCS >= 0)
+    {
+        use_sram = true;
+        buffer1_addr = 0;
+        buffer2_addr = buffer1_size;
+        buffer1 = buffer2 = NULL;
+    }
+    else
+    {
+        buffer1 = (uint8_t*)malloc(buffer1_size);
+        buffer2 = (uint8_t*)malloc(buffer2_size);
+    }
 
-  singleByteTxns = true;
+    singleByteTxns = true;
 }
 
 /**************************************************************************/
@@ -100,16 +110,21 @@ Adafruit_UC8276::Adafruit_UC8276(int width, int height, int16_t DC, int16_t RST,
     @brief wait for busy signal to end
 */
 /**************************************************************************/
-void Adafruit_UC8276::busy_wait(void) {
-  if (_busy_pin >= 0) {
-    while (!digitalRead(_busy_pin)) { // wait for busy HIGH
-      EPD_command(UC8276_GET_STATUS);
-      delay(100);
+void Adafruit_UC8276::busy_wait(void)
+{
+    if (_busy_pin >= 0)
+    {
+        while (!digitalRead(_busy_pin))
+        { // wait for busy HIGH
+            EPD_command(UC8276_GET_STATUS);
+            delay(100);
+        }
     }
-  } else {
-    delay(BUSY_WAIT);
-  }
-  delay(200);
+    else
+    {
+        delay(BUSY_WAIT);
+    }
+    delay(200);
 }
 
 /**************************************************************************/
@@ -118,11 +133,12 @@ void Adafruit_UC8276::busy_wait(void) {
     @param reset if true the reset pin will be toggled.
 */
 /**************************************************************************/
-void Adafruit_UC8276::begin(bool reset) {
-  Adafruit_EPD::begin(reset);
-  setBlackBuffer(0, true);  // black defaults to inverted
-  setColorBuffer(1, false); // red defaults to un inverted
-  powerDown();
+void Adafruit_UC8276::begin(bool reset)
+{
+    Adafruit_EPD::begin(reset);
+    setBlackBuffer(0, true);  // black defaults to inverted
+    setColorBuffer(1, false); // red defaults to un inverted
+    powerDown();
 }
 
 /**************************************************************************/
@@ -130,14 +146,16 @@ void Adafruit_UC8276::begin(bool reset) {
     @brief signal the display to update
 */
 /**************************************************************************/
-void Adafruit_UC8276::update() {
-  EPD_command(UC8276_DISPLAYREFRESH);
-  delay(100);
-  busy_wait();
+void Adafruit_UC8276::update()
+{
+    EPD_command(UC8276_DISPLAYREFRESH);
+    delay(100);
+    busy_wait();
 
-  if (_busy_pin <= -1) {
-    delay(default_refresh_delay);
-  }
+    if (_busy_pin <= -1)
+    {
+        delay(default_refresh_delay);
+    }
 }
 
 /**************************************************************************/
@@ -145,15 +163,17 @@ void Adafruit_UC8276::update() {
     @brief start up the display
 */
 /**************************************************************************/
-void Adafruit_UC8276::powerUp() {
-  hardwareReset();
+void Adafruit_UC8276::powerUp()
+{
+    hardwareReset();
 
-  const uint8_t *init_code = uc8276_default_init_code;
+    const uint8_t* init_code = uc8276_default_init_code;
 
-  if (_epd_init_code != NULL) {
-    init_code = _epd_init_code;
-  }
-  EPD_commandList(init_code);
+    if (_epd_init_code != NULL)
+    {
+        init_code = _epd_init_code;
+    }
+    EPD_commandList(init_code);
 }
 
 /**************************************************************************/
@@ -161,19 +181,21 @@ void Adafruit_UC8276::powerUp() {
     @brief wind down the display
 */
 /**************************************************************************/
-void Adafruit_UC8276::powerDown() {
-  uint8_t buf[1];
-  // disable VCOM
-  buf[0] = 0xF7;
-  EPD_command(UC8276_WRITE_VCOM, buf, 1);
-  EPD_command(UC8276_POWEROFF);
-  busy_wait();
+void Adafruit_UC8276::powerDown()
+{
+    uint8_t buf[1];
+    // disable VCOM
+    buf[0] = 0xF7;
+    EPD_command(UC8276_WRITE_VCOM, buf, 1);
+    EPD_command(UC8276_POWEROFF);
+    busy_wait();
 
-  // Only deep sleep if we can get out of it
-  if (_reset_pin >= 0) {
-    buf[0] = 0xA5;
-    EPD_command(UC8276_DEEPSLEEP, buf, 1);
-  }
+    // Only deep sleep if we can get out of it
+    if (_reset_pin >= 0)
+    {
+        buf[0] = 0xA5;
+        EPD_command(UC8276_DEEPSLEEP, buf, 1);
+    }
 }
 
 /**************************************************************************/
@@ -185,14 +207,17 @@ void Adafruit_UC8276::powerDown() {
    command
 */
 /**************************************************************************/
-uint8_t Adafruit_UC8276::writeRAMCommand(uint8_t index) {
-  if (index == 0) {
-    return EPD_command(UC8276_WRITE_RAM1, false);
-  }
-  if (index == 1) {
-    return EPD_command(UC8276_WRITE_RAM2, false);
-  }
-  return 0;
+uint8_t Adafruit_UC8276::writeRAMCommand(uint8_t index)
+{
+    if (index == 0)
+    {
+        return EPD_command(UC8276_WRITE_RAM1, false);
+    }
+    if (index == 1)
+    {
+        return EPD_command(UC8276_WRITE_RAM2, false);
+    }
+    return 0;
 }
 
 /**************************************************************************/
@@ -202,10 +227,11 @@ uint8_t Adafruit_UC8276::writeRAMCommand(uint8_t index) {
     @param y Y address counter value
 */
 /**************************************************************************/
-void Adafruit_UC8276::setRAMAddress(uint16_t x, uint16_t y) {
-  // not used in this chip!
-  (void)x;
-  (void)y;
+void Adafruit_UC8276::setRAMAddress(uint16_t x, uint16_t y)
+{
+    // not used in this chip!
+    (void)x;
+    (void)y;
 }
 
 /**************************************************************************/
@@ -216,10 +242,11 @@ void Adafruit_UC8276::setRAMAddress(uint16_t x, uint16_t y) {
 */
 /**************************************************************************/
 void Adafruit_UC8276::setRAMWindow(uint16_t x1, uint16_t y1, uint16_t x2,
-                                   uint16_t y2) {
-  // not used in this chip!
-  (void)x1;
-  (void)y1;
-  (void)x2;
-  (void)y2;
+                                   uint16_t y2)
+{
+    // not used in this chip!
+    (void)x1;
+    (void)y1;
+    (void)x2;
+    (void)y2;
 }

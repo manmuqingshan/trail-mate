@@ -343,7 +343,7 @@ bool initialize()
 #endif
 
     static ui::mono::Runtime runtime(target_board::instance().monoDisplay(),
-                                            callbacks);
+                                     callbacks);
     s_runtime = &runtime;
     const bool ok = s_runtime->begin();
     platform::nrf52::debug_console::printf("%s ui init display=%s\n", target_board::kLogTag, ok ? "ok" : "fail");

@@ -25,7 +25,7 @@ constexpr lv_coord_t kGridTopPaddingPx = 4;
 constexpr lv_coord_t kGridBottomPaddingPx = 2;
 
 #ifndef TRAIL_MATE_TEXT_CANDIDATE_LAYOUT_LOG
-#define TRAIL_MATE_TEXT_CANDIDATE_LAYOUT_LOG 1
+#define TRAIL_MATE_TEXT_CANDIDATE_LAYOUT_LOG 0
 #endif
 
 constexpr uint32_t kAmber = 0xEBA341;
@@ -39,7 +39,6 @@ constexpr uint32_t kTextDim = 0x8A6A3A;
 struct PickerState
 {
     lv_obj_t* root = nullptr;
-    lv_obj_t* title_label = nullptr;
     lv_obj_t* textarea = nullptr;
     lv_group_t* group = nullptr;
     lv_group_t* previous_group = nullptr;
@@ -307,8 +306,7 @@ void set_candidate_button_label(lv_obj_t* button,
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, color, LV_PART_MAIN);
     lv_obj_set_style_text_font(label,
-                               font ? font : ::ui::fonts::localized_font(
-                                                 ::ui::fonts::ui_chrome_font()),
+                               font ? font : ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()),
                                LV_PART_MAIN);
     lv_obj_center(label);
 }
@@ -333,8 +331,7 @@ void set_toolbar_button_label(lv_obj_t* button,
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, color, LV_PART_MAIN);
     lv_obj_set_style_text_font(label,
-                               font ? font : ::ui::fonts::localized_font(
-                                                 ::ui::fonts::ui_chrome_font()),
+                               font ? font : ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()),
                                LV_PART_MAIN);
     lv_obj_center(label);
 }
@@ -394,16 +391,6 @@ const char* candidate_text_at(std::size_t filtered_index)
         s_picker.candidate_indices[filtered_index]);
 }
 
-void refresh_title()
-{
-    if (!s_picker.title_label)
-    {
-        return;
-    }
-    ::ui::i18n::set_label_text_raw(s_picker.title_label,
-                                   text_candidates::title(s_picker.set));
-}
-
 void refresh_candidates()
 {
     if (s_picker.active >= s_picker.candidate_count)
@@ -433,7 +420,6 @@ void refresh_candidates()
         set_candidate_button_label(button, candidate, s_picker.candidate_font);
         apply_candidate_button_style(button, slot == s_picker.active);
     }
-    refresh_title();
 }
 
 void focus_candidate(std::size_t index)
@@ -655,8 +641,8 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     {
         screen_h = 1;
     }
-    const lv_coord_t body_y = std::min(kHeaderHeightPx, screen_h);
-    const lv_coord_t body_h = std::max<lv_coord_t>(1, screen_h - body_y);
+    const lv_coord_t header_h = std::min(kHeaderHeightPx, screen_h);
+    const lv_coord_t body_h = std::max<lv_coord_t>(1, screen_h - header_h);
 
     s_picker.root = lv_obj_create(parent);
     lv_obj_set_pos(s_picker.root, 0, 0);
@@ -674,7 +660,7 @@ void open_text_candidate_picker(lv_obj_t* textarea,
 
     lv_obj_t* header = lv_obj_create(s_picker.root);
     lv_obj_set_pos(header, 0, 0);
-    lv_obj_set_size(header, screen_w, body_y);
+    lv_obj_set_size(header, screen_w, header_h);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(header,
                           LV_FLEX_ALIGN_SPACE_BETWEEN,
@@ -689,17 +675,6 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_set_style_pad_right(header, kPickerOuterPaddingPx, LV_PART_MAIN);
     lv_obj_set_style_pad_column(header, 8, LV_PART_MAIN);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t* title_label = lv_label_create(header);
-    s_picker.title_label = title_label;
-    const char* title = text_candidates::title(set);
-    ::ui::i18n::set_label_text_raw(title_label, title);
-    lv_obj_set_height(title_label, LV_PCT(100));
-    lv_label_set_long_mode(title_label, LV_LABEL_LONG_CLIP);
-    lv_obj_set_style_text_font(title_label,
-                               ::ui::page_profile::resolve_caption_font(),
-                               LV_PART_MAIN);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(kText), LV_PART_MAIN);
 
     lv_obj_t* hint_label = lv_label_create(header);
     ::ui::i18n::set_label_text_raw(hint_label, "WASD move  Q close  E pick");
@@ -723,13 +698,9 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_add_event_cb(close_btn, on_picker_key, LV_EVENT_KEY, nullptr);
 
     lv_obj_t* grid = lv_obj_create(s_picker.root);
-    lv_obj_set_pos(grid, 0, body_y);
+    lv_obj_set_pos(grid, 0, header_h);
     lv_obj_set_size(grid, screen_w, body_h);
-    lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(grid,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_layout(grid, LV_LAYOUT_NONE);
     lv_obj_set_scroll_dir(grid, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(grid, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -740,6 +711,7 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     lv_obj_set_style_pad_bottom(grid, kGridBottomPaddingPx, LV_PART_MAIN);
     lv_obj_set_style_pad_row(grid, kGridGapPx, LV_PART_MAIN);
     lv_obj_set_style_pad_column(grid, kGridGapPx, LV_PART_MAIN);
+    lv_obj_add_event_cb(grid, on_picker_key, LV_EVENT_KEY, nullptr);
 
     const int columns = picker_columns();
     const lv_coord_t cell_w =
@@ -775,12 +747,12 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     }
 
 #if TRAIL_MATE_TEXT_CANDIDATE_LAYOUT_LOG
-    std::printf("[TEXT_CANDIDATE] layout set=%s screen=%dx%d header=%d grid_y=%d grid_h=%d columns=%d raw=%u filtered=%u\n",
+    std::printf("[TEXT_CANDIDATE] layout set=%s screen=%dx%d header=%d body_y=%d body_h=%d columns=%d raw=%u filtered=%u\n",
                 text_candidates::title(set),
                 static_cast<int>(screen_w),
                 static_cast<int>(screen_h),
-                static_cast<int>(body_y),
-                static_cast<int>(body_y),
+                static_cast<int>(header_h),
+                static_cast<int>(header_h),
                 static_cast<int>(body_h),
                 columns,
                 static_cast<unsigned>(raw_candidate_count),
@@ -790,6 +762,11 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     for (std::size_t slot = 0; slot < s_picker.candidate_count; ++slot)
     {
         lv_obj_t* button = lv_btn_create(grid);
+        const lv_coord_t col = static_cast<lv_coord_t>(slot % static_cast<std::size_t>(columns));
+        const lv_coord_t row = static_cast<lv_coord_t>(slot / static_cast<std::size_t>(columns));
+        lv_obj_set_pos(button,
+                       kPickerOuterPaddingPx + col * (cell_w + kGridGapPx),
+                       kGridTopPaddingPx + row * (cell_h + kGridGapPx));
         lv_obj_set_size(button, cell_w, cell_h);
         lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_user_data(button, reinterpret_cast<void*>(static_cast<intptr_t>(slot)));
@@ -803,6 +780,8 @@ void open_text_candidate_picker(lv_obj_t* textarea,
     }
 
     refresh_candidates();
+    lv_obj_update_layout(s_picker.root);
+    lv_obj_scroll_to_y(grid, 0, LV_ANIM_OFF);
     focus_candidate(0);
 }
 

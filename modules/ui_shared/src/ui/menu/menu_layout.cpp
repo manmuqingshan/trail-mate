@@ -67,6 +67,7 @@ lv_obj_t* s_bottom_bar = nullptr;
 lv_obj_t* s_bottom_bar_left = nullptr;
 lv_obj_t* s_bottom_bar_right = nullptr;
 BottomBarChipUi s_bottom_node_chip{};
+BottomBarChipUi s_bottom_help_chip{};
 BottomBarChipUi s_bottom_ram_chip{};
 BottomBarChipUi s_bottom_psram_chip{};
 MenuAppUi s_menu_apps[kMaxMenuApps];
@@ -80,6 +81,15 @@ std::string s_last_refresh_locale;
 std::string s_desc_rendered_name;
 
 void syncFocusedDescLabel();
+
+bool showBottomHelpShortcut()
+{
+#if defined(ARDUINO_T_LORA_PAGER)
+    return true;
+#else
+    return false;
+#endif
+}
 
 lv_obj_t* firstMenuButton()
 {
@@ -1077,9 +1087,14 @@ void createAppGrid()
     s_bottom_bar_left = createBottomBarGroup(s_bottom_bar);
     s_bottom_bar_right = nullptr;
     s_bottom_node_chip = {};
+    s_bottom_help_chip = {};
     s_bottom_ram_chip = {};
     s_bottom_psram_chip = {};
     s_bottom_node_chip = createBottomBarChip(s_bottom_bar_left, profile, lv_color_hex(0xF1B75A), "-");
+    if (showBottomHelpShortcut())
+    {
+        s_bottom_help_chip = createBottomBarChip(s_bottom_bar_left, profile, lv_color_hex(0xFAF0D8), "H Help");
+    }
     if (profile.show_memory_stats)
     {
         createBottomBarSpacer(s_bottom_bar);
@@ -1217,6 +1232,11 @@ void refresh_localized_text()
 void set_bottom_bar_node_text(const char* text)
 {
     setBottomBarChipText(s_bottom_node_chip, text);
+}
+
+void set_bottom_bar_help_text(const char* text)
+{
+    setBottomBarChipText(s_bottom_help_chip, text);
 }
 
 void set_bottom_bar_ram_text(const char* text)

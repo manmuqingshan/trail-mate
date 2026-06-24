@@ -4,6 +4,9 @@
 
 #include "esp_log.h"
 #include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "host/ble_att.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
@@ -17,9 +20,6 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "store/config/ble_store_config.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-#include "freertos/task.h"
 
 #include <stdio.h>
 #include <string.h>

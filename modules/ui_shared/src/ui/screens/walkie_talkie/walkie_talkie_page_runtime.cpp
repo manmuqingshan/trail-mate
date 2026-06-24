@@ -7,9 +7,9 @@
 #include "platform/ui/walkie_runtime.h"
 #include "ui/app_runtime.h"
 #include "ui/localization.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/ui_common.h"
 #include "ui/ui_status.h"
-#include "ui/runtime/ui_feedback.h"
 #include "ui/widgets/top_bar.h"
 
 #include <algorithm>
@@ -364,7 +364,7 @@ void set_error_text(const char* message)
     if (s_mode_label)
     {
         ::ui::i18n::set_label_text(s_mode_label,
-                                    message ? message : "Walkie not available");
+                                   message ? message : "Walkie not available");
         lv_obj_set_style_text_color(s_mode_label, lv_color_hex(kWarn), LV_PART_MAIN);
     }
     update_vu(s_left_fill, 0);

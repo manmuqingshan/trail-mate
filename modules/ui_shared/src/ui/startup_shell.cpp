@@ -12,11 +12,11 @@
 #include "ui/localization.h"
 #include "ui/menu/menu_layout.h"
 #include "ui/menu/menu_runtime.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/ui_boot.h"
 #include "ui/ui_common.h"
 #include "ui/ui_status.h"
 #include "ui/watch_face.h"
-#include "ui/runtime/ui_feedback.h"
 #include "ui_lvgl_ux_packs/ux/ux_menu_provider.h"
 
 namespace ui::startup_shell

@@ -5,8 +5,8 @@
 
 #include "app/app_facades.h"
 #include "board/BoardBase.h"
-#include "chat/usecase/contact_service.h"
 #include "chat/usecase/chat_service.h"
+#include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_runtime_support.h"
 #include "platform/esp/arduino_common/hostlink/hostlink_bridge_radio.h"
 #include "platform/ui/settings_store.h"
@@ -14,8 +14,8 @@
 #include "team/protocol/team_chat.h"
 #include "ui/chat_ui_runtime.h"
 #include "ui/localization.h"
-#include "ui/screens/team/team_page_shell.h"
 #include "ui/runtime/ui_feedback.h"
+#include "ui/screens/team/team_page_shell.h"
 #include "ui_chat_runtime/chat_delivery_feedback_controller.h"
 
 namespace platform::esp::arduino_common

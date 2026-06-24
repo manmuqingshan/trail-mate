@@ -40,12 +40,12 @@
 /**************************************************************************/
 class Adafruit_SSD1681 : public Adafruit_EPD
 {
-public:
+  public:
     Adafruit_SSD1681(int width, int height, int16_t SID, int16_t SCLK, int16_t DC,
                      int16_t RST, int16_t CS, int16_t SRCS, int16_t MISO,
                      int16_t BUSY = -1);
     Adafruit_SSD1681(int width, int height, int16_t DC, int16_t RST, int16_t CS,
-                     int16_t SRCS, int16_t BUSY = -1, SPIClass *spi = &SPI, int32_t speed = -1);
+                     int16_t SRCS, int16_t BUSY = -1, SPIClass* spi = &SPI, int32_t speed = -1);
 
     void begin(bool reset = true);
     void powerUp(Update_Mode mode = Update_Mode::FULL_REFRESH);
@@ -53,9 +53,9 @@ public:
     void powerDown();
     void setRAMValueBaseMap(Update_Mode mode, bool busy_enable = true);
     void displayPartial(uint16_t x, uint16_t y,
-                        uint16_t w, uint16_t h, const uint8_t *datas, bool busy_enable = true);
+                        uint16_t w, uint16_t h, const uint8_t* datas, bool busy_enable = true);
 
-protected:
+  protected:
     uint8_t writeRAMCommand(uint8_t index);
     void setRAMAddress(uint16_t x, uint16_t y);
     void setRAMWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);

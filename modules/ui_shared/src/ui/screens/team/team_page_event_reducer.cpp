@@ -13,8 +13,7 @@ namespace ui
 TeamPageEventReducer::TeamPageEventReducer(
     TeamPageEventContext context,
     const ITeamPageMemberNameResolver& names)
-    : context_(context)
-    , names_(&names)
+    : context_(context), names_(&names)
 {
 }
 

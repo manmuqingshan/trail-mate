@@ -23,6 +23,8 @@
 #include "lvgl.h"
 #include "rm69a10_driver.h"
 #include "sdkconfig.h"
+#include "ui/app_runtime.h"
+#include "ui/menu/menu_runtime.h"
 
 extern "C" void trail_mate_idf_note_user_activity(void);
 
@@ -842,6 +844,24 @@ void keyboard_read_cb(lv_indev_t* indev, lv_indev_data_t* data)
     bool pressed = false;
     if (poll_keyboard_event(&key, &pressed))
     {
+        if (key <= 0x7FU && ui_get_active_app() == nullptr)
+        {
+            const char key_char = static_cast<char>(key);
+            const int key_state = pressed ? 1 : 0;
+            if (ui::menu_runtime::handleWalkieKey(key_char, key_state) ||
+                ui::menu_runtime::handleShortcutKey(key_char, key_state))
+            {
+                if (pressed)
+                {
+                    trail_mate_idf_note_user_activity();
+                }
+                s_keyboard_pressed = false;
+                data->state = LV_INDEV_STATE_RELEASED;
+                data->key = 0;
+                return;
+            }
+        }
+
         s_keyboard_pressed = pressed;
         if (key != 0)
         {

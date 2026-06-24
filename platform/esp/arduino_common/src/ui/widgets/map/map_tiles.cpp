@@ -21,12 +21,12 @@
 #include "ui_map_runtime/map_tiles/map_tile_async_runtime.h"
 #include "ui_map_runtime/map_tiles/map_tile_decoder_cache.h"
 
-#include <esp_heap_caps.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring> // For memcpy
+#include <esp_heap_caps.h>
 #include <new>
 
 // Use LVGL's decoder API to decode PNG images

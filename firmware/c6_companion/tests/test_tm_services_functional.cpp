@@ -75,22 +75,22 @@ bool has_feature(uint32_t value, uint32_t mask)
 extern "C"
 {
 
-size_t heap_caps_get_free_size(uint32_t caps)
-{
-    (void)caps;
-    return g_free_heap;
-}
+    size_t heap_caps_get_free_size(uint32_t caps)
+    {
+        (void)caps;
+        return g_free_heap;
+    }
 
-size_t heap_caps_get_minimum_free_size(uint32_t caps)
-{
-    (void)caps;
-    return g_minimum_free_heap;
-}
+    size_t heap_caps_get_minimum_free_size(uint32_t caps)
+    {
+        (void)caps;
+        return g_minimum_free_heap;
+    }
 
-int64_t esp_timer_get_time(void)
-{
-    return g_time_us;
-}
+    int64_t esp_timer_get_time(void)
+    {
+        return g_time_us;
+    }
 
 } // extern "C"
 

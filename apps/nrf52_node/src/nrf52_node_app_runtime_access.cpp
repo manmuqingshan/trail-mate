@@ -6,8 +6,8 @@
 #include "app/app_facade_access.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "nrf52_node_app_facade_runtime.h"
-#include "nrf52_node_ui_runtime.h"
 #include "nrf52_node_target_board.h"
+#include "nrf52_node_ui_runtime.h"
 #include "platform/nrf52/arduino_common/chat/infra/radio_packet_io.h"
 #include "platform/nrf52/debug/nrf52_debug_console.h"
 

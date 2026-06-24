@@ -49,8 +49,8 @@
 extern "C" esp_err_t esp_crt_bundle_attach(void* conf);
 
 #if defined(ARDUINO)
-#include <Arduino.h>
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include <Arduino.h>
 #else
 #include "platform/esp/idf_common/bsp_runtime.h"
 #endif

@@ -146,51 +146,56 @@ static const uint8_t ti_154t8_gray4_lut_code[] = {
 
 // clang-format on
 
-class ThinkInk_154_Grayscale4_T8 : public Adafruit_IL0373 {
-public:
-  ThinkInk_154_Grayscale4_T8(int16_t SID, int16_t SCLK, int16_t DC, int16_t RST,
-                             int16_t CS, int16_t SRCS, int16_t MISO,
-                             int16_t BUSY = -1)
-      : Adafruit_IL0373(152, 152, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY){};
+class ThinkInk_154_Grayscale4_T8 : public Adafruit_IL0373
+{
+  public:
+    ThinkInk_154_Grayscale4_T8(int16_t SID, int16_t SCLK, int16_t DC, int16_t RST,
+                               int16_t CS, int16_t SRCS, int16_t MISO,
+                               int16_t BUSY = -1)
+        : Adafruit_IL0373(152, 152, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY){};
 
-  ThinkInk_154_Grayscale4_T8(int16_t DC, int16_t RST, int16_t CS, int16_t SRCS,
-                             int16_t BUSY = -1, SPIClass *spi = &SPI)
-      : Adafruit_IL0373(152, 152, DC, RST, CS, SRCS, BUSY, spi){};
+    ThinkInk_154_Grayscale4_T8(int16_t DC, int16_t RST, int16_t CS, int16_t SRCS,
+                               int16_t BUSY = -1, SPIClass* spi = &SPI)
+        : Adafruit_IL0373(152, 152, DC, RST, CS, SRCS, BUSY, spi){};
 
-  void begin(thinkinkmode_t mode = THINKINK_GRAYSCALE4) {
-    Adafruit_IL0373::begin(true);
-    setColorBuffer(0, true); // layer 0 uninverted
-    setBlackBuffer(1, true); // layer 1 uninverted
+    void begin(thinkinkmode_t mode = THINKINK_GRAYSCALE4)
+    {
+        Adafruit_IL0373::begin(true);
+        setColorBuffer(0, true); // layer 0 uninverted
+        setBlackBuffer(1, true); // layer 1 uninverted
 
-    inkmode = mode; // Preserve ink mode for ImageReader or others
+        inkmode = mode; // Preserve ink mode for ImageReader or others
 
-    if (mode == THINKINK_GRAYSCALE4) {
-      _epd_init_code = ti_154t8_gray4_init_code;
-      _epd_lut_code = ti_154t8_gray4_lut_code;
+        if (mode == THINKINK_GRAYSCALE4)
+        {
+            _epd_init_code = ti_154t8_gray4_init_code;
+            _epd_lut_code = ti_154t8_gray4_lut_code;
 
-      layer_colors[EPD_WHITE] = 0b00;
-      layer_colors[EPD_BLACK] = 0b11;
-      layer_colors[EPD_RED] = 0b01;
-      layer_colors[EPD_GRAY] = 0b10;
-      layer_colors[EPD_LIGHT] = 0b01;
-      layer_colors[EPD_DARK] = 0b10;
-    } else if (mode == THINKINK_MONO) {
-      _epd_init_code = ti_154t8_monofull_init_code;
-      _epd_partial_init_code = ti_154t8_monopart_init_code;
-      _epd_partial_lut_code = ti_154t8_monopart_lut_code;
+            layer_colors[EPD_WHITE] = 0b00;
+            layer_colors[EPD_BLACK] = 0b11;
+            layer_colors[EPD_RED] = 0b01;
+            layer_colors[EPD_GRAY] = 0b10;
+            layer_colors[EPD_LIGHT] = 0b01;
+            layer_colors[EPD_DARK] = 0b10;
+        }
+        else if (mode == THINKINK_MONO)
+        {
+            _epd_init_code = ti_154t8_monofull_init_code;
+            _epd_partial_init_code = ti_154t8_monopart_init_code;
+            _epd_partial_lut_code = ti_154t8_monopart_lut_code;
 
-      layer_colors[EPD_WHITE] = 0b11;
-      layer_colors[EPD_BLACK] = 0b01;
-      layer_colors[EPD_RED] = 0b01;
-      layer_colors[EPD_GRAY] = 0b01;
-      layer_colors[EPD_LIGHT] = 0b10;
-      layer_colors[EPD_DARK] = 0b01;
+            layer_colors[EPD_WHITE] = 0b11;
+            layer_colors[EPD_BLACK] = 0b01;
+            layer_colors[EPD_RED] = 0b01;
+            layer_colors[EPD_GRAY] = 0b01;
+            layer_colors[EPD_LIGHT] = 0b10;
+            layer_colors[EPD_DARK] = 0b01;
+        }
+
+        default_refresh_delay = 1000;
+        setRotation(3);
+        powerDown();
     }
-
-    default_refresh_delay = 1000;
-    setRotation(3);
-    powerDown();
-  }
 };
 
 #endif // _THINKINK_154_GRAYSCALE4_T8_H

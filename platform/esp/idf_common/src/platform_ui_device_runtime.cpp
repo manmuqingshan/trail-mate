@@ -96,6 +96,15 @@ bool supports_screen_brightness()
     return true;
 }
 
+bool supports_keyboard_backlight()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return ::boards::t_display_p4::TDisplayP4Board::instance().hasKeyboard();
+#else
+    return false;
+#endif
+}
+
 bool supports_configurable_battery_gauge()
 {
     return false;
@@ -116,6 +125,36 @@ void set_screen_brightness(uint8_t level)
                             : static_cast<int>((static_cast<uint32_t>(level) * 100U) /
                                                static_cast<uint32_t>(DEVICE_MAX_BRIGHTNESS_LEVEL));
     (void)platform::esp::idf_common::bsp_runtime::set_display_brightness(percent);
+}
+
+uint8_t keyboard_backlight()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    auto& board = ::boards::t_display_p4::TDisplayP4Board::instance();
+    return board.hasKeyboard() ? board.keyboardGetBrightness() : 0;
+#else
+    return 0;
+#endif
+}
+
+uint8_t keyboard_backlight_max()
+{
+    return DEVICE_MAX_BRIGHTNESS_LEVEL;
+}
+
+void set_keyboard_backlight(uint8_t level)
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    auto& board = ::boards::t_display_p4::TDisplayP4Board::instance();
+    if (!board.hasKeyboard())
+    {
+        return;
+    }
+    const uint8_t clamped = level > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : level;
+    board.keyboardSetBrightness(clamped);
+#else
+    (void)level;
+#endif
 }
 
 void trigger_haptic() {}

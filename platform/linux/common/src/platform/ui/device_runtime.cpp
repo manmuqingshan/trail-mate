@@ -30,6 +30,7 @@ constexpr const char* kGpsReadyEnv = "TRAIL_MATE_GPS_READY";
 constexpr const char* kPowerTierEnv = "TRAIL_MATE_POWER_TIER";
 
 uint8_t s_screen_brightness = 0;
+uint8_t s_keyboard_backlight = 0;
 uint8_t s_message_tone_volume = 45;
 
 bool path_exists_from_env(const char* name)
@@ -291,6 +292,11 @@ bool supports_screen_brightness()
     return false;
 }
 
+bool supports_keyboard_backlight()
+{
+    return false;
+}
+
 bool supports_configurable_battery_gauge()
 {
     return false;
@@ -308,6 +314,21 @@ uint8_t screen_brightness()
 void set_screen_brightness(uint8_t level)
 {
     s_screen_brightness = level;
+}
+
+uint8_t keyboard_backlight()
+{
+    return s_keyboard_backlight;
+}
+
+uint8_t keyboard_backlight_max()
+{
+    return 0;
+}
+
+void set_keyboard_backlight(uint8_t level)
+{
+    s_keyboard_backlight = level;
 }
 
 void trigger_haptic()

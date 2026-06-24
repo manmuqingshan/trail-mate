@@ -108,8 +108,8 @@ Adafruit_SSD1681::Adafruit_SSD1681(int width, int height, int16_t SID,
     }
     else
     {
-        buffer1 = (uint8_t *)malloc(buffer1_size);
-        buffer2 = (uint8_t *)malloc(buffer2_size);
+        buffer1 = (uint8_t*)malloc(buffer1_size);
+        buffer2 = (uint8_t*)malloc(buffer2_size);
     }
 
     singleByteTxns = true;
@@ -131,7 +131,7 @@ Adafruit_SSD1681::Adafruit_SSD1681(int width, int height, int16_t SID,
 /**************************************************************************/
 Adafruit_SSD1681::Adafruit_SSD1681(int width, int height, int16_t DC,
                                    int16_t RST, int16_t CS, int16_t SRCS,
-                                   int16_t BUSY, SPIClass *spi, int32_t speed)
+                                   int16_t BUSY, SPIClass* spi, int32_t speed)
     : Adafruit_EPD(width, height, DC, RST, CS, SRCS, BUSY, spi, speed)
 {
     if ((height % 8) != 0)
@@ -151,8 +151,8 @@ Adafruit_SSD1681::Adafruit_SSD1681(int width, int height, int16_t DC,
     }
     else
     {
-        buffer1 = (uint8_t *)malloc(buffer1_size);
-        buffer2 = (uint8_t *)malloc(buffer2_size);
+        buffer1 = (uint8_t*)malloc(buffer1_size);
+        buffer2 = (uint8_t*)malloc(buffer2_size);
     }
 
     singleByteTxns = true;
@@ -263,7 +263,7 @@ void Adafruit_SSD1681::setRAMValueBaseMap(Update_Mode mode, bool busy_enable)
 }
 
 void Adafruit_SSD1681::displayPartial(uint16_t x, uint16_t y,
-                                      uint16_t w, uint16_t h, const uint8_t *datas, bool busy_enable)
+                                      uint16_t w, uint16_t h, const uint8_t* datas, bool busy_enable)
 {
     uint32_t x_end, y_end;
 

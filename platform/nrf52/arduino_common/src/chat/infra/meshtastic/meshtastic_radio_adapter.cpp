@@ -8,8 +8,8 @@
 #include "chat/infra/meshtastic/mt_protocol_helpers.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
 #include "chat/infra/meshtastic/mt_region.h"
-#include "chat/runtime/meshtastic_protocol_policy.h"
 #include "chat/runtime/meshtastic_position_core.h"
+#include "chat/runtime/meshtastic_protocol_policy.h"
 #include "chat/runtime/meshtastic_self_announcement_core.h"
 #include "chat/runtime/self_identity_policy.h"
 #include "meshtastic/mqtt.pb.h"
@@ -1273,8 +1273,8 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         runtime_packet.rx_meta = rx_meta;
         (void)executeProtocolEffects(
             protocol_runtime_.handleIncomingPacket(
-                runtime_packet,
-                buildProtocolRuntimeContext())
+                                 runtime_packet,
+                                 buildProtocolRuntimeContext())
                 .effects);
     }
 

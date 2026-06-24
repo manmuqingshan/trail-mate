@@ -4,9 +4,9 @@
 #include "sys/persistence_runtime.h"
 #include "sys/runtime_async.h"
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <cassert>
 
 namespace sys
 {

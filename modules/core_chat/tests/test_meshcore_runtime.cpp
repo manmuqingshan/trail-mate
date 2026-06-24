@@ -17,8 +17,9 @@ int main()
 {
     using chat::ChannelId;
     using chat::MeshProtocol;
-    using chat::runtime::IncomingPacket;
+    using chat::runtime::DiscoverIntent;
     using chat::runtime::EmitActionResultEffect;
+    using chat::runtime::IncomingPacket;
     using chat::runtime::kMeshCoreActionDetailInvalidInput;
     using chat::runtime::kMeshCoreAutoDiscoverCooldownMs;
     using chat::runtime::kMeshCoreDiscoverRxGuardDefaultMs;
@@ -26,10 +27,9 @@ int main()
     using chat::runtime::MeshCoreAutoDiscoverMissingPeerInput;
     using chat::runtime::MeshCoreRuntime;
     using chat::runtime::PacketHandling;
-    using chat::runtime::PublishNodeInfoEffect;
     using chat::runtime::ProtocolActionKind;
     using chat::runtime::ProtocolActionState;
-    using chat::runtime::DiscoverIntent;
+    using chat::runtime::PublishNodeInfoEffect;
     using chat::runtime::RequestNodeInfoIntent;
     using chat::runtime::RuntimeContext;
     using chat::runtime::SendDiscoverRequestEffect;

@@ -16,9 +16,9 @@
 #include "ui/components/two_pane_styles.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/ui_theme.h"
 #include "ui/widgets/busy_overlay.h"
-#include "ui/runtime/ui_feedback.h"
 #include "ui/widgets/top_bar.h"
 
 #if !defined(LV_FONT_MONTSERRAT_16) || !LV_FONT_MONTSERRAT_16

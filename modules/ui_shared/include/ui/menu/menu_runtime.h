@@ -39,6 +39,7 @@ void showWatchFace();
 void onWakeFromSleep();
 void setMenuActive(bool active);
 bool handleWalkieKey(char key, int state);
+bool handleShortcutKey(char key, int state);
 void setScene(Scene scene);
 Scene currentScene();
 

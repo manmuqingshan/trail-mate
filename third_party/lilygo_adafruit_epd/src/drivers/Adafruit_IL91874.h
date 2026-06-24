@@ -33,23 +33,24 @@
     @brief  Class for interfacing with IL0373 EPD drivers
 */
 /**************************************************************************/
-class Adafruit_IL91874 : public Adafruit_EPD {
-public:
-  Adafruit_IL91874(int width, int height, int16_t SID, int16_t SCLK, int16_t DC,
-                   int16_t RST, int16_t CS, int16_t SRCS, int16_t MISO,
-                   int16_t BUSY = -1);
-  Adafruit_IL91874(int width, int height, int16_t DC, int16_t RST, int16_t CS,
-                   int16_t SRCS, int16_t BUSY = -1, SPIClass *spi = &SPI);
+class Adafruit_IL91874 : public Adafruit_EPD
+{
+  public:
+    Adafruit_IL91874(int width, int height, int16_t SID, int16_t SCLK, int16_t DC,
+                     int16_t RST, int16_t CS, int16_t SRCS, int16_t MISO,
+                     int16_t BUSY = -1);
+    Adafruit_IL91874(int width, int height, int16_t DC, int16_t RST, int16_t CS,
+                     int16_t SRCS, int16_t BUSY = -1, SPIClass* spi = &SPI);
 
-  void begin(bool reset = true);
-  void powerUp();
-  void update();
-  void powerDown();
+    void begin(bool reset = true);
+    void powerUp();
+    void update();
+    void powerDown();
 
-protected:
-  uint8_t writeRAMCommand(uint8_t index);
-  void setRAMAddress(uint16_t x, uint16_t y);
-  void busy_wait();
+  protected:
+    uint8_t writeRAMCommand(uint8_t index);
+    void setRAMAddress(uint16_t x, uint16_t y);
+    void busy_wait();
 };
 
 #endif

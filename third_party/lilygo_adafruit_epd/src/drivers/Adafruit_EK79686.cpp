@@ -45,23 +45,28 @@ Adafruit_EK79686::Adafruit_EK79686(int width, int height, int16_t SID,
                                    int16_t SCLK, int16_t DC, int16_t RST,
                                    int16_t CS, int16_t SRCS, int16_t MISO,
                                    int16_t BUSY)
-    : Adafruit_EPD(width, height, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY) {
+    : Adafruit_EPD(width, height, SID, SCLK, DC, RST, CS, SRCS, MISO, BUSY)
+{
 
-  if ((width % 8) != 0) {
-    width += 8 - (width % 8);
-  }
-  buffer1_size = ((uint32_t)width * (uint32_t)height) / 8;
-  buffer2_size = buffer1_size;
+    if ((width % 8) != 0)
+    {
+        width += 8 - (width % 8);
+    }
+    buffer1_size = ((uint32_t)width * (uint32_t)height) / 8;
+    buffer2_size = buffer1_size;
 
-  if (SRCS >= 0) {
-    use_sram = true;
-    buffer1_addr = 0;
-    buffer2_addr = buffer1_size;
-    buffer1 = buffer2 = NULL;
-  } else {
-    buffer1 = (uint8_t *)malloc(buffer1_size);
-    buffer2 = (uint8_t *)malloc(buffer2_size);
-  }
+    if (SRCS >= 0)
+    {
+        use_sram = true;
+        buffer1_addr = 0;
+        buffer2_addr = buffer1_size;
+        buffer1 = buffer2 = NULL;
+    }
+    else
+    {
+        buffer1 = (uint8_t*)malloc(buffer1_size);
+        buffer2 = (uint8_t*)malloc(buffer2_size);
+    }
 }
 
 // constructor for hardware SPI - we indicate DataCommand, ChipSelect, Reset
@@ -80,24 +85,29 @@ Adafruit_EK79686::Adafruit_EK79686(int width, int height, int16_t SID,
 /**************************************************************************/
 Adafruit_EK79686::Adafruit_EK79686(int width, int height, int16_t DC,
                                    int16_t RST, int16_t CS, int16_t SRCS,
-                                   int16_t BUSY, SPIClass *spi)
-    : Adafruit_EPD(width, height, DC, RST, CS, SRCS, BUSY, spi) {
+                                   int16_t BUSY, SPIClass* spi)
+    : Adafruit_EPD(width, height, DC, RST, CS, SRCS, BUSY, spi)
+{
 
-  if ((height % 8) != 0) {
-    height += 8 - (height % 8);
-  }
-  buffer1_size = (uint16_t)width * (uint16_t)height / 8;
-  buffer2_size = buffer1_size;
+    if ((height % 8) != 0)
+    {
+        height += 8 - (height % 8);
+    }
+    buffer1_size = (uint16_t)width * (uint16_t)height / 8;
+    buffer2_size = buffer1_size;
 
-  if (SRCS >= 0) {
-    use_sram = true;
-    buffer1_addr = 0;
-    buffer2_addr = buffer1_size;
-    buffer1 = buffer2 = NULL;
-  } else {
-    buffer1 = (uint8_t *)malloc(buffer1_size);
-    buffer2 = (uint8_t *)malloc(buffer2_size);
-  }
+    if (SRCS >= 0)
+    {
+        use_sram = true;
+        buffer1_addr = 0;
+        buffer2_addr = buffer1_size;
+        buffer1 = buffer2 = NULL;
+    }
+    else
+    {
+        buffer1 = (uint8_t*)malloc(buffer1_size);
+        buffer2 = (uint8_t*)malloc(buffer2_size);
+    }
 }
 
 /**************************************************************************/
@@ -105,16 +115,21 @@ Adafruit_EK79686::Adafruit_EK79686(int width, int height, int16_t DC,
     @brief wait for busy signal to end
 */
 /**************************************************************************/
-void Adafruit_EK79686::busy_wait(void) {
-  if (_busy_pin >= 0) {
-    do {
-      EPD_command(EK79686_FLG);
-      delay(10);
-    } while (!digitalRead(_busy_pin));
-  } else {
-    delay(BUSY_WAIT);
-  }
-  delay(200); // additional delay
+void Adafruit_EK79686::busy_wait(void)
+{
+    if (_busy_pin >= 0)
+    {
+        do
+        {
+            EPD_command(EK79686_FLG);
+            delay(10);
+        } while (!digitalRead(_busy_pin));
+    }
+    else
+    {
+        delay(BUSY_WAIT);
+    }
+    delay(200); // additional delay
 }
 
 /**************************************************************************/
@@ -123,12 +138,13 @@ void Adafruit_EK79686::busy_wait(void) {
     @param reset if true the reset pin will be toggled.
 */
 /**************************************************************************/
-void Adafruit_EK79686::begin(bool reset) {
-  Adafruit_EPD::begin(reset);
-  setBlackBuffer(0, true);  // black defaults to inverted
-  setColorBuffer(1, false); // red defaults to not-inverted
+void Adafruit_EK79686::begin(bool reset)
+{
+    Adafruit_EPD::begin(reset);
+    setBlackBuffer(0, true);  // black defaults to inverted
+    setColorBuffer(1, false); // red defaults to not-inverted
 
-  powerDown();
+    powerDown();
 }
 
 /**************************************************************************/
@@ -136,10 +152,11 @@ void Adafruit_EK79686::begin(bool reset) {
     @brief signal the display to update
 */
 /**************************************************************************/
-void Adafruit_EK79686::update() {
-  EPD_command(EK79686_DRF);
-  delay(10);
-  busy_wait();
+void Adafruit_EK79686::update()
+{
+    EPD_command(EK79686_DRF);
+    delay(10);
+    busy_wait();
 }
 
 /**************************************************************************/
@@ -147,21 +164,24 @@ void Adafruit_EK79686::update() {
     @brief start up the display
 */
 /**************************************************************************/
-void Adafruit_EK79686::powerUp() {
-  hardwareReset();
-  delay(10);
+void Adafruit_EK79686::powerUp()
+{
+    hardwareReset();
+    delay(10);
 
-  const uint8_t *init_code = ek79686_default_init_code;
+    const uint8_t* init_code = ek79686_default_init_code;
 
-  if (_epd_init_code != NULL) {
-    init_code = _epd_init_code;
-  }
-  EPD_commandList(init_code);
+    if (_epd_init_code != NULL)
+    {
+        init_code = _epd_init_code;
+    }
+    EPD_commandList(init_code);
 
-  if (_epd_lut_code) {
-    EPD_commandList(_epd_lut_code);
-  }
-  busy_wait();
+    if (_epd_lut_code)
+    {
+        EPD_commandList(_epd_lut_code);
+    }
+    busy_wait();
 }
 
 /**************************************************************************/
@@ -170,14 +190,15 @@ void Adafruit_EK79686::powerUp() {
 */
 /**************************************************************************/
 
-void Adafruit_EK79686::powerDown(void) {
-  uint8_t buf[1];
+void Adafruit_EK79686::powerDown(void)
+{
+    uint8_t buf[1];
 
-  EPD_command(EK79686_POF); // power off
-  busy_wait();
+    EPD_command(EK79686_POF); // power off
+    busy_wait();
 
-  buf[0] = 0xA5;
-  EPD_command(EK79686_DSLP, buf, 1);
+    buf[0] = 0xA5;
+    EPD_command(EK79686_DSLP, buf, 1);
 }
 
 /**************************************************************************/
@@ -189,14 +210,17 @@ void Adafruit_EK79686::powerDown(void) {
    command
 */
 /**************************************************************************/
-uint8_t Adafruit_EK79686::writeRAMCommand(uint8_t index) {
-  if (index == 0) {
-    return EPD_command(EK79686_DTM1, false);
-  }
-  if (index == 1) {
-    return EPD_command(EK79686_DTM2, false);
-  }
-  return 0;
+uint8_t Adafruit_EK79686::writeRAMCommand(uint8_t index)
+{
+    if (index == 0)
+    {
+        return EPD_command(EK79686_DTM1, false);
+    }
+    if (index == 1)
+    {
+        return EPD_command(EK79686_DTM2, false);
+    }
+    return 0;
 }
 
 /**************************************************************************/
@@ -206,7 +230,8 @@ uint8_t Adafruit_EK79686::writeRAMCommand(uint8_t index) {
     @param y Y address counter value
 */
 /**************************************************************************/
-void Adafruit_EK79686::setRAMAddress(uint16_t x, uint16_t y) {
-  (void)x;
-  (void)y;
+void Adafruit_EK79686::setRAMAddress(uint16_t x, uint16_t y)
+{
+    (void)x;
+    (void)y;
 }

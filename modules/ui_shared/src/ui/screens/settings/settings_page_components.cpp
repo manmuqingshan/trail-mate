@@ -4,8 +4,8 @@
  */
 
 #include <cmath>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -39,6 +39,7 @@
 #include "ui/menu/menu_layout.h"
 #include "ui/page/page_profile.h"
 #include "ui/presentation_sources/runtime_settings_source.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/settings/settings_page_components.h"
 #include "ui/screens/settings/settings_page_input.h"
 #include "ui/screens/settings/settings_page_layout.h"
@@ -46,7 +47,6 @@
 #include "ui/screens/settings/settings_state.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/busy_overlay.h"
-#include "ui/runtime/ui_feedback.h"
 #include "ui/widgets/ime/ime_widget.h"
 #include "ui/widgets/text_candidate_picker.h"
 #include "ui/widgets/top_bar.h"
@@ -422,8 +422,18 @@ static bool is_leap_year(int year)
 static int days_in_month(int year, int month)
 {
     static constexpr int kDays[] = {
-        31, 28, 31, 30, 31, 30,
-        31, 31, 30, 31, 30, 31,
+        31,
+        28,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     };
     if (month < 1 || month > 12)
     {
@@ -481,6 +491,45 @@ static bool parse_int_range(const char* text, int min_value, int max_value, int&
     return true;
 }
 
+static int clamp_int(int value, int min_value, int max_value)
+{
+    if (value < min_value)
+    {
+        return min_value;
+    }
+    if (value > max_value)
+    {
+        return max_value;
+    }
+    return value;
+}
+
+static void format_fixed_2(char* dest, size_t dest_size, int value)
+{
+    if (dest == nullptr || dest_size < 3)
+    {
+        return;
+    }
+    const int bounded = clamp_int(value, 0, 99);
+    dest[0] = static_cast<char>('0' + (bounded / 10));
+    dest[1] = static_cast<char>('0' + (bounded % 10));
+    dest[2] = '\0';
+}
+
+static void format_fixed_4(char* dest, size_t dest_size, int value)
+{
+    if (dest == nullptr || dest_size < 5)
+    {
+        return;
+    }
+    const int bounded = clamp_int(value, 0, 9999);
+    dest[0] = static_cast<char>('0' + ((bounded / 1000) % 10));
+    dest[1] = static_cast<char>('0' + ((bounded / 100) % 10));
+    dest[2] = static_cast<char>('0' + ((bounded / 10) % 10));
+    dest[3] = static_cast<char>('0' + (bounded % 10));
+    dest[4] = '\0';
+}
+
 static bool parse_manual_time_fields(time_t& out_utc)
 {
     int year = 0;
@@ -531,30 +580,21 @@ static void refresh_manual_time_fields_from_runtime()
         return;
     }
 
-    std::snprintf(g_settings.manual_time_year,
-                  sizeof(g_settings.manual_time_year),
-                  "%04d",
-                  local.tm_year + 1900);
-    std::snprintf(g_settings.manual_time_month,
-                  sizeof(g_settings.manual_time_month),
-                  "%02d",
-                  local.tm_mon + 1);
-    std::snprintf(g_settings.manual_time_day,
-                  sizeof(g_settings.manual_time_day),
-                  "%02d",
-                  local.tm_mday);
-    std::snprintf(g_settings.manual_time_hour,
-                  sizeof(g_settings.manual_time_hour),
-                  "%02d",
-                  local.tm_hour);
-    std::snprintf(g_settings.manual_time_minute,
-                  sizeof(g_settings.manual_time_minute),
-                  "%02d",
-                  local.tm_min);
-    std::snprintf(g_settings.manual_time_second,
-                  sizeof(g_settings.manual_time_second),
-                  "%02d",
-                  local.tm_sec);
+    const int year = clamp_int(local.tm_year + 1900, 2020, 2099);
+    const int month = clamp_int(local.tm_mon + 1, 1, 12);
+    const int day = clamp_int(local.tm_mday, 1, days_in_month(year, month));
+    format_fixed_4(g_settings.manual_time_year, sizeof(g_settings.manual_time_year), year);
+    format_fixed_2(g_settings.manual_time_month, sizeof(g_settings.manual_time_month), month);
+    format_fixed_2(g_settings.manual_time_day, sizeof(g_settings.manual_time_day), day);
+    format_fixed_2(g_settings.manual_time_hour,
+                   sizeof(g_settings.manual_time_hour),
+                   clamp_int(local.tm_hour, 0, 23));
+    format_fixed_2(g_settings.manual_time_minute,
+                   sizeof(g_settings.manual_time_minute),
+                   clamp_int(local.tm_min, 0, 59));
+    format_fixed_2(g_settings.manual_time_second,
+                   sizeof(g_settings.manual_time_second),
+                   clamp_int(local.tm_sec, 0, 59));
 }
 
 static bool apply_manual_datetime_setting()

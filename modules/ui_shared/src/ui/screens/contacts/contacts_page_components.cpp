@@ -21,6 +21,7 @@
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/presentation_sources/team_chat_presentation_source.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/chat/chat_compose_components.h"
 #include "ui/screens/chat/chat_conversation_components.h"
 #include "ui/screens/chat/chat_page_shell.h"
@@ -35,7 +36,6 @@
 #include "ui/team_actions/team_runtime_adapters.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/ime/ime_widget.h"
-#include "ui/runtime/ui_feedback.h"
 
 #include <cmath>
 #include <cstdint>

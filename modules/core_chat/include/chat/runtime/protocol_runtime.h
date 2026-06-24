@@ -399,7 +399,6 @@ decltype(auto) visitProtocolEffect(const ProtocolEffect& effect, Visitor&& visit
     return std::visit(std::forward<Visitor>(visitor), effect);
 }
 
-
 class IProtocolRuntime
 {
   public:

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "chat/infra/meshcore/meshcore_payload_helpers.h"
 #include "chat/infra/meshcore/meshcore_identity_crypto.h"
+#include "chat/infra/meshcore/meshcore_payload_helpers.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 #include "chat/runtime/protocol_runtime.h"
 
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <deque>
 #include <string>
 #include <type_traits>
@@ -685,7 +685,7 @@ class MeshCoreRuntime final : public IProtocolRuntime
     }
 
     IncomingPacketHandlingResult handleIncomingTrace(const IncomingPacket& packet,
-                                                    const RuntimeContext& context)
+                                                     const RuntimeContext& context)
     {
         (void)context;
         if (packet.payload_type != chat::meshcore::kMeshCorePayloadTypeTrace)

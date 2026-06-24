@@ -1,7 +1,7 @@
 #include "ui/widgets/text_candidate_data.h"
 
-#include "ui/widgets/text_candidate_builtin_emoji_data.h"
-#include "ui/widgets/text_candidate_builtin_symbol_data.h"
+#include "text_candidate_builtin_emoji_data.h"
+#include "text_candidate_builtin_symbol_data.h"
 
 namespace ui::widgets::text_candidates
 {
@@ -9,16 +9,106 @@ namespace
 {
 
 static constexpr const char* kSymbolCandidates[] = {
-    "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*",
-    "+", ",", "-", ".", "/", ":", ";", "<", "=", ">",
-    "?", "@", "[", "\\", "]", "^", "_", "`", "{", "|",
-    "}", "~", "¡", "¿", "§", "¶", "©", "®", "™", "°",
-    "±", "×", "÷", "µ", "π", "∞", "≈", "≠", "≤", "≥",
-    "√", "∑", "∫", "∂", "∆", "∇", "∴", "∵", "←", "↑",
-    "→", "↓", "↔", "↕", "↖", "↗", "↘", "↙", "⇐", "⇑",
-    "⇒", "⇓", "⇔", "↩", "↪", "↻", "↺", "•", "◦", "·",
-    "…", "—", "–", "†", "‡", "※", "№", "★", "☆", "♥",
-    "♡", "◆", "◇", "●", "○", "■", "□", "▲", "△", "▼",
+    "!",
+    "\"",
+    "#",
+    "$",
+    "%",
+    "&",
+    "'",
+    "(",
+    ")",
+    "*",
+    "+",
+    ",",
+    "-",
+    ".",
+    "/",
+    ":",
+    ";",
+    "<",
+    "=",
+    ">",
+    "?",
+    "@",
+    "[",
+    "\\",
+    "]",
+    "^",
+    "_",
+    "`",
+    "{",
+    "|",
+    "}",
+    "~",
+    "¡",
+    "¿",
+    "§",
+    "¶",
+    "©",
+    "®",
+    "™",
+    "°",
+    "±",
+    "×",
+    "÷",
+    "µ",
+    "π",
+    "∞",
+    "≈",
+    "≠",
+    "≤",
+    "≥",
+    "√",
+    "∑",
+    "∫",
+    "∂",
+    "∆",
+    "∇",
+    "∴",
+    "∵",
+    "←",
+    "↑",
+    "→",
+    "↓",
+    "↔",
+    "↕",
+    "↖",
+    "↗",
+    "↘",
+    "↙",
+    "⇐",
+    "⇑",
+    "⇒",
+    "⇓",
+    "⇔",
+    "↩",
+    "↪",
+    "↻",
+    "↺",
+    "•",
+    "◦",
+    "·",
+    "…",
+    "—",
+    "–",
+    "†",
+    "‡",
+    "※",
+    "№",
+    "★",
+    "☆",
+    "♥",
+    "♡",
+    "◆",
+    "◇",
+    "●",
+    "○",
+    "■",
+    "□",
+    "▲",
+    "△",
+    "▼",
 };
 
 static_assert(sizeof(kSymbolCandidates) / sizeof(kSymbolCandidates[0]) <=
@@ -62,7 +152,7 @@ const char* at(CandidateSet set, std::size_t index)
     return candidates_for(set)[index];
 }
 
-std::uint8_t* emoji_core_binfont_data()
+const std::uint8_t* emoji_core_binfont_data()
 {
     return text_candidate_data::kEmojiCoreBinfont;
 }
@@ -72,7 +162,7 @@ std::size_t emoji_core_binfont_size()
     return text_candidate_data::kEmojiCoreBinfontSize;
 }
 
-std::uint8_t* symbol_core_binfont_data()
+const std::uint8_t* symbol_core_binfont_data()
 {
     return text_candidate_data::kSymbolCoreBinfont;
 }

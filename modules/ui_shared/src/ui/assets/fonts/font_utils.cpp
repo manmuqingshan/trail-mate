@@ -5,7 +5,7 @@ namespace ui::fonts
 namespace
 {
 
-constexpr std::size_t kMaxLocalizedFontBindings = 128;
+constexpr std::size_t kMaxLocalizedFontBindings = 64;
 LocalizedFontBinding s_localized_font_bindings[kMaxLocalizedFontBindings]{};
 
 } // namespace

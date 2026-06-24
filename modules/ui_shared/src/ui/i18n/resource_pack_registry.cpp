@@ -1895,7 +1895,8 @@ void add_builtin_font_packs()
     if (s_builtin_symbol_font == nullptr)
     {
         s_builtin_symbol_font = lv_binfont_create_from_buffer(
-            ::ui::widgets::text_candidates::symbol_core_binfont_data(),
+            const_cast<std::uint8_t*>(
+                ::ui::widgets::text_candidates::symbol_core_binfont_data()),
             static_cast<uint32_t>(
                 ::ui::widgets::text_candidates::symbol_core_binfont_size()));
     }
@@ -1919,7 +1920,8 @@ void add_builtin_font_packs()
     if (s_builtin_emoji_font == nullptr)
     {
         s_builtin_emoji_font = lv_binfont_create_from_buffer(
-            ::ui::widgets::text_candidates::emoji_core_binfont_data(),
+            const_cast<std::uint8_t*>(
+                ::ui::widgets::text_candidates::emoji_core_binfont_data()),
             static_cast<uint32_t>(
                 ::ui::widgets::text_candidates::emoji_core_binfont_size()));
     }

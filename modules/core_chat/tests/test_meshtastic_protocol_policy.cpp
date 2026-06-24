@@ -4,10 +4,10 @@
 
 int main()
 {
+    using chat::runtime::kMeshtasticBroadcastNode;
     using chat::runtime::MeshtasticNodeInfoReannounceReason;
     using chat::runtime::MeshtasticReplyReason;
     using chat::runtime::MeshtasticTraceRouteReplyReason;
-    using chat::runtime::kMeshtasticBroadcastNode;
     using chat::runtime::resolveMeshtasticAppDataSendPolicy;
     using chat::runtime::resolveMeshtasticNodeInfoReannouncePolicy;
     using chat::runtime::resolveMeshtasticNodeInfoReplyPolicy;

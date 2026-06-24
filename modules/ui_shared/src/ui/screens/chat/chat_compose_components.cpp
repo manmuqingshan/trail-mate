@@ -11,8 +11,8 @@
 #include "ui/widgets/ime/ime_widget.h"
 #include "ui/widgets/text_candidate_picker.h"
 
-#include <cstdio> // snprintf
 #include <cstdint>
+#include <cstdio> // snprintf
 #include <cstring>
 
 #ifndef CHAT_COMPOSE_LOG_ENABLE
@@ -349,34 +349,34 @@ void ChatComposeScreen::attachImeWidget(::ui::widgets::ImeWidget* widget)
     lv_group_t* group = lv_group_get_default();
     const auto ensure_candidate_button =
         [&](lv_obj_t*& button, ::ui::widgets::text_candidates::CandidateSet set, std::uint32_t index)
+    {
+        if (button && (!lv_obj_is_valid(button) || lv_obj_get_parent(button) != toolbar))
         {
-            if (button && (!lv_obj_is_valid(button) || lv_obj_get_parent(button) != toolbar))
+            button = nullptr;
+        }
+        if (!button)
+        {
+            button = ::ui::widgets::add_text_candidate_button(
+                toolbar,
+                impl_->w.textarea,
+                set,
+                group,
+                ime_toggle);
+        }
+        else
+        {
+            lv_obj_set_user_data(button, impl_->w.textarea);
+            if (group)
             {
-                button = nullptr;
+                lv_group_remove_obj(button);
+                lv_group_add_obj(group, button);
             }
-            if (!button)
-            {
-                button = ::ui::widgets::add_text_candidate_button(
-                    toolbar,
-                    impl_->w.textarea,
-                    set,
-                    group,
-                    ime_toggle);
-            }
-            else
-            {
-                lv_obj_set_user_data(button, impl_->w.textarea);
-                if (group)
-                {
-                    lv_group_remove_obj(button);
-                    lv_group_add_obj(group, button);
-                }
-            }
-            if (button)
-            {
-                lv_obj_move_to_index(button, index);
-            }
-        };
+        }
+        if (button)
+        {
+            lv_obj_move_to_index(button, index);
+        }
+    };
 
     ensure_candidate_button(
         impl_->sym_btn,

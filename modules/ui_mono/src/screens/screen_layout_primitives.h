@@ -150,8 +150,16 @@ inline void drawClockDigit(MonoDisplay& display, int x, int y, char ch)
     }
 
     static constexpr uint8_t kDigitSegments[] = {
-        0b1111110, 0b0110000, 0b1101101, 0b1111001, 0b0110011,
-        0b1011011, 0b1011111, 0b1110000, 0b1111111, 0b1111011,
+        0b1111110,
+        0b0110000,
+        0b1101101,
+        0b1111001,
+        0b0110011,
+        0b1011011,
+        0b1011111,
+        0b1110000,
+        0b1111111,
+        0b1111011,
     };
     const uint8_t seg = kDigitSegments[ch - '0'];
     constexpr int kDigitW = 8;
@@ -163,13 +171,34 @@ inline void drawClockDigit(MonoDisplay& display, int x, int y, char ch)
     constexpr int kSegW = 6;
     constexpr int kSegH = 4;
 
-    if (seg & 0b1000000) { drawClockSegmentH(display, x + 1, y, kSegW); }
-    if (seg & 0b0100000) { drawClockSegmentV(display, x + kRightX, y + 1, kSegH); }
-    if (seg & 0b0010000) { drawClockSegmentV(display, x + kRightX, y + 8, kSegH); }
-    if (seg & 0b0001000) { drawClockSegmentH(display, x + 1, y + kBottomY, kSegW); }
-    if (seg & 0b0000100) { drawClockSegmentV(display, x + kLeftX, y + 8, kSegH); }
-    if (seg & 0b0000010) { drawClockSegmentV(display, x + kLeftX, y + 1, kSegH); }
-    if (seg & 0b0000001) { drawClockSegmentH(display, x + 1, y + kMidY, kSegW); }
+    if (seg & 0b1000000)
+    {
+        drawClockSegmentH(display, x + 1, y, kSegW);
+    }
+    if (seg & 0b0100000)
+    {
+        drawClockSegmentV(display, x + kRightX, y + 1, kSegH);
+    }
+    if (seg & 0b0010000)
+    {
+        drawClockSegmentV(display, x + kRightX, y + 8, kSegH);
+    }
+    if (seg & 0b0001000)
+    {
+        drawClockSegmentH(display, x + 1, y + kBottomY, kSegW);
+    }
+    if (seg & 0b0000100)
+    {
+        drawClockSegmentV(display, x + kLeftX, y + 8, kSegH);
+    }
+    if (seg & 0b0000010)
+    {
+        drawClockSegmentV(display, x + kLeftX, y + 1, kSegH);
+    }
+    if (seg & 0b0000001)
+    {
+        drawClockSegmentH(display, x + 1, y + kMidY, kSegW);
+    }
 }
 
 inline int clockGlyphWidth(char ch)
@@ -230,17 +259,46 @@ inline void drawScaledClockDigit(MonoDisplay& display, int x, int y, char ch, in
     }
 
     static constexpr uint8_t kDigitSegments[] = {
-        0b1111110, 0b0110000, 0b1101101, 0b1111001, 0b0110011,
-        0b1011011, 0b1011111, 0b1110000, 0b1111111, 0b1111011,
+        0b1111110,
+        0b0110000,
+        0b1101101,
+        0b1111001,
+        0b0110011,
+        0b1011011,
+        0b1011111,
+        0b1110000,
+        0b1111111,
+        0b1111011,
     };
     const uint8_t seg = kDigitSegments[ch - '0'];
-    if (seg & 0b1000000) { drawScaledSegment(display, x, y, 1, 0, 6, 2, scale); }
-    if (seg & 0b0100000) { drawScaledSegment(display, x, y, 6, 1, 2, 5, scale); }
-    if (seg & 0b0010000) { drawScaledSegment(display, x, y, 6, 8, 2, 5, scale); }
-    if (seg & 0b0001000) { drawScaledSegment(display, x, y, 1, 12, 6, 2, scale); }
-    if (seg & 0b0000100) { drawScaledSegment(display, x, y, 0, 8, 2, 5, scale); }
-    if (seg & 0b0000010) { drawScaledSegment(display, x, y, 0, 1, 2, 5, scale); }
-    if (seg & 0b0000001) { drawScaledSegment(display, x, y, 1, 6, 6, 2, scale); }
+    if (seg & 0b1000000)
+    {
+        drawScaledSegment(display, x, y, 1, 0, 6, 2, scale);
+    }
+    if (seg & 0b0100000)
+    {
+        drawScaledSegment(display, x, y, 6, 1, 2, 5, scale);
+    }
+    if (seg & 0b0010000)
+    {
+        drawScaledSegment(display, x, y, 6, 8, 2, 5, scale);
+    }
+    if (seg & 0b0001000)
+    {
+        drawScaledSegment(display, x, y, 1, 12, 6, 2, scale);
+    }
+    if (seg & 0b0000100)
+    {
+        drawScaledSegment(display, x, y, 0, 8, 2, 5, scale);
+    }
+    if (seg & 0b0000010)
+    {
+        drawScaledSegment(display, x, y, 0, 1, 2, 5, scale);
+    }
+    if (seg & 0b0000001)
+    {
+        drawScaledSegment(display, x, y, 1, 6, 6, 2, scale);
+    }
 }
 
 inline int scaledClockGlyphWidth(char ch, int scale)

@@ -313,6 +313,8 @@ set(TRAILMATE_ESP_IDF_UI_SHARED_SOURCES
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/ime/pinyin_ime.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/map/map_viewport.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/system_notification.cpp"
+    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/text_candidate_data.cpp"
+    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/text_candidate_picker.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/toast/toast_widget.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/top_bar.cpp")
 

@@ -15,11 +15,11 @@
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/localization.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/chat/chat_protocol_support.h"
 #include "ui/screens/chat/chat_team_workflow.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/ime/ime_widget.h"
-#include "ui/runtime/ui_feedback.h"
 #include "ui_chat_runtime/chat_delivery_action_port_adapter.h"
 #include "ui_lvgl_ux_packs/common/key_verification_modal_renderer.h"
 #include "ui_lvgl_ux_packs/common/team_position_picker_renderer.h"
@@ -826,7 +826,7 @@ void UiController::handleSendMessage(const std::string& text)
     if (!result.ok)
     {
         ::ui::feedback::show_notice(local_text_send_failure_message(result),
-                                      2000);
+                                    2000);
     }
     handleComposeSendDone(result.ok, false);
 }

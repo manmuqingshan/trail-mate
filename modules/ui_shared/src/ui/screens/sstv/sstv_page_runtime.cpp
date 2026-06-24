@@ -8,8 +8,8 @@
 #include "ui/app_runtime.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
-#include "ui/ui_common.h"
 #include "ui/runtime/ui_feedback.h"
+#include "ui/ui_common.h"
 #include "ui/widgets/top_bar.h"
 #include <algorithm>
 #include <cmath>
