@@ -482,6 +482,7 @@ set(TRAIL_MATE_LINUX_UI_SHELL_SOURCES
     # startup / widgets
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/startup_ui_shell.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/ui_boot.cpp"
+    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/runtime/memory_profile.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/runtime/ui_feedback.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/i18n/resource_pack_registry.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/widgets/ime/ime_input_mode_descriptor.cpp"
