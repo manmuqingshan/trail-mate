@@ -522,6 +522,7 @@ if(BUILD_TESTING)
     add_executable(trailmate_team_map_overlay_source_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_team_map_overlay_source.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/team_map_overlay_source.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp"
         "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/platform/ui/team_ui_store_runtime.cpp"
         "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/platform/linux/runtime_paths.cpp")
     target_include_directories(trailmate_team_map_overlay_source_smoke

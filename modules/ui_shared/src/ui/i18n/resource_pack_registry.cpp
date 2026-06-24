@@ -1890,7 +1890,7 @@ void add_builtin_font_packs()
     latin_pack.estimated_ram_bytes = 0;
     s_font_packs.push_back(std::move(latin_pack));
 
-#if UI_I18N_HAVE_BINFONT
+#if UI_I18N_HAVE_BINFONT && LV_USE_FS_MEMFS
     static lv_font_t* s_builtin_symbol_font = nullptr;
     if (s_builtin_symbol_font == nullptr)
     {

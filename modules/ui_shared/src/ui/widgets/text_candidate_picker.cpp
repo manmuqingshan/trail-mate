@@ -4,6 +4,7 @@
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/ui_common.h"
+#include "ui_lvgl_core/lvgl_focus_group.h"
 
 #include <algorithm>
 #include <array>
