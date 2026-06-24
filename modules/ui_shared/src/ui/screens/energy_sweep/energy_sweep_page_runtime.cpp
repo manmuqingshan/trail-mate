@@ -14,6 +14,7 @@
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/ui_common.h"
+#include "ui/widgets/top_bar.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -59,9 +60,9 @@ constexpr int kLeftPanelW = 332;
 constexpr int kLeftPanelH = 170;
 
 constexpr int kPlotX = 10;
-constexpr int kPlotY = 10;
+constexpr int kPlotY = 34;
 constexpr int kPlotW = 312;
-constexpr int kPlotH = 118;
+constexpr int kPlotH = 90;
 
 constexpr int kScaleBarX = 10;
 constexpr int kScaleBarY = 130;
@@ -117,9 +118,7 @@ struct EnergySweepUi
 {
     lv_obj_t* root = nullptr;
 
-    lv_obj_t* topbar = nullptr;
-    lv_obj_t* back_btn = nullptr;
-    lv_obj_t* title = nullptr;
+    ::ui::widgets::TopBar top_bar = {};
     lv_obj_t* mode_chip = nullptr;
     lv_obj_t* mode_chip_label = nullptr;
     lv_obj_t* cad_chip = nullptr;
@@ -156,18 +155,12 @@ struct EnergySweepLayout
     lv_coord_t screen_h = kScreenH;
     lv_coord_t topbar_h = kTopBarH;
 
-    lv_coord_t back_x = 8;
-    lv_coord_t back_y = 4;
-    lv_coord_t back_w = 28;
-    lv_coord_t back_h = 20;
-    lv_coord_t title_x = 46;
-    lv_coord_t title_y = 0;
-    lv_coord_t mode_chip_x = 264;
-    lv_coord_t mode_chip_y = 5;
+    lv_coord_t mode_chip_x = 10;
+    lv_coord_t mode_chip_y = 8;
     lv_coord_t mode_chip_w = 118;
     lv_coord_t mode_chip_h = 18;
-    lv_coord_t cad_chip_x = 388;
-    lv_coord_t cad_chip_y = 5;
+    lv_coord_t cad_chip_x = 136;
+    lv_coord_t cad_chip_y = 8;
     lv_coord_t cad_chip_w = 82;
     lv_coord_t cad_chip_h = 18;
 
@@ -259,19 +252,13 @@ EnergySweepLayout make_large_touch_layout(lv_coord_t parent_w, lv_coord_t parent
     const lv_coord_t content_top = layout.topbar_h + 14;
     const lv_coord_t content_h = std::max<lv_coord_t>(360, layout.screen_h - content_top - margin);
 
-    layout.back_x = margin;
-    layout.back_w = 44;
-    layout.back_h = 38;
-    layout.back_y = (layout.topbar_h - layout.back_h) / 2;
-    layout.title_x = layout.back_x + layout.back_w + 16;
-    layout.title_y = (layout.topbar_h - 28) / 2;
-    layout.cad_chip_w = 88;
     layout.mode_chip_w = 148;
     layout.mode_chip_h = 28;
+    layout.mode_chip_x = 14;
+    layout.mode_chip_y = 14;
+    layout.cad_chip_w = 88;
     layout.cad_chip_h = 28;
-    layout.cad_chip_x = layout.screen_w - margin - layout.cad_chip_w;
-    layout.mode_chip_x = layout.cad_chip_x - 10 - layout.mode_chip_w;
-    layout.mode_chip_y = (layout.topbar_h - layout.mode_chip_h) / 2;
+    layout.cad_chip_x = layout.mode_chip_x + layout.mode_chip_w + 10;
     layout.cad_chip_y = layout.mode_chip_y;
 
     layout.left_panel_x = margin;
@@ -296,7 +283,7 @@ EnergySweepLayout make_large_touch_layout(lv_coord_t parent_w, lv_coord_t parent
     }
 
     layout.plot_x = 14;
-    layout.plot_y = 18;
+    layout.plot_y = layout.mode_chip_y + layout.mode_chip_h + 14;
     layout.plot_w = layout.left_panel_w - 28;
     layout.scale_x = layout.plot_x;
     layout.scale_w = layout.plot_w;
@@ -878,9 +865,9 @@ void set_auto_button_style()
     }
 }
 
-void refresh_top_status()
+void refresh_page_status()
 {
-    if (!s_ui.mode_chip || !s_ui.cad_chip || !s_ui.cad_chip_label)
+    if (!s_ui.mode_chip || !s_ui.mode_chip_label || !s_ui.cad_chip || !s_ui.cad_chip_label)
     {
         return;
     }
@@ -889,6 +876,8 @@ void refresh_top_status()
                               lv_color_hex(s_state.scanning ? kColorAmber : 0xD4BE8E),
                               0);
     lv_obj_set_style_border_color(s_ui.mode_chip, lv_color_hex(kColorAmberDark), 0);
+    lv_obj_set_style_text_color(s_ui.mode_chip_label, lv_color_hex(kColorText), 0);
+    ::ui::i18n::set_label_text(s_ui.mode_chip_label, "MODE: RSSI");
 
     if (s_radio.use_hw)
     {
@@ -1123,7 +1112,8 @@ void refresh_scale_labels()
 
 void refresh_all_ui()
 {
-    refresh_top_status();
+    refresh_page_status();
+    ui_update_top_bar_battery(s_ui.top_bar);
     refresh_scale_labels();
     refresh_plot();
     refresh_right_panel_text();
@@ -1134,6 +1124,11 @@ void refresh_all_ui()
 void on_back_requested(lv_event_t*)
 {
     request_exit();
+}
+
+void top_bar_back_requested(void*)
+{
+    on_back_requested(nullptr);
 }
 
 void apply_auto_choice()
@@ -1362,49 +1357,36 @@ void refresh_timer_cb(lv_timer_t*)
 
 void build_topbar(lv_obj_t* root)
 {
-    s_ui.topbar = lv_obj_create(root);
-    lv_obj_set_pos(s_ui.topbar, 0, 0);
-    lv_obj_set_size(s_ui.topbar, s_layout.screen_w, s_layout.topbar_h);
-    lv_obj_set_style_bg_color(s_ui.topbar, lv_color_hex(kColorPanelBg), 0);
-    lv_obj_set_style_bg_opa(s_ui.topbar, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_ui.topbar, 0, 0);
-    lv_obj_set_style_pad_all(s_ui.topbar, 0, 0);
-    lv_obj_clear_flag(s_ui.topbar, LV_OBJ_FLAG_SCROLLABLE);
+    ::ui::widgets::TopBarConfig config{};
+    config.height = s_layout.topbar_h;
+    ::ui::widgets::top_bar_init(s_ui.top_bar, root, config);
+    ::ui::widgets::top_bar_set_title(s_ui.top_bar, ::ui::i18n::tr("SUB-GHz SCAN"));
+    ::ui::widgets::top_bar_set_back_callback(s_ui.top_bar, top_bar_back_requested, nullptr);
+    if (s_ui.top_bar.container)
+    {
+        lv_obj_set_pos(s_ui.top_bar.container, 0, 0);
+    }
+    if (s_ui.top_bar.back_btn)
+    {
+        lv_obj_add_event_cb(s_ui.top_bar.back_btn, back_btn_key_event_cb, LV_EVENT_KEY, nullptr);
+    }
+    ui_update_top_bar_battery(s_ui.top_bar);
+}
 
-    lv_obj_t* bottom_line = lv_obj_create(s_ui.topbar);
-    lv_obj_set_pos(bottom_line, 0, s_layout.topbar_h - 2);
-    lv_obj_set_size(bottom_line, s_layout.screen_w, 2);
-    lv_obj_set_style_bg_color(bottom_line, lv_color_hex(kColorLine), 0);
-    lv_obj_set_style_bg_opa(bottom_line, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(bottom_line, 0, 0);
-    lv_obj_set_style_radius(bottom_line, 0, 0);
-    lv_obj_clear_flag(bottom_line, LV_OBJ_FLAG_SCROLLABLE);
+void build_left_panel(lv_obj_t* root)
+{
+    s_ui.left_panel = lv_obj_create(root);
+    lv_obj_set_pos(s_ui.left_panel, s_layout.left_panel_x, s_layout.left_panel_y);
+    lv_obj_set_size(s_ui.left_panel, s_layout.left_panel_w, s_layout.left_panel_h);
+    lv_obj_set_style_bg_color(s_ui.left_panel, lv_color_hex(kColorPanelBg), 0);
+    lv_obj_set_style_bg_opa(s_ui.left_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_ui.left_panel, 2, 0);
+    lv_obj_set_style_border_color(s_ui.left_panel, lv_color_hex(kColorLine), 0);
+    lv_obj_set_style_radius(s_ui.left_panel, 0, 0);
+    lv_obj_set_style_pad_all(s_ui.left_panel, 0, 0);
+    lv_obj_clear_flag(s_ui.left_panel, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_ui.back_btn = lv_btn_create(s_ui.topbar);
-    lv_obj_set_pos(s_ui.back_btn, s_layout.back_x, s_layout.back_y);
-    lv_obj_set_size(s_ui.back_btn, s_layout.back_w, s_layout.back_h);
-    lv_obj_set_style_bg_color(s_ui.back_btn, lv_color_hex(kColorPanelBg), 0);
-    lv_obj_set_style_bg_opa(s_ui.back_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_ui.back_btn, 1, 0);
-    lv_obj_set_style_border_color(s_ui.back_btn, lv_color_hex(kColorLine), 0);
-    lv_obj_set_style_radius(s_ui.back_btn, 10, 0);
-    lv_obj_set_style_outline_width(s_ui.back_btn, 0, LV_STATE_FOCUSED);
-    lv_obj_add_event_cb(s_ui.back_btn, on_back_requested, LV_EVENT_CLICKED, nullptr);
-    lv_obj_add_event_cb(s_ui.back_btn, back_btn_key_event_cb, LV_EVENT_KEY, nullptr);
-
-    lv_obj_t* back_label = lv_label_create(s_ui.back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT);
-    lv_obj_set_style_text_font(back_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(back_label, lv_color_hex(kColorText), 0);
-    lv_obj_center(back_label);
-
-    s_ui.title = lv_label_create(s_ui.topbar);
-    ::ui::i18n::set_label_text(s_ui.title, "SUB-GHz SCAN");
-    lv_obj_set_style_text_font(s_ui.title, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(s_ui.title, lv_color_hex(kColorText), 0);
-    lv_obj_set_pos(s_ui.title, s_layout.title_x, s_layout.title_y);
-
-    s_ui.mode_chip = lv_obj_create(s_ui.topbar);
+    s_ui.mode_chip = lv_obj_create(s_ui.left_panel);
     lv_obj_set_pos(s_ui.mode_chip, s_layout.mode_chip_x, s_layout.mode_chip_y);
     lv_obj_set_size(s_ui.mode_chip, s_layout.mode_chip_w, s_layout.mode_chip_h);
     lv_obj_set_style_bg_color(s_ui.mode_chip, lv_color_hex(kColorAmber), 0);
@@ -1421,7 +1403,7 @@ void build_topbar(lv_obj_t* root)
     lv_obj_set_style_text_color(s_ui.mode_chip_label, lv_color_hex(kColorText), 0);
     lv_obj_center(s_ui.mode_chip_label);
 
-    s_ui.cad_chip = lv_obj_create(s_ui.topbar);
+    s_ui.cad_chip = lv_obj_create(s_ui.left_panel);
     lv_obj_set_pos(s_ui.cad_chip, s_layout.cad_chip_x, s_layout.cad_chip_y);
     lv_obj_set_size(s_ui.cad_chip, s_layout.cad_chip_w, s_layout.cad_chip_h);
     lv_obj_set_style_bg_color(s_ui.cad_chip, lv_color_hex(kColorInfo), 0);
@@ -1437,20 +1419,6 @@ void build_topbar(lv_obj_t* root)
     lv_obj_set_style_text_font(s_ui.cad_chip_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_ui.cad_chip_label, lv_color_white(), 0);
     lv_obj_center(s_ui.cad_chip_label);
-}
-
-void build_left_panel(lv_obj_t* root)
-{
-    s_ui.left_panel = lv_obj_create(root);
-    lv_obj_set_pos(s_ui.left_panel, s_layout.left_panel_x, s_layout.left_panel_y);
-    lv_obj_set_size(s_ui.left_panel, s_layout.left_panel_w, s_layout.left_panel_h);
-    lv_obj_set_style_bg_color(s_ui.left_panel, lv_color_hex(kColorPanelBg), 0);
-    lv_obj_set_style_bg_opa(s_ui.left_panel, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_ui.left_panel, 2, 0);
-    lv_obj_set_style_border_color(s_ui.left_panel, lv_color_hex(kColorLine), 0);
-    lv_obj_set_style_radius(s_ui.left_panel, 0, 0);
-    lv_obj_set_style_pad_all(s_ui.left_panel, 0, 0);
-    lv_obj_clear_flag(s_ui.left_panel, LV_OBJ_FLAG_SCROLLABLE);
 
     s_ui.plot_area = lv_obj_create(s_ui.left_panel);
     lv_obj_set_pos(s_ui.plot_area, s_layout.plot_x, s_layout.plot_y);
@@ -1727,10 +1695,11 @@ void ui_energy_sweep_enter(lv_obj_t* parent)
     init_sweep_state();
     ui_energy_sweep_create(parent);
 
-    if (::app_g && s_ui.back_btn)
+    lv_obj_t* back_btn = s_ui.top_bar.back_btn;
+    if (::app_g && back_btn)
     {
         lv_group_remove_all_objs(::app_g);
-        lv_group_add_obj(::app_g, s_ui.back_btn);
+        lv_group_add_obj(::app_g, back_btn);
         if (s_ui.btn_scan)
         {
             lv_group_add_obj(::app_g, s_ui.btn_scan);
@@ -1739,7 +1708,7 @@ void ui_energy_sweep_enter(lv_obj_t* parent)
         {
             lv_group_add_obj(::app_g, s_ui.btn_auto);
         }
-        lv_group_focus_obj(s_ui.back_btn);
+        lv_group_focus_obj(back_btn);
         set_default_group(::app_g);
         lv_group_set_editing(::app_g, false);
     }
