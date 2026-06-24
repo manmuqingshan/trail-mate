@@ -2,6 +2,7 @@
 #define Pins_Arduino_h
 
 #include <stdint.h>
+#include "../common/sd_spi_frequency.h"
 
 #define USB_VID 0x303a
 #define USB_PID 0x82D4
@@ -12,7 +13,6 @@
 #define DISP_WIDTH (222)
 #define DISP_HEIGHT (480)
 #define SD_CS (21)
-#define SD_SPI_FREQUENCY (4000000U)
 
 static const uint8_t TX = 43;
 static const uint8_t RX = 44;
