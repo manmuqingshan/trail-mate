@@ -96,6 +96,7 @@ struct BoardProfile
         int gps_wake = -1;
         int rtc_int = -1;
         int c6_wake = -1;
+        int c6_boot = -1;
         int c6_enable = -1;
         int sd_enable = -1;
         int lora_rst = -1;
@@ -167,6 +168,7 @@ struct BoardProfile
     bool gps_wake_active_high = true;
     bool c6_enable_active_high = true;
     bool c6_wake_active_high = true;
+    bool c6_boot_active_low = true;
     bool screen_reset_active_low = true;
     bool touch_reset_active_low = true;
     bool lora_reset_active_low = true;
@@ -218,6 +220,7 @@ inline constexpr BoardProfile makeBoardProfile()
     profile.io_expander.gps_wake = 11;
     profile.io_expander.rtc_int = 12;
     profile.io_expander.c6_wake = 13;
+    profile.io_expander.c6_boot = 13;
     profile.io_expander.c6_enable = 14;
     profile.io_expander.sd_enable = 15;
     profile.io_expander.lora_rst = 16;
@@ -281,6 +284,7 @@ inline constexpr BoardProfile makeBoardProfile()
     profile.gps_wake_active_high = true;
     profile.c6_enable_active_high = true;
     profile.c6_wake_active_high = true;
+    profile.c6_boot_active_low = true;
     profile.screen_reset_active_low = true;
     profile.touch_reset_active_low = true;
     profile.lora_reset_active_low = true;

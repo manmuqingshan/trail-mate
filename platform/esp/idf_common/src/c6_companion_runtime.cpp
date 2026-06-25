@@ -40,6 +40,8 @@ constexpr const char* kTag = "P4_C6";
 constexpr uint16_t kInitialSequence = 1;
 constexpr uint32_t kHandshakeTimeoutMs = 500;
 constexpr uint32_t kShortIoTimeoutMs = 100;
+constexpr uint32_t kReceiveRetryDelayMs = 10;
+constexpr uint32_t kReceivePollTimeoutMs = 20;
 constexpr uint32_t kSdioCardInitRetryDelayMs = 100;
 constexpr uint32_t kSdioCardInitMaxAttempts = 30;
 constexpr size_t kSdioBufferSize = 1152;
@@ -66,6 +68,96 @@ bool board_has_c6_companion()
     return false;
 #endif
 }
+
+#if defined(ESP_PLATFORM) && defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+bool t_display_p4_enter_c6_download_mode(const char** out_detail)
+{
+    auto& board = ::boards::t_display_p4::TDisplayP4Board::instance();
+    const auto& profile = ::boards::t_display_p4::TDisplayP4Board::profile();
+    const auto& io = profile.io_expander;
+    const bool boot_active_high = !profile.c6_boot_active_low;
+
+    auto fail = [&](const char* detail) -> bool
+    {
+        if (out_detail != nullptr)
+        {
+            *out_detail = detail;
+        }
+        ESP_LOGW(kTag,
+                 "C6 download mode failed detail=%s boot_pin=%d reset_pin=%d",
+                 detail ? detail : "unknown",
+                 io.c6_boot,
+                 io.c6_enable);
+        return false;
+    };
+
+    if (io.c6_boot < 0)
+    {
+        return fail("c6_boot_pin_missing");
+    }
+    if (io.c6_enable < 0)
+    {
+        return fail("c6_reset_pin_missing");
+    }
+    if (!board.expanderPinMode(io.c6_boot, true))
+    {
+        return fail("c6_boot_pin_mode_failed");
+    }
+    if (!board.expanderPinMode(io.c6_enable, true))
+    {
+        return fail("c6_reset_pin_mode_failed");
+    }
+
+    ESP_LOGI(kTag,
+             "C6 download mode sequence begin boot_pin=%d boot_active_low=%u reset_pin=%d reset_release_active_high=%u",
+             io.c6_boot,
+             profile.c6_boot_active_low ? 1u : 0u,
+             io.c6_enable,
+             profile.c6_enable_active_high ? 1u : 0u);
+
+    if (!board.expanderWriteActive(io.c6_enable, true, profile.c6_enable_active_high))
+    {
+        return fail("c6_reset_release_failed");
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    if (!board.expanderWriteActive(io.c6_boot, true, boot_active_high))
+    {
+        return fail("c6_boot_assert_failed");
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    if (!board.expanderWriteActive(io.c6_enable, false, profile.c6_enable_active_high))
+    {
+        (void)board.expanderWriteActive(io.c6_boot, false, boot_active_high);
+        return fail("c6_reset_assert_failed");
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    if (!board.expanderWriteActive(io.c6_enable, true, profile.c6_enable_active_high))
+    {
+        (void)board.expanderWriteActive(io.c6_boot, false, boot_active_high);
+        return fail("c6_reset_release_failed");
+    }
+    vTaskDelay(pdMS_TO_TICKS(250));
+
+    if (!board.expanderWriteActive(io.c6_boot, false, boot_active_high))
+    {
+        return fail("c6_boot_release_failed");
+    }
+    (void)board.expanderPinMode(io.c6_boot, false);
+
+    if (out_detail != nullptr)
+    {
+        *out_detail = "download_mode_requested";
+    }
+    ESP_LOGI(kTag,
+             "C6 download mode sequence complete boot_pin=%d reset_pin=%d",
+             io.c6_boot,
+             io.c6_enable);
+    return true;
+}
+#endif
 
 uint16_t read_le16(const uint8_t* data)
 {
@@ -313,6 +405,9 @@ class C6Transport
     virtual bool recv(uint8_t* data, size_t max_len, size_t& out_len, uint32_t timeout_ms) = 0;
     virtual void reset() = 0;
     virtual const char* last_error() const = 0;
+    virtual uint32_t last_rx_size() const = 0;
+    virtual int last_rx_error() const = 0;
+    virtual size_t last_size_read() const = 0;
     virtual ~C6Transport() = default;
 };
 
@@ -466,14 +561,24 @@ class SdioC6Transport final : public C6Transport
         if (!ready_ || handle_ == nullptr || data == nullptr || max_len == 0)
         {
             set_error("sdio_recv_invalid_state");
+            last_rx_err_ = ESP_ERR_INVALID_STATE;
+            last_rx_size_ = 0;
+            last_size_read_ = 0;
             return false;
         }
 
         uint32_t rx_size = 0;
         esp_err_t err = essl_get_rx_data_size(handle_, &rx_size, timeout_ms);
+        last_rx_err_ = err;
+        last_rx_size_ = rx_size;
+        last_size_read_ = 0;
         if (err != ESP_OK)
         {
             set_error("sdio_rx_size_failed");
+            ESP_LOGW(kTag,
+                     "SDIO rx size failed timeout_ms=%lu err=%s",
+                     static_cast<unsigned long>(timeout_ms),
+                     esp_err_to_name(err));
             return false;
         }
         if (rx_size == 0)
@@ -484,18 +589,33 @@ class SdioC6Transport final : public C6Transport
         if (rx_size > max_len)
         {
             set_error("sdio_rx_too_large");
+            ESP_LOGW(kTag,
+                     "SDIO rx too large rx_size=%lu max_len=%u",
+                     static_cast<unsigned long>(rx_size),
+                     static_cast<unsigned>(max_len));
             return false;
         }
 
         size_t size_read = rx_size;
         err = essl_get_packet(handle_, data, max_len, &size_read, timeout_ms);
+        last_rx_err_ = err;
+        last_size_read_ = size_read;
         if (err != ESP_OK && err != ESP_ERR_NOT_FINISHED)
         {
             set_error("sdio_recv_failed");
-            ESP_LOGW(kTag, "SDIO recv failed err=%s", esp_err_to_name(err));
+            ESP_LOGW(kTag,
+                     "SDIO recv failed rx_size=%lu size_read=%u err=%s",
+                     static_cast<unsigned long>(rx_size),
+                     static_cast<unsigned>(size_read),
+                     esp_err_to_name(err));
             return false;
         }
         out_len = size_read;
+        ESP_LOGI(kTag,
+                 "SDIO recv ok rx_size=%lu size_read=%u err=%s",
+                 static_cast<unsigned long>(rx_size),
+                 static_cast<unsigned>(size_read),
+                 esp_err_to_name(err));
         return true;
     }
 
@@ -507,6 +627,21 @@ class SdioC6Transport final : public C6Transport
     const char* last_error() const override
     {
         return error_[0] != '\0' ? error_ : "sdio_no_error_detail";
+    }
+
+    uint32_t last_rx_size() const override
+    {
+        return last_rx_size_;
+    }
+
+    int last_rx_error() const override
+    {
+        return last_rx_err_;
+    }
+
+    size_t last_size_read() const override
+    {
+        return last_size_read_;
     }
 
   private:
@@ -669,6 +804,9 @@ class SdioC6Transport final : public C6Transport
     bool ready_ = false;
     bool host_initialized_ = false;
     bool slot_initialized_ = false;
+    uint32_t last_rx_size_ = 0;
+    int last_rx_err_ = ESP_OK;
+    size_t last_size_read_ = 0;
     char error_[64] = {};
 };
 #endif
@@ -765,6 +903,48 @@ class C6CompanionRuntime final : public WirelessCompanion
             copy.detail = "not_started";
         }
         return copy;
+    }
+
+    bool enterDownloadMode()
+    {
+        status_.started = true;
+        status_.board_capable = board_has_c6_companion();
+        status_.present = false;
+        status_.supported_features = 0;
+        status_.enabled_features = 0;
+        status_.ble_state = 0;
+        status_.espnow_state = 0;
+        status_.wifi_state = 0;
+
+        if (!status_.board_capable)
+        {
+            set_detail(status_, CompanionState::Unsupported, "target_has_no_c6_companion");
+            return false;
+        }
+
+#if defined(ESP_PLATFORM)
+        if (transport_)
+        {
+            transport_->reset();
+            transport_.reset();
+        }
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+        const char* detail = "download_mode_failed";
+        const bool ok = t_display_p4_enter_c6_download_mode(&detail);
+        set_detail(status_, ok ? CompanionState::Missing : CompanionState::Error, detail);
+        ESP_LOGI(kTag,
+                 "C6 enter download mode result ok=%u detail=%s",
+                 ok ? 1u : 0u,
+                 detail ? detail : "unknown");
+        return ok;
+#else
+        set_detail(status_, CompanionState::Unsupported, "c6_download_mode_unsupported_board");
+        return false;
+#endif
+#else
+        set_detail(status_, CompanionState::Unsupported, "c6_download_mode_unsupported_platform");
+        return false;
+#endif
     }
 
     bool configureBle(const BleCompanionConfig& config) override
@@ -924,13 +1104,51 @@ class C6CompanionRuntime final : public WirelessCompanion
         }
         std::array<uint8_t, TM_C6_FRAME_HEADER_LEN + TM_C6_MAX_PAYLOAD> rx{};
         size_t rx_len = 0;
-        if (!transport_->recv(rx.data(), rx.size(), rx_len, timeout_ms))
+        const TickType_t start_ticks = xTaskGetTickCount();
+        const TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+        uint32_t attempts = 0;
+        bool received = false;
+        while (true)
         {
-            if (update_status_on_empty)
+            ++attempts;
+            rx_len = 0;
+            const uint32_t poll_timeout_ms =
+                (timeout_ms == 0) ? 0 : std::min(timeout_ms, kReceivePollTimeoutMs);
+            if (transport_->recv(rx.data(), rx.size(), rx_len, poll_timeout_ms))
             {
-                set_detail(status_, CompanionState::Missing, transport_->last_error());
+                received = true;
+                break;
             }
+
+            const char* detail = transport_->last_error();
+            const bool may_retry_empty =
+                detail != nullptr && std::strcmp(detail, "sdio_rx_empty") == 0 && timeout_ms > 0;
+            const TickType_t elapsed_ticks = xTaskGetTickCount() - start_ticks;
+            if (!may_retry_empty || elapsed_ticks >= timeout_ticks)
+            {
+                if (update_status_on_empty)
+                {
+                    set_detail(status_, CompanionState::Missing, detail);
+                }
+                break;
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(kReceiveRetryDelayMs));
+        }
+
+        if (!received)
+        {
             return false;
+        }
+        if (attempts > 1)
+        {
+            const uint32_t elapsed_ms =
+                static_cast<uint32_t>((xTaskGetTickCount() - start_ticks) * portTICK_PERIOD_MS);
+            ESP_LOGI(kTag,
+                     "C6 recv frame after retry attempts=%lu elapsed_ms=%lu len=%u",
+                     static_cast<unsigned long>(attempts),
+                     static_cast<unsigned long>(elapsed_ms),
+                     static_cast<unsigned>(rx_len));
         }
 
         const auto decoded = hostlink::c6::decode_frame(rx.data(), rx_len, TM_C6_MAX_PAYLOAD);
@@ -1138,7 +1356,8 @@ class C6CompanionRuntime final : public WirelessCompanion
             return false;
         }
         hostlink::c6::Frame frame{};
-        return receive_frame(frame, kHandshakeTimeoutMs) && handle_config_report(frame);
+        return receive_expected_frame(frame, TM_C6_FRAME_CONFIG_REPORT, "CONFIG_REPORT", kHandshakeTimeoutMs) &&
+               handle_config_report(frame);
     }
 
     bool handle_config_report(const hostlink::c6::Frame& frame)
@@ -1289,6 +1508,79 @@ class C6CompanionRuntime final : public WirelessCompanion
         }
     }
 
+    bool receive_expected_frame(hostlink::c6::Frame& frame,
+                                uint8_t expected_frame_type,
+                                const char* expected_name,
+                                uint32_t timeout_ms)
+    {
+#if defined(ESP_PLATFORM)
+        const TickType_t start_ticks = xTaskGetTickCount();
+        uint32_t skipped = 0;
+        while (true)
+        {
+            uint32_t remaining_ms = timeout_ms;
+            if (timeout_ms > 0)
+            {
+                const uint32_t elapsed_ms =
+                    static_cast<uint32_t>((xTaskGetTickCount() - start_ticks) * portTICK_PERIOD_MS);
+                if (elapsed_ms >= timeout_ms)
+                {
+                    set_detail(status_, CompanionState::Missing, "c6_wait_expected_timeout");
+                    ESP_LOGW(kTag,
+                             "C6 wait %s timed out expected=0x%02x skipped=%lu",
+                             expected_name,
+                             static_cast<unsigned>(expected_frame_type),
+                             static_cast<unsigned long>(skipped));
+                    return false;
+                }
+                remaining_ms = timeout_ms - elapsed_ms;
+            }
+
+            hostlink::c6::Frame candidate{};
+            if (!receive_frame(candidate, remaining_ms))
+            {
+                return false;
+            }
+            if (candidate.frame_type == expected_frame_type)
+            {
+                frame = candidate;
+                if (skipped > 0)
+                {
+                    ESP_LOGI(kTag,
+                             "C6 wait %s matched after async frames skipped=%lu seq=%u ack=%u payload_len=%u",
+                             expected_name,
+                             static_cast<unsigned long>(skipped),
+                             static_cast<unsigned>(candidate.seq),
+                             static_cast<unsigned>(candidate.ack),
+                             static_cast<unsigned>(candidate.payload.size()));
+                }
+                return true;
+            }
+
+            ++skipped;
+            ESP_LOGI(kTag,
+                     "C6 wait %s handling async frame type=0x%02x channel=%u seq=%u ack=%u payload_len=%u",
+                     expected_name,
+                     static_cast<unsigned>(candidate.frame_type),
+                     static_cast<unsigned>(candidate.channel),
+                     static_cast<unsigned>(candidate.seq),
+                     static_cast<unsigned>(candidate.ack),
+                     static_cast<unsigned>(candidate.payload.size()));
+            handle_async_frame(candidate);
+            if (candidate.frame_type == TM_C6_FRAME_ERROR)
+            {
+                return false;
+            }
+        }
+#else
+        (void)frame;
+        (void)expected_frame_type;
+        (void)expected_name;
+        (void)timeout_ms;
+        return false;
+#endif
+    }
+
     bool try_handshake()
     {
 #if defined(ESP_PLATFORM)
@@ -1309,9 +1601,15 @@ class C6CompanionRuntime final : public WirelessCompanion
         }
 
         hostlink::c6::Frame frame{};
-        if (!receive_frame(frame, kHandshakeTimeoutMs) || !handle_hello_ack(frame))
+        if (!receive_expected_frame(frame, TM_C6_FRAME_HELLO_ACK, "HELLO_ACK", kHandshakeTimeoutMs) ||
+            !handle_hello_ack(frame))
         {
-            ESP_LOGW(kTag, "C6 HELLO_ACK failed detail=%s", status_.detail);
+            ESP_LOGW(kTag,
+                     "C6 HELLO_ACK failed detail=%s rx_size=%lu rx_err=%s size_read=%u",
+                     status_.detail,
+                     transport_ ? static_cast<unsigned long>(transport_->last_rx_size()) : 0ul,
+                     transport_ ? esp_err_to_name(static_cast<esp_err_t>(transport_->last_rx_error())) : "transport_missing",
+                     transport_ ? static_cast<unsigned>(transport_->last_size_read()) : 0u);
             transport_->reset();
             transport_.reset();
             return false;
@@ -1325,7 +1623,7 @@ class C6CompanionRuntime final : public WirelessCompanion
             return false;
         }
 
-        if (!receive_frame(frame, kHandshakeTimeoutMs) || !handle_pong(frame))
+        if (!receive_expected_frame(frame, TM_C6_FRAME_PONG, "PONG", kHandshakeTimeoutMs) || !handle_pong(frame))
         {
             ESP_LOGW(kTag, "C6 PONG failed detail=%s", status_.detail);
             transport_->reset();
@@ -1341,7 +1639,8 @@ class C6CompanionRuntime final : public WirelessCompanion
             return false;
         }
 
-        if (!receive_frame(frame, kHandshakeTimeoutMs) || !handle_config_report(frame))
+        if (!receive_expected_frame(frame, TM_C6_FRAME_CONFIG_REPORT, "CONFIG_REPORT", kHandshakeTimeoutMs) ||
+            !handle_config_report(frame))
         {
             ESP_LOGW(kTag, "C6 CONFIG_REPORT failed detail=%s", status_.detail);
             transport_->reset();
@@ -1387,6 +1686,11 @@ WirelessCompanion& c6_companion()
 bool ensure_c6_companion_started()
 {
     return c6_companion().begin();
+}
+
+bool enter_c6_companion_download_mode()
+{
+    return s_c6_companion.enterDownloadMode();
 }
 
 C6CompanionStatus get_c6_companion_status()

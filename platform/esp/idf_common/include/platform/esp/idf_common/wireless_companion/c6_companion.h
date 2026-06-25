@@ -168,6 +168,7 @@ class WirelessCompanion
 
 WirelessCompanion& c6_companion();
 bool ensure_c6_companion_started();
+bool enter_c6_companion_download_mode();
 C6CompanionStatus get_c6_companion_status();
 const char* companion_state_name(CompanionState state);
 

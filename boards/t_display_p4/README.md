@@ -21,6 +21,7 @@ Primary source reference:
 - SDMMC: `D0=39`, `D1=40`, `D2=41`, `D3=42`, `CMD=44`, `CLK=43`
 - C6 SDIO link: `CLK=18`, `CMD=19`, `D0=14`, `D1=15`, `D2=16`, `D3=17`
 - C6 companion module: present, ESP32-C6, P4-C6 transport target is SDIO
+- C6 boot/download strap control: XL9535 `IO13`, assert low / release high
 - C6 reset/release control: XL9535 `IO14`, release high / assert low
 - IMU: `ICM20948`, I2C address `0x68`
 - Audio I2S: `BCLK=12`, `MCLK=13`, `WS=9`, `DOUT=10`, `DIN=11`
@@ -28,6 +29,7 @@ Primary source reference:
 - XL9535 expander:
   - `IO1` = `SKY13453_VCTL`
   - `IO11` = GPS wake
+  - `IO13` = C6 boot/download strap control
   - `IO14` = C6 reset/release control
   - `IO15` = SD enable
   - `IO16` = SX1262 reset

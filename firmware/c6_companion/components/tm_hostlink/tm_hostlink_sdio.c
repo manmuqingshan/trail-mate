@@ -120,6 +120,7 @@ void tm_hostlink_sdio_poll_tx_done(void)
         if (index < TM_C6_SDIO_TX_BUFFER_NUM)
         {
             s_tx_busy[index] = false;
+            ESP_LOGI(TAG, "tx done index=%u", (unsigned)index);
         }
     }
 }
@@ -161,6 +162,12 @@ esp_err_t tm_hostlink_sdio_send(const uint8_t* data, size_t len, uint32_t timeou
 {
     if (!s_initialized || data == NULL || len == 0 || len > TM_C6_SDIO_BUFFER_SIZE)
     {
+        ESP_LOGW(TAG,
+                 "send invalid initialized=%u data=%p len=%u max=%u",
+                 s_initialized ? 1u : 0u,
+                 data,
+                 (unsigned)len,
+                 (unsigned)TM_C6_SDIO_BUFFER_SIZE);
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -177,18 +184,38 @@ esp_err_t tm_hostlink_sdio_send(const uint8_t* data, size_t len, uint32_t timeou
     }
     if (tx_index == TM_C6_SDIO_TX_BUFFER_NUM)
     {
+        ESP_LOGW(TAG, "send no free tx buffer len=%u timeout_ms=%lu", (unsigned)len, (unsigned long)timeout_ms);
         return ESP_ERR_NOT_FOUND;
     }
 
     memcpy(s_tx_buffers[tx_index], data, len);
     s_tx_busy[tx_index] = true;
+    ESP_LOGI(TAG,
+             "send queue begin index=%u len=%u timeout_ms=%lu",
+             (unsigned)tx_index,
+             (unsigned)len,
+             (unsigned long)timeout_ms);
     const esp_err_t err =
         sdio_slave_send_queue(s_tx_buffers[tx_index], len, (void*)(uintptr_t)tx_index, ticks_from_ms(timeout_ms));
     if (err != ESP_OK)
     {
         s_tx_busy[tx_index] = false;
+        ESP_LOGW(TAG,
+                 "send queue failed index=%u len=%u err=%s",
+                 (unsigned)tx_index,
+                 (unsigned)len,
+                 esp_err_to_name(err));
         return err;
     }
-    (void)sdio_slave_send_host_int(0);
+    ESP_LOGI(TAG, "send queue ok index=%u len=%u", (unsigned)tx_index, (unsigned)len);
+    const esp_err_t int_err = sdio_slave_send_host_int(0);
+    if (int_err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "send host int failed index=%u err=%s", (unsigned)tx_index, esp_err_to_name(int_err));
+    }
+    else
+    {
+        ESP_LOGI(TAG, "send host int ok index=%u", (unsigned)tx_index);
+    }
     return ESP_OK;
 }

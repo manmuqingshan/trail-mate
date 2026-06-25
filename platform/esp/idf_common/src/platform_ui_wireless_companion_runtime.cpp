@@ -101,6 +101,11 @@ Status status()
     return out;
 }
 
+bool enter_download_mode()
+{
+    return c6::enter_c6_companion_download_mode();
+}
+
 const char* state_name(State state)
 {
     switch (state)

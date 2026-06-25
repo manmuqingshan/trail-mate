@@ -1575,6 +1575,10 @@ static void format_value(const settings::ui::SettingItem& item, char* out, size_
         {
             format_manual_datetime_summary(out, out_len);
         }
+        else if (item.pref_key && std::strcmp(item.pref_key, "c6_enter_download") == 0)
+        {
+            snprintf(out, out_len, "%s", ::ui::i18n::tr("Enter"));
+        }
         else
         {
             snprintf(out, out_len, "%s", ::ui::i18n::tr("Run"));
@@ -3660,6 +3664,7 @@ static settings::ui::SettingItem kScreenItems[] = {
     {"Bluetooth", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.ble_enabled, nullptr, 0, false, "ble_enabled"},
     {"C6 Companion", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr,
      g_settings.c6_companion_status, sizeof(g_settings.c6_companion_status), false, "c6_companion_status"},
+    {"C6 Download Mode", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "c6_enter_download"},
     {"Time Zone", settings::ui::SettingType::Enum, kTimeZoneOptions, 0, &g_settings.timezone_profile_id, nullptr, nullptr, 0, false, "timezone_profile"},
     {"Date/Time", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "manual_time_set"},
     {"Gauge Design (mAh)", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr,
@@ -3852,7 +3857,8 @@ static bool should_show_item(const settings::ui::SettingItem& item)
     {
         return false;
     }
-    if (has_pref_key(item, "c6_companion_status") &&
+    if ((has_pref_key(item, "c6_companion_status") ||
+         has_pref_key(item, "c6_enter_download")) &&
         !wireless_companion_runtime::is_supported())
     {
         return false;
@@ -4300,6 +4306,15 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
         else if (item.pref_key && strcmp(item.pref_key, "manual_time_set") == 0)
         {
             open_manual_datetime_modal(widget);
+        }
+        else if (item.pref_key && strcmp(item.pref_key, "c6_enter_download") == 0)
+        {
+            const bool ok = wireless_companion_runtime::enter_download_mode();
+            refresh_wireless_companion_state_from_runtime();
+            refresh_visible_item_values();
+            ::ui::feedback::show_notice(
+                ::ui::i18n::tr(ok ? "C6 download mode requested" : "C6 download mode failed"),
+                ok ? 3000 : 4000);
         }
         else if (item.pref_key && strcmp(item.pref_key, "wifi_scan") == 0)
         {

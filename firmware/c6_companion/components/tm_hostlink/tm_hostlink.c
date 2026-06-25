@@ -20,6 +20,7 @@
 #include <string.h>
 
 static const char* TAG = "C6_HOSTLINK";
+static const uint32_t kHostlinkTaskStackBytes = 8192;
 
 typedef enum tm_hostlink_state
 {
@@ -112,9 +113,25 @@ static bool send_frame(uint8_t frame_type,
     const esp_err_t err = tm_hostlink_sdio_send(out, out_len, 100);
     if (err != ESP_OK)
     {
-        ESP_LOGW(TAG, "sdio send frame type=%u failed: %s", frame_type, esp_err_to_name(err));
+        ESP_LOGW(TAG,
+                 "sdio send frame type=%u channel=%u flags=0x%04x ack=%u encoded_len=%u failed: %s",
+                 frame_type,
+                 channel,
+                 flags,
+                 ack,
+                 (unsigned)out_len,
+                 esp_err_to_name(err));
         return false;
     }
+    ESP_LOGI(TAG,
+             "sdio send frame type=%u channel=%u flags=0x%04x seq=%u ack=%u payload_len=%u encoded_len=%u queued",
+             frame_type,
+             channel,
+             flags,
+             request.seq,
+             ack,
+             (unsigned)payload_len,
+             (unsigned)out_len);
     return true;
 }
 
@@ -509,7 +526,7 @@ esp_err_t tm_hostlink_start(void)
         return err;
     }
     ESP_LOGI(TAG, "SDIO transport active; waiting for real P4 HELLO");
-    BaseType_t task_ok = xTaskCreate(hostlink_task, "tm_hostlink", 4096, NULL, 10, NULL);
+    BaseType_t task_ok = xTaskCreate(hostlink_task, "tm_hostlink", kHostlinkTaskStackBytes, NULL, 10, NULL);
     if (task_ok != pdPASS)
     {
         s_state = TM_HOSTLINK_ERROR;

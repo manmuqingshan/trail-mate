@@ -30,5 +30,6 @@ This record describes hardware facts only.
 - keyboard controller: TCA8418 at `0x34`, 10 x 7 scan window
 - ESP32-C6 companion present: yes
 - ESP32-C6 SDIO link: CLK=18, CMD=19, D0=14, D1=15, D2=16, D3=17
+- ESP32-C6 boot/download strap control: XL9535 IO13, assert low / release high
 - ESP32-C6 reset/release control: XL9535 IO14, release high / assert low
 - motion sensor present: yes, ICM20948 at 0x68
