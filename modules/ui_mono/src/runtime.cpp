@@ -129,7 +129,7 @@ constexpr const char* kDiscoverItems[] = {
 };
 
 constexpr const char* kSettingsMenuItems[] = {
-    "LORA",
+    "PROTO",
     "DEVICE",
     "ACTIONS",
 };
@@ -168,27 +168,6 @@ struct RadioSettingDef
 
 constexpr RadioSettingDef kRadioItems[] = {
     {RadioSettingItem::Protocol, "PROTO"},
-    {RadioSettingItem::MtRegion, "MT REGION"},
-    {RadioSettingItem::MtMode, "MT MODE"},
-    {RadioSettingItem::MtPreset, "MT PRESET"},
-    {RadioSettingItem::MtBandwidth, "MT BW"},
-    {RadioSettingItem::MtSpreadFactor, "MT SF"},
-    {RadioSettingItem::MtCodingRate, "MT CR"},
-    {RadioSettingItem::MtTxPower, "MT TX"},
-    {RadioSettingItem::MtChannelSlot, "MT SLOT"},
-    {RadioSettingItem::MtPrimaryKey, "MT PSK"},
-    {RadioSettingItem::MtOverrideFrequency, "MT FREQ"},
-    {RadioSettingItem::MtFrequencyOffset, "MT OFFSET"},
-    {RadioSettingItem::McRegion, "MC REGION"},
-    {RadioSettingItem::McFrequency, "MC FREQ"},
-    {RadioSettingItem::McBandwidth, "MC BW"},
-    {RadioSettingItem::McSpreadFactor, "MC SF"},
-    {RadioSettingItem::McCodingRate, "MC CR"},
-    {RadioSettingItem::McTxPower, "MC TX"},
-    {RadioSettingItem::McChannelSlot, "MC SLOT"},
-    {RadioSettingItem::McChannelName, "MC NAME"},
-    {RadioSettingItem::McChannelKey, "MC KEY"},
-    {RadioSettingItem::Encrypt, "ENCRYPT"},
 };
 
 constexpr uint16_t kMeshtasticChannelNumMax = 16;
@@ -291,7 +270,6 @@ constexpr const char* kActionItems[] = {
     "BROADCAST ID",
     "CLEAR NODES",
     "CLEAR MSGS",
-    "RESET RADIO",
 };
 
 constexpr const char* kMessageMenuItems[] = {
@@ -4493,7 +4471,7 @@ void Runtime::renderRadioSettings()
         radio_index_ = item_count - 1;
     }
 
-    drawTitleBar("LORA", protocolShortLabel(protocol));
+    drawTitleBar("PROTO", protocolShortLabel(protocol));
     char value[40] = {};
     auto& cfg = app()->getConfig();
     const int row_y = 12;
