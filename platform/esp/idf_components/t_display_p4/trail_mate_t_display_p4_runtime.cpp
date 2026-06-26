@@ -26,6 +26,7 @@
 #include "lvgl.h"
 #include "rm69a10_driver.h"
 #include "sdkconfig.h"
+#include "soc/soc_caps.h"
 #include "ui/app_runtime.h"
 #include "ui/menu/menu_runtime.h"
 #include "ui/runtime/ui_feedback.h"
@@ -68,6 +69,7 @@ constexpr uint8_t kGt9895MaxTouchFingerCount = 10;
 
 constexpr uint32_t kKeyboardI2cDelayUs = 5;
 constexpr uint32_t kKeyboardResetDelayMs = 10;
+constexpr uint32_t kKeyboardPowerSettleDelayMs = 50;
 constexpr uint32_t kKeyboardMonitorIntervalMs = 2000;
 constexpr uint8_t kKeyboardAttachDebounceCount = 2;
 constexpr uint8_t kKeyboardDetachDebounceCount = 3;
@@ -553,6 +555,11 @@ bool keyboard_read_sda()
     return gpio_get_level(static_cast<gpio_num_t>(keyboard_module().sda)) != 0;
 }
 
+bool keyboard_read_scl()
+{
+    return gpio_get_level(static_cast<gpio_num_t>(keyboard_module().scl)) != 0;
+}
+
 bool configure_keyboard_i2c_pins()
 {
     const auto& kb = keyboard_module();
@@ -567,6 +574,9 @@ bool configure_keyboard_i2c_pins()
     sda_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
     sda_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
     sda_cfg.intr_type = GPIO_INTR_DISABLE;
+#if SOC_GPIO_SUPPORT_PIN_HYS_FILTER
+    sda_cfg.hys_ctrl_mode = GPIO_HYS_SOFT_ENABLE;
+#endif
     if (gpio_config(&sda_cfg) != ESP_OK)
     {
         ESP_LOGW(kTag, "Keyboard software I2C SDA GPIO config failed");
@@ -575,10 +585,13 @@ bool configure_keyboard_i2c_pins()
 
     gpio_config_t scl_cfg{};
     scl_cfg.pin_bit_mask = 1ULL << static_cast<uint32_t>(kb.scl);
-    scl_cfg.mode = GPIO_MODE_OUTPUT_OD;
+    scl_cfg.mode = GPIO_MODE_INPUT_OUTPUT_OD;
     scl_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
     scl_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
     scl_cfg.intr_type = GPIO_INTR_DISABLE;
+#if SOC_GPIO_SUPPORT_PIN_HYS_FILTER
+    scl_cfg.hys_ctrl_mode = GPIO_HYS_SOFT_ENABLE;
+#endif
     if (gpio_config(&scl_cfg) != ESP_OK)
     {
         ESP_LOGW(kTag, "Keyboard software I2C SCL GPIO config failed");
@@ -593,8 +606,8 @@ bool configure_keyboard_i2c_pins()
 
 void keyboard_i2c_start()
 {
-    keyboard_sda(true);
     keyboard_scl(true);
+    keyboard_sda(true);
     keyboard_i2c_delay();
     keyboard_sda(false);
     keyboard_i2c_delay();
@@ -612,7 +625,40 @@ void keyboard_i2c_stop()
     keyboard_i2c_delay();
 }
 
-bool keyboard_i2c_write_byte(uint8_t value)
+void keyboard_recover_i2c_bus(const char* reason)
+{
+    keyboard_sda(true);
+    keyboard_scl(true);
+    keyboard_i2c_delay();
+
+    const bool idle_sda_before = keyboard_read_sda();
+    const bool idle_scl_before = keyboard_read_scl();
+    int pulses = 0;
+    if (!idle_sda_before)
+    {
+        for (; pulses < 9 && !keyboard_read_sda(); ++pulses)
+        {
+            keyboard_scl(false);
+            keyboard_i2c_delay();
+            keyboard_scl(true);
+            keyboard_i2c_delay();
+        }
+    }
+
+    keyboard_i2c_stop();
+    ESP_LOGI(kTag,
+             "T-Display-P4 keyboard I2C bus ready reason=%s sda=%d scl=%d idle_before=%d/%d idle_after=%d/%d recover_pulses=%d",
+             reason ? reason : "unknown",
+             keyboard_module().sda,
+             keyboard_module().scl,
+             idle_sda_before,
+             idle_scl_before,
+             keyboard_read_sda(),
+             keyboard_read_scl(),
+             pulses);
+}
+
+bool keyboard_i2c_write_byte_raw(uint8_t value)
 {
     for (int bit = 7; bit >= 0; --bit)
     {
@@ -621,10 +667,14 @@ bool keyboard_i2c_write_byte(uint8_t value)
         keyboard_scl(true);
         keyboard_i2c_delay();
         keyboard_scl(false);
-        keyboard_i2c_delay();
     }
 
     keyboard_sda(true);
+    return true;
+}
+
+bool keyboard_i2c_wait_ack()
+{
     keyboard_i2c_delay();
     keyboard_scl(true);
     keyboard_i2c_delay();
@@ -632,6 +682,11 @@ bool keyboard_i2c_write_byte(uint8_t value)
     keyboard_scl(false);
     keyboard_i2c_delay();
     return ack;
+}
+
+bool keyboard_i2c_write_byte(uint8_t value)
+{
+    return keyboard_i2c_write_byte_raw(value) && keyboard_i2c_wait_ack();
 }
 
 uint8_t keyboard_i2c_read_byte(bool ack)
@@ -651,7 +706,6 @@ uint8_t keyboard_i2c_read_byte(bool ack)
     }
 
     keyboard_sda(!ack);
-    keyboard_i2c_delay();
     keyboard_scl(true);
     keyboard_i2c_delay();
     keyboard_scl(false);
@@ -739,6 +793,16 @@ bool keyboard_module_supported()
     return boards::t_display_p4::TDisplayP4Board::profile().supports_keyboard_module;
 }
 
+bool ensure_keyboard_module_power()
+{
+    if (!boards::t_display_p4::TDisplayP4Board::instance().ensureExternal3v3Power())
+    {
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kKeyboardPowerSettleDelayMs));
+    return true;
+}
+
 KeyboardProbeResult probe_keyboard_module_bus()
 {
     KeyboardProbeResult result{};
@@ -748,7 +812,7 @@ KeyboardProbeResult probe_keyboard_module_bus()
         return result;
     }
 
-    result.power_ready = boards::t_display_p4::TDisplayP4Board::instance().ensureExternal3v3Power();
+    result.power_ready = ensure_keyboard_module_power();
     if (!result.power_ready)
     {
         return result;
@@ -759,6 +823,7 @@ KeyboardProbeResult probe_keyboard_module_bus()
     {
         return result;
     }
+    keyboard_recover_i2c_bus("probe");
 
     const auto& kb = keyboard_module();
     result.xl9555_ack = kb.xl9555 != 0 && keyboard_probe_device_address(kb.xl9555);
@@ -832,13 +897,14 @@ void log_keyboard_i2c_scan(const char* reason)
     {
         return;
     }
-    if (!boards::t_display_p4::TDisplayP4Board::instance().ensureExternal3v3Power() ||
+    if (!ensure_keyboard_module_power() ||
         !configure_keyboard_i2c_pins())
     {
         ESP_LOGW(kTag, "T-Display-P4 keyboard I2C scan skipped reason=%s power_or_gpio_failed",
                  reason ? reason : "unknown");
         return;
     }
+    keyboard_recover_i2c_bus(reason ? reason : "scan");
 
     char found[192] = {};
     size_t used = 0;
@@ -887,6 +953,107 @@ void log_keyboard_i2c_scan(const char* reason)
 
     ESP_LOGI(kTag,
              "T-Display-P4 keyboard I2C scan reason=%s sda=%d scl=%d found_count=%d found=%s expected_xl9555=0x%02X:%d expected_tca8418=0x%02X:%d expected_bq25896=0x%02X:%d",
+             reason ? reason : "unknown",
+             kb.sda,
+             kb.scl,
+             count,
+             found,
+             static_cast<unsigned>(kb.xl9555),
+             found_xl9555,
+             static_cast<unsigned>(kb.tca8418),
+             found_tca8418,
+             static_cast<unsigned>(kb.bq25896),
+             found_bq25896);
+}
+
+void log_keyboard_hardware_i2c_scan(const char* reason)
+{
+    if (!keyboard_module_supported())
+    {
+        return;
+    }
+    const auto& kb = keyboard_module();
+    if (kb.sda < 0 || kb.scl < 0)
+    {
+        return;
+    }
+
+    i2c_master_bus_config_t bus_cfg{};
+    bus_cfg.i2c_port = -1;
+    bus_cfg.sda_io_num = static_cast<gpio_num_t>(kb.sda);
+    bus_cfg.scl_io_num = static_cast<gpio_num_t>(kb.scl);
+    bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
+    bus_cfg.glitch_ignore_cnt = 7;
+    bus_cfg.flags.enable_internal_pullup = true;
+
+    i2c_master_bus_handle_t bus = nullptr;
+    esp_err_t bus_err = i2c_new_master_bus(&bus_cfg, &bus);
+#if SOC_LP_I2C_SUPPORTED
+    if (bus_err == ESP_ERR_NOT_FOUND)
+    {
+        bus_cfg.i2c_port = SOC_HP_I2C_NUM;
+        bus_cfg.lp_source_clk = LP_I2C_SCLK_DEFAULT;
+        bus_err = i2c_new_master_bus(&bus_cfg, &bus);
+    }
+#endif
+    if (bus_err != ESP_OK)
+    {
+        ESP_LOGW(kTag,
+                 "T-Display-P4 keyboard HW I2C scan unavailable reason=%s sda=%d scl=%d err=%s",
+                 reason ? reason : "unknown",
+                 kb.sda,
+                 kb.scl,
+                 esp_err_to_name(bus_err));
+        return;
+    }
+
+    char found[192] = {};
+    size_t used = 0;
+    int count = 0;
+    bool found_xl9555 = false;
+    bool found_tca8418 = false;
+    bool found_bq25896 = false;
+    for (uint8_t address = kKeyboardI2cScanFirstAddress;
+         address <= kKeyboardI2cScanLastAddress;
+         ++address)
+    {
+        if (i2c_master_probe(bus, address, 20) != ESP_OK)
+        {
+            continue;
+        }
+
+        const int written = std::snprintf(found + used,
+                                          sizeof(found) - used,
+                                          "%s0x%02X",
+                                          count == 0 ? "" : " ",
+                                          static_cast<unsigned>(address));
+        if (written > 0)
+        {
+            used += std::min<size_t>(static_cast<size_t>(written),
+                                     used < sizeof(found) ? sizeof(found) - used - 1 : 0);
+        }
+        ++count;
+        found_xl9555 = found_xl9555 || address == kb.xl9555;
+        found_tca8418 = found_tca8418 || address == kb.tca8418;
+        found_bq25896 = found_bq25896 || address == kb.bq25896;
+    }
+
+    (void)i2c_del_master_bus(bus);
+    if (count == 0)
+    {
+        ESP_LOGW(kTag,
+                 "T-Display-P4 keyboard HW I2C scan reason=%s sda=%d scl=%d found=none expected_xl9555=0x%02X expected_tca8418=0x%02X expected_bq25896=0x%02X",
+                 reason ? reason : "unknown",
+                 kb.sda,
+                 kb.scl,
+                 static_cast<unsigned>(kb.xl9555),
+                 static_cast<unsigned>(kb.tca8418),
+                 static_cast<unsigned>(kb.bq25896));
+        return;
+    }
+
+    ESP_LOGI(kTag,
+             "T-Display-P4 keyboard HW I2C scan reason=%s sda=%d scl=%d found_count=%d found=%s expected_xl9555=0x%02X:%d expected_tca8418=0x%02X:%d expected_bq25896=0x%02X:%d",
              reason ? reason : "unknown",
              kb.sda,
              kb.scl,
@@ -1058,11 +1225,12 @@ uint8_t mask_for_count(int count)
 bool configure_tca8418_keypad()
 {
     const auto& kb = keyboard_module();
-    if (!boards::t_display_p4::TDisplayP4Board::instance().ensureExternal3v3Power() ||
+    if (!ensure_keyboard_module_power() ||
         !configure_keyboard_i2c_pins())
     {
         return false;
     }
+    keyboard_recover_i2c_bus("tca8418_init");
 
     const bool reset_ok = reset_tca8418_via_keyboard_expander();
     if (reset_ok)
@@ -1268,6 +1436,7 @@ bool init_keyboard_backend(bool log_missing = true)
                      "T-Display-P4 keyboard module not detected; touch IME remains enabled");
             log_keyboard_probe_result("startup_not_detected", probe, true);
             log_keyboard_i2c_scan("startup_not_detected");
+            log_keyboard_hardware_i2c_scan("startup_not_detected");
         }
         return false;
     }
@@ -1280,6 +1449,7 @@ bool init_keyboard_backend(bool log_missing = true)
                      "T-Display-P4 keyboard module present but TCA8418 is not usable; touch IME remains enabled");
             log_keyboard_probe_result("startup_controller_not_ready", probe, true);
             log_keyboard_i2c_scan("startup_controller_not_ready");
+            log_keyboard_hardware_i2c_scan("startup_controller_not_ready");
         }
         return false;
     }
@@ -1292,6 +1462,7 @@ bool init_keyboard_backend(bool log_missing = true)
                      "T-Display-P4 keyboard controller init failed; touch IME remains enabled");
             log_keyboard_probe_result("startup_init_failed", probe, true);
             log_keyboard_i2c_scan("startup_init_failed");
+            log_keyboard_hardware_i2c_scan("startup_init_failed");
         }
         return false;
     }

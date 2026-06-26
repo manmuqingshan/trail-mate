@@ -49,6 +49,13 @@ using Projection = gps::ui::shell::Projection;
 #define lv_font_montserrat_12 lv_font_montserrat_14
 #endif
 
+#if defined(ESP_PLATFORM)
+#include "esp_attr.h"
+#define UI_GPS_PAGE_STATE_RAM_ATTR EXT_RAM_ATTR
+#else
+#define UI_GPS_PAGE_STATE_RAM_ATTR
+#endif
+
 bool isGPSLoadingTiles()
 {
     return false;
@@ -111,7 +118,7 @@ int s_map_zoom = kCardputerZeroMapDefaultZoom;
 int s_map_pan_x = 0;
 int s_map_pan_y = 0;
 bool s_map_view_initialized = false;
-::ui::map::MapOverlaySnapshot s_overlay_snapshot;
+UI_GPS_PAGE_STATE_RAM_ATTR ::ui::map::MapOverlaySnapshot s_overlay_snapshot;
 Projection s_projection = Projection::Map;
 lv_obj_t* s_gps_status_label = nullptr;
 lv_obj_t* s_gps_coord_label = nullptr;

@@ -77,6 +77,7 @@ MenuLayoutProfile make_tdeck_profile()
     profile.show_desc_label = false;
     profile.show_node_id = true;
     profile.large_touch_hitbox = false;
+    profile.transition_animation = false;
     profile.card_label_font = &lv_font_montserrat_12;
     profile.desc_font = &lv_font_montserrat_14;
     profile.node_id_font = &lv_font_montserrat_14;
@@ -128,6 +129,7 @@ MenuLayoutProfile make_pager_profile()
     profile.show_desc_label = true;
     profile.show_node_id = true;
     profile.large_touch_hitbox = false;
+    profile.transition_animation = false;
     profile.card_label_font = &lv_font_montserrat_14;
     profile.desc_font = &lv_font_montserrat_14;
     profile.node_id_font = &lv_font_montserrat_14;

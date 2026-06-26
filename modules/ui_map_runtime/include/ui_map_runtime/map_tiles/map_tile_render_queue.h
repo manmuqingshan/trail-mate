@@ -38,7 +38,7 @@ struct MapTileRenderRef
 class MapTileRenderQueue
 {
   public:
-    static constexpr std::size_t kMaxTiles = 64;
+    static constexpr std::size_t kMaxTiles = 32;
 
     void clear();
     bool push(const MapTileRenderRef& item);

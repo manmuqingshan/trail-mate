@@ -349,9 +349,7 @@ void syncFocusedDescLabel()
 
 lv_anim_enable_t transition_anim()
 {
-    return ui::menu_profile::current().input_mode == ui::menu_profile::InputMode::TouchPrimary
-               ? LV_ANIM_OFF
-               : LV_ANIM_ON;
+    return ui::menu_profile::current().transition_animation ? LV_ANIM_ON : LV_ANIM_OFF;
 }
 
 void enterPendingApp(void* user_data)

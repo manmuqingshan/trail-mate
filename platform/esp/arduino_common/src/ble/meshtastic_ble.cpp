@@ -22,7 +22,9 @@
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <esp_heap_caps.h>
 #include <limits>
+#include <new>
 #include <sys/time.h>
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
@@ -47,7 +49,11 @@ inline void ble_log(const char* fmt, ...)
 }
 constexpr size_t kMaxFromRadio = meshtastic_FromRadio_size;
 constexpr size_t kMaxToRadio = meshtastic_ToRadio_size;
+#if defined(CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU)
+constexpr uint16_t kPreferredBleMtu = CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU;
+#else
 constexpr uint16_t kPreferredBleMtu = 517;
+#endif
 constexpr bool kEnableFromRadioSync = false;
 
 const char* pairingModeName(meshtastic_Config_BluetoothConfig_PairingMode mode)
@@ -256,8 +262,11 @@ class MeshtasticServerCallbacks : public NimBLEServerCallbacks
         memset(owner_.last_to_radio_.data(), 0, owner_.last_to_radio_.size());
         owner_.closePhoneSession();
         owner_.clearQueues();
-        owner_.startAdvertising();
-        ble_log("disconnected reason=%d; advertising restarted uuid=%s", reason, MESH_SERVICE_UUID);
+        const bool advertising_ok = owner_.startAdvertising();
+        ble_log("disconnected reason=%d advertising_restart=%u uuid=%s",
+                reason,
+                advertising_ok ? 1U : 0U,
+                MESH_SERVICE_UUID);
     }
 
   private:
@@ -419,6 +428,25 @@ MeshtasticBleService::~MeshtasticBleService()
     stop();
 }
 
+void* MeshtasticBleService::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void MeshtasticBleService::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void MeshtasticBleService::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
+}
+
 bool MeshtasticBleService::start()
 {
     loadBleConfig();
@@ -467,7 +495,12 @@ bool MeshtasticBleService::start()
         stop();
         return false;
     }
-    startAdvertising();
+    if (!startAdvertising())
+    {
+        ble_log("start failed reason=advertising");
+        stop();
+        return false;
+    }
 
     if (observer_bridge_)
     {
@@ -667,11 +700,11 @@ void MeshtasticBleService::setupService()
     refreshBatteryLevel(false);
 }
 
-void MeshtasticBleService::startAdvertising()
+bool MeshtasticBleService::startAdvertising()
 {
     if (!server_)
     {
-        return;
+        return false;
     }
     NimBLEAdvertising* adv = server_->getAdvertising();
     const bool reset_ok = adv->reset();
@@ -684,9 +717,11 @@ void MeshtasticBleService::startAdvertising()
     const bool scan_data_ok = adv->setScanResponseData(scan_data);
     const bool preferred_ok = adv->setPreferredParams(0x06, 0x12);
     const bool start_ok = adv->start();
-    ble_log("advertising uuid=%s name=%s reset_ok=%u conn_ok=%u disc_ok=%u mesh_ok=%u scan_name_ok=%u scan_ok=%u pref_ok=%u start_ok=%u",
+    const bool active_ok = adv->isAdvertising();
+    ble_log("advertising uuid=%s name=%s",
             MESH_SERVICE_UUID,
-            device_name_.c_str(),
+            device_name_.c_str());
+    ble_log("advertising result reset=%u conn=%u disc=%u mesh=%u scan_name=%u scan=%u pref=%u start=%u active=%u",
             reset_ok ? 1U : 0U,
             conn_ok ? 1U : 0U,
             disc_ok ? 1U : 0U,
@@ -694,7 +729,10 @@ void MeshtasticBleService::startAdvertising()
             scan_name_ok ? 1U : 0U,
             scan_data_ok ? 1U : 0U,
             preferred_ok ? 1U : 0U,
-            start_ok ? 1U : 0U);
+            start_ok ? 1U : 0U,
+            active_ok ? 1U : 0U);
+    return reset_ok && conn_ok && disc_ok && mesh_service_ok &&
+           scan_data_ok && start_ok && active_ok;
 }
 
 void MeshtasticBleService::requestHighThroughputConnection()

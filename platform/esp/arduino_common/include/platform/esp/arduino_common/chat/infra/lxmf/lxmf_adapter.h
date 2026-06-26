@@ -13,6 +13,7 @@
 #include "platform/esp/arduino_common/chat/infra/rnode/rnode_adapter.h"
 
 #include <array>
+#include <cstddef>
 #include <queue>
 #include <vector>
 
@@ -23,6 +24,10 @@ class LxmfAdapter : public IMeshAdapter
 {
   public:
     explicit LxmfAdapter(LoraBoard& board);
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
 
     MeshCapabilities getCapabilities() const override;
     bool sendText(ChannelId channel, const std::string& text,

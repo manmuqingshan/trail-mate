@@ -2,12 +2,20 @@
 
 #include "phone/meshtastic/meshtastic_phone_core.h"
 
+#include <cstddef>
+
 namespace phone::meshtastic
 {
 
 class MeshtasticPhoneSession
 {
   public:
+#if defined(ESP_PLATFORM)
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t) noexcept;
+#endif
+
     MeshtasticPhoneSession(IPhoneAppFacade& app,
                            MeshtasticPhoneTransport& transport,
                            MeshtasticPhoneBluetoothConfigHooks* bluetooth_config_hooks,

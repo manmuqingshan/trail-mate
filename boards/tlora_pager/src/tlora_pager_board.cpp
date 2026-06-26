@@ -11,8 +11,10 @@
 #include <cmath>
 #include <cstring>
 #include <driver/gpio.h>
+#include <esp_heap_caps.h>
 #include <esp_sleep.h>
 #include <limits>
+#include <new>
 
 #include "display/drivers/ST7796.h"
 #include "pins_arduino.h"
@@ -223,8 +225,19 @@ TLoRaPagerBoard::~TLoRaPagerBoard()
 
 TLoRaPagerBoard* TLoRaPagerBoard::getInstance()
 {
-    static TLoRaPagerBoard instance;
-    return &instance;
+    static TLoRaPagerBoard* instance = []() -> TLoRaPagerBoard*
+    {
+        void* storage = heap_caps_malloc_prefer(sizeof(TLoRaPagerBoard),
+                                                2,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (storage == nullptr)
+        {
+            storage = ::operator new(sizeof(TLoRaPagerBoard));
+        }
+        return new (storage) TLoRaPagerBoard();
+    }();
+    return instance;
 }
 
 void TLoRaPagerBoard::initShareSPIPins()

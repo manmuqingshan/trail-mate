@@ -12,6 +12,7 @@
 #include <NimBLEDevice.h>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <string>
@@ -28,6 +29,10 @@ class MeshCoreBleService : public BleService,
   public:
     MeshCoreBleService(app::IAppBleFacade& ctx, const std::string& device_name);
     ~MeshCoreBleService() override;
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
 
     bool start() override;
     void stop() override;
@@ -134,7 +139,7 @@ class MeshCoreBleService : public BleService,
     std::unique_ptr<phone::meshcore::MeshCorePhoneCore> shared_core_;
 
     void setupService();
-    void startAdvertising();
+    bool startAdvertising();
     void handleIncomingFrames();
     void handleCmdFrame(size_t len);
     void enqueueFrame(const uint8_t* data, size_t len);

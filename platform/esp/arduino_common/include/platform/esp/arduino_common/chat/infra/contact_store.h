@@ -8,6 +8,8 @@
 #include "chat/infra/contact_store_core.h"
 #include "chat/ports/i_contact_blob_store.h"
 
+#include <cstddef>
+
 namespace chat
 {
 namespace contacts
@@ -17,6 +19,10 @@ class ContactStore : public IContactStore,
                      private chat::IContactBlobStore
 {
   public:
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t) noexcept;
+
     ContactStore();
 
     void begin() override;

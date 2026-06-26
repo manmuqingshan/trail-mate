@@ -13,7 +13,9 @@
 #include <algorithm>
 #include <cstdio>
 #include <esp_err.h>
+#include <esp_heap_caps.h>
 #include <nvs.h>
+#include <new>
 #include <string>
 
 namespace chat
@@ -31,6 +33,25 @@ namespace meshtastic
 #define NODE_STORE_LOG(...)
 #endif
 
+void* NodeStore::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void NodeStore::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void NodeStore::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
+}
+
 namespace
 {
 constexpr TickType_t kAsyncSaveMutexWait = pdMS_TO_TICKS(20);
@@ -38,7 +59,7 @@ constexpr TickType_t kAsyncSavePollInterval = pdMS_TO_TICKS(10);
 constexpr TickType_t kAsyncSaveRetryDelay = pdMS_TO_TICKS(500);
 constexpr TickType_t kSdLoadWait = pdMS_TO_TICKS(250);
 constexpr TickType_t kSdPersistWait = pdMS_TO_TICKS(100);
-constexpr uint32_t kAsyncSaveTaskStackBytes = 5 * 1024;
+constexpr uint32_t kAsyncSaveTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kAsyncSaveTaskPriority = 2;
 constexpr size_t kSdReadChunkBytes = 256;
 

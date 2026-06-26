@@ -13,10 +13,12 @@
 
 #include <Arduino.h>
 #include <Curve25519.h>
+#include <esp_heap_caps.h>
 
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <new>
 
 namespace chat::lxmf
 {
@@ -543,6 +545,25 @@ LxmfAdapter::LxmfAdapter(LoraBoard& board)
     {
         next_app_packet_id_ = 1;
     }
+}
+
+void* LxmfAdapter::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void LxmfAdapter::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void LxmfAdapter::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
 }
 
 MeshCapabilities LxmfAdapter::getCapabilities() const

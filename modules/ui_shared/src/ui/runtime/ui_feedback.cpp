@@ -7,6 +7,13 @@
 #include <atomic>
 #include <cstddef>
 
+#if defined(ESP_PLATFORM)
+#include "esp_attr.h"
+#define UI_FEEDBACK_STATE_RAM_ATTR EXT_RAM_ATTR
+#else
+#define UI_FEEDBACK_STATE_RAM_ATTR
+#endif
+
 namespace ui::feedback
 {
 namespace
@@ -121,7 +128,7 @@ class RuntimeFeedbackPresenter final : public sys::runtime::IFeedbackPresenter
     }
 };
 
-sys::runtime::FeedbackQueue<kNoticeQueueCapacity> s_feedback_queue;
+UI_FEEDBACK_STATE_RAM_ATTR sys::runtime::FeedbackQueue<kNoticeQueueCapacity> s_feedback_queue;
 sys::runtime::DefaultFeedbackPolicy s_feedback_policy;
 RuntimeFeedbackEventSink s_feedback_events;
 RuntimeFeedbackPresenter s_feedback_presenter;

@@ -23,11 +23,22 @@ namespace
 bool s_shell_initialized = false;
 ui::menu::MenuModel s_ux_menu_model;
 
+#ifndef TRAIL_MATE_BOOT_UI_SYNC_PRESENT
+#if defined(ARDUINO)
+#define TRAIL_MATE_BOOT_UI_SYNC_PRESENT 0
+#else
+#define TRAIL_MATE_BOOT_UI_SYNC_PRESENT 1
+#endif
+#endif
+
+#if TRAIL_MATE_BOOT_UI_SYNC_PRESENT
 constexpr uint8_t kBootPresentFrameCount = 4;
 constexpr uint32_t kBootPresentFrameDelayMs = 16;
+#endif
 
 void present_boot_overlay_now()
 {
+#if TRAIL_MATE_BOOT_UI_SYNC_PRESENT
     for (uint8_t frame = 0; frame < kBootPresentFrameCount; ++frame)
     {
         if (lv_obj_t* top = lv_layer_top())
@@ -41,6 +52,12 @@ void present_boot_overlay_now()
             sys::sleep_ms(kBootPresentFrameDelayMs);
         }
     }
+#else
+    if (lv_obj_t* top = lv_layer_top())
+    {
+        lv_obj_invalidate(top);
+    }
+#endif
 }
 
 bool resolve_display_time(struct tm* out_tm)

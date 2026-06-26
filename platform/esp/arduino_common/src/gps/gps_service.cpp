@@ -7,6 +7,8 @@
 #include "platform/esp/arduino_common/power_tier.h"
 #include <cstdio>
 #include <cstring>
+#include <esp_heap_caps.h>
+#include <new>
 
 // GPS task loop diagnostics are high frequency and can stall touch/LVGL work on ESP.
 // Enable only while actively debugging receiver bring-up.
@@ -43,8 +45,19 @@ namespace gps
 
 GpsService& GpsService::getInstance()
 {
-    static GpsService instance;
-    return instance;
+    static GpsService* instance = []() -> GpsService*
+    {
+        void* storage = heap_caps_malloc_prefer(sizeof(GpsService),
+                                                2,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (storage == nullptr)
+        {
+            storage = ::operator new(sizeof(GpsService));
+        }
+        return new (storage) GpsService();
+    }();
+    return *instance;
 }
 
 void GpsService::begin(GpsBoard& gps_board, MotionBoard& motion_board,
@@ -91,7 +104,7 @@ void GpsService::begin(GpsBoard& gps_board, MotionBoard& motion_board,
     BaseType_t task_result = xTaskCreate(
         gpsTask,
         "gps_collect",
-        4 * 1024,
+        3 * 1024,
         this,
         5,
         &gps_task_handle_);
@@ -112,7 +125,7 @@ void GpsService::begin(GpsBoard& gps_board, MotionBoard& motion_board,
         task_result = xTaskCreate(
             motionTask,
             "motion_mgr",
-            3 * 1024,
+            2 * 1024,
             this,
             6,
             &motion_task_handle_);
@@ -385,7 +398,7 @@ void GpsService::setMotionConfig(const MotionConfig& config)
         BaseType_t task_result = xTaskCreate(
             motionTask,
             "motion_mgr",
-            3 * 1024,
+            2 * 1024,
             this,
             6,
             &motion_task_handle_);

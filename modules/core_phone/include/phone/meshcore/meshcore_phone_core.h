@@ -4,6 +4,7 @@
 #include "phone/common/phone_app_facade.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -154,6 +155,12 @@ class MeshCorePhoneHooks
 class MeshCorePhoneCore
 {
   public:
+#if defined(ESP_PLATFORM)
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t) noexcept;
+#endif
+
     MeshCorePhoneCore(IPhoneAppFacade& app, const std::string& device_name,
                       MeshCorePhoneHooks* hooks = nullptr);
 

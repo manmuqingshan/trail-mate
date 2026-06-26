@@ -25,9 +25,10 @@ int main()
 {
     const auto* tab5 = ui::presentation::findPageManifest("tab5_touch_manifest");
     assert(tab5 != nullptr);
-    assert(tab5->item_count >= 8);
+    assert(tab5->item_count >= 9);
     assert(contains(*tab5, ui::presentation::PageId::Map));
     assert(contains(*tab5, ui::presentation::PageId::Contacts));
+    assert(contains(*tab5, ui::presentation::PageId::Sstv));
 
     const auto* t_display_p4 = ui::presentation::findPageManifest("t_display_p4_touch_manifest");
     assert(t_display_p4 != nullptr);

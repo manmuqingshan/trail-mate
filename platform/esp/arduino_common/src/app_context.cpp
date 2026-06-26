@@ -21,12 +21,14 @@
 
 #include <cstdio>
 #include <cstring>
+#include <esp_heap_caps.h>
+#include <new>
 
 namespace app
 {
 namespace
 {
-constexpr uint32_t kConfigSaveTaskStackBytes = 8 * 1024;
+constexpr uint32_t kConfigSaveTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kConfigSaveTaskPriority = 1;
 constexpr TickType_t kConfigSaveMutexWait = pdMS_TO_TICKS(20);
 constexpr TickType_t kConfigSaveDebounceTicks = pdMS_TO_TICKS(250);
@@ -35,8 +37,19 @@ constexpr TickType_t kConfigSaveRetryDelayTicks = pdMS_TO_TICKS(1000);
 
 AppContext& AppContext::getInstance()
 {
-    static AppContext instance;
-    return instance;
+    static AppContext* instance = []() -> AppContext*
+    {
+        void* storage = heap_caps_malloc_prefer(sizeof(AppContext),
+                                                2,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (storage == nullptr)
+        {
+            storage = ::operator new(sizeof(AppContext));
+        }
+        return new (storage) AppContext();
+    }();
+    return *instance;
 }
 
 AppContext::AppContext()

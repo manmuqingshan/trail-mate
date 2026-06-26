@@ -1,7 +1,6 @@
 #include "platform/ui/sstv_runtime.h"
 
-#include "boards/t_display_p4/board_profile.h"
-#include "boards/tab5/tab5_board.h"
+#include "board/BoardBase.h"
 #include "sstv/sstv_service.h"
 
 namespace
@@ -26,19 +25,6 @@ platform::ui::sstv::State convert_state(::sstv::State state)
     }
 }
 
-bool board_supports_sstv()
-{
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    return ::boards::tab5::Tab5Board::hasAudio() &&
-           ::boards::tab5::Tab5Board::hasSdCard();
-#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return ::boards::t_display_p4::kBoardProfile.has_audio &&
-           ::boards::t_display_p4::kBoardProfile.has_sdcard;
-#else
-    return false;
-#endif
-}
-
 } // namespace
 
 namespace platform::ui::sstv
@@ -46,7 +32,7 @@ namespace platform::ui::sstv
 
 bool is_supported()
 {
-    return board_supports_sstv();
+    return board.hasSstvAudioInput();
 }
 
 bool start()

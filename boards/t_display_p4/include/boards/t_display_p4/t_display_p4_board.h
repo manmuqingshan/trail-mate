@@ -140,6 +140,10 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     bool isCardReady() override;
     bool isGPSReady() const override;
     bool hasGPSHardware() const override { return hasGpsUart(); }
+    bool hasSstvAudioInput() const override
+    {
+        return hasAudio() && profile().audio_i2s.din >= 0 && hasSdCard();
+    }
 
     void vibrator() override;
     void stopVibrator() override;

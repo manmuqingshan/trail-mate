@@ -59,7 +59,7 @@ struct MapOverlaySnapshot
 {
     ui::SnapshotHeader header;
 
-    static constexpr std::size_t kMaxItems = 64;
+    static constexpr std::size_t kMaxItems = 32;
     MapOverlayItem items[kMaxItems]{};
     std::size_t item_count = 0;
 

@@ -1,7 +1,33 @@
 #include "phone/meshtastic/meshtastic_phone_session.h"
 
+#if defined(ESP_PLATFORM)
+#include "esp_heap_caps.h"
+#include <new>
+#endif
+
 namespace phone::meshtastic
 {
+
+#if defined(ESP_PLATFORM)
+void* MeshtasticPhoneSession::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void MeshtasticPhoneSession::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void MeshtasticPhoneSession::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
+}
+#endif
 
 MeshtasticPhoneSession::MeshtasticPhoneSession(IPhoneAppFacade& app, MeshtasticPhoneTransport& transport,
                                                MeshtasticPhoneBluetoothConfigHooks* bluetooth_config_hooks,

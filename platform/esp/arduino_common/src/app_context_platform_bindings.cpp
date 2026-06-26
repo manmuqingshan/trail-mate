@@ -150,15 +150,9 @@ app::ContactServicesBundle create_contact_services()
     if (bundle.service)
     {
         bundle.service->begin();
-        const std::vector<chat::contacts::NodeInfo> contacts = bundle.service->getContacts();
-        const std::vector<chat::contacts::NodeInfo> nearby = bundle.service->getNearby();
-        const std::vector<chat::contacts::NodeInfo> ignored = bundle.service->getIgnoredNodes();
-        Serial.printf("[ContactService] startup nodes=%u nicknames=%u contacts=%u nearby=%u ignored=%u\n",
+        Serial.printf("[ContactService] startup nodes=%u nicknames=%u\n",
                       static_cast<unsigned>(bundle.node_store->getEntries().size()),
-                      static_cast<unsigned>(bundle.contact_store->getCount()),
-                      static_cast<unsigned>(contacts.size()),
-                      static_cast<unsigned>(nearby.size()),
-                      static_cast<unsigned>(ignored.size()));
+                      static_cast<unsigned>(bundle.contact_store->getCount()));
     }
     return bundle;
 }

@@ -16,6 +16,7 @@
 #include "freertos/queue.h"
 #include "platform/esp/arduino_common/mesh/esp_meshtastic_adapter_bridge.h"
 #include <array>
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <queue>
@@ -49,6 +50,11 @@ class MtAdapter : public chat::IMeshAdapter
 
     MtAdapter(LoraBoard& board);
     virtual ~MtAdapter();
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
+
     MeshCapabilities getCapabilities() const override;
 
     bool sendText(ChannelId channel, const std::string& text,

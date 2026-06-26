@@ -16,6 +16,7 @@
 #include "sys/event_bus.h"
 #include <AES.h>
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include <Preferences.h>
 #include <RadioLib.h>
 #include <SHA256.h>
@@ -26,6 +27,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -314,6 +316,25 @@ MeshCoreAdapter::MeshCoreAdapter(LoraBoard& board)
                (static_cast<uint32_t>(mac[4]) << 8) |
                static_cast<uint32_t>(mac[5]);
     self_hash_ = static_cast<uint8_t>(node_id_ & 0xFF);
+}
+
+void* MeshCoreAdapter::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void MeshCoreAdapter::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void MeshCoreAdapter::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
 }
 
 MeshCapabilities MeshCoreAdapter::getCapabilities() const

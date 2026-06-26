@@ -8,10 +8,12 @@
 #include "chat/time_utils.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include <RadioLib.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <new>
 
 namespace chat
 {
@@ -45,6 +47,25 @@ T clampValue(T value, T min_value, T max_value)
 RNodeAdapter::RNodeAdapter(LoraBoard& board)
     : board_(board)
 {
+}
+
+void* RNodeAdapter::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void RNodeAdapter::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void RNodeAdapter::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
 }
 
 MeshCapabilities RNodeAdapter::getCapabilities() const

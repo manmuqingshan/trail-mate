@@ -14,14 +14,40 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <new>
 #include <string>
 #include <vector>
+
+#if defined(ESP_PLATFORM)
+#include "esp_heap_caps.h"
+#endif
 
 namespace ui::widgets::map
 {
 
 struct RuntimeImpl
 {
+#if defined(ESP_PLATFORM)
+    void* operator new(std::size_t size)
+    {
+        void* ptr = heap_caps_malloc_prefer(size,
+                                            2,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        return ptr != nullptr ? ptr : ::operator new(size);
+    }
+
+    void operator delete(void* ptr) noexcept
+    {
+        heap_caps_free(ptr);
+    }
+
+    void operator delete(void* ptr, std::size_t) noexcept
+    {
+        operator delete(ptr);
+    }
+#endif
+
     Widgets widgets{};
     Model model{};
     ui::map::MapOverlaySnapshot overlay{};

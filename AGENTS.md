@@ -41,3 +41,26 @@ This project is indexed by GitNexus as **trail-mate** (43886 symbols, 82034 rela
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+# Trail Mate Agent Rules
+
+## PlatformIO Builds, Uploads, And Monitors
+
+- When a PlatformIO build/upload is started, let it run until it explicitly completes with success or failure. Do not impose an arbitrary time limit such as 120s or 300s.
+- Never treat a tool-call timeout as the build result. The only valid build result is the PlatformIO process exit code and its final log output.
+- Never use a foreground `shell_command` call as the control mechanism for long PlatformIO builds. The shell tool timeout must not become a build timeout.
+- For any long build, start it as a hidden background process, redirect stdout/stderr to a log file, record the PID and log path, and poll with short commands until the process exits.
+- Run PlatformIO build, upload, or monitor when it is part of the requested verification, and make sure each started process reaches a definite terminal state.
+- Before starting a PlatformIO build/upload/monitor, check for existing processes for the same repository and environment. Do not start a duplicate build.
+- If a tool call times out, is interrupted, or ends unexpectedly while a build/upload is running, immediately check the recorded PID and any orphaned `pio`, compiler, linker, and `.pio/build/<env>` processes before doing anything else.
+- Stop only clearly matching stale processes for this repository/environment. Never use broad process kills.
+- Keep serial monitoring short and bounded unless the user explicitly asks for a longer capture.
+- Prefer CI/release-time artifacts for routine build outputs. Do not rebuild locally on every small change.
+
+## PowerShell Command Discipline
+
+- Keep PowerShell commands short and single-purpose. Avoid dense one-liners with complex quoting, nested shells, or long chained pipelines.
+- Prefer native PowerShell cmdlets end to end. Do not mix PowerShell enumeration with `cmd /c` for file or process operations.
+- Use `rg`/`rg --files` for search, `git` for git state, and `apply_patch` for manual file edits.
+- For repeated or complex local operations, write down the intended steps first and run them as small observable commands instead of one large opaque command.
+- After any failed or timed-out command, inspect the process state before retrying.

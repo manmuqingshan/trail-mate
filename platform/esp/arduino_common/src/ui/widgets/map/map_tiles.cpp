@@ -72,6 +72,20 @@ static bool use_non_touch_placeholder_cards()
     return !::ui::page_profile::current().large_touch_hitbox;
 }
 
+template <typename T>
+T* psram_preferred_static_instance()
+{
+    void* storage = heap_caps_malloc_prefer(sizeof(T),
+                                            2,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (storage == nullptr)
+    {
+        storage = ::operator new(sizeof(T));
+    }
+    return new (storage) T();
+}
+
 static int fmt_tile_coord(int32_t value)
 {
     // Tile coordinates are bounded by the zoom-domain we support, so narrowing
@@ -216,8 +230,8 @@ class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
 };
 #endif
 
-constexpr std::size_t kMapTileCommandQueueCapacity = 48;
-constexpr std::size_t kMapTileEventQueueCapacity = 48;
+constexpr std::size_t kMapTileCommandQueueCapacity = 16;
+constexpr std::size_t kMapTileEventQueueCapacity = 16;
 constexpr std::size_t kMapTileWorkerScratchBytes = 192U * 1024U;
 constexpr int kMapTileEventsPerUiDrain = 1;
 constexpr int kMapTileRequestsPerUiStep = 2;
@@ -886,7 +900,7 @@ class MapTileAvailabilityMemory final
         return mutex_ != nullptr;
     }
 
-    static constexpr std::size_t kCapacity = 192;
+    static constexpr std::size_t kCapacity = 64;
     Entry entries_[kCapacity]{};
     std::size_t next_replace_ = 0;
     SemaphoreHandle_t mutex_ = nullptr;
@@ -894,8 +908,9 @@ class MapTileAvailabilityMemory final
 
 MapTileAvailabilityMemory& map_tile_availability_memory()
 {
-    static MapTileAvailabilityMemory memory;
-    return memory;
+    static MapTileAvailabilityMemory* memory =
+        psram_preferred_static_instance<MapTileAvailabilityMemory>();
+    return *memory;
 }
 
 class MapTileCommandQueue final : public ui::map_tiles::IMapTileCommandSink
@@ -1320,7 +1335,7 @@ class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBacken
 class LvglDecodedTileCache final : public ui::map_tiles::IMapTileDecoderCache
 {
   public:
-    static constexpr std::size_t kCapacity = 32;
+    static constexpr std::size_t kCapacity = 16;
 
     void clear() override
     {
@@ -1497,8 +1512,9 @@ PathOnlyMapTileFileSystem& tile_file_system()
 
 LvglDecodedTileCache& decoded_tile_cache()
 {
-    static LvglDecodedTileCache cache;
-    return cache;
+    static LvglDecodedTileCache* cache =
+        psram_preferred_static_instance<LvglDecodedTileCache>();
+    return *cache;
 }
 
 ui::map_tiles::FilesystemMapTileSource& tile_source()
@@ -1626,7 +1642,7 @@ class MapTileAsyncHost final
 
         const BaseType_t ok = xTaskCreate(taskThunk,
                                           "map_tile_worker",
-                                          6144,
+                                          4 * 1024,
                                           this,
                                           1,
                                           &task_);
@@ -1662,8 +1678,8 @@ class MapTileAsyncHost final
 
 MapTileAsyncHost& map_tile_async_host()
 {
-    static MapTileAsyncHost host;
-    return host;
+    static MapTileAsyncHost* host = psram_preferred_static_instance<MapTileAsyncHost>();
+    return *host;
 }
 
 uint8_t clamp_tile_zoom(int z)

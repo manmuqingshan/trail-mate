@@ -17,6 +17,7 @@
 #include <NimBLEDevice.h>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <string>
@@ -34,6 +35,10 @@ class MeshtasticBleService : public BleService,
   public:
     MeshtasticBleService(app::IAppBleFacade& ctx, const std::string& device_name);
     ~MeshtasticBleService() override;
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
 
     bool start() override;
     void stop() override;
@@ -118,7 +123,7 @@ class MeshtasticBleService : public BleService,
     }
 
     void setupService();
-    void startAdvertising();
+    bool startAdvertising();
     void requestHighThroughputConnection();
     void requestLowerPowerConnection();
     void handleFromPhone();

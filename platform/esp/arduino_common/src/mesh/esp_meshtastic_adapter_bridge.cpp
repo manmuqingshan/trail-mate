@@ -3,8 +3,10 @@
 #include "platform/esp/arduino_common/app_tasks.h"
 
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include <RadioLib.h>
 #include <cstring>
+#include <new>
 
 namespace platform::esp::arduino_common::mesh
 {
@@ -141,6 +143,25 @@ EspMeshtasticAdapterBridge::EspMeshtasticAdapterBridge(LoraBoard& board)
     config.protocol = ::mesh::MeshProtocolKind::Meshtastic;
     config.radio.frequency_hz = 1;
     (void)session_.start(config);
+}
+
+void* EspMeshtasticAdapterBridge::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void EspMeshtasticAdapterBridge::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void EspMeshtasticAdapterBridge::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
 }
 
 ::mesh::SendResult EspMeshtasticAdapterBridge::sendDirect(const ::mesh::DirectMessageCommand& command)

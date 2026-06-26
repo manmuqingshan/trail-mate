@@ -8,6 +8,7 @@
 #include "board/LoraBoard.h"
 #include "chat/infra/rnode/rnode_packet_wire.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include <cstddef>
 #include <queue>
 
 namespace chat
@@ -19,6 +20,10 @@ class RNodeAdapter : public IMeshAdapter
 {
   public:
     explicit RNodeAdapter(LoraBoard& board);
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
 
     MeshCapabilities getCapabilities() const override;
     bool sendText(ChannelId channel, const std::string& text,

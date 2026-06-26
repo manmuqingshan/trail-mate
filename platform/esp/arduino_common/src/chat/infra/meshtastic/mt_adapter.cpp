@@ -15,12 +15,14 @@
 #include "sys/event_bus.h"
 #include "team/protocol/team_portnum.h"
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <ctime>
 #include <limits>
+#include <new>
 #include <string>
 #include <type_traits>
 #define TEST_CURVE25519_FIELD_OPS
@@ -313,6 +315,25 @@ MtAdapter::MtAdapter(LoraBoard& board)
 
 MtAdapter::~MtAdapter()
 {
+}
+
+void* MtAdapter::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void MtAdapter::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void MtAdapter::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
 }
 
 bool MtAdapter::sendText(ChannelId channel, const std::string& text,

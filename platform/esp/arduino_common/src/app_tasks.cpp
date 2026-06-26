@@ -216,7 +216,7 @@ bool AppTasks::init(LoraBoard& board, chat::IMeshAdapter* adapter)
     BaseType_t result = xTaskCreate(
         radioTask,
         "radio_task",
-        4 * 1024, // Stack size
+        3 * 1024, // Stack size
         nullptr,
         10, // High priority
         &radio_task_handle_);
@@ -230,7 +230,7 @@ bool AppTasks::init(LoraBoard& board, chat::IMeshAdapter* adapter)
     result = xTaskCreate(
         meshTask,
         "mesh_task",
-        6 * 1024, // Stack size
+        4 * 1024, // Stack size
         nullptr,
         5, // Medium priority
         &mesh_task_handle_);

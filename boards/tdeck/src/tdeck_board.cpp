@@ -11,6 +11,7 @@
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <limits>
+#include <new>
 #include <sys/time.h>
 
 namespace boards::tdeck
@@ -30,6 +31,7 @@ constexpr float kTDeckRadioCurrentLimitMa = 140.0f;
 constexpr uint8_t kTDeckBacklightStepMax = 16;
 constexpr uint32_t kTDeckBacklightOffDelayMs = 3;
 constexpr uint32_t kTDeckBacklightWakeDelayUs = 30;
+constexpr uint32_t kTDeckDisplaySpiClockMhz = 80;
 // LilyGo's T-Deck GPSShield reference starts the L76K/CASIC path at 9600.
 constexpr uint32_t kGpsDefaultBaud = 9600;
 constexpr uint8_t kGpsProfileAuto = 0;
@@ -238,8 +240,19 @@ TDeckBoard::TDeckBoard()
 
 TDeckBoard* TDeckBoard::getInstance()
 {
-    static TDeckBoard instance;
-    return &instance;
+    static TDeckBoard* instance = []() -> TDeckBoard*
+    {
+        void* storage = heap_caps_malloc_prefer(sizeof(TDeckBoard),
+                                                2,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (storage == nullptr)
+        {
+            storage = ::operator new(sizeof(TDeckBoard));
+        }
+        return new (storage) TDeckBoard();
+    }();
+    return instance;
 }
 
 bool TDeckBoard::initGPS()
@@ -393,15 +406,25 @@ uint32_t TDeckBoard::begin(uint32_t disable_hw_init)
 
     // Initialize display (ST7789) before SD so the SPI lock exists (pager-style ordering).
 #if defined(DISP_SCK) && defined(DISP_MISO) && defined(DISP_MOSI) && defined(DISP_CS) && defined(DISP_DC)
-    // Match LilyGo's T-Deck reference setup: a 40 MHz display clock shortens LVGL flush time
-    // and reduces the visible scan/jelly effect during scrolling and animations.
-    LilyGoDispArduinoSPI::init(DISP_SCK, DISP_MISO, DISP_MOSI, DISP_CS, DISP_RST, DISP_DC, DISP_BL, 40, SPI);
+    // Keep T-Deck display flushes fast enough that LVGL partial refresh does not visibly scan.
+    LilyGoDispArduinoSPI::init(DISP_SCK,
+                               DISP_MISO,
+                               DISP_MOSI,
+                               DISP_CS,
+                               DISP_RST,
+                               DISP_DC,
+                               DISP_BL,
+                               kTDeckDisplaySpiClockMhz,
+                               SPI);
     // T-Deck default orientation should be rotated right by 90 degrees.
     LilyGoDispArduinoSPI::setRotation(1);
     rotation_ = LilyGoDispArduinoSPI::getRotation();
     display_ready_ = true;
     setBrightness(brightness_);
-    Serial.printf("[TDeckBoard] display init OK: %ux%u\n", LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height);
+    Serial.printf("[TDeckBoard] display init OK: %ux%u spi=%luMHz\n",
+                  LilyGoDispArduinoSPI::_width,
+                  LilyGoDispArduinoSPI::_height,
+                  static_cast<unsigned long>(kTDeckDisplaySpiClockMhz));
 #else
     Serial.println("[TDeckBoard] display init skipped: missing DISP_* pins");
 #endif
