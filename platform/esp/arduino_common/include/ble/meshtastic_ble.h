@@ -18,7 +18,6 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
-#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
@@ -105,6 +104,9 @@ class MeshtasticBleService : public BleService,
     bool pending_to_phone_valid_ = false;
     Frame pending_to_phone_{};
     uint32_t pending_to_phone_from_num_ = 0;
+    Frame to_phone_scratch_{};
+    Frame read_frame_scratch_{};
+    phone::meshtastic::MeshtasticBleFrame session_frame_scratch_{};
 
     SemaphoreHandle_t from_phone_mutex_ = nullptr;
     SemaphoreHandle_t to_phone_mutex_ = nullptr;

@@ -12,7 +12,8 @@
 #include "meshtastic/telemetry.pb.h"
 #include "phone/common/phone_app_facade.h"
 
-#include <deque>
+#include <array>
+#include <cstddef>
 
 namespace phone::meshtastic
 {
@@ -173,14 +174,96 @@ class MeshtasticPhoneCore
     bool isConfigFlowActive() const;
 
   private:
+    template <typename T, size_t Capacity>
+    class FixedRingQueue
+    {
+      public:
+        void clear()
+        {
+            head_ = 0;
+            tail_ = 0;
+            count_ = 0;
+        }
+
+        bool empty() const
+        {
+            return count_ == 0;
+        }
+
+        size_t size() const
+        {
+            return count_;
+        }
+
+        constexpr size_t capacity() const
+        {
+            return Capacity;
+        }
+
+        T* front()
+        {
+            return empty() ? nullptr : &items_[head_];
+        }
+
+        const T* front() const
+        {
+            return empty() ? nullptr : &items_[head_];
+        }
+
+        void pop()
+        {
+            if (empty())
+            {
+                return;
+            }
+            head_ = next(head_);
+            --count_;
+        }
+
+        T& pushSlotDropOldest(bool* dropped = nullptr)
+        {
+            const bool was_full = count_ == Capacity;
+            if (was_full)
+            {
+                head_ = next(head_);
+                --count_;
+            }
+            T& slot = items_[tail_];
+            tail_ = next(tail_);
+            ++count_;
+            if (dropped)
+            {
+                *dropped = was_full;
+            }
+            return slot;
+        }
+
+        void pushDropOldest(const T& item, bool* dropped = nullptr)
+        {
+            pushSlotDropOldest(dropped) = item;
+        }
+
+      private:
+        static constexpr size_t next(size_t index)
+        {
+            return (index + 1U) % Capacity;
+        }
+
+        std::array<T, Capacity> items_{};
+        size_t head_ = 0;
+        size_t tail_ = 0;
+        size_t count_ = 0;
+    };
+
+    static constexpr size_t kPhoneQueueDepth = 4;
+
     bool handleToRadioPacket(meshtastic_MeshPacket& packet);
     bool handleAdmin(meshtastic_MeshPacket& packet);
     bool handleLocalSelfPacket(meshtastic_MeshPacket& packet);
-    bool encodeFromRadio(const meshtastic_FromRadio& from, uint32_t from_num, MeshtasticBleFrame* out);
+    bool encodeFromRadio(meshtastic_FromRadio& from, uint32_t from_num, MeshtasticBleFrame* out);
     bool popConfigSnapshotFrame(MeshtasticBleFrame* out);
     void enqueueQueueStatus(uint32_t packet_id, bool ok);
     void enqueueConfigSnapshot(uint32_t config_nonce);
-    void enqueueFromRadio(const meshtastic_FromRadio& from, uint32_t from_num);
     void notifyFromNum(uint32_t from_num);
     void fillMyInfo(meshtastic_MyNodeInfo* out) const;
     void fillSelfNodeInfo(meshtastic_NodeInfo* out) const;
@@ -200,8 +283,8 @@ class MeshtasticPhoneCore
     meshtastic_Channel buildChannel(uint8_t idx) const;
     meshtastic_Config buildConfig(meshtastic_AdminMessage_ConfigType type) const;
     meshtastic_ModuleConfig buildModuleConfig(meshtastic_AdminMessage_ModuleConfigType type) const;
-    meshtastic_MeshPacket buildPacketFromText(const chat::MeshIncomingText& msg) const;
-    meshtastic_MeshPacket buildPacketFromData(const chat::MeshIncomingData& msg) const;
+    void fillPacketFromText(const chat::MeshIncomingText& msg, meshtastic_MeshPacket* out) const;
+    void fillPacketFromData(const chat::MeshIncomingData& msg, meshtastic_MeshPacket* out) const;
 
     IPhoneAppFacade& app_;
     MeshtasticPhoneTransport& transport_;
@@ -231,9 +314,8 @@ class MeshtasticPhoneCore
     bool admin_edit_transaction_bluetooth_dirty_ = false;
     bool admin_edit_transaction_restart_pending_ = false;
     bool restart_pending_ = false;
-    std::deque<MeshtasticBleFrame> frame_queue_;
-    std::deque<meshtastic_QueueStatus> queue_status_queue_;
-    std::deque<meshtastic_MeshPacket> packet_queue_;
+    FixedRingQueue<meshtastic_QueueStatus, kPhoneQueueDepth> queue_status_queue_;
+    FixedRingQueue<meshtastic_MeshPacket, kPhoneQueueDepth> packet_queue_;
     meshtastic_Config_BluetoothConfig bluetooth_config_ = meshtastic_Config_BluetoothConfig_init_zero;
     meshtastic_LocalModuleConfig module_config_ = meshtastic_LocalModuleConfig_init_zero;
     char admin_canned_messages_[160] = {};
