@@ -41,6 +41,7 @@ namespace boards::tlora_pager
 // ------------------------------
 static constexpr uint8_t I2C_XL9555 = 0x20;
 static constexpr uint8_t I2C_BQ25896 = 0x6B;
+static constexpr uint32_t kPagerDisplaySpiClockMhz = 80;
 
 // ------------------------------
 // I2C bus mutex (Gauge, PMU, RTC, XL9555 share Wire)
@@ -405,14 +406,23 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
 
     // Initialize display (ST7796)
     Serial.printf("[TLoRaPagerBoard::begin] display bus init begin\n");
-    LilyGoDispArduinoSPI::init(DISP_SCK, DISP_MISO, DISP_MOSI, DISP_CS, DISP_RST, DISP_DC, -1);
+    LilyGoDispArduinoSPI::init(DISP_SCK,
+                               DISP_MISO,
+                               DISP_MOSI,
+                               DISP_CS,
+                               DISP_RST,
+                               DISP_DC,
+                               -1,
+                               kPagerDisplaySpiClockMhz,
+                               SPI);
     log_d("Display (ST7796) initialized: logical=%dx%d raw=%dx%d",
           LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height, DISP_WIDTH, DISP_HEIGHT);
-    Serial.printf("[TLoRaPagerBoard::begin] display bus init end logical=%dx%d raw=%dx%d\n",
+    Serial.printf("[TLoRaPagerBoard::begin] display bus init end logical=%dx%d raw=%dx%d spi=%luMHz\n",
                   LilyGoDispArduinoSPI::_width,
                   LilyGoDispArduinoSPI::_height,
                   DISP_WIDTH,
-                  DISP_HEIGHT);
+                  DISP_HEIGHT,
+                  static_cast<unsigned long>(kPagerDisplaySpiClockMhz));
 
     // Initialize SPI bus for LoRa/SD (shared SPI bus)
     Serial.printf("[TLoRaPagerBoard::begin] shared spi bus begin sck=%d miso=%d mosi=%d\n",

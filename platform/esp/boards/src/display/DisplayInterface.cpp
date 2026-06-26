@@ -243,6 +243,7 @@ bool LilyGoDispArduinoSPI::init(int sck,
 
     _spi = &spi;
     g_display_spi = this;
+    _spi_freq = freq_Mhz * 1000U * 1000U;
 
     if (rst != -1)
     {
@@ -284,8 +285,6 @@ bool LilyGoDispArduinoSPI::init(int sck,
     }
 
     setRotation(0);
-
-    _spi_freq = freq_Mhz * 1000U * 1000U;
 
     std::vector<uint16_t> draw_buf(_width * _height, 0x0000);
     pushColors(0, 0, _width, _height, draw_buf.data());
