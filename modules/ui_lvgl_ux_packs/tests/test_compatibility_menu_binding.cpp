@@ -31,10 +31,11 @@ int main()
     pack.buildScreens(screens);
     adapter.buildMenu(screens, menu);
 
-    assert(menu.size() == 11);
+    assert(menu.size() == screens.size());
     assert(contains(menu, ui::menu::MenuScreenId::Chat));
     assert(contains(menu, ui::menu::MenuScreenId::Map));
     assert(contains(menu, ui::menu::MenuScreenId::Gps));
     assert(contains(menu, ui::menu::MenuScreenId::Settings));
+    assert(contains(menu, ui::menu::MenuScreenId::Extensions));
     return 0;
 }
