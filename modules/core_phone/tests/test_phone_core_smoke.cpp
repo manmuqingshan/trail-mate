@@ -280,6 +280,38 @@ int main()
     assert(!meshtastic_session.handleToRadio(invalid_meshtastic, sizeof(invalid_meshtastic)));
     meshtastic_session.close();
 
+    phone::tests::FakePhoneRuntimeContext text_runtime;
+    FakeMeshtasticTransport text_transport;
+    phone::meshtastic::MeshtasticPhoneSession text_session(
+        text_runtime, text_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    chat::MeshIncomingText incoming_text{};
+    incoming_text.channel = chat::ChannelId::PRIMARY;
+    incoming_text.from = 0x4A59CD8C;
+    incoming_text.to = 0xFFFFFFFF;
+    incoming_text.msg_id = 0x9DD4E0E7;
+    incoming_text.timestamp = 123456789;
+    incoming_text.text = "Hi";
+    incoming_text.hop_limit = 7;
+    text_session.onIncomingText(incoming_text);
+
+    phone::meshtastic::MeshtasticBleFrame text_frame{};
+    assert(text_session.popToPhone(&text_frame));
+    meshtastic_FromRadio text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_frame.from_num == incoming_text.msg_id);
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(text_from.packet.from == incoming_text.from);
+    assert(text_from.packet.to == incoming_text.to);
+    assert(text_from.packet.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP);
+    assert(text_from.packet.decoded.source == 0);
+    assert(text_from.packet.decoded.dest == 0);
+    assert(!text_from.packet.decoded.has_bitfield);
+    assert(text_from.packet.decoded.payload.size == incoming_text.text.size());
+    assert(std::memcmp(text_from.packet.decoded.payload.bytes,
+                       incoming_text.text.data(),
+                       incoming_text.text.size()) == 0);
+    assert(!text_session.popToPhone(&text_frame));
+
     phone::tests::FakePhoneRuntimeContext admin_runtime;
     FakeMeshtasticTransport admin_transport;
     phone::meshtastic::MeshtasticPhoneSession admin_session(
@@ -626,6 +658,13 @@ int main()
     assert(custom_runtime.restart_device_count == 1);
 
     phone::tests::FakePhoneRuntimeContext config_runtime;
+    phone::PhoneNodeView observation_only_node{};
+    observation_only_node.node_id = 0x4A59CD8C;
+    observation_only_node.last_seen = 123456789;
+    observation_only_node.snr = 6.0f;
+    observation_only_node.rssi = -69.0f;
+    config_runtime.nodes.push_back(observation_only_node);
+
     phone::PhoneNodeView peer_node{};
     peer_node.node_id = 0x12345679;
     copyBounded(peer_node.long_name, sizeof(peer_node.long_name), "Peer Node");
@@ -697,6 +736,7 @@ int main()
     assert(config_from.node_info.user.hw_model != meshtastic_HardwareModel_UNSET);
 
     bool saw_config_complete = false;
+    bool saw_observation_only_node = false;
     bool saw_peer_node = false;
     uint32_t last_config_from_radio_id = config_from.id;
     while (config_session.popToPhone(&config_frame))
@@ -712,9 +752,17 @@ int main()
         assert(config_from.which_payload_variant != meshtastic_FromRadio_my_info_tag);
         assert(config_from.which_payload_variant != meshtastic_FromRadio_deviceuiConfig_tag);
         if (config_from.which_payload_variant == meshtastic_FromRadio_node_info_tag &&
+            config_from.node_info.num == observation_only_node.node_id)
+        {
+            saw_observation_only_node = true;
+        }
+        if (config_from.which_payload_variant == meshtastic_FromRadio_node_info_tag &&
             config_from.node_info.num == peer_node.node_id)
         {
             assert(config_frame.from_num == peer_node.node_id);
+            assert(config_from.node_info.has_user);
+            assert(std::strcmp(config_from.node_info.user.short_name, peer_node.short_name) == 0);
+            assert(std::strcmp(config_from.node_info.user.long_name, peer_node.long_name) == 0);
             saw_peer_node = true;
         }
         if (config_from.which_payload_variant == meshtastic_FromRadio_config_complete_id_tag)
@@ -725,6 +773,7 @@ int main()
             break;
         }
     }
+    assert(!saw_observation_only_node);
     assert(saw_peer_node);
     assert(saw_config_complete);
 

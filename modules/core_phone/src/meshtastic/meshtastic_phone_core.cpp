@@ -55,7 +55,7 @@ void logDual(const char* format, ...)
         return;
     }
 
-    char buffer[192] = {};
+    char buffer[160] = {};
     va_list args;
     va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
@@ -76,6 +76,17 @@ void copyBounded(char* dst, size_t dst_len, const char* src)
     }
     std::strncpy(dst, src, dst_len - 1);
     dst[dst_len - 1] = '\0';
+}
+
+bool hasBoundedText(const char* text, size_t max_len)
+{
+    return text && max_len > 0 && text[0] != '\0';
+}
+
+bool hasAndroidVisibleNodeName(const PhoneNodeView& entry)
+{
+    return hasBoundedText(entry.short_name, sizeof(entry.short_name)) ||
+           hasBoundedText(entry.long_name, sizeof(entry.long_name));
 }
 
 void applyChannelPsk(uint8_t* dst,
@@ -1543,6 +1554,10 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         {
             continue;
         }
+        if (!hasAndroidVisibleNodeName(entry))
+        {
+            continue;
+        }
         from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
         fillNodeInfoFromEntry(entry, &from.node_info);
         return encodeFromRadio(from, entry.node_id, out);
@@ -1776,19 +1791,22 @@ void MeshtasticPhoneCore::fillNodeInfoFromEntry(const PhoneNodeView& entry, mesh
     meshtastic_NodeInfo& info = *out;
     std::memset(&info, 0, sizeof(info));
     info.num = entry.node_id;
-    info.has_user = true;
+    info.has_user = hasAndroidVisibleNodeName(entry);
 
     char user_id[16] = {};
-    std::snprintf(user_id, sizeof(user_id), "!%08lX", static_cast<unsigned long>(entry.node_id));
-    copyBounded(info.user.id, sizeof(info.user.id), user_id);
-    copyBounded(info.user.long_name, sizeof(info.user.long_name), entry.long_name);
-    copyBounded(info.user.short_name, sizeof(info.user.short_name), entry.short_name);
-    if (entry.has_macaddr)
+    if (info.has_user)
     {
-        memcpy(info.user.macaddr, entry.macaddr, sizeof(info.user.macaddr));
+        std::snprintf(user_id, sizeof(user_id), "!%08lX", static_cast<unsigned long>(entry.node_id));
+        copyBounded(info.user.id, sizeof(info.user.id), user_id);
+        copyBounded(info.user.long_name, sizeof(info.user.long_name), entry.long_name);
+        copyBounded(info.user.short_name, sizeof(info.user.short_name), entry.short_name);
+        if (entry.has_macaddr)
+        {
+            memcpy(info.user.macaddr, entry.macaddr, sizeof(info.user.macaddr));
+        }
+        info.user.hw_model = static_cast<meshtastic_HardwareModel>(entry.hw_model);
+        info.user.role = roleFromEntry(entry.role);
     }
-    info.user.hw_model = static_cast<meshtastic_HardwareModel>(entry.hw_model);
-    info.user.role = roleFromEntry(entry.role);
     info.channel = entry.channel;
     info.last_heard = entry.last_seen;
     info.snr = entry.snr;
@@ -2271,11 +2289,7 @@ void MeshtasticPhoneCore::fillPacketFromText(const chat::MeshIncomingText& msg, 
     packet.hop_limit = msg.hop_limit;
     packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-    packet.decoded.source = msg.from;
-    packet.decoded.dest = msg.to;
     packet.decoded.want_response = false;
-    packet.decoded.has_bitfield = true;
-    packet.decoded.bitfield = 0;
     packet.decoded.payload.size = static_cast<pb_size_t>(
         std::min(msg.text.size(), sizeof(packet.decoded.payload.bytes)));
     if (packet.decoded.payload.size > 0)
