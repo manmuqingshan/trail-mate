@@ -16,7 +16,6 @@
 #include "sys/event_bus.h"
 #include <AES.h>
 #include <Arduino.h>
-#include <esp_heap_caps.h>
 #include <Preferences.h>
 #include <RadioLib.h>
 #include <SHA256.h>
@@ -26,6 +25,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <esp_heap_caps.h>
 #include <limits>
 #include <new>
 #include <type_traits>

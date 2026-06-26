@@ -158,9 +158,9 @@ bool encodeAdminSetPrimaryCustomChannelToRadio(uint8_t* out,
 }
 
 bool encodeAdminSetManualLoraConfigToRadio(uint8_t* out,
-                                            size_t out_len,
-                                            size_t& written,
-                                            uint32_t packet_id)
+                                           size_t out_len,
+                                           size_t& written,
+                                           uint32_t packet_id)
 {
     meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_zero;
     admin.which_payload_variant = meshtastic_AdminMessage_set_config_tag;

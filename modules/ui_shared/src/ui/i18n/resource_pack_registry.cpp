@@ -546,7 +546,8 @@ bool parse_manifest_file(const std::string& path, Manifest& out)
 {
     out.clear();
 
-    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line) {
+    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line)
+                                                        {
         trim_in_place(line);
 
         if (!line.empty() && line[0] != '#' && line[0] != ';')
@@ -562,8 +563,7 @@ bool parse_manifest_file(const std::string& path, Manifest& out)
                 }
             }
         }
-        return true;
-    });
+        return true; });
 
     return read_ok && !out.empty();
 }
@@ -824,7 +824,8 @@ bool parse_ranges_file(const std::string& path, std::vector<CodepointRange>& out
 {
     out.clear();
 
-    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line) {
+    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line)
+                                                        {
         std::size_t token_start = 0;
         while (token_start <= line.size())
         {
@@ -842,8 +843,7 @@ bool parse_ranges_file(const std::string& path, std::vector<CodepointRange>& out
             }
             token_start = token_end + 1U;
         }
-        return true;
-    });
+        return true; });
 
     normalize_ranges(out);
     return read_ok && !out.empty();
@@ -2141,7 +2141,8 @@ bool parse_locale_strings(const std::string& path,
 {
     out.clear();
 
-    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line) {
+    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line)
+                                                        {
         if (!line.empty() && line[0] != '#')
         {
             const std::size_t sep = line.find('\t');
@@ -2155,8 +2156,7 @@ bool parse_locale_strings(const std::string& path,
                 }
             }
         }
-        return true;
-    });
+        return true; });
 
     std::sort(out.begin(),
               out.end(),

@@ -1088,7 +1088,8 @@ bool load_gpx_track_points(const char* path, std::vector<TrackOverlayPoint>& out
     }
 
     out.reserve(kMaxTrackOverlayPoints);
-    const bool read_ok = read_track_file_lines(path, [&out](const std::string& line) {
+    const bool read_ok = read_track_file_lines(path, [&out](const std::string& line)
+                                               {
         if (line.find("<trkpt") != std::string::npos)
         {
             double lat = 0.0;
@@ -1097,8 +1098,7 @@ bool load_gpx_track_points(const char* path, std::vector<TrackOverlayPoint>& out
             {
                 append_track_point(out, lat, lon);
             }
-        }
-    });
+        } });
     return read_ok && !out.empty();
 }
 
@@ -1111,7 +1111,8 @@ bool load_csv_track_points(const char* path, std::vector<TrackOverlayPoint>& out
     }
 
     out.reserve(kMaxTrackOverlayPoints);
-    const bool read_ok = read_track_file_lines(path, [&out](std::string line) {
+    const bool read_ok = read_track_file_lines(path, [&out](std::string line)
+                                               {
         line = trim_copy(std::move(line));
         if (!line.empty())
         {
@@ -1135,8 +1136,7 @@ bool load_csv_track_points(const char* path, std::vector<TrackOverlayPoint>& out
                     }
                 }
             }
-        }
-    });
+        } });
     return read_ok && !out.empty();
 }
 

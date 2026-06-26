@@ -22,8 +22,8 @@
 #endif
 #include "ui/screens/settings/settings_page_shell.h"
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
-#include "ui/screens/sstv/sstv_page_shell.h"
 #include "ui/screens/sstv/sstv_page_runtime.h"
+#include "ui/screens/sstv/sstv_page_shell.h"
 #endif
 #if !defined(GAT562_NO_TEAM) || !GAT562_NO_TEAM
 #include "ui/screens/team/team_page_shell.h"

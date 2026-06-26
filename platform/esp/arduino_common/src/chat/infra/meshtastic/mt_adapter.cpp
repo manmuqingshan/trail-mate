@@ -15,12 +15,12 @@
 #include "sys/event_bus.h"
 #include "team/protocol/team_portnum.h"
 #include <Arduino.h>
-#include <esp_heap_caps.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <esp_heap_caps.h>
 #include <limits>
 #include <new>
 #include <string>

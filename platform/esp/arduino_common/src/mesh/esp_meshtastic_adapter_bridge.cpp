@@ -3,9 +3,9 @@
 #include "platform/esp/arduino_common/app_tasks.h"
 
 #include <Arduino.h>
-#include <esp_heap_caps.h>
 #include <RadioLib.h>
 #include <cstring>
+#include <esp_heap_caps.h>
 #include <new>
 
 namespace platform::esp::arduino_common::mesh

@@ -14,8 +14,8 @@
 #include <cstdio>
 #include <esp_err.h>
 #include <esp_heap_caps.h>
-#include <nvs.h>
 #include <new>
+#include <nvs.h>
 #include <string>
 
 namespace chat

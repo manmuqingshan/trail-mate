@@ -1784,10 +1784,10 @@ bool sha256_file(const std::string& logical_path, std::string& out_hex)
     mbedtls_sha256_context ctx;
     mbedtls_sha256_init(&ctx);
     mbedtls_sha256_starts(&ctx, 0);
-    const bool ok = read_file_chunks(logical_path, [&ctx](const std::uint8_t* data, std::size_t len) {
+    const bool ok = read_file_chunks(logical_path, [&ctx](const std::uint8_t* data, std::size_t len)
+                                     {
         mbedtls_sha256_update(&ctx, data, len);
-        return true;
-    });
+        return true; });
     if (!ok)
     {
         mbedtls_sha256_free(&ctx);

@@ -192,7 +192,9 @@ void MeshCorePhoneCore::operator delete(void* ptr, std::size_t) noexcept
 #endif
 
 MeshCorePhoneCore::MeshCorePhoneCore(IPhoneAppFacade& app, const std::string& device_name, MeshCorePhoneHooks* hooks)
-    : app_(app), device_name_(device_name), hooks_(hooks) {}
+    : app_(app), device_name_(device_name), hooks_(hooks)
+{
+}
 
 void MeshCorePhoneCore::reset()
 {
