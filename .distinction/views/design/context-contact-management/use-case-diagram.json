@@ -1,0 +1,508 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:contact-management",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T11:14:22.837Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 户外通信与导航系统",
+      "source": {
+        "type": "model",
+        "id": "context:trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:trail-mate-system"
+      },
+      "summary": "面向户外爱好者的跨平台通信与导航系统，提供文字聊天、联系人管理、地图定位、团队协作和网络连接等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖 Trail Mate 应用的全部业务能力，包括聊天、联系人、地图、团队和配置。",
+        "responsibility": "为户外用户提供离网通信（Mesh）、位置共享、团队追踪和个性化设置。",
+        "businessTerms": [
+          "户外活动",
+          "离网通信",
+          "网格网络",
+          "团队追踪",
+          "GPS 定位"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:context:contact-management",
+      "kind": "design_context",
+      "label": "联系人管理",
+      "source": {
+        "type": "model",
+        "id": "context:contact-management"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:contact-management"
+      },
+      "summary": "管理和查看附近节点及联系人，包括节点信息、信号强度等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:class-5ef041183fd8d3cb4f50f0c91dc0069b"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_capability",
+        "parentContextId": "context:trail-mate-system",
+        "scope": "发现附近节点、查看节点详情、管理联系人列表。",
+        "responsibility": "维护网格网络中的节点联系人信息。",
+        "businessTerms": [
+          "节点",
+          "联系人",
+          "网格节点",
+          "节点详情"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:outdoor-user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "actor:outdoor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:outdoor-user"
+      },
+      "summary": "使用 Trail Mate 设备进行通信、导航和团队协作的户外活动参与者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-external-system:external-system:mesh-network",
+      "kind": "design_external_system",
+      "label": "网格网络",
+      "source": {
+        "type": "model",
+        "id": "external-system:mesh-network"
+      },
+      "anchor": {
+        "kind": "design_external_system",
+        "id": "external-system:mesh-network"
+      },
+      "summary": "LoRa / ESP-NOW 等无线网格网络，用于设备间通信。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": []
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-node-list",
+      "kind": "design_use_case",
+      "label": "查看附近节点列表",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-node-list"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-node-list"
+      },
+      "summary": "用户浏览当前网格网络中发现的节点列表，查看基本信息和信号强度。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:class-99f0e39067b251666212bb5e6d2d25fb"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:contact-management",
+        "trigger": "用户进入联系人/节点页面。",
+        "primaryActorIds": [
+          "actor:outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "external-system:mesh-network"
+        ],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-view-node-list-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：查看附近节点列表",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-node-list-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-node-list-activity"
+      },
+      "summary": "Activity Diagram：查看附近节点列表，用于解释 Use Case「查看附近节点列表」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:view-node-list",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看附近节点列表」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「查看附近节点列表」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「查看附近节点列表」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28-L29"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看附近节点列表」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看附近节点列表」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「查看附近节点列表」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28-L29"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看附近节点列表」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看附近节点列表」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「查看附近节点列表」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28-L29。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-node-list/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-node-list/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-view-node-list-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：查看附近节点列表主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-node-list-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-node-list-sequence"
+      },
+      "summary": "Sequence Diagram：查看附近节点列表主成功场景，用于解释 Use Case「查看附近节点列表」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:view-node-list",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看附近节点列表」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「查看附近节点列表」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「查看附近节点列表」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28-L29"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看附近节点列表」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看附近节点列表」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「查看附近节点列表」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28-L29"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看附近节点列表」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看附近节点列表」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「查看附近节点列表」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28-L29。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-node-list/sequences/sequence-use-case-view-node-list-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-node-list/sequences/sequence-use-case-view-node-list-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:trail-mate-system:context:contact-management",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:trail-mate-system",
+      "targetId": "projection-node:design-context:context:contact-management",
+      "source": {
+        "type": "model",
+        "id": "context:contact-management"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:contact-management"
+      },
+      "confidence": "high",
+      "summary": "context:trail-mate-system contains 联系人管理",
+      "metadata": {
+        "contextKind": "business_capability"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:contact-management:use-case:view-node-list",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:contact-management",
+      "targetId": "projection-node:design-use-case:use-case:view-node-list",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-node-list"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-node-list"
+      },
+      "confidence": "high",
+      "summary": "context:contact-management contains 查看附近节点列表"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:outdoor-user:use-case:view-node-list:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case:view-node-list",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-node-list"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-node-list"
+      },
+      "confidence": "high",
+      "summary": "actor:outdoor-user participates in 查看附近节点列表",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:external-system:mesh-network:use-case:view-node-list",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:external-system:mesh-network",
+      "targetId": "projection-node:design-use-case:use-case:view-node-list",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-node-list"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-node-list"
+      },
+      "confidence": "high",
+      "summary": "external-system:mesh-network participates in 查看附近节点列表",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-node-list:activity:use-case-view-node-list-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-node-list",
+      "targetId": "projection-node:design-activity:activity:use-case-view-node-list-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-node-list-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-node-list-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：查看附近节点列表，用于解释 Use Case「查看附近节点列表」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-node-list",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-node-list:sequence:use-case-view-node-list-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-node-list",
+      "targetId": "projection-node:design-sequence:sequence:use-case-view-node-list-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-node-list-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-node-list-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：查看附近节点列表主成功场景，用于解释 Use Case「查看附近节点列表」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-node-list",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:missing-phone-app-connector",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-context:context:device-settings"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "系统中是否有通过手机 App 配置设备或发送消息的用例？当前证据主要来自 BLE 服务代码，但未见明确的手机应用交互用例。",
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:device-settings"
+      }
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

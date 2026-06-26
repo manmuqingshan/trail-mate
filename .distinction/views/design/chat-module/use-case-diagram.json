@@ -1,0 +1,844 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:chat-module",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T13:19:05.616Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "trail-mate-system"
+      },
+      "summary": "整个 Trail Mate 跨平台户外伴侣系统，提供聊天、地图、设备监控和设置等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "包括所有业务模块：聊天、地图、设备状态、日志、设置、电源管理",
+        "responsibility": "为户外用户提供一体化通信、导航和设备管理",
+        "businessTerms": [
+          "聊天",
+          "地图",
+          "GPS",
+          "设置",
+          "设备状态",
+          "日志"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:chat-module",
+      "kind": "design_context",
+      "label": "聊天模块",
+      "source": {
+        "type": "model",
+        "id": "chat-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "chat-module"
+      },
+      "summary": "提供短消息收发、联系人管理和消息历史查看。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "聊天页面及相关的网络通信、存储",
+        "responsibility": "处理用户间的文本消息交流",
+        "businessTerms": [
+          "消息",
+          "联系人",
+          "对话"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "user"
+      },
+      "summary": "使用 Trail Mate 设备进行户外活动的最终用户。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-chat",
+      "kind": "design_use_case",
+      "label": "查看聊天消息",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-chat"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-chat"
+      },
+      "summary": "用户进入聊天页面，查看已接收和发送的短消息。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-ff1693e9463e593245dc219bc001d332",
+          "codegraph:function-427af5077bc15811568fc3549dedf6ca"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "chat-module",
+        "trigger": "用户点击聊天标签页",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-ff1693e9463e593245dc219bc001d332"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:send-message",
+      "kind": "design_use_case",
+      "label": "发送短消息",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-message"
+      },
+      "summary": "用户在聊天页面输入文本并发送给其他设备或群组。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-d1660b9b033d2aaf199da70131b14a64"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "chat-module",
+        "trigger": "用户在消息输入框输入文本并点击发送按钮",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:unknown-codegraph-function-8d96428a6cab39971f8f357d90900f70"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:view-chat-main",
+      "kind": "design_activity",
+      "label": "业务流程：查看聊天消息",
+      "source": {
+        "type": "model",
+        "id": "activity:view-chat-main"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-chat-main"
+      },
+      "summary": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看聊天消息」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「查看聊天消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看聊天消息」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看聊天消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看聊天消息」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看聊天消息」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-chat/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-chat/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:view-chat-main-success",
+      "kind": "design_sequence",
+      "label": "查看聊天消息 - 主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-chat-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-chat-main-success"
+      },
+      "summary": "用户进入聊天页面，系统成功加载并显示消息列表。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看聊天消息」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「查看聊天消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "用户进入聊天页面，系统成功加载并显示消息列表。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看聊天消息」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看聊天消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "用户进入聊天页面，系统成功加载并显示消息列表。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看聊天消息」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看聊天消息」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "用户进入聊天页面，系统成功加载并显示消息列表。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-chat/sequences/sequence-view-chat-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-chat/sequences/sequence-view-chat-main-success.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:send-message-main",
+      "kind": "design_activity",
+      "label": "业务流程：发送短消息",
+      "source": {
+        "type": "model",
+        "id": "activity:send-message-main"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-message-main"
+      },
+      "summary": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「发送短消息」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「发送短消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「发送短消息」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「发送短消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「发送短消息」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「发送短消息」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-class-collaboration:class-collaboration:chat-module-structure",
+      "kind": "design_class_collaboration",
+      "label": "聊天模块结构协作",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:chat-module-structure"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:chat-module-structure"
+      },
+      "summary": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "class_collaboration",
+        "coverage": {
+          "scenario": "解释 Use Case「查看聊天消息」的结构协作和设计承载关系。",
+          "coveredUseCaseFlows": [
+            "structural collaboration slice for this Use Case"
+          ],
+          "boundary": "覆盖「查看聊天消息」实现该故事所需的结构协作切片，不是全量类图。",
+          "notCovered": [
+            "全量类图",
+            "目录结构图",
+            "没有 Use Case 解释价值的 DTO/Mapper/Repository 堆叠"
+          ],
+          "rationale": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "仓库全量类图",
+              "无 Use Case 职责解释价值的技术类"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看聊天消息」的结构协作和设计承载关系。",
+        "coverageBoundary": "覆盖「查看聊天消息」实现该故事所需的结构协作切片，不是全量类图。",
+        "coverageRationale": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+        "coveredUseCaseFlows": [
+          "structural collaboration slice for this Use Case"
+        ],
+        "notCovered": [
+          "全量类图",
+          "目录结构图",
+          "没有 Use Case 解释价值的 DTO/Mapper/Repository 堆叠"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "仓库全量类图",
+            "无 Use Case 职责解释价值的技术类"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Class / Structural Collaboration Diagram 说明「查看聊天消息」由哪些结构角色承载，以及这些角色为什么足以解释该业务能力。",
+          "uml": "读图时重点看类/接口承担的结构职责、依赖方向、接口实现、策略选择和端口适配关系；该图不是全量类图，也不是目录结构图。",
+          "design": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-chat/realization/class-collaboration.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-chat/realization/class-collaboration.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-send-message-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：发送短消息主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-send-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-send-message-sequence"
+      },
+      "summary": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「发送短消息」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「发送短消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「发送短消息」的主成功交互场景。",
+        "coverageBoundary": "覆盖「发送短消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「发送短消息」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「发送短消息」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-message/sequences/sequence-use-case-send-message-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-message/sequences/sequence-use-case-send-message-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:chat-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:chat-module",
+      "source": {
+        "type": "model",
+        "id": "chat-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "chat-module"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 聊天模块",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:chat-module:use-case:view-chat",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:chat-module",
+      "targetId": "projection-node:design-use-case:use-case:view-chat",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-chat"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-chat"
+      },
+      "confidence": "medium",
+      "summary": "chat-module contains 查看聊天消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:view-chat:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-chat",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-chat"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-chat"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 查看聊天消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:chat-module:use-case:send-message",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:chat-module",
+      "targetId": "projection-node:design-use-case:use-case:send-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-message"
+      },
+      "confidence": "medium",
+      "summary": "chat-module contains 发送短消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:send-message:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:send-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-message"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 发送短消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-chat:activity:view-chat-main",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-chat",
+      "targetId": "projection-node:design-activity:activity:view-chat-main",
+      "source": {
+        "type": "model",
+        "id": "activity:view-chat-main"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-chat-main"
+      },
+      "confidence": "medium",
+      "summary": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+      "metadata": {
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-chat:sequence:view-chat-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-chat",
+      "targetId": "projection-node:design-sequence:sequence:view-chat-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-chat-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-chat-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户进入聊天页面，系统成功加载并显示消息列表。",
+      "metadata": {
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-message:activity:send-message-main",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-message",
+      "targetId": "projection-node:design-activity:activity:send-message-main",
+      "source": {
+        "type": "model",
+        "id": "activity:send-message-main"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-message-main"
+      },
+      "confidence": "medium",
+      "summary": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+      "metadata": {
+        "useCaseId": "use-case:send-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-chat:class-collaboration:chat-module-structure",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-chat",
+      "targetId": "projection-node:design-class-collaboration:class-collaboration:chat-module-structure",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:chat-module-structure"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:chat-module-structure"
+      },
+      "confidence": "medium",
+      "summary": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+      "metadata": {
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "class_collaboration"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-message:sequence:use-case-send-message-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-message",
+      "targetId": "projection-node:design-sequence:sequence:use-case-send-message-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-send-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-send-message-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:send-message",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

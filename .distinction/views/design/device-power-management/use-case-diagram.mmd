@@ -1,0 +1,10 @@
+flowchart LR
+  actor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_device_power_management["设备电源管理"]
+      useCase_use_case_manage_device_power(["管理设备电源"])
+      useCase_use_case_toggle_gps_power(["控制GPS模块开关"])
+    end
+  end
+  actor_user --- useCase_use_case_manage_device_power
+  actor_user --- useCase_use_case_toggle_gps_power

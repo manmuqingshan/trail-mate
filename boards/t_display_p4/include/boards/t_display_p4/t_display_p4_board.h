@@ -130,6 +130,7 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     bool hasKeyboard() override;
     void keyboardSetBrightness(uint8_t level) override;
     uint8_t keyboardGetBrightness() override;
+    bool ensureExternal3v3Power();
     void setKeyboardReady(bool ready);
 
     bool isRTCReady() const override;

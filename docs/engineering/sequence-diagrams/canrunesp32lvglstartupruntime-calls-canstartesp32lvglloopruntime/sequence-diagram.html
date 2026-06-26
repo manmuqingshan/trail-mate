@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>动态协作：canRunEsp32LvglStartupRuntime 调用 canStartEsp32LvglLoopRuntime</title>
+</head>
+<body>
+<main class="praxis-engineering-map" data-praxis-anchor="engineering:runtime-flow:canrunesp32lvglstartupruntime:canstartesp32lvglloopruntime:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_loop_runtime.cpp" data-praxis-kind="engineering_sequence_diagram" data-praxis-status="candidate" data-praxis-confidence="high" data-praxis-document-path="docs/engineering/sequence-diagrams/canrunesp32lvglstartupruntime-calls-canstartesp32lvglloopruntime/sequence-diagram.html" data-praxis-drilldowns="[]">
+  <header class="praxis-design-map-header">
+    <p>Praxis Software Structure Model</p>
+    <h1>动态协作：canRunEsp32LvglStartupRuntime 调用 canStartEsp32LvglLoopRuntime</h1>
+    <p>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 canRunEsp32LvglStartupRuntime calls apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 中的 canStartEsp32LvglLoopRuntime。</p>
+    <div class="meta-row">
+      <span>Sequence Diagrams</span>
+      <span>candidate / high</span>
+      <span>0.1.0 · 34aad0bffa2f / main</span>
+    </div>
+  </header>
+  <section class="semantic-layer" data-praxis-anchor="engineering:reading-guide" data-praxis-kind="engineering_document_section">
+    <h2>图的读法</h2>
+    <ul>
+      <li>这张 Sequence Diagram 聚焦 canRunEsp32LvglStartupRuntime 调用 canStartEsp32LvglLoopRuntime 的技术协作片段。</li>
+      <li>它描述的是一个局部运行片段，不一定等同于完整业务流程。</li>
+      <li>当前关系来自本地调用证据；若没有 Use Case Trace，它只表示局部协作片段，不直接等同于主成功场景、回调、补偿或失败路径。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:technical-analysis" data-praxis-kind="engineering_document_section">
+    <h2>技术复杂度分析</h2>
+    <ul>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 之间存在 calls 关系，所属技术边界是 apps/esp32_lvgl。</li>
+      <li>Sequence Diagram 用于解释运行时或协作顺序，适合承接那些从 Package/Component 图看不清的动态行为。</li>
+      <li>如果未来证据显示存在异步消息、回调、超时或失败补偿，应为同一业务/技术场景拆出多张 sequence，而不是塞进一张大图。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:business-relation" data-praxis-kind="engineering_document_section">
+    <h2>与业务复杂度的关联</h2>
+    <ul>
+      <li>业务 Use Case 的主成功路径、失败路径和回调路径最终会落到若干技术 sequence 片段上。</li>
+      <li>当前片段可能解释某个业务故事中的技术执行步骤；如果没有 Use Case Trace，它只作为软件结构模型中的局部协作片段。</li>
+      <li>如果它被确认属于某个 Use Case，应在 docs/design 对应下钻 Sequence Diagram 中链接到这份工程 sequence 文档。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:governance-notes" data-praxis-kind="engineering_document_section">
+    <h2>治理建议</h2>
+    <ul>
+      <li>不要只根据单条关系判断完整调用链；需要结合前后游关系补全场景。</li>
+      <li>当 sequence 涉及外部系统、模型调用、文件写入或 Git 操作时，应补充失败路径和重试/补偿说明。</li>
+      <li>如果该 sequence 支撑用户可见功能，应同步维护组织/过程模型的业务下钻图。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer diagram-section" data-praxis-anchor="engineering:diagram-body" data-praxis-kind="engineering_diagram_body">
+    <h2>UML / 技术图</h2>
+    <pre class="mermaid" data-praxis-anchor="engineering:runtime-flow:canrunesp32lvglstartupruntime:canstartesp32lvglloopruntime:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_loop_runtime.cpp:uml" data-praxis-kind="engineering_sequence_uml" data-praxis-drilldowns="[]">sequenceDiagram
+  participant Source as canRunEsp32LvglStartupRuntime
+  participant Target as canStartEsp32LvglLoopRuntime
+  Source-&gt;&gt;Target: calls
+  Note over Source,Target: apps/esp32_lvgl</pre>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:coverage" data-praxis-kind="engineering_document_section">
+    <h2>覆盖范围</h2>
+    <ul>
+      <li>交互类型：calls</li>
+      <li>来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+      <li>目标：apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp</li>
+      <li>所属模块：apps/esp32_lvgl</li>
+    </ul>
+  </section>
+  <section class="semantic-layer engineering-element-drilldowns" data-praxis-anchor="engineering:runtime-flow:canrunesp32lvglstartupruntime:canstartesp32lvglloopruntime:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_loop_runtime.cpp:element-drilldowns" data-praxis-kind="engineering_element_drilldown_index">
+    <h2>图内语义元素下钻</h2>
+    <ol>
+      <li data-praxis-anchor="engineering:runtime-flow:canrunesp32lvglstartupruntime:canstartesp32lvglloopruntime:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_loop_runtime.cpp:source" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="Source" data-praxis-drilldowns="[]">
+        <strong>canRunEsp32LvglStartupRuntime</strong>
+        <span>component</span>
+        <p>canRunEsp32LvglStartupRuntime 是当前 Sequence Diagram 的来源参与者，用来解释 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 canRunEsp32LvglStartupRuntime calls apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 中的 canStartEsp32LvglLoopRuntime。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>消息发起/依赖方：它触发或引用目标能力。</dd></div>
+          <div><dt>为什么出现</dt><dd>本地仓库证据在 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 之间观察到 calls，因此 canRunEsp32LvglStartupRuntime 被放入 sequence。</dd></div>
+          <div><dt>关系意义</dt><dd>canRunEsp32LvglStartupRuntime -&gt; canStartEsp32LvglLoopRuntime 表示当前片段的依赖方向；如果关系只是 import，它只能说明静态依赖，不能直接证明运行时顺序。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 canRunEsp32LvglStartupRuntime 可以查看对应 Component Diagram 或结构上下文，判断这个参与者在更大技术边界中的职责。</dd></div>
+          <div><dt>业务关联</dt><dd>业务 Use Case 的执行过程可能落到多个 sequence 片段上；当前片段只是候选技术步骤，需要组织/过程模型证据确认业务含义。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 可能改变该 sequence 的依赖关系、调用证据和相关组件/结构图的解释。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+            <li>交互类型：calls</li>
+            <li>来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+            <li>目标：apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp</li>
+            <li>所属模块：apps/esp32_lvgl</li>
+            <li>apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>单条 sequence 片段不足以证明完整调用链或业务主成功路径。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <ul>
+            <li>当前关系类型需要按证据区分运行时调用、静态 import、类型引用或配置引用；若只是静态关系，本图不应被解释成真实调用顺序。</li>
+          </ul>
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:runtime-flow:canrunesp32lvglstartupruntime:canstartesp32lvglloopruntime:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_loop_runtime.cpp:target" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="Target" data-praxis-drilldowns="[]">
+        <strong>canStartEsp32LvglLoopRuntime</strong>
+        <span>component</span>
+        <p>canStartEsp32LvglLoopRuntime 是当前 Sequence Diagram 的目标参与者，用来解释 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 canRunEsp32LvglStartupRuntime calls apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 中的 canStartEsp32LvglLoopRuntime。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>消息接收/被依赖方：它提供被当前片段引用或调用的能力。</dd></div>
+          <div><dt>为什么出现</dt><dd>本地仓库证据在 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 之间观察到 calls，因此 canStartEsp32LvglLoopRuntime 被放入 sequence。</dd></div>
+          <div><dt>关系意义</dt><dd>canRunEsp32LvglStartupRuntime -&gt; canStartEsp32LvglLoopRuntime 表示目标能力被当前片段依赖；需要结合调用证据确认它是运行时调用、类型引用还是静态导入。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 canStartEsp32LvglLoopRuntime 可以查看对应 Component Diagram 或结构上下文，判断这个参与者在更大技术边界中的职责。</dd></div>
+          <div><dt>业务关联</dt><dd>业务 Use Case 的执行过程可能落到多个 sequence 片段上；当前片段只是候选技术步骤，需要组织/过程模型证据确认业务含义。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 可能改变该 sequence 的依赖关系、调用证据和相关组件/结构图的解释。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp</li>
+            <li>交互类型：calls</li>
+            <li>来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+            <li>目标：apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp</li>
+            <li>所属模块：apps/esp32_lvgl</li>
+            <li>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>单条 sequence 片段不足以证明完整调用链或业务主成功路径。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <ul>
+            <li>当前关系类型需要按证据区分运行时调用、静态 import、类型引用或配置引用；若只是静态关系，本图不应被解释成真实调用顺序。</li>
+          </ul>
+        </section>
+      </li>
+    </ol>
+  </section>
+  <section class="semantic-layer engineering-drilldowns" data-praxis-anchor="engineering:runtime-flow:canrunesp32lvglstartupruntime:canstartesp32lvglloopruntime:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_loop_runtime.cpp:drilldowns" data-praxis-kind="engineering_drilldown_options" data-praxis-drilldowns="[]">
+    <h2>可下钻 UML</h2>
+    <p>当前没有根据证据关联到更细图。</p>
+
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:evidence" data-praxis-kind="engineering_document_section">
+    <h2>证据</h2>
+    <ul>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:questions" data-praxis-kind="engineering_document_section">
+    <h2>问题</h2>
+    <ul>
+      <li>暂无未决问题。</li>
+    </ul>
+  </section>
+  <script type="application/json" id="praxis-engineering-diagram-document">{"id":"engineering:diagram:sequence:canrunesp32lvglstartupruntime-calls-canstartesp32lvglloopruntime","kind":"sequence","title":"动态协作：canRunEsp32LvglStartupRuntime 调用 canStartEsp32LvglLoopRuntime","summary":"apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 canRunEsp32LvglStartupRuntime calls apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 中的 canStartEsp32LvglLoopRuntime。","docPath":"docs/engineering/sequence-diagrams/canrunesp32lvglstartupruntime-calls-canstartesp32lvglloopruntime/sequence-diagram.md","htmlPath":"docs/engineering/sequence-diagrams/canrunesp32lvglstartupruntime-calls-canstartesp32lvglloopruntime/sequence-diagram.html","anchor":"engineering:runtime-flow:canrunesp32lvglstartupruntime:canstartesp32lvglloopruntime:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_loop_runtime.cpp","status":"candidate","confidence":"high","mermaidKind":"sequenceDiagram","mermaid":"sequenceDiagram\n  participant Source as canRunEsp32LvglStartupRuntime\n  participant Target as canStartEsp32LvglLoopRuntime\n  Source-\u003e\u003eTarget: calls\n  Note over Source,Target: apps/esp32_lvgl","readingGuide":["这张 Sequence Diagram 聚焦 canRunEsp32LvglStartupRuntime 调用 canStartEsp32LvglLoopRuntime 的技术协作片段。","它描述的是一个局部运行片段，不一定等同于完整业务流程。","当前关系来自本地调用证据；若没有 Use Case Trace，它只表示局部协作片段，不直接等同于主成功场景、回调、补偿或失败路径。"],"technicalAnalysis":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 之间存在 calls 关系，所属技术边界是 apps/esp32_lvgl。","Sequence Diagram 用于解释运行时或协作顺序，适合承接那些从 Package/Component 图看不清的动态行为。","如果未来证据显示存在异步消息、回调、超时或失败补偿，应为同一业务/技术场景拆出多张 sequence，而不是塞进一张大图。"],"businessRelation":["业务 Use Case 的主成功路径、失败路径和回调路径最终会落到若干技术 sequence 片段上。","当前片段可能解释某个业务故事中的技术执行步骤；如果没有 Use Case Trace，它只作为软件结构模型中的局部协作片段。","如果它被确认属于某个 Use Case，应在 docs/design 对应下钻 Sequence Diagram 中链接到这份工程 sequence 文档。"],"governanceNotes":["不要只根据单条关系判断完整调用链；需要结合前后游关系补全场景。","当 sequence 涉及外部系统、模型调用、文件写入或 Git 操作时，应补充失败路径和重试/补偿说明。","如果该 sequence 支撑用户可见功能，应同步维护组织/过程模型的业务下钻图。"],"coverage":["交互类型：calls","来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","目标：apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp","所属模块：apps/esp32_lvgl"],"evidencePaths":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp"],"questions":[],"scope":{"packageId":"apps/esp32_lvgl","sourcePath":"apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","targetPath":"apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp","targetPackageId":"apps/esp32_lvgl","sourceName":"canRunEsp32LvglStartupRuntime","targetName":"canStartEsp32LvglLoopRuntime"},"drilldowns":[],"elements":[{"id":"engineering:diagram:sequence:canrunesp32lvglstartupruntime-calls-canstartesp32lvglloopruntime:element:canrunesp32lvglstartupruntime","mermaidId":"Source","label":"canRunEsp32LvglStartupRuntime","kind":"component","anchor":"engineering:runtime-flow:canrunesp32lvglstartupruntime:canstartesp32lvglloopruntime:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_loop_runtime.cpp:source","summary":"canRunEsp32LvglStartupRuntime 是当前 Sequence Diagram 的来源参与者，用来解释 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 canRunEsp32LvglStartupRuntime calls apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 中的 canStartEsp32LvglLoopRuntime。","role":"消息发起/依赖方：它触发或引用目标能力。","whyItExists":"本地仓库证据在 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 之间观察到 calls，因此 canRunEsp32LvglStartupRuntime 被放入 sequence。","relationshipMeaning":"canRunEsp32LvglStartupRuntime -\u003e canStartEsp32LvglLoopRuntime 表示当前片段的依赖方向；如果关系只是 import，它只能说明静态依赖，不能直接证明运行时顺序。","drilldownIntent":"下钻 canRunEsp32LvglStartupRuntime 可以查看对应 Component Diagram 或结构上下文，判断这个参与者在更大技术边界中的职责。","businessRelevance":"业务 Use Case 的执行过程可能落到多个 sequence 片段上；当前片段只是候选技术步骤，需要组织/过程模型证据确认业务含义。","changeImpact":"修改 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 可能改变该 sequence 的依赖关系、调用证据和相关组件/结构图的解释。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","交互类型：calls","来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","目标：apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp","所属模块：apps/esp32_lvgl","apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp"],"risks":["单条 sequence 片段不足以证明完整调用链或业务主成功路径。"],"questions":["当前关系类型需要按证据区分运行时调用、静态 import、类型引用或配置引用；若只是静态关系，本图不应被解释成真实调用顺序。"],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:sequence:canrunesp32lvglstartupruntime-calls-canstartesp32lvglloopruntime:element:canstartesp32lvglloopruntime","mermaidId":"Target","label":"canStartEsp32LvglLoopRuntime","kind":"component","anchor":"engineering:runtime-flow:canrunesp32lvglstartupruntime:canstartesp32lvglloopruntime:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_loop_runtime.cpp:target","summary":"canStartEsp32LvglLoopRuntime 是当前 Sequence Diagram 的目标参与者，用来解释 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 canRunEsp32LvglStartupRuntime calls apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 中的 canStartEsp32LvglLoopRuntime。","role":"消息接收/被依赖方：它提供被当前片段引用或调用的能力。","whyItExists":"本地仓库证据在 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 之间观察到 calls，因此 canStartEsp32LvglLoopRuntime 被放入 sequence。","relationshipMeaning":"canRunEsp32LvglStartupRuntime -\u003e canStartEsp32LvglLoopRuntime 表示目标能力被当前片段依赖；需要结合调用证据确认它是运行时调用、类型引用还是静态导入。","drilldownIntent":"下钻 canStartEsp32LvglLoopRuntime 可以查看对应 Component Diagram 或结构上下文，判断这个参与者在更大技术边界中的职责。","businessRelevance":"业务 Use Case 的执行过程可能落到多个 sequence 片段上；当前片段只是候选技术步骤，需要组织/过程模型证据确认业务含义。","changeImpact":"修改 apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp 可能改变该 sequence 的依赖关系、调用证据和相关组件/结构图的解释。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp","交互类型：calls","来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","目标：apps/esp32_lvgl/src/esp32_lvgl_loop_runtime.cpp","所属模块：apps/esp32_lvgl","apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp"],"risks":["单条 sequence 片段不足以证明完整调用链或业务主成功路径。"],"questions":["当前关系类型需要按证据区分运行时调用、静态 import、类型引用或配置引用；若只是静态关系，本图不应被解释成真实调用顺序。"],"confidence":"high","drilldowns":[]}]}</script>
+</main>
+</body>
+</html>

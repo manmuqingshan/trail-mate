@@ -1,0 +1,987 @@
+{
+  "schemaVersion": "praxis.projectionManifest.v1",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T14:37:21.480Z",
+  "views": [
+    {
+      "id": "view:design:use-case:context:chat-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-chat-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-story-intake:1782379621985",
+        "design-story-intake:1782379321376",
+        "design-story-intake:1782379952549",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T09:32:40.935Z"
+    },
+    {
+      "id": "view:design:use-case:context:contact-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-contact-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-story-intake:1782379621985",
+        "design-story-intake:1782379321376",
+        "design-story-intake:1782379952549",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T09:32:40.935Z"
+    },
+    {
+      "id": "view:design:use-case:context:map-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-map-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-story-intake:1782379621985",
+        "design-story-intake:1782379321376",
+        "design-story-intake:1782379952549",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T09:32:40.935Z"
+    },
+    {
+      "id": "view:design:use-case:context:team-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-team-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-story-intake:1782379621985",
+        "design-story-intake:1782379321376",
+        "design-story-intake:1782379952549",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T09:32:40.935Z"
+    },
+    {
+      "id": "view:design:use-case:context:settings-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-settings-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-story-intake:1782379621985",
+        "design-story-intake:1782379321376",
+        "design-story-intake:1782379952549",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T09:32:40.935Z"
+    },
+    {
+      "id": "view:design:use-case:context:hardware-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-hardware-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-story-intake:1782379621985",
+        "design-story-intake:1782379321376",
+        "design-story-intake:1782379952549",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T09:32:40.935Z"
+    },
+    {
+      "id": "view:design:use-case:context:item-ajfw3y",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-item-ajfw3y/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-story-intake:1782379621985",
+        "design-story-intake:1782379321376",
+        "design-story-intake:1782379952549",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T09:32:40.935Z"
+    },
+    {
+      "id": "view:design:use-case:context:sstv",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-sstv/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-story-intake:1782379621985",
+        "design-story-intake:1782379321376",
+        "design-story-intake:1782379952549",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T09:32:40.935Z"
+    },
+    {
+      "id": "view:design:use-case:context:item-gqhdko",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-item-gqhdko/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-story-intake:1782379621985",
+        "design-story-intake:1782379321376",
+        "design-story-intake:1782379952549",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T09:32:40.935Z"
+    },
+    {
+      "id": "view:design:use-case:context:chat-communication",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-chat-communication/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T11:14:22.837Z"
+    },
+    {
+      "id": "view:design:use-case:context:contact-management",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-contact-management/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T11:14:22.837Z"
+    },
+    {
+      "id": "view:design:use-case:context:map-location",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-map-location/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T11:14:22.837Z"
+    },
+    {
+      "id": "view:design:use-case:context:team-collaboration",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-team-collaboration/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T11:14:22.837Z"
+    },
+    {
+      "id": "view:design:use-case:context:device-settings",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-device-settings/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T11:14:22.837Z"
+    },
+    {
+      "id": "view:design:use-case:hardware-management",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/hardware-management/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T11:28:31.620Z"
+    },
+    {
+      "id": "view:design:use-case:communication-services",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/communication-services/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T11:28:31.620Z"
+    },
+    {
+      "id": "view:design:use-case:user-interface",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/user-interface/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T11:28:31.620Z"
+    },
+    {
+      "id": "view:design:use-case:navigation-map",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/navigation-map/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T11:28:31.620Z"
+    },
+    {
+      "id": "view:design:use-case:context:hardware",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-hardware/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T12:00:15.351Z"
+    },
+    {
+      "id": "view:design:use-case:context:system-management",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-system-management/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T12:00:15.351Z"
+    },
+    {
+      "id": "view:design:use-case:trail-mate-system",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/trail-mate-system/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:19:05.616Z"
+    },
+    {
+      "id": "view:design:use-case:chat-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/chat-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:19:05.616Z"
+    },
+    {
+      "id": "view:design:use-case:map-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/map-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:19:05.616Z"
+    },
+    {
+      "id": "view:design:use-case:settings-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/settings-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:19:05.616Z"
+    },
+    {
+      "id": "view:design:use-case:device-status-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/device-status-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:19:05.616Z"
+    },
+    {
+      "id": "view:design:use-case:logs-module",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/logs-module/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:19:05.616Z"
+    },
+    {
+      "id": "view:design:use-case:device-power-management",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/device-power-management/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:19:05.616Z"
+    },
+    {
+      "id": "view:design:use-case:context:trail-mate-system",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-trail-mate-system/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:58:33.932Z"
+    },
+    {
+      "id": "view:design:use-case:context:chat",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-chat/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:58:33.932Z"
+    },
+    {
+      "id": "view:design:use-case:context:team",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-team/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:58:33.932Z"
+    },
+    {
+      "id": "view:design:use-case:context:map",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-map/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:58:33.932Z"
+    },
+    {
+      "id": "view:design:use-case:context:device-management",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-device-management/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:58:33.932Z"
+    },
+    {
+      "id": "view:design:use-case:context:settings",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/context-settings/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T13:58:33.932Z"
+    },
+    {
+      "id": "view:design:use-case-list",
+      "kind": "design_use_case_list",
+      "path": ".distinction/views/design/use-case-list.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T14:37:21.431Z"
+    },
+    {
+      "id": "view:design:use-case:system:trail-mate",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/system-trail-mate/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T14:37:21.431Z"
+    },
+    {
+      "id": "view:design:use-case:business_module:device-management",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/business_module-device-management/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T14:37:21.431Z"
+    },
+    {
+      "id": "view:design:use-case:business_module:chat-communication",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/business_module-chat-communication/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T14:37:21.431Z"
+    },
+    {
+      "id": "view:design:use-case:business_module:map-navigation",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/business_module-map-navigation/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T14:37:21.431Z"
+    },
+    {
+      "id": "view:design:use-case:business_module:team-collaboration",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/business_module-team-collaboration/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T14:37:21.431Z"
+    },
+    {
+      "id": "view:design:use-case:business_module:diagnostics-tools",
+      "kind": "design_use_case",
+      "path": ".distinction/views/design/business_module-diagnostics-tools/use-case-diagram.json",
+      "authority": "review_cache",
+      "sourceCachePaths": [
+        ".distinction/cache/design/interaction-model-candidate.json"
+      ],
+      "sourceMemoryIds": [],
+      "sourceModelIds": [
+        "cache:design-interaction-model",
+        "design-discovery",
+        "design-discovery:drilldown-default"
+      ],
+      "sourceFindingIds": [],
+      "sourceTaskIds": [],
+      "sourceTraceIds": [],
+      "sourceSpecPaths": [
+        "docs/design/use-case-diagrams-maps.md",
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "status": "fresh",
+      "generatedAt": "2026-06-25T14:37:21.431Z"
+    }
+  ]
+}

@@ -52,6 +52,10 @@
 #include "ui/widgets/top_bar.h"
 #include "ui_presentation/settings/settings_model.h"
 
+#if UI_SHARED_TOUCH_IME_ENABLED
+#include "ui/LV_Helper.h"
+#endif
+
 #if defined(ESP_PLATFORM)
 #include "esp_log.h"
 #endif
@@ -1673,6 +1677,75 @@ static void on_text_modal_key(lv_event_t* e)
     }
 }
 
+static bool text_modal_hardware_keyboard_available()
+{
+#if UI_SHARED_TOUCH_IME_ENABLED
+    return lv_get_keyboard_indev() != nullptr;
+#else
+    return false;
+#endif
+}
+
+static bool should_use_touch_text_modal_layout(const ::ui::page_profile::PageLayoutProfile& profile)
+{
+    return profile.large_touch_hitbox && profile.ime_keyboard_height > 0 &&
+           !text_modal_hardware_keyboard_available();
+}
+
+static lv_coord_t resolve_text_modal_ime_host_height(
+    const ::ui::page_profile::PageLayoutProfile& profile,
+    bool touch_ime_layout)
+{
+    if (!touch_ime_layout)
+    {
+        return 24;
+    }
+    return profile.ime_bar_height + profile.ime_candidate_button_height +
+           profile.ime_keyboard_height + 16;
+}
+
+static lv_coord_t resolve_text_modal_button_height(
+    const ::ui::page_profile::PageLayoutProfile& profile,
+    bool touch_ime_layout)
+{
+    return touch_ime_layout ? profile.control_button_height
+                            : ::ui::page_profile::resolve_control_button_height();
+}
+
+static lv_coord_t resolve_text_modal_width(
+    const ::ui::page_profile::PageLayoutProfile& profile,
+    bool touch_ime_layout)
+{
+    if (!touch_ime_layout)
+    {
+        return 300;
+    }
+    return profile.ime_keyboard_height <= 220 ? 760 : 560;
+}
+
+static lv_coord_t resolve_text_modal_height(
+    const ::ui::page_profile::PageLayoutProfile& profile,
+    bool touch_ime_layout)
+{
+    if (!touch_ime_layout)
+    {
+        return 204;
+    }
+    if (profile.ime_keyboard_height > 220)
+    {
+        return 520;
+    }
+    const lv_coord_t title_block_height = 24;
+    const lv_coord_t textarea_height = 36;
+    const lv_coord_t gap_after_textarea = 8;
+    const lv_coord_t gap_before_buttons = 10;
+    return profile.modal_pad * 2 + title_block_height + textarea_height +
+           gap_after_textarea +
+           resolve_text_modal_ime_host_height(profile, touch_ime_layout) +
+           gap_before_buttons +
+           resolve_text_modal_button_height(profile, touch_ime_layout);
+}
+
 static lv_obj_t* create_modal_root(lv_coord_t width, lv_coord_t height)
 {
     lv_obj_t* bg = lv_obj_create(g_state.root);
@@ -1949,10 +2022,13 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     }
     modal_prepare_group();
     const auto& profile = ::ui::page_profile::current();
-    const bool touch_ime_layout =
-        profile.large_touch_hitbox && profile.ime_keyboard_height > 0;
-    g_state.modal_root = create_modal_root(touch_ime_layout ? 560 : 300,
-                                           touch_ime_layout ? 520 : 204);
+    const bool touch_ime_layout = should_use_touch_text_modal_layout(profile);
+    const lv_coord_t ime_host_height =
+        resolve_text_modal_ime_host_height(profile, touch_ime_layout);
+    const lv_coord_t button_height =
+        resolve_text_modal_button_height(profile, touch_ime_layout);
+    g_state.modal_root = create_modal_root(resolve_text_modal_width(profile, touch_ime_layout),
+                                           resolve_text_modal_height(profile, touch_ime_layout));
     lv_obj_t* win = lv_obj_get_child(g_state.modal_root, 0);
 
     lv_obj_t* title = lv_label_create(win);
@@ -1967,7 +2043,7 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
         lv_textarea_set_password_mode(g_state.modal_textarea, true);
     }
     lv_obj_set_width(g_state.modal_textarea, LV_PCT(100));
-    lv_obj_align(g_state.modal_textarea, LV_ALIGN_TOP_MID, 0, ::ui::page_profile::current().large_touch_hitbox ? 40 : 28);
+    lv_obj_align(g_state.modal_textarea, LV_ALIGN_TOP_MID, 0, 28);
     if (item.text_value)
     {
         lv_textarea_set_text(g_state.modal_textarea, item.text_value);
@@ -1977,15 +2053,11 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
 
     lv_obj_t* ime_host = lv_obj_create(win);
     lv_obj_set_width(ime_host, LV_PCT(100));
-    lv_obj_set_height(ime_host,
-                      touch_ime_layout
-                          ? profile.ime_bar_height + profile.ime_candidate_button_height +
-                                profile.ime_keyboard_height + 24
-                          : 24);
+    lv_obj_set_height(ime_host, ime_host_height);
     lv_obj_align(ime_host,
                  LV_ALIGN_TOP_MID,
                  0,
-                 touch_ime_layout ? 92 : 62);
+                 touch_ime_layout ? 72 : 62);
     lv_obj_set_style_pad_all(ime_host, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ime_host, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(ime_host, 0, LV_PART_MAIN);
@@ -2030,14 +2102,14 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* save_btn = lv_btn_create(btn_row);
-    lv_obj_set_size(save_btn, ::ui::page_profile::resolve_control_button_min_width(), ::ui::page_profile::resolve_control_button_height());
+    lv_obj_set_size(save_btn, ::ui::page_profile::resolve_control_button_min_width(), button_height);
     lv_obj_t* save_label = lv_label_create(save_btn);
     ::ui::i18n::set_label_text(save_label, "Save");
     lv_obj_center(save_label);
     lv_obj_add_event_cb(save_btn, on_text_save_clicked, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t* cancel_btn = lv_btn_create(btn_row);
-    lv_obj_set_size(cancel_btn, ::ui::page_profile::resolve_control_button_min_width(), ::ui::page_profile::resolve_control_button_height());
+    lv_obj_set_size(cancel_btn, ::ui::page_profile::resolve_control_button_min_width(), button_height);
     lv_obj_t* cancel_label = lv_label_create(cancel_btn);
     ::ui::i18n::set_label_text(cancel_label, "Cancel");
     lv_obj_center(cancel_label);

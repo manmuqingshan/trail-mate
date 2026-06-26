@@ -110,6 +110,27 @@ void applyChannelPsk(uint8_t* dst,
     }
 }
 
+bool shortPskIndexForExpandedKey(const uint8_t* key, size_t key_len, uint8_t* out_index)
+{
+    if (!key || key_len != chat::kMeshtasticChannelKeyDefaultLen || !out_index)
+    {
+        return false;
+    }
+
+    uint8_t expanded[chat::kMeshtasticChannelKeyDefaultLen] = {};
+    for (unsigned index = 1; index <= 255; ++index)
+    {
+        size_t expanded_len = 0;
+        chat::meshtastic::expandShortPsk(static_cast<uint8_t>(index), expanded, &expanded_len);
+        if (expanded_len == key_len && std::memcmp(expanded, key, key_len) == 0)
+        {
+            *out_index = static_cast<uint8_t>(index);
+            return true;
+        }
+    }
+    return false;
+}
+
 size_t meshtasticKeyLen(const uint8_t* key, size_t key_capacity, uint8_t stored_len)
 {
     return chat::normalizeMeshtasticChannelKeyLen(key, key_capacity, stored_len);
@@ -453,6 +474,15 @@ void MeshtasticPhoneCore::reset()
     last_to_radio_len_ = 0;
     std::memset(last_to_radio_, 0, sizeof(last_to_radio_));
     config_flow_active_ = false;
+    deferred_config_save_pending_ = false;
+    deferred_module_config_save_pending_ = false;
+    deferred_bluetooth_config_apply_pending_ = false;
+    admin_edit_transaction_open_ = false;
+    admin_edit_transaction_dirty_ = false;
+    admin_edit_transaction_module_dirty_ = false;
+    admin_edit_transaction_bluetooth_dirty_ = false;
+    admin_edit_transaction_restart_pending_ = false;
+    restart_pending_ = false;
     frame_queue_.clear();
     queue_status_queue_.clear();
     packet_queue_.clear();
@@ -619,11 +649,22 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         has_resp = true;
         break;
     case meshtastic_AdminMessage_get_channel_request_tag:
+    {
+        const uint32_t raw_channel_request = req.get_channel_request;
+        const uint8_t channel_index =
+            static_cast<uint8_t>(raw_channel_request > 0 ? (raw_channel_request - 1) : 0);
+        logDual("[BLE][mtcore][channel] get_req raw=%lu idx=%u\n",
+                static_cast<unsigned long>(raw_channel_request),
+                static_cast<unsigned>(channel_index));
         resp.which_payload_variant = meshtastic_AdminMessage_get_channel_response_tag;
-        resp.get_channel_response = buildChannel(static_cast<uint8_t>(req.get_channel_request > 0 ? (req.get_channel_request - 1) : 0));
+        resp.get_channel_response = buildChannel(channel_index);
+        logChannelSummary("get_resp", resp.get_channel_response);
         has_resp = true;
         break;
+    }
     case meshtastic_AdminMessage_get_config_request_tag:
+        logDual("[BLE][mtcore] get_config req type=%u\n",
+                static_cast<unsigned>(req.get_config_request));
         resp.which_payload_variant = meshtastic_AdminMessage_get_config_response_tag;
         resp.get_config_response = buildConfig(req.get_config_request);
         has_resp = true;
@@ -676,7 +717,15 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         copyBounded(cfg.node_name, sizeof(cfg.node_name), req.set_owner.long_name);
         copyBounded(cfg.short_name, sizeof(cfg.short_name), req.set_owner.short_name);
         app_.setMeshtasticPhoneConfig(cfg);
-        app_.saveConfig();
+        if (admin_edit_transaction_open_)
+        {
+            admin_edit_transaction_dirty_ = true;
+            logDual("[BLE][mtcore] set_owner save deferred by edit transaction\n");
+        }
+        else
+        {
+            deferred_config_save_pending_ = true;
+        }
         app_.applyUserInfo();
         resp.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
         resp.get_owner_response = buildSelfNodeInfo().user;
@@ -713,8 +762,16 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
                             req.set_channel.settings.psk);
         }
         app_.setMeshtasticPhoneConfig(cfg);
-        app_.saveConfig();
         app_.applyMeshConfig();
+        if (admin_edit_transaction_open_)
+        {
+            admin_edit_transaction_dirty_ = true;
+            logDual("[BLE][mtcore] set_channel save deferred by edit transaction\n");
+        }
+        else
+        {
+            deferred_config_save_pending_ = true;
+        }
         resp.which_payload_variant = meshtastic_AdminMessage_get_channel_response_tag;
         resp.get_channel_response = buildChannel(req.set_channel.index);
         logChannelSummary("set_resp", resp.get_channel_response);
@@ -749,8 +806,16 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
                     cfg.mesh.config_ok_to_mqtt ? 1U : 0U,
                     cfg.mesh.ignore_mqtt ? 1U : 0U);
             app_.setMeshtasticPhoneConfig(cfg);
-            app_.saveConfig();
-            logDual("[BLE][mtcore] set_config lora post-save\n");
+            if (admin_edit_transaction_open_)
+            {
+                admin_edit_transaction_dirty_ = true;
+                logDual("[BLE][mtcore] set_config lora save deferred by edit transaction\n");
+            }
+            else
+            {
+                deferred_config_save_pending_ = true;
+                logDual("[BLE][mtcore] set_config lora save deferred\n");
+            }
             app_.applyMeshConfig();
             logDual("[BLE][mtcore] set_config lora post-apply\n");
             break;
@@ -758,7 +823,15 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
             cfg.gps_enabled = req.set_config.payload_variant.position.gps_enabled;
             cfg.gps_interval_ms = req.set_config.payload_variant.position.gps_update_interval * 1000U;
             app_.setMeshtasticPhoneConfig(cfg);
-            app_.saveConfig();
+            if (admin_edit_transaction_open_)
+            {
+                admin_edit_transaction_dirty_ = true;
+                logDual("[BLE][mtcore] set_config position save deferred by edit transaction\n");
+            }
+            else
+            {
+                deferred_config_save_pending_ = true;
+            }
             app_.applyPositionConfig();
             break;
         case meshtastic_Config_bluetooth_tag:
@@ -768,11 +841,18 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
             {
                 bluetooth_config_.fixed_pin = 0;
             }
-            if (bluetooth_config_hooks_)
+            if (admin_edit_transaction_open_)
             {
-                bluetooth_config_hooks_->saveBluetoothConfig(bluetooth_config_);
+                admin_edit_transaction_bluetooth_dirty_ = true;
+                logDual("[BLE][mtcore] set_config bluetooth apply deferred by edit transaction enabled=%u\n",
+                        bluetooth_config_.enabled ? 1U : 0U);
             }
-            app_.setBleEnabled(req.set_config.payload_variant.bluetooth.enabled);
+            else
+            {
+                deferred_bluetooth_config_apply_pending_ = true;
+                logDual("[BLE][mtcore] set_config bluetooth apply deferred enabled=%u\n",
+                        bluetooth_config_.enabled ? 1U : 0U);
+            }
             break;
         case meshtastic_Config_device_tag:
         {
@@ -854,6 +934,14 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
             module_config_.has_mqtt = true;
             module_config_.mqtt = req.set_module_config.payload_variant.mqtt;
             applyLegacyMqttDefaults(&module_config_);
+            if (admin_edit_transaction_open_)
+            {
+                admin_edit_transaction_restart_pending_ = true;
+            }
+            else
+            {
+                restart_pending_ = true;
+            }
             break;
         case meshtastic_ModuleConfig_serial_tag:
             module_config_.has_serial = true;
@@ -906,12 +994,16 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         default:
             break;
         }
-        if (module_config_hooks_)
+        if (admin_edit_transaction_open_)
         {
-            logDual("[BLE][mtcore] set_module_config pre-save variant=%u\n",
+            admin_edit_transaction_module_dirty_ = true;
+            logDual("[BLE][mtcore] set_module_config save deferred by edit transaction variant=%u\n",
                     static_cast<unsigned>(req.set_module_config.which_payload_variant));
-            module_config_hooks_->saveModuleConfig(module_config_);
-            logDual("[BLE][mtcore] set_module_config post-save variant=%u\n",
+        }
+        else
+        {
+            deferred_module_config_save_pending_ = true;
+            logDual("[BLE][mtcore] set_module_config save deferred variant=%u\n",
                     static_cast<unsigned>(req.set_module_config.which_payload_variant));
         }
 
@@ -953,6 +1045,48 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         resp.get_ui_config_response = buildDeviceUi();
         has_resp = true;
         break;
+    case meshtastic_AdminMessage_begin_edit_settings_tag:
+        admin_edit_transaction_open_ = true;
+        admin_edit_transaction_dirty_ = false;
+        admin_edit_transaction_module_dirty_ = false;
+        admin_edit_transaction_bluetooth_dirty_ = false;
+        admin_edit_transaction_restart_pending_ = false;
+        logDual("[BLE][mtcore] edit settings begin\n");
+        break;
+    case meshtastic_AdminMessage_commit_edit_settings_tag:
+    {
+        const bool dirty = admin_edit_transaction_dirty_;
+        const bool module_dirty = admin_edit_transaction_module_dirty_;
+        const bool bluetooth_dirty = admin_edit_transaction_bluetooth_dirty_;
+        const bool restart_after_commit = admin_edit_transaction_restart_pending_;
+        admin_edit_transaction_open_ = false;
+        admin_edit_transaction_dirty_ = false;
+        admin_edit_transaction_module_dirty_ = false;
+        admin_edit_transaction_bluetooth_dirty_ = false;
+        admin_edit_transaction_restart_pending_ = false;
+        if (dirty)
+        {
+            deferred_config_save_pending_ = true;
+        }
+        if (module_dirty)
+        {
+            deferred_module_config_save_pending_ = true;
+        }
+        if (bluetooth_dirty)
+        {
+            deferred_bluetooth_config_apply_pending_ = true;
+        }
+        if (restart_after_commit)
+        {
+            restart_pending_ = true;
+        }
+        logDual("[BLE][mtcore] edit settings commit dirty=%u module_dirty=%u bluetooth_dirty=%u restart=%u\n",
+                dirty ? 1U : 0U,
+                module_dirty ? 1U : 0U,
+                bluetooth_dirty ? 1U : 0U,
+                restart_after_commit ? 1U : 0U);
+        break;
+    }
     case meshtastic_AdminMessage_set_time_only_tag:
     {
         return app_.syncCurrentEpochSeconds(static_cast<uint32_t>(req.set_time_only));
@@ -1211,6 +1345,43 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         from.packet = packet_queue_.front();
         packet_queue_.pop_front();
         return encodeFromRadio(from, from.packet.id, out);
+    }
+
+    if (deferred_config_save_pending_)
+    {
+        deferred_config_save_pending_ = false;
+        logDual("[BLE][mtcore] deferred config save after response drain\n");
+        app_.saveConfig();
+    }
+
+    if (deferred_module_config_save_pending_)
+    {
+        deferred_module_config_save_pending_ = false;
+        if (module_config_hooks_)
+        {
+            logDual("[BLE][mtcore] deferred module config save after response drain\n");
+            module_config_hooks_->saveModuleConfig(module_config_);
+        }
+    }
+
+    if (deferred_bluetooth_config_apply_pending_)
+    {
+        deferred_bluetooth_config_apply_pending_ = false;
+        if (bluetooth_config_hooks_)
+        {
+            logDual("[BLE][mtcore] deferred bluetooth config save after response drain\n");
+            bluetooth_config_hooks_->saveBluetoothConfig(bluetooth_config_);
+        }
+        logDual("[BLE][mtcore] deferred bluetooth enabled apply=%u after response drain\n",
+                bluetooth_config_.enabled ? 1U : 0U);
+        app_.setBleEnabled(bluetooth_config_.enabled);
+    }
+
+    if (restart_pending_)
+    {
+        restart_pending_ = false;
+        logDual("[BLE][mtcore] restart after module config save\n");
+        app_.restartDevice();
     }
 
     return false;
@@ -1730,10 +1901,19 @@ void MeshtasticPhoneCore::fillChannel(uint8_t idx, meshtastic_Channel* out) cons
                                                 cfg.mesh.primary_key_len);
         if (key_len > 0)
         {
-            channel.settings.psk.size = key_len;
-            std::memcpy(channel.settings.psk.bytes,
-                        cfg.mesh.primary_key,
-                        key_len);
+            uint8_t short_psk_index = 0;
+            if (shortPskIndexForExpandedKey(cfg.mesh.primary_key, key_len, &short_psk_index))
+            {
+                channel.settings.psk.size = 1;
+                channel.settings.psk.bytes[0] = short_psk_index;
+            }
+            else
+            {
+                channel.settings.psk.size = key_len;
+                std::memcpy(channel.settings.psk.bytes,
+                            cfg.mesh.primary_key,
+                            key_len);
+            }
         }
         else
         {
@@ -1752,10 +1932,19 @@ void MeshtasticPhoneCore::fillChannel(uint8_t idx, meshtastic_Channel* out) cons
                                                 cfg.mesh.secondary_key_len);
         if (key_len > 0)
         {
-            channel.settings.psk.size = key_len;
-            std::memcpy(channel.settings.psk.bytes,
-                        cfg.mesh.secondary_key,
-                        key_len);
+            uint8_t short_psk_index = 0;
+            if (shortPskIndexForExpandedKey(cfg.mesh.secondary_key, key_len, &short_psk_index))
+            {
+                channel.settings.psk.size = 1;
+                channel.settings.psk.bytes[0] = short_psk_index;
+            }
+            else
+            {
+                channel.settings.psk.size = key_len;
+                std::memcpy(channel.settings.psk.bytes,
+                            cfg.mesh.secondary_key,
+                            key_len);
+            }
         }
     }
 }
@@ -1853,7 +2042,10 @@ void MeshtasticPhoneCore::fillConfig(meshtastic_AdminMessage_ConfigType type, me
             cfg_out.payload_variant.bluetooth = bluetooth;
         }
         cfg_out.payload_variant.bluetooth = bluetooth_config_;
-        cfg_out.payload_variant.bluetooth.enabled = app_.isBleEnabled();
+        if (!deferred_bluetooth_config_apply_pending_ && !admin_edit_transaction_bluetooth_dirty_)
+        {
+            cfg_out.payload_variant.bluetooth.enabled = app_.isBleEnabled();
+        }
         break;
     case meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG:
         cfg_out.which_payload_variant = meshtastic_Config_security_tag;

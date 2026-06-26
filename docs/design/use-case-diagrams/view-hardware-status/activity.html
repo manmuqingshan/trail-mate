@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Activity Diagram：业务流程：查看硬件状态</title>
+  <style>
+:root { color-scheme: dark; --bg: #0f141b; --panel: #151c25; --panel-2: #101720; --border: #2b3a4a; --text: #e8eef6; --muted: #9caaba; --accent: #73b7ff; --ok: #7bd88f; --warn: #ffd166; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, Segoe UI, system-ui, sans-serif; line-height: 1.5; }
+    .praxis-design-map { display: grid; gap: 24px; max-width: 1440px; margin: 0 auto; padding: 28px; }
+    .map-header, .map-policy, .context-index, .diagram-index, .diagram-section, .map-changelog { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 18px; }
+    .map-header p, .section-heading p, .layer-note, .diagram-index span { color: var(--muted); margin: 0; }
+    h1, h2, h3, h4 { margin: 0 0 10px; line-height: 1.2; }
+    .context-tree { display: grid; gap: 10px; padding-left: 22px; }
+    .context-tree li { padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    .context-tree li li { margin-top: 8px; background: #0d141d; }
+    .context-tree span, .context-tree p { color: var(--muted); margin: 4px 0 0; }
+    .diagram-index ol { display: grid; gap: 10px; padding-left: 22px; }
+    .diagram-index li { padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    a { color: var(--accent); }
+    .diagram-sections { display: grid; gap: 22px; }
+    .section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+    .section-heading span { border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; color: var(--muted); white-space: nowrap; }
+    .design-map-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr); gap: 14px; align-items: start; }
+    .base-layer, .overlay-layer, .flow-layer, .timeline-layer, .metric-index-layer, .uml-tree-layer, .semantic-layer { border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); padding: 14px; }
+    .semantic-layer { display: grid; gap: 10px; margin: 14px 0; }
+    .semantic-layer p, .semantic-layer dd { margin: 0; color: var(--muted); }
+    .semantic-layer .layer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .layer-card { border: 1px solid var(--border); border-radius: 8px; background: #0d141d; padding: 10px; overflow-wrap: anywhere; }
+    .layer-card ul { margin: 0; padding-left: 18px; }
+    .implementation-scope-card dl { display: grid; gap: 6px; margin: 0; }
+    .implementation-scope-card dt { color: var(--text); font-weight: 700; }
+    .implementation-scope-card dd { margin: 2px 0 0; }
+    .uml-tree-layer { margin: 14px 0; }
+    .uml-tree-layer ol { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+    .uml-tree-layer li { border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; background: #0d141d; }
+    .uml-tree-layer a { text-decoration: none; }
+    .metric-index-layer { margin: 14px 0; display: grid; gap: 10px; }
+    .metric-index-layer p { margin: 0; color: var(--muted); }
+    .metric-index-grid { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; }
+    .metric-group { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: #0d141d; }
+    .metric-group header { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .metric-group header strong { font-size: 18px; }
+    .metric-group ol { display: grid; gap: 8px; margin: 8px 0 0; padding-left: 18px; }
+    .metric-group li { overflow-wrap: anywhere; }
+    .metric-group li span, .metric-group li p { display: block; color: var(--muted); font-size: 0.9em; }
+    .metric-group pre { max-height: 260px; overflow: auto; margin: 8px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #080e15; color: #d8e2ee; font-family: SFMono-Regular, Consolas, Liberation Mono, monospace; font-size: 12px; }
+    .overlay-layer { display: grid; gap: 8px; }
+    .overlay-layer ul { display: grid; gap: 8px; padding-left: 18px; margin: 0; }
+    .overlay-layer li span { display: block; color: var(--muted); font-size: 0.9em; }
+    .mermaid { overflow: auto; min-height: 220px; max-height: 520px; margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: #0b1016; color: #d8e2ee; font-family: SFMono-Regular, Consolas, Liberation Mono, monospace; font-size: 12px; }
+    .flow-layer { margin-top: 14px; display: grid; gap: 12px; }
+    .flow-layer section { border-top: 1px solid var(--border); padding-top: 10px; }
+    .timeline-layer { margin-top: 14px; }
+    [data-praxis-anchor] { scroll-margin-top: 18px; }
+    [data-praxis-status="candidate"] { border-color: #7a642f; }
+    [data-praxis-status="confirmed"] { border-color: #2f7a4d; }
+    @media (max-width: 900px) { .praxis-design-map { padding: 14px; } .design-map-grid, .metric-index-grid { grid-template-columns: 1fr; } .section-heading { display: grid; } }
+  </style>
+</head>
+<body>
+<article class="praxis-design-map" data-praxis-doc="activity" data-praxis-schema="praxis.semanticDesignHtml.v1" data-praxis-version="0.0.0" data-praxis-version-bump="discovery" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true" data-praxis-source-md="docs/design/use-case-diagrams/view-hardware-status/activity.md">
+  <header class="map-header" data-praxis-kind="design_activity" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-layer="base">
+    <p>Praxis Design Explorer</p>
+    <h1>Activity Diagram：业务流程：查看硬件状态</h1>
+    <span>Trail Mate 系统 / 设备管理 · Use Case 查看硬件状态 · 项目版本 0.0.0 · Git 34aad0bffa2f dirty · 更新于 2026-06-25T14:17:55.307Z</span>
+  </header>
+
+  <section class="diagram-section" data-praxis-kind="design_activity" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-parent-use-case="use-case:view-hardware-status" data-praxis-status="candidate" data-praxis-confidence="medium">
+    <div class="section-heading">
+      <div>
+        <p>Trail Mate 系统 / 设备管理 / 查看硬件状态</p>
+        <h2>业务流程：查看硬件状态</h2>
+      </div>
+      <span>candidate · medium</span>
+    </div>
+    <p>用户打开硬件状态页面，系统逐一检查硬件模块</p>
+    <section class="semantic-layer kind-specific-layer activity_business_goal" data-praxis-kind="annotation" data-praxis-layer="activity_business_goal" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>业务流程目标</h3>
+      <p>用户验证设备各个部件的健康状态</p>
+    </section>
+    <section class="semantic-layer kind-specific-layer activity_flow_boundary" data-praxis-kind="annotation" data-praxis-layer="activity_flow_boundary" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>流程边界</h3>
+      <p>从用户选择硬件页面到显示所有模块状态</p>
+    </section>
+    <section class="semantic-layer kind-specific-layer activity_lanes" data-praxis-kind="annotation" data-praxis-layer="activity_lanes" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>参与泳道 / 阶段</h3>
+      <ul><li>- 未显式声明泳道；请结合节点标签和实现范围判断业务阶段。</li></ul>
+    </section>
+    <section class="semantic-layer kind-specific-layer activity_main_path" data-praxis-kind="annotation" data-praxis-layer="activity_main_path" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>主成功路径</h3>
+      <p>硬件状态查询流程</p>
+      <ul><li>- mainSuccessScenario[1]</li><li>- mainSuccessScenario[2]</li></ul>
+    </section>
+    <section class="semantic-layer kind-specific-layer activity_decisions" data-praxis-kind="annotation" data-praxis-layer="activity_decisions" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>决策点与分支</h3>
+      <ul><li>- 无</li></ul>
+    </section>
+    <section class="semantic-layer kind-specific-layer activity_failures" data-praxis-kind="annotation" data-praxis-layer="activity_failures" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>失败 / 补偿路径</h3>
+      <ul><li>- 无</li></ul>
+    </section>
+    <section class="semantic-layer kind-specific-layer activity_business_rules" data-praxis-kind="annotation" data-praxis-layer="activity_business_rules" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>流程业务规则</h3>
+      <p>HardwareLayout 遍历硬件清单，调用 Board 的方法检查</p>
+    </section>
+    <section class="semantic-layer kind-specific-layer activity_uml_reading" data-praxis-kind="annotation" data-praxis-layer="activity_uml_reading" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>Activity UML 读图说明</h3>
+      <p>循环查询各硬件模块并展示</p>
+    </section>
+    <section class="semantic-layer kind-specific-layer implementation_scope" data-praxis-kind="annotation" data-praxis-layer="implementation_scope" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>实现范围锚点</h3>
+      <ul><li>- 模块：apps/linux_uconsole_gtk</li><li>- 模块：boards</li><li>- 关键文件：apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_layout.cpp</li><li>- 关键文件：boards/tlora_pager/src/tlora_pager_board.cpp</li><li>- 代码锚点：boards/tlora_pager/src/tlora_pager_board.cpp#L1</li><li>- 不覆盖代码：底层函数调用链</li><li>- 不覆盖代码：DTO/Mapper/Repository 细节</li></ul>
+    </section>
+    <section class="semantic-layer kind-specific-layer activity_not_covered" data-praxis-kind="annotation" data-praxis-layer="activity_not_covered" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <h3>不覆盖范围</h3>
+      <ul><li>- 动态更新状态</li><li>- 故障诊断</li></ul>
+    </section>
+    <div class="design-map-grid">
+      <div class="base-layer" data-praxis-kind="design_activity" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-layer="base">
+        <h3>UML 底图</h3>
+        <pre class="mermaid" data-praxis-kind="design_activity" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-layer="base"><code>flowchart TD
+  startNode[用户打开硬件状态] --&gt; checkGPS[检查 GPS 模块]
+  checkGPS --&gt; checkRadio[检查无线电]
+  checkRadio --&gt; checkSD[检查 SD 卡]
+  checkSD --&gt; checkBattery[检查电池]
+  checkBattery --&gt; updateDisplay[更新状态显示]
+  updateDisplay --&gt; endNode[硬件状态页面显示]</code></pre>
+      </div>
+      <aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-status="candidate" data-praxis-author="agent">
+        <h3>解释图层</h3>
+        <p>HardwareLayout 遍历硬件清单，调用 Board 的方法检查</p>
+        <p>HardwareLayout::refreshAll 调用多个 isReady() 方法</p>
+        <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+      </aside>
+    </div>
+    <section class="timeline-layer" data-praxis-kind="design_activity" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-layer="timeline">
+      <h3>变更记录</h3>
+      <article data-praxis-change="discovery" data-praxis-anchor="activity:view-hardware-status-activity" data-praxis-version="0.0.0" data-praxis-version-bump="discovery" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+        <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+        <span>Git 34aad0bffa2f · main · dirty</span>
+        <p>恢复或更新 Activity Diagram。</p>
+      </article>
+    </section>
+  </section>
+</article>
+</body>
+</html>

@@ -42,6 +42,8 @@ constexpr const char* kTag = "ui-menu-layout";
 #endif
 
 constexpr size_t kMaxMenuApps = 16;
+constexpr const char* kBottomHelpPlainPrefix = "H Help";
+constexpr const char* kBottomHelpRichPrefix = "#D6403A H#elp";
 
 struct MenuAppUi
 {
@@ -850,7 +852,8 @@ void createAppButtonsFromCatalog(lv_obj_t* panel)
 BottomBarChipUi createBottomBarChip(lv_obj_t* parent,
                                     const ui::menu_profile::MenuLayoutProfile& profile,
                                     lv_color_t bg_color,
-                                    const char* text)
+                                    const char* text,
+                                    bool recolor = false)
 {
     BottomBarChipUi chip{};
     chip.container = lv_obj_create(parent);
@@ -876,6 +879,7 @@ BottomBarChipUi createBottomBarChip(lv_obj_t* parent,
     lv_obj_set_style_pad_all(chip.label, 0, 0);
     lv_obj_set_style_text_font(chip.label, profile.node_id_font, 0);
     lv_label_set_long_mode(chip.label, LV_LABEL_LONG_CLIP);
+    lv_label_set_recolor(chip.label, recolor);
     lv_label_set_text(chip.label, text ? text : "");
     ::ui::i18n::log_direct_text_route("menu_bottom_chip", chip.label, text ? text : "");
     lv_obj_center(chip.label);
@@ -922,6 +926,26 @@ void setBottomBarChipText(const BottomBarChipUi& chip, const char* text)
     }
     lv_label_set_text(chip.label, text ? text : "");
     ::ui::i18n::log_direct_text_route("menu_bottom_chip_update", chip.label, text ? text : "");
+}
+
+std::string renderBottomHelpText(const char* text)
+{
+    const char* safe_text = text ? text : "";
+    const size_t prefix_len = std::strlen(kBottomHelpPlainPrefix);
+    if (std::strncmp(safe_text, kBottomHelpPlainPrefix, prefix_len) != 0)
+    {
+        return safe_text;
+    }
+
+    std::string rendered = kBottomHelpRichPrefix;
+    rendered += safe_text + prefix_len;
+    return rendered;
+}
+
+void setBottomBarHelpText(const char* text)
+{
+    const std::string rendered = renderBottomHelpText(text);
+    setBottomBarChipText(s_bottom_help_chip, rendered.c_str());
 }
 
 void setBottomBarChipVisible(const BottomBarChipUi& chip, bool visible)
@@ -1093,7 +1117,8 @@ void createAppGrid()
     s_bottom_node_chip = createBottomBarChip(s_bottom_bar_left, profile, lv_color_hex(0xF1B75A), "-");
     if (showBottomHelpShortcut())
     {
-        s_bottom_help_chip = createBottomBarChip(s_bottom_bar_left, profile, lv_color_hex(0xFAF0D8), "H Help");
+        s_bottom_help_chip =
+            createBottomBarChip(s_bottom_bar_left, profile, lv_color_hex(0xFAF0D8), kBottomHelpRichPrefix, true);
     }
     if (profile.show_memory_stats)
     {
@@ -1236,7 +1261,7 @@ void set_bottom_bar_node_text(const char* text)
 
 void set_bottom_bar_help_text(const char* text)
 {
-    setBottomBarChipText(s_bottom_help_chip, text);
+    setBottomBarHelpText(text);
 }
 
 void set_bottom_bar_ram_text(const char* text)

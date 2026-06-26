@@ -1,0 +1,10 @@
+flowchart LR
+  actor_actor_outdoor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  external_external_system_mesh_network["&laquo;External System&raquo;<br/>网格网络"]
+  subgraph system_context_trail_mate_system["Trail Mate 户外通信与导航系统"]
+    subgraph system_context_team_collaboration["团队协作"]
+      useCase_use_case_team_tracking(["团队位置追踪"])
+    end
+  end
+  actor_actor_outdoor_user --- useCase_use_case_team_tracking
+  external_external_system_mesh_network --- useCase_use_case_team_tracking

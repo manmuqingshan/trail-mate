@@ -453,6 +453,11 @@ bool MeshtasticBleService::start()
         return false;
     }
     server_->setCallbacks(new MeshtasticServerCallbacks(*this));
+    const bool gap_name_ok = NimBLEDevice::setDeviceName(device_name_);
+    if (!gap_name_ok)
+    {
+        ble_log("gap name restore failed name=%s", device_name_.c_str());
+    }
 
     setupService();
     if (!service_ || !to_radio_ || !from_radio_ || !from_num_ || !log_radio_ ||
@@ -669,20 +674,26 @@ void MeshtasticBleService::startAdvertising()
         return;
     }
     NimBLEAdvertising* adv = server_->getAdvertising();
-    adv->reset();
+    const bool reset_ok = adv->reset();
+    const bool conn_ok = adv->setConnectableMode(BLE_GAP_CONN_MODE_UND);
+    const bool disc_ok = adv->setDiscoverableMode(BLE_GAP_DISC_MODE_GEN);
     const bool mesh_service_ok = adv->addServiceUUID(MESH_SERVICE_UUID);
-    const bool battery_service_ok = adv->addServiceUUID(NimBLEUUID((uint16_t)0x180F));
     adv->enableScanResponse(true);
-    adv->setMinInterval(500);
-    adv->setMaxInterval(1000);
-    const bool name_ok = adv->setName(device_name_);
+    NimBLEAdvertisementData scan_data;
+    const bool scan_name_ok = scan_data.setName(device_name_);
+    const bool scan_data_ok = adv->setScanResponseData(scan_data);
+    const bool preferred_ok = adv->setPreferredParams(0x06, 0x12);
     const bool start_ok = adv->start();
-    ble_log("advertising uuid=%s batt=%u name=%s mesh_ok=%u name_ok=%u start_ok=%u",
+    ble_log("advertising uuid=%s name=%s reset_ok=%u conn_ok=%u disc_ok=%u mesh_ok=%u scan_name_ok=%u scan_ok=%u pref_ok=%u start_ok=%u",
             MESH_SERVICE_UUID,
-            battery_service_ok ? 1U : 0U,
             device_name_.c_str(),
+            reset_ok ? 1U : 0U,
+            conn_ok ? 1U : 0U,
+            disc_ok ? 1U : 0U,
             mesh_service_ok ? 1U : 0U,
-            name_ok ? 1U : 0U,
+            scan_name_ok ? 1U : 0U,
+            scan_data_ok ? 1U : 0U,
+            preferred_ok ? 1U : 0U,
             start_ok ? 1U : 0U);
 }
 

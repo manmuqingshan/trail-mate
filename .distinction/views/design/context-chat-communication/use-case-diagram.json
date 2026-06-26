@@ -1,0 +1,1022 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:chat-communication",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T11:14:22.837Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 户外通信与导航系统",
+      "source": {
+        "type": "model",
+        "id": "context:trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:trail-mate-system"
+      },
+      "summary": "面向户外爱好者的跨平台通信与导航系统，提供文字聊天、联系人管理、地图定位、团队协作和网络连接等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖 Trail Mate 应用的全部业务能力，包括聊天、联系人、地图、团队和配置。",
+        "responsibility": "为户外用户提供离网通信（Mesh）、位置共享、团队追踪和个性化设置。",
+        "businessTerms": [
+          "户外活动",
+          "离网通信",
+          "网格网络",
+          "团队追踪",
+          "GPS 定位"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:context:chat-communication",
+      "kind": "design_context",
+      "label": "聊天通信",
+      "source": {
+        "type": "model",
+        "id": "context:chat-communication"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:chat-communication"
+      },
+      "summary": "用户之间通过网格网络或蓝牙发送和接收文字消息，支持消息历史、去重和送达反馈。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:class-90b860170737e8051053bd2662a1f682",
+          "codegraph:class-79d752d0f763447e3b9ff57ab7644c1c"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_capability",
+        "parentContextId": "context:trail-mate-system",
+        "scope": "发送、接收、查看聊天消息，消息去重与送达状态。",
+        "responsibility": "提供离网文字通信能力，确保消息可靠投递。",
+        "businessTerms": [
+          "聊天消息",
+          "网格通信",
+          "消息去重",
+          "送达反馈"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:outdoor-user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "actor:outdoor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:outdoor-user"
+      },
+      "summary": "使用 Trail Mate 设备进行通信、导航和团队协作的户外活动参与者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:other-mesh-node",
+      "kind": "design_actor",
+      "label": "其他网格节点",
+      "source": {
+        "type": "model",
+        "id": "actor:other-mesh-node"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:other-mesh-node"
+      },
+      "summary": "通过 LoRa / ESP-NOW / BLE Mesh 等网格网络通信的其他 Trail Mate 或兼容设备。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:class-7e6d8a7b77284cdc2629b9f454d93708"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "actorType": "system"
+      }
+    },
+    {
+      "id": "projection-node:design-external-system:external-system:mesh-network",
+      "kind": "design_external_system",
+      "label": "网格网络",
+      "source": {
+        "type": "model",
+        "id": "external-system:mesh-network"
+      },
+      "anchor": {
+        "kind": "design_external_system",
+        "id": "external-system:mesh-network"
+      },
+      "summary": "LoRa / ESP-NOW 等无线网格网络，用于设备间通信。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": []
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:send-text-message",
+      "kind": "design_use_case",
+      "label": "发送文字消息",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      },
+      "summary": "户外用户编辑并发送一条文字消息到指定的网格节点或频道，系统通过当前网格网络投递，并提供发送状态反馈。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-d1660b9b033d2aaf199da70131b14a64"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:chat-communication",
+        "trigger": "用户选择联系人后输入文字并按下发送按钮。",
+        "primaryActorIds": [
+          "actor:outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "external-system:mesh-network"
+        ],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:receive-text-message",
+      "kind": "design_use_case",
+      "label": "接收并查看聊天消息",
+      "source": {
+        "type": "model",
+        "id": "use-case:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:receive-text-message"
+      },
+      "summary": "设备从网格网络接收到其他节点或频道发来的文字消息，并通知用户查看。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-57f0f7325aa4d0df65ba876d57c0f102"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:chat-communication",
+        "trigger": "设备从网格网络轮询或接收到新消息包。",
+        "primaryActorIds": [
+          "actor:outdoor-user",
+          "actor:other-mesh-node"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "external-system:mesh-network"
+        ],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-send-text-message",
+      "kind": "design_activity",
+      "label": "业务流程：发送文字消息",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-send-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-send-text-message"
+      },
+      "summary": "描述用户从打开聊天窗口到消息投递完成的主要业务活动和分支。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-d1660b9b033d2aaf199da70131b14a64"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "发送文字消息的主成功路径以及发送超时备选流。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1-5]",
+            "alternativeFlows[1]"
+          ],
+          "boundary": "从用户决定发送消息开始，到消息被网格适配器确认投递结束。",
+          "notCovered": [
+            "消息接收端处理",
+            "消息加密/解密细节",
+            "UI 渲染细节"
+          ],
+          "rationale": "发送消息涉及多个系统组件协作，需要用 Activity 描述整体流程。",
+          "implementationScope": {
+            "modules": [
+              "apps/esp32_lvgl 或 apps",
+              "modules/core_chat"
+            ],
+            "entryPoints": [
+              "用户界面发送按钮事件"
+            ],
+            "keyFiles": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp",
+              "chat/usecase/chat_service.h"
+            ],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L285-L298"
+            ],
+            "outOfScopeCode": [
+              "低级无线电 API",
+              "蓝牙驱动细节"
+            ]
+          }
+        },
+        "coverageScenario": "发送文字消息的主成功路径以及发送超时备选流。",
+        "coverageBoundary": "从用户决定发送消息开始，到消息被网格适配器确认投递结束。",
+        "coverageRationale": "发送消息涉及多个系统组件协作，需要用 Activity 描述整体流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1-5]",
+          "alternativeFlows[1]"
+        ],
+        "notCovered": [
+          "消息接收端处理",
+          "消息加密/解密细节",
+          "UI 渲染细节"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/esp32_lvgl 或 apps",
+            "modules/core_chat"
+          ],
+          "entryPoints": [
+            "用户界面发送按钮事件"
+          ],
+          "keyFiles": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp",
+            "chat/usecase/chat_service.h"
+          ],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L285-L298"
+          ],
+          "outOfScopeCode": [
+            "低级无线电 API",
+            "蓝牙驱动细节"
+          ]
+        },
+        "explanation": {
+          "business": "用户希望与另一位户外队友通信，通过网格网络发送文字，确保消息到达。",
+          "uml": "流程图：开始 -> 选择联系人和输入消息 -> 发送 -> 网格适配器处理 -> 确认 -> 显示成功。分支包括发送超时。",
+          "design": "应用服务 ChatService 委托给 IMeshAdapter 接口，支持多种网格协议（Meshtastic、ESP-NOW 等）。策略模式允许运行时切换网络。",
+          "implementation": "关键入口在 ChatService::sendMessage() 方法，它调用 MeshAdapter 的 sendText()。UI 通过 AppFacadeRuntime 获取 ChatService。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-text-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-text-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-send-text-message-main",
+      "kind": "design_sequence",
+      "label": "对象交互：发送文字消息的同步调用",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-send-text-message-main"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-send-text-message-main"
+      },
+      "summary": "展示用户操作到消息通过网格适配器发送出去的同步调用链。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-d1660b9b033d2aaf199da70131b14a64"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功场景的消息发送交互。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1-4]"
+          ],
+          "boundary": "从 UI 发送按钮事件到 ChatService 调用 MeshAdapter 发送。",
+          "notCovered": [
+            "异步确认过程",
+            "消息历史记录写存储"
+          ],
+          "rationale": "同步调用链是核心设计，需要明确各层职责。",
+          "implementationScope": {
+            "modules": [
+              "apps/esp32_lvgl",
+              "modules/core_chat"
+            ],
+            "entryPoints": [
+              "UI 事件处理函数"
+            ],
+            "keyFiles": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp",
+              "chat/usecase/chat_service.h"
+            ],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L285-L298"
+            ],
+            "outOfScopeCode": [
+              "无线数据包编码"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景的消息发送交互。",
+        "coverageBoundary": "从 UI 发送按钮事件到 ChatService 调用 MeshAdapter 发送。",
+        "coverageRationale": "同步调用链是核心设计，需要明确各层职责。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1-4]"
+        ],
+        "notCovered": [
+          "异步确认过程",
+          "消息历史记录写存储"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/esp32_lvgl",
+            "modules/core_chat"
+          ],
+          "entryPoints": [
+            "UI 事件处理函数"
+          ],
+          "keyFiles": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp",
+            "chat/usecase/chat_service.h"
+          ],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L285-L298"
+          ],
+          "outOfScopeCode": [
+            "无线数据包编码"
+          ]
+        },
+        "explanation": {
+          "business": "用户点击发送触发应用服务编排。",
+          "uml": "Sequence 中展示了 UI -> ChatService -> MeshAdapter 的顺序调用。",
+          "design": "ChatService 作为应用服务封装了消息发送逻辑，依赖 IMeshAdapter 接口实现协议无关。",
+          "implementation": "UI 层调用 AppFacadeRuntime::getChatService().sendMessage()，最终委托给具体 MeshAdapter 实现。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-use-case-send-text-message-main.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-use-case-send-text-message-main.html"
+      }
+    },
+    {
+      "id": "projection-node:design-class-collaboration:class-collaboration:use-case-send-text-message",
+      "kind": "design_class_collaboration",
+      "label": "承载结构：发送消息的接口与实现",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-send-text-message"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-send-text-message"
+      },
+      "summary": "分析发送文字消息用例中涉及的关键类及其设计关系，包括应用服务、端口和适配器。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:class-7e6d8a7b77284cdc2629b9f454d93708"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "class_collaboration",
+        "coverage": {
+          "scenario": "显示 ChatService 如何通过 IMeshAdapter 接口发送消息，以及适配器的具体实现。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "仅包含应用服务层和适配器接口，不包括 UI 或存储细节。",
+          "notCovered": [
+            "消息接收",
+            "存储层"
+          ],
+          "rationale": "为了解释用例的结构承载，展示端口-适配器模式。",
+          "implementationScope": {
+            "modules": [
+              "modules/core_chat",
+              "platform 适配器模块"
+            ],
+            "entryPoints": [
+              "ChatService::sendMessage"
+            ],
+            "keyFiles": [
+              "chat/usecase/chat_service.h",
+              "chat/ports/i_mesh_adapter.h"
+            ],
+            "codeAnchors": [
+              "chat/ports/i_mesh_adapter.h::sendText"
+            ],
+            "outOfScopeCode": [
+              "具体无线电驱动"
+            ]
+          }
+        },
+        "coverageScenario": "显示 ChatService 如何通过 IMeshAdapter 接口发送消息，以及适配器的具体实现。",
+        "coverageBoundary": "仅包含应用服务层和适配器接口，不包括 UI 或存储细节。",
+        "coverageRationale": "为了解释用例的结构承载，展示端口-适配器模式。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "消息接收",
+          "存储层"
+        ],
+        "implementationScope": {
+          "modules": [
+            "modules/core_chat",
+            "platform 适配器模块"
+          ],
+          "entryPoints": [
+            "ChatService::sendMessage"
+          ],
+          "keyFiles": [
+            "chat/usecase/chat_service.h",
+            "chat/ports/i_mesh_adapter.h"
+          ],
+          "codeAnchors": [
+            "chat/ports/i_mesh_adapter.h::sendText"
+          ],
+          "outOfScopeCode": [
+            "具体无线电驱动"
+          ]
+        },
+        "explanation": {
+          "business": "消息发送需要统一的接口以支持多种底层网络。",
+          "uml": "类图展示了 ChatService 依赖于 IMeshAdapter 接口，并由具体适配器实现。",
+          "design": "应用端口-适配器架构：ChatService 是应用服务，IMeshAdapter 是端口，IdFNullMeshAdapter 或 MestasticRadioAdapter 是适配器。",
+          "implementation": "ChatService 持有对 IMeshAdapter 的引用，在构造时注入具体适配器。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-text-message/realization/class-collaboration.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-text-message/realization/class-collaboration.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-receive-text-message",
+      "kind": "design_activity",
+      "label": "业务流程：接收并处理文字消息",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-receive-text-message"
+      },
+      "summary": "描述从网格网络收到数据到用户看到消息的流程，包括去重和通知。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-57f0f7325aa4d0df65ba876d57c0f102",
+          "codegraph:function-5eb5d18dba4ef5f89e6ef1056891bdcc"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功接收流程，包括来自未知节点的备选流。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1-5]",
+            "alternativeFlows[1]"
+          ],
+          "boundary": "从网格适配器通知有新数据包开始，到用户查看消息结束。",
+          "notCovered": [
+            "消息展示的 UI 细节",
+            "消息长期存储的 SQLite 操作"
+          ],
+          "rationale": "接收流程涉及异步轮询、校验和 UI 更新，适合用 Activity 描述。",
+          "implementationScope": {
+            "modules": [
+              "apps/...",
+              "modules/core_chat"
+            ],
+            "entryPoints": [
+              "网格适配器数据回调"
+            ],
+            "keyFiles": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp",
+              "chat/usecase/chat_service.h"
+            ],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L312-L316"
+            ],
+            "outOfScopeCode": [
+              "无线电中断处理"
+            ]
+          }
+        },
+        "coverageScenario": "主成功接收流程，包括来自未知节点的备选流。",
+        "coverageBoundary": "从网格适配器通知有新数据包开始，到用户查看消息结束。",
+        "coverageRationale": "接收流程涉及异步轮询、校验和 UI 更新，适合用 Activity 描述。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1-5]",
+          "alternativeFlows[1]"
+        ],
+        "notCovered": [
+          "消息展示的 UI 细节",
+          "消息长期存储的 SQLite 操作"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/...",
+            "modules/core_chat"
+          ],
+          "entryPoints": [
+            "网格适配器数据回调"
+          ],
+          "keyFiles": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp",
+            "chat/usecase/chat_service.h"
+          ],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L312-L316"
+          ],
+          "outOfScopeCode": [
+            "无线电中断处理"
+          ]
+        },
+        "explanation": {
+          "business": "设备需要实时接收队友的消息，保证消息不丢失、不重复。",
+          "uml": "Activity 以收到包开始，经过校验、去重、存储，然后通知 UI。",
+          "design": "应用服务 ChatService 不断轮询 MeshAdapter 的 pollIncomingText()，异步处理。",
+          "implementation": "在 AppFacadeRuntime::tickEventRuntime() 中轮询并分发事件。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/receive-text-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/receive-text-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-receive-text-message-main",
+      "kind": "design_sequence",
+      "label": "对象交互：接收消息的轮询与事件分发",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-receive-text-message-main"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-receive-text-message-main"
+      },
+      "summary": "展示运行时事件循环如何从网格适配器获取新消息并分发给 UI。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-57f0f7325aa4d0df65ba876d57c0f102",
+          "codegraph:method-c6b0bd10a9f704e4d88cc4f75c63d362"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主接收场景的异步轮询。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1-2]"
+          ],
+          "boundary": "AppFacadeRuntime 的事件循环。",
+          "notCovered": [
+            "存储和 UI 渲染"
+          ],
+          "rationale": "解释消息如何从底层适配器流向业务层。",
+          "implementationScope": {
+            "modules": [
+              "apps/esp32_lvgl"
+            ],
+            "entryPoints": [
+              "AppFacadeRuntime::tickEventRuntime"
+            ],
+            "keyFiles": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp"
+            ],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L574"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "主接收场景的异步轮询。",
+        "coverageBoundary": "AppFacadeRuntime 的事件循环。",
+        "coverageRationale": "解释消息如何从底层适配器流向业务层。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1-2]"
+        ],
+        "notCovered": [
+          "存储和 UI 渲染"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/esp32_lvgl"
+          ],
+          "entryPoints": [
+            "AppFacadeRuntime::tickEventRuntime"
+          ],
+          "keyFiles": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp"
+          ],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L574"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "系统需要持续监听网络消息，并以事件方式通知 UI。",
+          "uml": "Sequence 显示 tickEventRuntime 调用 MeshAdapter::pollIncomingText，然后 dispatchPendingEvents。",
+          "design": "事件泵模式：运行时循环定期检查消息队列，将消息转化为内部事件。",
+          "implementation": "在 IdFAppFacadeRuntime 中实现，通过事件总线发送给 UI 组件。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-use-case-receive-text-message-main.md",
+        "htmlPath": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-use-case-receive-text-message-main.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:trail-mate-system:context:chat-communication",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:trail-mate-system",
+      "targetId": "projection-node:design-context:context:chat-communication",
+      "source": {
+        "type": "model",
+        "id": "context:chat-communication"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:chat-communication"
+      },
+      "confidence": "high",
+      "summary": "context:trail-mate-system contains 聊天通信",
+      "metadata": {
+        "contextKind": "business_capability"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:chat-communication:use-case:send-text-message",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:chat-communication",
+      "targetId": "projection-node:design-use-case:use-case:send-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      },
+      "confidence": "high",
+      "summary": "context:chat-communication contains 发送文字消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:outdoor-user:use-case:send-text-message:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case:send-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      },
+      "confidence": "high",
+      "summary": "actor:outdoor-user participates in 发送文字消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:external-system:mesh-network:use-case:send-text-message",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:external-system:mesh-network",
+      "targetId": "projection-node:design-use-case:use-case:send-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      },
+      "confidence": "high",
+      "summary": "external-system:mesh-network participates in 发送文字消息",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:chat-communication:use-case:receive-text-message",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:chat-communication",
+      "targetId": "projection-node:design-use-case:use-case:receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:receive-text-message"
+      },
+      "confidence": "high",
+      "summary": "context:chat-communication contains 接收并查看聊天消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:outdoor-user:use-case:receive-text-message:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case:receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:receive-text-message"
+      },
+      "confidence": "high",
+      "summary": "actor:outdoor-user participates in 接收并查看聊天消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:other-mesh-node:use-case:receive-text-message:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:other-mesh-node",
+      "targetId": "projection-node:design-use-case:use-case:receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:receive-text-message"
+      },
+      "confidence": "high",
+      "summary": "actor:other-mesh-node participates in 接收并查看聊天消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:external-system:mesh-network:use-case:receive-text-message",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:external-system:mesh-network",
+      "targetId": "projection-node:design-use-case:use-case:receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:receive-text-message"
+      },
+      "confidence": "high",
+      "summary": "external-system:mesh-network participates in 接收并查看聊天消息",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-text-message:activity:use-case-send-text-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-text-message",
+      "targetId": "projection-node:design-activity:activity:use-case-send-text-message",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-send-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-send-text-message"
+      },
+      "confidence": "high",
+      "summary": "描述用户从打开聊天窗口到消息投递完成的主要业务活动和分支。",
+      "metadata": {
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-text-message:sequence:use-case-send-text-message-main",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-text-message",
+      "targetId": "projection-node:design-sequence:sequence:use-case-send-text-message-main",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-send-text-message-main"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-send-text-message-main"
+      },
+      "confidence": "high",
+      "summary": "展示用户操作到消息通过网格适配器发送出去的同步调用链。",
+      "metadata": {
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-text-message:class-collaboration:use-case-send-text-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-text-message",
+      "targetId": "projection-node:design-class-collaboration:class-collaboration:use-case-send-text-message",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-send-text-message"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-send-text-message"
+      },
+      "confidence": "high",
+      "summary": "分析发送文字消息用例中涉及的关键类及其设计关系，包括应用服务、端口和适配器。",
+      "metadata": {
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "class_collaboration"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:receive-text-message:activity:use-case-receive-text-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:receive-text-message",
+      "targetId": "projection-node:design-activity:activity:use-case-receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-receive-text-message"
+      },
+      "confidence": "high",
+      "summary": "描述从网格网络收到数据到用户看到消息的流程，包括去重和通知。",
+      "metadata": {
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:receive-text-message:sequence:use-case-receive-text-message-main",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:receive-text-message",
+      "targetId": "projection-node:design-sequence:sequence:use-case-receive-text-message-main",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-receive-text-message-main"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-receive-text-message-main"
+      },
+      "confidence": "high",
+      "summary": "展示运行时事件循环如何从网格适配器获取新消息并分发给 UI。",
+      "metadata": {
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:missing-phone-app-connector",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-context:context:device-settings"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "系统中是否有通过手机 App 配置设备或发送消息的用例？当前证据主要来自 BLE 服务代码，但未见明确的手机应用交互用例。",
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:device-settings"
+      }
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

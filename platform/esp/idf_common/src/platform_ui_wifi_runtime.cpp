@@ -10,6 +10,15 @@
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
 #include "platform/ui/settings_store.h"
 
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#define TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN 1
+#endif
+
+#if defined(ESP_PLATFORM) && defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#endif
+
 namespace platform::ui::wifi
 {
 namespace
@@ -22,6 +31,10 @@ constexpr const char* kWifiEnabledKey = "wifi_enabled";
 constexpr const char* kWifiSsidKey = "wifi_ssid";
 constexpr const char* kWifiPasswordKey = "wifi_password";
 constexpr uint32_t kWifiFeatureMask = TM_C6_FEATURE_WIFI_STA | TM_C6_FEATURE_WIFI_AP;
+#if defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
+constexpr uint32_t kC6ScanWaitTimeoutMs = 10000;
+constexpr uint32_t kC6ScanPollIntervalMs = 100;
+#endif
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {
@@ -117,6 +130,54 @@ bool c6_present()
     return c6::get_c6_companion_status().present;
 }
 
+void append_scan_results(std::vector<ScanResult>& out_results, const c6::C6CompanionStatus& c6_status)
+{
+    for (uint8_t i = 0; i < c6_status.wifi_scan_result_count; ++i)
+    {
+        ScanResult result{};
+        copy_text(result.ssid, sizeof(result.ssid), c6_status.wifi_scan_results[i].ssid);
+        result.rssi = c6_status.wifi_scan_results[i].rssi;
+        result.requires_password = c6_status.wifi_scan_results[i].authmode != 0;
+        out_results.push_back(result);
+    }
+}
+
+bool wait_for_c6_scan(std::vector<ScanResult>& out_results)
+{
+#if defined(ESP_PLATFORM) && defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
+    const TickType_t start_ticks = xTaskGetTickCount();
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(kC6ScanWaitTimeoutMs);
+    bool saw_scanning = true;
+
+    while ((xTaskGetTickCount() - start_ticks) < timeout_ticks)
+    {
+        const auto c6_status = c6::get_c6_companion_status();
+        if (!c6_status.present)
+        {
+            return false;
+        }
+        if (c6_status.wifi_scanning)
+        {
+            saw_scanning = true;
+        }
+        else if (saw_scanning || c6_status.wifi_scan_result_count > 0)
+        {
+            append_scan_results(out_results, c6_status);
+            return true;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(kC6ScanPollIntervalMs));
+    }
+
+    const auto c6_status = c6::get_c6_companion_status();
+    append_scan_results(out_results, c6_status);
+    return !out_results.empty();
+#else
+    (void)out_results;
+    return false;
+#endif
+}
+
 } // namespace
 
 bool is_supported()
@@ -174,19 +235,22 @@ bool scan(std::vector<ScanResult>& out_results)
 {
     out_results.clear();
     const auto c6_status = c6::get_c6_companion_status();
-    for (uint8_t i = 0; i < c6_status.wifi_scan_result_count; ++i)
-    {
-        ScanResult result{};
-        copy_text(result.ssid, sizeof(result.ssid), c6_status.wifi_scan_results[i].ssid);
-        result.rssi = c6_status.wifi_scan_results[i].rssi;
-        result.requires_password = c6_status.wifi_scan_results[i].authmode != 0;
-        out_results.push_back(result);
-    }
+    append_scan_results(out_results, c6_status);
     if (!c6_status.present)
     {
         return !out_results.empty();
     }
-    return c6::c6_companion().sendWifiControl(make_control(c6::WifiCommand::Scan));
+    const bool sent = c6::c6_companion().sendWifiControl(make_control(c6::WifiCommand::Scan));
+    if (!sent)
+    {
+        return false;
+    }
+#if defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
+    out_results.clear();
+    return wait_for_c6_scan(out_results);
+#else
+    return true;
+#endif
 }
 
 Status status()

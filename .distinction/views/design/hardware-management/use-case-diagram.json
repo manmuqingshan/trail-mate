@@ -1,0 +1,770 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:hardware-management",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T11:28:31.620Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "trail-mate-system"
+      },
+      "summary": "跨平台户外团队通信和导航系统。包含硬件管理、无线通信、UI 呈现、团队协作和地图导航等能力。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖从硬件板载传感器到上层 UI 的完整户外团队通信和导航产品功能。",
+        "responsibility": "为户外团队提供实时位置共享、文字通信、环境感知和导航支持。",
+        "businessTerms": [
+          "节点",
+          "消息",
+          "团队",
+          "轨迹",
+          "位置",
+          "截图"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:hardware-management",
+      "kind": "design_context",
+      "label": "硬件管理",
+      "source": {
+        "type": "model",
+        "id": "hardware-management"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "hardware-management"
+      },
+      "summary": "管理板载硬件设备和传感器，查看电池电量、GPS 状态、无线模块状态等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "涉及板级硬件状态监控和基本控制，例如获取电池电量、判断 GPS 是否就绪、查询传感器状态等。",
+        "responsibility": "提供硬件状态信息给上层业务，并允许用户进行基本的硬件开关操作。",
+        "businessTerms": [
+          "电池电量",
+          "GPS 状态",
+          "传感器就绪",
+          "硬件信息"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor-outdoor-user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "actor-outdoor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor-outdoor-user"
+      },
+      "summary": "携带 Trail Mate 设备的户外活动爱好者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case-view-hardware-status",
+      "kind": "design_use_case",
+      "label": "查看硬件状态",
+      "source": {
+        "type": "model",
+        "id": "use-case-view-hardware-status"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-view-hardware-status"
+      },
+      "summary": "用户查看设备硬件模块的当前状态，如电池电量、GPS 信号、无线连接等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextId": "hardware-management",
+        "trigger": "用户打开硬件状态页面或在主屏幕上触发硬件数据刷新。",
+        "primaryActorIds": [
+          "actor-outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-537edf895d25fceddf733ab6ed611047"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case-view-device-data",
+      "kind": "design_use_case",
+      "label": "查看设备数据",
+      "source": {
+        "type": "model",
+        "id": "use-case-view-device-data"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-view-device-data"
+      },
+      "summary": "用户查看设备采集的综合数据，如系统运行参数、日志等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "hardware-management",
+        "trigger": "用户进入数据页面。",
+        "primaryActorIds": [
+          "actor-outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-27d0bf7aad63c554f6e83d1eb43f6244"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:view-hardware-status",
+      "kind": "design_activity",
+      "label": "业务流程：查看硬件状态",
+      "source": {
+        "type": "model",
+        "id": "activity:view-hardware-status"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-hardware-status"
+      },
+      "summary": "用户打开硬件页面，系统从各模块采集状态并展示。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "behavior-slice:ui-route-codegraph-function-537edf895d25fceddf733ab6ed611047"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case-view-hardware-status",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "用户主动查看硬件状态的主流程。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从用户请求到 UI 刷新完毕。",
+          "notCovered": [
+            "具体的硬件驱动错误处理流程",
+            "后台自动状态上报"
+          ],
+          "rationale": "这是最基本的用户交互场景，需要一张流程说明。",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [
+              "UI: refreshHardwarePage"
+            ],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp::refreshHardwarePage"
+            ],
+            "outOfScopeCode": [
+              "boards/*/gps_runtime.cpp (GPS 底层驱动细节)"
+            ]
+          }
+        },
+        "coverageScenario": "用户主动查看硬件状态的主流程。",
+        "coverageBoundary": "从用户请求到 UI 刷新完毕。",
+        "coverageRationale": "这是最基本的用户交互场景，需要一张流程说明。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "具体的硬件驱动错误处理流程",
+          "后台自动状态上报"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [
+            "UI: refreshHardwarePage"
+          ],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp::refreshHardwarePage"
+          ],
+          "outOfScopeCode": [
+            "boards/*/gps_runtime.cpp (GPS 底层驱动细节)"
+          ]
+        },
+        "explanation": {
+          "business": "用户希望了解设备硬件健康状态，以便做出调整或判断。",
+          "uml": "开始节点为 startNode，接着是采集硬件状态的 activity，然后根据是否有数据显示界面或提示。",
+          "design": "刷新硬件页面是一个简单流程，UI 调用采集函数获取数据并更新控件。",
+          "implementation": "实现位于 gtk_uconsole_hardware_logic.cpp 中，refreshHardwarePage 函数负责采集和展示。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-view-hardware-status/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-view-hardware-status/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:view-hardware-status-main-success",
+      "kind": "design_sequence",
+      "label": "对象交互：查看硬件状态主流程",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-hardware-status-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-hardware-status-main-success"
+      },
+      "summary": "用户打开硬件页面，GTK UI 调用硬件逻辑获取数据并显示。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "behavior-slice:ui-route-codegraph-function-537edf895d25fceddf733ab6ed611047"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case-view-hardware-status",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从用户点击到 UI 完成刷新。",
+          "notCovered": [
+            "硬件采集时的超时处理",
+            "异步数据更新"
+          ],
+          "rationale": "需要一张序列图说明 UI 与硬件逻辑之间的消息顺序。",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [
+              "UI: showPage? 或者直接 refreshHardwarePage"
+            ],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp::refreshHardwarePage"
+            ],
+            "outOfScopeCode": [
+              "硬件板 BSP 代码"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "从用户点击到 UI 完成刷新。",
+        "coverageRationale": "需要一张序列图说明 UI 与硬件逻辑之间的消息顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "硬件采集时的超时处理",
+          "异步数据更新"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [
+            "UI: showPage? 或者直接 refreshHardwarePage"
+          ],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp::refreshHardwarePage"
+          ],
+          "outOfScopeCode": [
+            "硬件板 BSP 代码"
+          ]
+        },
+        "explanation": {
+          "business": "用户点击硬件菜单，触发 UI 更新，结果是看到实时的硬件信息。",
+          "uml": "参与者：User, GtkUConsoleHardwareLogic, BoardHardwareRuntimes。消息：1. 用户请求 refreshHardwarePage; 2. 查询电池电量; 3. 查询 GPS 状态; 4. 返回状态; 5. UI 更新。",
+          "design": "UI 逻辑层聚合了不同硬件模块的查询，实现了关注点分离。",
+          "implementation": "refreshHardwarePage 内部会调用板级硬件状态函数，但这里只到逻辑层。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-view-hardware-status/sequences/sequence-view-hardware-status-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-view-hardware-status/sequences/sequence-view-hardware-status-main-success.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-view-device-data-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：查看设备数据",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-device-data-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-device-data-activity"
+      },
+      "summary": "Activity Diagram：查看设备数据，用于解释 Use Case「查看设备数据」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case-view-device-data",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看设备数据」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「查看设备数据」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「查看设备数据」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:ui-route-codegraph-function-27d0bf7aad63c554f6e83d1eb43f6244"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看设备数据」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看设备数据」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「查看设备数据」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:ui-route-codegraph-function-27d0bf7aad63c554f6e83d1eb43f6244"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看设备数据」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看设备数据」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「查看设备数据」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-view-device-data/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-view-device-data/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-view-device-data-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：查看设备数据主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-device-data-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-device-data-sequence"
+      },
+      "summary": "Sequence Diagram：查看设备数据主成功场景，用于解释 Use Case「查看设备数据」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case-view-device-data",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看设备数据」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「查看设备数据」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「查看设备数据」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:ui-route-codegraph-function-27d0bf7aad63c554f6e83d1eb43f6244"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看设备数据」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看设备数据」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「查看设备数据」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:ui-route-codegraph-function-27d0bf7aad63c554f6e83d1eb43f6244"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看设备数据」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看设备数据」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「查看设备数据」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-view-device-data/sequences/sequence-use-case-view-device-data-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-view-device-data/sequences/sequence-use-case-view-device-data-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:hardware-management",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:hardware-management",
+      "source": {
+        "type": "model",
+        "id": "hardware-management"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "hardware-management"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 硬件管理",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:hardware-management:use-case-view-hardware-status",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:hardware-management",
+      "targetId": "projection-node:design-use-case:use-case-view-hardware-status",
+      "source": {
+        "type": "model",
+        "id": "use-case-view-hardware-status"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-view-hardware-status"
+      },
+      "confidence": "medium",
+      "summary": "hardware-management contains 查看硬件状态"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor-outdoor-user:use-case-view-hardware-status:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor-outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case-view-hardware-status",
+      "source": {
+        "type": "model",
+        "id": "use-case-view-hardware-status"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-view-hardware-status"
+      },
+      "confidence": "medium",
+      "summary": "actor-outdoor-user participates in 查看硬件状态",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:hardware-management:use-case-view-device-data",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:hardware-management",
+      "targetId": "projection-node:design-use-case:use-case-view-device-data",
+      "source": {
+        "type": "model",
+        "id": "use-case-view-device-data"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-view-device-data"
+      },
+      "confidence": "medium",
+      "summary": "hardware-management contains 查看设备数据"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor-outdoor-user:use-case-view-device-data:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor-outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case-view-device-data",
+      "source": {
+        "type": "model",
+        "id": "use-case-view-device-data"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-view-device-data"
+      },
+      "confidence": "medium",
+      "summary": "actor-outdoor-user participates in 查看设备数据",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-view-hardware-status:activity:view-hardware-status",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-view-hardware-status",
+      "targetId": "projection-node:design-activity:activity:view-hardware-status",
+      "source": {
+        "type": "model",
+        "id": "activity:view-hardware-status"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-hardware-status"
+      },
+      "confidence": "medium",
+      "summary": "用户打开硬件页面，系统从各模块采集状态并展示。",
+      "metadata": {
+        "useCaseId": "use-case-view-hardware-status",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-view-hardware-status:sequence:view-hardware-status-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-view-hardware-status",
+      "targetId": "projection-node:design-sequence:sequence:view-hardware-status-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-hardware-status-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-hardware-status-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户打开硬件页面，GTK UI 调用硬件逻辑获取数据并显示。",
+      "metadata": {
+        "useCaseId": "use-case-view-hardware-status",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-view-device-data:activity:use-case-view-device-data-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-view-device-data",
+      "targetId": "projection-node:design-activity:activity:use-case-view-device-data-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-device-data-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-device-data-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：查看设备数据，用于解释 Use Case「查看设备数据」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case-view-device-data",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-view-device-data:sequence:use-case-view-device-data-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-view-device-data",
+      "targetId": "projection-node:design-sequence:sequence:use-case-view-device-data-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-device-data-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-device-data-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：查看设备数据主成功场景，用于解释 Use Case「查看设备数据」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case-view-device-data",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:missing-user-stories",
+      "kind": "design_question",
+      "targetNodeIds": [],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "当前从代码恢复的候选用例可能不完整，请确认是否还有其他重要的用户操作场景未被覆盖。"
+    },
+    {
+      "id": "annotation:question:context-boundaries",
+      "kind": "design_question",
+      "targetNodeIds": [],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "硬件管理与通信服务之间的边界划分是否合理？是否需要将部分子用例拆分或合并？"
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

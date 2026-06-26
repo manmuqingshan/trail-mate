@@ -1,0 +1,3859 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:trail-mate-system",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T13:19:05.616Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "trail-mate-system"
+      },
+      "summary": "整个 Trail Mate 跨平台户外伴侣系统，提供聊天、地图、设备监控和设置等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "包括所有业务模块：聊天、地图、设备状态、日志、设置、电源管理",
+        "responsibility": "为户外用户提供一体化通信、导航和设备管理",
+        "businessTerms": [
+          "聊天",
+          "地图",
+          "GPS",
+          "设置",
+          "设备状态",
+          "日志"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:chat-module",
+      "kind": "design_context",
+      "label": "聊天模块",
+      "source": {
+        "type": "model",
+        "id": "chat-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "chat-module"
+      },
+      "summary": "提供短消息收发、联系人管理和消息历史查看。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "聊天页面及相关的网络通信、存储",
+        "responsibility": "处理用户间的文本消息交流",
+        "businessTerms": [
+          "消息",
+          "联系人",
+          "对话"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:map-module",
+      "kind": "design_context",
+      "label": "地图模块",
+      "source": {
+        "type": "model",
+        "id": "map-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "map-module"
+      },
+      "summary": "显示离线地图、位置标记和路线跟踪。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "地图页面、瓦片缓存、GPS定位集成",
+        "responsibility": "提供用户当前位置展示和地图浏览",
+        "businessTerms": [
+          "地图",
+          "瓦片",
+          "路线",
+          "标记"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:settings-module",
+      "kind": "design_context",
+      "label": "设置模块",
+      "source": {
+        "type": "model",
+        "id": "settings-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "settings-module"
+      },
+      "summary": "提供系统参数配置，如网络、显示、音频等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "设置页面，配置项的读写",
+        "responsibility": "允许用户自定义设备行为",
+        "businessTerms": [
+          "Wi-Fi",
+          "蓝牙",
+          "亮度",
+          "旋转"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:device-status-module",
+      "kind": "design_context",
+      "label": "设备状态模块",
+      "source": {
+        "type": "model",
+        "id": "device-status-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "device-status-module"
+      },
+      "summary": "显示硬件信息、传感器状态、电池、GPS 等实时数据。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "设备状态页面，硬件数据采集",
+        "responsibility": "向用户报告设备健康状况和传感器读数",
+        "businessTerms": [
+          "电池",
+          "传感器",
+          "GPS 状态",
+          "无线电"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:logs-module",
+      "kind": "design_context",
+      "label": "日志模块",
+      "source": {
+        "type": "model",
+        "id": "logs-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "logs-module"
+      },
+      "summary": "显示系统运行日志，如无线通信、GPS 事件等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "日志页面，日志记录与展示",
+        "responsibility": "帮助用户和开发者排查问题",
+        "businessTerms": [
+          "日志",
+          "事件"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:device-power-management",
+      "kind": "design_context",
+      "label": "设备电源管理",
+      "source": {
+        "type": "model",
+        "id": "device-power-management"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "device-power-management"
+      },
+      "summary": "提供设备电源状态的控制，包括关机、重启、休眠、唤醒以及外设电源管理。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "电源管理页面，底层电源控制接口",
+        "responsibility": "管理设备整体功耗和屏幕/模块电源状态",
+        "businessTerms": [
+          "关机",
+          "休眠",
+          "唤醒",
+          "电源",
+          "屏幕休眠",
+          "GPS 电源"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "user"
+      },
+      "summary": "使用 Trail Mate 设备进行户外活动的最终用户。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-chat",
+      "kind": "design_use_case",
+      "label": "查看聊天消息",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-chat"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-chat"
+      },
+      "summary": "用户进入聊天页面，查看已接收和发送的短消息。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-ff1693e9463e593245dc219bc001d332",
+          "codegraph:function-427af5077bc15811568fc3549dedf6ca"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "chat-module",
+        "trigger": "用户点击聊天标签页",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-ff1693e9463e593245dc219bc001d332"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:send-message",
+      "kind": "design_use_case",
+      "label": "发送短消息",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-message"
+      },
+      "summary": "用户在聊天页面输入文本并发送给其他设备或群组。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-d1660b9b033d2aaf199da70131b14a64"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "chat-module",
+        "trigger": "用户在消息输入框输入文本并点击发送按钮",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:unknown-codegraph-function-8d96428a6cab39971f8f357d90900f70"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-map",
+      "kind": "design_use_case",
+      "label": "查看地图",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-map"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-map"
+      },
+      "summary": "用户进入地图页面，查看离线地图、当前位置和标记。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-5012e49a183e80a2f8940a8ca6469262",
+          "codegraph:function-427af5077bc15811568fc3549dedf6ca"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "map-module",
+        "trigger": "用户点击地图标签页",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-5012e49a183e80a2f8940a8ca6469262"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-device-status",
+      "kind": "design_use_case",
+      "label": "查看设备状态",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-device-status"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-device-status"
+      },
+      "summary": "用户查看硬件信息，包括电池电量、传感器状态、GPS 状态、无线电状态等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-4a858539c72f0272c7d20353824bdc64",
+          "codegraph:function-537edf895d25fceddf733ab6ed611047",
+          "codegraph:method-9511b3acf19571a94eb3cec1a2f41fcc",
+          "codegraph:method-a3a9766eaebc40192b484b0ea0fafc52",
+          "codegraph:method-c9ce89ddf4210e6bcf548421799ed54c",
+          "codegraph:method-864ba7b8b3cd5a0414802ba25409a3f2",
+          "codegraph:method-72b332f2d9877c1b0dc2ea5337bfb103",
+          "codegraph:method-eed6523b0cd1970d87b89f601d2aaa2c",
+          "codegraph:method-8be2ffe9134de83dccb8cbfd53e0fa4f"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "device-status-module",
+        "trigger": "用户点击设备状态标签页",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-4a858539c72f0272c7d20353824bdc64",
+          "behavior-slice:ui-route-codegraph-function-537edf895d25fceddf733ab6ed611047"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-logs",
+      "kind": "design_use_case",
+      "label": "查看系统日志",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-logs"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-logs"
+      },
+      "summary": "用户查看系统各组件的运行日志，用于故障排除。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-538a0b96ee27455d2edc422fd50a6935",
+          "codegraph:function-eff7442c19c5f3aadbffd864930c85e3"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "logs-module",
+        "trigger": "用户点击日志标签页",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-538a0b96ee27455d2edc422fd50a6935",
+          "behavior-slice:ui-route-codegraph-function-eff7442c19c5f3aadbffd864930c85e3"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:adjust-settings",
+      "kind": "design_use_case",
+      "label": "调整系统设置",
+      "source": {
+        "type": "model",
+        "id": "use-case:adjust-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:adjust-settings"
+      },
+      "summary": "用户修改系统设置，如网络连接、显示亮度、声音等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-7cb2c660fbfc61e1888e9d1547af3518",
+          "codegraph:method-d30671b9f3c2b729af006504ab161af3"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "settings-module",
+        "trigger": "用户在设置页面修改某个选项",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-7cb2c660fbfc61e1888e9d1547af3518",
+          "behavior-slice:ui-route-codegraph-function-26e98b9a136cf454acaf45547c16e72a"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:capture-screenshot",
+      "kind": "design_use_case",
+      "label": "屏幕截图",
+      "source": {
+        "type": "model",
+        "id": "use-case:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:capture-screenshot"
+      },
+      "summary": "用户触发设备屏幕截图并保存为图片文件。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-bfab17678cf839beb8503dc5870cdc5e",
+          "codegraph:function-008950cc7ef355aa40b7446d8c491cbe"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "trail-mate-system",
+        "trigger": "用户按下截屏组合键或菜单项",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-bfab17678cf839beb8503dc5870cdc5e"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:manage-device-power",
+      "kind": "design_use_case",
+      "label": "管理设备电源",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-device-power"
+      },
+      "summary": "用户通过按钮或界面操作控制设备的电源状态，包括关机、休眠、唤醒、屏幕开关等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-2a14b0bc9339d3581fb8e2033d9db1a6",
+          "codegraph:function-a6ae4ae72ccbb7527c1ce19dd6963aa8",
+          "codegraph:function-9cbdd982db98f42983509330776745af",
+          "codegraph:function-26b4b8cf2688fc8f96348ac9d81cf55b",
+          "codegraph:function-b5392a6da55d519c18256cc5f54e1ac3",
+          "codegraph:function-87e3d3435ff72a1cbd2b7bf2ec1a02d8",
+          "codegraph:function-03d57aae99a07e8d5517c211a9eed969",
+          "codegraph:function-62f15a6f735eb40208482c7933b5b78b",
+          "codegraph:function-0675181f511b2fde8b19d6e405674c23",
+          "codegraph:function-3e6afe91608021f0aff741ec74b71ab1"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "device-power-management",
+        "trigger": "用户按下电源键或选择电源菜单项",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-2a14b0bc9339d3581fb8e2033d9db1a6",
+          "behavior-slice:ui-route-codegraph-function-87e3d3435ff72a1cbd2b7bf2ec1a02d8",
+          "behavior-slice:ui-route-codegraph-function-a6ae4ae72ccbb7527c1ce19dd6963aa8",
+          "behavior-slice:ui-route-codegraph-function-9cbdd982db98f42983509330776745af",
+          "behavior-slice:ui-route-codegraph-function-26b4b8cf2688fc8f96348ac9d81cf55b",
+          "behavior-slice:ui-route-codegraph-function-b5392a6da55d519c18256cc5f54e1ac3",
+          "behavior-slice:ui-route-codegraph-function-03d57aae99a07e8d5517c211a9eed969",
+          "behavior-slice:ui-route-codegraph-function-62f15a6f735eb40208482c7933b5b78b",
+          "behavior-slice:ui-route-codegraph-function-0675181f511b2fde8b19d6e405674c23",
+          "behavior-slice:ui-route-codegraph-function-3e6afe91608021f0aff741ec74b71ab1"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:refresh-device-status",
+      "kind": "design_use_case",
+      "label": "手动刷新设备状态",
+      "source": {
+        "type": "model",
+        "id": "use-case:refresh-device-status"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:refresh-device-status"
+      },
+      "summary": "用户在设备状态页面触发手动刷新，系统重新获取各传感器和硬件的最新数据。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-27d0bf7aad63c554f6e83d1eb43f6244",
+          "codegraph:function-276645da4e7d05ca9d6fefc568b34ebb",
+          "codegraph:function-13e54420a73d1fb617f5c469308a47d9",
+          "codegraph:function-7759f3e0bbd1a1b9b3759d127398cbc5",
+          "codegraph:function-af87e48a96bccac6c5b304d0fc812d8b"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "device-status-module",
+        "trigger": "用户点击设备状态页面的“刷新”按钮",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-27d0bf7aad63c554f6e83d1eb43f6244"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-settings",
+      "kind": "design_use_case",
+      "label": "浏览设置选项",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-settings"
+      },
+      "summary": "用户进入设置页面，查看当前的系统参数和配置选项。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-991cd1fd6dc709193e7a7db23c635fcb",
+          "codegraph:function-bc6953564013626809ea4bc4f1a4b8b4"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "settings-module",
+        "trigger": "用户从主菜单选择“设置”",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-991cd1fd6dc709193e7a7db23c635fcb"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "kind": "design_use_case",
+      "label": "控制GPS模块开关",
+      "source": {
+        "type": "model",
+        "id": "use-case:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:toggle-gps-power"
+      },
+      "summary": "用户打开或关闭 GPS 模块以节省电量。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-8c510b18b65828286411822c13d556e6",
+          "codegraph:method-06cae0dbe58f597b1e7e1150f04afd62"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "device-power-management",
+        "trigger": "用户在电源管理界面操作 GPS 开关",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-method-8c510b18b65828286411822c13d556e6"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:view-chat-main",
+      "kind": "design_activity",
+      "label": "业务流程：查看聊天消息",
+      "source": {
+        "type": "model",
+        "id": "activity:view-chat-main"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-chat-main"
+      },
+      "summary": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看聊天消息」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「查看聊天消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看聊天消息」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看聊天消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看聊天消息」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看聊天消息」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-chat/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-chat/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:view-chat-main-success",
+      "kind": "design_sequence",
+      "label": "查看聊天消息 - 主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-chat-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-chat-main-success"
+      },
+      "summary": "用户进入聊天页面，系统成功加载并显示消息列表。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看聊天消息」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「查看聊天消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "用户进入聊天页面，系统成功加载并显示消息列表。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看聊天消息」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看聊天消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "用户进入聊天页面，系统成功加载并显示消息列表。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看聊天消息」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看聊天消息」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "用户进入聊天页面，系统成功加载并显示消息列表。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-chat/sequences/sequence-view-chat-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-chat/sequences/sequence-view-chat-main-success.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:send-message-main",
+      "kind": "design_activity",
+      "label": "业务流程：发送短消息",
+      "source": {
+        "type": "model",
+        "id": "activity:send-message-main"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-message-main"
+      },
+      "summary": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「发送短消息」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「发送短消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「发送短消息」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「发送短消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「发送短消息」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「发送短消息」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-class-collaboration:class-collaboration:chat-module-structure",
+      "kind": "design_class_collaboration",
+      "label": "聊天模块结构协作",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:chat-module-structure"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:chat-module-structure"
+      },
+      "summary": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "class_collaboration",
+        "coverage": {
+          "scenario": "解释 Use Case「查看聊天消息」的结构协作和设计承载关系。",
+          "coveredUseCaseFlows": [
+            "structural collaboration slice for this Use Case"
+          ],
+          "boundary": "覆盖「查看聊天消息」实现该故事所需的结构协作切片，不是全量类图。",
+          "notCovered": [
+            "全量类图",
+            "目录结构图",
+            "没有 Use Case 解释价值的 DTO/Mapper/Repository 堆叠"
+          ],
+          "rationale": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "仓库全量类图",
+              "无 Use Case 职责解释价值的技术类"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看聊天消息」的结构协作和设计承载关系。",
+        "coverageBoundary": "覆盖「查看聊天消息」实现该故事所需的结构协作切片，不是全量类图。",
+        "coverageRationale": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+        "coveredUseCaseFlows": [
+          "structural collaboration slice for this Use Case"
+        ],
+        "notCovered": [
+          "全量类图",
+          "目录结构图",
+          "没有 Use Case 解释价值的 DTO/Mapper/Repository 堆叠"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "仓库全量类图",
+            "无 Use Case 职责解释价值的技术类"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Class / Structural Collaboration Diagram 说明「查看聊天消息」由哪些结构角色承载，以及这些角色为什么足以解释该业务能力。",
+          "uml": "读图时重点看类/接口承担的结构职责、依赖方向、接口实现、策略选择和端口适配关系；该图不是全量类图，也不是目录结构图。",
+          "design": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-chat/realization/class-collaboration.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-chat/realization/class-collaboration.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-send-message-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：发送短消息主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-send-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-send-message-sequence"
+      },
+      "summary": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「发送短消息」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「发送短消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「发送短消息」的主成功交互场景。",
+        "coverageBoundary": "覆盖「发送短消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「发送短消息」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「发送短消息」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-message/sequences/sequence-use-case-send-message-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-message/sequences/sequence-use-case-send-message-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-view-map-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：查看地图",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-map-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-map-activity"
+      },
+      "summary": "Activity Diagram：查看地图，用于解释 Use Case「查看地图」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-map",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看地图」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「查看地图」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "Activity Diagram：查看地图，用于解释 Use Case「查看地图」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看地图」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看地图」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "Activity Diagram：查看地图，用于解释 Use Case「查看地图」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看地图」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看地图」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "Activity Diagram：查看地图，用于解释 Use Case「查看地图」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-map/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-map/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-view-map-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：查看地图主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-map-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-map-sequence"
+      },
+      "summary": "Sequence Diagram：查看地图主成功场景，用于解释 Use Case「查看地图」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-map",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看地图」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]"
+          ],
+          "boundary": "覆盖「查看地图」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "Sequence Diagram：查看地图主成功场景，用于解释 Use Case「查看地图」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看地图」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看地图」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "Sequence Diagram：查看地图主成功场景，用于解释 Use Case「查看地图」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看地图」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看地图」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "Sequence Diagram：查看地图主成功场景，用于解释 Use Case「查看地图」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-map/sequences/sequence-use-case-view-map-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-map/sequences/sequence-use-case-view-map-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-view-device-status-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：查看设备状态",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-device-status-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-device-status-activity"
+      },
+      "summary": "Activity Diagram：查看设备状态，用于解释 Use Case「查看设备状态」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-device-status",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看设备状态」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「查看设备状态」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "Activity Diagram：查看设备状态，用于解释 Use Case「查看设备状态」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看设备状态」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看设备状态」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "Activity Diagram：查看设备状态，用于解释 Use Case「查看设备状态」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看设备状态」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看设备状态」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "Activity Diagram：查看设备状态，用于解释 Use Case「查看设备状态」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-device-status/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-device-status/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-view-device-status-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：查看设备状态主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-device-status-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-device-status-sequence"
+      },
+      "summary": "Sequence Diagram：查看设备状态主成功场景，用于解释 Use Case「查看设备状态」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-device-status",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看设备状态」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「查看设备状态」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "Sequence Diagram：查看设备状态主成功场景，用于解释 Use Case「查看设备状态」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看设备状态」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看设备状态」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "Sequence Diagram：查看设备状态主成功场景，用于解释 Use Case「查看设备状态」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看设备状态」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看设备状态」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "Sequence Diagram：查看设备状态主成功场景，用于解释 Use Case「查看设备状态」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-device-status/sequences/sequence-use-case-view-device-status-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-device-status/sequences/sequence-use-case-view-device-status-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-view-logs-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：查看系统日志",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-logs-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-logs-activity"
+      },
+      "summary": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-logs",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看系统日志」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「查看系统日志」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看系统日志」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看系统日志」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看系统日志」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看系统日志」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-logs/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-logs/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-view-logs-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：查看系统日志主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-logs-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-logs-sequence"
+      },
+      "summary": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-logs",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看系统日志」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「查看系统日志」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看系统日志」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看系统日志」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看系统日志」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看系统日志」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-logs/sequences/sequence-use-case-view-logs-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-logs/sequences/sequence-use-case-view-logs-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-adjust-settings-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：调整系统设置",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-adjust-settings-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-adjust-settings-activity"
+      },
+      "summary": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:adjust-settings",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「调整系统设置」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「调整系统设置」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「调整系统设置」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「调整系统设置」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「调整系统设置」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「调整系统设置」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/adjust-settings/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/adjust-settings/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-adjust-settings-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：调整系统设置主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-adjust-settings-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-adjust-settings-sequence"
+      },
+      "summary": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:adjust-settings",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「调整系统设置」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「调整系统设置」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「调整系统设置」的主成功交互场景。",
+        "coverageBoundary": "覆盖「调整系统设置」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「调整系统设置」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「调整系统设置」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/adjust-settings/sequences/sequence-use-case-adjust-settings-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/adjust-settings/sequences/sequence-use-case-adjust-settings-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-capture-screenshot-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：屏幕截图",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-capture-screenshot-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-capture-screenshot-activity"
+      },
+      "summary": "Activity Diagram：屏幕截图，用于解释 Use Case「屏幕截图」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「屏幕截图」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「屏幕截图」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "Activity Diagram：屏幕截图，用于解释 Use Case「屏幕截图」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「屏幕截图」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「屏幕截图」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "Activity Diagram：屏幕截图，用于解释 Use Case「屏幕截图」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「屏幕截图」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「屏幕截图」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "Activity Diagram：屏幕截图，用于解释 Use Case「屏幕截图」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/capture-screenshot/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/capture-screenshot/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-capture-screenshot-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：屏幕截图主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-capture-screenshot-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-capture-screenshot-sequence"
+      },
+      "summary": "Sequence Diagram：屏幕截图主成功场景，用于解释 Use Case「屏幕截图」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「屏幕截图」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「屏幕截图」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "Sequence Diagram：屏幕截图主成功场景，用于解释 Use Case「屏幕截图」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「屏幕截图」的主成功交互场景。",
+        "coverageBoundary": "覆盖「屏幕截图」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "Sequence Diagram：屏幕截图主成功场景，用于解释 Use Case「屏幕截图」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「屏幕截图」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「屏幕截图」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "Sequence Diagram：屏幕截图主成功场景，用于解释 Use Case「屏幕截图」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-use-case-capture-screenshot-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-use-case-capture-screenshot-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:manage-device-power",
+      "kind": "design_activity",
+      "label": "业务流程：管理设备电源",
+      "source": {
+        "type": "model",
+        "id": "activity:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:manage-device-power"
+      },
+      "summary": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:manage-device-power",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「管理设备电源」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "alternativeFlows[1]",
+            "alternativeFlows[2]",
+            "alternativeFlows[3]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「管理设备电源」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「管理设备电源」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「管理设备电源」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "alternativeFlows[1]",
+          "alternativeFlows[2]",
+          "alternativeFlows[3]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「管理设备电源」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「管理设备电源」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-device-power/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-device-power/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:manage-device-power-main-success",
+      "kind": "design_sequence",
+      "label": "管理设备电源 - 关机主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:manage-device-power-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:manage-device-power-main-success"
+      },
+      "summary": "用户触发关机操作，系统执行关机流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:manage-device-power",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「管理设备电源」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「管理设备电源」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "用户触发关机操作，系统执行关机流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「管理设备电源」的主成功交互场景。",
+        "coverageBoundary": "覆盖「管理设备电源」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "用户触发关机操作，系统执行关机流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「管理设备电源」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「管理设备电源」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "用户触发关机操作，系统执行关机流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-device-power/sequences/sequence-manage-device-power-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-device-power/sequences/sequence-manage-device-power-main-success.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:refresh-device-status",
+      "kind": "design_activity",
+      "label": "业务流程：手动刷新设备状态",
+      "source": {
+        "type": "model",
+        "id": "activity:refresh-device-status"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:refresh-device-status"
+      },
+      "summary": "描述用户触发刷新后，系统重新采集各硬件状态并更新页面的流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:refresh-device-status",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「手动刷新设备状态」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「手动刷新设备状态」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户触发刷新后，系统重新采集各硬件状态并更新页面的流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「手动刷新设备状态」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「手动刷新设备状态」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户触发刷新后，系统重新采集各硬件状态并更新页面的流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「手动刷新设备状态」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「手动刷新设备状态」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户触发刷新后，系统重新采集各硬件状态并更新页面的流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/refresh-device-status/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/refresh-device-status/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:refresh-device-status-main-success",
+      "kind": "design_sequence",
+      "label": "手动刷新设备状态 - 主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:refresh-device-status-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:refresh-device-status-main-success"
+      },
+      "summary": "用户触发刷新后，系统与各硬件模块交互获取最新状态。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:refresh-device-status",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「手动刷新设备状态」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]"
+          ],
+          "boundary": "覆盖「手动刷新设备状态」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "用户触发刷新后，系统与各硬件模块交互获取最新状态。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「手动刷新设备状态」的主成功交互场景。",
+        "coverageBoundary": "覆盖「手动刷新设备状态」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "用户触发刷新后，系统与各硬件模块交互获取最新状态。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「手动刷新设备状态」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「手动刷新设备状态」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "用户触发刷新后，系统与各硬件模块交互获取最新状态。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/refresh-device-status/sequences/sequence-refresh-device-status-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/refresh-device-status/sequences/sequence-refresh-device-status-main-success.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:view-settings",
+      "kind": "design_activity",
+      "label": "业务流程：浏览设置选项",
+      "source": {
+        "type": "model",
+        "id": "activity:view-settings"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-settings"
+      },
+      "summary": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:view-settings",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「浏览设置选项」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「浏览设置选项」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「浏览设置选项」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「浏览设置选项」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「浏览设置选项」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「浏览设置选项」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-settings/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-settings/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:view-settings-main-success",
+      "kind": "design_sequence",
+      "label": "浏览设置选项 - 主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-settings-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-settings-main-success"
+      },
+      "summary": "用户进入设置，系统读取并显示当前配置。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:view-settings",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「浏览设置选项」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「浏览设置选项」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "用户进入设置，系统读取并显示当前配置。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「浏览设置选项」的主成功交互场景。",
+        "coverageBoundary": "覆盖「浏览设置选项」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "用户进入设置，系统读取并显示当前配置。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「浏览设置选项」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「浏览设置选项」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "用户进入设置，系统读取并显示当前配置。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-settings/sequences/sequence-view-settings-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-settings/sequences/sequence-view-settings-main-success.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:toggle-gps-power",
+      "kind": "design_activity",
+      "label": "业务流程：控制GPS模块开关",
+      "source": {
+        "type": "model",
+        "id": "activity:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:toggle-gps-power"
+      },
+      "summary": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:toggle-gps-power",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「控制GPS模块开关」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]",
+            "alternativeFlows[1]",
+            "alternativeFlows[2]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「控制GPS模块开关」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「控制GPS模块开关」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「控制GPS模块开关」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]",
+          "alternativeFlows[1]",
+          "alternativeFlows[2]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「控制GPS模块开关」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「控制GPS模块开关」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h，代码锚点 boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/toggle-gps-power/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/toggle-gps-power/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:toggle-gps-power-main-success",
+      "kind": "design_sequence",
+      "label": "控制GPS模块开关 - 开启GPS主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:toggle-gps-power-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:toggle-gps-power-main-success"
+      },
+      "summary": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:toggle-gps-power",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「控制GPS模块开关」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]"
+          ],
+          "boundary": "覆盖「控制GPS模块开关」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「控制GPS模块开关」的主成功交互场景。",
+        "coverageBoundary": "覆盖「控制GPS模块开关」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「控制GPS模块开关」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「控制GPS模块开关」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h，代码锚点 boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/toggle-gps-power/sequences/sequence-toggle-gps-power-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/toggle-gps-power/sequences/sequence-toggle-gps-power-main-success.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:chat-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:chat-module",
+      "source": {
+        "type": "model",
+        "id": "chat-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "chat-module"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 聊天模块",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:map-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:map-module",
+      "source": {
+        "type": "model",
+        "id": "map-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "map-module"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 地图模块",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:settings-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:settings-module",
+      "source": {
+        "type": "model",
+        "id": "settings-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "settings-module"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 设置模块",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:device-status-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:device-status-module",
+      "source": {
+        "type": "model",
+        "id": "device-status-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "device-status-module"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 设备状态模块",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:logs-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:logs-module",
+      "source": {
+        "type": "model",
+        "id": "logs-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "logs-module"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 日志模块",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:device-power-management",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:device-power-management",
+      "source": {
+        "type": "model",
+        "id": "device-power-management"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "device-power-management"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 设备电源管理",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:chat-module:use-case:view-chat",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:chat-module",
+      "targetId": "projection-node:design-use-case:use-case:view-chat",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-chat"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-chat"
+      },
+      "confidence": "medium",
+      "summary": "chat-module contains 查看聊天消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:view-chat:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-chat",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-chat"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-chat"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 查看聊天消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:chat-module:use-case:send-message",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:chat-module",
+      "targetId": "projection-node:design-use-case:use-case:send-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-message"
+      },
+      "confidence": "medium",
+      "summary": "chat-module contains 发送短消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:send-message:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:send-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-message"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 发送短消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:map-module:use-case:view-map",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:map-module",
+      "targetId": "projection-node:design-use-case:use-case:view-map",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-map"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-map"
+      },
+      "confidence": "medium",
+      "summary": "map-module contains 查看地图"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:view-map:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-map",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-map"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-map"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 查看地图",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:device-status-module:use-case:view-device-status",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:device-status-module",
+      "targetId": "projection-node:design-use-case:use-case:view-device-status",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-device-status"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-device-status"
+      },
+      "confidence": "medium",
+      "summary": "device-status-module contains 查看设备状态"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:view-device-status:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-device-status",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-device-status"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-device-status"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 查看设备状态",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:logs-module:use-case:view-logs",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:logs-module",
+      "targetId": "projection-node:design-use-case:use-case:view-logs",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-logs"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-logs"
+      },
+      "confidence": "medium",
+      "summary": "logs-module contains 查看系统日志"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:view-logs:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-logs",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-logs"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-logs"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 查看系统日志",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:settings-module:use-case:adjust-settings",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:settings-module",
+      "targetId": "projection-node:design-use-case:use-case:adjust-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:adjust-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:adjust-settings"
+      },
+      "confidence": "medium",
+      "summary": "settings-module contains 调整系统设置"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:adjust-settings:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:adjust-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:adjust-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:adjust-settings"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 调整系统设置",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:use-case:capture-screenshot",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "source": {
+        "type": "model",
+        "id": "use-case:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:capture-screenshot"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 屏幕截图"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:capture-screenshot:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "source": {
+        "type": "model",
+        "id": "use-case:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:capture-screenshot"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 屏幕截图",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:device-power-management:use-case:manage-device-power",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:device-power-management",
+      "targetId": "projection-node:design-use-case:use-case:manage-device-power",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-device-power"
+      },
+      "confidence": "medium",
+      "summary": "device-power-management contains 管理设备电源"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:manage-device-power:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:manage-device-power",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-device-power"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 管理设备电源",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:device-status-module:use-case:refresh-device-status",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:device-status-module",
+      "targetId": "projection-node:design-use-case:use-case:refresh-device-status",
+      "source": {
+        "type": "model",
+        "id": "use-case:refresh-device-status"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:refresh-device-status"
+      },
+      "confidence": "medium",
+      "summary": "device-status-module contains 手动刷新设备状态"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:refresh-device-status:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:refresh-device-status",
+      "source": {
+        "type": "model",
+        "id": "use-case:refresh-device-status"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:refresh-device-status"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 手动刷新设备状态",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:settings-module:use-case:view-settings",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:settings-module",
+      "targetId": "projection-node:design-use-case:use-case:view-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-settings"
+      },
+      "confidence": "medium",
+      "summary": "settings-module contains 浏览设置选项"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:view-settings:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-settings"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 浏览设置选项",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:device-power-management:use-case:toggle-gps-power",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:device-power-management",
+      "targetId": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "source": {
+        "type": "model",
+        "id": "use-case:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:toggle-gps-power"
+      },
+      "confidence": "medium",
+      "summary": "device-power-management contains 控制GPS模块开关"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:toggle-gps-power:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "source": {
+        "type": "model",
+        "id": "use-case:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:toggle-gps-power"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 控制GPS模块开关",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-chat:activity:view-chat-main",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-chat",
+      "targetId": "projection-node:design-activity:activity:view-chat-main",
+      "source": {
+        "type": "model",
+        "id": "activity:view-chat-main"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-chat-main"
+      },
+      "confidence": "medium",
+      "summary": "描述用户进入聊天页面后，系统加载消息列表并显示的主要流程。",
+      "metadata": {
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-chat:sequence:view-chat-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-chat",
+      "targetId": "projection-node:design-sequence:sequence:view-chat-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-chat-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-chat-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户进入聊天页面，系统成功加载并显示消息列表。",
+      "metadata": {
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-message:activity:send-message-main",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-message",
+      "targetId": "projection-node:design-activity:activity:send-message-main",
+      "source": {
+        "type": "model",
+        "id": "activity:send-message-main"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-message-main"
+      },
+      "confidence": "medium",
+      "summary": "描述用户输入消息并发送的完整流程，包括成功和失败路径。",
+      "metadata": {
+        "useCaseId": "use-case:send-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-chat:class-collaboration:chat-module-structure",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-chat",
+      "targetId": "projection-node:design-class-collaboration:class-collaboration:chat-module-structure",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:chat-module-structure"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:chat-module-structure"
+      },
+      "confidence": "medium",
+      "summary": "解释查看聊天消息用例所依赖的结构角色，包括页面生命周期、服务、存储和适配器。",
+      "metadata": {
+        "useCaseId": "use-case:view-chat",
+        "diagramKind": "class_collaboration"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-message:sequence:use-case-send-message-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-message",
+      "targetId": "projection-node:design-sequence:sequence:use-case-send-message-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-send-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-send-message-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：发送短消息主成功场景，用于解释 Use Case「发送短消息」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:send-message",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-map:activity:use-case-view-map-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-map",
+      "targetId": "projection-node:design-activity:activity:use-case-view-map-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-map-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-map-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：查看地图，用于解释 Use Case「查看地图」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-map",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-map:sequence:use-case-view-map-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-map",
+      "targetId": "projection-node:design-sequence:sequence:use-case-view-map-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-map-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-map-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：查看地图主成功场景，用于解释 Use Case「查看地图」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-map",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-device-status:activity:use-case-view-device-status-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-device-status",
+      "targetId": "projection-node:design-activity:activity:use-case-view-device-status-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-device-status-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-device-status-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：查看设备状态，用于解释 Use Case「查看设备状态」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-device-status",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-device-status:sequence:use-case-view-device-status-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-device-status",
+      "targetId": "projection-node:design-sequence:sequence:use-case-view-device-status-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-device-status-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-device-status-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：查看设备状态主成功场景，用于解释 Use Case「查看设备状态」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-device-status",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-logs:activity:use-case-view-logs-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-logs",
+      "targetId": "projection-node:design-activity:activity:use-case-view-logs-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-logs-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-logs-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-logs",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-logs:sequence:use-case-view-logs-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-logs",
+      "targetId": "projection-node:design-sequence:sequence:use-case-view-logs-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-logs-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-logs-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-logs",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:adjust-settings:activity:use-case-adjust-settings-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:adjust-settings",
+      "targetId": "projection-node:design-activity:activity:use-case-adjust-settings-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-adjust-settings-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-adjust-settings-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:adjust-settings",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:adjust-settings:sequence:use-case-adjust-settings-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:adjust-settings",
+      "targetId": "projection-node:design-sequence:sequence:use-case-adjust-settings-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-adjust-settings-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-adjust-settings-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:adjust-settings",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:capture-screenshot:activity:use-case-capture-screenshot-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "targetId": "projection-node:design-activity:activity:use-case-capture-screenshot-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-capture-screenshot-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-capture-screenshot-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：屏幕截图，用于解释 Use Case「屏幕截图」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:capture-screenshot:sequence:use-case-capture-screenshot-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "targetId": "projection-node:design-sequence:sequence:use-case-capture-screenshot-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-capture-screenshot-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-capture-screenshot-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：屏幕截图主成功场景，用于解释 Use Case「屏幕截图」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-device-power:activity:manage-device-power",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-device-power",
+      "targetId": "projection-node:design-activity:activity:manage-device-power",
+      "source": {
+        "type": "model",
+        "id": "activity:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:manage-device-power"
+      },
+      "confidence": "medium",
+      "summary": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+      "metadata": {
+        "useCaseId": "use-case:manage-device-power",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-device-power:sequence:manage-device-power-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-device-power",
+      "targetId": "projection-node:design-sequence:sequence:manage-device-power-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:manage-device-power-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:manage-device-power-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户触发关机操作，系统执行关机流程。",
+      "metadata": {
+        "useCaseId": "use-case:manage-device-power",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:refresh-device-status:activity:refresh-device-status",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:refresh-device-status",
+      "targetId": "projection-node:design-activity:activity:refresh-device-status",
+      "source": {
+        "type": "model",
+        "id": "activity:refresh-device-status"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:refresh-device-status"
+      },
+      "confidence": "medium",
+      "summary": "描述用户触发刷新后，系统重新采集各硬件状态并更新页面的流程。",
+      "metadata": {
+        "useCaseId": "use-case:refresh-device-status",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:refresh-device-status:sequence:refresh-device-status-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:refresh-device-status",
+      "targetId": "projection-node:design-sequence:sequence:refresh-device-status-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:refresh-device-status-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:refresh-device-status-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户触发刷新后，系统与各硬件模块交互获取最新状态。",
+      "metadata": {
+        "useCaseId": "use-case:refresh-device-status",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-settings:activity:view-settings",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-settings",
+      "targetId": "projection-node:design-activity:activity:view-settings",
+      "source": {
+        "type": "model",
+        "id": "activity:view-settings"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-settings"
+      },
+      "confidence": "medium",
+      "summary": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+      "metadata": {
+        "useCaseId": "use-case:view-settings",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-settings:sequence:view-settings-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-settings",
+      "targetId": "projection-node:design-sequence:sequence:view-settings-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-settings-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-settings-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户进入设置，系统读取并显示当前配置。",
+      "metadata": {
+        "useCaseId": "use-case:view-settings",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:toggle-gps-power:activity:toggle-gps-power",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "targetId": "projection-node:design-activity:activity:toggle-gps-power",
+      "source": {
+        "type": "model",
+        "id": "activity:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:toggle-gps-power"
+      },
+      "confidence": "medium",
+      "summary": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+      "metadata": {
+        "useCaseId": "use-case:toggle-gps-power",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:toggle-gps-power:sequence:toggle-gps-power-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "targetId": "projection-node:design-sequence:sequence:toggle-gps-power-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:toggle-gps-power-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:toggle-gps-power-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+      "metadata": {
+        "useCaseId": "use-case:toggle-gps-power",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

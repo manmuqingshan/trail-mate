@@ -1,0 +1,508 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:team-collaboration",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T11:14:22.837Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 户外通信与导航系统",
+      "source": {
+        "type": "model",
+        "id": "context:trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:trail-mate-system"
+      },
+      "summary": "面向户外爱好者的跨平台通信与导航系统，提供文字聊天、联系人管理、地图定位、团队协作和网络连接等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖 Trail Mate 应用的全部业务能力，包括聊天、联系人、地图、团队和配置。",
+        "responsibility": "为户外用户提供离网通信（Mesh）、位置共享、团队追踪和个性化设置。",
+        "businessTerms": [
+          "户外活动",
+          "离网通信",
+          "网格网络",
+          "团队追踪",
+          "GPS 定位"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:context:team-collaboration",
+      "kind": "design_context",
+      "label": "团队协作",
+      "source": {
+        "type": "model",
+        "id": "context:team-collaboration"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:team-collaboration"
+      },
+      "summary": "创建和加入团队，共享位置和状态，支持团队追踪。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-f078a4f5b55279634d1cd6a2d595ba00"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_capability",
+        "parentContextId": "context:trail-mate-system",
+        "scope": "团队管理、位置共享、团队追踪采样。",
+        "responsibility": "支持户外团队协同和位置可见性。",
+        "businessTerms": [
+          "团队",
+          "位置共享",
+          "追踪",
+          "协作"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:outdoor-user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "actor:outdoor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:outdoor-user"
+      },
+      "summary": "使用 Trail Mate 设备进行通信、导航和团队协作的户外活动参与者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-external-system:external-system:mesh-network",
+      "kind": "design_external_system",
+      "label": "网格网络",
+      "source": {
+        "type": "model",
+        "id": "external-system:mesh-network"
+      },
+      "anchor": {
+        "kind": "design_external_system",
+        "id": "external-system:mesh-network"
+      },
+      "summary": "LoRa / ESP-NOW 等无线网格网络，用于设备间通信。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": []
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:team-tracking",
+      "kind": "design_use_case",
+      "label": "团队位置追踪",
+      "source": {
+        "type": "model",
+        "id": "use-case:team-tracking"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:team-tracking"
+      },
+      "summary": "用户查看团队成员在地图上的实时位置，并更新自己的位置给团队。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-f078a4f5b55279634d1cd6a2d595ba00"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:team-collaboration",
+        "trigger": "用户激活团队模式或团队追踪页面。",
+        "primaryActorIds": [
+          "actor:outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "external-system:mesh-network"
+        ],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-team-tracking-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：团队位置追踪",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-team-tracking-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-team-tracking-activity"
+      },
+      "summary": "Activity Diagram：团队位置追踪，用于解释 Use Case「团队位置追踪」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:team-tracking",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「团队位置追踪」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「团队位置追踪」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「团队位置追踪」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L528-L529"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「团队位置追踪」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「团队位置追踪」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「团队位置追踪」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L528-L529"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「团队位置追踪」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「团队位置追踪」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「团队位置追踪」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L528-L529。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/team-tracking/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/team-tracking/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-team-tracking-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：团队位置追踪主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-team-tracking-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-team-tracking-sequence"
+      },
+      "summary": "Sequence Diagram：团队位置追踪主成功场景，用于解释 Use Case「团队位置追踪」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:team-tracking",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「团队位置追踪」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「团队位置追踪」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「团队位置追踪」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L528-L529"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「团队位置追踪」的主成功交互场景。",
+        "coverageBoundary": "覆盖「团队位置追踪」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「团队位置追踪」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L528-L529"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「团队位置追踪」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「团队位置追踪」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「团队位置追踪」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L528-L529。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/team-tracking/sequences/sequence-use-case-team-tracking-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/team-tracking/sequences/sequence-use-case-team-tracking-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:trail-mate-system:context:team-collaboration",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:trail-mate-system",
+      "targetId": "projection-node:design-context:context:team-collaboration",
+      "source": {
+        "type": "model",
+        "id": "context:team-collaboration"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:team-collaboration"
+      },
+      "confidence": "medium",
+      "summary": "context:trail-mate-system contains 团队协作",
+      "metadata": {
+        "contextKind": "business_capability"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:team-collaboration:use-case:team-tracking",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:team-collaboration",
+      "targetId": "projection-node:design-use-case:use-case:team-tracking",
+      "source": {
+        "type": "model",
+        "id": "use-case:team-tracking"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:team-tracking"
+      },
+      "confidence": "medium",
+      "summary": "context:team-collaboration contains 团队位置追踪"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:outdoor-user:use-case:team-tracking:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case:team-tracking",
+      "source": {
+        "type": "model",
+        "id": "use-case:team-tracking"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:team-tracking"
+      },
+      "confidence": "medium",
+      "summary": "actor:outdoor-user participates in 团队位置追踪",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:external-system:mesh-network:use-case:team-tracking",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:external-system:mesh-network",
+      "targetId": "projection-node:design-use-case:use-case:team-tracking",
+      "source": {
+        "type": "model",
+        "id": "use-case:team-tracking"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:team-tracking"
+      },
+      "confidence": "medium",
+      "summary": "external-system:mesh-network participates in 团队位置追踪",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:team-tracking:activity:use-case-team-tracking-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:team-tracking",
+      "targetId": "projection-node:design-activity:activity:use-case-team-tracking-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-team-tracking-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-team-tracking-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：团队位置追踪，用于解释 Use Case「团队位置追踪」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:team-tracking",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:team-tracking:sequence:use-case-team-tracking-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:team-tracking",
+      "targetId": "projection-node:design-sequence:sequence:use-case-team-tracking-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-team-tracking-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-team-tracking-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：团队位置追踪主成功场景，用于解释 Use Case「团队位置追踪」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:team-tracking",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:missing-phone-app-connector",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-context:context:device-settings"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "系统中是否有通过手机 App 配置设备或发送消息的用例？当前证据主要来自 BLE 服务代码，但未见明确的手机应用交互用例。",
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:device-settings"
+      }
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

@@ -1,0 +1,10 @@
+flowchart LR
+  actor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_settings_module["设置模块"]
+      useCase_use_case_adjust_settings(["调整系统设置"])
+      useCase_use_case_view_settings(["浏览设置选项"])
+    end
+  end
+  actor_user --- useCase_use_case_adjust_settings
+  actor_user --- useCase_use_case_view_settings

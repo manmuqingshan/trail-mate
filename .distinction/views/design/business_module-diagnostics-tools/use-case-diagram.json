@@ -1,0 +1,682 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:business_module:diagnostics-tools",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T14:37:21.431Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:system:trail-mate",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "system:trail-mate"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "system:trail-mate"
+      },
+      "summary": "跨平台离线通信与位置共享系统，包含嵌入式设备和桌面应用",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖整体的通信、地图、团队和诊断功能",
+        "responsibility": "管理整个应用的用户目标和业务能力",
+        "businessTerms": [
+          "节点",
+          "频道",
+          "团队",
+          "位置",
+          "消息"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:business_module:diagnostics-tools",
+      "kind": "design_context",
+      "label": "诊断工具",
+      "source": {
+        "type": "model",
+        "id": "business_module:diagnostics-tools"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "business_module:diagnostics-tools"
+      },
+      "summary": "提供设备诊断和调试辅助，如自动截屏等",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "system:trail-mate",
+        "scope": "覆盖开发者或高级用户用于诊断和调试的操作",
+        "responsibility": "提供系统诊断和现场数据采集工具",
+        "businessTerms": [
+          "截屏",
+          "设备调试"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:user",
+      "kind": "design_actor",
+      "label": "用户",
+      "source": {
+        "type": "model",
+        "id": "actor:user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:user"
+      },
+      "summary": "使用 Trail Mate 设备的最终用户，可以查看状态、收发消息、配置设备、使用诊断工具",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:capture-screenshot",
+      "kind": "design_use_case",
+      "label": "捕获屏幕截图",
+      "source": {
+        "type": "model",
+        "id": "use-case:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:capture-screenshot"
+      },
+      "summary": "用户运行截屏工具，自动操作设备界面并捕获当前屏幕内容，保存为 PNG 文件",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-bfab17678cf839beb8503dc5870cdc5e",
+          "codegraph:function-ec89be1f3d23bfaef2aea96f1a9bbff9",
+          "codegraph:function-7865285c77463a36ffa03dde06ae79fd",
+          "codegraph:function-8dbcec45a8635f96625b737b56fedb46",
+          "codegraph:function-d3fbdc3ca2493901b5ea5bcd2c36fea8",
+          "codegraph:function-dd11541a2e32021b05c89e4a88ce9b3e",
+          "codegraph:function-59a375abaebde59dd26bf563e20b3b79",
+          "codegraph:function-1dea722d901f4620e78d99857585cedd",
+          "codegraph:function-3dd044711e309137b6c9d808e44f9c52",
+          "codegraph:function-008950cc7ef355aa40b7446d8c491cbe",
+          "codegraph:function-15b7c73131f63bc099164713691f82e3",
+          "codegraph:function-f0bd41ddb9dbf231b4124293ad021da6",
+          "codegraph:function-453843ec7b86091efe0e4d653345cac2",
+          "code:file:apps-linux-cardputer-zero-tools-cardputer-zero-screenshot-capture-cpp"
+        ],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextId": "business_module:diagnostics-tools",
+        "trigger": "用户从诊断菜单启动截屏工具",
+        "primaryActorIds": [
+          "actor:user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-bfab17678cf839beb8503dc5870cdc5e"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:capture-screenshot",
+      "kind": "design_activity",
+      "label": "业务流程：捕获屏幕截图",
+      "source": {
+        "type": "model",
+        "id": "activity:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:capture-screenshot"
+      },
+      "summary": "工具模拟按键并保存截图",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-bfab17678cf839beb8503dc5870cdc5e"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从工具启动到文件保存",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "说明截屏流程",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_cardputer_zero"
+            ],
+            "entryPoints": [
+              "main"
+            ],
+            "keyFiles": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "从工具启动到文件保存",
+        "coverageRationale": "说明截屏流程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_cardputer_zero"
+          ],
+          "entryPoints": [
+            "main"
+          ],
+          "keyFiles": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "生成设备截图",
+          "uml": "顺序流程",
+          "design": "脚本自动化",
+          "implementation": "C++ 工具"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/capture-screenshot/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/capture-screenshot/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:capture-screenshot",
+      "kind": "design_sequence",
+      "label": "对象交互：捕获屏幕截图",
+      "source": {
+        "type": "model",
+        "id": "sequence:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:capture-screenshot"
+      },
+      "summary": "main 函数调起各步骤",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-bfab17678cf839beb8503dc5870cdc5e"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "进程内交互",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "说明交互",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_cardputer_zero"
+            ],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "进程内交互",
+        "coverageRationale": "说明交互",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_cardputer_zero"
+          ],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "截屏",
+          "uml": "交互",
+          "design": "过程式脚本",
+          "implementation": "cardputer_zero_screenshot_capture"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot.md",
+        "htmlPath": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:capture-screenshot-activity",
+      "kind": "design_activity",
+      "label": "业务流程：捕获屏幕截图",
+      "source": {
+        "type": "model",
+        "id": "activity:capture-screenshot-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:capture-screenshot-activity"
+      },
+      "summary": "用户运行截屏工具，工具模拟操作并保存截图",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "屏幕截图获取流程",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]"
+          ],
+          "boundary": "从用户启动工具到 PNG 文件保存",
+          "notCovered": [
+            "屏幕区域选择",
+            "定时截屏"
+          ],
+          "rationale": "解释自动截屏工具的工作原理",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_cardputer_zero"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "屏幕截图获取流程",
+        "coverageBoundary": "从用户启动工具到 PNG 文件保存",
+        "coverageRationale": "解释自动截屏工具的工作原理",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]"
+        ],
+        "notCovered": [
+          "屏幕区域选择",
+          "定时截屏"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_cardputer_zero"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "用于创建带截图的设备文档或报告",
+          "uml": "工具模拟按键、稍后截取并保存",
+          "design": "独立工具程序，调用系统截图 API",
+          "implementation": "main 函数中依次模拟按键再调用截图"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/capture-screenshot/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/capture-screenshot/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:capture-screenshot-sequence",
+      "kind": "design_sequence",
+      "label": "对象交互：捕获屏幕截图",
+      "source": {
+        "type": "model",
+        "id": "sequence:capture-screenshot-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:capture-screenshot-sequence"
+      },
+      "summary": "main 函数调起各步骤",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "截图流程的调用链",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]"
+          ],
+          "boundary": "从工具启动到文件写入",
+          "notCovered": [
+            "错误处理"
+          ],
+          "rationale": "展示截屏程序的内部步骤",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_cardputer_zero"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "截图流程的调用链",
+        "coverageBoundary": "从工具启动到文件写入",
+        "coverageRationale": "展示截屏程序的内部步骤",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]"
+        ],
+        "notCovered": [
+          "错误处理"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_cardputer_zero"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "获取当前屏幕内容作为图像文件",
+          "uml": "main 依次调用模拟按键和截图函数",
+          "design": "工具是单线程顺序执行流程",
+          "implementation": "main() -> simulateKeys() -> takeScreenshot() -> saveToFile()"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:system:trail-mate:business_module:diagnostics-tools",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:system:trail-mate",
+      "targetId": "projection-node:design-context:business_module:diagnostics-tools",
+      "source": {
+        "type": "model",
+        "id": "business_module:diagnostics-tools"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "business_module:diagnostics-tools"
+      },
+      "confidence": "medium",
+      "summary": "system:trail-mate contains 诊断工具",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:business_module:diagnostics-tools:use-case:capture-screenshot",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:business_module:diagnostics-tools",
+      "targetId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "source": {
+        "type": "model",
+        "id": "use-case:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:capture-screenshot"
+      },
+      "confidence": "medium",
+      "summary": "business_module:diagnostics-tools contains 捕获屏幕截图"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:user:use-case:capture-screenshot:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:user",
+      "targetId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "source": {
+        "type": "model",
+        "id": "use-case:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:capture-screenshot"
+      },
+      "confidence": "medium",
+      "summary": "actor:user participates in 捕获屏幕截图",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:capture-screenshot:activity:capture-screenshot",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "targetId": "projection-node:design-activity:activity:capture-screenshot",
+      "source": {
+        "type": "model",
+        "id": "activity:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:capture-screenshot"
+      },
+      "confidence": "medium",
+      "summary": "工具模拟按键并保存截图",
+      "metadata": {
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:capture-screenshot:sequence:capture-screenshot",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "targetId": "projection-node:design-sequence:sequence:capture-screenshot",
+      "source": {
+        "type": "model",
+        "id": "sequence:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:capture-screenshot"
+      },
+      "confidence": "medium",
+      "summary": "main 函数调起各步骤",
+      "metadata": {
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:capture-screenshot:activity:capture-screenshot-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "targetId": "projection-node:design-activity:activity:capture-screenshot-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:capture-screenshot-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:capture-screenshot-activity"
+      },
+      "confidence": "medium",
+      "summary": "用户运行截屏工具，工具模拟操作并保存截图",
+      "metadata": {
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:capture-screenshot:sequence:capture-screenshot-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:capture-screenshot",
+      "targetId": "projection-node:design-sequence:sequence:capture-screenshot-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:capture-screenshot-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:capture-screenshot-sequence"
+      },
+      "confidence": "medium",
+      "summary": "main 函数调起各步骤",
+      "metadata": {
+        "useCaseId": "use-case:capture-screenshot",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

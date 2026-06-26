@@ -1,0 +1,8 @@
+flowchart LR
+  actor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_map_module["地图模块"]
+      useCase_use_case_view_map(["查看地图"])
+    end
+  end
+  actor_user --- useCase_use_case_view_map

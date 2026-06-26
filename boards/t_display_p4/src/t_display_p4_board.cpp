@@ -16,6 +16,7 @@
 #include "platform/esp/idf_common/gps_runtime.h"
 #include "platform/esp/idf_common/sx126x_radio.h"
 #include "platform/ui/device_runtime.h"
+#include "sd_pwr_ctrl.h"
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
 
 namespace
@@ -24,6 +25,7 @@ namespace
 constexpr const char* kTag = "TDisplayP4Board";
 constexpr uint32_t kI2cTimeoutMs = 1000;
 constexpr int kSdLdoChannel = 4;
+constexpr int kExternal3v3Mv = 3300;
 constexpr uint8_t kBatteryRegVoltage = 0x08;
 constexpr uint8_t kBatteryRegCurrent = 0x0C;
 constexpr uint8_t kBatteryRegStateOfCharge = 0x2C;
@@ -39,6 +41,8 @@ constexpr uint8_t kExpanderRegConfig1 = 0x07;
 constexpr uint32_t kRadioTxBaseTimeoutMs = 500;
 constexpr uint32_t kRadioTxPerByteTimeoutMs = 100;
 constexpr uint32_t kRadioTxMaxTimeoutMs = 30000;
+sd_pwr_ctrl_handle_t s_external_3v3_pwr_ctrl_handle = nullptr;
+bool s_external_3v3_ready = false;
 
 struct ExpanderPinLocation
 {
@@ -73,6 +77,34 @@ TickType_t radio_tx_timeout_ticks(size_t len)
         timeout_ms = kRadioTxMaxTimeoutMs;
     }
     return pdMS_TO_TICKS(static_cast<uint32_t>(timeout_ms));
+}
+
+bool ensure_external_3v3_power_control()
+{
+    if (s_external_3v3_pwr_ctrl_handle == nullptr)
+    {
+        sd_pwr_ctrl_ldo_config_t ldo_config{};
+        ldo_config.ldo_chan_id = kSdLdoChannel;
+        if (sd_pwr_ctrl_new_on_chip_ldo(&ldo_config, &s_external_3v3_pwr_ctrl_handle) != ESP_OK)
+        {
+            ESP_LOGE(kTag, "Failed to create shared LDO4 power control handle");
+            return false;
+        }
+    }
+    if (!s_external_3v3_ready)
+    {
+        const esp_err_t err =
+            sd_pwr_ctrl_set_io_voltage(s_external_3v3_pwr_ctrl_handle, kExternal3v3Mv);
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(kTag, "Failed to enable shared LDO4 at %dmV: %s",
+                     kExternal3v3Mv, esp_err_to_name(err));
+            return false;
+        }
+        s_external_3v3_ready = true;
+        ESP_LOGI(kTag, "Shared LDO4 enabled at %dmV", kExternal3v3Mv);
+    }
+    return true;
 }
 
 } // namespace
@@ -262,6 +294,11 @@ void TDisplayP4Board::keyboardSetBrightness(uint8_t level)
 uint8_t TDisplayP4Board::keyboardGetBrightness()
 {
     return keyboard_brightness_;
+}
+
+bool TDisplayP4Board::ensureExternal3v3Power()
+{
+    return ensure_external_3v3_power_control();
 }
 
 void TDisplayP4Board::setKeyboardReady(bool ready)
@@ -724,18 +761,11 @@ bool TDisplayP4Board::mountSdCard(const char* mount_point, size_t max_files)
     host.slot = SDMMC_HOST_SLOT_0;
     host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
 
-    static sd_pwr_ctrl_handle_t pwr_ctrl_handle = nullptr;
-    if (pwr_ctrl_handle == nullptr)
+    if (!ensure_external_3v3_power_control())
     {
-        sd_pwr_ctrl_ldo_config_t ldo_config{};
-        ldo_config.ldo_chan_id = kSdLdoChannel;
-        if (sd_pwr_ctrl_new_on_chip_ldo(&ldo_config, &pwr_ctrl_handle) != ESP_OK)
-        {
-            ESP_LOGE(kTag, "Failed to create SD power control handle");
-            return false;
-        }
+        return false;
     }
-    host.pwr_ctrl_handle = pwr_ctrl_handle;
+    host.pwr_ctrl_handle = s_external_3v3_pwr_ctrl_handle;
 
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
     slot_config.width = 4;

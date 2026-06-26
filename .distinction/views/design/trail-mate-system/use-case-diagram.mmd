@@ -1,0 +1,38 @@
+flowchart LR
+  actor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_chat_module["聊天模块"]
+      useCase_use_case_view_chat(["查看聊天消息"])
+      useCase_use_case_send_message(["发送短消息"])
+    end
+    subgraph system_map_module["地图模块"]
+      useCase_use_case_view_map(["查看地图"])
+    end
+    subgraph system_settings_module["设置模块"]
+      useCase_use_case_adjust_settings(["调整系统设置"])
+      useCase_use_case_view_settings(["浏览设置选项"])
+    end
+    subgraph system_device_status_module["设备状态模块"]
+      useCase_use_case_view_device_status(["查看设备状态"])
+      useCase_use_case_refresh_device_status(["手动刷新设备状态"])
+    end
+    subgraph system_logs_module["日志模块"]
+      useCase_use_case_view_logs(["查看系统日志"])
+    end
+    subgraph system_device_power_management["设备电源管理"]
+      useCase_use_case_manage_device_power(["管理设备电源"])
+      useCase_use_case_toggle_gps_power(["控制GPS模块开关"])
+    end
+    useCase_use_case_capture_screenshot(["屏幕截图"])
+  end
+  actor_user --- useCase_use_case_view_chat
+  actor_user --- useCase_use_case_send_message
+  actor_user --- useCase_use_case_view_map
+  actor_user --- useCase_use_case_view_device_status
+  actor_user --- useCase_use_case_view_logs
+  actor_user --- useCase_use_case_adjust_settings
+  actor_user --- useCase_use_case_capture_screenshot
+  actor_user --- useCase_use_case_manage_device_power
+  actor_user --- useCase_use_case_refresh_device_status
+  actor_user --- useCase_use_case_view_settings
+  actor_user --- useCase_use_case_toggle_gps_power

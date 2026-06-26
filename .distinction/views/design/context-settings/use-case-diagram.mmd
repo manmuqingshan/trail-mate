@@ -1,0 +1,13 @@
+flowchart LR
+  actor_actor_hiker["&laquo;Actor&raquo;<br/>徒步者"]
+  actor_actor_admin["&laquo;Actor&raquo;<br/>管理员"]
+  subgraph system_context_trail_mate_system["Trail Mate 系统"]
+    subgraph system_context_settings["系统设置与配置"]
+      useCase_use_case_manage_system_settings(["管理系统设置"])
+      useCase_use_case_configure_radio_settings(["配置无线电网络参数"])
+    end
+  end
+  actor_actor_admin --- useCase_use_case_manage_system_settings
+  actor_actor_hiker --- useCase_use_case_manage_system_settings
+  actor_actor_admin --- useCase_use_case_configure_radio_settings
+  useCase_use_case_manage_system_settings -.->|&laquo;include&raquo;| useCase_use_case_configure_radio_settings

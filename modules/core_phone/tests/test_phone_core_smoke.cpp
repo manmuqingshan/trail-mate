@@ -34,6 +34,34 @@ class FakeMeshtasticTransport final : public phone::meshtastic::MeshtasticPhoneT
     int notify_count = 0;
 };
 
+class FakeBluetoothConfigHooks final : public phone::meshtastic::MeshtasticPhoneBluetoothConfigHooks
+{
+  public:
+    bool loadBluetoothConfig(meshtastic_Config_BluetoothConfig*) const override { return false; }
+    void saveBluetoothConfig(const meshtastic_Config_BluetoothConfig& config) override
+    {
+        last_saved = config;
+        save_count++;
+    }
+
+    int save_count = 0;
+    meshtastic_Config_BluetoothConfig last_saved = meshtastic_Config_BluetoothConfig_init_zero;
+};
+
+class FakeModuleConfigHooks final : public phone::meshtastic::MeshtasticPhoneModuleConfigHooks
+{
+  public:
+    bool loadModuleConfig(meshtastic_LocalModuleConfig*) const override { return false; }
+    void saveModuleConfig(const meshtastic_LocalModuleConfig& config) override
+    {
+        last_saved = config;
+        save_count++;
+    }
+
+    int save_count = 0;
+    meshtastic_LocalModuleConfig last_saved = meshtastic_LocalModuleConfig_init_zero;
+};
+
 void copyBounded(char* dst, size_t dst_len, const char* src)
 {
     if (!dst || dst_len == 0)
@@ -127,9 +155,9 @@ bool encodeAdminSetPrimaryCustomChannelToRadio(uint8_t* out,
 }
 
 bool encodeAdminSetManualLoraConfigToRadio(uint8_t* out,
-                                           size_t out_len,
-                                           size_t& written,
-                                           uint32_t packet_id)
+                                            size_t out_len,
+                                            size_t& written,
+                                            uint32_t packet_id)
 {
     meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_zero;
     admin.which_payload_variant = meshtastic_AdminMessage_set_config_tag;
@@ -150,6 +178,66 @@ bool encodeAdminSetManualLoraConfigToRadio(uint8_t* out,
     lora.override_frequency = 906.875f;
     lora.ignore_mqtt = true;
     lora.config_ok_to_mqtt = true;
+
+    return encodeAdminToRadio(admin, out, out_len, written, packet_id);
+}
+
+bool encodeAdminSetBluetoothConfigToRadio(uint8_t* out,
+                                          size_t out_len,
+                                          size_t& written,
+                                          uint32_t packet_id)
+{
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_zero;
+    admin.which_payload_variant = meshtastic_AdminMessage_set_config_tag;
+    admin.set_config.which_payload_variant = meshtastic_Config_bluetooth_tag;
+    auto& bluetooth = admin.set_config.payload_variant.bluetooth;
+    bluetooth.enabled = false;
+    bluetooth.mode = meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN;
+    bluetooth.fixed_pin = 123456;
+
+    return encodeAdminToRadio(admin, out, out_len, written, packet_id);
+}
+
+bool encodeAdminBeginEditSettingsToRadio(uint8_t* out, size_t out_len, size_t& written, uint32_t packet_id)
+{
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_zero;
+    admin.which_payload_variant = meshtastic_AdminMessage_begin_edit_settings_tag;
+    admin.begin_edit_settings = true;
+
+    return encodeAdminToRadio(admin, out, out_len, written, packet_id);
+}
+
+bool encodeAdminCommitEditSettingsToRadio(uint8_t* out, size_t out_len, size_t& written, uint32_t packet_id)
+{
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_zero;
+    admin.which_payload_variant = meshtastic_AdminMessage_commit_edit_settings_tag;
+    admin.commit_edit_settings = true;
+
+    return encodeAdminToRadio(admin, out, out_len, written, packet_id);
+}
+
+bool encodeAdminSetMqttModuleConfigToRadio(uint8_t* out,
+                                           size_t out_len,
+                                           size_t& written,
+                                           uint32_t packet_id)
+{
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_zero;
+    admin.which_payload_variant = meshtastic_AdminMessage_set_module_config_tag;
+    admin.set_module_config.which_payload_variant = meshtastic_ModuleConfig_mqtt_tag;
+    auto& mqtt = admin.set_module_config.payload_variant.mqtt;
+    mqtt.enabled = true;
+    mqtt.proxy_to_client_enabled = false;
+    mqtt.encryption_enabled = true;
+    mqtt.tls_enabled = false;
+    mqtt.map_reporting_enabled = true;
+    mqtt.has_map_report_settings = true;
+    mqtt.map_report_settings.publish_interval_secs = 3600;
+    mqtt.map_report_settings.position_precision = 16;
+    mqtt.map_report_settings.should_report_location = true;
+    copyBounded(mqtt.address, sizeof(mqtt.address), "mqtt.example.test");
+    copyBounded(mqtt.username, sizeof(mqtt.username), "trail");
+    copyBounded(mqtt.password, sizeof(mqtt.password), "mate");
+    copyBounded(mqtt.root, sizeof(mqtt.root), "msh");
 
     return encodeAdminToRadio(admin, out, out_len, written, packet_id);
 }
@@ -201,7 +289,7 @@ int main()
                                         set_channel_to_radio_len,
                                         kSetChannelPacketId));
     assert(admin_session.handleToRadio(set_channel_to_radio, set_channel_to_radio_len));
-    assert(admin_runtime.save_config_count == 1);
+    assert(admin_runtime.save_config_count == 0);
     assert(admin_runtime.apply_mesh_config_count == 1);
     const auto saved_admin_config = admin_runtime.getMeshtasticPhoneConfig();
     assert(saved_admin_config.mesh.secondary_key_len == 32);
@@ -244,11 +332,13 @@ int main()
                        saved_admin_config.mesh.secondary_key,
                        32) == 0);
     assert(!admin_session.popToPhone(&second_frame));
+    assert(admin_runtime.save_config_count == 1);
 
     phone::tests::FakePhoneRuntimeContext custom_runtime;
     FakeMeshtasticTransport custom_transport;
+    FakeModuleConfigHooks custom_module_hooks;
     phone::meshtastic::MeshtasticPhoneSession custom_session(
-        custom_runtime, custom_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        custom_runtime, custom_transport, nullptr, &custom_module_hooks, nullptr, nullptr, nullptr, nullptr);
     constexpr uint32_t kPrimaryCustomPacketId = 0xCAFE4400;
     uint8_t primary_channel_to_radio[meshtastic_ToRadio_size] = {};
     size_t primary_channel_to_radio_len = 0;
@@ -257,7 +347,7 @@ int main()
                                                      primary_channel_to_radio_len,
                                                      kPrimaryCustomPacketId));
     assert(custom_session.handleToRadio(primary_channel_to_radio, primary_channel_to_radio_len));
-    assert(custom_runtime.save_config_count == 1);
+    assert(custom_runtime.save_config_count == 0);
     assert(custom_runtime.apply_mesh_config_count == 1);
     const auto saved_custom_config = custom_runtime.getMeshtasticPhoneConfig();
     assert(saved_custom_config.primary_enabled);
@@ -293,11 +383,10 @@ int main()
     assert(custom_response.get_channel_response.role == meshtastic_Channel_Role_PRIMARY);
     assert(std::strcmp(custom_response.get_channel_response.settings.name, "Custom") == 0);
     assert(custom_response.get_channel_response.settings.id == 0x10203040);
-    assert(custom_response.get_channel_response.settings.psk.size == 16);
-    assert(std::memcmp(custom_response.get_channel_response.settings.psk.bytes,
-                       expected_short_psk,
-                       16) == 0);
+    assert(custom_response.get_channel_response.settings.psk.size == 1);
+    assert(custom_response.get_channel_response.settings.psk.bytes[0] == 1);
     assert(!custom_session.popToPhone(&custom_response_frame));
+    assert(custom_runtime.save_config_count == 1);
 
     constexpr uint32_t kManualLoraPacketId = 0xCAFE4401;
     uint8_t manual_lora_to_radio[meshtastic_ToRadio_size] = {};
@@ -307,7 +396,7 @@ int main()
                                                  manual_lora_to_radio_len,
                                                  kManualLoraPacketId));
     assert(custom_session.handleToRadio(manual_lora_to_radio, manual_lora_to_radio_len));
-    assert(custom_runtime.save_config_count == 2);
+    assert(custom_runtime.save_config_count == 1);
     assert(custom_runtime.apply_mesh_config_count == 2);
     const auto saved_lora_config = custom_runtime.getMeshtasticPhoneConfig();
     assert(!saved_lora_config.mesh.use_preset);
@@ -353,6 +442,178 @@ int main()
     assert(lora_response.get_config_response.payload_variant.lora.ignore_mqtt);
     assert(lora_response.get_config_response.payload_variant.lora.config_ok_to_mqtt);
     assert(!custom_session.popToPhone(&lora_response_frame));
+    assert(custom_runtime.save_config_count == 2);
+
+    phone::tests::FakePhoneRuntimeContext bluetooth_runtime;
+    FakeMeshtasticTransport bluetooth_transport;
+    FakeBluetoothConfigHooks bluetooth_hooks;
+    phone::meshtastic::MeshtasticPhoneSession bluetooth_session(
+        bluetooth_runtime, bluetooth_transport, &bluetooth_hooks, nullptr, nullptr, nullptr, nullptr, nullptr);
+    constexpr uint32_t kBluetoothPacketId = 0xCAFE4403;
+    uint8_t bluetooth_to_radio[meshtastic_ToRadio_size] = {};
+    size_t bluetooth_to_radio_len = 0;
+    assert(encodeAdminSetBluetoothConfigToRadio(bluetooth_to_radio,
+                                                sizeof(bluetooth_to_radio),
+                                                bluetooth_to_radio_len,
+                                                kBluetoothPacketId));
+    assert(bluetooth_runtime.ble_enabled);
+    assert(bluetooth_session.handleToRadio(bluetooth_to_radio, bluetooth_to_radio_len));
+    assert(bluetooth_runtime.ble_enabled);
+    assert(bluetooth_hooks.save_count == 0);
+
+    phone::meshtastic::MeshtasticBleFrame bluetooth_queue_frame{};
+    assert(bluetooth_session.popToPhone(&bluetooth_queue_frame));
+    meshtastic_FromRadio bluetooth_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(bluetooth_queue_frame, bluetooth_from));
+    assert(bluetooth_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
+    assert(bluetooth_from.queueStatus.mesh_packet_id == kBluetoothPacketId);
+    assert(bluetooth_from.queueStatus.res == 0);
+
+    phone::meshtastic::MeshtasticBleFrame bluetooth_response_frame{};
+    assert(bluetooth_session.popToPhone(&bluetooth_response_frame));
+    bluetooth_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(bluetooth_response_frame, bluetooth_from));
+    assert(bluetooth_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(bluetooth_from.packet.decoded.request_id == kBluetoothPacketId);
+    meshtastic_AdminMessage bluetooth_response = meshtastic_AdminMessage_init_zero;
+    pb_istream_t bluetooth_response_stream =
+        pb_istream_from_buffer(bluetooth_from.packet.decoded.payload.bytes,
+                               bluetooth_from.packet.decoded.payload.size);
+    assert(pb_decode(&bluetooth_response_stream, meshtastic_AdminMessage_fields, &bluetooth_response));
+    assert(bluetooth_response.which_payload_variant == meshtastic_AdminMessage_get_config_response_tag);
+    assert(bluetooth_response.get_config_response.which_payload_variant == meshtastic_Config_bluetooth_tag);
+    assert(!bluetooth_response.get_config_response.payload_variant.bluetooth.enabled);
+    assert(bluetooth_runtime.ble_enabled);
+    assert(bluetooth_hooks.save_count == 0);
+    assert(!bluetooth_session.popToPhone(&bluetooth_response_frame));
+    assert(!bluetooth_runtime.ble_enabled);
+    assert(bluetooth_hooks.save_count == 1);
+    assert(!bluetooth_hooks.last_saved.enabled);
+    assert(bluetooth_hooks.last_saved.mode == meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN);
+    assert(bluetooth_hooks.last_saved.fixed_pin == 0);
+
+    phone::tests::FakePhoneRuntimeContext edit_runtime;
+    FakeMeshtasticTransport edit_transport;
+    phone::meshtastic::MeshtasticPhoneSession edit_session(
+        edit_runtime, edit_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    constexpr uint32_t kBeginEditPacketId = 0xCAFE5500;
+    uint8_t begin_edit_to_radio[meshtastic_ToRadio_size] = {};
+    size_t begin_edit_to_radio_len = 0;
+    assert(encodeAdminBeginEditSettingsToRadio(begin_edit_to_radio,
+                                               sizeof(begin_edit_to_radio),
+                                               begin_edit_to_radio_len,
+                                               kBeginEditPacketId));
+    assert(edit_session.handleToRadio(begin_edit_to_radio, begin_edit_to_radio_len));
+
+    phone::meshtastic::MeshtasticBleFrame edit_frame{};
+    assert(edit_session.popToPhone(&edit_frame));
+    meshtastic_FromRadio edit_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(edit_frame, edit_from));
+    assert(edit_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
+    assert(edit_from.queueStatus.mesh_packet_id == kBeginEditPacketId);
+    assert(edit_from.queueStatus.res == 0);
+    assert(!edit_session.popToPhone(&edit_frame));
+    assert(edit_runtime.save_config_count == 0);
+
+    constexpr uint32_t kEditSetChannelPacketId = 0xCAFE5501;
+    uint8_t edit_channel_to_radio[meshtastic_ToRadio_size] = {};
+    size_t edit_channel_to_radio_len = 0;
+    assert(encodeAdminSetChannelToRadio(edit_channel_to_radio,
+                                        sizeof(edit_channel_to_radio),
+                                        edit_channel_to_radio_len,
+                                        kEditSetChannelPacketId));
+    assert(edit_session.handleToRadio(edit_channel_to_radio, edit_channel_to_radio_len));
+    assert(edit_runtime.save_config_count == 0);
+    assert(edit_runtime.apply_mesh_config_count == 1);
+
+    assert(edit_session.popToPhone(&edit_frame));
+    edit_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(edit_frame, edit_from));
+    assert(edit_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
+    assert(edit_from.queueStatus.mesh_packet_id == kEditSetChannelPacketId);
+    assert(edit_from.queueStatus.res == 0);
+
+    assert(edit_session.popToPhone(&edit_frame));
+    edit_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(edit_frame, edit_from));
+    assert(edit_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(edit_from.packet.decoded.request_id == kEditSetChannelPacketId);
+    assert(!edit_session.popToPhone(&edit_frame));
+    assert(edit_runtime.save_config_count == 0);
+
+    constexpr uint32_t kCommitEditPacketId = 0xCAFE5502;
+    uint8_t commit_edit_to_radio[meshtastic_ToRadio_size] = {};
+    size_t commit_edit_to_radio_len = 0;
+    assert(encodeAdminCommitEditSettingsToRadio(commit_edit_to_radio,
+                                                sizeof(commit_edit_to_radio),
+                                                commit_edit_to_radio_len,
+                                                kCommitEditPacketId));
+    assert(edit_session.handleToRadio(commit_edit_to_radio, commit_edit_to_radio_len));
+    assert(edit_runtime.save_config_count == 0);
+
+    assert(edit_session.popToPhone(&edit_frame));
+    edit_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(edit_frame, edit_from));
+    assert(edit_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
+    assert(edit_from.queueStatus.mesh_packet_id == kCommitEditPacketId);
+    assert(edit_from.queueStatus.res == 0);
+    assert(!edit_session.popToPhone(&edit_frame));
+    assert(edit_runtime.save_config_count == 1);
+
+    constexpr uint32_t kMqttPacketId = 0xCAFE4402;
+    uint8_t mqtt_to_radio[meshtastic_ToRadio_size] = {};
+    size_t mqtt_to_radio_len = 0;
+    assert(encodeAdminSetMqttModuleConfigToRadio(mqtt_to_radio,
+                                                 sizeof(mqtt_to_radio),
+                                                 mqtt_to_radio_len,
+                                                 kMqttPacketId));
+    assert(custom_session.handleToRadio(mqtt_to_radio, mqtt_to_radio_len));
+    assert(custom_module_hooks.save_count == 0);
+    assert(custom_runtime.restart_device_count == 0);
+
+    phone::meshtastic::MeshtasticBleFrame mqtt_queue_frame{};
+    assert(custom_session.popToPhone(&mqtt_queue_frame));
+    meshtastic_FromRadio mqtt_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(mqtt_queue_frame, mqtt_from));
+    assert(mqtt_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
+    assert(mqtt_from.queueStatus.mesh_packet_id == kMqttPacketId);
+    assert(mqtt_from.queueStatus.res == 0);
+
+    phone::meshtastic::MeshtasticBleFrame mqtt_response_frame{};
+    assert(custom_session.popToPhone(&mqtt_response_frame));
+    mqtt_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(mqtt_response_frame, mqtt_from));
+    assert(mqtt_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(mqtt_from.packet.decoded.portnum == meshtastic_PortNum_ADMIN_APP);
+    assert(mqtt_from.packet.decoded.request_id == kMqttPacketId);
+    meshtastic_AdminMessage mqtt_response = meshtastic_AdminMessage_init_zero;
+    pb_istream_t mqtt_response_stream =
+        pb_istream_from_buffer(mqtt_from.packet.decoded.payload.bytes,
+                               mqtt_from.packet.decoded.payload.size);
+    assert(pb_decode(&mqtt_response_stream, meshtastic_AdminMessage_fields, &mqtt_response));
+    assert(mqtt_response.which_payload_variant == meshtastic_AdminMessage_get_module_config_response_tag);
+    assert(mqtt_response.get_module_config_response.which_payload_variant == meshtastic_ModuleConfig_mqtt_tag);
+    const auto& mqtt_response_config = mqtt_response.get_module_config_response.payload_variant.mqtt;
+    assert(mqtt_response_config.enabled);
+    assert(!mqtt_response_config.proxy_to_client_enabled);
+    assert(mqtt_response_config.encryption_enabled);
+    assert(!mqtt_response_config.tls_enabled);
+    assert(mqtt_response_config.map_reporting_enabled);
+    assert(mqtt_response_config.has_map_report_settings);
+    assert(mqtt_response_config.map_report_settings.publish_interval_secs == 3600);
+    assert(mqtt_response_config.map_report_settings.position_precision == 16);
+    assert(mqtt_response_config.map_report_settings.should_report_location);
+    assert(std::strcmp(mqtt_response_config.address, "mqtt.example.test") == 0);
+    assert(std::strcmp(mqtt_response_config.username, "trail") == 0);
+    assert(std::strcmp(mqtt_response_config.password, "mate") == 0);
+    assert(std::strcmp(mqtt_response_config.root, "msh") == 0);
+    assert(custom_module_hooks.save_count == 0);
+    assert(custom_runtime.restart_device_count == 0);
+    assert(!custom_session.popToPhone(&mqtt_response_frame));
+    assert(custom_module_hooks.save_count == 1);
+    assert(custom_module_hooks.last_saved.has_mqtt);
+    assert(custom_module_hooks.last_saved.mqtt.enabled);
+    assert(custom_runtime.restart_device_count == 1);
 
     phone::tests::FakePhoneRuntimeContext config_runtime;
     FakeMeshtasticTransport config_transport;

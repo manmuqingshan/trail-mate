@@ -1,0 +1,766 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:user-interface",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T11:28:31.620Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "trail-mate-system"
+      },
+      "summary": "跨平台户外团队通信和导航系统。包含硬件管理、无线通信、UI 呈现、团队协作和地图导航等能力。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖从硬件板载传感器到上层 UI 的完整户外团队通信和导航产品功能。",
+        "responsibility": "为户外团队提供实时位置共享、文字通信、环境感知和导航支持。",
+        "businessTerms": [
+          "节点",
+          "消息",
+          "团队",
+          "轨迹",
+          "位置",
+          "截图"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:user-interface",
+      "kind": "design_context",
+      "label": "用户界面",
+      "source": {
+        "type": "model",
+        "id": "user-interface"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "user-interface"
+      },
+      "summary": "构建和渲染设备屏幕上的 UI 页面，响应用户输入，提供截图等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "涵盖 GTK 和 LVGL 等不同 UI 框架的页面管理、输入事件处理和截图捕获。",
+        "responsibility": "向用户呈现信息并提供交互手段。",
+        "businessTerms": [
+          "页面",
+          "菜单",
+          "截图",
+          "输入事件"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor-outdoor-user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "actor-outdoor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor-outdoor-user"
+      },
+      "summary": "携带 Trail Mate 设备的户外活动爱好者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case-capture-screenshot",
+      "kind": "design_use_case",
+      "label": "捕获屏幕截图",
+      "source": {
+        "type": "model",
+        "id": "use-case-capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-capture-screenshot"
+      },
+      "summary": "用户捕获当前设备屏幕的画面并保存为文件。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "user-interface",
+        "trigger": "用户触发截图操作（如按下特定按键）。",
+        "primaryActorIds": [
+          "actor-outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-008950cc7ef355aa40b7446d8c491cbe"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case-navigate-ui-pages",
+      "kind": "design_use_case",
+      "label": "切换 UI 页面",
+      "source": {
+        "type": "model",
+        "id": "use-case-navigate-ui-pages"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-navigate-ui-pages"
+      },
+      "summary": "用户在不同的 UI 信息页面之间切换（如从概览切换到地图）。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "user-interface",
+        "trigger": "用户点击菜单或按下导航按钮。",
+        "primaryActorIds": [
+          "actor-outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-848f0c88cbd268d7f19882a555165c81"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:capture-screenshot",
+      "kind": "design_activity",
+      "label": "业务流程：捕获屏幕截图",
+      "source": {
+        "type": "model",
+        "id": "activity:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:capture-screenshot"
+      },
+      "summary": "用户触发截图，系统读取帧缓冲区并保存为 PNG 文件。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "behavior-slice:ui-route-codegraph-function-008950cc7ef355aa40b7446d8c491cbe"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case-capture-screenshot",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "截图成功保存的流程。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从按键触发到文件写入完成。",
+          "notCovered": [
+            "写入失败的处理",
+            "超时等待"
+          ],
+          "rationale": "需要一张活动图说明截图功能的核心步骤。",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_cardputer_zero"
+            ],
+            "entryPoints": [
+              "capture_current function in screenshot tool"
+            ],
+            "keyFiles": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp::capture_current",
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp::save_png"
+            ],
+            "outOfScopeCode": [
+              "GTK 窗口系统内部"
+            ]
+          }
+        },
+        "coverageScenario": "截图成功保存的流程。",
+        "coverageBoundary": "从按键触发到文件写入完成。",
+        "coverageRationale": "需要一张活动图说明截图功能的核心步骤。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "写入失败的处理",
+          "超时等待"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_cardputer_zero"
+          ],
+          "entryPoints": [
+            "capture_current function in screenshot tool"
+          ],
+          "keyFiles": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp::capture_current",
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp::save_png"
+          ],
+          "outOfScopeCode": [
+            "GTK 窗口系统内部"
+          ]
+        },
+        "explanation": {
+          "business": "用户可能需要记录屏幕信息，例如共享地图位置。",
+          "uml": "开始节点后，用户触发截图，系统读取帧缓冲区，编码为 PNG，保存文件。",
+          "design": "这是工具型功能，直接读取 LVGL 帧缓冲区并使用 lodepng 编码。",
+          "implementation": "在 cardputer_zero_screenshot_capture.cpp 中实现。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-capture-screenshot/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-capture-screenshot/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:capture-screenshot-main-success",
+      "kind": "design_sequence",
+      "label": "对象交互：捕获屏幕截图主流程",
+      "source": {
+        "type": "model",
+        "id": "sequence:capture-screenshot-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:capture-screenshot-main-success"
+      },
+      "summary": "用户在截图工具中触发截图，工具读取 LVGL 缓冲区并保存。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "behavior-slice:ui-route-codegraph-function-008950cc7ef355aa40b7446d8c491cbe"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case-capture-screenshot",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从用户按键到文件保存。",
+          "notCovered": [
+            "多线程截图并发处理"
+          ],
+          "rationale": "展示截图工具与 LVGL 缓冲区之间的交互。",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_cardputer_zero"
+            ],
+            "entryPoints": [
+              "capture_current"
+            ],
+            "keyFiles": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp::capture_current"
+            ],
+            "outOfScopeCode": [
+              "LVGL 内部缓冲管理"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "从用户按键到文件保存。",
+        "coverageRationale": "展示截图工具与 LVGL 缓冲区之间的交互。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "多线程截图并发处理"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_cardputer_zero"
+          ],
+          "entryPoints": [
+            "capture_current"
+          ],
+          "keyFiles": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp::capture_current"
+          ],
+          "outOfScopeCode": [
+            "LVGL 内部缓冲管理"
+          ]
+        },
+        "explanation": {
+          "business": "用户捕获屏幕用于记录或分享。",
+          "uml": "参与者：User, ScreenshotTool, LvglFrameBuffer, File. 消息序列：1. capture_current; 2. 读取缓冲区; 3. 编码; 4. 写文件。",
+          "design": "ScreenshotTool 直接操作 LVGL 缓冲区，耦合较紧。",
+          "implementation": "实现是单文件工具。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-capture-screenshot/sequences/sequence-capture-screenshot-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-capture-screenshot/sequences/sequence-capture-screenshot-main-success.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-navigate-ui-pages-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：切换 UI 页面",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-navigate-ui-pages-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-navigate-ui-pages-activity"
+      },
+      "summary": "Activity Diagram：切换 UI 页面，用于解释 Use Case「切换 UI 页面」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case-navigate-ui-pages",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「切换 UI 页面」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「切换 UI 页面」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「切换 UI 页面」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:ui-route-codegraph-function-848f0c88cbd268d7f19882a555165c81"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_shell.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「切换 UI 页面」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「切换 UI 页面」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「切换 UI 页面」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:ui-route-codegraph-function-848f0c88cbd268d7f19882a555165c81"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_shell.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「切换 UI 页面」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「切换 UI 页面」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「切换 UI 页面」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_shell.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-navigate-ui-pages/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-navigate-ui-pages/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-navigate-ui-pages-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：切换 UI 页面主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-navigate-ui-pages-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-navigate-ui-pages-sequence"
+      },
+      "summary": "Sequence Diagram：切换 UI 页面主成功场景，用于解释 Use Case「切换 UI 页面」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case-navigate-ui-pages",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「切换 UI 页面」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「切换 UI 页面」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「切换 UI 页面」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:ui-route-codegraph-function-848f0c88cbd268d7f19882a555165c81"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_shell.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「切换 UI 页面」的主成功交互场景。",
+        "coverageBoundary": "覆盖「切换 UI 页面」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「切换 UI 页面」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:ui-route-codegraph-function-848f0c88cbd268d7f19882a555165c81"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_shell.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「切换 UI 页面」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「切换 UI 页面」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「切换 UI 页面」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_shell.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-navigate-ui-pages/sequences/sequence-use-case-navigate-ui-pages-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-navigate-ui-pages/sequences/sequence-use-case-navigate-ui-pages-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:user-interface",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:user-interface",
+      "source": {
+        "type": "model",
+        "id": "user-interface"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "user-interface"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 用户界面",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:user-interface:use-case-capture-screenshot",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:user-interface",
+      "targetId": "projection-node:design-use-case:use-case-capture-screenshot",
+      "source": {
+        "type": "model",
+        "id": "use-case-capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-capture-screenshot"
+      },
+      "confidence": "medium",
+      "summary": "user-interface contains 捕获屏幕截图"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor-outdoor-user:use-case-capture-screenshot:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor-outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case-capture-screenshot",
+      "source": {
+        "type": "model",
+        "id": "use-case-capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-capture-screenshot"
+      },
+      "confidence": "medium",
+      "summary": "actor-outdoor-user participates in 捕获屏幕截图",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:user-interface:use-case-navigate-ui-pages",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:user-interface",
+      "targetId": "projection-node:design-use-case:use-case-navigate-ui-pages",
+      "source": {
+        "type": "model",
+        "id": "use-case-navigate-ui-pages"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-navigate-ui-pages"
+      },
+      "confidence": "medium",
+      "summary": "user-interface contains 切换 UI 页面"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor-outdoor-user:use-case-navigate-ui-pages:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor-outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case-navigate-ui-pages",
+      "source": {
+        "type": "model",
+        "id": "use-case-navigate-ui-pages"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-navigate-ui-pages"
+      },
+      "confidence": "medium",
+      "summary": "actor-outdoor-user participates in 切换 UI 页面",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-capture-screenshot:activity:capture-screenshot",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-capture-screenshot",
+      "targetId": "projection-node:design-activity:activity:capture-screenshot",
+      "source": {
+        "type": "model",
+        "id": "activity:capture-screenshot"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:capture-screenshot"
+      },
+      "confidence": "medium",
+      "summary": "用户触发截图，系统读取帧缓冲区并保存为 PNG 文件。",
+      "metadata": {
+        "useCaseId": "use-case-capture-screenshot",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-capture-screenshot:sequence:capture-screenshot-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-capture-screenshot",
+      "targetId": "projection-node:design-sequence:sequence:capture-screenshot-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:capture-screenshot-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:capture-screenshot-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户在截图工具中触发截图，工具读取 LVGL 缓冲区并保存。",
+      "metadata": {
+        "useCaseId": "use-case-capture-screenshot",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-navigate-ui-pages:activity:use-case-navigate-ui-pages-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-navigate-ui-pages",
+      "targetId": "projection-node:design-activity:activity:use-case-navigate-ui-pages-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-navigate-ui-pages-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-navigate-ui-pages-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：切换 UI 页面，用于解释 Use Case「切换 UI 页面」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case-navigate-ui-pages",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-navigate-ui-pages:sequence:use-case-navigate-ui-pages-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-navigate-ui-pages",
+      "targetId": "projection-node:design-sequence:sequence:use-case-navigate-ui-pages-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-navigate-ui-pages-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-navigate-ui-pages-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：切换 UI 页面主成功场景，用于解释 Use Case「切换 UI 页面」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case-navigate-ui-pages",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:missing-user-stories",
+      "kind": "design_question",
+      "targetNodeIds": [],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "当前从代码恢复的候选用例可能不完整，请确认是否还有其他重要的用户操作场景未被覆盖。"
+    },
+    {
+      "id": "annotation:question:context-boundaries",
+      "kind": "design_question",
+      "targetNodeIds": [],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "硬件管理与通信服务之间的边界划分是否合理？是否需要将部分子用例拆分或合并？"
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

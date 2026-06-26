@@ -122,6 +122,7 @@ struct BoardProfile
         int backlight = -1;
         uint16_t tca8418 = 0;
         uint16_t xl9555 = 0;
+        uint16_t bq25896 = 0;
         int rows = 0;
         int columns = 0;
     };
@@ -240,6 +241,7 @@ inline constexpr BoardProfile makeBoardProfile()
     profile.keyboard.backlight = 47;
     profile.keyboard.tca8418 = 0x34;
     profile.keyboard.xl9555 = 0x20;
+    profile.keyboard.bq25896 = 0x6B;
     profile.keyboard.rows = 7;
     profile.keyboard.columns = 10;
 

@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>代码锚点：apps/linux_cardputer_zero</title></head>
+<body>
+<main class="praxis-architecture-map" data-praxis-anchor="architecture:c4:code:apps-linux_cardputer_zero" data-praxis-kind="architecture_c4_code" data-praxis-status="candidate" data-praxis-confidence="medium" data-praxis-document-path="docs/architecture/c4/code/apps-linux_cardputer_zero/code.html" data-praxis-drilldowns="[{&quot;id&quot;:&quot;architecture:c4:component:apps-linux_cardputer_zero&quot;,&quot;level&quot;:&quot;component&quot;,&quot;title&quot;:&quot;组件职责：apps/linux_cardputer_zero&quot;,&quot;summary&quot;:&quot;从 C4 Component 层解释 apps/linux_cardputer_zero 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/components/apps-linux_cardputer_zero/component.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/components/apps-linux_cardputer_zero/component.html&quot;,&quot;anchor&quot;:&quot;architecture:c4:component:apps-linux_cardputer_zero&quot;,&quot;relation&quot;:&quot;parent&quot;,&quot;reason&quot;:&quot;回到 组件职责：apps/linux_cardputer_zero 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。&quot;}]">
+  <header class="praxis-design-map-header">
+    <p>Praxis Architecture View</p>
+    <h1>代码锚点：apps/linux_cardputer_zero</h1>
+    <p>从 C4 Code 层解释 apps/linux_cardputer_zero 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。</p>
+    <div class="meta-row">
+      <span>Code</span>
+      <span>candidate / medium</span>
+      <span>0.1.30-alpha · 34aad0bffa2f / main</span>
+    </div>
+  </header>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:layer-path" data-praxis-kind="architecture_c4_list">
+    <h2>C4 层级路径</h2>
+    <ul>
+      <li>当前层：Code View，解释上层 Component 如何落到具体文件、函数、类、接口或组件锚点。</li>
+      <li>上层：Component，说明这些代码锚点共同服务的组件职责。</li>
+      <li>下层：无；继续理解细节时应回到 IDE、代码预览或软件结构模型，而不是把 Code View 当成完整源码浏览器。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:responsibility" data-praxis-kind="architecture_c4_text">
+    <h2>责任</h2>
+    <p>把 apps/linux_cardputer_zero 的架构组件进一步落到具体文件、函数、类、接口或组件锚点，帮助用户理解实现入口和变更影响面。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:boundary" data-praxis-kind="architecture_c4_text">
+    <h2>边界</h2>
+    <p>Code View 只展示必要锚点，不列全量源码；完整结构解释、代码片段和复杂度候选点仍应回到软件结构模型或 IDE 查看。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:relationships" data-praxis-kind="architecture_c4_list">
+    <h2>关系</h2>
+    <ul>
+      <li>CardputerZeroNotificationPort -&gt; apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67</li>
+      <li>CardputerZeroInputMethodPort -&gt; apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39</li>
+      <li>CardputerZeroNotificationPort::makeNotifyCall -&gt; apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64</li>
+      <li>safeString -&gt; apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38</li>
+      <li>NotificationUrgency -&gt; apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12</li>
+      <li>FreedesktopNotificationsContract -&gt; apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30</li>
+      <li>FreedesktopNotifyCall -&gt; apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55</li>
+      <li>urgencyHint -&gt; apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43</li>
+      <li>CardputerZeroInputMethodContract -&gt; apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10</li>
+      <li>cstdint -&gt; apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:business-relation" data-praxis-kind="architecture_c4_list">
+    <h2>与业务复杂度的关联</h2>
+    <ul>
+      <li>Code View 不是业务解释入口；它只在业务故事需要追溯到实现锚点时提供底层证据。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:engineering-relation" data-praxis-kind="architecture_c4_list">
+    <h2>与技术复杂度的关联</h2>
+    <ul>
+      <li>软件结构模型负责继续解释复用迹象、外部协作迹象、Sequence、复杂度候选点和代码证据预览。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer diagram-section" data-praxis-anchor="architecture:c4:diagram" data-praxis-kind="architecture_c4_diagram">
+    <h2>C4 Code View 图</h2>
+    <pre class="mermaid" data-praxis-anchor="architecture:c4:code:apps-linux_cardputer_zero:c4" data-praxis-c4-current-level="code" data-praxis-c4-layer-views="[{&quot;level&quot;:&quot;system_context&quot;,&quot;label&quot;:&quot;System Context&quot;,&quot;title&quot;:&quot;系统上下文：trail-mate&quot;,&quot;diagramTitle&quot;:&quot;C4 System Context 图&quot;,&quot;summary&quot;:&quot;System Context 只展示目标软件系统与外部人/系统的关系，不直接展开内部 Code；这里高亮的是“apps/linux_cardputer_zero”所属的软件系统边界。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/system-context/system-context.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/system-context/system-context.html&quot;,&quot;mermaid&quot;:&quot;flowchart LR\n  actor[\&quot;未命名外部参与者\&quot;]\n  system[\&quot;trail-mate\&quot;]\n  external[\&quot;未命名外部系统\&quot;]\n  actor --&gt;|使用 / 调用| system\n  system -.-&gt;|候选集成| external&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_cardputer_zero&quot;,&quot;apps/linux_cardputer_zero Container&quot;,&quot;apps/linux_cardputer_zero（系统内部 Container）&quot;,&quot;linux_cardputer_zero&quot;,&quot;trail-mate&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;container&quot;,&quot;label&quot;:&quot;Container&quot;,&quot;title&quot;:&quot;容器边界：apps/linux_cardputer_zero&quot;,&quot;diagramTitle&quot;:&quot;C4 Container 图&quot;,&quot;summary&quot;:&quot;切到 Container 层时，高亮会标出“apps/linux_cardputer_zero”在该层正式文档中的对应位置。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/containers/apps-linux_cardputer_zero/container.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/containers/apps-linux_cardputer_zero/container.html&quot;,&quot;mermaid&quot;:&quot;flowchart LR\n  container[\&quot;apps/linux_cardputer_zero\&quot;]\n  dependency_1[\&quot;apps/esp32_lvgl\&quot;]\n  container --&gt; dependency_1&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_cardputer_zero&quot;,&quot;apps/linux_cardputer_zero Container&quot;,&quot;apps/linux_cardputer_zero（系统内部 Container）&quot;,&quot;linux_cardputer_zero&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;component&quot;,&quot;label&quot;:&quot;Component&quot;,&quot;title&quot;:&quot;组件职责：apps/linux_cardputer_zero&quot;,&quot;diagramTitle&quot;:&quot;C4 Component 图&quot;,&quot;summary&quot;:&quot;切到 Component 层时，高亮会标出“apps/linux_cardputer_zero”在该层正式文档中的对应位置。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/components/apps-linux_cardputer_zero/component.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/components/apps-linux_cardputer_zero/component.html&quot;,&quot;mermaid&quot;:&quot;flowchart TB\n  container[\&quot;apps/linux_cardputer_zero Container\&quot;]\n  component_1[\&quot;CardputerZeroNotificationPort\&quot;]\n  container --&gt; component_1\n  component_2[\&quot;CardputerZeroInputMethodPort\&quot;]\n  container --&gt; component_2\n  component_3[\&quot;NotificationUrgency\&quot;]\n  container --&gt; component_3\n  component_4[\&quot;cardputer_zero_input_method_port\&quot;]\n  container --&gt; component_4\n  component_5[\&quot;cardputer_zero_notification_port\&quot;]\n  container --&gt; component_5&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_cardputer_zero&quot;,&quot;apps/linux_cardputer_zero Container&quot;,&quot;apps/linux_cardputer_zero（系统内部 Container）&quot;,&quot;linux_cardputer_zero&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;code&quot;,&quot;label&quot;:&quot;Code&quot;,&quot;title&quot;:&quot;代码锚点：apps/linux_cardputer_zero&quot;,&quot;diagramTitle&quot;:&quot;C4 Code View 图&quot;,&quot;summary&quot;:&quot;当前正在阅读 Code 层；下方正式图就是这一层的架构投影。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/code/apps-linux_cardputer_zero/code.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/code/apps-linux_cardputer_zero/code.html&quot;,&quot;mermaid&quot;:&quot;flowchart TB\n  package[\&quot;apps/linux_cardputer_zero\&quot;]\n  file_1[\&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h\&quot;]\n  code_1[\&quot;CardputerZeroNotificationPort\&quot;]\n  package --&gt; file_1\n  file_1 --&gt; code_1\n  file_2[\&quot;apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h\&quot;]\n  code_2[\&quot;CardputerZeroInputMethodPort\&quot;]\n  package --&gt; file_2\n  file_2 --&gt; code_2\n  file_3[\&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp\&quot;]\n  code_3[\&quot;CardputerZeroNotificationPort::makeNotifyCall\&quot;]\n  package --&gt; file_3\n  file_3 --&gt; code_3\n  file_4[\&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp\&quot;]\n  code_4[\&quot;safeString\&quot;]\n  package --&gt; file_4\n  file_4 --&gt; code_4\n  file_5[\&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h\&quot;]\n  code_5[\&quot;NotificationUrgency\&quot;]\n  package --&gt; file_5\n  file_5 --&gt; code_5\n  file_6[\&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h\&quot;]\n  code_6[\&quot;FreedesktopNotificationsContract\&quot;]\n  package --&gt; file_6\n  file_6 --&gt; code_6\n  file_7[\&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h\&quot;]\n  code_7[\&quot;FreedesktopNotifyCall\&quot;]\n  package --&gt; file_7\n  file_7 --&gt; code_7\n  file_8[\&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp\&quot;]\n  code_8[\&quot;urgencyHint\&quot;]\n  package --&gt; file_8\n  file_8 --&gt; code_8&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_cardputer_zero&quot;,&quot;apps/linux_cardputer_zero Container&quot;,&quot;apps/linux_cardputer_zero（系统内部 Container）&quot;,&quot;linux_cardputer_zero&quot;],&quot;current&quot;:true,&quot;missing&quot;:false}]">flowchart TB
+  package[&quot;apps/linux_cardputer_zero&quot;]
+  file_1[&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h&quot;]
+  code_1[&quot;CardputerZeroNotificationPort&quot;]
+  package --&gt; file_1
+  file_1 --&gt; code_1
+  file_2[&quot;apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h&quot;]
+  code_2[&quot;CardputerZeroInputMethodPort&quot;]
+  package --&gt; file_2
+  file_2 --&gt; code_2
+  file_3[&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp&quot;]
+  code_3[&quot;CardputerZeroNotificationPort::makeNotifyCall&quot;]
+  package --&gt; file_3
+  file_3 --&gt; code_3
+  file_4[&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp&quot;]
+  code_4[&quot;safeString&quot;]
+  package --&gt; file_4
+  file_4 --&gt; code_4
+  file_5[&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h&quot;]
+  code_5[&quot;NotificationUrgency&quot;]
+  package --&gt; file_5
+  file_5 --&gt; code_5
+  file_6[&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h&quot;]
+  code_6[&quot;FreedesktopNotificationsContract&quot;]
+  package --&gt; file_6
+  file_6 --&gt; code_6
+  file_7[&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h&quot;]
+  code_7[&quot;FreedesktopNotifyCall&quot;]
+  package --&gt; file_7
+  file_7 --&gt; code_7
+  file_8[&quot;apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp&quot;]
+  code_8[&quot;urgencyHint&quot;]
+  package --&gt; file_8
+  file_8 --&gt; code_8</pre>
+  </section>
+  <section class="semantic-layer architecture-c4-elements" data-praxis-anchor="architecture:c4:code:apps-linux_cardputer_zero:elements" data-praxis-kind="architecture_c4_elements">
+    <h2>图内元素解释</h2>
+    <div class="layer-grid">
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:class:cardputerzeronotificationport:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:67" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>CardputerZeroNotificationPort</h3>
+        <p>Code · medium</p>
+        <p>CardputerZeroNotificationPort 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>CardputerZeroNotificationPort 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>CardputerZeroNotificationPort 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:class:cardputerzeroinputmethodport:apps-linux_cardputer_zero-src-cardputer_zero_input_method_port.h:39" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>CardputerZeroInputMethodPort</h3>
+        <p>Code · medium</p>
+        <p>CardputerZeroInputMethodPort 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>CardputerZeroInputMethodPort 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>CardputerZeroInputMethodPort 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:function:cardputerzeronotificationport::makenotifycall:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.cpp:64" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>CardputerZeroNotificationPort::makeNotifyCall</h3>
+        <p>Code · medium</p>
+        <p>CardputerZeroNotificationPort::makeNotifyCall 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64；当前仓库证据显示它有 较强的外部协作/编排迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>CardputerZeroNotificationPort::makeNotifyCall 更像一个对外编排或聚合锚点：它从 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64 发出较多关系，改动时要优先检查它调用或引用的下游能力。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>CardputerZeroNotificationPort::makeNotifyCall 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:function:safestring:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.cpp:38" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>safeString</h3>
+        <p>Code · medium</p>
+        <p>safeString 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38；当前仓库证据显示它有 较强的被复用/被依赖迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>safeString 更像一个被复用或被依赖锚点：它在 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38 被多处关系指向，改动时要优先检查上游调用者和契约稳定性。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>safeString 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:enum:notificationurgency:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:12" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>NotificationUrgency</h3>
+        <p>Code · medium</p>
+        <p>NotificationUrgency 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>NotificationUrgency 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>NotificationUrgency 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:function:freedesktopnotificationscontract:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:30" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>FreedesktopNotificationsContract</h3>
+        <p>Code · medium</p>
+        <p>FreedesktopNotificationsContract 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FreedesktopNotificationsContract 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FreedesktopNotificationsContract 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:function:freedesktopnotifycall:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:55" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>FreedesktopNotifyCall</h3>
+        <p>Code · medium</p>
+        <p>FreedesktopNotifyCall 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FreedesktopNotifyCall 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FreedesktopNotifyCall 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:function:urgencyhint:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.cpp:43" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>urgencyHint</h3>
+        <p>Code · medium</p>
+        <p>urgencyHint 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>urgencyHint 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>urgencyHint 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:function:cardputerzeroinputmethodcontract:apps-linux_cardputer_zero-src-cardputer_zero_input_method_port.h:10" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>CardputerZeroInputMethodContract</h3>
+        <p>Code · medium</p>
+        <p>CardputerZeroInputMethodContract 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>CardputerZeroInputMethodContract 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>CardputerZeroInputMethodContract 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:function:cstdint:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:3" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>cstdint</h3>
+        <p>Code · medium</p>
+        <p>cstdint 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>cstdint 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>cstdint 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer architecture-c4-links" data-praxis-anchor="architecture:c4:drilldowns" data-praxis-kind="architecture_c4_links">
+    <h2>可下钻 C4</h2>
+    <div class="layer-grid">
+      <article class="layer-card document-entry-card" role="link" tabindex="0" data-praxis-anchor="architecture:c4:component:apps-linux_cardputer_zero" data-praxis-kind="architecture_c4_link" data-praxis-document-title="组件职责：apps/linux_cardputer_zero" data-praxis-document-summary="回到 组件职责：apps/linux_cardputer_zero 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。" data-praxis-document-md="docs/architecture/c4/components/apps-linux_cardputer_zero/component.md" data-praxis-document-html="docs/architecture/c4/components/apps-linux_cardputer_zero/component.html">
+        <strong>组件职责：apps/linux_cardputer_zero</strong>
+        <span>parent</span>
+        <p>回到 组件职责：apps/linux_cardputer_zero 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。</p>
+        <small>从 C4 Component 层解释 apps/linux_cardputer_zero 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。</small>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer architecture-c4-links" data-praxis-anchor="architecture:c4:engineering-links" data-praxis-kind="architecture_c4_links">
+    <h2>关联软件结构模型</h2>
+    <p>暂无。</p>
+
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:evidence" data-praxis-kind="architecture_c4_list">
+    <h2>证据</h2>
+    <ul>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67</li>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39</li>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64</li>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38</li>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12</li>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30</li>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55</li>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43</li>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10</li>
+      <li>apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:questions" data-praxis-kind="architecture_c4_list">
+    <h2>判定依据</h2>
+    <ul>
+      <li>Code View 只列少量能够追溯 Component 实现的文件/符号锚点；它不是源码浏览器，也不承载业务流程或完整类图。</li>
+    </ul>
+  </section>
+  <script type="application/json" id="praxis-architecture-c4-document">{"id":"architecture:c4:code:apps-linux_cardputer_zero","level":"code","title":"代码锚点：apps/linux_cardputer_zero","summary":"从 C4 Code 层解释 apps/linux_cardputer_zero 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。","docPath":"docs/architecture/c4/code/apps-linux_cardputer_zero/code.md","htmlPath":"docs/architecture/c4/code/apps-linux_cardputer_zero/code.html","anchor":"architecture:c4:code:apps-linux_cardputer_zero","status":"candidate","confidence":"medium","mermaid":"flowchart TB\n  package[\"apps/linux_cardputer_zero\"]\n  file_1[\"apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h\"]\n  code_1[\"CardputerZeroNotificationPort\"]\n  package --\u003e file_1\n  file_1 --\u003e code_1\n  file_2[\"apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h\"]\n  code_2[\"CardputerZeroInputMethodPort\"]\n  package --\u003e file_2\n  file_2 --\u003e code_2\n  file_3[\"apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp\"]\n  code_3[\"CardputerZeroNotificationPort::makeNotifyCall\"]\n  package --\u003e file_3\n  file_3 --\u003e code_3\n  file_4[\"apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp\"]\n  code_4[\"safeString\"]\n  package --\u003e file_4\n  file_4 --\u003e code_4\n  file_5[\"apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h\"]\n  code_5[\"NotificationUrgency\"]\n  package --\u003e file_5\n  file_5 --\u003e code_5\n  file_6[\"apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h\"]\n  code_6[\"FreedesktopNotificationsContract\"]\n  package --\u003e file_6\n  file_6 --\u003e code_6\n  file_7[\"apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h\"]\n  code_7[\"FreedesktopNotifyCall\"]\n  package --\u003e file_7\n  file_7 --\u003e code_7\n  file_8[\"apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp\"]\n  code_8[\"urgencyHint\"]\n  package --\u003e file_8\n  file_8 --\u003e code_8","responsibility":"把 apps/linux_cardputer_zero 的架构组件进一步落到具体文件、函数、类、接口或组件锚点，帮助用户理解实现入口和变更影响面。","boundary":"Code View 只展示必要锚点，不列全量源码；完整结构解释、代码片段和复杂度候选点仍应回到软件结构模型或 IDE 查看。","relationships":["CardputerZeroNotificationPort -\u003e apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67","CardputerZeroInputMethodPort -\u003e apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39","CardputerZeroNotificationPort::makeNotifyCall -\u003e apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64","safeString -\u003e apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38","NotificationUrgency -\u003e apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12","FreedesktopNotificationsContract -\u003e apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30","FreedesktopNotifyCall -\u003e apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55","urgencyHint -\u003e apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43","CardputerZeroInputMethodContract -\u003e apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10","cstdint -\u003e apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3"],"businessRelation":["Code View 不是业务解释入口；它只在业务故事需要追溯到实现锚点时提供底层证据。"],"engineeringRelation":["软件结构模型负责继续解释复用迹象、外部协作迹象、Sequence、复杂度候选点和代码证据预览。"],"evidencePaths":["apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67","apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39","apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64","apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38","apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12","apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30","apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55","apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43","apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10","apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3"],"questions":["Code View 只列少量能够追溯 Component 实现的文件/符号锚点；它不是源码浏览器，也不承载业务流程或完整类图。"],"scope":{"packageId":"apps/linux_cardputer_zero","filePath":"apps/linux_cardputer_zero"},"elements":[{"id":"architecture:c4:code-anchor:class:cardputerzeronotificationport:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:67","label":"CardputerZeroNotificationPort","level":"code","anchor":"architecture:c4:code-anchor:class:cardputerzeronotificationport:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:67","summary":"CardputerZeroNotificationPort 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"CardputerZeroNotificationPort 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"CardputerZeroNotificationPort 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:class:cardputerzeroinputmethodport:apps-linux_cardputer_zero-src-cardputer_zero_input_method_port.h:39","label":"CardputerZeroInputMethodPort","level":"code","anchor":"architecture:c4:code-anchor:class:cardputerzeroinputmethodport:apps-linux_cardputer_zero-src-cardputer_zero_input_method_port.h:39","summary":"CardputerZeroInputMethodPort 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"CardputerZeroInputMethodPort 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"CardputerZeroInputMethodPort 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:function:cardputerzeronotificationport::makenotifycall:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.cpp:64","label":"CardputerZeroNotificationPort::makeNotifyCall","level":"code","anchor":"architecture:c4:code-anchor:function:cardputerzeronotificationport::makenotifycall:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.cpp:64","summary":"CardputerZeroNotificationPort::makeNotifyCall 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64；当前仓库证据显示它有 较强的外部协作/编排迹象。","responsibility":"CardputerZeroNotificationPort::makeNotifyCall 更像一个对外编排或聚合锚点：它从 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64 发出较多关系，改动时要优先检查它调用或引用的下游能力。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"CardputerZeroNotificationPort::makeNotifyCall 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L64","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:function:safestring:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.cpp:38","label":"safeString","level":"code","anchor":"architecture:c4:code-anchor:function:safestring:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.cpp:38","summary":"safeString 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38；当前仓库证据显示它有 较强的被复用/被依赖迹象。","responsibility":"safeString 更像一个被复用或被依赖锚点：它在 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38 被多处关系指向，改动时要优先检查上游调用者和契约稳定性。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"safeString 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L38","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:enum:notificationurgency:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:12","label":"NotificationUrgency","level":"code","anchor":"architecture:c4:code-anchor:enum:notificationurgency:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:12","summary":"NotificationUrgency 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"NotificationUrgency 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"NotificationUrgency 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:function:freedesktopnotificationscontract:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:30","label":"FreedesktopNotificationsContract","level":"code","anchor":"architecture:c4:code-anchor:function:freedesktopnotificationscontract:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:30","summary":"FreedesktopNotificationsContract 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"FreedesktopNotificationsContract 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FreedesktopNotificationsContract 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L30","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:function:freedesktopnotifycall:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:55","label":"FreedesktopNotifyCall","level":"code","anchor":"architecture:c4:code-anchor:function:freedesktopnotifycall:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:55","summary":"FreedesktopNotifyCall 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"FreedesktopNotifyCall 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FreedesktopNotifyCall 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L55","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:function:urgencyhint:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.cpp:43","label":"urgencyHint","level":"code","anchor":"architecture:c4:code-anchor:function:urgencyhint:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.cpp:43","summary":"urgencyHint 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"urgencyHint 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"urgencyHint 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp#L43","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:function:cardputerzeroinputmethodcontract:apps-linux_cardputer_zero-src-cardputer_zero_input_method_port.h:10","label":"CardputerZeroInputMethodContract","level":"code","anchor":"architecture:c4:code-anchor:function:cardputerzeroinputmethodcontract:apps-linux_cardputer_zero-src-cardputer_zero_input_method_port.h:10","summary":"CardputerZeroInputMethodContract 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"CardputerZeroInputMethodContract 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"CardputerZeroInputMethodContract 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L10","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:function:cstdint:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:3","label":"cstdint","level":"code","anchor":"architecture:c4:code-anchor:function:cstdint:apps-linux_cardputer_zero-src-cardputer_zero_notification_port.h:3","summary":"cstdint 是 apps/linux_cardputer_zero 的关键代码锚点，位置为 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"cstdint 是一个局部实现锚点：它把上层组件职责落到 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_cardputer_zero 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"cstdint 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L3","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]}],"drilldowns":[{"id":"architecture:c4:component:apps-linux_cardputer_zero","level":"component","title":"组件职责：apps/linux_cardputer_zero","summary":"从 C4 Component 层解释 apps/linux_cardputer_zero 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。","docPath":"docs/architecture/c4/components/apps-linux_cardputer_zero/component.md","htmlPath":"docs/architecture/c4/components/apps-linux_cardputer_zero/component.html","anchor":"architecture:c4:component:apps-linux_cardputer_zero","relation":"parent","reason":"回到 组件职责：apps/linux_cardputer_zero 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。"}],"relatedEngineeringDocs":[]}</script>
+</main>
+</body>
+</html>

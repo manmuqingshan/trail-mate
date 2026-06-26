@@ -1,0 +1,834 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:settings",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T13:58:33.932Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "context:trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:trail-mate-system"
+      },
+      "summary": "跨平台野外通信和组成员追踪系统，支持多种硬件设备（ESP32、nRF52、Linux）和应用（桌面GTK、模拟器、Cardputer零）。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖所有业务目标：通信、位置共享、地图导航、设备管理、系统设置。",
+        "responsibility": "为徒步者、野外工作者提供离线通信、团队追踪、地图查看和硬件管理能力。",
+        "businessTerms": [
+          "聊天消息",
+          "团队成员",
+          "无线电",
+          "GPS",
+          "地图瓦片",
+          "电池",
+          "SD卡",
+          "屏幕休眠"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:context:settings",
+      "kind": "design_context",
+      "label": "系统设置与配置",
+      "source": {
+        "type": "model",
+        "id": "context:settings"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:settings"
+      },
+      "summary": "管理系统层面的参数，如用户信息、网络限制、隐私设置、消息通知方式等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "context:trail-mate-system",
+        "scope": "覆盖系统级配置项，包括用户个人信息、网络参数、隐私选项以及通知声音/振动设置。",
+        "responsibility": "允许用户根据个人偏好和实际环境调整系统行为。",
+        "businessTerms": [
+          "设置",
+          "用户信息",
+          "网络限制",
+          "隐私",
+          "通知"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:hiker",
+      "kind": "design_actor",
+      "label": "徒步者",
+      "source": {
+        "type": "model",
+        "id": "actor:hiker"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:hiker"
+      },
+      "summary": "使用 Trail Mate 设备进行野外通信和定位的最终用户。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:admin",
+      "kind": "design_actor",
+      "label": "管理员",
+      "source": {
+        "type": "model",
+        "id": "actor:admin"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:admin"
+      },
+      "summary": "负责设备初始化配置和高级网络参数的设置者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "role"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:manage-system-settings",
+      "kind": "design_use_case",
+      "label": "管理系统设置",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-system-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-system-settings"
+      },
+      "summary": "查看和修改系统级参数，包括用户信息、网络限制、隐私选项和通知偏好。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-26e98b9a136cf454acaf45547c16e72a",
+          "codegraph:function-991cd1fd6dc709193e7a7db23c635fcb",
+          "codegraph:function-7cb2c660fbfc61e1888e9d1547af3518"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:settings",
+        "trigger": "用户进入设置页面。",
+        "primaryActorIds": [
+          "actor:admin",
+          "actor:hiker"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-26e98b9a136cf454acaf45547c16e72a",
+          "behavior-slice:ui-route-codegraph-function-991cd1fd6dc709193e7a7db23c635fcb",
+          "behavior-slice:ui-route-codegraph-function-7cb2c660fbfc61e1888e9d1547af3518"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:configure-radio-settings",
+      "kind": "design_use_case",
+      "label": "配置无线电网络参数",
+      "source": {
+        "type": "model",
+        "id": "use-case:configure-radio-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:configure-radio-settings"
+      },
+      "summary": "设置 Meshtastic 或自定义无线电网络的节点ID、频道密钥、功率限制等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:settings",
+        "trigger": "设备首次启动或需要更改网络配置时。",
+        "primaryActorIds": [
+          "actor:admin"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-manage-system-settings-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：管理系统设置",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-manage-system-settings-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-manage-system-settings-activity"
+      },
+      "summary": "Activity Diagram：管理系统设置，用于解释 Use Case「管理系统设置」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:manage-system-settings",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「管理系统设置」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「管理系统设置」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「管理系统设置」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「管理系统设置」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「管理系统设置」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「管理系统设置」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「管理系统设置」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「管理系统设置」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「管理系统设置」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-system-settings/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-system-settings/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-manage-system-settings-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：管理系统设置主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-manage-system-settings-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-manage-system-settings-sequence"
+      },
+      "summary": "Sequence Diagram：管理系统设置主成功场景，用于解释 Use Case「管理系统设置」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:manage-system-settings",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「管理系统设置」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]"
+          ],
+          "boundary": "覆盖「管理系统设置」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「管理系统设置」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「管理系统设置」的主成功交互场景。",
+        "coverageBoundary": "覆盖「管理系统设置」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「管理系统设置」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「管理系统设置」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「管理系统设置」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「管理系统设置」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-system-settings/sequences/sequence-use-case-manage-system-settings-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-system-settings/sequences/sequence-use-case-manage-system-settings-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-configure-radio-settings-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：配置无线电网络参数",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-configure-radio-settings-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-configure-radio-settings-activity"
+      },
+      "summary": "Activity Diagram：配置无线电网络参数，用于解释 Use Case「配置无线电网络参数」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:configure-radio-settings",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「配置无线电网络参数」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「配置无线电网络参数」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「配置无线电网络参数」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L349"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「配置无线电网络参数」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「配置无线电网络参数」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「配置无线电网络参数」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L349"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「配置无线电网络参数」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「配置无线电网络参数」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「配置无线电网络参数」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L349。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/configure-radio-settings/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/configure-radio-settings/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-configure-radio-settings-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：配置无线电网络参数主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-configure-radio-settings-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-configure-radio-settings-sequence"
+      },
+      "summary": "Sequence Diagram：配置无线电网络参数主成功场景，用于解释 Use Case「配置无线电网络参数」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:configure-radio-settings",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「配置无线电网络参数」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]"
+          ],
+          "boundary": "覆盖「配置无线电网络参数」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「配置无线电网络参数」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L349"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「配置无线电网络参数」的主成功交互场景。",
+        "coverageBoundary": "覆盖「配置无线电网络参数」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「配置无线电网络参数」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L349"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「配置无线电网络参数」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「配置无线电网络参数」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「配置无线电网络参数」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L349。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/configure-radio-settings/sequences/sequence-use-case-configure-radio-settings-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/configure-radio-settings/sequences/sequence-use-case-configure-radio-settings-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:trail-mate-system:context:settings",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:trail-mate-system",
+      "targetId": "projection-node:design-context:context:settings",
+      "source": {
+        "type": "model",
+        "id": "context:settings"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:settings"
+      },
+      "confidence": "high",
+      "summary": "context:trail-mate-system contains 系统设置与配置",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:settings:use-case:manage-system-settings",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:settings",
+      "targetId": "projection-node:design-use-case:use-case:manage-system-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-system-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-system-settings"
+      },
+      "confidence": "high",
+      "summary": "context:settings contains 管理系统设置"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:admin:use-case:manage-system-settings:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:admin",
+      "targetId": "projection-node:design-use-case:use-case:manage-system-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-system-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-system-settings"
+      },
+      "confidence": "high",
+      "summary": "actor:admin participates in 管理系统设置",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:hiker:use-case:manage-system-settings:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:hiker",
+      "targetId": "projection-node:design-use-case:use-case:manage-system-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-system-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-system-settings"
+      },
+      "confidence": "high",
+      "summary": "actor:hiker participates in 管理系统设置",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:settings:use-case:configure-radio-settings",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:settings",
+      "targetId": "projection-node:design-use-case:use-case:configure-radio-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:configure-radio-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:configure-radio-settings"
+      },
+      "confidence": "high",
+      "summary": "context:settings contains 配置无线电网络参数"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:admin:use-case:configure-radio-settings:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:admin",
+      "targetId": "projection-node:design-use-case:use-case:configure-radio-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:configure-radio-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:configure-radio-settings"
+      },
+      "confidence": "high",
+      "summary": "actor:admin participates in 配置无线电网络参数",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-relation:relation:use-case-manage-system-settings-includes-configure-radio-settings",
+      "kind": "includes",
+      "sourceId": "projection-node:design-use-case:use-case:manage-system-settings",
+      "targetId": "projection-node:design-use-case:use-case:configure-radio-settings",
+      "source": {
+        "type": "model",
+        "id": "relation:use-case-manage-system-settings-includes-configure-radio-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-system-settings"
+      },
+      "confidence": "medium",
+      "summary": "配置无线电参数是系统设置中的一个子部分。",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": []
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-system-settings:activity:use-case-manage-system-settings-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-system-settings",
+      "targetId": "projection-node:design-activity:activity:use-case-manage-system-settings-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-manage-system-settings-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-manage-system-settings-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：管理系统设置，用于解释 Use Case「管理系统设置」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:manage-system-settings",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-system-settings:sequence:use-case-manage-system-settings-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-system-settings",
+      "targetId": "projection-node:design-sequence:sequence:use-case-manage-system-settings-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-manage-system-settings-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-manage-system-settings-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：管理系统设置主成功场景，用于解释 Use Case「管理系统设置」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:manage-system-settings",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:configure-radio-settings:activity:use-case-configure-radio-settings-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:configure-radio-settings",
+      "targetId": "projection-node:design-activity:activity:use-case-configure-radio-settings-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-configure-radio-settings-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-configure-radio-settings-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：配置无线电网络参数，用于解释 Use Case「配置无线电网络参数」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:configure-radio-settings",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:configure-radio-settings:sequence:use-case-configure-radio-settings-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:configure-radio-settings",
+      "targetId": "projection-node:design-sequence:sequence:use-case-configure-radio-settings-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-configure-radio-settings-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-configure-radio-settings-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：配置无线电网络参数主成功场景，用于解释 Use Case「配置无线电网络参数」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:configure-radio-settings",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

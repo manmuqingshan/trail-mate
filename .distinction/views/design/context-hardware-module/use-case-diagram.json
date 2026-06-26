@@ -1,0 +1,818 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:hardware-module",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T09:32:40.935Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "context:trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:trail-mate-system"
+      },
+      "summary": "一款为户外徒步团队提供离线通信、位置共享和团队协作的嵌入式设备软件系统。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "涵盖聊天、联系人、地图、团队、配置和硬件监控等所有面向用户的功能。",
+        "responsibility": "提供用户在无网络环境下进行通信、定位和协作的能力。",
+        "businessTerms": [
+          "设备",
+          "节点",
+          "团队",
+          "消息",
+          "位置"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:context:hardware-module",
+      "kind": "design_context",
+      "label": "硬件监控",
+      "source": {
+        "type": "model",
+        "id": "context:hardware-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:hardware-module"
+      },
+      "summary": "显示设备硬件状态，如电池、GPS 信号等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "context:trail-mate-system",
+        "scope": "提供诊断信息，帮助用户了解设备运行状况。",
+        "responsibility": "辅助用户判断设备是否正常工作。",
+        "businessTerms": [
+          "电池",
+          "信号",
+          "状态"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:user",
+      "kind": "design_actor",
+      "label": "用户（徒步者）",
+      "source": {
+        "type": "model",
+        "id": "actor:user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:user"
+      },
+      "summary": "使用设备进行通信、导航和团队协作的户外活动参与者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-device-overview",
+      "kind": "design_use_case",
+      "label": "查看设备概览",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-device-overview"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-device-overview"
+      },
+      "summary": "用户查看设备的整体运行状态，包括电池电量、GPS 信号强度等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:import-f76742e1f784c0508fe3a8d8ff87e368"
+        ],
+        "evidenceCount": 1,
+        "questions": [
+          "设备概览包含哪些具体指标？"
+        ],
+        "contextId": "context:hardware-module",
+        "trigger": "用户打开设备概览页面。",
+        "primaryActorIds": [
+          "actor:user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:view-device-overview-activity",
+      "kind": "design_activity",
+      "label": "查看设备概览的活动流程",
+      "source": {
+        "type": "model",
+        "id": "activity:view-device-overview-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-device-overview-activity"
+      },
+      "summary": "用户打开概览页面，系统采集各种状态并显示。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:view-device-overview",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功路径。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..3]"
+          ],
+          "boundary": "从用户导航到概览页面到状态显示完成。",
+          "notCovered": [
+            "具体状态采集实现"
+          ],
+          "rationale": "需要解释设备概览的数据采集流程。",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp::update"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功路径。",
+        "coverageBoundary": "从用户导航到概览页面到状态显示完成。",
+        "coverageRationale": "需要解释设备概览的数据采集流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..3]"
+        ],
+        "notCovered": [
+          "具体状态采集实现"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp::update"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "用户想知道设备是否正常工作，例如电池余量、GPS 信号强度。",
+          "uml": "活动图从用户导航开始，系统并行或顺序采集各项状态，最后汇总显示。",
+          "design": "采用简单的顺序采集方式，不涉及复杂架构。",
+          "implementation": "具体实现在 overview_logic.cpp 中，调用各种板级接口获取数据。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-device-overview/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-device-overview/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-view-device-overview-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：查看设备概览主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-device-overview-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-device-overview-sequence"
+      },
+      "summary": "Sequence Diagram：查看设备概览主成功场景，用于解释 Use Case「查看设备概览」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；当前没有足够代码关系证据，不能当作已完成的代码事实解释。"
+        ],
+        "useCaseId": "use-case:view-device-overview",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看设备概览」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「查看设备概览」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「查看设备概览」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看设备概览」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看设备概览」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「查看设备概览」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看设备概览」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看设备概览」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「查看设备概览」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-device-overview/sequences/sequence-use-case-view-device-overview-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-device-overview/sequences/sequence-use-case-view-device-overview-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-class-collaboration:class-collaboration:use-case-view-device-overview-class-collaboration",
+      "kind": "design_class_collaboration",
+      "label": "Class / Structural Collaboration Diagram：查看设备概览",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-view-device-overview-class-collaboration"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-view-device-overview-class-collaboration"
+      },
+      "summary": "Class / Structural Collaboration Diagram：查看设备概览，用于解释 Use Case「查看设备概览」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；当前没有足够代码关系证据，不能当作已完成的代码事实解释。"
+        ],
+        "useCaseId": "use-case:view-device-overview",
+        "diagramKind": "class_collaboration",
+        "coverage": {
+          "scenario": "解释 Use Case「查看设备概览」的结构协作和设计承载关系。",
+          "coveredUseCaseFlows": [
+            "structural collaboration slice for this Use Case"
+          ],
+          "boundary": "覆盖「查看设备概览」实现该故事所需的结构协作切片，不是全量类图。",
+          "notCovered": [
+            "全量类图",
+            "目录结构图",
+            "没有 Use Case 解释价值的 DTO/Mapper/Repository 堆叠"
+          ],
+          "rationale": "需要用 Class / Structural Collaboration Diagram 检查「查看设备概览」由哪些结构角色和设计关系承载。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "仓库全量类图",
+              "无 Use Case 职责解释价值的技术类"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看设备概览」的结构协作和设计承载关系。",
+        "coverageBoundary": "覆盖「查看设备概览」实现该故事所需的结构协作切片，不是全量类图。",
+        "coverageRationale": "需要用 Class / Structural Collaboration Diagram 检查「查看设备概览」由哪些结构角色和设计关系承载。",
+        "coveredUseCaseFlows": [
+          "structural collaboration slice for this Use Case"
+        ],
+        "notCovered": [
+          "全量类图",
+          "目录结构图",
+          "没有 Use Case 解释价值的 DTO/Mapper/Repository 堆叠"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "仓库全量类图",
+            "无 Use Case 职责解释价值的技术类"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Class / Structural Collaboration Diagram 说明「查看设备概览」由哪些结构角色承载，以及这些角色为什么足以解释该业务能力。",
+          "uml": "读图时重点看类/接口承担的结构职责、依赖方向、接口实现、策略选择和端口适配关系；该图不是全量类图，也不是目录结构图。",
+          "design": "设计上，这张图用于解释「查看设备概览」背后的结构承载方式：应用服务如何编排，领域对象/服务承载哪些规则，接口/端口如何隔离外部系统，是否存在策略、工厂、端口适配器、状态或规格等模式。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-device-overview/realization/class-collaboration.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-device-overview/realization/class-collaboration.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:trail-mate-system:context:hardware-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:trail-mate-system",
+      "targetId": "projection-node:design-context:context:hardware-module",
+      "source": {
+        "type": "model",
+        "id": "context:hardware-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:hardware-module"
+      },
+      "confidence": "medium",
+      "summary": "context:trail-mate-system contains 硬件监控",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:hardware-module:use-case:view-device-overview",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:hardware-module",
+      "targetId": "projection-node:design-use-case:use-case:view-device-overview",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-device-overview"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-device-overview"
+      },
+      "confidence": "medium",
+      "summary": "context:hardware-module contains 查看设备概览"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:user:use-case:view-device-overview:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-device-overview",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-device-overview"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-device-overview"
+      },
+      "confidence": "medium",
+      "summary": "actor:user participates in 查看设备概览",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-device-overview:activity:view-device-overview-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-device-overview",
+      "targetId": "projection-node:design-activity:activity:view-device-overview-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:view-device-overview-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-device-overview-activity"
+      },
+      "confidence": "medium",
+      "summary": "用户打开概览页面，系统采集各种状态并显示。",
+      "metadata": {
+        "useCaseId": "use-case:view-device-overview",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-device-overview:sequence:use-case-view-device-overview-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-device-overview",
+      "targetId": "projection-node:design-sequence:sequence:use-case-view-device-overview-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-device-overview-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-device-overview-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：查看设备概览主成功场景，用于解释 Use Case「查看设备概览」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-device-overview",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-device-overview:class-collaboration:use-case-view-device-overview-class-collaboration",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-device-overview",
+      "targetId": "projection-node:design-class-collaboration:class-collaboration:use-case-view-device-overview-class-collaboration",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-view-device-overview-class-collaboration"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-view-device-overview-class-collaboration"
+      },
+      "confidence": "medium",
+      "summary": "Class / Structural Collaboration Diagram：查看设备概览，用于解释 Use Case「查看设备概览」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-device-overview",
+        "diagramKind": "class_collaboration"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:chat-media-support",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:send-text-message"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "聊天是否支持图片、位置等富媒体消息？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      }
+    },
+    {
+      "id": "annotation:question:team-location-interval",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:view-team-locations"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队位置更新频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-team-locations"
+      }
+    },
+    {
+      "id": "annotation:question:team-creation",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:join-team"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队是由创始人创建还是自动发现形成？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:join-team"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "地图数据是预装还是 Wi‑Fi 下载？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "缩放级别范围是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "标记点数据如何管理？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "航迹数据保存格式和策略是什么？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持多段航迹合并？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "轨迹点采样频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "支持的 SSTV 模式有哪些（Scottie, Martin, Robot 等）？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "发送时需要选择频率和模式吗？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持通过 mesh 网络转发 SSTV 图像给队友？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要低电量自动提醒？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "功耗历史数据保留多长时间？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持太阳能充电状态显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要支持多个轨迹的叠加显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "导航时是否激发声音或视觉偏离警告？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "路线文件的来源是否包括通过 mesh 网络接收？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-story-intake:1782379621985",
+    "design-story-intake:1782379321376",
+    "design-story-intake:1782379952549",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

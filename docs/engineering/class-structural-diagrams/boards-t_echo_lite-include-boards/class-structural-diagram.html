@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>结构协作：结构切片 boards · t_echo_lite/include/boards</title>
+</head>
+<body>
+<main class="praxis-engineering-map" data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_class_structural_diagram" data-praxis-status="candidate" data-praxis-confidence="high" data-praxis-document-path="docs/engineering/class-structural-diagrams/boards-t_echo_lite-include-boards/class-structural-diagram.html" data-praxis-drilldowns="[{&quot;id&quot;:&quot;engineering:diagram:component:boards-makeboardprofile&quot;,&quot;kind&quot;:&quot;component&quot;,&quot;title&quot;:&quot;函数节点：makeBoardProfile&quot;,&quot;summary&quot;:&quot;function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L188，协调多个外部对象或能力，用于解释技术协作和变更影响面。&quot;,&quot;docPath&quot;:&quot;docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.html&quot;,&quot;anchor&quot;:&quot;engineering:component:function:makeboardprofile:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:188&quot;,&quot;relation&quot;:&quot;realized_by&quot;,&quot;reason&quot;:&quot;打开 函数节点：makeBoardProfile 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。&quot;},{&quot;id&quot;:&quot;engineering:diagram:component:boards-pinnum&quot;,&quot;kind&quot;:&quot;component&quot;,&quot;title&quot;:&quot;函数节点：pinNum&quot;,&quot;summary&quot;:&quot;function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L8，被多个对象复用或依赖，用于解释技术协作和变更影响面。&quot;,&quot;docPath&quot;:&quot;docs/engineering/component-diagrams/boards-pinnum/component-diagram.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/component-diagrams/boards-pinnum/component-diagram.html&quot;,&quot;anchor&quot;:&quot;engineering:component:function:pinnum:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:8&quot;,&quot;relation&quot;:&quot;realized_by&quot;,&quot;reason&quot;:&quot;打开 函数节点：pinNum 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。&quot;},{&quot;id&quot;:&quot;engineering:diagram:technical-hotspot:dependency-cluster--boards&quot;,&quot;kind&quot;:&quot;technical_hotspot&quot;,&quot;title&quot;:&quot;依赖簇：boards 技术热点&quot;,&quot;summary&quot;:&quot;该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。&quot;,&quot;docPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html&quot;,&quot;anchor&quot;:&quot;engineering:hotspot:dependency-cluster:boards&quot;,&quot;relation&quot;:&quot;risk_detail&quot;,&quot;reason&quot;:&quot;查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。&quot;}]">
+  <header class="praxis-design-map-header">
+    <p>Praxis Software Structure Model</p>
+    <h1>结构协作：结构切片 boards · t_echo_lite/include/boards</h1>
+    <p>解释 boards/t_echo_lite/include/boards 这一结构切片中类、接口、组件或值对象如何共同承担结构切片 boards中的结构职责；候选对象包括 TEchoLiteBoard、Sx1262RadioPacketIo、TEchoLiteBoard::I2cGuard、GpsRuntime、Module。</p>
+    <div class="meta-row">
+      <span>Class / Structural Diagrams</span>
+      <span>candidate / high</span>
+      <span>0.1.0 · 34aad0bffa2f / main</span>
+    </div>
+  </header>
+  <section class="semantic-layer" data-praxis-anchor="engineering:reading-guide" data-praxis-kind="engineering_document_section">
+    <h2>图的读法</h2>
+    <ul>
+      <li>这张 Class / Structural Diagram 聚焦 boards/t_echo_lite/include/boards 这一结构切片，而不是整个 boards 顶层目录。</li>
+      <li>它只放入类、接口、枚举或结构类型；方法级高引用对象会进入 Component/Hotspot，不再混入结构协作图。</li>
+      <li>候选语境是「结构切片 boards」。读图时先确认这些对象是否共同承载同一个业务能力、共享支撑机制或适配边界。</li>
+      <li>图中已绘制 2 条类级关系，主要来自继承、接口实现、创建或引用证据。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:technical-analysis" data-praxis-kind="engineering_document_section">
+    <h2>技术复杂度分析</h2>
+    <ul>
+      <li>boards/t_echo_lite/include/boards 当前包含 12 个类/结构和 0 个接口/trait 候选对象。</li>
+      <li>当前观察到 2 条类级结构关系。</li>
+      <li>这张图的解释目标是结构职责和边界：哪些对象像领域模型、哪些对象像接口契约、哪些对象像策略/适配器或共享支撑。</li>
+      <li>如果图中对象只是同目录但没有共同业务语境或结构关系，生成流程必须拆分或降级为 Component/Hotspot，而不是继续保留为 Class / Structural Diagram。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:business-relation" data-praxis-kind="engineering_document_section">
+    <h2>与业务复杂度的关联</h2>
+    <ul>
+      <li>该图候选关联「结构切片 boards」，应该回连到组织/过程模型中对应 Use Case 的 Class Collaboration、Activity 或 Sequence 下钻图。</li>
+      <li>软件结构模型不能只说“这里有很多类”，而要说明这些类如何让业务变化更容易或更困难。</li>
+      <li>候选对象包括：TEchoLiteBoard、Sx1262RadioPacketIo、TEchoLiteBoard::I2cGuard、GpsRuntime、Module、SX1262。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:governance-notes" data-praxis-kind="engineering_document_section">
+    <h2>治理建议</h2>
+    <ul>
+      <li>不要把顶层 layer、目录名或关系数量当作结构图的解释对象；结构图必须围绕可命名的业务/技术语境。</li>
+      <li>当某个对象脱离当前语境、没有关系说明或只是高引用工具类时，应从该图移除，转入 Component/Hotspot 或共享支撑切片。</li>
+      <li>变更 boards/t_echo_lite/include/boards 时，同步维护它和相关 Use Case、Component、Sequence 的引用关系。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer diagram-section" data-praxis-anchor="engineering:diagram-body" data-praxis-kind="engineering_diagram_body">
+    <h2>UML / 技术图</h2>
+    <pre class="mermaid" data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards:uml" data-praxis-kind="engineering_class_structural_uml" data-praxis-drilldowns="[{&quot;id&quot;:&quot;engineering:diagram:component:boards-makeboardprofile&quot;,&quot;kind&quot;:&quot;component&quot;,&quot;title&quot;:&quot;函数节点：makeBoardProfile&quot;,&quot;summary&quot;:&quot;function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L188，协调多个外部对象或能力，用于解释技术协作和变更影响面。&quot;,&quot;docPath&quot;:&quot;docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.html&quot;,&quot;anchor&quot;:&quot;engineering:component:function:makeboardprofile:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:188&quot;,&quot;relation&quot;:&quot;realized_by&quot;,&quot;reason&quot;:&quot;打开 函数节点：makeBoardProfile 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。&quot;},{&quot;id&quot;:&quot;engineering:diagram:component:boards-pinnum&quot;,&quot;kind&quot;:&quot;component&quot;,&quot;title&quot;:&quot;函数节点：pinNum&quot;,&quot;summary&quot;:&quot;function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L8，被多个对象复用或依赖，用于解释技术协作和变更影响面。&quot;,&quot;docPath&quot;:&quot;docs/engineering/component-diagrams/boards-pinnum/component-diagram.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/component-diagrams/boards-pinnum/component-diagram.html&quot;,&quot;anchor&quot;:&quot;engineering:component:function:pinnum:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:8&quot;,&quot;relation&quot;:&quot;realized_by&quot;,&quot;reason&quot;:&quot;打开 函数节点：pinNum 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。&quot;},{&quot;id&quot;:&quot;engineering:diagram:technical-hotspot:dependency-cluster--boards&quot;,&quot;kind&quot;:&quot;technical_hotspot&quot;,&quot;title&quot;:&quot;依赖簇：boards 技术热点&quot;,&quot;summary&quot;:&quot;该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。&quot;,&quot;docPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html&quot;,&quot;anchor&quot;:&quot;engineering:hotspot:dependency-cluster:boards&quot;,&quot;relation&quot;:&quot;risk_detail&quot;,&quot;reason&quot;:&quot;查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。&quot;}]">classDiagram
+  class TEchoLiteBoard[&quot;TEchoLiteBoard&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class Sx1262RadioPacketIo[&quot;Sx1262RadioPacketIo&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class TEchoLiteBoard_I2cGuard[&quot;TEchoLiteBoard  I2cGuard&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class GpsRuntime[&quot;GpsRuntime&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class Module[&quot;Module&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class SX1262[&quot;SX1262&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class TwoWire[&quot;TwoWire&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class GpsRuntime_2[&quot;GpsRuntime&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class InputRuntime[&quot;InputRuntime&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class InputRuntime_2[&quot;InputRuntime&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class IRadioPacketIo[&quot;IRadioPacketIo&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  class MonoDisplay[&quot;MonoDisplay&quot;] {
+    &lt;&lt;class&gt;&gt;
+  }
+  TEchoLiteBoard --|&gt; TwoWire : 继承
+  TEchoLiteBoard_I2cGuard --|&gt; TEchoLiteBoard : 继承</pre>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:coverage" data-praxis-kind="engineering_document_section">
+    <h2>覆盖范围</h2>
+    <ul>
+      <li>结构切片：boards/t_echo_lite/include/boards</li>
+      <li>候选业务/技术语境：结构切片 boards</li>
+      <li>所属工程边界：boards</li>
+      <li>候选结构对象数：12</li>
+      <li>候选结构关系数：2</li>
+      <li>对象：TEchoLiteBoard (class)</li>
+      <li>对象：Sx1262RadioPacketIo (class)</li>
+      <li>对象：TEchoLiteBoard::I2cGuard (class)</li>
+      <li>对象：GpsRuntime (class)</li>
+      <li>对象：Module (class)</li>
+      <li>对象：SX1262 (class)</li>
+      <li>对象：TwoWire (class)</li>
+      <li>对象：GpsRuntime (class)</li>
+    </ul>
+  </section>
+  <section class="semantic-layer engineering-element-drilldowns" data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards:element-drilldowns" data-praxis-kind="engineering_element_drilldown_index">
+    <h2>图内语义元素下钻</h2>
+    <ol>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="TEchoLiteBoard" data-praxis-drilldowns="[]">
+        <strong>TEchoLiteBoard</strong>
+        <span>component</span>
+        <p>TEchoLiteBoard 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 TEchoLiteBoard 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>TEchoLiteBoard 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 TEchoLiteBoard 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L83</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="Sx1262RadioPacketIo" data-praxis-drilldowns="[]">
+        <strong>Sx1262RadioPacketIo</strong>
+        <span>component</span>
+        <p>Sx1262RadioPacketIo 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 Sx1262RadioPacketIo 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>Sx1262RadioPacketIo 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 Sx1262RadioPacketIo 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L13</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="TEchoLiteBoard_I2cGuard" data-praxis-drilldowns="[]">
+        <strong>TEchoLiteBoard::I2cGuard</strong>
+        <span>component</span>
+        <p>TEchoLiteBoard::I2cGuard 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 TEchoLiteBoard::I2cGuard 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>TEchoLiteBoard::I2cGuard 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 TEchoLiteBoard::I2cGuard 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L86</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="GpsRuntime" data-praxis-drilldowns="[]">
+        <strong>GpsRuntime</strong>
+        <span>component</span>
+        <p>GpsRuntime 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/gps_runtime.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 GpsRuntime 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>GpsRuntime 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 GpsRuntime 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/gps_runtime.h#L13</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="Module" data-praxis-drilldowns="[]">
+        <strong>Module</strong>
+        <span>component</span>
+        <p>Module 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 Module 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>Module 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 Module 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L7</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="SX1262" data-praxis-drilldowns="[]">
+        <strong>SX1262</strong>
+        <span>component</span>
+        <p>SX1262 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 SX1262 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>SX1262 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 SX1262 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L8</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="TwoWire" data-praxis-drilldowns="[]">
+        <strong>TwoWire</strong>
+        <span>component</span>
+        <p>TwoWire 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 TwoWire 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>TwoWire 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 TwoWire 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L13</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="GpsRuntime" data-praxis-drilldowns="[]">
+        <strong>GpsRuntime</strong>
+        <span>component</span>
+        <p>GpsRuntime 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 GpsRuntime 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>GpsRuntime 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 GpsRuntime 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L28</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="InputRuntime" data-praxis-drilldowns="[]">
+        <strong>InputRuntime</strong>
+        <span>component</span>
+        <p>InputRuntime 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/input_runtime.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 InputRuntime 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>InputRuntime 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 InputRuntime 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/input_runtime.h#L10</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="InputRuntime" data-praxis-drilldowns="[]">
+        <strong>InputRuntime</strong>
+        <span>component</span>
+        <p>InputRuntime 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 InputRuntime 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>InputRuntime 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 InputRuntime 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L29</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="IRadioPacketIo" data-praxis-drilldowns="[]">
+        <strong>IRadioPacketIo</strong>
+        <span>component</span>
+        <p>IRadioPacketIo 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 IRadioPacketIo 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>IRadioPacketIo 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 IRadioPacketIo 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L22</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+      <li data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="MonoDisplay" data-praxis-drilldowns="[]">
+        <strong>MonoDisplay</strong>
+        <span>component</span>
+        <p>MonoDisplay 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
+          <div><dt>为什么出现</dt><dd>它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
+          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻 MonoDisplay 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
+          <div><dt>业务关联</dt><dd>MonoDisplay 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 MonoDisplay 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L17</li>
+            <li>结构切片：boards/t_echo_lite/include/boards</li>
+            <li>对象类型：class</li>
+            <li>候选语境：结构切片 boards</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <p>-</p>
+
+        </section>
+      </li>
+    </ol>
+  </section>
+  <section class="semantic-layer engineering-drilldowns" data-praxis-anchor="engineering:class-structural:boards-t_echo_lite-include-boards:drilldowns" data-praxis-kind="engineering_drilldown_options" data-praxis-drilldowns="[{&quot;id&quot;:&quot;engineering:diagram:component:boards-makeboardprofile&quot;,&quot;kind&quot;:&quot;component&quot;,&quot;title&quot;:&quot;函数节点：makeBoardProfile&quot;,&quot;summary&quot;:&quot;function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L188，协调多个外部对象或能力，用于解释技术协作和变更影响面。&quot;,&quot;docPath&quot;:&quot;docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.html&quot;,&quot;anchor&quot;:&quot;engineering:component:function:makeboardprofile:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:188&quot;,&quot;relation&quot;:&quot;realized_by&quot;,&quot;reason&quot;:&quot;打开 函数节点：makeBoardProfile 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。&quot;},{&quot;id&quot;:&quot;engineering:diagram:component:boards-pinnum&quot;,&quot;kind&quot;:&quot;component&quot;,&quot;title&quot;:&quot;函数节点：pinNum&quot;,&quot;summary&quot;:&quot;function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L8，被多个对象复用或依赖，用于解释技术协作和变更影响面。&quot;,&quot;docPath&quot;:&quot;docs/engineering/component-diagrams/boards-pinnum/component-diagram.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/component-diagrams/boards-pinnum/component-diagram.html&quot;,&quot;anchor&quot;:&quot;engineering:component:function:pinnum:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:8&quot;,&quot;relation&quot;:&quot;realized_by&quot;,&quot;reason&quot;:&quot;打开 函数节点：pinNum 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。&quot;},{&quot;id&quot;:&quot;engineering:diagram:technical-hotspot:dependency-cluster--boards&quot;,&quot;kind&quot;:&quot;technical_hotspot&quot;,&quot;title&quot;:&quot;依赖簇：boards 技术热点&quot;,&quot;summary&quot;:&quot;该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。&quot;,&quot;docPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html&quot;,&quot;anchor&quot;:&quot;engineering:hotspot:dependency-cluster:boards&quot;,&quot;relation&quot;:&quot;risk_detail&quot;,&quot;reason&quot;:&quot;查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。&quot;}]">
+    <h2>可下钻 UML</h2>
+    <div class="layer-grid">
+      <article role="link" tabindex="0" class="layer-card document-entry-card" data-praxis-anchor="engineering:component:function:makeboardprofile:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:188" data-praxis-kind="engineering_drilldown_link" data-praxis-document-title="函数节点：makeBoardProfile" data-praxis-document-summary="打开 函数节点：makeBoardProfile 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。" data-praxis-document-md="docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.md" data-praxis-document-html="docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.html">
+        <strong>函数节点：makeBoardProfile</strong>
+        <span>component · realized_by</span>
+        <p>打开 函数节点：makeBoardProfile 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。</p>
+        <small>function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L188，协调多个外部对象或能力，用于解释技术协作和变更影响面。</small>
+      </article>
+      <article role="link" tabindex="0" class="layer-card document-entry-card" data-praxis-anchor="engineering:component:function:pinnum:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:8" data-praxis-kind="engineering_drilldown_link" data-praxis-document-title="函数节点：pinNum" data-praxis-document-summary="打开 函数节点：pinNum 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。" data-praxis-document-md="docs/engineering/component-diagrams/boards-pinnum/component-diagram.md" data-praxis-document-html="docs/engineering/component-diagrams/boards-pinnum/component-diagram.html">
+        <strong>函数节点：pinNum</strong>
+        <span>component · realized_by</span>
+        <p>打开 函数节点：pinNum 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。</p>
+        <small>function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L8，被多个对象复用或依赖，用于解释技术协作和变更影响面。</small>
+      </article>
+      <article role="link" tabindex="0" class="layer-card document-entry-card" data-praxis-anchor="engineering:hotspot:dependency-cluster:boards" data-praxis-kind="engineering_drilldown_link" data-praxis-document-title="依赖簇：boards 技术热点" data-praxis-document-summary="查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。" data-praxis-document-md="docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md" data-praxis-document-html="docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html">
+        <strong>依赖簇：boards 技术热点</strong>
+        <span>technical_hotspot · risk_detail</span>
+        <p>查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。</p>
+        <small>该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。</small>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:evidence" data-praxis-kind="engineering_document_section">
+    <h2>证据</h2>
+    <ul>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L83</li>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L13</li>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L86</li>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/gps_runtime.h#L13</li>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L7</li>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L8</li>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L13</li>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L28</li>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/input_runtime.h#L10</li>
+      <li>boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L29</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:questions" data-praxis-kind="engineering_document_section">
+    <h2>问题</h2>
+    <ul>
+      <li>该结构切片来自本地仓库证据；当前未发现足够 Trace 证据把它绑定到唯一业务故事，因此只作为软件结构模型候选视角。</li>
+    </ul>
+  </section>
+  <script type="application/json" id="praxis-engineering-diagram-document">{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards","kind":"class_structural","title":"结构协作：结构切片 boards · t_echo_lite/include/boards","summary":"解释 boards/t_echo_lite/include/boards 这一结构切片中类、接口、组件或值对象如何共同承担结构切片 boards中的结构职责；候选对象包括 TEchoLiteBoard、Sx1262RadioPacketIo、TEchoLiteBoard::I2cGuard、GpsRuntime、Module。","docPath":"docs/engineering/class-structural-diagrams/boards-t_echo_lite-include-boards/class-structural-diagram.md","htmlPath":"docs/engineering/class-structural-diagrams/boards-t_echo_lite-include-boards/class-structural-diagram.html","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","status":"candidate","confidence":"high","mermaidKind":"classDiagram","mermaid":"classDiagram\n  class TEchoLiteBoard[\"TEchoLiteBoard\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class Sx1262RadioPacketIo[\"Sx1262RadioPacketIo\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class TEchoLiteBoard_I2cGuard[\"TEchoLiteBoard  I2cGuard\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class GpsRuntime[\"GpsRuntime\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class Module[\"Module\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class SX1262[\"SX1262\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class TwoWire[\"TwoWire\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class GpsRuntime_2[\"GpsRuntime\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class InputRuntime[\"InputRuntime\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class InputRuntime_2[\"InputRuntime\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class IRadioPacketIo[\"IRadioPacketIo\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class MonoDisplay[\"MonoDisplay\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  TEchoLiteBoard --|\u003e TwoWire : 继承\n  TEchoLiteBoard_I2cGuard --|\u003e TEchoLiteBoard : 继承","readingGuide":["这张 Class / Structural Diagram 聚焦 boards/t_echo_lite/include/boards 这一结构切片，而不是整个 boards 顶层目录。","它只放入类、接口、枚举或结构类型；方法级高引用对象会进入 Component/Hotspot，不再混入结构协作图。","候选语境是「结构切片 boards」。读图时先确认这些对象是否共同承载同一个业务能力、共享支撑机制或适配边界。","图中已绘制 2 条类级关系，主要来自继承、接口实现、创建或引用证据。"],"technicalAnalysis":["boards/t_echo_lite/include/boards 当前包含 12 个类/结构和 0 个接口/trait 候选对象。","当前观察到 2 条类级结构关系。","这张图的解释目标是结构职责和边界：哪些对象像领域模型、哪些对象像接口契约、哪些对象像策略/适配器或共享支撑。","如果图中对象只是同目录但没有共同业务语境或结构关系，生成流程必须拆分或降级为 Component/Hotspot，而不是继续保留为 Class / Structural Diagram。"],"businessRelation":["该图候选关联「结构切片 boards」，应该回连到组织/过程模型中对应 Use Case 的 Class Collaboration、Activity 或 Sequence 下钻图。","软件结构模型不能只说“这里有很多类”，而要说明这些类如何让业务变化更容易或更困难。","候选对象包括：TEchoLiteBoard、Sx1262RadioPacketIo、TEchoLiteBoard::I2cGuard、GpsRuntime、Module、SX1262。"],"governanceNotes":["不要把顶层 layer、目录名或关系数量当作结构图的解释对象；结构图必须围绕可命名的业务/技术语境。","当某个对象脱离当前语境、没有关系说明或只是高引用工具类时，应从该图移除，转入 Component/Hotspot 或共享支撑切片。","变更 boards/t_echo_lite/include/boards 时，同步维护它和相关 Use Case、Component、Sequence 的引用关系。"],"coverage":["结构切片：boards/t_echo_lite/include/boards","候选业务/技术语境：结构切片 boards","所属工程边界：boards","候选结构对象数：12","候选结构关系数：2","对象：TEchoLiteBoard (class)","对象：Sx1262RadioPacketIo (class)","对象：TEchoLiteBoard::I2cGuard (class)","对象：GpsRuntime (class)","对象：Module (class)","对象：SX1262 (class)","对象：TwoWire (class)","对象：GpsRuntime (class)"],"evidencePaths":["boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L83","boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L13","boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L86","boards/t_echo_lite/include/boards/t_echo_lite/gps_runtime.h#L13","boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L7","boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L8","boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L13","boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L28","boards/t_echo_lite/include/boards/t_echo_lite/input_runtime.h#L10","boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L29"],"questions":["该结构切片来自本地仓库证据；当前未发现足够 Trace 证据把它绑定到唯一业务故事，因此只作为软件结构模型候选视角。"],"scope":{"packageId":"boards","filePath":"boards/t_echo_lite/include/boards"},"drilldowns":[{"id":"engineering:diagram:component:boards-makeboardprofile","kind":"component","title":"函数节点：makeBoardProfile","summary":"function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L188，协调多个外部对象或能力，用于解释技术协作和变更影响面。","docPath":"docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.md","htmlPath":"docs/engineering/component-diagrams/boards-makeboardprofile/component-diagram.html","anchor":"engineering:component:function:makeboardprofile:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:188","relation":"realized_by","reason":"打开 函数节点：makeBoardProfile 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。"},{"id":"engineering:diagram:component:boards-pinnum","kind":"component","title":"函数节点：pinNum","summary":"function 位于 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h#L8，被多个对象复用或依赖，用于解释技术协作和变更影响面。","docPath":"docs/engineering/component-diagrams/boards-pinnum/component-diagram.md","htmlPath":"docs/engineering/component-diagrams/boards-pinnum/component-diagram.html","anchor":"engineering:component:function:pinnum:boards-t_echo_lite-include-boards-t_echo_lite-board_profile.h:8","relation":"realized_by","reason":"打开 函数节点：pinNum 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。"},{"id":"engineering:diagram:technical-hotspot:dependency-cluster--boards","kind":"technical_hotspot","title":"依赖簇：boards 技术热点","summary":"该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。","docPath":"docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md","htmlPath":"docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html","anchor":"engineering:hotspot:dependency-cluster:boards","relation":"risk_detail","reason":"查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。"}],"elements":[{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:techoliteboard","mermaidId":"TEchoLiteBoard","label":"TEchoLiteBoard","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"TEchoLiteBoard 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 TEchoLiteBoard 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"TEchoLiteBoard 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 TEchoLiteBoard 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L83","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:sx1262radiopacketio","mermaidId":"Sx1262RadioPacketIo","label":"Sx1262RadioPacketIo","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"Sx1262RadioPacketIo 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 Sx1262RadioPacketIo 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"Sx1262RadioPacketIo 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 Sx1262RadioPacketIo 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L13","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:techoliteboard::i2cguard","mermaidId":"TEchoLiteBoard_I2cGuard","label":"TEchoLiteBoard::I2cGuard","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"TEchoLiteBoard::I2cGuard 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 TEchoLiteBoard::I2cGuard 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"TEchoLiteBoard::I2cGuard 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 TEchoLiteBoard::I2cGuard 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L86","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:gpsruntime","mermaidId":"GpsRuntime","label":"GpsRuntime","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"GpsRuntime 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/gps_runtime.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 GpsRuntime 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"GpsRuntime 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 GpsRuntime 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/gps_runtime.h#L13","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:module","mermaidId":"Module","label":"Module","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"Module 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 Module 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"Module 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 Module 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L7","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:sx1262","mermaidId":"SX1262","label":"SX1262","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"SX1262 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 SX1262 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"SX1262 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 SX1262 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/sx1262_radio_packet_io.h#L8","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:twowire","mermaidId":"TwoWire","label":"TwoWire","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"TwoWire 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 TwoWire 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"TwoWire 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 TwoWire 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L13","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:gpsruntime","mermaidId":"GpsRuntime","label":"GpsRuntime","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"GpsRuntime 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 GpsRuntime 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"GpsRuntime 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 GpsRuntime 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L28","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:inputruntime","mermaidId":"InputRuntime","label":"InputRuntime","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"InputRuntime 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/input_runtime.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 InputRuntime 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"InputRuntime 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 InputRuntime 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/input_runtime.h#L10","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:inputruntime","mermaidId":"InputRuntime","label":"InputRuntime","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"InputRuntime 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 InputRuntime 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"InputRuntime 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 InputRuntime 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L29","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:iradiopacketio","mermaidId":"IRadioPacketIo","label":"IRadioPacketIo","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"IRadioPacketIo 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 IRadioPacketIo 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"IRadioPacketIo 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 IRadioPacketIo 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L22","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-t_echo_lite-include-boards:element:monodisplay","mermaidId":"MonoDisplay","label":"MonoDisplay","kind":"component","anchor":"engineering:class-structural:boards-t_echo_lite-include-boards","summary":"MonoDisplay 属于 boards/t_echo_lite/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 MonoDisplay 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"MonoDisplay 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 MonoDisplay 可能影响 boards/t_echo_lite/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/t_echo_lite/include/boards/t_echo_lite/t_echo_lite_board.h#L17","结构切片：boards/t_echo_lite/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]}]}</script>
+</main>
+</body>
+</html>

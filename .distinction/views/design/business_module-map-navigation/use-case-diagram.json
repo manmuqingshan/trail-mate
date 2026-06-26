@@ -1,0 +1,904 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:business_module:map-navigation",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T14:37:21.431Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:system:trail-mate",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "system:trail-mate"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "system:trail-mate"
+      },
+      "summary": "跨平台离线通信与位置共享系统，包含嵌入式设备和桌面应用",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖整体的通信、地图、团队和诊断功能",
+        "responsibility": "管理整个应用的用户目标和业务能力",
+        "businessTerms": [
+          "节点",
+          "频道",
+          "团队",
+          "位置",
+          "消息"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:business_module:map-navigation",
+      "kind": "design_context",
+      "label": "地图导航",
+      "source": {
+        "type": "model",
+        "id": "business_module:map-navigation"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "business_module:map-navigation"
+      },
+      "summary": "在地图上显示位置、路径和标记，提供导航功能",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "system:trail-mate",
+        "scope": "覆盖地图显示和导航相关的用户操作",
+        "responsibility": "提供基于地图的位置可视化和导航",
+        "businessTerms": [
+          "地图瓦片",
+          "GPS 坐标",
+          "路线"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:user",
+      "kind": "design_actor",
+      "label": "用户",
+      "source": {
+        "type": "model",
+        "id": "actor:user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:user"
+      },
+      "summary": "使用 Trail Mate 设备的最终用户，可以查看状态、收发消息、配置设备、使用诊断工具",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-map-navigate",
+      "kind": "design_use_case",
+      "label": "查看地图并导航",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-map-navigate"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-map-navigate"
+      },
+      "summary": "用户在地图界面上查看自己的当前位置和历史轨迹",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-5012e49a183e80a2f8940a8ca6469262"
+        ],
+        "evidenceCount": 3,
+        "questions": [],
+        "contextId": "business_module:map-navigation",
+        "trigger": "用户从导航栏进入地图页面",
+        "primaryActorIds": [
+          "actor:user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-5012e49a183e80a2f8940a8ca6469262"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-view-map-navigate-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：查看地图并导航",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-map-navigate-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-map-navigate-activity"
+      },
+      "summary": "Activity Diagram：查看地图并导航，用于解释 Use Case「查看地图并导航」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看地图并导航」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「查看地图并导航」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「查看地图并导航」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看地图并导航」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看地图并导航」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「查看地图并导航」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看地图并导航」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看地图并导航」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「查看地图并导航」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-map-navigate/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-map-navigate/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-view-map-navigate-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：查看地图并导航主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-map-navigate-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-map-navigate-sequence"
+      },
+      "summary": "Sequence Diagram：查看地图并导航主成功场景，用于解释 Use Case「查看地图并导航」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看地图并导航」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「查看地图并导航」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「查看地图并导航」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看地图并导航」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看地图并导航」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「查看地图并导航」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看地图并导航」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看地图并导航」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「查看地图并导航」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-use-case-view-map-navigate-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-use-case-view-map-navigate-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:view-map-navigate",
+      "kind": "design_activity",
+      "label": "业务流程：查看地图导航",
+      "source": {
+        "type": "model",
+        "id": "activity:view-map-navigate"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-map-navigate"
+      },
+      "summary": "用户进入地图页面",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-5012e49a183e80a2f8940a8ca6469262"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从打开到显示",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "说明地图流程",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [
+              "map page"
+            ],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "从打开到显示",
+        "coverageRationale": "说明地图流程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [
+            "map page"
+          ],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "地图显示",
+          "uml": "顺序",
+          "design": "复合视图",
+          "implementation": "map logic"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-map-navigate/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-map-navigate/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:view-map-navigate",
+      "kind": "design_sequence",
+      "label": "对象交互：查看地图导航",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-map-navigate"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-map-navigate"
+      },
+      "summary": "地图页面刷新",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-5012e49a183e80a2f8940a8ca6469262"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "UI 到 GPS",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "说明交互",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "UI 到 GPS",
+        "coverageRationale": "说明交互",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "导航",
+          "uml": "交互",
+          "design": "位置读取",
+          "implementation": "map"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:view-map-navigate-activity",
+      "kind": "design_activity",
+      "label": "业务流程：查看地图并导航",
+      "source": {
+        "type": "model",
+        "id": "activity:view-map-navigate-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-map-navigate-activity"
+      },
+      "summary": "用户打开地图页面，系统加载瓦片和位置",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "地图导航主流程",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从用户打开地图到显示当前位置",
+          "notCovered": [
+            "离线地图缓存",
+            "路线规划"
+          ],
+          "rationale": "解释地图页面的加载过程",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "地图导航主流程",
+        "coverageBoundary": "从用户打开地图到显示当前位置",
+        "coverageRationale": "解释地图页面的加载过程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "离线地图缓存",
+          "路线规划"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "用户查看自己的位置和地图环境",
+          "uml": "流程图，从打开页面到显示位置",
+          "design": "MapLayout 负责加载地图控件并初始化 GPS 监听",
+          "implementation": "MapLayout 在初始化时调用 GPS 获取位置"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-map-navigate/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-map-navigate/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:view-map-navigate-sequence",
+      "kind": "design_sequence",
+      "label": "对象交互：查看地图导航主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-map-navigate-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-map-navigate-sequence"
+      },
+      "summary": "UI 调用地图组件和 GPS 服务",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "地图初始化交互",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从用户请求地图到显示位置",
+          "notCovered": [
+            "地图交互（拖拽、缩放）",
+            "轨迹显示"
+          ],
+          "rationale": "展示地图组件初始化时的同步调用",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "boards"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp",
+              "boards/tlora_pager/src/tlora_pager_board.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "地图初始化交互",
+        "coverageBoundary": "从用户请求地图到显示位置",
+        "coverageRationale": "展示地图组件初始化时的同步调用",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "地图交互（拖拽、缩放）",
+          "轨迹显示"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "boards"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp",
+            "boards/tlora_pager/src/tlora_pager_board.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "用户获得可视化的当前位置",
+          "uml": "用户触发地图 UI，UI 请求 GPS 位置并渲染",
+          "design": "MapLayout 作为视图组件，通过 Board 获取位置",
+          "implementation": "MapLayout 调用 getGpsLocation 方法"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:system:trail-mate:business_module:map-navigation",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:system:trail-mate",
+      "targetId": "projection-node:design-context:business_module:map-navigation",
+      "source": {
+        "type": "model",
+        "id": "business_module:map-navigation"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "business_module:map-navigation"
+      },
+      "confidence": "medium",
+      "summary": "system:trail-mate contains 地图导航",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:business_module:map-navigation:use-case:view-map-navigate",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:business_module:map-navigation",
+      "targetId": "projection-node:design-use-case:use-case:view-map-navigate",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-map-navigate"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-map-navigate"
+      },
+      "confidence": "medium",
+      "summary": "business_module:map-navigation contains 查看地图并导航"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:user:use-case:view-map-navigate:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-map-navigate",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-map-navigate"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-map-navigate"
+      },
+      "confidence": "medium",
+      "summary": "actor:user participates in 查看地图并导航",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-map-navigate:activity:use-case-view-map-navigate-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-map-navigate",
+      "targetId": "projection-node:design-activity:activity:use-case-view-map-navigate-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-map-navigate-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-map-navigate-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：查看地图并导航，用于解释 Use Case「查看地图并导航」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-map-navigate:sequence:use-case-view-map-navigate-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-map-navigate",
+      "targetId": "projection-node:design-sequence:sequence:use-case-view-map-navigate-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-map-navigate-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-map-navigate-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：查看地图并导航主成功场景，用于解释 Use Case「查看地图并导航」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-map-navigate:activity:view-map-navigate",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-map-navigate",
+      "targetId": "projection-node:design-activity:activity:view-map-navigate",
+      "source": {
+        "type": "model",
+        "id": "activity:view-map-navigate"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-map-navigate"
+      },
+      "confidence": "medium",
+      "summary": "用户进入地图页面",
+      "metadata": {
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-map-navigate:sequence:view-map-navigate",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-map-navigate",
+      "targetId": "projection-node:design-sequence:sequence:view-map-navigate",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-map-navigate"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-map-navigate"
+      },
+      "confidence": "medium",
+      "summary": "地图页面刷新",
+      "metadata": {
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-map-navigate:activity:view-map-navigate-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-map-navigate",
+      "targetId": "projection-node:design-activity:activity:view-map-navigate-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:view-map-navigate-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-map-navigate-activity"
+      },
+      "confidence": "medium",
+      "summary": "用户打开地图页面，系统加载瓦片和位置",
+      "metadata": {
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-map-navigate:sequence:view-map-navigate-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-map-navigate",
+      "targetId": "projection-node:design-sequence:sequence:view-map-navigate-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-map-navigate-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-map-navigate-sequence"
+      },
+      "confidence": "medium",
+      "summary": "UI 调用地图组件和 GPS 服务",
+      "metadata": {
+        "useCaseId": "use-case:view-map-navigate",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

@@ -1,0 +1,10 @@
+flowchart LR
+  actor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_device_status_module["设备状态模块"]
+      useCase_use_case_view_device_status(["查看设备状态"])
+      useCase_use_case_refresh_device_status(["手动刷新设备状态"])
+    end
+  end
+  actor_user --- useCase_use_case_view_device_status
+  actor_user --- useCase_use_case_refresh_device_status

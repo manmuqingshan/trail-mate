@@ -1038,12 +1038,17 @@ class C6CompanionRuntime final : public WirelessCompanion
             status_.wifi_scanning = true;
         }
 
-        return send_frame(TM_C6_FRAME_WIFI_CONTROL,
-                          TM_C6_CH_WIFI_MGMT,
-                          TM_C6_FLAG_ACK_REQUIRED,
-                          0,
-                          reinterpret_cast<const uint8_t*>(&wire),
-                          sizeof(wire));
+        const bool sent = send_frame(TM_C6_FRAME_WIFI_CONTROL,
+                                     TM_C6_CH_WIFI_MGMT,
+                                     TM_C6_FLAG_ACK_REQUIRED,
+                                     0,
+                                     reinterpret_cast<const uint8_t*>(&wire),
+                                     sizeof(wire));
+        if (!sent && control.command == WifiCommand::Scan)
+        {
+            status_.wifi_scanning = false;
+        }
+        return sent;
     }
 
     void poll() override

@@ -1,0 +1,16 @@
+{
+  "sessions": [
+    {
+      "id": "session-0001",
+      "projectRoot": "C:\\Users\\vicliu\\Projects\\trail-mate",
+      "title": "trail-mate Foundation Graph",
+      "target": {
+        "type": "project"
+      },
+      "mode": "explain",
+      "createdAt": "2026-06-20T05:52:53.114Z",
+      "updatedAt": "2026-06-26T01:06:54.818Z"
+    }
+  ],
+  "updatedAt": "2026-06-26T01:06:54.818Z"
+}

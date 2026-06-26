@@ -1,0 +1,747 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:settings-module",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T13:19:05.616Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "trail-mate-system"
+      },
+      "summary": "整个 Trail Mate 跨平台户外伴侣系统，提供聊天、地图、设备监控和设置等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "包括所有业务模块：聊天、地图、设备状态、日志、设置、电源管理",
+        "responsibility": "为户外用户提供一体化通信、导航和设备管理",
+        "businessTerms": [
+          "聊天",
+          "地图",
+          "GPS",
+          "设置",
+          "设备状态",
+          "日志"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:settings-module",
+      "kind": "design_context",
+      "label": "设置模块",
+      "source": {
+        "type": "model",
+        "id": "settings-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "settings-module"
+      },
+      "summary": "提供系统参数配置，如网络、显示、音频等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "设置页面，配置项的读写",
+        "responsibility": "允许用户自定义设备行为",
+        "businessTerms": [
+          "Wi-Fi",
+          "蓝牙",
+          "亮度",
+          "旋转"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "user"
+      },
+      "summary": "使用 Trail Mate 设备进行户外活动的最终用户。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:adjust-settings",
+      "kind": "design_use_case",
+      "label": "调整系统设置",
+      "source": {
+        "type": "model",
+        "id": "use-case:adjust-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:adjust-settings"
+      },
+      "summary": "用户修改系统设置，如网络连接、显示亮度、声音等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-7cb2c660fbfc61e1888e9d1547af3518",
+          "codegraph:method-d30671b9f3c2b729af006504ab161af3"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "settings-module",
+        "trigger": "用户在设置页面修改某个选项",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-7cb2c660fbfc61e1888e9d1547af3518",
+          "behavior-slice:ui-route-codegraph-function-26e98b9a136cf454acaf45547c16e72a"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-settings",
+      "kind": "design_use_case",
+      "label": "浏览设置选项",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-settings"
+      },
+      "summary": "用户进入设置页面，查看当前的系统参数和配置选项。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-991cd1fd6dc709193e7a7db23c635fcb",
+          "codegraph:function-bc6953564013626809ea4bc4f1a4b8b4"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "settings-module",
+        "trigger": "用户从主菜单选择“设置”",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-991cd1fd6dc709193e7a7db23c635fcb"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-adjust-settings-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：调整系统设置",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-adjust-settings-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-adjust-settings-activity"
+      },
+      "summary": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:adjust-settings",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「调整系统设置」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「调整系统设置」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「调整系统设置」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「调整系统设置」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「调整系统设置」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「调整系统设置」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/adjust-settings/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/adjust-settings/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-adjust-settings-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：调整系统设置主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-adjust-settings-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-adjust-settings-sequence"
+      },
+      "summary": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:adjust-settings",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「调整系统设置」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「调整系统设置」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「调整系统设置」的主成功交互场景。",
+        "coverageBoundary": "覆盖「调整系统设置」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「调整系统设置」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「调整系统设置」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/adjust-settings/sequences/sequence-use-case-adjust-settings-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/adjust-settings/sequences/sequence-use-case-adjust-settings-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:view-settings",
+      "kind": "design_activity",
+      "label": "业务流程：浏览设置选项",
+      "source": {
+        "type": "model",
+        "id": "activity:view-settings"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-settings"
+      },
+      "summary": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:view-settings",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「浏览设置选项」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「浏览设置选项」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「浏览设置选项」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「浏览设置选项」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「浏览设置选项」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「浏览设置选项」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-settings/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-settings/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:view-settings-main-success",
+      "kind": "design_sequence",
+      "label": "浏览设置选项 - 主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-settings-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-settings-main-success"
+      },
+      "summary": "用户进入设置，系统读取并显示当前配置。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:view-settings",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「浏览设置选项」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「浏览设置选项」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "用户进入设置，系统读取并显示当前配置。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「浏览设置选项」的主成功交互场景。",
+        "coverageBoundary": "覆盖「浏览设置选项」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "用户进入设置，系统读取并显示当前配置。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「浏览设置选项」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「浏览设置选项」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "用户进入设置，系统读取并显示当前配置。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-settings/sequences/sequence-view-settings-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-settings/sequences/sequence-view-settings-main-success.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:settings-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:settings-module",
+      "source": {
+        "type": "model",
+        "id": "settings-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "settings-module"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 设置模块",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:settings-module:use-case:adjust-settings",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:settings-module",
+      "targetId": "projection-node:design-use-case:use-case:adjust-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:adjust-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:adjust-settings"
+      },
+      "confidence": "medium",
+      "summary": "settings-module contains 调整系统设置"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:adjust-settings:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:adjust-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:adjust-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:adjust-settings"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 调整系统设置",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:settings-module:use-case:view-settings",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:settings-module",
+      "targetId": "projection-node:design-use-case:use-case:view-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-settings"
+      },
+      "confidence": "medium",
+      "summary": "settings-module contains 浏览设置选项"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:view-settings:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-settings",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-settings"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-settings"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 浏览设置选项",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:adjust-settings:activity:use-case-adjust-settings-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:adjust-settings",
+      "targetId": "projection-node:design-activity:activity:use-case-adjust-settings-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-adjust-settings-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-adjust-settings-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：调整系统设置，用于解释 Use Case「调整系统设置」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:adjust-settings",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:adjust-settings:sequence:use-case-adjust-settings-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:adjust-settings",
+      "targetId": "projection-node:design-sequence:sequence:use-case-adjust-settings-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-adjust-settings-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-adjust-settings-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：调整系统设置主成功场景，用于解释 Use Case「调整系统设置」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:adjust-settings",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-settings:activity:view-settings",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-settings",
+      "targetId": "projection-node:design-activity:activity:view-settings",
+      "source": {
+        "type": "model",
+        "id": "activity:view-settings"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:view-settings"
+      },
+      "confidence": "medium",
+      "summary": "描述用户进入设置页面后，系统加载并显示各项配置的流程。",
+      "metadata": {
+        "useCaseId": "use-case:view-settings",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-settings:sequence:view-settings-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-settings",
+      "targetId": "projection-node:design-sequence:sequence:view-settings-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:view-settings-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:view-settings-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户进入设置，系统读取并显示当前配置。",
+      "metadata": {
+        "useCaseId": "use-case:view-settings",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

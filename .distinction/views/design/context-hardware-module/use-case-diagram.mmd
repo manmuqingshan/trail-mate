@@ -1,0 +1,8 @@
+flowchart LR
+  actor_actor_user["&laquo;Actor&raquo;<br/>用户（徒步者）"]
+  subgraph system_context_trail_mate_system["Trail Mate 系统"]
+    subgraph system_context_hardware_module["硬件监控"]
+      useCase_use_case_view_device_overview(["查看设备概览"])
+    end
+  end
+  actor_actor_user --- useCase_use_case_view_device_overview

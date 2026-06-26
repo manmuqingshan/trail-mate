@@ -221,6 +221,15 @@ class MeshtasticPhoneCore
     size_t last_to_radio_len_ = 0;
     bool config_flow_active_ = false;
     bool config_drain_empty_pending_ = false;
+    bool deferred_config_save_pending_ = false;
+    bool deferred_module_config_save_pending_ = false;
+    bool deferred_bluetooth_config_apply_pending_ = false;
+    bool admin_edit_transaction_open_ = false;
+    bool admin_edit_transaction_dirty_ = false;
+    bool admin_edit_transaction_module_dirty_ = false;
+    bool admin_edit_transaction_bluetooth_dirty_ = false;
+    bool admin_edit_transaction_restart_pending_ = false;
+    bool restart_pending_ = false;
     std::deque<MeshtasticBleFrame> frame_queue_;
     std::deque<meshtastic_QueueStatus> queue_status_queue_;
     std::deque<meshtastic_MeshPacket> packet_queue_;

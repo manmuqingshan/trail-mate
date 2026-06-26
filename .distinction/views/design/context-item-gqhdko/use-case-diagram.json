@@ -1,0 +1,747 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:item-gqhdko",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T09:32:40.935Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:item-gqhdko",
+      "kind": "design_context",
+      "label": "能源管理",
+      "source": {
+        "type": "model",
+        "id": "context:item-gqhdko"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:item-gqhdko"
+      },
+      "summary": "属于硬件监控模块的扩展，重点在于电源状态和功耗分析，帮助用户管理电池使用。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "scope": "属于硬件监控模块的扩展，重点在于电源状态和功耗分析，帮助用户管理电池使用。",
+        "responsibility": "属于硬件监控模块的扩展，重点在于电源状态和功耗分析，帮助用户管理电池使用。",
+        "businessTerms": [
+          "能源管理",
+          "属于硬件监控模块的扩展",
+          "重点在于电源状态和功耗分析",
+          "帮助用户管理电池使用"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:actor-user",
+      "kind": "design_actor",
+      "label": "actor:user",
+      "source": {
+        "type": "model",
+        "id": "actor:actor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:actor-user"
+      },
+      "summary": "Actor participating in actor:user.",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379321376"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "role"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:item-5hhr9g",
+      "kind": "design_use_case",
+      "label": "查看能源状态",
+      "source": {
+        "type": "model",
+        "id": "use-case:item-5hhr9g"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      },
+      "summary": "用户在 Energy 页面查看设备的电池信息、功耗、剩余续航时间等电源相关数据。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "是否需要低电量自动提醒？",
+          "功耗历史数据保留多长时间？",
+          "是否支持太阳能充电状态显示？"
+        ],
+        "contextId": "context:item-gqhdko",
+        "trigger": "用户打开 Energy 页面。",
+        "primaryActorIds": [
+          "actor:actor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-item-5hhr9g-1",
+      "kind": "design_activity",
+      "label": "查看能源状态的业务流程",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-item-5hhr9g-1"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-item-5hhr9g-1"
+      },
+      "summary": "描述打开页面、采集数据和显示的流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:item-5hhr9g",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功路径。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..3]"
+          ],
+          "boundary": "从打开页面到数据呈现。",
+          "notCovered": [
+            "告警配置",
+            "充电管理"
+          ],
+          "rationale": "查看状态是能源管理的核心功能。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "codeAnchors": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "outOfScopeCode": [
+              "电池驱动细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功路径。",
+        "coverageBoundary": "从打开页面到数据呈现。",
+        "coverageRationale": "查看状态是能源管理的核心功能。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..3]"
+        ],
+        "notCovered": [
+          "告警配置",
+          "充电管理"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "codeAnchors": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "outOfScopeCode": [
+            "电池驱动细节"
+          ]
+        },
+        "explanation": {
+          "business": "用户需要了解设备剩余电量以便规划活动。",
+          "uml": "活动图包含采集电池数据、计算估计、渲染仪表盘的步骤。",
+          "design": "采用观察者模式，电池服务定时更新状态，Energy 页面订阅变化。",
+          "implementation": "可能在 energy/ 目录下实现服务。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/item-5hhr9g/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/item-5hhr9g/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-item-5hhr9g-2",
+      "kind": "design_sequence",
+      "label": "查看能源状态主成功场景交互",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-item-5hhr9g-2"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-item-5hhr9g-2"
+      },
+      "summary": "展示用户、Energy UI 和电池服务之间的交互。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:item-5hhr9g",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功路径。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..3]"
+          ],
+          "boundary": "页面打开到数据更新。",
+          "notCovered": [
+            "历史趋势分析"
+          ],
+          "rationale": "展示数据流。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "codeAnchors": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "outOfScopeCode": [
+              "充电控制"
+            ]
+          }
+        },
+        "coverageScenario": "主成功路径。",
+        "coverageBoundary": "页面打开到数据更新。",
+        "coverageRationale": "展示数据流。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..3]"
+        ],
+        "notCovered": [
+          "历史趋势分析"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "codeAnchors": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "outOfScopeCode": [
+            "充电控制"
+          ]
+        },
+        "explanation": {
+          "business": "用户一打开页面就能看到最新的电源信息。",
+          "uml": "序列图展示 UI 请求电池服务获取数据，服务从硬件读取并返回。",
+          "design": "简单的请求-响应模式。",
+          "implementation": "BatteryService 可能封装硬件抽象层。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/item-5hhr9g/sequences/sequence-use-case-item-5hhr9g-2.md",
+        "htmlPath": "docs/design/use-case-diagrams/item-5hhr9g/sequences/sequence-use-case-item-5hhr9g-2.html"
+      }
+    },
+    {
+      "id": "projection-node:design-class-collaboration:class-collaboration:use-case-item-5hhr9g-3",
+      "kind": "design_class_collaboration",
+      "label": "查看能源状态的结构协作",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-item-5hhr9g-3"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-item-5hhr9g-3"
+      },
+      "summary": "展示 Energy 服务依赖的电池硬件适配器接口。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:item-5hhr9g",
+        "diagramKind": "class_collaboration",
+        "coverage": {
+          "scenario": "结构切片。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..3]"
+          ],
+          "boundary": "能源相关类。",
+          "notCovered": [
+            "告警服务"
+          ],
+          "rationale": "使用端口-适配器隔离电池硬件。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "codeAnchors": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "outOfScopeCode": [
+              "UI 控件"
+            ]
+          }
+        },
+        "coverageScenario": "结构切片。",
+        "coverageBoundary": "能源相关类。",
+        "coverageRationale": "使用端口-适配器隔离电池硬件。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..3]"
+        ],
+        "notCovered": [
+          "告警服务"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "codeAnchors": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "outOfScopeCode": [
+            "UI 控件"
+          ]
+        },
+        "explanation": {
+          "business": "电量管理是核心，需要从硬件可靠获取数据。",
+          "uml": "类图显示 EnergyService 依赖 IBatteryAdapter 接口。",
+          "design": "IBatteryAdapter 是端口，具体实现读取板级芯片。",
+          "implementation": "接口可能在 energy/ports/ 定义。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/item-5hhr9g/realization/class-collaboration.md",
+        "htmlPath": "docs/design/use-case-diagrams/item-5hhr9g/realization/class-collaboration.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:item-gqhdko:use-case:item-5hhr9g",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:item-gqhdko",
+      "targetId": "projection-node:design-use-case:use-case:item-5hhr9g",
+      "source": {
+        "type": "model",
+        "id": "use-case:item-5hhr9g"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      },
+      "confidence": "medium",
+      "summary": "context:item-gqhdko contains 查看能源状态"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:actor-user:use-case:item-5hhr9g:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:actor-user",
+      "targetId": "projection-node:design-use-case:use-case:item-5hhr9g",
+      "source": {
+        "type": "model",
+        "id": "use-case:item-5hhr9g"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      },
+      "confidence": "medium",
+      "summary": "actor:actor-user participates in 查看能源状态",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:item-5hhr9g:activity:use-case-item-5hhr9g-1",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:item-5hhr9g",
+      "targetId": "projection-node:design-activity:activity:use-case-item-5hhr9g-1",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-item-5hhr9g-1"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-item-5hhr9g-1"
+      },
+      "confidence": "medium",
+      "summary": "描述打开页面、采集数据和显示的流程。",
+      "metadata": {
+        "useCaseId": "use-case:item-5hhr9g",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:item-5hhr9g:sequence:use-case-item-5hhr9g-2",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:item-5hhr9g",
+      "targetId": "projection-node:design-sequence:sequence:use-case-item-5hhr9g-2",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-item-5hhr9g-2"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-item-5hhr9g-2"
+      },
+      "confidence": "medium",
+      "summary": "展示用户、Energy UI 和电池服务之间的交互。",
+      "metadata": {
+        "useCaseId": "use-case:item-5hhr9g",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:item-5hhr9g:class-collaboration:use-case-item-5hhr9g-3",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:item-5hhr9g",
+      "targetId": "projection-node:design-class-collaboration:class-collaboration:use-case-item-5hhr9g-3",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-item-5hhr9g-3"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-item-5hhr9g-3"
+      },
+      "confidence": "medium",
+      "summary": "展示 Energy 服务依赖的电池硬件适配器接口。",
+      "metadata": {
+        "useCaseId": "use-case:item-5hhr9g",
+        "diagramKind": "class_collaboration"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:chat-media-support",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:send-text-message"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "聊天是否支持图片、位置等富媒体消息？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      }
+    },
+    {
+      "id": "annotation:question:team-location-interval",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:view-team-locations"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队位置更新频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-team-locations"
+      }
+    },
+    {
+      "id": "annotation:question:team-creation",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:join-team"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队是由创始人创建还是自动发现形成？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:join-team"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "地图数据是预装还是 Wi‑Fi 下载？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "缩放级别范围是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "标记点数据如何管理？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "航迹数据保存格式和策略是什么？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持多段航迹合并？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "轨迹点采样频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "支持的 SSTV 模式有哪些（Scottie, Martin, Robot 等）？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "发送时需要选择频率和模式吗？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持通过 mesh 网络转发 SSTV 图像给队友？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要低电量自动提醒？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "功耗历史数据保留多长时间？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持太阳能充电状态显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要支持多个轨迹的叠加显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "导航时是否激发声音或视觉偏离警告？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "路线文件的来源是否包括通过 mesh 网络接收？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-story-intake:1782379621985",
+    "design-story-intake:1782379321376",
+    "design-story-intake:1782379952549",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}
