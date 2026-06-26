@@ -14,6 +14,7 @@
 #include "chat/runtime/meshtastic_runtime.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "meshtastic/mqtt.pb.h"
 #include "platform/esp/arduino_common/mesh/esp_meshtastic_adapter_bridge.h"
 #include <array>
 #include <cstddef>
