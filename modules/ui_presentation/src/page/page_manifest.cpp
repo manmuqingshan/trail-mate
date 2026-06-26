@@ -15,6 +15,7 @@ constexpr PageManifestItem kTab5TouchItems[] = {
     {PageId::Team, "team", true, true},
     {PageId::Tracker, "tracker", true, true},
     {PageId::Contacts, "contacts", true, true},
+    {PageId::Sstv, "sstv", true, true},
     {PageId::Settings, "settings", true, true},
 };
 

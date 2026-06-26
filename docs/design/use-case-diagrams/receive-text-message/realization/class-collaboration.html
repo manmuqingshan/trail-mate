@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Class Collaboration Diagram：类/结构协作：接收文本消息</title>
+</head>
+<body>
+<main class="praxis-design-map" data-praxis-anchor="class-collaboration:use-case-receive-text-message-class-collaboration" data-praxis-kind="design_class_collaboration_diagram" data-praxis-status="candidate" data-praxis-confidence="medium" data-praxis-document-path="docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.html" data-praxis-source-md="docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.md" data-praxis-drilldowns="[]">
+  <header class="praxis-design-map-header">
+    <p>Praxis Design Explorer</p>
+    <h1>Class Collaboration Diagram：类/结构协作：接收文本消息</h1>
+  </header>
+    <p>&lt;!-- praxis:use-case-diagram:start --&gt;</p>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>元数据</h2>
+    <p>项目版本：0.1.30-alpha</p>
+    <p>设计文档版本：0.1.30-alpha</p>
+    <p>Git 分支：main</p>
+    <p>Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767</p>
+    <p>Git 工作区状态：dirty</p>
+    <p>Agent 版本决策：none - 本次文档质量修正，不触发版本 bump</p>
+    <p>更新于：2026-06-25T15:56:23.352Z</p>
+    <p>来源：Agent 重新分析生成</p>
+    <p>父级 Use Case：use-case:receive-text-message</p>
+    <p>业务边界路径：Trail Mate 系统 / 聊天通信</p>
+    <p>父级文档：docs/design/use-case-diagrams/receive-text-message.md</p>
+    <p>Markdown 路径：docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.md</p>
+    <p>HTML 路径：docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.html</p>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>协作场景</h2>
+    <p>描述接收文本消息时涉及的主要类/接口及其静态关系。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>参与者 / 角色</h2>
+    <ul>
+      <li><strong>User</strong>：最终用户，通过 UI 查看接收到的消息。</li>
+      <li><strong>ChatUI</strong>：GTK 聊天界面，负责显示消息列表。</li>
+      <li><strong>ChatLogic</strong>：聊天逻辑层，处理消息的追加和 UI 更新。</li>
+      <li><strong>TLoRaPagerBoard</strong>：T-LoRa-Pager 板级驱动类，管理无线电接收。</li>
+      <li><strong>Radio</strong>：外部无线电硬件模块。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>类与接口</h2>
+    <ul>
+      <li><code>ChatUI</code>：GTK 聊天界面类，方法 <code>displayMessage()</code>。</li>
+      <li><code>ChatLogic</code>：聊天逻辑类，方法 <code>addIncomingMessage()</code>。</li>
+      <li><code>TLoRaPagerBoard</code>：板级驱动类，继承自 <code>LilyGo_Display</code>，包含 <code>startRadioReceive()</code> 和 <code>readRadioData()</code>。</li>
+      <li><code>Radio</code>：外部硬件，事件驱动接收。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>依赖关系</h2>
+    <ul>
+      <li>User --&gt; ChatUI：调用 UI 操作</li>
+      <li>ChatUI --&gt; ChatLogic：委托逻辑处理</li>
+      <li>ChatLogic --&gt; TLoRaPagerBoard：调用读取无线电数据</li>
+      <li>TLoRaPagerBoard --&gt; Radio：读取数据包</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>Class UML 读图说明</h2>
+    <p>展示接收文本消息场景中用户界面、业务逻辑和硬件驱动之间的静态结构关系。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>实现范围锚点</h2>
+    <ul>
+      <li>模块：boards</li>
+      <li>模块：apps/linux_uconsole_gtk</li>
+      <li>关键文件：boards/tlora_pager/src/tlora_pager_board.cpp</li>
+      <li>关键文件：apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp</li>
+      <li>代码锚点：boards/tlora_pager/src/tlora_pager_board.cpp#L1335（startRadioReceive）</li>
+      <li>不覆盖代码：底层驱动细节、数据编码/解码细节</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>不覆盖场景</h2>
+    <ul>
+      <li>消息回调线程安全</li>
+      <li>离线消息处理</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>Mermaid 图</h2>
+  </section>
+  <section class="semantic-layer diagram-section" data-praxis-anchor="class-collaboration:use-case-receive-text-message-class-collaboration:diagram-body" data-praxis-kind="design_diagram_body">
+    <h2>UML 底图</h2>
+    <pre class="mermaid" data-praxis-anchor="class-collaboration:use-case-receive-text-message-class-collaboration:uml" data-praxis-kind="design_class_collaboration_uml">classDiagram
+  class User {
+    +String name
+  }
+  class ChatUI {
+    +displayMessage()
+  }
+  class ChatLogic {
+    +addIncomingMessage()
+  }
+  class TLoRaPagerBoard {
+    +startRadioReceive()
+    +readRadioData()
+  }
+  class Radio {
+    +receive()
+  }
+  User --&gt; ChatUI : uses
+  ChatUI --&gt; ChatLogic : calls
+  ChatLogic --&gt; TLoRaPagerBoard : calls
+  TLoRaPagerBoard --&gt; Radio : reads</pre>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>证据上下文</h2>
+    <table>
+    <tbody>
+      <tr><td>来源</td><td>路径</td><td>行号</td><td>强度</td><td>摘要</td></tr>
+      <tr><td>本地仓库扫描</td><td>boards/tlora_pager/src/tlora_pager_board.cpp</td><td>1335-1344</td><td>strong</td><td>TLoRaPagerBoard::startRadioReceive</td></tr>
+      <tr><td>本地仓库扫描</td><td>boards/tlora_pager/src/tlora_pager_board.cpp</td><td>1368-1377</td><td>strong</td><td>TLoRaPagerBoard::readRadioData</td></tr>
+      <tr><td>本地仓库扫描</td><td>apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp</td><td>1</td><td>strong</td><td>ChatLogic 消息处理</td></tr>
+    </tbody>
+    </table>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h2>变更记录</h2>
+  </section>
+  <section class="semantic-layer" data-praxis-kind="design_document_section">
+    <h3>0.1.30-alpha - 2026-06-25T15:56:23.352Z</h3>
+    <p>变更类型：DISCOVERY</p>
+    <p>版本决策：none - 本次文档质量修正，不触发版本 bump</p>
+    <p>Git 分支：main</p>
+    <p>Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767</p>
+    <p>Git 工作区状态：dirty</p>
+    <p>摘要：</p>
+    <ul>
+      <li>创建接收文本消息的 Class Collaboration 图。</li>
+    </ul>
+    <p>&lt;!-- praxis:use-case-diagram:end --&gt;</p>
+  </section>
+  <script type="application/json" id="praxis-design-diagram-document" data-praxis-explorer="Praxis Design Explorer">{"id":"class-collaboration:use-case-receive-text-message-class-collaboration","family":"design","kind":"class_collaboration","title":"Class Collaboration Diagram：类/结构协作：接收文本消息","anchor":"class-collaboration:use-case-receive-text-message-class-collaboration","docPath":"docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.md","htmlPath":"docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.html","elements":[],"drilldowns":[]}</script>
+</main>
+</body>
+</html>

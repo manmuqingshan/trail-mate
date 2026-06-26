@@ -1,0 +1,10 @@
+flowchart LR
+  actor_actor_outdoor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_hardware_management["硬件管理"]
+      useCase_use_case_view_hardware_status(["查看硬件状态"])
+      useCase_use_case_view_device_data(["查看设备数据"])
+    end
+  end
+  actor_actor_outdoor_user --- useCase_use_case_view_hardware_status
+  actor_actor_outdoor_user --- useCase_use_case_view_device_data

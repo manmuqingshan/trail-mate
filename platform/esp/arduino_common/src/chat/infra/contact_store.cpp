@@ -9,6 +9,8 @@
 #include "platform/esp/common/shared_spi_lock.h"
 
 #include <Arduino.h>
+#include <esp_heap_caps.h>
+#include <new>
 
 namespace chat
 {
@@ -24,6 +26,25 @@ namespace contacts
 #else
 #define CONTACT_STORE_LOG(...)
 #endif
+
+void* ContactStore::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void ContactStore::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void ContactStore::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
+}
 
 namespace
 {
@@ -162,7 +183,9 @@ ContactStore::LoadResult ContactStore::loadFromSD(std::vector<uint8_t>& out) con
         out.clear();
         return LoadResult::Busy;
     }
-    return chat::infra::loadRawBlobFromSd(kSdPath, out)
+    constexpr size_t kMaxContactBlobBytes =
+        ContactStoreCore::kMaxContacts * ContactStoreCore::kSerializedEntrySize;
+    return chat::infra::loadRawBlobFromSd(kSdPath, out, kMaxContactBlobBytes)
                ? LoadResult::Loaded
                : LoadResult::MissingOrInvalid;
 }

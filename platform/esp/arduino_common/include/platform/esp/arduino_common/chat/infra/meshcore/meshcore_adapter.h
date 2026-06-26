@@ -12,6 +12,7 @@
 #include "chat/runtime/meshcore_runtime.h"
 #include "chat/runtime/protocol_runtime_factory.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_identity.h"
+#include <cstddef>
 #include <deque>
 #include <limits>
 #include <queue>
@@ -40,6 +41,11 @@ class MeshCoreAdapter : public IMeshAdapter,
      * @brief Destructor
      */
     ~MeshCoreAdapter() override = default;
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
+
     MeshCapabilities getCapabilities() const override;
 
     // IMeshAdapter interface implementation

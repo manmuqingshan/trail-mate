@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>模块边界：cmake</title>
+</head>
+<body>
+<main class="praxis-engineering-map" data-praxis-anchor="engineering:package:cmake" data-praxis-kind="engineering_package_diagram" data-praxis-status="candidate" data-praxis-confidence="high" data-praxis-document-path="docs/engineering/package-diagrams/cmake/package-diagram.html" data-praxis-drilldowns="[]">
+  <header class="praxis-design-map-header">
+    <p>Praxis Software Structure Model</p>
+    <h1>模块边界：cmake</h1>
+    <p>解释 cmake 的包/模块边界、文件数量、符号数量和跨模块依赖。</p>
+    <div class="meta-row">
+      <span>Package Diagrams</span>
+      <span>candidate / high</span>
+      <span>0.1.0 · 34aad0bffa2f / main</span>
+    </div>
+  </header>
+  <section class="semantic-layer" data-praxis-anchor="engineering:reading-guide" data-praxis-kind="engineering_document_section">
+    <h2>图的读法</h2>
+    <ul>
+      <li>这张 Package Diagram 以 cmake 为中心，展示它作为工程模块边界时观察到的文件规模、符号规模和跨模块依赖。</li>
+      <li>图中的箭头表示本地仓库证据观察到的跨模块关系，主要用于理解技术依赖方向；它不是业务流程顺序，也不是运行时消息时序。</li>
+      <li>当前没有观察到明确的外部模块依赖，这可能表示模块相对独立，也可能表示扫描粒度尚不足。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:technical-analysis" data-praxis-kind="engineering_document_section">
+    <h2>技术复杂度分析</h2>
+    <ul>
+      <li>cmake 当前包含 2 个文件和 2 个符号，属于软件结构模型识别出的技术组织边界。</li>
+      <li>跨模块关系呈现为：被其它模块引用或调用 0 次，主动依赖或调用外部模块 0 次，因此它复用迹象和外部协作迹象相对接近。</li>
+      <li>当前对外依赖未形成明显异常，但仍应结合具体业务入口判断依赖方向是否稳定。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:business-relation" data-praxis-kind="engineering_document_section">
+    <h2>与业务复杂度的关联</h2>
+    <ul>
+      <li>cmake 不是业务故事本身，而是业务能力落地时可能经过的技术边界。</li>
+      <li>如果组织/过程模型中某个 Use Case 的证据、入口或下钻图落在 cmake，该 Use Case 应当反向链接到这张 Package Diagram，说明业务故事由哪个工程模块承载。</li>
+      <li>当前关联仍是 CANDIDATE：这里只能根据仓库证据解释技术边界，不能替代组织/过程模型对业务故事、参与者和业务目标的确认。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:governance-notes" data-praxis-kind="engineering_document_section">
+    <h2>治理建议</h2>
+    <ul>
+      <li>新增功能时，优先确认它属于该模块的稳定职责，而不是因为调用方便而落入该模块。</li>
+      <li>保持该模块的依赖方向可解释，避免形成隐式公共工具箱。</li>
+      <li>当业务 Use Case 文档引用该模块时，应在 Use Case 下钻文档中记录具体入口、调用链或配置证据。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer diagram-section" data-praxis-anchor="engineering:diagram-body" data-praxis-kind="engineering_diagram_body">
+    <h2>UML / 技术图</h2>
+    <pre class="mermaid" data-praxis-anchor="engineering:package:cmake:uml" data-praxis-kind="engineering_package_uml" data-praxis-drilldowns="[]">flowchart LR
+  package_node[&quot;cmake&quot;]
+  package_node --- isolated[&quot;未观察到跨模块依赖&quot;]</pre>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:coverage" data-praxis-kind="engineering_document_section">
+    <h2>覆盖范围</h2>
+    <ul>
+      <li>模块路径：cmake</li>
+      <li>文件数：2</li>
+      <li>符号数：2</li>
+      <li>被其他模块依赖或调用：0</li>
+      <li>依赖或调用外部模块：0</li>
+    </ul>
+  </section>
+  <section class="semantic-layer engineering-element-drilldowns" data-praxis-anchor="engineering:package:cmake:element-drilldowns" data-praxis-kind="engineering_element_drilldown_index">
+    <h2>图内语义元素下钻</h2>
+    <ol>
+      <li data-praxis-anchor="engineering:package:cmake" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="package_node" data-praxis-drilldowns="[]">
+        <strong>cmake</strong>
+        <span>package</span>
+        <p>cmake 是当前 Package Diagram 的中心工程边界，用来观察它自身规模、依赖方向和可下钻技术复杂度。</p>
+        <dl>
+          <div><dt>技术角色</dt><dd>技术组织边界：它把 cmake 下的文件、符号和跨模块关系聚合成一个可讨论的工程单元。</dd></div>
+          <div><dt>为什么出现</dt><dd>本地仓库证据在 cmake 下观察到足够文件、符号或跨模块关系，因此它值得被提升为软件结构模型中的 package 级入口。</dd></div>
+          <div><dt>关系意义</dt><dd>图中从 cmake 指向其它节点的箭头表示当前边界依赖外部 package/module；被其他模块依赖或调用 0 次、依赖或调用外部模块 0 次，用于判断它更像稳定复用边界还是编排/桥接边界。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻该节点可以继续查看 cmake 内的关键组件、结构协作切片、运行链路、部署节点和复杂度热点，从而理解这个工程边界如何承载功能变化。</dd></div>
+          <div><dt>业务关联</dt><dd>该节点不是业务故事本身，但组织/过程模型中落到 cmake 的 Use Case 可以把这里作为技术承载边界引用。当前关联仍是 CANDIDATE。</dd></div>
+          <div><dt>变更影响</dt><dd>修改 cmake 的公共入口、依赖方向或目录边界，可能影响引用它的组件图、sequence 片段、部署配置和相关业务故事的验证路径。</dd></div>
+          <div><dt>置信度</dt><dd>high</dd></div>
+        </dl>
+        <section><h3>证据</h3>
+          <ul>
+            <li>package scope: cmake</li>
+            <li>模块路径：cmake</li>
+            <li>文件数：2</li>
+            <li>符号数：2</li>
+            <li>被其他模块依赖或调用：0</li>
+            <li>依赖或调用外部模块：0</li>
+            <li>cmake/TrailMateLinuxSources.cmake</li>
+            <li>cmake/TrailMateUxPacks.cmake</li>
+          </ul>
+        </section>
+        <section><h3>风险</h3>
+          <ul>
+            <li>如果只把该节点当作目录名，会遗漏它作为稳定工程边界的职责判断。</li>
+            <li>如果依赖外部模块的迹象持续增加，可能说明该边界承担过多编排或桥接职责。</li>
+          </ul>
+        </section>
+        <section><h3>问题</h3>
+          <ul>
+            <li>当前仓库证据没有观察到跨模块依赖；因此该模块暂按相对独立边界处理，置信度保持为候选。</li>
+          </ul>
+        </section>
+      </li>
+    </ol>
+  </section>
+  <section class="semantic-layer engineering-drilldowns" data-praxis-anchor="engineering:package:cmake:drilldowns" data-praxis-kind="engineering_drilldown_options" data-praxis-drilldowns="[]">
+    <h2>可下钻 UML</h2>
+    <p>当前没有根据证据关联到更细图。</p>
+
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:evidence" data-praxis-kind="engineering_document_section">
+    <h2>证据</h2>
+    <ul>
+      <li>cmake/TrailMateLinuxSources.cmake</li>
+      <li>cmake/TrailMateUxPacks.cmake</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="engineering:questions" data-praxis-kind="engineering_document_section">
+    <h2>问题</h2>
+    <ul>
+      <li>当前仓库证据没有观察到跨模块依赖；因此该模块暂按相对独立边界处理，置信度保持为候选。</li>
+    </ul>
+  </section>
+  <script type="application/json" id="praxis-engineering-diagram-document">{"id":"engineering:diagram:package:cmake","kind":"package","title":"模块边界：cmake","summary":"解释 cmake 的包/模块边界、文件数量、符号数量和跨模块依赖。","docPath":"docs/engineering/package-diagrams/cmake/package-diagram.md","htmlPath":"docs/engineering/package-diagrams/cmake/package-diagram.html","anchor":"engineering:package:cmake","status":"candidate","confidence":"high","mermaidKind":"flowchart","mermaid":"flowchart LR\n  package_node[\"cmake\"]\n  package_node --- isolated[\"未观察到跨模块依赖\"]","readingGuide":["这张 Package Diagram 以 cmake 为中心，展示它作为工程模块边界时观察到的文件规模、符号规模和跨模块依赖。","图中的箭头表示本地仓库证据观察到的跨模块关系，主要用于理解技术依赖方向；它不是业务流程顺序，也不是运行时消息时序。","当前没有观察到明确的外部模块依赖，这可能表示模块相对独立，也可能表示扫描粒度尚不足。"],"technicalAnalysis":["cmake 当前包含 2 个文件和 2 个符号，属于软件结构模型识别出的技术组织边界。","跨模块关系呈现为：被其它模块引用或调用 0 次，主动依赖或调用外部模块 0 次，因此它复用迹象和外部协作迹象相对接近。","当前对外依赖未形成明显异常，但仍应结合具体业务入口判断依赖方向是否稳定。"],"businessRelation":["cmake 不是业务故事本身，而是业务能力落地时可能经过的技术边界。","如果组织/过程模型中某个 Use Case 的证据、入口或下钻图落在 cmake，该 Use Case 应当反向链接到这张 Package Diagram，说明业务故事由哪个工程模块承载。","当前关联仍是 CANDIDATE：这里只能根据仓库证据解释技术边界，不能替代组织/过程模型对业务故事、参与者和业务目标的确认。"],"governanceNotes":["新增功能时，优先确认它属于该模块的稳定职责，而不是因为调用方便而落入该模块。","保持该模块的依赖方向可解释，避免形成隐式公共工具箱。","当业务 Use Case 文档引用该模块时，应在 Use Case 下钻文档中记录具体入口、调用链或配置证据。"],"coverage":["模块路径：cmake","文件数：2","符号数：2","被其他模块依赖或调用：0","依赖或调用外部模块：0"],"evidencePaths":["cmake/TrailMateLinuxSources.cmake","cmake/TrailMateUxPacks.cmake"],"questions":["当前仓库证据没有观察到跨模块依赖；因此该模块暂按相对独立边界处理，置信度保持为候选。"],"scope":{"packageId":"cmake","filePath":"cmake"},"drilldowns":[],"elements":[{"id":"engineering:diagram:package:cmake:element:cmake","mermaidId":"package_node","label":"cmake","kind":"package","anchor":"engineering:package:cmake","summary":"cmake 是当前 Package Diagram 的中心工程边界，用来观察它自身规模、依赖方向和可下钻技术复杂度。","role":"技术组织边界：它把 cmake 下的文件、符号和跨模块关系聚合成一个可讨论的工程单元。","whyItExists":"本地仓库证据在 cmake 下观察到足够文件、符号或跨模块关系，因此它值得被提升为软件结构模型中的 package 级入口。","relationshipMeaning":"图中从 cmake 指向其它节点的箭头表示当前边界依赖外部 package/module；被其他模块依赖或调用 0 次、依赖或调用外部模块 0 次，用于判断它更像稳定复用边界还是编排/桥接边界。","drilldownIntent":"下钻该节点可以继续查看 cmake 内的关键组件、结构协作切片、运行链路、部署节点和复杂度热点，从而理解这个工程边界如何承载功能变化。","businessRelevance":"该节点不是业务故事本身，但组织/过程模型中落到 cmake 的 Use Case 可以把这里作为技术承载边界引用。当前关联仍是 CANDIDATE。","changeImpact":"修改 cmake 的公共入口、依赖方向或目录边界，可能影响引用它的组件图、sequence 片段、部署配置和相关业务故事的验证路径。","evidence":["package scope: cmake","模块路径：cmake","文件数：2","符号数：2","被其他模块依赖或调用：0","依赖或调用外部模块：0","cmake/TrailMateLinuxSources.cmake","cmake/TrailMateUxPacks.cmake"],"risks":["如果只把该节点当作目录名，会遗漏它作为稳定工程边界的职责判断。","如果依赖外部模块的迹象持续增加，可能说明该边界承担过多编排或桥接职责。"],"questions":["当前仓库证据没有观察到跨模块依赖；因此该模块暂按相对独立边界处理，置信度保持为候选。"],"confidence":"high","drilldowns":[]}]}</script>
+</main>
+</body>
+</html>

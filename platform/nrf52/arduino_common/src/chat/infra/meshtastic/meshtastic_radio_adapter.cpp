@@ -1062,7 +1062,9 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
     rx_meta.rx_timestamp_ms = millis();
     rx_meta.rx_timestamp_s = nowSeconds();
     rx_meta.time_source = ::chat::RxTimeSource::DeviceUtc;
-    rx_meta.origin = ::chat::RxOrigin::Mesh;
+    rx_meta.from_is =
+        (header.flags & ::chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0;
+    rx_meta.origin = rx_meta.from_is ? ::chat::RxOrigin::External : ::chat::RxOrigin::Mesh;
     rx_meta.direct = (::chat::meshtastic::computeHopsAway(header.flags) == 0);
     rx_meta.hop_count = (hop_start >= hop_limit) ? static_cast<uint8_t>(hop_start - hop_limit) : 0;
     rx_meta.hop_limit = hop_limit;
@@ -3095,8 +3097,6 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
                                                 const char* channel_id,
                                                 const char* gateway_id)
 {
-    (void)gateway_id;
-
     if (!mqtt_proxy_settings_.enabled || !mqtt_proxy_settings_.proxy_to_client_enabled)
     {
         return false;
@@ -3107,6 +3107,22 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
     const uint8_t channel_hash = mqttChannelHashForId(channel_id, &known_channel, &channel_index);
     if (!known_channel)
     {
+        return false;
+    }
+
+    const auto accept_policy = ::chat::runtime::resolveMeshtasticMqttDownlinkPolicy(
+        gateway_id,
+        node_id_,
+        packet.from,
+        packet.to,
+        config_.tx_enabled);
+    if (!accept_policy.accept_locally)
+    {
+        logMeshtasticRx("[gat562][mt][mqtt] downlink ignore reason=%s gateway=%s from=%08lX id=%08lX\n",
+                        ::chat::runtime::meshtasticMqttDownlinkReasonName(accept_policy.reason),
+                        gateway_id ? gateway_id : "",
+                        static_cast<unsigned long>(packet.from),
+                        static_cast<unsigned long>(packet.id));
         return false;
     }
 
@@ -3192,6 +3208,29 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
         }
         rebuilt_header->next_hop = packet.next_hop;
         rebuilt_header->relay_node = packet.relay_node;
+    }
+
+    auto* tx_header = reinterpret_cast<::chat::meshtastic::PacketHeaderWire*>(wire_buffer);
+    const auto tx_policy = ::chat::runtime::resolveMeshtasticMqttDownlinkPolicy(
+        gateway_id,
+        node_id_,
+        tx_header->from,
+        tx_header->to,
+        config_.tx_enabled);
+    if (!tx_policy.transmit_to_mesh)
+    {
+        logMeshtasticRx("[gat562][mt][mqtt] downlink mesh tx skipped reason=%s id=%08lX\n",
+                        ::chat::runtime::meshtasticMqttDownlinkReasonName(tx_policy.reason),
+                        static_cast<unsigned long>(tx_header->id));
+    }
+    else
+    {
+        const bool tx_ok = transmitWire(wire_buffer, wire_size);
+        logMeshtasticRx("[gat562][mt][mqtt] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
+                        static_cast<unsigned long>(tx_header->id),
+                        static_cast<unsigned>(tx_header->channel),
+                        static_cast<unsigned>(wire_size),
+                        tx_ok ? 1U : 0U);
     }
 
     handleRawPacket(wire_buffer, wire_size);

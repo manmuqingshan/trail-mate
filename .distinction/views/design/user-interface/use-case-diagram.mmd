@@ -1,0 +1,10 @@
+flowchart LR
+  actor_actor_outdoor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_user_interface["用户界面"]
+      useCase_use_case_capture_screenshot(["捕获屏幕截图"])
+      useCase_use_case_navigate_ui_pages(["切换 UI 页面"])
+    end
+  end
+  actor_actor_outdoor_user --- useCase_use_case_capture_screenshot
+  actor_actor_outdoor_user --- useCase_use_case_navigate_ui_pages

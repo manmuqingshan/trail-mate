@@ -3,6 +3,10 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include <esp_heap_caps.h>
+#include <memory>
+#include <new>
+
 #include "platform/ui/settings_store.h"
 
 namespace app
@@ -11,7 +15,7 @@ namespace app
 bool loadAppConfigFromPreferences(AppConfig& config,
                                   Preferences& prefs,
                                   bool emit_logs);
-bool saveAppConfigToPreferences(AppConfig& config,
+bool saveAppConfigToPreferences(const AppConfig& config,
                                 Preferences& prefs,
                                 bool emit_logs);
 
@@ -26,6 +30,12 @@ constexpr const char* kChatKeySecondaryEnabled = "sec_enabled";
 constexpr const char* kChatKeyPrimaryDownlink = "pri_downlink";
 constexpr const char* kChatKeySecondaryUplink = "sec_uplink";
 constexpr const char* kChatKeySecondaryDownlink = "sec_downlink";
+constexpr const char* kChatKeyPrimaryHasModuleSettings = "pri_ch_mod";
+constexpr const char* kChatKeySecondaryHasModuleSettings = "sec_ch_mod";
+constexpr const char* kChatKeyPrimaryPositionPrecision = "pri_pos_prec";
+constexpr const char* kChatKeySecondaryPositionPrecision = "sec_pos_prec";
+constexpr const char* kChatKeyPrimaryChannelMuted = "pri_ch_muted";
+constexpr const char* kChatKeySecondaryChannelMuted = "sec_ch_muted";
 constexpr const char* kChatKeyPrimaryChannelName = "pri_ch_name";
 constexpr const char* kChatKeySecondaryChannelName = "sec_ch_name";
 constexpr const char* kChatKeyPrimaryChannelId = "pri_ch_id";
@@ -42,6 +52,34 @@ constexpr const char* kGpsKeyMotionSensorId = "motion_sensor";
 constexpr const char* kGpsKeyExternalNmeaSentence = "ext_nmea_sent";
 constexpr const char* kSettingsKeyMapTrackInterval = "map_track_int";
 constexpr const char* kSettingsKeyMapTrackFormat = "map_track_fmt";
+
+struct AppConfigDeleter
+{
+    void operator()(AppConfig* config) const
+    {
+        if (!config)
+        {
+            return;
+        }
+        config->~AppConfig();
+        heap_caps_free(config);
+    }
+};
+
+using AppConfigPtr = std::unique_ptr<AppConfig, AppConfigDeleter>;
+
+AppConfigPtr makeHeapAppConfig()
+{
+    void* storage = heap_caps_malloc_prefer(sizeof(AppConfig),
+                                            2,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (storage == nullptr)
+    {
+        return AppConfigPtr{};
+    }
+    return AppConfigPtr(new (storage) AppConfig());
+}
 
 const char* safe_label(const char* value)
 {
@@ -628,6 +666,30 @@ void log_config_delta(const AppConfig& before, const AppConfig& after)
     log_change_bool("primary_downlink", before.primary_downlink_enabled, after.primary_downlink_enabled, any_change);
     log_change_bool("secondary_uplink", before.secondary_uplink_enabled, after.secondary_uplink_enabled, any_change);
     log_change_bool("secondary_downlink", before.secondary_downlink_enabled, after.secondary_downlink_enabled, any_change);
+    log_change_bool("primary_channel.has_module_settings",
+                    before.primary_channel_has_module_settings,
+                    after.primary_channel_has_module_settings,
+                    any_change);
+    log_change_u32("primary_channel.position_precision",
+                   before.primary_channel_position_precision,
+                   after.primary_channel_position_precision,
+                   any_change);
+    log_change_bool("primary_channel.is_muted",
+                    before.primary_channel_is_muted,
+                    after.primary_channel_is_muted,
+                    any_change);
+    log_change_bool("secondary_channel.has_module_settings",
+                    before.secondary_channel_has_module_settings,
+                    after.secondary_channel_has_module_settings,
+                    any_change);
+    log_change_u32("secondary_channel.position_precision",
+                   before.secondary_channel_position_precision,
+                   after.secondary_channel_position_precision,
+                   any_change);
+    log_change_bool("secondary_channel.is_muted",
+                    before.secondary_channel_is_muted,
+                    after.secondary_channel_is_muted,
+                    any_change);
 
     log_change_bool("gps_enabled", before.gps_enabled, after.gps_enabled, any_change);
     log_change_u32("gps_interval_ms", before.gps_interval_ms, after.gps_interval_ms, any_change);
@@ -703,6 +765,20 @@ void log_config_summary(const char* phase, const AppConfig& config)
                   static_cast<unsigned long>(config.meshtastic_config.secondary_channel_id),
                   static_cast<unsigned>(config.meshtastic_config.primary_key_len),
                   static_cast<unsigned>(config.meshtastic_config.secondary_key_len));
+    Serial.printf("[AppCfg][%s][channel] primary=%s primary_uplink=%s primary_downlink=%s primary_module=%s primary_pos_prec=%lu primary_muted=%s secondary=%s secondary_uplink=%s secondary_downlink=%s secondary_module=%s secondary_pos_prec=%lu secondary_muted=%s\n",
+                  safe_label(phase),
+                  bool_label(config.primary_enabled),
+                  bool_label(config.primary_uplink_enabled),
+                  bool_label(config.primary_downlink_enabled),
+                  bool_label(config.primary_channel_has_module_settings),
+                  static_cast<unsigned long>(config.primary_channel_position_precision),
+                  bool_label(config.primary_channel_is_muted),
+                  bool_label(config.secondary_enabled),
+                  bool_label(config.secondary_uplink_enabled),
+                  bool_label(config.secondary_downlink_enabled),
+                  bool_label(config.secondary_channel_has_module_settings),
+                  static_cast<unsigned long>(config.secondary_channel_position_precision),
+                  bool_label(config.secondary_channel_is_muted));
     Serial.printf("[AppCfg][%s][gps_init] baud=%lu probe_ms=%lu profile=%u rxm=%u gnss=%u nmea=%u\n",
                   safe_label(phase),
                   static_cast<unsigned long>(config.gps_init_baud),
@@ -771,6 +847,12 @@ bool loadAppConfigFromPreferences(AppConfig& config,
     auto& primary_downlink_enabled = config.primary_downlink_enabled;
     auto& secondary_uplink_enabled = config.secondary_uplink_enabled;
     auto& secondary_downlink_enabled = config.secondary_downlink_enabled;
+    auto& primary_channel_has_module_settings = config.primary_channel_has_module_settings;
+    auto& primary_channel_position_precision = config.primary_channel_position_precision;
+    auto& primary_channel_is_muted = config.primary_channel_is_muted;
+    auto& secondary_channel_has_module_settings = config.secondary_channel_has_module_settings;
+    auto& secondary_channel_position_precision = config.secondary_channel_position_precision;
+    auto& secondary_channel_is_muted = config.secondary_channel_is_muted;
     auto& secondary_key = config.secondary_key;
     auto& gps_enabled = config.gps_enabled;
     auto& gps_init_baud = config.gps_init_baud;
@@ -957,6 +1039,12 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         primary_downlink_enabled = get_bool(kChatKeyPrimaryDownlink, false);
         secondary_uplink_enabled = get_bool(kChatKeySecondaryUplink, false);
         secondary_downlink_enabled = get_bool(kChatKeySecondaryDownlink, false);
+        primary_channel_has_module_settings = get_bool(kChatKeyPrimaryHasModuleSettings, false);
+        primary_channel_position_precision = get_uint(kChatKeyPrimaryPositionPrecision, 0);
+        primary_channel_is_muted = get_bool(kChatKeyPrimaryChannelMuted, false);
+        secondary_channel_has_module_settings = get_bool(kChatKeySecondaryHasModuleSettings, false);
+        secondary_channel_position_precision = get_uint(kChatKeySecondaryPositionPrecision, 0);
+        secondary_channel_is_muted = get_bool(kChatKeySecondaryChannelMuted, false);
         const size_t primary_key_read =
             get_bytes("primary_key", meshtastic_config.primary_key, sizeof(meshtastic_config.primary_key));
         meshtastic_config.primary_key_len =
@@ -1121,54 +1209,59 @@ bool loadAppConfigFromPreferences(AppConfig& config,
     return true;
 }
 
-bool saveAppConfigToPreferences(AppConfig& config,
+bool saveAppConfigToPreferences(const AppConfig& config,
                                 Preferences& prefs,
                                 bool emit_logs)
 {
-    auto& chat_policy = config.chat_policy;
-    auto& meshtastic_config = config.meshtastic_config;
-    auto& meshcore_config = config.meshcore_config;
-    auto& rnode_config = config.rnode_config;
-    auto& mesh_protocol = config.mesh_protocol;
-    auto& node_name = config.node_name;
-    auto& short_name = config.short_name;
-    auto& primary_enabled = config.primary_enabled;
-    auto& secondary_enabled = config.secondary_enabled;
-    auto& primary_uplink_enabled = config.primary_uplink_enabled;
-    auto& primary_downlink_enabled = config.primary_downlink_enabled;
-    auto& secondary_uplink_enabled = config.secondary_uplink_enabled;
-    auto& secondary_downlink_enabled = config.secondary_downlink_enabled;
-    auto& secondary_key = config.secondary_key;
-    auto& gps_enabled = config.gps_enabled;
-    auto& gps_init_baud = config.gps_init_baud;
-    auto& gps_init_probe_ms = config.gps_init_probe_ms;
-    auto& gps_init_profile = config.gps_init_profile;
-    auto& gps_init_rxm_policy = config.gps_init_rxm_policy;
-    auto& gps_init_gnss_policy = config.gps_init_gnss_policy;
-    auto& gps_init_nmea_policy = config.gps_init_nmea_policy;
-    auto& gps_interval_ms = config.gps_interval_ms;
-    auto& gps_mode = config.gps_mode;
-    auto& gps_sat_mask = config.gps_sat_mask;
-    auto& gps_strategy = config.gps_strategy;
-    auto& gps_alt_ref = config.gps_alt_ref;
-    auto& gps_coord_format = config.gps_coord_format;
-    auto& motion_config = config.motion_config;
-    auto& external_nmea_output_hz = config.external_nmea_output_hz;
-    auto& external_nmea_sentence_mask = config.external_nmea_sentence_mask;
-    auto& map_coord_system = config.map_coord_system;
-    auto& map_source = config.map_source;
-    auto& map_contour_enabled = config.map_contour_enabled;
-    auto& map_track_enabled = config.map_track_enabled;
-    auto& map_track_interval = config.map_track_interval;
-    auto& map_track_format = config.map_track_format;
-    auto& ble_enabled = config.ble_enabled;
-    auto& chat_channel = config.chat_channel;
-    auto& net_duty_cycle = config.net_duty_cycle;
-    auto& net_channel_util = config.net_channel_util;
-    auto& privacy_encrypt_mode = config.privacy_encrypt_mode;
-    auto& route_enabled = config.route_enabled;
-    auto& route_path = config.route_path;
-    auto& aprs = config.aprs;
+    const auto& chat_policy = config.chat_policy;
+    const auto& meshtastic_config = config.meshtastic_config;
+    const auto& meshcore_config = config.meshcore_config;
+    const auto& rnode_config = config.rnode_config;
+    const auto& mesh_protocol = config.mesh_protocol;
+    const auto& node_name = config.node_name;
+    const auto& short_name = config.short_name;
+    const auto& primary_enabled = config.primary_enabled;
+    const auto& secondary_enabled = config.secondary_enabled;
+    const auto& primary_uplink_enabled = config.primary_uplink_enabled;
+    const auto& primary_downlink_enabled = config.primary_downlink_enabled;
+    const auto& secondary_uplink_enabled = config.secondary_uplink_enabled;
+    const auto& secondary_downlink_enabled = config.secondary_downlink_enabled;
+    const auto& primary_channel_has_module_settings = config.primary_channel_has_module_settings;
+    const auto& primary_channel_position_precision = config.primary_channel_position_precision;
+    const auto& primary_channel_is_muted = config.primary_channel_is_muted;
+    const auto& secondary_channel_has_module_settings = config.secondary_channel_has_module_settings;
+    const auto& secondary_channel_position_precision = config.secondary_channel_position_precision;
+    const auto& secondary_channel_is_muted = config.secondary_channel_is_muted;
+    const auto& gps_enabled = config.gps_enabled;
+    const auto& gps_init_baud = config.gps_init_baud;
+    const auto& gps_init_probe_ms = config.gps_init_probe_ms;
+    const auto& gps_init_profile = config.gps_init_profile;
+    const auto& gps_init_rxm_policy = config.gps_init_rxm_policy;
+    const auto& gps_init_gnss_policy = config.gps_init_gnss_policy;
+    const auto& gps_init_nmea_policy = config.gps_init_nmea_policy;
+    const auto& gps_interval_ms = config.gps_interval_ms;
+    const auto& gps_mode = config.gps_mode;
+    const auto& gps_sat_mask = config.gps_sat_mask;
+    const auto& gps_strategy = config.gps_strategy;
+    const auto& gps_alt_ref = config.gps_alt_ref;
+    const auto& gps_coord_format = config.gps_coord_format;
+    const auto& motion_config = config.motion_config;
+    const auto& external_nmea_output_hz = config.external_nmea_output_hz;
+    const auto& external_nmea_sentence_mask = config.external_nmea_sentence_mask;
+    const auto& map_coord_system = config.map_coord_system;
+    const auto& map_source = config.map_source;
+    const auto& map_contour_enabled = config.map_contour_enabled;
+    const auto& map_track_enabled = config.map_track_enabled;
+    const auto& map_track_interval = config.map_track_interval;
+    const auto& map_track_format = config.map_track_format;
+    const auto& ble_enabled = config.ble_enabled;
+    const auto& chat_channel = config.chat_channel;
+    const auto& net_duty_cycle = config.net_duty_cycle;
+    const auto& net_channel_util = config.net_channel_util;
+    const auto& privacy_encrypt_mode = config.privacy_encrypt_mode;
+    const auto& route_enabled = config.route_enabled;
+    const auto& route_path = config.route_path;
+    const auto& aprs = config.aprs;
 
     if (emit_logs)
     {
@@ -1285,33 +1378,38 @@ bool saveAppConfigToPreferences(AppConfig& config,
         put_bool(kChatKeyPrimaryDownlink, primary_downlink_enabled);
         put_bool(kChatKeySecondaryUplink, secondary_uplink_enabled);
         put_bool(kChatKeySecondaryDownlink, secondary_downlink_enabled);
-        meshtastic_config.primary_key_len =
+        put_bool(kChatKeyPrimaryHasModuleSettings, primary_channel_has_module_settings);
+        put_uint(kChatKeyPrimaryPositionPrecision, primary_channel_position_precision);
+        put_bool(kChatKeyPrimaryChannelMuted, primary_channel_is_muted);
+        put_bool(kChatKeySecondaryHasModuleSettings, secondary_channel_has_module_settings);
+        put_uint(kChatKeySecondaryPositionPrecision, secondary_channel_position_precision);
+        put_bool(kChatKeySecondaryChannelMuted, secondary_channel_is_muted);
+        const uint8_t primary_key_len =
             chat::normalizeMeshtasticChannelKeyLen(meshtastic_config.primary_key,
                                                    sizeof(meshtastic_config.primary_key),
                                                    meshtastic_config.primary_key_len);
-        meshtastic_config.secondary_key_len =
+        const uint8_t secondary_key_len =
             chat::normalizeMeshtasticChannelKeyLen(meshtastic_config.secondary_key,
                                                    sizeof(meshtastic_config.secondary_key),
                                                    meshtastic_config.secondary_key_len);
-        if (meshtastic_config.primary_key_len > 0)
+        if (primary_key_len > 0)
         {
-            put_bytes("primary_key", meshtastic_config.primary_key, meshtastic_config.primary_key_len);
+            put_bytes("primary_key", meshtastic_config.primary_key, primary_key_len);
         }
         else
         {
             ok = remove_key_logged(prefs, "chat", "primary_key", emit_logs) && ok;
         }
-        put_uchar(kChatKeyPrimaryKeyLen, meshtastic_config.primary_key_len);
-        memcpy(secondary_key, meshtastic_config.secondary_key, sizeof(secondary_key));
-        if (meshtastic_config.secondary_key_len > 0)
+        put_uchar(kChatKeyPrimaryKeyLen, primary_key_len);
+        if (secondary_key_len > 0)
         {
-            put_bytes("secondary_key", secondary_key, meshtastic_config.secondary_key_len);
+            put_bytes("secondary_key", meshtastic_config.secondary_key, secondary_key_len);
         }
         else
         {
             ok = remove_key_logged(prefs, "chat", "secondary_key", emit_logs) && ok;
         }
-        put_uchar(kChatKeySecondaryKeyLen, meshtastic_config.secondary_key_len);
+        put_uchar(kChatKeySecondaryKeyLen, secondary_key_len);
     }
     prefs.end();
 
@@ -1470,14 +1568,19 @@ bool loadAppConfig(AppConfig& config)
 
 bool saveAppConfig(const AppConfig& config)
 {
-    AppConfig previous_config;
+    AppConfigPtr previous_config = makeHeapAppConfig();
+    if (!previous_config)
+    {
+        Serial.println("[AppCfg][SAVE] failed: app config snapshot alloc");
+        return false;
+    }
+
     Preferences previous_prefs;
-    loadAppConfigFromPreferences(previous_config, previous_prefs, false);
-    log_config_delta(previous_config, config);
+    loadAppConfigFromPreferences(*previous_config, previous_prefs, false);
+    log_config_delta(*previous_config, config);
 
     Preferences prefs;
-    AppConfig mutable_config = config;
-    return saveAppConfigToPreferences(mutable_config, prefs, true);
+    return saveAppConfigToPreferences(config, prefs, true);
 }
 
 } // namespace app

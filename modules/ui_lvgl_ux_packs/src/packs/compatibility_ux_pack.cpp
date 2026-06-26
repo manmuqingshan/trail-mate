@@ -35,7 +35,7 @@ const UxFeatureSet& CompatibilityUxPack::features() const
         true,
         true,
         true,
-        true,
+        false,
         true,
     };
     return features;
@@ -53,7 +53,6 @@ void CompatibilityUxPack::buildScreens(ScreenRegistry& out) const
     (void)out.add({ScreenId::Tracker, "Tracker", true});
     (void)out.add({ScreenId::Settings, "Settings", true});
     (void)out.add({ScreenId::WalkieTalkie, "Walkie", true});
-    (void)out.add({ScreenId::Sstv, "SSTV", true});
     (void)out.add({ScreenId::Extensions, "Extensions", true});
 }
 

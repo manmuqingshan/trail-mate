@@ -90,6 +90,9 @@ constexpr int kHttpBufferSize = 1024;
 constexpr int kHttpTxBufferSize = 512;
 constexpr std::size_t kTlsLargeAllocThresholdBytes = 4096;
 constexpr std::size_t kFileWriteChunkBytes = 4096;
+constexpr std::size_t kFileReadChunkBytes = 4096;
+constexpr std::size_t kMaxInstalledIndexTokenBytes = 512;
+constexpr std::size_t kMaxZipEntryNameBytes = 512;
 constexpr std::size_t kZipEocdMinSize = 22;
 constexpr std::size_t kZipTailSearchMax = 0x10000 + kZipEocdMinSize;
 constexpr std::uint32_t kZipEocdSignature = 0x06054B50u;
@@ -857,70 +860,6 @@ bool write_text_file(const std::string& logical_path, const std::string& text)
     return write_binary_file(logical_path, text.data(), text.size());
 }
 
-bool read_binary_file(const std::string& logical_path, std::vector<std::uint8_t>& out)
-{
-    out.clear();
-
-    PackStorageBinding binding;
-    if (!resolve_storage_binding(logical_path, false, binding))
-    {
-        return false;
-    }
-
-    if (binding_is_sd_runtime(binding))
-    {
-        if (::platform::esp::arduino_common::storage::sd_is_directory(binding.volume_path.c_str()))
-        {
-            return false;
-        }
-
-        ::platform::esp::arduino_common::storage::SdRuntimeFile file;
-        if (!file.open(binding.volume_path.c_str(), "r"))
-        {
-            return false;
-        }
-        const std::size_t size = static_cast<std::size_t>(file.size());
-        out.resize(size);
-        const int read = file.read(out.data(), size);
-        file.close();
-        if (read < 0 || static_cast<std::size_t>(read) != size)
-        {
-            out.clear();
-            return false;
-        }
-        return true;
-    }
-
-    if (!binding_is_flash_posix(binding) || !posix_file_exists(binding.volume_path))
-    {
-        return false;
-    }
-
-    FILE* file = std::fopen(binding.volume_path.c_str(), "rb");
-    if (!file)
-    {
-        return false;
-    }
-    std::fseek(file, 0, SEEK_END);
-    const long file_size = std::ftell(file);
-    if (file_size < 0)
-    {
-        std::fclose(file);
-        return false;
-    }
-    std::rewind(file);
-    const std::size_t size = static_cast<std::size_t>(file_size);
-    out.resize(size);
-    const std::size_t read = size == 0 ? 0 : std::fread(out.data(), 1, size, file);
-    std::fclose(file);
-    if (read != size)
-    {
-        out.clear();
-        return false;
-    }
-    return true;
-}
-
 bool logical_file_size(const std::string& logical_path, std::size_t& out_size)
 {
     out_size = 0;
@@ -960,18 +899,6 @@ bool logical_file_size(const std::string& logical_path, std::size_t& out_size)
         return false;
     }
     out_size = static_cast<std::size_t>(st.st_size);
-    return true;
-}
-
-bool read_text_file(const std::string& logical_path, std::string& out)
-{
-    std::vector<std::uint8_t> bytes;
-    if (!read_binary_file(logical_path, bytes))
-    {
-        out.clear();
-        return false;
-    }
-    out.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
     return true;
 }
 
@@ -1414,55 +1341,6 @@ bool write_text_file(const std::string& logical_path, const std::string& text)
     return write_binary_file(logical_path, text.data(), text.size());
 }
 
-bool read_binary_file(const std::string& logical_path, std::vector<std::uint8_t>& out)
-{
-    out.clear();
-    FILE* file = std::fopen(host_path(logical_path).c_str(), "rb");
-    if (!file)
-    {
-        return false;
-    }
-
-    if (std::fseek(file, 0, SEEK_END) != 0)
-    {
-        std::fclose(file);
-        return false;
-    }
-    const long file_size = std::ftell(file);
-    if (file_size < 0)
-    {
-        std::fclose(file);
-        return false;
-    }
-    if (std::fseek(file, 0, SEEK_SET) != 0)
-    {
-        std::fclose(file);
-        return false;
-    }
-
-    out.resize(static_cast<std::size_t>(file_size));
-    const std::size_t read = std::fread(out.data(), 1, out.size(), file);
-    std::fclose(file);
-    if (read != out.size())
-    {
-        out.clear();
-        return false;
-    }
-    return true;
-}
-
-bool read_text_file(const std::string& logical_path, std::string& out)
-{
-    std::vector<std::uint8_t> bytes;
-    if (!read_binary_file(logical_path, bytes))
-    {
-        out.clear();
-        return false;
-    }
-    out.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-    return true;
-}
-
 bool logical_dir_exists(const std::string& logical_path)
 {
     const std::string dir = host_path(logical_path);
@@ -1674,6 +1552,33 @@ class SequentialWriteFile
 
 #endif
 
+template <typename ChunkHandler>
+bool read_file_chunks(const std::string& logical_path, ChunkHandler on_chunk)
+{
+    RandomAccessFile file;
+    if (!file.open(logical_path))
+    {
+        return false;
+    }
+
+    std::uint8_t buffer[kFileReadChunkBytes];
+    std::size_t offset = 0;
+    const std::size_t size = file.size();
+    bool ok = true;
+    while (offset < size)
+    {
+        const std::size_t chunk = std::min<std::size_t>(sizeof(buffer), size - offset);
+        if (!file.read_at(offset, buffer, chunk) || !on_chunk(buffer, chunk))
+        {
+            ok = false;
+            break;
+        }
+        offset += chunk;
+    }
+    file.close();
+    return ok;
+}
+
 std::uint16_t read_le16(const std::uint8_t* ptr)
 {
     return static_cast<std::uint16_t>(ptr[0]) |
@@ -1860,16 +1765,8 @@ bool http_download_file(const std::string& url,
     return ok;
 }
 
-std::string sha256_hex_of_bytes(const std::uint8_t* data, std::size_t len)
+std::string sha256_hex_from_digest(const unsigned char hash[32])
 {
-    unsigned char hash[32];
-    mbedtls_sha256_context ctx;
-    mbedtls_sha256_init(&ctx);
-    mbedtls_sha256_starts(&ctx, 0);
-    mbedtls_sha256_update(&ctx, data, len);
-    mbedtls_sha256_finish(&ctx, hash);
-    mbedtls_sha256_free(&ctx);
-
     char hex[65];
     for (int i = 0; i < 32; ++i)
     {
@@ -1881,14 +1778,418 @@ std::string sha256_hex_of_bytes(const std::uint8_t* data, std::size_t len)
 
 bool sha256_file(const std::string& logical_path, std::string& out_hex)
 {
-    std::vector<std::uint8_t> data;
-    if (!read_binary_file(logical_path, data))
+    out_hex.clear();
+
+    unsigned char hash[32];
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    mbedtls_sha256_starts(&ctx, 0);
+    const bool ok = read_file_chunks(logical_path, [&ctx](const std::uint8_t* data, std::size_t len)
+                                     {
+        mbedtls_sha256_update(&ctx, data, len);
+        return true; });
+    if (!ok)
     {
-        out_hex.clear();
+        mbedtls_sha256_free(&ctx);
         return false;
     }
-    out_hex = sha256_hex_of_bytes(data.data(), data.size());
+    mbedtls_sha256_finish(&ctx, hash);
+    mbedtls_sha256_free(&ctx);
+    out_hex = sha256_hex_from_digest(hash);
     return true;
+}
+
+enum class JsonTokenKind : std::uint8_t
+{
+    End,
+    ObjectStart,
+    ObjectEnd,
+    ArrayStart,
+    ArrayEnd,
+    Colon,
+    Comma,
+    String,
+    Number,
+    Literal,
+};
+
+struct JsonToken
+{
+    JsonTokenKind kind = JsonTokenKind::End;
+    std::string text;
+};
+
+class JsonTokenStream
+{
+  public:
+    bool open(const std::string& logical_path)
+    {
+        close();
+        return file_.open(logical_path);
+    }
+
+    void close()
+    {
+        file_.close();
+        offset_ = 0;
+        buffered_ = 0;
+        buffer_pos_ = 0;
+        has_pushback_ = false;
+    }
+
+    bool next(JsonToken& out, std::string& out_error)
+    {
+        out = JsonToken{};
+
+        char ch = '\0';
+        do
+        {
+            if (!read_char(ch))
+            {
+                out.kind = JsonTokenKind::End;
+                return true;
+            }
+        } while (std::isspace(static_cast<unsigned char>(ch)) != 0);
+
+        switch (ch)
+        {
+        case '{':
+            out.kind = JsonTokenKind::ObjectStart;
+            return true;
+        case '}':
+            out.kind = JsonTokenKind::ObjectEnd;
+            return true;
+        case '[':
+            out.kind = JsonTokenKind::ArrayStart;
+            return true;
+        case ']':
+            out.kind = JsonTokenKind::ArrayEnd;
+            return true;
+        case ':':
+            out.kind = JsonTokenKind::Colon;
+            return true;
+        case ',':
+            out.kind = JsonTokenKind::Comma;
+            return true;
+        case '"':
+            out.kind = JsonTokenKind::String;
+            return read_string(out.text, out_error);
+        default:
+            break;
+        }
+
+        if ((ch >= '0' && ch <= '9') || ch == '-')
+        {
+            out.kind = JsonTokenKind::Number;
+            out.text.push_back(ch);
+            while (read_char(ch))
+            {
+                if ((ch >= '0' && ch <= '9') || ch == '-' || ch == '+' ||
+                    ch == '.' || ch == 'e' || ch == 'E')
+                {
+                    if (!append_token_char(out.text, ch, out_error))
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+                push_back(ch);
+                break;
+            }
+            return true;
+        }
+
+        if (std::isalpha(static_cast<unsigned char>(ch)) != 0)
+        {
+            out.kind = JsonTokenKind::Literal;
+            out.text.push_back(ch);
+            while (read_char(ch))
+            {
+                if (std::isalpha(static_cast<unsigned char>(ch)) != 0)
+                {
+                    if (!append_token_char(out.text, ch, out_error))
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+                push_back(ch);
+                break;
+            }
+            return true;
+        }
+
+        out_error = "Installed index JSON token invalid";
+        return false;
+    }
+
+  private:
+    bool append_token_char(std::string& text, char ch, std::string& out_error)
+    {
+        if (text.size() >= kMaxInstalledIndexTokenBytes)
+        {
+            out_error = "Installed index JSON token too long";
+            return false;
+        }
+        text.push_back(ch);
+        return true;
+    }
+
+    bool read_string(std::string& out, std::string& out_error)
+    {
+        out.clear();
+        char ch = '\0';
+        while (read_char(ch))
+        {
+            if (ch == '"')
+            {
+                return true;
+            }
+            if (ch == '\\')
+            {
+                if (!read_char(ch))
+                {
+                    out_error = "Installed index JSON escape truncated";
+                    return false;
+                }
+                switch (ch)
+                {
+                case 'n':
+                    ch = '\n';
+                    break;
+                case 'r':
+                    ch = '\r';
+                    break;
+                case 't':
+                    ch = '\t';
+                    break;
+                case 'b':
+                    ch = '\b';
+                    break;
+                case 'f':
+                    ch = '\f';
+                    break;
+                case 'u':
+                    for (int index = 0; index < 4; ++index)
+                    {
+                        if (!read_char(ch) ||
+                            std::isxdigit(static_cast<unsigned char>(ch)) == 0)
+                        {
+                            out_error = "Installed index JSON unicode escape invalid";
+                            return false;
+                        }
+                    }
+                    ch = '?';
+                    break;
+                default:
+                    break;
+                }
+            }
+            if (!append_token_char(out, ch, out_error))
+            {
+                return false;
+            }
+        }
+        out_error = "Installed index JSON string truncated";
+        return false;
+    }
+
+    bool read_char(char& out)
+    {
+        if (has_pushback_)
+        {
+            out = pushback_;
+            has_pushback_ = false;
+            return true;
+        }
+        if (buffer_pos_ >= buffered_)
+        {
+            if (offset_ >= file_.size())
+            {
+                return false;
+            }
+            buffered_ = std::min<std::size_t>(sizeof(buffer_), file_.size() - offset_);
+            if (!file_.read_at(offset_, buffer_, buffered_))
+            {
+                buffered_ = 0;
+                return false;
+            }
+            offset_ += buffered_;
+            buffer_pos_ = 0;
+        }
+        out = static_cast<char>(buffer_[buffer_pos_++]);
+        return true;
+    }
+
+    void push_back(char ch)
+    {
+        pushback_ = ch;
+        has_pushback_ = true;
+    }
+
+    RandomAccessFile file_;
+    std::uint8_t buffer_[256]{};
+    std::size_t offset_ = 0;
+    std::size_t buffered_ = 0;
+    std::size_t buffer_pos_ = 0;
+    bool has_pushback_ = false;
+    char pushback_ = '\0';
+};
+
+bool skip_json_value(JsonTokenStream& stream,
+                     const JsonToken& first,
+                     std::string& out_error)
+{
+    if (first.kind != JsonTokenKind::ObjectStart && first.kind != JsonTokenKind::ArrayStart)
+    {
+        return true;
+    }
+
+    int depth = 1;
+    JsonToken token;
+    while (depth > 0)
+    {
+        if (!stream.next(token, out_error))
+        {
+            return false;
+        }
+        if (token.kind == JsonTokenKind::End)
+        {
+            out_error = "Installed index JSON value truncated";
+            return false;
+        }
+        if (token.kind == JsonTokenKind::ObjectStart || token.kind == JsonTokenKind::ArrayStart)
+        {
+            ++depth;
+        }
+        else if (token.kind == JsonTokenKind::ObjectEnd ||
+                 token.kind == JsonTokenKind::ArrayEnd)
+        {
+            --depth;
+        }
+    }
+    return true;
+}
+
+bool expect_json_token(JsonTokenStream& stream,
+                       JsonTokenKind kind,
+                       std::string& out_error)
+{
+    JsonToken token;
+    if (!stream.next(token, out_error))
+    {
+        return false;
+    }
+    if (token.kind != kind)
+    {
+        out_error = "Installed index JSON shape invalid";
+        return false;
+    }
+    return true;
+}
+
+bool parse_installed_package_object(JsonTokenStream& stream,
+                                    InstalledPackageRecord& record,
+                                    std::string& out_error)
+{
+    JsonToken token;
+    while (true)
+    {
+        if (!stream.next(token, out_error))
+        {
+            return false;
+        }
+        if (token.kind == JsonTokenKind::ObjectEnd)
+        {
+            return true;
+        }
+        if (token.kind == JsonTokenKind::Comma)
+        {
+            continue;
+        }
+        if (token.kind != JsonTokenKind::String)
+        {
+            out_error = "Installed index package key invalid";
+            return false;
+        }
+
+        const std::string key = token.text;
+        if (!expect_json_token(stream, JsonTokenKind::Colon, out_error) ||
+            !stream.next(token, out_error))
+        {
+            return false;
+        }
+
+        if (key == "id" && token.kind == JsonTokenKind::String)
+        {
+            record.id = token.text;
+        }
+        else if (key == "version" && token.kind == JsonTokenKind::String)
+        {
+            record.version = token.text;
+        }
+        else if (key == "archive_sha256" && token.kind == JsonTokenKind::String)
+        {
+            record.archive_sha256 = token.text;
+        }
+        else if (key == "storage" && token.kind == JsonTokenKind::String)
+        {
+            record.storage = token.text;
+        }
+        else if (key == "installed_at_epoch" && token.kind == JsonTokenKind::Number)
+        {
+            record.installed_at_epoch = std::strtoull(token.text.c_str(), nullptr, 10);
+        }
+        else if (!skip_json_value(stream, token, out_error))
+        {
+            return false;
+        }
+    }
+}
+
+bool parse_installed_packages_array(JsonTokenStream& stream,
+                                    const char* default_storage,
+                                    InstalledIndex& out_index,
+                                    std::string& out_error)
+{
+    JsonToken token;
+    while (true)
+    {
+        if (!stream.next(token, out_error))
+        {
+            return false;
+        }
+        if (token.kind == JsonTokenKind::ArrayEnd)
+        {
+            return true;
+        }
+        if (token.kind == JsonTokenKind::Comma)
+        {
+            continue;
+        }
+        if (token.kind != JsonTokenKind::ObjectStart)
+        {
+            if (!skip_json_value(stream, token, out_error))
+            {
+                return false;
+            }
+            continue;
+        }
+
+        InstalledPackageRecord record{};
+        if (!parse_installed_package_object(stream, record, out_error))
+        {
+            return false;
+        }
+        if (!record.id.empty())
+        {
+            if (record.storage.empty())
+            {
+                record.storage = default_storage ? default_storage : kStorageSd;
+            }
+            out_index.packages.push_back(std::move(record));
+        }
+    }
 }
 
 cJSON* parse_json_document(const std::string& text)
@@ -2062,50 +2363,93 @@ bool load_installed_index_file(const char* index_path,
         return true;
     }
 
-    std::string text;
-    if (!read_text_file(index_path, text))
+    const char* effective_default_storage =
+        default_storage ? default_storage : default_storage_for_index_path(index_path);
+
+    JsonTokenStream stream;
+    if (!stream.open(index_path))
     {
         out_error = "Read installed index failed";
         return false;
     }
 
-    cJSON* root = parse_json_document(text);
-    if (!root)
+    JsonToken token;
+    if (!stream.next(token, out_error) || token.kind != JsonTokenKind::ObjectStart)
     {
+        stream.close();
         out_error = "Parse installed index failed";
         return false;
     }
 
-    cJSON* packages = cJSON_GetObjectItemCaseSensitive(root, "packages");
-    if (cJSON_IsArray(packages))
+    bool ok = true;
+    while (ok)
     {
-        cJSON* item = nullptr;
-        cJSON_ArrayForEach(item, packages)
+        if (!stream.next(token, out_error))
         {
-            InstalledPackageRecord record{};
-            record.id = json_string(item, "id");
-            record.version = json_string(item, "version");
-            record.archive_sha256 = json_string(item, "archive_sha256");
-            record.storage = json_string(item, "storage");
-            if (record.storage.empty())
+            ok = false;
+            break;
+        }
+        if (token.kind == JsonTokenKind::ObjectEnd)
+        {
+            break;
+        }
+        if (token.kind == JsonTokenKind::Comma)
+        {
+            continue;
+        }
+        if (token.kind != JsonTokenKind::String)
+        {
+            out_error = "Parse installed index failed";
+            ok = false;
+            break;
+        }
+
+        const std::string key = token.text;
+        if (!expect_json_token(stream, JsonTokenKind::Colon, out_error) ||
+            !stream.next(token, out_error))
+        {
+            ok = false;
+            break;
+        }
+
+        if (key == "packages")
+        {
+            if (token.kind != JsonTokenKind::ArrayStart)
             {
-                record.storage = default_storage ? default_storage : default_storage_for_index_path(index_path);
+                out_error = "Parse installed index failed";
+                ok = false;
+                break;
             }
-            record.installed_at_epoch = json_u64(item, "installed_at_epoch");
-            if (!record.id.empty())
-            {
-                std::printf("[Packs][Index] record path=%s id=%s version=%s storage=%s sha=%s\n",
-                            index_path,
-                            record.id.c_str(),
-                            record.version.c_str(),
-                            record.storage.c_str(),
-                            record.archive_sha256.empty() ? "<none>" : record.archive_sha256.c_str());
-                out_index.packages.push_back(std::move(record));
-            }
+            ok = parse_installed_packages_array(stream,
+                                                effective_default_storage,
+                                                out_index,
+                                                out_error);
+        }
+        else
+        {
+            ok = skip_json_value(stream, token, out_error);
         }
     }
 
-    cJSON_Delete(root);
+    stream.close();
+    if (!ok)
+    {
+        if (out_error.empty())
+        {
+            out_error = "Parse installed index failed";
+        }
+        return false;
+    }
+
+    for (const InstalledPackageRecord& record : out_index.packages)
+    {
+        std::printf("[Packs][Index] record path=%s id=%s version=%s storage=%s sha=%s\n",
+                    index_path,
+                    record.id.c_str(),
+                    record.version.c_str(),
+                    record.storage.c_str(),
+                    record.archive_sha256.empty() ? "<none>" : record.archive_sha256.c_str());
+    }
     std::printf("[Packs][Index] loaded path=%s records=%lu\n",
                 index_path,
                 static_cast<unsigned long>(out_index.packages.size()));
@@ -2255,47 +2599,187 @@ bool enumerate_zip_entries(RandomAccessFile& file,
     const std::uint32_t central_size = read_le32(&tail[eocd_offset + 12]);
     const std::uint32_t central_offset = read_le32(&tail[eocd_offset + 16]);
 
-    std::vector<std::uint8_t> central(central_size);
-    if (!file.read_at(central_offset, central.data(), central.size()))
+    if (central_offset > file.size() ||
+        central_size > file.size() - static_cast<std::size_t>(central_offset))
     {
-        out_error = "Read zip central directory failed";
+        out_error = "Zip central directory truncated";
         return false;
     }
 
-    std::size_t offset = 0;
+    std::size_t offset = central_offset;
+    const std::size_t central_end = offset + central_size;
     for (std::uint16_t entry_index = 0; entry_index < entry_count; ++entry_index)
     {
-        if (offset + 46 > central.size() || read_le32(&central[offset]) != kZipCentralSignature)
+        std::uint8_t header[46];
+        if (offset + sizeof(header) > central_end ||
+            !file.read_at(offset, header, sizeof(header)) ||
+            read_le32(header) != kZipCentralSignature)
         {
             out_error = "Zip central entry invalid";
             return false;
         }
 
-        const std::uint16_t method = read_le16(&central[offset + 10]);
-        const std::uint32_t compressed_size = read_le32(&central[offset + 20]);
-        const std::uint32_t uncompressed_size = read_le32(&central[offset + 24]);
-        const std::uint16_t name_len = read_le16(&central[offset + 28]);
-        const std::uint16_t extra_len = read_le16(&central[offset + 30]);
-        const std::uint16_t comment_len = read_le16(&central[offset + 32]);
-        const std::uint32_t local_offset = read_le32(&central[offset + 42]);
-        if (offset + 46 + name_len + extra_len + comment_len > central.size())
+        const std::uint16_t method = read_le16(&header[10]);
+        const std::uint32_t compressed_size = read_le32(&header[20]);
+        const std::uint32_t uncompressed_size = read_le32(&header[24]);
+        const std::uint16_t name_len = read_le16(&header[28]);
+        const std::uint16_t extra_len = read_le16(&header[30]);
+        const std::uint16_t comment_len = read_le16(&header[32]);
+        const std::uint32_t local_offset = read_le32(&header[42]);
+        if (name_len > kMaxZipEntryNameBytes ||
+            offset + sizeof(header) + name_len + extra_len + comment_len > central_end)
         {
             out_error = "Zip central entry truncated";
             return false;
         }
 
         ZipEntry entry{};
-        entry.name.assign(reinterpret_cast<const char*>(&central[offset + 46]), name_len);
+        entry.name.resize(name_len);
+        if (name_len > 0 &&
+            !file.read_at(offset + sizeof(header), &entry.name[0], name_len))
+        {
+            out_error = "Read zip central entry name failed";
+            return false;
+        }
         entry.method = method;
         entry.compressed_size = compressed_size;
         entry.uncompressed_size = uncompressed_size;
         entry.local_header_offset = local_offset;
         out_entries.push_back(std::move(entry));
 
-        offset += 46 + name_len + extra_len + comment_len;
+        offset += sizeof(header) + name_len + extra_len + comment_len;
     }
 
     return true;
+}
+
+bool copy_file_range(RandomAccessFile& source,
+                     std::size_t source_offset,
+                     std::size_t len,
+                     SequentialWriteFile& target,
+                     std::string& out_error)
+{
+    if (source_offset > source.size() || len > source.size() - source_offset)
+    {
+        out_error = "Zip entry data truncated";
+        return false;
+    }
+
+    std::uint8_t buffer[kFileReadChunkBytes];
+    std::size_t copied = 0;
+    while (copied < len)
+    {
+        const std::size_t chunk = std::min<std::size_t>(sizeof(buffer), len - copied);
+        if (!source.read_at(source_offset + copied, buffer, chunk) ||
+            !target.write(buffer, chunk))
+        {
+            out_error = "Copy zip entry data failed";
+            return false;
+        }
+        copied += chunk;
+    }
+    return true;
+}
+
+bool inflate_zip_entry_to_file(RandomAccessFile& source,
+                               std::size_t data_offset,
+                               std::size_t compressed_size,
+                               std::size_t uncompressed_size,
+                               SequentialWriteFile& target,
+                               std::string& out_error)
+{
+    if (data_offset > source.size() || compressed_size > source.size() - data_offset)
+    {
+        out_error = "Zip entry data truncated";
+        return false;
+    }
+    if (compressed_size == 0)
+    {
+        if (uncompressed_size == 0)
+        {
+            return true;
+        }
+        out_error = "Zip entry data truncated";
+        return false;
+    }
+
+    tinfl_decompressor inflator;
+    tinfl_init(&inflator);
+
+    std::uint8_t input[kFileReadChunkBytes];
+    std::vector<std::uint8_t> output(TINFL_LZ_DICT_SIZE);
+    std::size_t loaded = 0;
+    std::size_t input_pos = 0;
+    std::size_t input_size = 0;
+    std::size_t output_pos = 0;
+    std::size_t total_written = 0;
+
+    while (true)
+    {
+        if (input_pos == input_size && loaded < compressed_size)
+        {
+            input_size = std::min<std::size_t>(sizeof(input), compressed_size - loaded);
+            if (!source.read_at(data_offset + loaded, input, input_size))
+            {
+                out_error = "Read zip entry data failed";
+                return false;
+            }
+            loaded += input_size;
+            input_pos = 0;
+        }
+
+        std::size_t in_avail = input_size - input_pos;
+        const std::size_t dict_ofs = output_pos & (TINFL_LZ_DICT_SIZE - 1U);
+        std::size_t out_avail = output.size() - dict_ofs;
+        const mz_uint32 flags = loaded < compressed_size ? TINFL_FLAG_HAS_MORE_INPUT : 0;
+        const tinfl_status status =
+            tinfl_decompress(&inflator,
+                             reinterpret_cast<const mz_uint8*>(input + input_pos),
+                             &in_avail,
+                             reinterpret_cast<mz_uint8*>(output.data()),
+                             reinterpret_cast<mz_uint8*>(output.data() + dict_ofs),
+                             &out_avail,
+                             flags);
+        input_pos += in_avail;
+
+        if (out_avail > 0)
+        {
+            if (!target.write(output.data() + dict_ofs, out_avail))
+            {
+                out_error = "Write inflated payload failed";
+                return false;
+            }
+            output_pos += out_avail;
+            total_written += out_avail;
+        }
+
+        if (status == TINFL_STATUS_DONE)
+        {
+            if (total_written != uncompressed_size)
+            {
+                out_error = "Inflated zip entry size mismatch";
+                return false;
+            }
+            return true;
+        }
+        if (status < 0)
+        {
+            out_error = "Inflate zip entry failed";
+            return false;
+        }
+        if (in_avail == 0 && out_avail == 0)
+        {
+            out_error = "Inflate zip entry stalled";
+            return false;
+        }
+        if (status == TINFL_STATUS_NEEDS_MORE_INPUT &&
+            input_pos == input_size &&
+            loaded >= compressed_size)
+        {
+            out_error = "Inflate zip entry truncated";
+            return false;
+        }
+    }
 }
 
 bool extract_zip_payload(const std::string& logical_zip_path, std::string& out_error)
@@ -2366,52 +2850,54 @@ bool extract_zip_payload(const std::string& logical_zip_path, std::string& out_e
         const std::size_t data_offset =
             static_cast<std::size_t>(entry.local_header_offset) + 30U + name_len + extra_len;
 
-        std::vector<std::uint8_t> compressed(entry.compressed_size);
-        if (!compressed.empty() &&
-            !file.read_at(data_offset, compressed.data(), compressed.size()))
+        SequentialWriteFile output_file;
+        if (!output_file.open(logical_target))
         {
-            out_error = "Read zip entry data failed";
+            out_error = std::string("Open extracted payload failed: ") + logical_target;
             file.close();
             return false;
         }
 
-        std::vector<std::uint8_t> output;
+        bool wrote_payload = false;
         if (entry.method == 0)
         {
-            output = std::move(compressed);
+            if (entry.compressed_size != entry.uncompressed_size)
+            {
+                out_error = "Stored zip entry size mismatch";
+            }
+            else
+            {
+                wrote_payload = copy_file_range(file,
+                                                data_offset,
+                                                entry.compressed_size,
+                                                output_file,
+                                                out_error);
+            }
         }
         else if (entry.method == 8)
         {
-            output.resize(entry.uncompressed_size);
-            const std::size_t actual =
-                tinfl_decompress_mem_to_mem(output.data(),
-                                            output.size(),
-                                            compressed.data(),
-                                            compressed.size(),
-                                            0);
-            if (actual == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED || actual != output.size())
-            {
-                out_error = "Inflate zip entry failed";
-                file.close();
-                return false;
-            }
+            wrote_payload = inflate_zip_entry_to_file(file,
+                                                      data_offset,
+                                                      entry.compressed_size,
+                                                      entry.uncompressed_size,
+                                                      output_file,
+                                                      out_error);
         }
         else
         {
             out_error = "Unsupported zip compression";
-            file.close();
-            return false;
         }
 
-        if (!write_binary_file(logical_target, output.data(), output.size()))
+        output_file.close();
+        if (!wrote_payload)
         {
-            out_error = std::string("Write extracted payload failed: ") + logical_target;
+            (void)remove_file_if_exists(logical_target);
             file.close();
             return false;
         }
 
         ++payload_files;
-        payload_bytes += output.size();
+        payload_bytes += entry.uncompressed_size;
         if (payload_logged < 24 ||
             entry.name.find("/manifest.ini") != std::string::npos ||
             entry.name.find("/font.bin") != std::string::npos)

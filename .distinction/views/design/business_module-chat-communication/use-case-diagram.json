@@ -1,0 +1,2090 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:business_module:chat-communication",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T14:37:21.431Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:system:trail-mate",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "system:trail-mate"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "system:trail-mate"
+      },
+      "summary": "跨平台离线通信与位置共享系统，包含嵌入式设备和桌面应用",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖整体的通信、地图、团队和诊断功能",
+        "responsibility": "管理整个应用的用户目标和业务能力",
+        "businessTerms": [
+          "节点",
+          "频道",
+          "团队",
+          "位置",
+          "消息"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:business_module:chat-communication",
+      "kind": "design_context",
+      "label": "聊天通信",
+      "source": {
+        "type": "model",
+        "id": "business_module:chat-communication"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "business_module:chat-communication"
+      },
+      "summary": "通过 Meshtastic 网络发送和接收文本消息，并管理无线电配置",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "system:trail-mate",
+        "scope": "覆盖消息收发、无线电参数调整等通信相关操作",
+        "responsibility": "管理用户间的消息传递和无线电链路配置",
+        "businessTerms": [
+          "消息",
+          "频道",
+          "节点",
+          "LoRa 配置",
+          "Fsk 配置",
+          "发射功率"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:user",
+      "kind": "design_actor",
+      "label": "用户",
+      "source": {
+        "type": "model",
+        "id": "actor:user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:user"
+      },
+      "summary": "使用 Trail Mate 设备的最终用户，可以查看状态、收发消息、配置设备、使用诊断工具",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-external-system:external_system:meshtastic-network",
+      "kind": "design_external_system",
+      "label": "Meshtastic 网络",
+      "source": {
+        "type": "model",
+        "id": "external_system:meshtastic-network"
+      },
+      "anchor": {
+        "kind": "design_external_system",
+        "id": "external_system:meshtastic-network"
+      },
+      "summary": "基于 LoRa 的 Mesh 通信网络，用于传输消息和位置信息",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": []
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:send-text-message",
+      "kind": "design_use_case",
+      "label": "发送文本消息",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      },
+      "summary": "用户输入文本，通过 Meshtastic 网络将消息发送给其他节点",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-31a430935e50ec2f09034da7f0fbee5d",
+          "code:file:apps-linux-uconsole-gtk-src-platform-gtk-gtk-uconsole-chat-logic-cpp"
+        ],
+        "evidenceCount": 3,
+        "questions": [],
+        "contextId": "business_module:chat-communication",
+        "trigger": "用户在聊天界面输入消息并点击发送",
+        "primaryActorIds": [
+          "actor:user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "external_system:meshtastic-network"
+        ],
+        "entryPointIds": [
+          "behavior-slice:api-route-codegraph-method-64e00b9e34a8c17deba799357b3d8dfa"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:receive-text-message",
+      "kind": "design_use_case",
+      "label": "接收文本消息",
+      "source": {
+        "type": "model",
+        "id": "use-case:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:receive-text-message"
+      },
+      "summary": "系统监听无线电信号，接收来自其他节点的文本消息，并将其显示在聊天界面",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-42551bf3d6eaa52e7c0833e50e947f0d",
+          "codegraph:function-eb13294de5dd0a53322edbb177c5a744",
+          "code:file:boards-tlora-pager-src-tlora-pager-board-cpp"
+        ],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextId": "business_module:chat-communication",
+        "trigger": "无线电接收到消息数据包",
+        "primaryActorIds": [
+          "actor:user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "external_system:meshtastic-network"
+        ],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-42551bf3d6eaa52e7c0833e50e947f0d",
+          "behavior-slice:ui-route-codegraph-function-eb13294de5dd0a53322edbb177c5a744"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:configure-radio-parameters",
+      "kind": "design_use_case",
+      "label": "配置无线电参数",
+      "source": {
+        "type": "model",
+        "id": "use-case:configure-radio-parameters"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:configure-radio-parameters"
+      },
+      "summary": "用户调整 LoRa 或 FSK 无线电调制、频率、功率、超时等参数",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-d9fef41c34ce43002aa6a4b172ef8c53",
+          "codegraph:function-7b4b87cfce61c9bff6d498b8dd6ca305",
+          "codegraph:function-9e2c572e7ef5592b05640ac0f8e113db",
+          "codegraph:function-31a430935e50ec2f09034da7f0fbee5d",
+          "code:file:boards-tlora-pager-src-tlora-pager-board-cpp"
+        ],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextId": "business_module:chat-communication",
+        "trigger": "用户进入无线电设置页面",
+        "primaryActorIds": [
+          "actor:user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "external_system:meshtastic-network"
+        ],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-d9fef41c34ce43002aa6a4b172ef8c53",
+          "behavior-slice:ui-route-codegraph-function-7b4b87cfce61c9bff6d498b8dd6ca305",
+          "behavior-slice:ui-route-codegraph-function-9e2c572e7ef5592b05640ac0f8e113db"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-send-text-message-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：发送文本消息",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-send-text-message-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-send-text-message-activity"
+      },
+      "summary": "Activity Diagram：发送文本消息，用于解释 Use Case「发送文本消息」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「发送文本消息」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「发送文本消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「发送文本消息」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L9"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「发送文本消息」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「发送文本消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「发送文本消息」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L9"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「发送文本消息」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「发送文本消息」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「发送文本消息」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L9。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-text-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-text-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-send-text-message-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：发送文本消息主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-send-text-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-send-text-message-sequence"
+      },
+      "summary": "Sequence Diagram：发送文本消息主成功场景，用于解释 Use Case「发送文本消息」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「发送文本消息」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「发送文本消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「发送文本消息」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L9"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「发送文本消息」的主成功交互场景。",
+        "coverageBoundary": "覆盖「发送文本消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「发送文本消息」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L9"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「发送文本消息」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「发送文本消息」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「发送文本消息」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L9。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-use-case-send-text-message-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-use-case-send-text-message-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:receive-text-message",
+      "kind": "design_activity",
+      "label": "业务流程：接收文本消息",
+      "source": {
+        "type": "model",
+        "id": "activity:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:receive-text-message"
+      },
+      "summary": "无线电接收数据并解析为消息",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-42551bf3d6eaa52e7c0833e50e947f0d",
+          "codegraph:function-eb13294de5dd0a53322edbb177c5a744"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从无线电中断到 UI 更新",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "说明接收流程",
+          "implementationScope": {
+            "modules": [
+              "boards",
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [
+              "startRadioReceive"
+            ],
+            "keyFiles": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "从无线电中断到 UI 更新",
+        "coverageRationale": "说明接收流程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [
+            "boards",
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [
+            "startRadioReceive"
+          ],
+          "keyFiles": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "接收外部消息",
+          "uml": "分支判断",
+          "design": "事件驱动",
+          "implementation": "radio 回调"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/receive-text-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/receive-text-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:receive-text-message",
+      "kind": "design_sequence",
+      "label": "对象交互：接收文本消息",
+      "source": {
+        "type": "model",
+        "id": "sequence:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:receive-text-message"
+      },
+      "summary": "无线电到 UI 的流程",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-42551bf3d6eaa52e7c0833e50e947f0d"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "无线电模块到聊天界面",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "说明交互",
+          "implementationScope": {
+            "modules": [
+              "boards",
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "无线电模块到聊天界面",
+        "coverageRationale": "说明交互",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [
+            "boards",
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "消息接收",
+          "uml": "异步事件",
+          "design": "事件总线",
+          "implementation": "radio 回调到 UI"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message.md",
+        "htmlPath": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:configure-radio-parameters",
+      "kind": "design_activity",
+      "label": "业务流程：配置无线电参数",
+      "source": {
+        "type": "model",
+        "id": "activity:configure-radio-parameters"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:configure-radio-parameters"
+      },
+      "summary": "用户调整无线电设置并应用",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-d9fef41c34ce43002aa6a4b172ef8c53",
+          "codegraph:function-7b4b87cfce61c9bff6d498b8dd6ca305"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:configure-radio-parameters",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从设置到应用",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "说明配置流程",
+          "implementationScope": {
+            "modules": [
+              "boards"
+            ],
+            "entryPoints": [
+              "configureLoraRadio"
+            ],
+            "keyFiles": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "从设置到应用",
+        "coverageRationale": "说明配置流程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [
+            "boards"
+          ],
+          "entryPoints": [
+            "configureLoraRadio"
+          ],
+          "keyFiles": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "无线电参数自定义",
+          "uml": "分支选择",
+          "design": "策略模式",
+          "implementation": "board 方法"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/configure-radio-parameters/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/configure-radio-parameters/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:configure-radio-parameters",
+      "kind": "design_sequence",
+      "label": "对象交互：配置无线电",
+      "source": {
+        "type": "model",
+        "id": "sequence:configure-radio-parameters"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:configure-radio-parameters"
+      },
+      "summary": "设置应用到硬件",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-d9fef41c34ce43002aa6a4b172ef8c53"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:configure-radio-parameters",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "LoRa 配置",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "UI 到 radio 驱动",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "说明交互",
+          "implementationScope": {
+            "modules": [
+              "boards"
+            ],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "LoRa 配置",
+        "coverageBoundary": "UI 到 radio 驱动",
+        "coverageRationale": "说明交互",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [
+            "boards"
+          ],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "参数调整",
+          "uml": "交互",
+          "design": "硬件封装",
+          "implementation": "board 调用 SX1262"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.md",
+        "htmlPath": "docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:send-text-message",
+      "kind": "design_activity",
+      "label": "业务流程：发送文本消息",
+      "source": {
+        "type": "model",
+        "id": "activity:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-text-message"
+      },
+      "summary": "用户输入消息并发送",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-31a430935e50ec2f09034da7f0fbee5d"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从输入到发送",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "说明发送流程",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "boards"
+            ],
+            "entryPoints": [
+              "chat page"
+            ],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "从输入到发送",
+        "coverageRationale": "说明发送流程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "boards"
+          ],
+          "entryPoints": [
+            "chat page"
+          ],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "消息发送",
+          "uml": "顺序",
+          "design": "命令模式",
+          "implementation": "chat logic"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-text-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-text-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:send-text-message",
+      "kind": "design_sequence",
+      "label": "对象交互：发送文本消息",
+      "source": {
+        "type": "model",
+        "id": "sequence:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:send-text-message"
+      },
+      "summary": "UI 到无线电发射",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-31a430935e50ec2f09034da7f0fbee5d"
+        ],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "UI 到 Board",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "说明交互",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "boards"
+            ],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "UI 到 Board",
+        "coverageRationale": "说明交互",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "boards"
+          ],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "消息发送",
+          "uml": "交互",
+          "design": "调用无线电发射",
+          "implementation": "chat logic 调用 board"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:send-text-message-activity",
+      "kind": "design_activity",
+      "label": "业务流程：发送文本消息",
+      "source": {
+        "type": "model",
+        "id": "activity:send-text-message-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-text-message-activity"
+      },
+      "summary": "用户输入文本消息并通过无线电发送",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "消息发送的主流程",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从用户编写消息到无线电成功发射",
+          "notCovered": [
+            "消息发送失败的重试",
+            "长消息分片"
+          ],
+          "rationale": "解释消息从输入到发射的业务流程",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "boards"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp",
+              "boards/tlora_pager/src/tlora_pager_board.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "消息发送的主流程",
+        "coverageBoundary": "从用户编写消息到无线电成功发射",
+        "coverageRationale": "解释消息从输入到发射的业务流程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "消息发送失败的重试",
+          "长消息分片"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "boards"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp",
+            "boards/tlora_pager/src/tlora_pager_board.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "用户与其他人通信，一条文本消息到达目标节点",
+          "uml": "线性流程，无决策分支",
+          "design": "ChatLogic 封装消息，调用 Board 的无线电发送接口",
+          "implementation": "ChatLogic 触发 MessageSender，最终调用 Board::sendMessage"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-text-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-text-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:send-text-message-sequence",
+      "kind": "design_sequence",
+      "label": "对象交互：发送文本消息主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:send-text-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:send-text-message-sequence"
+      },
+      "summary": "用户输入消息，ChatLogic 调用无线电发射",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "消息发送的同步交互",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从用户按下发送到无线电发射完成",
+          "notCovered": [
+            "发射失败回调",
+            "消息确认"
+          ],
+          "rationale": "展示应用层到硬件层的调用关系",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "boards"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp",
+              "boards/tlora_pager/src/tlora_pager_board.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "消息发送的同步交互",
+        "coverageBoundary": "从用户按下发送到无线电发射完成",
+        "coverageRationale": "展示应用层到硬件层的调用关系",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "发射失败回调",
+          "消息确认"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "boards"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp",
+            "boards/tlora_pager/src/tlora_pager_board.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "消息从用户输入到网络发射",
+          "uml": "用户、UI、ChatLogic、Board 的顺序交互",
+          "design": "ChatLogic 作为应用服务，Board 作为端口适配器",
+          "implementation": "ChatLogic::sendMessage 方法调用 Board::sendRawMessage"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:receive-text-message-activity",
+      "kind": "design_activity",
+      "label": "业务流程：接收文本消息",
+      "source": {
+        "type": "model",
+        "id": "activity:receive-text-message-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:receive-text-message-activity"
+      },
+      "summary": "无线电接收数据包，解析为文本消息，显示在 UI",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "消息接收流程",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从无线电收到数据包到 UI 显示消息",
+          "notCovered": [
+            "消息重复处理",
+            "大消息重组"
+          ],
+          "rationale": "解释接收消息的内部处理链",
+          "implementationScope": {
+            "modules": [
+              "boards",
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp",
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "消息接收流程",
+        "coverageBoundary": "从无线电收到数据包到 UI 显示消息",
+        "coverageRationale": "解释接收消息的内部处理链",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "消息重复处理",
+          "大消息重组"
+        ],
+        "implementationScope": {
+          "modules": [
+            "boards",
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp",
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "用户收到新消息通知",
+          "uml": "无线电中断触发消息解析，推送到 UI",
+          "design": "Board 负责接收和解析，ChatLogic 将消息加入聊天列表",
+          "implementation": "Board 的中断服务程序将数据传递给 MessageParser，然后通知 ChatLogic"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/receive-text-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/receive-text-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:receive-text-message-sequence",
+      "kind": "design_sequence",
+      "label": "对象交互：接收文本消息",
+      "source": {
+        "type": "model",
+        "id": "sequence:receive-text-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:receive-text-message-sequence"
+      },
+      "summary": "从无线电到 UI 的消息传递",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "消息接收的异步交互",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从无线电硬件到聊天 UI 更新",
+          "notCovered": [
+            "消息回调线程安全",
+            "离线消息"
+          ],
+          "rationale": "展示消息从硬件到应用层的流动",
+          "implementationScope": {
+            "modules": [
+              "boards",
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp",
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "消息接收的异步交互",
+        "coverageBoundary": "从无线电硬件到聊天 UI 更新",
+        "coverageRationale": "展示消息从硬件到应用层的流动",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "消息回调线程安全",
+          "离线消息"
+        ],
+        "implementationScope": {
+          "modules": [
+            "boards",
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp",
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "无缝接收其他用户的消息",
+          "uml": "硬件中断驱动，经过 Board 和 Logic，到达 UI",
+          "design": "采用观察者模式，Board 作为事件源，ChatLogic 订阅",
+          "implementation": "Board::onMessageReceived 回调通知 ChatLogic::addIncomingMessage"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:configure-radio-parameters-activity",
+      "kind": "design_activity",
+      "label": "业务流程：配置无线电参数",
+      "source": {
+        "type": "model",
+        "id": "activity:configure-radio-parameters-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:configure-radio-parameters-activity"
+      },
+      "summary": "用户调整无线电参数并应用",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:configure-radio-parameters",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "无线电参数配置流程",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从用户修改参数到无线电模块按新参数工作",
+          "notCovered": [
+            "参数恢复默认",
+            "高级调制设置"
+          ],
+          "rationale": "解释如何将用户设置应用到无线电硬件",
+          "implementationScope": {
+            "modules": [
+              "boards",
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "无线电参数配置流程",
+        "coverageBoundary": "从用户修改参数到无线电模块按新参数工作",
+        "coverageRationale": "解释如何将用户设置应用到无线电硬件",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "参数恢复默认",
+          "高级调制设置"
+        ],
+        "implementationScope": {
+          "modules": [
+            "boards",
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "优化通信性能和距离",
+          "uml": "用户设置参数，验证后应用到硬件",
+          "design": "Board 作为无线电模块的配置接口",
+          "implementation": "Board::configureRadio 调用无线电驱动设置频率、功率等"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/configure-radio-parameters/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/configure-radio-parameters/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:configure-radio-parameters-sequence",
+      "kind": "design_sequence",
+      "label": "对象交互：配置无线电参数",
+      "source": {
+        "type": "model",
+        "id": "sequence:configure-radio-parameters-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:configure-radio-parameters-sequence"
+      },
+      "summary": "UI 调用 Board 应用新设置",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:configure-radio-parameters",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "设置应用的交互",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从用户保存设置到无线电模块更新",
+          "notCovered": [
+            "参数读取",
+            "立即生效确认"
+          ],
+          "rationale": "展示设置如何下达到硬件",
+          "implementationScope": {
+            "modules": [
+              "boards",
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [],
+            "keyFiles": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "设置应用的交互",
+        "coverageBoundary": "从用户保存设置到无线电模块更新",
+        "coverageRationale": "展示设置如何下达到硬件",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "参数读取",
+          "立即生效确认"
+        ],
+        "implementationScope": {
+          "modules": [
+            "boards",
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [],
+          "keyFiles": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "根据环境调整无线电链路",
+          "uml": "SettingsLogic 保存后，调用 Board 配置无线电",
+          "design": "Board 统一管理无线电配置",
+          "implementation": "Board::setRadioParams 接受结构体并操作 SPI 接口"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:system:trail-mate:business_module:chat-communication",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:system:trail-mate",
+      "targetId": "projection-node:design-context:business_module:chat-communication",
+      "source": {
+        "type": "model",
+        "id": "business_module:chat-communication"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "business_module:chat-communication"
+      },
+      "confidence": "medium",
+      "summary": "system:trail-mate contains 聊天通信",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:business_module:chat-communication:use-case:send-text-message",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:business_module:chat-communication",
+      "targetId": "projection-node:design-use-case:use-case:send-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      },
+      "confidence": "medium",
+      "summary": "business_module:chat-communication contains 发送文本消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:user:use-case:send-text-message:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:user",
+      "targetId": "projection-node:design-use-case:use-case:send-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      },
+      "confidence": "medium",
+      "summary": "actor:user participates in 发送文本消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:external_system:meshtastic-network:use-case:send-text-message",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:external_system:meshtastic-network",
+      "targetId": "projection-node:design-use-case:use-case:send-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      },
+      "confidence": "medium",
+      "summary": "external_system:meshtastic-network participates in 发送文本消息",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:business_module:chat-communication:use-case:receive-text-message",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:business_module:chat-communication",
+      "targetId": "projection-node:design-use-case:use-case:receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:receive-text-message"
+      },
+      "confidence": "medium",
+      "summary": "business_module:chat-communication contains 接收文本消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:user:use-case:receive-text-message:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:user",
+      "targetId": "projection-node:design-use-case:use-case:receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:receive-text-message"
+      },
+      "confidence": "medium",
+      "summary": "actor:user participates in 接收文本消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:external_system:meshtastic-network:use-case:receive-text-message",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:external_system:meshtastic-network",
+      "targetId": "projection-node:design-use-case:use-case:receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:receive-text-message"
+      },
+      "confidence": "medium",
+      "summary": "external_system:meshtastic-network participates in 接收文本消息",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:business_module:chat-communication:use-case:configure-radio-parameters",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:business_module:chat-communication",
+      "targetId": "projection-node:design-use-case:use-case:configure-radio-parameters",
+      "source": {
+        "type": "model",
+        "id": "use-case:configure-radio-parameters"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:configure-radio-parameters"
+      },
+      "confidence": "medium",
+      "summary": "business_module:chat-communication contains 配置无线电参数"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:user:use-case:configure-radio-parameters:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:user",
+      "targetId": "projection-node:design-use-case:use-case:configure-radio-parameters",
+      "source": {
+        "type": "model",
+        "id": "use-case:configure-radio-parameters"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:configure-radio-parameters"
+      },
+      "confidence": "medium",
+      "summary": "actor:user participates in 配置无线电参数",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:external_system:meshtastic-network:use-case:configure-radio-parameters",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:external_system:meshtastic-network",
+      "targetId": "projection-node:design-use-case:use-case:configure-radio-parameters",
+      "source": {
+        "type": "model",
+        "id": "use-case:configure-radio-parameters"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:configure-radio-parameters"
+      },
+      "confidence": "medium",
+      "summary": "external_system:meshtastic-network participates in 配置无线电参数",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-text-message:activity:use-case-send-text-message-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-text-message",
+      "targetId": "projection-node:design-activity:activity:use-case-send-text-message-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-send-text-message-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-send-text-message-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：发送文本消息，用于解释 Use Case「发送文本消息」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-text-message:sequence:use-case-send-text-message-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-text-message",
+      "targetId": "projection-node:design-sequence:sequence:use-case-send-text-message-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-send-text-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-send-text-message-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：发送文本消息主成功场景，用于解释 Use Case「发送文本消息」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:receive-text-message:activity:receive-text-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:receive-text-message",
+      "targetId": "projection-node:design-activity:activity:receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "activity:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:receive-text-message"
+      },
+      "confidence": "high",
+      "summary": "无线电接收数据并解析为消息",
+      "metadata": {
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:receive-text-message:sequence:receive-text-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:receive-text-message",
+      "targetId": "projection-node:design-sequence:sequence:receive-text-message",
+      "source": {
+        "type": "model",
+        "id": "sequence:receive-text-message"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:receive-text-message"
+      },
+      "confidence": "high",
+      "summary": "无线电到 UI 的流程",
+      "metadata": {
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:configure-radio-parameters:activity:configure-radio-parameters",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:configure-radio-parameters",
+      "targetId": "projection-node:design-activity:activity:configure-radio-parameters",
+      "source": {
+        "type": "model",
+        "id": "activity:configure-radio-parameters"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:configure-radio-parameters"
+      },
+      "confidence": "medium",
+      "summary": "用户调整无线电设置并应用",
+      "metadata": {
+        "useCaseId": "use-case:configure-radio-parameters",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:configure-radio-parameters:sequence:configure-radio-parameters",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:configure-radio-parameters",
+      "targetId": "projection-node:design-sequence:sequence:configure-radio-parameters",
+      "source": {
+        "type": "model",
+        "id": "sequence:configure-radio-parameters"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:configure-radio-parameters"
+      },
+      "confidence": "medium",
+      "summary": "设置应用到硬件",
+      "metadata": {
+        "useCaseId": "use-case:configure-radio-parameters",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-text-message:activity:send-text-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-text-message",
+      "targetId": "projection-node:design-activity:activity:send-text-message",
+      "source": {
+        "type": "model",
+        "id": "activity:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-text-message"
+      },
+      "confidence": "high",
+      "summary": "用户输入消息并发送",
+      "metadata": {
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-text-message:sequence:send-text-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-text-message",
+      "targetId": "projection-node:design-sequence:sequence:send-text-message",
+      "source": {
+        "type": "model",
+        "id": "sequence:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:send-text-message"
+      },
+      "confidence": "high",
+      "summary": "UI 到无线电发射",
+      "metadata": {
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-text-message:activity:send-text-message-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-text-message",
+      "targetId": "projection-node:design-activity:activity:send-text-message-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:send-text-message-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-text-message-activity"
+      },
+      "confidence": "medium",
+      "summary": "用户输入文本消息并通过无线电发送",
+      "metadata": {
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-text-message:sequence:send-text-message-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-text-message",
+      "targetId": "projection-node:design-sequence:sequence:send-text-message-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:send-text-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:send-text-message-sequence"
+      },
+      "confidence": "medium",
+      "summary": "用户输入消息，ChatLogic 调用无线电发射",
+      "metadata": {
+        "useCaseId": "use-case:send-text-message",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:receive-text-message:activity:receive-text-message-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:receive-text-message",
+      "targetId": "projection-node:design-activity:activity:receive-text-message-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:receive-text-message-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:receive-text-message-activity"
+      },
+      "confidence": "medium",
+      "summary": "无线电接收数据包，解析为文本消息，显示在 UI",
+      "metadata": {
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:receive-text-message:sequence:receive-text-message-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:receive-text-message",
+      "targetId": "projection-node:design-sequence:sequence:receive-text-message-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:receive-text-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:receive-text-message-sequence"
+      },
+      "confidence": "medium",
+      "summary": "从无线电到 UI 的消息传递",
+      "metadata": {
+        "useCaseId": "use-case:receive-text-message",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:configure-radio-parameters:activity:configure-radio-parameters-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:configure-radio-parameters",
+      "targetId": "projection-node:design-activity:activity:configure-radio-parameters-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:configure-radio-parameters-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:configure-radio-parameters-activity"
+      },
+      "confidence": "medium",
+      "summary": "用户调整无线电参数并应用",
+      "metadata": {
+        "useCaseId": "use-case:configure-radio-parameters",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:configure-radio-parameters:sequence:configure-radio-parameters-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:configure-radio-parameters",
+      "targetId": "projection-node:design-sequence:sequence:configure-radio-parameters-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:configure-radio-parameters-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:configure-radio-parameters-sequence"
+      },
+      "confidence": "medium",
+      "summary": "UI 调用 Board 应用新设置",
+      "metadata": {
+        "useCaseId": "use-case:configure-radio-parameters",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

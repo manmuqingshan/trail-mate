@@ -11,7 +11,9 @@
 #include <algorithm>
 #include <cstring>
 #include <ctime>
+#include <esp_heap_caps.h>
 #include <limits>
+#include <new>
 #include <string>
 #include <sys/time.h>
 
@@ -460,9 +462,10 @@ class MeshCoreServerCallbacks : public NimBLEServerCallbacks
         owner_.pending_passkey_.store(0);
         owner_.outbound_.clear();
         owner_.rx_queue_.clear();
-        owner_.startAdvertising();
-        Serial.printf("[BLE][meshcore] disconnected reason=%d; advertising restarted uuid=%s\n",
+        const bool advertising_ok = owner_.startAdvertising();
+        Serial.printf("[BLE][meshcore] disconnected reason=%d advertising_restart=%u uuid=%s\n",
                       reason,
+                      advertising_ok ? 1U : 0U,
                       NUS_SERVICE_UUID);
     }
 
@@ -483,6 +486,25 @@ MeshCoreBleService::MeshCoreBleService(app::IAppBleFacade& ctx, const std::strin
 MeshCoreBleService::~MeshCoreBleService()
 {
     stop();
+}
+
+void* MeshCoreBleService::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void MeshCoreBleService::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void MeshCoreBleService::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
 }
 
 uint32_t MeshCoreBleService::effectiveBlePin() const
@@ -883,7 +905,12 @@ bool MeshCoreBleService::start()
         stop();
         return false;
     }
-    startAdvertising();
+    if (!startAdvertising())
+    {
+        Serial.printf("[BLE][meshcore] start failed reason=advertising\n");
+        stop();
+        return false;
+    }
 
     multi_acks_ = phone_facade_.getMeshCorePhoneConfig().mesh.meshcore_multi_acks ? 1 : 0;
 
@@ -1410,11 +1437,11 @@ void MeshCoreBleService::setupService()
     service_->start();
 }
 
-void MeshCoreBleService::startAdvertising()
+bool MeshCoreBleService::startAdvertising()
 {
     if (!server_)
     {
-        return;
+        return false;
     }
     NimBLEAdvertising* adv = server_->getAdvertising();
     const bool reset_ok = adv->reset();
@@ -1435,6 +1462,8 @@ void MeshCoreBleService::startAdvertising()
                   name_ok ? 1U : 0U,
                   start_ok ? 1U : 0U,
                   active_ok ? 1U : 0U);
+    return reset_ok && conn_ok && disc_ok && service_ok &&
+           start_ok && active_ok;
 }
 
 void MeshCoreBleService::handleIncomingFrames()

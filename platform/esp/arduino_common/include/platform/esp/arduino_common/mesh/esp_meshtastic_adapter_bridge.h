@@ -13,6 +13,8 @@
 #include "mesh/usecase/receive_packet_service.h"
 #include "platform/esp/arduino_common/mesh/esp_preferences_mesh_identity_store.h"
 
+#include <cstddef>
+
 namespace platform::esp::arduino_common::mesh
 {
 
@@ -73,6 +75,10 @@ class EspMeshtasticAdapterBridge final
 {
   public:
     explicit EspMeshtasticAdapterBridge(LoraBoard& board);
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
 
     ::mesh::SendResult sendDirect(const ::mesh::DirectMessageCommand& command);
     bool copyLastSentPacket(uint8_t* out, size_t capacity, size_t& out_size) const;

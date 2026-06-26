@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>制品 / 部署模型</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, "Segoe UI", sans-serif; background: #091017; color: #d8e8f5; }
+    body { margin: 0; padding: 18px; background: #091017; }
+    .praxis-model-document { display: grid; gap: 14px; }
+    .model-doc-header, .model-doc-section, .package-card, .trace-list { border: 1px solid #244056; border-radius: 8px; background: #101a23; padding: 12px; }
+    h1, h2, h3, p { margin: 0; }
+    p, li, dd, dt, small { color: #9bb5cc; }
+    .meta-grid, .diagram-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+    .meta-grid div, .diagram-entry-card { border: 1px solid #244056; border-radius: 7px; padding: 9px; background: #0b121a; }
+    .element-list { display: grid; gap: 6px; list-style: none; padding: 0; margin: 10px 0; }
+    .element-list li { border: 1px solid #1d3447; border-radius: 7px; padding: 8px; background: #0b121a; display: grid; gap: 4px; }
+    .element-list li span { color: #80d4ff; font-size: 12px; }
+    .diagram-entry-card { color: inherit; cursor: pointer; text-align: left; display: grid; gap: 5px; }
+    .diagram-entry-card:hover { border-color: #3b82f6; }
+    pre.mermaid { border: 1px solid #244056; border-radius: 8px; padding: 12px; background: #0b121a; overflow: auto; }
+  </style>
+</head>
+<body>
+<main class="praxis-model-document" data-praxis-anchor="model:deployment-artifact" data-praxis-kind="uml_model" data-praxis-status="candidate">
+  <section class="model-doc-header">
+    <span>Praxis Model Explorer</span>
+    <h1>制品 / 部署模型</h1>
+    <p>解释开发、部署和运行中使用或产生的物理信息项，以及它们被分配到哪些计算资源上执行。</p>
+  </section>
+  <section class="model-doc-section" data-praxis-anchor="model:deployment-artifact:position" data-praxis-kind="model_position">
+    <h2>定位</h2>
+    <div class="meta-grid">
+      <div><dt>Viewpoint</dt><dd>描述 Artifact、Node、Device、ExecutionEnvironment、Deployment 和 CommunicationPath</dd></div>
+      <div><dt>Stakeholder</dt><dd>架构师、运维、发布负责人、开发者</dd></div>
+      <div><dt>Abstraction Level</dt><dd>artifact / node / execution environment / deployment</dd></div>
+      <div><dt>Authority</dt><dd>docs/models/deployment-artifact 与 docs/engineering 的 deployment 投影共同承载。</dd></div>
+      <div><dt>Packages</dt><dd>2</dd></div>
+      <div><dt>Elements</dt><dd>1</dd></div>
+      <div><dt>Diagrams</dt><dd>1</dd></div>
+    </div>
+  </section>
+  <section class="model-doc-section" data-praxis-anchor="model:deployment-artifact:package-overview" data-praxis-kind="package_diagram">
+    <h2>Package 概览图</h2>
+    <pre class="mermaid" data-praxis-anchor="model:deployment-artifact:package-overview:diagram" data-praxis-kind="package_diagram">flowchart TD
+  model["制品 / 部署模型"]
+  pkg_0["制品 / 部署模型"]
+  model --&gt; pkg_0
+  pkg_1["candidate"]
+  pkg_0 --&gt; pkg_1
+  pkg_1 --&gt; pkg_1_contents["1 elements / 1 diagrams"]</pre>
+  </section>
+  <section class="model-doc-section" data-praxis-anchor="model:deployment-artifact:diagrams" data-praxis-kind="diagram_index">
+    <h2>Package / Element / Diagram</h2>
+    
+      <article class="package-card" data-praxis-anchor="model:deployment-artifact:package:root" data-praxis-kind="uml_package">
+        <h3>制品 / 部署模型</h3>
+        <p>Model 根命名空间下组织 0 个直接模型元素，并通过 0 张 UML 图呈现。</p>
+        
+        <div class="diagram-list">
+          
+        </div>
+      </article>
+
+      <article class="package-card" data-praxis-anchor="model:deployment-artifact:package:candidate" data-praxis-kind="uml_package">
+        <h3>candidate</h3>
+        <p>candidate 命名空间下组织 1 个直接模型元素，并通过 1 张 deployment 图呈现。</p>
+        <ul class="element-list"><li data-praxis-anchor="model:deployment-artifact:element:deployment:-:model:deployment-artifact:missing-deployment" data-praxis-kind="uml_element"><strong>尚未生成制品 / 部署模型</strong><span>deployment · relationship · low</span><small>尚未生成制品 / 部署模型 表示制品、运行节点或部署关系；它解释 Artifact 如何被分配到 Node 或 ExecutionEnvironment。</small></li></ul>
+        <div class="diagram-list">
+          
+            <button
+              type="button"
+              class="diagram-entry-card"
+              data-praxis-anchor="model:deployment-artifact:missing-deployment"
+              data-praxis-kind="uml_diagram"
+              data-praxis-document-title="尚未生成制品 / 部署模型"
+              data-praxis-document-summary="运行 Engineering 或 Architecture Discovery 后，这里会显示部署、制品、运行节点和通信路径。"
+              data-praxis-document-md="docs/models/deployment-artifact/model.md"
+              data-praxis-document-html="docs/models/deployment-artifact/model.html"
+            >
+              <span>deployment · candidate · low</span>
+              <strong>尚未生成制品 / 部署模型</strong>
+              <small>运行 Engineering 或 Architecture Discovery 后，这里会显示部署、制品、运行节点和通信路径。</small>
+            </button>
+        </div>
+      </article>
+  </section>
+  <section class="trace-list" data-praxis-anchor="model:deployment-artifact:trace" data-praxis-kind="trace_index">
+    <h2>Trace / Refine</h2>
+    <ul><li><strong>realize</strong> model:software-structure -> model:deployment-artifact：软件结构中的 Component、Interface 和 Classifier 最终应映射到 Artifact、Node 或 ExecutionEnvironment。</li><li><strong>project</strong> model:deployment-artifact -> projection:engineering-explorer：Engineering Explorer 投影 是 model:deployment-artifact 的展示投影；它可以帮助讨论，但不能覆盖 Model / Package / Element 的权威边界。</li><li><strong>project</strong> model:deployment-artifact -> projection:architecture-c4：Architecture Explorer / C4 投影 是 model:deployment-artifact 的展示投影；它可以帮助讨论，但不能覆盖 Model / Package / Element 的权威边界。</li></ul>
+  </section>
+  <script type="application/json" id="praxis-uml-model-document">{"model":{"id":"model:deployment-artifact","kind":"deployment_artifact","title":"制品 / 部署模型","viewpoint":"描述 Artifact、Node、Device、ExecutionEnvironment、Deployment 和 CommunicationPath","stakeholder":["架构师","运维","发布负责人","开发者"],"abstractionLevel":"artifact / node / execution environment / deployment","purpose":"解释开发、部署和运行中使用或产生的物理信息项，以及它们被分配到哪些计算资源上执行。","authority":"docs/models/deployment-artifact 与 docs/engineering 的 deployment 投影共同承载。","diagrams":[{"id":"model:deployment-artifact:missing-deployment","modelId":"model:deployment-artifact","kind":"deployment","title":"尚未生成制品 / 部署模型","summary":"运行 Engineering 或 Architecture Discovery 后，这里会显示部署、制品、运行节点和通信路径。","docPath":"docs/models/deployment-artifact/model.md","htmlPath":"docs/models/deployment-artifact/model.html","packagePath":"candidate","anchor":"model:deployment-artifact:missing-deployment","status":"candidate","confidence":"low","representedElements":["Artifact","Node","Device","ExecutionEnvironment","Deployment"]}],"anchor":"model:deployment-artifact","docPath":"docs/models/deployment-artifact/model.md","htmlPath":"docs/models/deployment-artifact/model.html","status":"candidate","packages":[{"id":"model:deployment-artifact:package:root","title":"制品 / 部署模型","packagePath":".","summary":"Model 根命名空间下组织 0 个直接模型元素，并通过 0 张 UML 图呈现。","modelId":"model:deployment-artifact","childPackageIds":["model:deployment-artifact:package:candidate"],"level":0,"elementCount":0,"elements":[],"diagramCount":0,"diagrams":[]},{"id":"model:deployment-artifact:package:candidate","title":"candidate","packagePath":"candidate","summary":"candidate 命名空间下组织 1 个直接模型元素，并通过 1 张 deployment 图呈现。","modelId":"model:deployment-artifact","parentPackageId":"model:deployment-artifact:package:root","childPackageIds":[],"level":1,"elementCount":1,"elements":[{"id":"model:deployment-artifact:element:deployment:-:model:deployment-artifact:missing-deployment","kind":"deployment","role":"relationship","name":"尚未生成制品 / 部署模型","summary":"尚未生成制品 / 部署模型 表示制品、运行节点或部署关系；它解释 Artifact 如何被分配到 Node 或 ExecutionEnvironment。","modelId":"model:deployment-artifact","packageId":"model:deployment-artifact:package:candidate","packagePath":"candidate","representedByDiagramIds":["model:deployment-artifact:missing-deployment"],"traceIds":[],"status":"candidate","confidence":"low","sourcePaths":["docs/models/deployment-artifact/model.md","docs/models/deployment-artifact/model.html"]}],"diagramCount":1,"diagrams":[{"id":"model:deployment-artifact:missing-deployment","modelId":"model:deployment-artifact","kind":"deployment","title":"尚未生成制品 / 部署模型","summary":"运行 Engineering 或 Architecture Discovery 后，这里会显示部署、制品、运行节点和通信路径。","docPath":"docs/models/deployment-artifact/model.md","htmlPath":"docs/models/deployment-artifact/model.html","packagePath":"candidate","anchor":"model:deployment-artifact:missing-deployment","status":"candidate","confidence":"low","representedElements":["Artifact","Node","Device","ExecutionEnvironment","Deployment"]}]}],"elements":[{"id":"model:deployment-artifact:element:deployment:-:model:deployment-artifact:missing-deployment","kind":"deployment","role":"relationship","name":"尚未生成制品 / 部署模型","summary":"尚未生成制品 / 部署模型 表示制品、运行节点或部署关系；它解释 Artifact 如何被分配到 Node 或 ExecutionEnvironment。","modelId":"model:deployment-artifact","packageId":"model:deployment-artifact:package:candidate","packagePath":"candidate","representedByDiagramIds":["model:deployment-artifact:missing-deployment"],"traceIds":[],"status":"candidate","confidence":"low","sourcePaths":["docs/models/deployment-artifact/model.md","docs/models/deployment-artifact/model.html"]}]},"relatedTraces":[{"id":"trace:model:software-structure:deployment-artifact","relation":"realize","sourceId":"model:software-structure","targetId":"model:deployment-artifact","sourceModelId":"model:software-structure","targetModelId":"model:deployment-artifact","summary":"软件结构中的 Component、Interface 和 Classifier 最终应映射到 Artifact、Node 或 ExecutionEnvironment。"},{"id":"trace:model:deployment-artifact:projection:engineering-explorer","relation":"project","sourceId":"model:deployment-artifact","targetId":"projection:engineering-explorer","sourceModelId":"model:deployment-artifact","summary":"Engineering Explorer 投影 是 model:deployment-artifact 的展示投影；它可以帮助讨论，但不能覆盖 Model / Package / Element 的权威边界。"},{"id":"trace:model:deployment-artifact:projection:architecture-c4","relation":"project","sourceId":"model:deployment-artifact","targetId":"projection:architecture-c4","sourceModelId":"model:deployment-artifact","summary":"Architecture Explorer / C4 投影 是 model:deployment-artifact 的展示投影；它可以帮助讨论，但不能覆盖 Model / Package / Element 的权威边界。"}]}</script>
+</main>
+</body>
+</html>

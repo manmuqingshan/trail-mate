@@ -1,0 +1,1115 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:chat",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T13:58:33.932Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "context:trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:trail-mate-system"
+      },
+      "summary": "跨平台野外通信和组成员追踪系统，支持多种硬件设备（ESP32、nRF52、Linux）和应用（桌面GTK、模拟器、Cardputer零）。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖所有业务目标：通信、位置共享、地图导航、设备管理、系统设置。",
+        "responsibility": "为徒步者、野外工作者提供离线通信、团队追踪、地图查看和硬件管理能力。",
+        "businessTerms": [
+          "聊天消息",
+          "团队成员",
+          "无线电",
+          "GPS",
+          "地图瓦片",
+          "电池",
+          "SD卡",
+          "屏幕休眠"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:context:chat",
+      "kind": "design_context",
+      "label": "通信与消息",
+      "source": {
+        "type": "model",
+        "id": "context:chat"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:chat"
+      },
+      "summary": "通过无线电网络（LoRa、Meshtastic）发送和接收文本消息，管理联系人和聊天历史。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "context:trail-mate-system",
+        "scope": "处理用户之间的文本通信、联系人管理和消息历史。",
+        "responsibility": "提供点对点或组播文本聊天能力，在无蜂窝网络环境下保持联系。",
+        "businessTerms": [
+          "聊天消息",
+          "联系人",
+          "节点",
+          "无线电适配器"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:hiker",
+      "kind": "design_actor",
+      "label": "徒步者",
+      "source": {
+        "type": "model",
+        "id": "actor:hiker"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:hiker"
+      },
+      "summary": "使用 Trail Mate 设备进行野外通信和定位的最终用户。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-external-system:external:lora-network",
+      "kind": "design_external_system",
+      "label": "LoRa无线电网关",
+      "source": {
+        "type": "model",
+        "id": "external:lora-network"
+      },
+      "anchor": {
+        "kind": "design_external_system",
+        "id": "external:lora-network"
+      },
+      "summary": "提供远距离低功耗无线电通信的外部基础设施。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": []
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:play-alert-tone",
+      "kind": "design_use_case",
+      "label": "播放消息提示音",
+      "source": {
+        "type": "model",
+        "id": "use-case:play-alert-tone"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:play-alert-tone"
+      },
+      "summary": "当收到新消息时，通过蜂鸣器播放自定义的提示音，并可设置音量和模式。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-d0ee2fed3865c94500bf978be388785a",
+          "codegraph:function-c7243f3864e523639290c7c5fe308ffd",
+          "codegraph:function-9af278c3635bd9cfcd5634d3f96e791c",
+          "codegraph:function-0520a9ac1015cb75950cda32b65914c8",
+          "codegraph:function-a2e52ddbd245f5cba406fc4a56aedf3f"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:chat",
+        "trigger": "系统接收到新消息或用户测试音效。",
+        "primaryActorIds": [
+          "actor:hiker"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-d0ee2fed3865c94500bf978be388785a",
+          "behavior-slice:ui-route-codegraph-function-c7243f3864e523639290c7c5fe308ffd",
+          "behavior-slice:ui-route-codegraph-function-9af278c3635bd9cfcd5634d3f96e791c",
+          "behavior-slice:ui-route-codegraph-function-0520a9ac1015cb75950cda32b65914c8",
+          "behavior-slice:ui-route-codegraph-function-a2e52ddbd245f5cba406fc4a56aedf3f"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-chat-history",
+      "kind": "design_use_case",
+      "label": "查看聊天历史",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-chat-history"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-chat-history"
+      },
+      "summary": "查看与某个联系人或组的聊天消息历史记录。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-ff1693e9463e593245dc219bc001d332",
+          "codegraph:function-27d0bf7aad63c554f6e83d1eb43f6244"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:chat",
+        "trigger": "用户切换到聊天页面。",
+        "primaryActorIds": [
+          "actor:hiker"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-ff1693e9463e593245dc219bc001d332",
+          "behavior-slice:ui-route-codegraph-function-27d0bf7aad63c554f6e83d1eb43f6244"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:send-chat-message",
+      "kind": "design_use_case",
+      "label": "发送聊天消息",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-chat-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-chat-message"
+      },
+      "summary": "编写文本消息并通过无线电网络发送给指定联系人或群组。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-4a858539c72f0272c7d20353824bdc64"
+        ],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextId": "context:chat",
+        "trigger": "用户在聊天界面输入文本并点击发送。",
+        "primaryActorIds": [
+          "actor:hiker"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "external:lora-network"
+        ],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-4a858539c72f0272c7d20353824bdc64"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:send-chat-message",
+      "kind": "design_activity",
+      "label": "业务流程：发送聊天消息",
+      "source": {
+        "type": "model",
+        "id": "activity:send-chat-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-chat-message"
+      },
+      "summary": "描述用户输入文本、点击发送，经过系统编码并通过无线电发出的流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-chat-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "覆盖撰写并发送聊天消息的主成功场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1-6]"
+          ],
+          "boundary": "从用户输入文本开始，到消息出现在本地聊天历史中结束。",
+          "notCovered": [
+            "消息重传、加密处理等高级特性。"
+          ],
+          "rationale": "Activity图帮助可视化消息从UI输入到无线电发送的端到端路径。",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "apps/nrf52_node",
+              "firmware"
+            ],
+            "entryPoints": [
+              "UI 发送按钮 -> ChatService::sendMessage()",
+              "MeshAdapter::sendText()"
+            ],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp",
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp"
+            ],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp::getChatService"
+            ],
+            "outOfScopeCode": [
+              "无线电物理层编码实现"
+            ]
+          }
+        },
+        "coverageScenario": "覆盖撰写并发送聊天消息的主成功场景。",
+        "coverageBoundary": "从用户输入文本开始，到消息出现在本地聊天历史中结束。",
+        "coverageRationale": "Activity图帮助可视化消息从UI输入到无线电发送的端到端路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1-6]"
+        ],
+        "notCovered": [
+          "消息重传、加密处理等高级特性。"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "apps/nrf52_node",
+            "firmware"
+          ],
+          "entryPoints": [
+            "UI 发送按钮 -> ChatService::sendMessage()",
+            "MeshAdapter::sendText()"
+          ],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp",
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp"
+          ],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp::getChatService"
+          ],
+          "outOfScopeCode": [
+            "无线电物理层编码实现"
+          ]
+        },
+        "explanation": {
+          "business": "用户在聊天框输入文本并发送，系统将消息通过无线电网络发送给接收者。",
+          "uml": "从“用户输入文本”开始，经“ChatService组织消息”到“无线电发送”，若发送成功则存入本地历史，否则进入失败处理。",
+          "design": "UI 层触发 ChatService，ChatService 调用 MeshAdapter 接口，具体实现由无线电适配器完成，实现了业务逻辑与传输的分离。",
+          "implementation": "ChatService 在 apps/nrf52_node 中由 AppFacadeRuntime 持有，实际发送由 MeshtasticRadioAdapter 或 NullMeshAdapter 执行。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-chat-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-chat-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:send-chat-message",
+      "kind": "design_sequence",
+      "label": "对象交互：发送聊天消息",
+      "source": {
+        "type": "model",
+        "id": "sequence:send-chat-message"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:send-chat-message"
+      },
+      "summary": "展示UI、ChatService、MeshAdapter和无线电硬件之间的消息传输过程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:send-chat-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功路径：用户发送消息并成功递交。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1-4]"
+          ],
+          "boundary": "从用户点击发送开始，到无线电发送完成回调。",
+          "notCovered": [
+            "消息确认和重试逻辑。"
+          ],
+          "rationale": "表明分层架构中各层职责，ChatService作为应用服务，MeshAdapter作为端口。",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "apps/nrf52_node"
+            ],
+            "entryPoints": [
+              "UI 事件处理器 -> ChatService::sendMessage"
+            ],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp",
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp"
+            ],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp::getChatService"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "主成功路径：用户发送消息并成功递交。",
+        "coverageBoundary": "从用户点击发送开始，到无线电发送完成回调。",
+        "coverageRationale": "表明分层架构中各层职责，ChatService作为应用服务，MeshAdapter作为端口。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1-4]"
+        ],
+        "notCovered": [
+          "消息确认和重试逻辑。"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "apps/nrf52_node"
+          ],
+          "entryPoints": [
+            "UI 事件处理器 -> ChatService::sendMessage"
+          ],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp",
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp"
+          ],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp::getChatService"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "用户消息经过应用服务封装，通过适配器发送到无线电硬件，最终到达目标节点。",
+          "uml": "参与者：User, ChatPageLogic, ChatService, IMeshAdapter。ChatService.sendMessage 返回发送结果。",
+          "design": "ChatPageLogic 依赖 ChatService（应用服务），ChatService 依赖 IMeshAdapter（端口），适配器隔离了无线电协议。",
+          "implementation": "ChatService 的具体实现在 chat/usecase 目录下，IMeshAdapter 有 MeshtasticRadioAdapter 实现。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/send-chat-message/sequences/sequence-send-chat-message.md",
+        "htmlPath": "docs/design/use-case-diagrams/send-chat-message/sequences/sequence-send-chat-message.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-play-alert-tone-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：播放消息提示音",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-play-alert-tone-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-play-alert-tone-activity"
+      },
+      "summary": "Activity Diagram：播放消息提示音，用于解释 Use Case「播放消息提示音」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:play-alert-tone",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「播放消息提示音」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「播放消息提示音」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「播放消息提示音」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「播放消息提示音」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「播放消息提示音」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「播放消息提示音」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「播放消息提示音」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「播放消息提示音」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「播放消息提示音」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 boards/tlora_pager/src/tlora_pager_board.cpp。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/play-alert-tone/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/play-alert-tone/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-play-alert-tone-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：播放消息提示音主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-play-alert-tone-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-play-alert-tone-sequence"
+      },
+      "summary": "Sequence Diagram：播放消息提示音主成功场景，用于解释 Use Case「播放消息提示音」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:play-alert-tone",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「播放消息提示音」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「播放消息提示音」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「播放消息提示音」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "boards/tlora_pager/src/tlora_pager_board.cpp"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「播放消息提示音」的主成功交互场景。",
+        "coverageBoundary": "覆盖「播放消息提示音」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「播放消息提示音」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "boards/tlora_pager/src/tlora_pager_board.cpp"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「播放消息提示音」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「播放消息提示音」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「播放消息提示音」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 boards/tlora_pager/src/tlora_pager_board.cpp。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/play-alert-tone/sequences/sequence-use-case-play-alert-tone-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/play-alert-tone/sequences/sequence-use-case-play-alert-tone-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-view-chat-history-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：查看聊天历史",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-chat-history-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-chat-history-activity"
+      },
+      "summary": "Activity Diagram：查看聊天历史，用于解释 Use Case「查看聊天历史」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:view-chat-history",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看聊天历史」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「查看聊天历史」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「查看聊天历史」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看聊天历史」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看聊天历史」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「查看聊天历史」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看聊天历史」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看聊天历史」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「查看聊天历史」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-chat-history/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-chat-history/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-view-chat-history-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：查看聊天历史主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-chat-history-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-chat-history-sequence"
+      },
+      "summary": "Sequence Diagram：查看聊天历史主成功场景，用于解释 Use Case「查看聊天历史」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:view-chat-history",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看聊天历史」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「查看聊天历史」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「查看聊天历史」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看聊天历史」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看聊天历史」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「查看聊天历史」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看聊天历史」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看聊天历史」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「查看聊天历史」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-chat-history/sequences/sequence-use-case-view-chat-history-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-chat-history/sequences/sequence-use-case-view-chat-history-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:trail-mate-system:context:chat",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:trail-mate-system",
+      "targetId": "projection-node:design-context:context:chat",
+      "source": {
+        "type": "model",
+        "id": "context:chat"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:chat"
+      },
+      "confidence": "high",
+      "summary": "context:trail-mate-system contains 通信与消息",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:chat:use-case:play-alert-tone",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:chat",
+      "targetId": "projection-node:design-use-case:use-case:play-alert-tone",
+      "source": {
+        "type": "model",
+        "id": "use-case:play-alert-tone"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:play-alert-tone"
+      },
+      "confidence": "high",
+      "summary": "context:chat contains 播放消息提示音"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:hiker:use-case:play-alert-tone:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:hiker",
+      "targetId": "projection-node:design-use-case:use-case:play-alert-tone",
+      "source": {
+        "type": "model",
+        "id": "use-case:play-alert-tone"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:play-alert-tone"
+      },
+      "confidence": "high",
+      "summary": "actor:hiker participates in 播放消息提示音",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:chat:use-case:view-chat-history",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:chat",
+      "targetId": "projection-node:design-use-case:use-case:view-chat-history",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-chat-history"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-chat-history"
+      },
+      "confidence": "high",
+      "summary": "context:chat contains 查看聊天历史"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:hiker:use-case:view-chat-history:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:hiker",
+      "targetId": "projection-node:design-use-case:use-case:view-chat-history",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-chat-history"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-chat-history"
+      },
+      "confidence": "high",
+      "summary": "actor:hiker participates in 查看聊天历史",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:chat:use-case:send-chat-message",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:chat",
+      "targetId": "projection-node:design-use-case:use-case:send-chat-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-chat-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-chat-message"
+      },
+      "confidence": "high",
+      "summary": "context:chat contains 发送聊天消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:hiker:use-case:send-chat-message:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:hiker",
+      "targetId": "projection-node:design-use-case:use-case:send-chat-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-chat-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-chat-message"
+      },
+      "confidence": "high",
+      "summary": "actor:hiker participates in 发送聊天消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:external:lora-network:use-case:send-chat-message",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:external:lora-network",
+      "targetId": "projection-node:design-use-case:use-case:send-chat-message",
+      "source": {
+        "type": "model",
+        "id": "use-case:send-chat-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-chat-message"
+      },
+      "confidence": "high",
+      "summary": "external:lora-network participates in 发送聊天消息",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-chat-message:activity:send-chat-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-chat-message",
+      "targetId": "projection-node:design-activity:activity:send-chat-message",
+      "source": {
+        "type": "model",
+        "id": "activity:send-chat-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-chat-message"
+      },
+      "confidence": "high",
+      "summary": "描述用户输入文本、点击发送，经过系统编码并通过无线电发出的流程。",
+      "metadata": {
+        "useCaseId": "use-case:send-chat-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:send-chat-message:sequence:send-chat-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:send-chat-message",
+      "targetId": "projection-node:design-sequence:sequence:send-chat-message",
+      "source": {
+        "type": "model",
+        "id": "sequence:send-chat-message"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:send-chat-message"
+      },
+      "confidence": "medium",
+      "summary": "展示UI、ChatService、MeshAdapter和无线电硬件之间的消息传输过程。",
+      "metadata": {
+        "useCaseId": "use-case:send-chat-message",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:play-alert-tone:activity:use-case-play-alert-tone-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:play-alert-tone",
+      "targetId": "projection-node:design-activity:activity:use-case-play-alert-tone-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-play-alert-tone-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-play-alert-tone-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：播放消息提示音，用于解释 Use Case「播放消息提示音」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:play-alert-tone",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:play-alert-tone:sequence:use-case-play-alert-tone-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:play-alert-tone",
+      "targetId": "projection-node:design-sequence:sequence:use-case-play-alert-tone-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-play-alert-tone-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-play-alert-tone-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：播放消息提示音主成功场景，用于解释 Use Case「播放消息提示音」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:play-alert-tone",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-chat-history:activity:use-case-view-chat-history-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-chat-history",
+      "targetId": "projection-node:design-activity:activity:use-case-view-chat-history-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-chat-history-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-chat-history-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：查看聊天历史，用于解释 Use Case「查看聊天历史」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-chat-history",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-chat-history:sequence:use-case-view-chat-history-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-chat-history",
+      "targetId": "projection-node:design-sequence:sequence:use-case-view-chat-history-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-chat-history-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-chat-history-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：查看聊天历史主成功场景，用于解释 Use Case「查看聊天历史」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-chat-history",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

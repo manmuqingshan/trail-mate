@@ -140,10 +140,11 @@ inline bool dir_exists(const char* path)
     return true;
 }
 
-inline bool read_text_file(const char* path, std::string& out)
+template <typename LineHandler>
+inline bool read_text_file_lines(const char* path,
+                                 LineHandler on_line,
+                                 std::size_t max_line_bytes = 2048)
 {
-    out.clear();
-
     const std::string normalized = normalize_path(path);
     if (normalized.empty())
     {
@@ -157,24 +158,62 @@ inline bool read_text_file(const char* path, std::string& out)
     }
 
     char buffer[256];
-    uint32_t bytes_read = 0;
+    std::string line;
+    bool ok = true;
     while (true)
     {
+        uint32_t bytes_read = 0;
         if (lv_fs_read(&file, buffer, sizeof(buffer), &bytes_read) != LV_FS_RES_OK)
         {
-            lv_fs_close(&file);
-            out.clear();
-            return false;
+            ok = false;
+            break;
         }
         if (bytes_read == 0)
         {
             break;
         }
-        out.append(buffer, bytes_read);
+        for (uint32_t index = 0; index < bytes_read; ++index)
+        {
+            const char ch = buffer[index];
+            if (ch == '\n')
+            {
+                if (!line.empty() && line.back() == '\r')
+                {
+                    line.pop_back();
+                }
+                if (!on_line(line))
+                {
+                    ok = false;
+                    break;
+                }
+                line.clear();
+                continue;
+            }
+
+            if (line.size() >= max_line_bytes)
+            {
+                ok = false;
+                break;
+            }
+            line.push_back(ch);
+        }
+        if (!ok)
+        {
+            break;
+        }
+    }
+
+    if (ok && !line.empty())
+    {
+        if (line.back() == '\r')
+        {
+            line.pop_back();
+        }
+        ok = on_line(line);
     }
 
     lv_fs_close(&file);
-    return !out.empty();
+    return ok;
 }
 
 } // namespace ui::fs

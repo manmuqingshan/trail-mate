@@ -1,12 +1,19 @@
 #include "ui/assets/fonts/font_utils.h"
 
+#if defined(ESP_PLATFORM)
+#include "esp_attr.h"
+#define UI_FONT_STATE_RAM_ATTR EXT_RAM_ATTR
+#else
+#define UI_FONT_STATE_RAM_ATTR
+#endif
+
 namespace ui::fonts
 {
 namespace
 {
 
-constexpr std::size_t kMaxLocalizedFontBindings = 64;
-LocalizedFontBinding s_localized_font_bindings[kMaxLocalizedFontBindings]{};
+constexpr std::size_t kMaxLocalizedFontBindings = 24;
+UI_FONT_STATE_RAM_ATTR LocalizedFontBinding s_localized_font_bindings[kMaxLocalizedFontBindings]{};
 
 } // namespace
 

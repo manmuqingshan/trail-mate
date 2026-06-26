@@ -16,6 +16,10 @@ namespace
 {
 using Adafruit_LittleFS_Namespace::FILE_O_READ;
 constexpr const char* kLogTag = "[nrf52][blob_store]";
+constexpr std::size_t kBlobReadChunkBytes = 128;
+constexpr std::size_t kMaxBlobPayloadBytes =
+    ::chat::contacts::NodeStoreCore::kMaxNodes *
+    ::chat::contacts::NodeStoreCore::kSerializedEntrySizeV8;
 
 bool writeBytes(Adafruit_LittleFS_Namespace::File& file, const uint8_t* data, std::size_t len)
 {
@@ -37,6 +41,39 @@ bool writeBytes(Adafruit_LittleFS_Namespace::File& file, const uint8_t* data, st
         offset += written;
     }
     return true;
+}
+
+bool readBytes(Adafruit_LittleFS_Namespace::File& file, uint8_t* data, std::size_t len)
+{
+    if (!data && len != 0)
+    {
+        return false;
+    }
+
+    std::size_t offset = 0;
+    while (offset < len)
+    {
+        const std::size_t chunk = std::min(kBlobReadChunkBytes, len - offset);
+        const int read = file.read(data + offset, static_cast<uint16_t>(chunk));
+        if (read != static_cast<int>(chunk))
+        {
+            return false;
+        }
+        offset += chunk;
+    }
+    return true;
+}
+
+bool readBlobPayload(Adafruit_LittleFS_Namespace::File& file,
+                     std::size_t len,
+                     std::vector<uint8_t>& out)
+{
+    if (len > kMaxBlobPayloadBytes)
+    {
+        return false;
+    }
+    out.resize(len);
+    return len == 0 || readBytes(file, out.data(), len);
 }
 
 } // namespace
@@ -81,10 +118,9 @@ bool BlobFileStore::loadBlob(std::vector<uint8_t>& out)
 
     if (size < sizeof(FileHeader))
     {
-        out.resize(size);
-        const int read = file.read(out.data(), static_cast<uint16_t>(size));
+        const bool read_ok = readBlobPayload(file, size, out);
         file.close();
-        if (read != static_cast<int>(size))
+        if (!read_ok)
         {
             out.clear();
             clearBlob();
@@ -104,16 +140,15 @@ bool BlobFileStore::loadBlob(std::vector<uint8_t>& out)
     if (header.magic != magic_)
     {
         file.close();
-        out.resize(size);
         auto legacy = InternalFS.open(path_, FILE_O_READ);
         if (!legacy)
         {
             out.clear();
             return false;
         }
-        const int read = legacy.read(out.data(), static_cast<uint16_t>(size));
+        const bool read_ok = readBlobPayload(legacy, size, out);
         legacy.close();
-        if (read != static_cast<int>(size))
+        if (!read_ok)
         {
             out.clear();
             clearBlob();
@@ -129,11 +164,9 @@ bool BlobFileStore::loadBlob(std::vector<uint8_t>& out)
         return false;
     }
 
-    out.resize(header.payload_len);
-    const int read = header.payload_len > 0 ? file.read(out.data(), static_cast<uint16_t>(header.payload_len)) : 0;
+    const bool read_ok = readBlobPayload(file, header.payload_len, out);
     file.close();
-    if (read != static_cast<int>(header.payload_len) ||
-        computeCrc(out.data(), out.size()) != header.crc)
+    if (!read_ok || computeCrc(out.data(), out.size()) != header.crc)
     {
         out.clear();
         clearBlob();

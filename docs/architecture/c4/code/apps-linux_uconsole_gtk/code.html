@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>代码锚点：apps/linux_uconsole_gtk</title></head>
+<body>
+<main class="praxis-architecture-map" data-praxis-anchor="architecture:c4:code:apps-linux_uconsole_gtk" data-praxis-kind="architecture_c4_code" data-praxis-status="candidate" data-praxis-confidence="medium" data-praxis-document-path="docs/architecture/c4/code/apps-linux_uconsole_gtk/code.html" data-praxis-drilldowns="[{&quot;id&quot;:&quot;architecture:c4:component:apps-linux_uconsole_gtk&quot;,&quot;level&quot;:&quot;component&quot;,&quot;title&quot;:&quot;组件职责：apps/linux_uconsole_gtk&quot;,&quot;summary&quot;:&quot;从 C4 Component 层解释 apps/linux_uconsole_gtk 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html&quot;,&quot;anchor&quot;:&quot;architecture:c4:component:apps-linux_uconsole_gtk&quot;,&quot;relation&quot;:&quot;parent&quot;,&quot;reason&quot;:&quot;回到 组件职责：apps/linux_uconsole_gtk 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。&quot;}]">
+  <header class="praxis-design-map-header">
+    <p>Praxis Architecture View</p>
+    <h1>代码锚点：apps/linux_uconsole_gtk</h1>
+    <p>从 C4 Code 层解释 apps/linux_uconsole_gtk 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。</p>
+    <div class="meta-row">
+      <span>Code</span>
+      <span>candidate / medium</span>
+      <span>0.1.30-alpha · 34aad0bffa2f / main</span>
+    </div>
+  </header>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:layer-path" data-praxis-kind="architecture_c4_list">
+    <h2>C4 层级路径</h2>
+    <ul>
+      <li>当前层：Code View，解释上层 Component 如何落到具体文件、函数、类、接口或组件锚点。</li>
+      <li>上层：Component，说明这些代码锚点共同服务的组件职责。</li>
+      <li>下层：无；继续理解细节时应回到 IDE、代码预览或软件结构模型，而不是把 Code View 当成完整源码浏览器。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:responsibility" data-praxis-kind="architecture_c4_text">
+    <h2>责任</h2>
+    <p>把 apps/linux_uconsole_gtk 的架构组件进一步落到具体文件、函数、类、接口或组件锚点，帮助用户理解实现入口和变更影响面。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:boundary" data-praxis-kind="architecture_c4_text">
+    <h2>边界</h2>
+    <p>Code View 只展示必要锚点，不列全量源码；完整结构解释、代码片段和复杂度候选点仍应回到软件结构模型或 IDE 查看。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:relationships" data-praxis-kind="architecture_c4_list">
+    <h2>关系</h2>
+    <ul>
+      <li>FakeMeshAdapter -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17</li>
+      <li>FakeMeshAdapter -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19</li>
+      <li>FakeMeshAdapter::pushIncoming -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20</li>
+      <li>FakeMeshAdapter::applyConfig -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79</li>
+      <li>FakeMeshAdapter::pushIncoming -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22</li>
+      <li>FakeMeshAdapter::applyConfig -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81</li>
+      <li>FakeMeshAdapter::pollIncomingData -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74</li>
+      <li>FakeMeshAdapter::pollIncomingData -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76</li>
+      <li>FakeMeshAdapter::pollIncomingRawPacket -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86</li>
+      <li>FakeMeshAdapter::pollIncomingRawPacket -&gt; apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:business-relation" data-praxis-kind="architecture_c4_list">
+    <h2>与业务复杂度的关联</h2>
+    <ul>
+      <li>Code View 不是业务解释入口；它只在业务故事需要追溯到实现锚点时提供底层证据。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:engineering-relation" data-praxis-kind="architecture_c4_list">
+    <h2>与技术复杂度的关联</h2>
+    <ul>
+      <li>软件结构模型负责继续解释复用迹象、外部协作迹象、Sequence、复杂度候选点和代码证据预览。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer diagram-section" data-praxis-anchor="architecture:c4:diagram" data-praxis-kind="architecture_c4_diagram">
+    <h2>C4 Code View 图</h2>
+    <pre class="mermaid" data-praxis-anchor="architecture:c4:code:apps-linux_uconsole_gtk:c4" data-praxis-c4-current-level="code" data-praxis-c4-layer-views="[{&quot;level&quot;:&quot;system_context&quot;,&quot;label&quot;:&quot;System Context&quot;,&quot;title&quot;:&quot;系统上下文：trail-mate&quot;,&quot;diagramTitle&quot;:&quot;C4 System Context 图&quot;,&quot;summary&quot;:&quot;System Context 只展示目标软件系统与外部人/系统的关系，不直接展开内部 Code；这里高亮的是“apps/linux_uconsole_gtk”所属的软件系统边界。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/system-context/system-context.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/system-context/system-context.html&quot;,&quot;mermaid&quot;:&quot;flowchart LR\n  actor[\&quot;未命名外部参与者\&quot;]\n  system[\&quot;trail-mate\&quot;]\n  external[\&quot;未命名外部系统\&quot;]\n  actor --&gt;|使用 / 调用| system\n  system -.-&gt;|候选集成| external&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_uconsole_gtk&quot;,&quot;apps/linux_uconsole_gtk Container&quot;,&quot;apps/linux_uconsole_gtk（系统内部 Container）&quot;,&quot;linux_uconsole_gtk&quot;,&quot;trail-mate&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;container&quot;,&quot;label&quot;:&quot;Container&quot;,&quot;title&quot;:&quot;容器边界：apps/linux_uconsole_gtk&quot;,&quot;diagramTitle&quot;:&quot;C4 Container 图&quot;,&quot;summary&quot;:&quot;切到 Container 层时，高亮会标出“apps/linux_uconsole_gtk”在该层正式文档中的对应位置。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/containers/apps-linux_uconsole_gtk/container.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/containers/apps-linux_uconsole_gtk/container.html&quot;,&quot;mermaid&quot;:&quot;flowchart LR\n  container[\&quot;apps/linux_uconsole_gtk\&quot;]\n  dependency_1[\&quot;apps/esp32_lvgl\&quot;]\n  container --&gt; dependency_1\n  dependency_2[\&quot;apps/linux_sim_shell\&quot;]\n  container --&gt; dependency_2\n  dependency_3[\&quot;apps/linux_cardputer_zero\&quot;]\n  container --&gt; dependency_3&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_uconsole_gtk&quot;,&quot;apps/linux_uconsole_gtk Container&quot;,&quot;apps/linux_uconsole_gtk（系统内部 Container）&quot;,&quot;linux_uconsole_gtk&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;component&quot;,&quot;label&quot;:&quot;Component&quot;,&quot;title&quot;:&quot;组件职责：apps/linux_uconsole_gtk&quot;,&quot;diagramTitle&quot;:&quot;C4 Component 图&quot;,&quot;summary&quot;:&quot;切到 Component 层时，高亮会标出“apps/linux_uconsole_gtk”在该层正式文档中的对应位置。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html&quot;,&quot;mermaid&quot;:&quot;flowchart TB\n  container[\&quot;apps/linux_uconsole_gtk Container\&quot;]\n  component_1[\&quot;FakeMeshAdapter\&quot;]\n  container --&gt; component_1\n  component_2[\&quot;FakeMeshAdapter\&quot;]\n  container --&gt; component_2\n  component_3[\&quot;LinuxUConsoleGtkPageRegistryAdoption\&quot;]\n  container --&gt; component_3\n  component_4[\&quot;LinuxUConsoleGtkPageRegistryRenderer\&quot;]\n  container --&gt; component_4\n  component_5[\&quot;LinuxUConsoleGtkPageRegistrySource\&quot;]\n  container --&gt; component_5\n  component_6[\&quot;linux_uconsole_gtk_page_registry_adoption\&quot;]\n  container --&gt; component_6\n  component_7[\&quot;linux_uconsole_gtk_page_registry_renderer\&quot;]\n  container --&gt; component_7\n  component_8[\&quot;string_view\&quot;]\n  container --&gt; component_8\n  component_9[\&quot;linux_uconsole_gtk_page_registry_adoption\&quot;]\n  container --&gt; component_9\n  component_10[\&quot;linux_uconsole_gtk_page_registry_renderer\&quot;]\n  container --&gt; component_10&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_uconsole_gtk&quot;,&quot;apps/linux_uconsole_gtk Container&quot;,&quot;apps/linux_uconsole_gtk（系统内部 Container）&quot;,&quot;linux_uconsole_gtk&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;code&quot;,&quot;label&quot;:&quot;Code&quot;,&quot;title&quot;:&quot;代码锚点：apps/linux_uconsole_gtk&quot;,&quot;diagramTitle&quot;:&quot;C4 Code View 图&quot;,&quot;summary&quot;:&quot;当前正在阅读 Code 层；下方正式图就是这一层的架构投影。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/code/apps-linux_uconsole_gtk/code.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/code/apps-linux_uconsole_gtk/code.html&quot;,&quot;mermaid&quot;:&quot;flowchart TB\n  package[\&quot;apps/linux_uconsole_gtk\&quot;]\n  file_1[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\&quot;]\n  code_1[\&quot;FakeMeshAdapter\&quot;]\n  package --&gt; file_1\n  file_1 --&gt; code_1\n  file_2[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\&quot;]\n  code_2[\&quot;FakeMeshAdapter\&quot;]\n  package --&gt; file_2\n  file_2 --&gt; code_2\n  file_3[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\&quot;]\n  code_3[\&quot;FakeMeshAdapter::pushIncoming\&quot;]\n  package --&gt; file_3\n  file_3 --&gt; code_3\n  file_4[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\&quot;]\n  code_4[\&quot;FakeMeshAdapter::applyConfig\&quot;]\n  package --&gt; file_4\n  file_4 --&gt; code_4\n  file_5[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\&quot;]\n  code_5[\&quot;FakeMeshAdapter::pushIncoming\&quot;]\n  package --&gt; file_5\n  file_5 --&gt; code_5\n  file_6[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\&quot;]\n  code_6[\&quot;FakeMeshAdapter::applyConfig\&quot;]\n  package --&gt; file_6\n  file_6 --&gt; code_6\n  file_7[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\&quot;]\n  code_7[\&quot;FakeMeshAdapter::pollIncomingData\&quot;]\n  package --&gt; file_7\n  file_7 --&gt; code_7\n  file_8[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\&quot;]\n  code_8[\&quot;FakeMeshAdapter::pollIncomingData\&quot;]\n  package --&gt; file_8\n  file_8 --&gt; code_8&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_uconsole_gtk&quot;,&quot;apps/linux_uconsole_gtk Container&quot;,&quot;apps/linux_uconsole_gtk（系统内部 Container）&quot;,&quot;linux_uconsole_gtk&quot;],&quot;current&quot;:true,&quot;missing&quot;:false}]">flowchart TB
+  package[&quot;apps/linux_uconsole_gtk&quot;]
+  file_1[&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp&quot;]
+  code_1[&quot;FakeMeshAdapter&quot;]
+  package --&gt; file_1
+  file_1 --&gt; code_1
+  file_2[&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp&quot;]
+  code_2[&quot;FakeMeshAdapter&quot;]
+  package --&gt; file_2
+  file_2 --&gt; code_2
+  file_3[&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp&quot;]
+  code_3[&quot;FakeMeshAdapter::pushIncoming&quot;]
+  package --&gt; file_3
+  file_3 --&gt; code_3
+  file_4[&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp&quot;]
+  code_4[&quot;FakeMeshAdapter::applyConfig&quot;]
+  package --&gt; file_4
+  file_4 --&gt; code_4
+  file_5[&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp&quot;]
+  code_5[&quot;FakeMeshAdapter::pushIncoming&quot;]
+  package --&gt; file_5
+  file_5 --&gt; code_5
+  file_6[&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp&quot;]
+  code_6[&quot;FakeMeshAdapter::applyConfig&quot;]
+  package --&gt; file_6
+  file_6 --&gt; code_6
+  file_7[&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp&quot;]
+  code_7[&quot;FakeMeshAdapter::pollIncomingData&quot;]
+  package --&gt; file_7
+  file_7 --&gt; code_7
+  file_8[&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp&quot;]
+  code_8[&quot;FakeMeshAdapter::pollIncomingData&quot;]
+  package --&gt; file_8
+  file_8 --&gt; code_8</pre>
+  </section>
+  <section class="semantic-layer architecture-c4-elements" data-praxis-anchor="architecture:c4:code:apps-linux_uconsole_gtk:elements" data-praxis-kind="architecture_c4_elements">
+    <h2>图内元素解释</h2>
+    <div class="layer-grid">
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:class:fakemeshadapter:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:17" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17；当前仓库证据显示它有 较强的外部协作/编排迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter 更像一个对外编排或聚合锚点：它从 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17 发出较多关系，改动时要优先检查它调用或引用的下游能力。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:class:fakemeshadapter:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:19" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19；当前仓库证据显示它有 较强的外部协作/编排迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter 更像一个对外编排或聚合锚点：它从 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19 发出较多关系，改动时要优先检查它调用或引用的下游能力。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:method:fakemeshadapter::pushincoming:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:20" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter::pushIncoming</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter::pushIncoming 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20；当前仓库证据显示它有 较强的被复用/被依赖迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter::pushIncoming 更像一个被复用或被依赖锚点：它在 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20 被多处关系指向，改动时要优先检查上游调用者和契约稳定性。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter::pushIncoming 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:method:fakemeshadapter::applyconfig:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:79" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter::applyConfig</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter::applyConfig 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter::applyConfig 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter::applyConfig 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:method:fakemeshadapter::pushincoming:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:22" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter::pushIncoming</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter::pushIncoming 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter::pushIncoming 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter::pushIncoming 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:method:fakemeshadapter::applyconfig:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:81" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter::applyConfig</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter::applyConfig 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter::applyConfig 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter::applyConfig 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:method:fakemeshadapter::pollincomingdata:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:74" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter::pollIncomingData</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter::pollIncomingData 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter::pollIncomingData 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter::pollIncomingData 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:method:fakemeshadapter::pollincomingdata:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:76" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter::pollIncomingData</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter::pollIncomingData 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter::pollIncomingData 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter::pollIncomingData 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:method:fakemeshadapter::pollincomingrawpacket:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:86" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter::pollIncomingRawPacket</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter::pollIncomingRawPacket 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter::pollIncomingRawPacket 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter::pollIncomingRawPacket 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:method:fakemeshadapter::pollincomingrawpacket:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:88" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>FakeMeshAdapter::pollIncomingRawPacket</h3>
+        <p>Code · high</p>
+        <p>FakeMeshAdapter::pollIncomingRawPacket 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>FakeMeshAdapter::pollIncomingRawPacket 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88，当前关系压力不高，但仍可作为理解实现入口的证据。</dd></div>
+          <div><dt>边界</dt><dd>该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。</dd></div>
+          <div><dt>关系意义</dt><dd>FakeMeshAdapter::pollIncomingRawPacket 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。</dd></div>
+        </dl>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer architecture-c4-links" data-praxis-anchor="architecture:c4:drilldowns" data-praxis-kind="architecture_c4_links">
+    <h2>可下钻 C4</h2>
+    <div class="layer-grid">
+      <article class="layer-card document-entry-card" role="link" tabindex="0" data-praxis-anchor="architecture:c4:component:apps-linux_uconsole_gtk" data-praxis-kind="architecture_c4_link" data-praxis-document-title="组件职责：apps/linux_uconsole_gtk" data-praxis-document-summary="回到 组件职责：apps/linux_uconsole_gtk 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。" data-praxis-document-md="docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md" data-praxis-document-html="docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html">
+        <strong>组件职责：apps/linux_uconsole_gtk</strong>
+        <span>parent</span>
+        <p>回到 组件职责：apps/linux_uconsole_gtk 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。</p>
+        <small>从 C4 Component 层解释 apps/linux_uconsole_gtk 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。</small>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer architecture-c4-links" data-praxis-anchor="architecture:c4:engineering-links" data-praxis-kind="architecture_c4_links">
+    <h2>关联软件结构模型</h2>
+    <p>暂无。</p>
+
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:evidence" data-praxis-kind="architecture_c4_list">
+    <h2>证据</h2>
+    <ul>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17</li>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19</li>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20</li>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79</li>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22</li>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81</li>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74</li>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76</li>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86</li>
+      <li>apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:questions" data-praxis-kind="architecture_c4_list">
+    <h2>判定依据</h2>
+    <ul>
+      <li>Code View 只列少量能够追溯 Component 实现的文件/符号锚点；它不是源码浏览器，也不承载业务流程或完整类图。</li>
+    </ul>
+  </section>
+  <script type="application/json" id="praxis-architecture-c4-document">{"id":"architecture:c4:code:apps-linux_uconsole_gtk","level":"code","title":"代码锚点：apps/linux_uconsole_gtk","summary":"从 C4 Code 层解释 apps/linux_uconsole_gtk 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。","docPath":"docs/architecture/c4/code/apps-linux_uconsole_gtk/code.md","htmlPath":"docs/architecture/c4/code/apps-linux_uconsole_gtk/code.html","anchor":"architecture:c4:code:apps-linux_uconsole_gtk","status":"candidate","confidence":"medium","mermaid":"flowchart TB\n  package[\"apps/linux_uconsole_gtk\"]\n  file_1[\"apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\"]\n  code_1[\"FakeMeshAdapter\"]\n  package --\u003e file_1\n  file_1 --\u003e code_1\n  file_2[\"apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\"]\n  code_2[\"FakeMeshAdapter\"]\n  package --\u003e file_2\n  file_2 --\u003e code_2\n  file_3[\"apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\"]\n  code_3[\"FakeMeshAdapter::pushIncoming\"]\n  package --\u003e file_3\n  file_3 --\u003e code_3\n  file_4[\"apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\"]\n  code_4[\"FakeMeshAdapter::applyConfig\"]\n  package --\u003e file_4\n  file_4 --\u003e code_4\n  file_5[\"apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\"]\n  code_5[\"FakeMeshAdapter::pushIncoming\"]\n  package --\u003e file_5\n  file_5 --\u003e code_5\n  file_6[\"apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\"]\n  code_6[\"FakeMeshAdapter::applyConfig\"]\n  package --\u003e file_6\n  file_6 --\u003e code_6\n  file_7[\"apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\"]\n  code_7[\"FakeMeshAdapter::pollIncomingData\"]\n  package --\u003e file_7\n  file_7 --\u003e code_7\n  file_8[\"apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\"]\n  code_8[\"FakeMeshAdapter::pollIncomingData\"]\n  package --\u003e file_8\n  file_8 --\u003e code_8","responsibility":"把 apps/linux_uconsole_gtk 的架构组件进一步落到具体文件、函数、类、接口或组件锚点，帮助用户理解实现入口和变更影响面。","boundary":"Code View 只展示必要锚点，不列全量源码；完整结构解释、代码片段和复杂度候选点仍应回到软件结构模型或 IDE 查看。","relationships":["FakeMeshAdapter -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17","FakeMeshAdapter -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19","FakeMeshAdapter::pushIncoming -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20","FakeMeshAdapter::applyConfig -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79","FakeMeshAdapter::pushIncoming -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22","FakeMeshAdapter::applyConfig -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81","FakeMeshAdapter::pollIncomingData -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74","FakeMeshAdapter::pollIncomingData -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76","FakeMeshAdapter::pollIncomingRawPacket -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86","FakeMeshAdapter::pollIncomingRawPacket -\u003e apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88"],"businessRelation":["Code View 不是业务解释入口；它只在业务故事需要追溯到实现锚点时提供底层证据。"],"engineeringRelation":["软件结构模型负责继续解释复用迹象、外部协作迹象、Sequence、复杂度候选点和代码证据预览。"],"evidencePaths":["apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17","apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19","apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20","apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79","apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22","apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81","apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74","apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76","apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86","apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88"],"questions":["Code View 只列少量能够追溯 Component 实现的文件/符号锚点；它不是源码浏览器，也不承载业务流程或完整类图。"],"scope":{"packageId":"apps/linux_uconsole_gtk","filePath":"apps/linux_uconsole_gtk"},"elements":[{"id":"architecture:c4:code-anchor:class:fakemeshadapter:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:17","label":"FakeMeshAdapter","level":"code","anchor":"architecture:c4:code-anchor:class:fakemeshadapter:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:17","summary":"FakeMeshAdapter 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17；当前仓库证据显示它有 较强的外部协作/编排迹象。","responsibility":"FakeMeshAdapter 更像一个对外编排或聚合锚点：它从 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17 发出较多关系，改动时要优先检查它调用或引用的下游能力。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:class:fakemeshadapter:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:19","label":"FakeMeshAdapter","level":"code","anchor":"architecture:c4:code-anchor:class:fakemeshadapter:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:19","summary":"FakeMeshAdapter 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19；当前仓库证据显示它有 较强的外部协作/编排迹象。","responsibility":"FakeMeshAdapter 更像一个对外编排或聚合锚点：它从 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19 发出较多关系，改动时要优先检查它调用或引用的下游能力。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:method:fakemeshadapter::pushincoming:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:20","label":"FakeMeshAdapter::pushIncoming","level":"code","anchor":"architecture:c4:code-anchor:method:fakemeshadapter::pushincoming:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:20","summary":"FakeMeshAdapter::pushIncoming 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20；当前仓库证据显示它有 较强的被复用/被依赖迹象。","responsibility":"FakeMeshAdapter::pushIncoming 更像一个被复用或被依赖锚点：它在 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20 被多处关系指向，改动时要优先检查上游调用者和契约稳定性。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter::pushIncoming 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:method:fakemeshadapter::applyconfig:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:79","label":"FakeMeshAdapter::applyConfig","level":"code","anchor":"architecture:c4:code-anchor:method:fakemeshadapter::applyconfig:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:79","summary":"FakeMeshAdapter::applyConfig 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"FakeMeshAdapter::applyConfig 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter::applyConfig 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:method:fakemeshadapter::pushincoming:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:22","label":"FakeMeshAdapter::pushIncoming","level":"code","anchor":"architecture:c4:code-anchor:method:fakemeshadapter::pushincoming:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:22","summary":"FakeMeshAdapter::pushIncoming 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"FakeMeshAdapter::pushIncoming 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter::pushIncoming 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:method:fakemeshadapter::applyconfig:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:81","label":"FakeMeshAdapter::applyConfig","level":"code","anchor":"architecture:c4:code-anchor:method:fakemeshadapter::applyconfig:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:81","summary":"FakeMeshAdapter::applyConfig 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"FakeMeshAdapter::applyConfig 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter::applyConfig 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:method:fakemeshadapter::pollincomingdata:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:74","label":"FakeMeshAdapter::pollIncomingData","level":"code","anchor":"architecture:c4:code-anchor:method:fakemeshadapter::pollincomingdata:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:74","summary":"FakeMeshAdapter::pollIncomingData 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"FakeMeshAdapter::pollIncomingData 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter::pollIncomingData 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:method:fakemeshadapter::pollincomingdata:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:76","label":"FakeMeshAdapter::pollIncomingData","level":"code","anchor":"architecture:c4:code-anchor:method:fakemeshadapter::pollincomingdata:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:76","summary":"FakeMeshAdapter::pollIncomingData 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"FakeMeshAdapter::pollIncomingData 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter::pollIncomingData 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:method:fakemeshadapter::pollincomingrawpacket:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:86","label":"FakeMeshAdapter::pollIncomingRawPacket","level":"code","anchor":"architecture:c4:code-anchor:method:fakemeshadapter::pollincomingrawpacket:apps-linux_uconsole_gtk-tests-uconsole_chat_dedup_smoke.cpp:86","summary":"FakeMeshAdapter::pollIncomingRawPacket 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"FakeMeshAdapter::pollIncomingRawPacket 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter::pollIncomingRawPacket 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:method:fakemeshadapter::pollincomingrawpacket:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:88","label":"FakeMeshAdapter::pollIncomingRawPacket","level":"code","anchor":"architecture:c4:code-anchor:method:fakemeshadapter::pollincomingrawpacket:apps-linux_uconsole_gtk-tests-uconsole_chat_sqlite_store_smoke.cpp:88","summary":"FakeMeshAdapter::pollIncomingRawPacket 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"FakeMeshAdapter::pollIncomingRawPacket 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88，当前关系压力不高，但仍可作为理解实现入口的证据。","boundary":"该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。","relationshipMeaning":"FakeMeshAdapter::pollIncomingRawPacket 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。","whyThisLevel":"它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。","drilldownIntent":"下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。","evidence":["apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"high","drilldowns":[]}],"drilldowns":[{"id":"architecture:c4:component:apps-linux_uconsole_gtk","level":"component","title":"组件职责：apps/linux_uconsole_gtk","summary":"从 C4 Component 层解释 apps/linux_uconsole_gtk 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。","docPath":"docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md","htmlPath":"docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html","anchor":"architecture:c4:component:apps-linux_uconsole_gtk","relation":"parent","reason":"回到 组件职责：apps/linux_uconsole_gtk 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。"}],"relatedEngineeringDocs":[]}</script>
+</main>
+</body>
+</html>

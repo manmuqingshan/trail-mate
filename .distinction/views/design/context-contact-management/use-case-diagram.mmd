@@ -1,0 +1,10 @@
+flowchart LR
+  actor_actor_outdoor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  external_external_system_mesh_network["&laquo;External System&raquo;<br/>网格网络"]
+  subgraph system_context_trail_mate_system["Trail Mate 户外通信与导航系统"]
+    subgraph system_context_contact_management["联系人管理"]
+      useCase_use_case_view_node_list(["查看附近节点列表"])
+    end
+  end
+  actor_actor_outdoor_user --- useCase_use_case_view_node_list
+  external_external_system_mesh_network --- useCase_use_case_view_node_list

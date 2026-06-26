@@ -14,8 +14,10 @@
 #include "chat/runtime/meshtastic_runtime.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "meshtastic/mqtt.pb.h"
 #include "platform/esp/arduino_common/mesh/esp_meshtastic_adapter_bridge.h"
 #include <array>
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <queue>
@@ -49,6 +51,11 @@ class MtAdapter : public chat::IMeshAdapter
 
     MtAdapter(LoraBoard& board);
     virtual ~MtAdapter();
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
+
     MeshCapabilities getCapabilities() const override;
 
     bool sendText(ChannelId channel, const std::string& text,
@@ -192,6 +199,36 @@ class MtAdapter : public chat::IMeshAdapter
     std::queue<MeshIncomingData> app_receive_queue_;
     std::queue<meshtastic_MqttClientProxyMessage> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_;
+
+    struct MqttScratchBuffers
+    {
+        std::array<uint8_t, 256> payload{};
+        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
+        meshtastic_MqttClientProxyMessage proxy = meshtastic_MqttClientProxyMessage_init_zero;
+        meshtastic_ServiceEnvelope envelope = meshtastic_ServiceEnvelope_init_zero;
+    };
+
+    struct TxScratchBuffers
+    {
+        std::array<uint8_t, 256> data{};
+        std::array<uint8_t, 256> pki{};
+        std::array<uint8_t, 512> wire{};
+        meshtastic_Data decoded = meshtastic_Data_init_default;
+    };
+
+    struct RxScratchBuffers
+    {
+        std::array<uint8_t, 256> payload{};
+        std::array<uint8_t, 256> plaintext{};
+        std::array<uint8_t, 256> candidate_plaintext{};
+        meshtastic_Data decoded = meshtastic_Data_init_default;
+        meshtastic_Data candidate_decoded = meshtastic_Data_init_default;
+    };
+
+    MqttScratchBuffers mqtt_scratch_;
+    TxScratchBuffers tx_scratch_;
+    RxScratchBuffers rx_scratch_;
+    meshtastic_MeshPacket protocol_effect_packet_scratch_ = meshtastic_MeshPacket_init_zero;
     std::map<uint32_t, PendingAckState> pending_ack_states_;
     std::unique_ptr<::platform::esp::arduino_common::mesh::EspMeshtasticAdapterBridge> core_bridge_;
 

@@ -34,6 +34,13 @@
 #define lv_font_montserrat_20 lv_font_montserrat_14
 #endif
 
+#if defined(ESP_PLATFORM)
+#include "esp_attr.h"
+#define UI_ENERGY_SWEEP_STATE_RAM_ATTR EXT_RAM_ATTR
+#else
+#define UI_ENERGY_SWEEP_STATE_RAM_ATTR
+#endif
+
 using Host = energy_sweep::ui::shell::Host;
 
 namespace
@@ -226,11 +233,11 @@ struct SweepBandPlan
     int bin_count = static_cast<int>(((kDefaultFreqEndMhz - kDefaultFreqStartMhz) / kStepQuantMhz) + 0.5f) + 1;
 };
 
-EnergySweepUi s_ui;
-SweepState s_state;
-RadioContext s_radio;
-SweepBandPlan s_band;
-EnergySweepLayout s_layout;
+UI_ENERGY_SWEEP_STATE_RAM_ATTR EnergySweepUi s_ui;
+UI_ENERGY_SWEEP_STATE_RAM_ATTR SweepState s_state;
+UI_ENERGY_SWEEP_STATE_RAM_ATTR RadioContext s_radio;
+UI_ENERGY_SWEEP_STATE_RAM_ATTR SweepBandPlan s_band;
+UI_ENERGY_SWEEP_STATE_RAM_ATTR EnergySweepLayout s_layout;
 lv_timer_t* s_refresh_timer = nullptr;
 
 EnergySweepLayout make_classic_layout()

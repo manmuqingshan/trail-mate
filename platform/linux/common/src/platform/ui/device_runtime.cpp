@@ -67,7 +67,7 @@ std::string trim_copy(std::string value)
     return start == 0 ? value : value.substr(start);
 }
 
-std::optional<std::string> read_text_file(const std::filesystem::path& path)
+std::optional<std::string> read_first_text_line(const std::filesystem::path& path)
 {
     std::ifstream stream(path);
     if (!stream.is_open())
@@ -82,7 +82,7 @@ std::optional<std::string> read_text_file(const std::filesystem::path& path)
 
 std::optional<int> read_int_file(const std::filesystem::path& path)
 {
-    const auto text = read_text_file(path);
+    const auto text = read_first_text_line(path);
     if (!text)
     {
         return std::nullopt;
@@ -121,7 +121,7 @@ std::optional<BatteryInfo> read_linux_power_supply_battery()
             break;
         }
         const std::filesystem::path dir = entry.path();
-        const auto type = read_text_file(dir / "type");
+        const auto type = read_first_text_line(dir / "type");
         if (type && *type != "Battery")
         {
             continue;
@@ -136,7 +136,7 @@ std::optional<BatteryInfo> read_linux_power_supply_battery()
         BatteryInfo info{};
         info.available = true;
         info.level = std::clamp(*capacity, 0, 100);
-        if (const auto status = read_text_file(dir / "status"))
+        if (const auto status = read_first_text_line(dir / "status"))
         {
             info.charging = status_is_charging(*status);
         }
@@ -163,7 +163,7 @@ std::optional<bool> read_linux_external_power_online()
             break;
         }
         const std::filesystem::path dir = entry.path();
-        const auto type = read_text_file(dir / "type");
+        const auto type = read_first_text_line(dir / "type");
         if (!type || *type == "Battery")
         {
             continue;

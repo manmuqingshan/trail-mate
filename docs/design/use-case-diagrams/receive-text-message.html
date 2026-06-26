@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>用例图：接收文本消息</title>
+  <style>
+:root { color-scheme: dark; --bg: #0f141b; --panel: #151c25; --panel-2: #101720; --border: #2b3a4a; --text: #e8eef6; --muted: #9caaba; --accent: #73b7ff; --ok: #7bd88f; --warn: #ffd166; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, Segoe UI, system-ui, sans-serif; line-height: 1.5; }
+    .praxis-design-map { display: grid; gap: 24px; max-width: 1440px; margin: 0 auto; padding: 28px; }
+    .map-header, .map-policy, .context-index, .diagram-index, .diagram-section, .map-changelog { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 18px; }
+    .map-header p, .section-heading p, .layer-note, .diagram-index span { color: var(--muted); margin: 0; }
+    h1, h2, h3, h4 { margin: 0 0 10px; line-height: 1.2; }
+    .context-tree { display: grid; gap: 10px; padding-left: 22px; }
+    .context-tree li { padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    .context-tree li li { margin-top: 8px; background: #0d141d; }
+    .context-tree span, .context-tree p { color: var(--muted); margin: 4px 0 0; }
+    .diagram-index ol { display: grid; gap: 10px; padding-left: 22px; }
+    .diagram-index li { padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    a { color: var(--accent); }
+    .diagram-sections { display: grid; gap: 22px; }
+    .section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+    .section-heading span { border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; color: var(--muted); white-space: nowrap; }
+    .design-map-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr); gap: 14px; align-items: start; }
+    .base-layer, .overlay-layer, .flow-layer, .timeline-layer, .metric-index-layer, .uml-tree-layer, .semantic-layer { border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); padding: 14px; }
+    .semantic-layer { display: grid; gap: 10px; margin: 14px 0; }
+    .semantic-layer p, .semantic-layer dd { margin: 0; color: var(--muted); }
+    .semantic-layer .layer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .layer-card { border: 1px solid var(--border); border-radius: 8px; background: #0d141d; padding: 10px; overflow-wrap: anywhere; }
+    .layer-card ul { margin: 0; padding-left: 18px; }
+    .implementation-scope-card dl { display: grid; gap: 6px; margin: 0; }
+    .implementation-scope-card dt { color: var(--text); font-weight: 700; }
+    .implementation-scope-card dd { margin: 2px 0 0; }
+    .uml-tree-layer { margin: 14px 0; }
+    .uml-tree-layer ol { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+    .uml-tree-layer li { border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; background: #0d141d; }
+    .uml-tree-layer a { text-decoration: none; }
+    .metric-index-layer { margin: 14px 0; display: grid; gap: 10px; }
+    .metric-index-layer p { margin: 0; color: var(--muted); }
+    .metric-index-grid { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; }
+    .metric-group { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: #0d141d; }
+    .metric-group header { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .metric-group header strong { font-size: 18px; }
+    .metric-group ol { display: grid; gap: 8px; margin: 8px 0 0; padding-left: 18px; }
+    .metric-group li { overflow-wrap: anywhere; }
+    .metric-group li span, .metric-group li p { display: block; color: var(--muted); font-size: 0.9em; }
+    .metric-group pre { max-height: 260px; overflow: auto; margin: 8px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #080e15; color: #d8e2ee; font-family: SFMono-Regular, Consolas, Liberation Mono, monospace; font-size: 12px; }
+    .overlay-layer { display: grid; gap: 8px; }
+    .overlay-layer ul { display: grid; gap: 8px; padding-left: 18px; margin: 0; }
+    .overlay-layer li span { display: block; color: var(--muted); font-size: 0.9em; }
+    .mermaid { overflow: auto; min-height: 220px; max-height: 520px; margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: #0b1016; color: #d8e2ee; font-family: SFMono-Regular, Consolas, Liberation Mono, monospace; font-size: 12px; }
+    .flow-layer { margin-top: 14px; display: grid; gap: 12px; }
+    .flow-layer section { border-top: 1px solid var(--border); padding-top: 10px; }
+    .timeline-layer { margin-top: 14px; }
+    [data-praxis-anchor] { scroll-margin-top: 18px; }
+    [data-praxis-status="candidate"] { border-color: #7a642f; }
+    [data-praxis-status="confirmed"] { border-color: #2f7a4d; }
+    @media (max-width: 900px) { .praxis-design-map { padding: 14px; } .design-map-grid, .metric-index-grid { grid-template-columns: 1fr; } .section-heading { display: grid; } }
+  </style>
+</head>
+<body>
+<article class="praxis-design-map" data-praxis-doc="use-case-diagram" data-praxis-schema="praxis.semanticDesignHtml.v1" data-praxis-version="0.1.30-alpha" data-praxis-version-bump="discovery" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true" data-praxis-source-md="docs/design/use-case-diagrams/receive-text-message.md">
+  <header class="map-header" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-layer="base">
+    <p>Praxis Design Explorer</p>
+    <h1>用例图：接收文本消息</h1>
+    <span>项目版本 0.1.30-alpha · Git 34aad0bffa2f dirty · 更新于 2026-06-25T14:17:55.307Z · 来源 Agent 候选分析</span>
+  </header>
+
+  <section id="use-case-diagram-use-case-receive-text-message" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate" data-praxis-confidence="medium">
+    <div class="section-heading">
+      <div>
+        <p>Trail Mate 系统 / 聊天通信</p>
+        <h2>接收文本消息</h2>
+      </div>
+      <span>candidate · medium</span>
+    </div>
+    <p>
+系统监听无线电信号，接收来自其他节点的文本消息，并将其显示在聊天界面
+    </p>
+    <nav class="uml-tree-layer"
+
+<nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:receive-text-message">
+  <h3>UML 下钻树</h3>
+  <ol>
+  <li data-praxis-uml-node="use-case:receive-text-message" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/receive-text-message.html">
+    <a href="receive-text-message.html">Use Case Diagram：接收文本消息</a>
+  </li>
+  <li data-praxis-uml-node="activity:receive-text-message" data-praxis-parent-use-case="use-case:receive-text-message" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/receive-text-message/activity.html" data-praxis-coverage-scenario="主成功场景" data-praxis-coverage-boundary="从无线电中断到 UI 更新">
+    <a href="receive-text-message/activity.html">Activity Diagram：业务流程：接收文本消息</a>
+  </li>
+  <li data-praxis-uml-node="sequence:receive-text-message-sequence" data-praxis-parent-use-case="use-case:receive-text-message" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message-sequence.html" data-praxis-coverage-scenario="消息接收的异步交互" data-praxis-coverage-boundary="从无线电硬件到聊天 UI 更新">
+    <a href="receive-text-message/sequences/sequence-receive-text-message-sequence.html">Sequence Diagram：对象交互：接收文本消息</a>
+  </li>
+  <li data-praxis-uml-node="class-collaboration:use-case-receive-text-message-class-collaboration" data-praxis-parent-use-case="use-case:receive-text-message" data-praxis-diagram-kind="class_collaboration" data-praxis-html-path="docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.html" data-praxis-coverage-scenario="消息接收的结构协作" data-praxis-coverage-boundary="从无线电硬件到 UI">
+    <a href="receive-text-message/realization/class-collaboration.html">Class Collaboration Diagram：类/结构协作：接收文本消息</a>
+  </li>
+  </ol>
+</nav>
+
+</nav>
+    <section class="metric-index-layer" data-praxis-kind="annotation" data-praxis-layer="metric_index" data-praxis-metric-index="use-case">
+      <h3>设计指标索引</h3>
+      <p>这些指标是 Design Explorer 可探测数字的文档来源。每个计数都必须能回溯到这里的具体条目。</p>
+      <div class="metric-index-grid">
+        <section class="metric-group" data-praxis-metric-kind="nodes" data-praxis-metric-count="5">
+          <header>
+            <span>节点</span>
+            <strong>5</strong>
+          </header>
+          <p>参与者、外部系统、上下文和当前用例。</p>
+          <ol>            <li data-praxis-metric-kind="nodes" data-praxis-metric-id="system:trail-mate" data-praxis-kind="design_context:system" data-praxis-anchor="system:trail-mate">
+              <strong>Trail Mate 系统</strong>
+              <span>业务边界：系统边界</span>
+              <p>管理整个应用的用户目标和业务能力</p>
+            </li>            <li data-praxis-metric-kind="nodes" data-praxis-metric-id="business_module:chat-communication" data-praxis-kind="design_context:business_module" data-praxis-anchor="business_module:chat-communication">
+              <strong>聊天通信</strong>
+              <span>业务边界：业务模块</span>
+              <p>管理用户间的消息传递和无线电链路配置</p>
+            </li>            <li data-praxis-metric-kind="nodes" data-praxis-metric-id="use-case:receive-text-message" data-praxis-kind="design_use_case" data-praxis-anchor="use-case:receive-text-message">
+              <strong>接收文本消息</strong>
+              <span>用例</span>
+              <p>系统监听无线电信号，接收来自其他节点的文本消息，并将其显示在聊天界面</p>
+            </li>            <li data-praxis-metric-kind="nodes" data-praxis-metric-id="actor:user" data-praxis-kind="design_actor:person" data-praxis-anchor="actor:user">
+              <strong>用户</strong>
+              <span>参与者</span>
+              <p>使用 Trail Mate 设备的最终用户，可以查看状态、收发消息、配置设备、使用诊断工具</p>
+            </li>            <li data-praxis-metric-kind="nodes" data-praxis-metric-id="external_system:meshtastic-network" data-praxis-kind="design_external_system" data-praxis-anchor="external_system:meshtastic-network">
+              <strong>Meshtastic 网络</strong>
+              <span>外部系统</span>
+              <p>基于 LoRa 的 Mesh 通信网络，用于传输消息和位置信息</p>
+            </li></ol>
+        </section>
+        <section class="metric-group" data-praxis-metric-kind="edges" data-praxis-metric-count="8">
+          <header>
+            <span>关系</span>
+            <strong>8</strong>
+          </header>
+          <p>当前用例与上下文、参与者、外部系统或其他用例之间的关系。</p>
+          <ol>            <li data-praxis-metric-kind="edges" data-praxis-metric-id="contains:system:trail-mate:business_module:chat-communication" data-praxis-kind="contains" data-praxis-anchor="business_module:chat-communication">
+              <strong>Trail Mate 系统 包含业务边界「聊天通信」</strong>
+              <span>包含关系</span>
+            </li>            <li data-praxis-metric-kind="edges" data-praxis-metric-id="contains:business_module:chat-communication:use-case:receive-text-message" data-praxis-kind="contains" data-praxis-anchor="use-case:receive-text-message">
+              <strong>聊天通信 包含 Use Case「接收文本消息」</strong>
+              <span>包含关系</span>
+            </li>            <li data-praxis-metric-kind="edges" data-praxis-metric-id="primary_actor:actor:user:use-case:receive-text-message" data-praxis-kind="actor_participates" data-praxis-anchor="use-case:receive-text-message">
+              <strong>用户 作为主要参与者参与「接收文本消息」</strong>
+              <span>参与关系</span>
+              <p>使用 Trail Mate 设备的最终用户，可以查看状态、收发消息、配置设备、使用诊断工具</p>
+            </li>            <li data-praxis-metric-kind="edges" data-praxis-metric-id="external_system:external_system:meshtastic-network:use-case:receive-text-message" data-praxis-kind="external_system_participates" data-praxis-anchor="use-case:receive-text-message">
+              <strong>Meshtastic 网络 参与「接收文本消息」</strong>
+              <span>外部协作</span>
+              <p>基于 LoRa 的 Mesh 通信网络，用于传输消息和位置信息</p>
+            </li>            <li data-praxis-metric-kind="edges" data-praxis-metric-id="rel-015" data-praxis-kind="actor_participates" data-praxis-anchor="actor:user">
+              <strong>用户 -&gt; 接收文本消息</strong>
+              <span>参与关系</span>
+              <p>用户接收到消息</p>
+            </li>            <li data-praxis-metric-kind="edges" data-praxis-metric-id="rel-016" data-praxis-kind="actor_participates" data-praxis-anchor="external_system:meshtastic-network">
+              <strong>Meshtastic 网络 -&gt; 接收文本消息</strong>
+              <span>参与关系</span>
+              <p>网络传入消息</p>
+            </li>            <li data-praxis-metric-kind="edges" data-praxis-metric-id="rel-user-receive-text-message" data-praxis-kind="actor_participates" data-praxis-anchor="actor:user">
+              <strong>用户 -&gt; 接收文本消息</strong>
+              <span>参与关系</span>
+              <p>用户接收消息</p>
+            </li>            <li data-praxis-metric-kind="edges" data-praxis-metric-id="rel-meshtastic-receive-text-message" data-praxis-kind="actor_participates" data-praxis-anchor="external_system:meshtastic-network">
+              <strong>Meshtastic 网络 -&gt; 接收文本消息</strong>
+              <span>参与关系</span>
+              <p>网络传入消息</p>
+            </li></ol>
+        </section>
+        <section class="metric-group" data-praxis-metric-kind="evidence" data-praxis-metric-count="2">
+          <header>
+            <span>证据</span>
+            <strong>2</strong>
+          </header>
+          <p>支撑当前候选用例的文件、代码证据、规范或推断证据。</p>
+          <ol>            <li data-praxis-metric-kind="evidence" data-praxis-metric-id="evidence:use-case:receive-text-message:1" data-praxis-kind="FACT:strong" data-praxis-anchor="use-case:receive-text-message">
+              <strong>证据 1 · 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1</strong>
+              <span>FACT:strong</span>
+              <p>接收消息函数</p>
+              <pre data-praxis-evidence-excerpt="true"><code>startRadioReceive, readRadioData</code></pre>
+            </li>            <li data-praxis-metric-kind="evidence" data-praxis-metric-id="evidence:use-case:receive-text-message:2" data-praxis-kind="FACT:strong" data-praxis-anchor="use-case:receive-text-message">
+              <strong>证据 2 · 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1</strong>
+              <span>FACT:strong</span>
+              <p>消息接收和无线电解码相关方法</p>
+              <pre data-praxis-evidence-excerpt="true"><code>tlora_pager_board.cpp</code></pre>
+            </li></ol>
+        </section>
+        <section class="metric-group" data-praxis-metric-kind="questions" data-praxis-metric-count="0">
+          <header>
+            <span>待裁决</span>
+            <strong>0</strong>
+          </header>
+          <p>仍需产品或业务负责人裁决的外部问题。</p>
+          <ol><li class="empty">无</li></ol>
+        </section>
+      </div>
+    </section>
+    <div class="design-map-grid">
+      <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-layer="base">
+        <h3>UML 底图</h3>
+        <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  external_external_system_meshtastic_network[&quot;&amp;laquo;External System&amp;raquo;&lt;br/&gt;Meshtastic 网络&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_chat_communication[&quot;聊天通信&quot;]
+      useCase_use_case_receive_text_message([&quot;接收文本消息&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_receive_text_message
+  external_external_system_meshtastic_network --- useCase_use_case_receive_text_message</code></pre>
+      </div>
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>系统监听无线电信号，接收来自其他节点的文本消息，并将其显示在聊天界面</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>接收消息函数</span></li><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>消息接收和无线电解码相关方法</span></li></ul>
+</aside>
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 3 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+    </div>
+    <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-layer="timeline">
+      <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>无线电模块接收到数据包</li><li>系统读取数据并解析为文本消息</li><li>系统将消息添加到当前聊天窗口，并可能触发通知</li><li>无线电模块接收到消息数据包</li><li>系统解析数据包并转换为文本</li><li>系统将消息推送到 UI 聊天窗口</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>数据包解析失败，丢弃或记录错误日志</li><li>数据包损坏，丢弃</li></ol></section>
+    </section>
+    <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-layer="timeline">
+      <h3>变更记录</h3>
+      <article data-praxis-change="discovery" data-praxis-anchor="use-case:receive-text-message" data-praxis-version="0.1.30-alpha" data-praxis-version-bump="discovery" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+        <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+        <span>Git 34aad0bffa2f · main · dirty</span>
+        <p>恢复或更新候选用例图「接收文本消息」。</p>
+      </article>
+    </section>
+  </section>
+</article>
+</body>
+</html>

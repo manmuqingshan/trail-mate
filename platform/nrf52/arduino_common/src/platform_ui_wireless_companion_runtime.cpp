@@ -34,6 +34,11 @@ Status status()
     return out;
 }
 
+bool enter_download_mode()
+{
+    return false;
+}
+
 const char* state_name(State state)
 {
     switch (state)

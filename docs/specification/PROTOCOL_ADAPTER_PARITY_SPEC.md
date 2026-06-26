@@ -10,6 +10,11 @@ MeshCore adapter 时，哪些协议语义必须由共享 core 统一拥有，哪
 radio IO、SDK binding、storage binding、clock/random、queue scheduling、buffer
 placement 等平台问题。
 
+Meshtastic Android App 的 BLE 连接、`ToRadio`/`FromRadio`/`FromNum` drain、
+config snapshot、Admin response-drain-before-save、以及 `Nodes(0)`/`Module config received`
+诊断边界，见 `MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`。该专规是手机 BLE
+连接问题的优先解释基线。
+
 ## Core Distinctions
 
 ### Protocol Behavior

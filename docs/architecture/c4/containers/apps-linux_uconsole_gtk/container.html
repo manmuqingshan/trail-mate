@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>容器边界：apps/linux_uconsole_gtk</title></head>
+<body>
+<main class="praxis-architecture-map" data-praxis-anchor="architecture:c4:container:apps-linux_uconsole_gtk" data-praxis-kind="architecture_c4_container" data-praxis-status="candidate" data-praxis-confidence="high" data-praxis-document-path="docs/architecture/c4/containers/apps-linux_uconsole_gtk/container.html" data-praxis-drilldowns="[{&quot;id&quot;:&quot;architecture:c4:component:apps-linux_uconsole_gtk&quot;,&quot;level&quot;:&quot;component&quot;,&quot;title&quot;:&quot;组件职责：apps/linux_uconsole_gtk&quot;,&quot;summary&quot;:&quot;从 C4 Component 层解释 apps/linux_uconsole_gtk 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html&quot;,&quot;anchor&quot;:&quot;architecture:c4:component:apps-linux_uconsole_gtk&quot;,&quot;relation&quot;:&quot;contains&quot;,&quot;reason&quot;:&quot;进入 组件职责：apps/linux_uconsole_gtk 可以回答“容器边界：apps/linux_uconsole_gtk 由哪些内部组件承载”。重点看入口、编排、适配、契约和共享对象，而不是浏览全量文件。&quot;},{&quot;id&quot;:&quot;architecture:c4:code:apps-linux_uconsole_gtk&quot;,&quot;level&quot;:&quot;code&quot;,&quot;title&quot;:&quot;代码锚点：apps/linux_uconsole_gtk&quot;,&quot;summary&quot;:&quot;从 C4 Code 层解释 apps/linux_uconsole_gtk 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/code/apps-linux_uconsole_gtk/code.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/code/apps-linux_uconsole_gtk/code.html&quot;,&quot;anchor&quot;:&quot;architecture:c4:code:apps-linux_uconsole_gtk&quot;,&quot;relation&quot;:&quot;details&quot;,&quot;reason&quot;:&quot;进入 代码锚点：apps/linux_uconsole_gtk 是为了把 容器边界：apps/linux_uconsole_gtk 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。&quot;}]">
+  <header class="praxis-design-map-header">
+    <p>Praxis Architecture View</p>
+    <h1>容器边界：apps/linux_uconsole_gtk</h1>
+    <p>apps/linux_uconsole_gtk 是 C4 Container 层候选边界：它必须表现为应用、服务、数据存储、可运行单元或可独立部署/执行的系统部分，而不是普通目录、代码分层或共享工具集合。</p>
+    <div class="meta-row">
+      <span>Container</span>
+      <span>candidate / high</span>
+      <span>0.1.30-alpha · 34aad0bffa2f / main</span>
+    </div>
+  </header>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:layer-path" data-praxis-kind="architecture_c4_list">
+    <h2>C4 层级路径</h2>
+    <ul>
+      <li>当前层：Container，解释目标系统内部一个可独立理解的应用、服务、数据存储或运行单元。</li>
+      <li>上层：System Context，说明该 Container 属于哪个目标软件系统。</li>
+      <li>下层：Component，解释该 Container 内部的入口、接口、编排、适配、契约或共享对象。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:responsibility" data-praxis-kind="architecture_c4_text">
+    <h2>责任</h2>
+    <p>apps/linux_uconsole_gtk 是应用级 Container 候选：仓库证据显示它靠近可运行入口、桌面/前端/后端应用壳或用户可感知的系统能力。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:boundary" data-praxis-kind="architecture_c4_text">
+    <h2>边界</h2>
+    <p>边界来自仓库路径 apps/linux_uconsole_gtk。C4 Container 不等于任意 package 或代码 layer；只有具备应用、服务、数据存储、运行入口、部署单元、对外接口或独立执行语义的边界才进入本层。普通配置文件、文档目录、CI 目录、仓库治理文件和纯代码分层只能作为证据或软件结构模型对象，不作为 Container。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:relationships" data-praxis-kind="architecture_c4_list">
+    <h2>关系</h2>
+    <ul>
+      <li>依赖其他 Container：apps/esp32_lvgl、apps/linux_sim_shell、apps/linux_cardputer_zero。</li>
+      <li>包含 11 个候选组件视图对象、0 条运行/协作链路、0 个运行或构建节点。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:business-relation" data-praxis-kind="architecture_c4_list">
+    <h2>与业务复杂度的关联</h2>
+    <ul>
+      <li>这个 Container 不是业务用例本身；它只解释业务能力进入或通过哪个软件系统内部应用/服务/数据存储/运行单元。</li>
+      <li>如果组织/过程模型中的 Use Case 引用该边界，应在 Use Case 下钻文档中说明它如何进入这个 Container，而不是把业务流程写进 C4 Container 图。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:engineering-relation" data-praxis-kind="architecture_c4_list">
+    <h2>与技术复杂度的关联</h2>
+    <ul>
+      <li>对应软件结构模型 Package Diagram：docs/engineering/package-diagrams/apps-linux_uconsole_gtk/package-diagram.html。</li>
+      <li>继续进入软件结构模型可以查看下钻 UML、结构协作、运行链路和复杂度候选点。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer diagram-section" data-praxis-anchor="architecture:c4:diagram" data-praxis-kind="architecture_c4_diagram">
+    <h2>C4 Container 图</h2>
+    <pre class="mermaid" data-praxis-anchor="architecture:c4:container:apps-linux_uconsole_gtk:c4" data-praxis-c4-current-level="container" data-praxis-c4-layer-views="[{&quot;level&quot;:&quot;system_context&quot;,&quot;label&quot;:&quot;System Context&quot;,&quot;title&quot;:&quot;系统上下文：trail-mate&quot;,&quot;diagramTitle&quot;:&quot;C4 System Context 图&quot;,&quot;summary&quot;:&quot;System Context 只展示目标软件系统与外部人/系统的关系，不直接展开内部 Container；这里高亮的是“apps/linux_uconsole_gtk”所属的软件系统边界。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/system-context/system-context.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/system-context/system-context.html&quot;,&quot;mermaid&quot;:&quot;flowchart LR\n  actor[\&quot;未命名外部参与者\&quot;]\n  system[\&quot;trail-mate\&quot;]\n  external[\&quot;未命名外部系统\&quot;]\n  actor --&gt;|使用 / 调用| system\n  system -.-&gt;|候选集成| external&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_uconsole_gtk&quot;,&quot;apps/linux_uconsole_gtk Container&quot;,&quot;apps/linux_uconsole_gtk（系统内部 Container）&quot;,&quot;linux_uconsole_gtk&quot;,&quot;trail-mate&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;container&quot;,&quot;label&quot;:&quot;Container&quot;,&quot;title&quot;:&quot;容器边界：apps/linux_uconsole_gtk&quot;,&quot;diagramTitle&quot;:&quot;C4 Container 图&quot;,&quot;summary&quot;:&quot;当前正在阅读 Container 层；下方正式图就是这一层的架构投影。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/containers/apps-linux_uconsole_gtk/container.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/containers/apps-linux_uconsole_gtk/container.html&quot;,&quot;mermaid&quot;:&quot;flowchart LR\n  container[\&quot;apps/linux_uconsole_gtk\&quot;]\n  dependency_1[\&quot;apps/esp32_lvgl\&quot;]\n  container --&gt; dependency_1\n  dependency_2[\&quot;apps/linux_sim_shell\&quot;]\n  container --&gt; dependency_2\n  dependency_3[\&quot;apps/linux_cardputer_zero\&quot;]\n  container --&gt; dependency_3&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_uconsole_gtk&quot;,&quot;apps/linux_uconsole_gtk Container&quot;,&quot;apps/linux_uconsole_gtk（系统内部 Container）&quot;,&quot;linux_uconsole_gtk&quot;],&quot;current&quot;:true,&quot;missing&quot;:false},{&quot;level&quot;:&quot;component&quot;,&quot;label&quot;:&quot;Component&quot;,&quot;title&quot;:&quot;组件职责：apps/linux_uconsole_gtk&quot;,&quot;diagramTitle&quot;:&quot;C4 Component 图&quot;,&quot;summary&quot;:&quot;切到 Component 层时，高亮会标出“apps/linux_uconsole_gtk”在该层正式文档中的对应位置。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html&quot;,&quot;mermaid&quot;:&quot;flowchart TB\n  container[\&quot;apps/linux_uconsole_gtk Container\&quot;]\n  component_1[\&quot;FakeMeshAdapter\&quot;]\n  container --&gt; component_1\n  component_2[\&quot;FakeMeshAdapter\&quot;]\n  container --&gt; component_2\n  component_3[\&quot;LinuxUConsoleGtkPageRegistryAdoption\&quot;]\n  container --&gt; component_3\n  component_4[\&quot;LinuxUConsoleGtkPageRegistryRenderer\&quot;]\n  container --&gt; component_4\n  component_5[\&quot;LinuxUConsoleGtkPageRegistrySource\&quot;]\n  container --&gt; component_5\n  component_6[\&quot;linux_uconsole_gtk_page_registry_adoption\&quot;]\n  container --&gt; component_6\n  component_7[\&quot;linux_uconsole_gtk_page_registry_renderer\&quot;]\n  container --&gt; component_7\n  component_8[\&quot;string_view\&quot;]\n  container --&gt; component_8\n  component_9[\&quot;linux_uconsole_gtk_page_registry_adoption\&quot;]\n  container --&gt; component_9\n  component_10[\&quot;linux_uconsole_gtk_page_registry_renderer\&quot;]\n  container --&gt; component_10&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_uconsole_gtk&quot;,&quot;apps/linux_uconsole_gtk Container&quot;,&quot;apps/linux_uconsole_gtk（系统内部 Container）&quot;,&quot;linux_uconsole_gtk&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;code&quot;,&quot;label&quot;:&quot;Code&quot;,&quot;title&quot;:&quot;代码锚点：apps/linux_uconsole_gtk&quot;,&quot;diagramTitle&quot;:&quot;C4 Code View 图&quot;,&quot;summary&quot;:&quot;切到 Code 层时，高亮会标出“apps/linux_uconsole_gtk”在该层正式文档中的对应位置。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/code/apps-linux_uconsole_gtk/code.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/code/apps-linux_uconsole_gtk/code.html&quot;,&quot;mermaid&quot;:&quot;flowchart TB\n  package[\&quot;apps/linux_uconsole_gtk\&quot;]\n  file_1[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\&quot;]\n  code_1[\&quot;FakeMeshAdapter\&quot;]\n  package --&gt; file_1\n  file_1 --&gt; code_1\n  file_2[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\&quot;]\n  code_2[\&quot;FakeMeshAdapter\&quot;]\n  package --&gt; file_2\n  file_2 --&gt; code_2\n  file_3[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\&quot;]\n  code_3[\&quot;FakeMeshAdapter::pushIncoming\&quot;]\n  package --&gt; file_3\n  file_3 --&gt; code_3\n  file_4[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\&quot;]\n  code_4[\&quot;FakeMeshAdapter::applyConfig\&quot;]\n  package --&gt; file_4\n  file_4 --&gt; code_4\n  file_5[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\&quot;]\n  code_5[\&quot;FakeMeshAdapter::pushIncoming\&quot;]\n  package --&gt; file_5\n  file_5 --&gt; code_5\n  file_6[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\&quot;]\n  code_6[\&quot;FakeMeshAdapter::applyConfig\&quot;]\n  package --&gt; file_6\n  file_6 --&gt; code_6\n  file_7[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp\&quot;]\n  code_7[\&quot;FakeMeshAdapter::pollIncomingData\&quot;]\n  package --&gt; file_7\n  file_7 --&gt; code_7\n  file_8[\&quot;apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp\&quot;]\n  code_8[\&quot;FakeMeshAdapter::pollIncomingData\&quot;]\n  package --&gt; file_8\n  file_8 --&gt; code_8&quot;,&quot;highlightLabels&quot;:[&quot;apps/linux_uconsole_gtk&quot;,&quot;apps/linux_uconsole_gtk Container&quot;,&quot;apps/linux_uconsole_gtk（系统内部 Container）&quot;,&quot;linux_uconsole_gtk&quot;],&quot;current&quot;:false,&quot;missing&quot;:false}]">flowchart LR
+  container[&quot;apps/linux_uconsole_gtk&quot;]
+  dependency_1[&quot;apps/esp32_lvgl&quot;]
+  container --&gt; dependency_1
+  dependency_2[&quot;apps/linux_sim_shell&quot;]
+  container --&gt; dependency_2
+  dependency_3[&quot;apps/linux_cardputer_zero&quot;]
+  container --&gt; dependency_3</pre>
+  </section>
+  <section class="semantic-layer architecture-c4-elements" data-praxis-anchor="architecture:c4:container:apps-linux_uconsole_gtk:elements" data-praxis-kind="architecture_c4_elements">
+    <h2>图内元素解释</h2>
+    <div class="layer-grid">
+      <article class="layer-card" data-praxis-anchor="architecture:c4:container:apps-linux_uconsole_gtk:self" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[{&quot;id&quot;:&quot;architecture:c4:component:apps-linux_uconsole_gtk&quot;,&quot;level&quot;:&quot;component&quot;,&quot;title&quot;:&quot;组件职责：apps/linux_uconsole_gtk&quot;,&quot;summary&quot;:&quot;从 C4 Component 层解释 apps/linux_uconsole_gtk 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html&quot;,&quot;anchor&quot;:&quot;architecture:c4:component:apps-linux_uconsole_gtk&quot;,&quot;relation&quot;:&quot;contains&quot;,&quot;reason&quot;:&quot;进入 组件职责：apps/linux_uconsole_gtk 可以回答“容器边界：apps/linux_uconsole_gtk 由哪些内部组件承载”。重点看入口、编排、适配、契约和共享对象，而不是浏览全量文件。&quot;},{&quot;id&quot;:&quot;architecture:c4:code:apps-linux_uconsole_gtk&quot;,&quot;level&quot;:&quot;code&quot;,&quot;title&quot;:&quot;代码锚点：apps/linux_uconsole_gtk&quot;,&quot;summary&quot;:&quot;从 C4 Code 层解释 apps/linux_uconsole_gtk 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/code/apps-linux_uconsole_gtk/code.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/code/apps-linux_uconsole_gtk/code.html&quot;,&quot;anchor&quot;:&quot;architecture:c4:code:apps-linux_uconsole_gtk&quot;,&quot;relation&quot;:&quot;details&quot;,&quot;reason&quot;:&quot;进入 代码锚点：apps/linux_uconsole_gtk 是为了把 容器边界：apps/linux_uconsole_gtk 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。&quot;}]">
+        <h3>apps/linux_uconsole_gtk</h3>
+        <p>Container · high</p>
+        <p>图中这个节点代表 apps/linux_uconsole_gtk 这个 C4 Container；当前文档记录 11 个组件下钻入口、0 条运行协作线索和 0 个运行或构建节点。</p>
+        <dl>
+          <div><dt>责任</dt><dd>apps/linux_uconsole_gtk 是应用级 Container 候选：仓库证据显示它靠近可运行入口、桌面/前端/后端应用壳或用户可感知的系统能力。</dd></div>
+          <div><dt>边界</dt><dd>边界来自仓库路径 apps/linux_uconsole_gtk；该路径下的入口、服务接口、应用代码、运行配置和部署证据共同支撑它进入 Container 层，普通配置文件、文档目录或纯代码分层不会单独形成 Container。</dd></div>
+          <div><dt>关系意义</dt><dd>图中从 apps/linux_uconsole_gtk 指向外部边界，表示这个可运行边界会调用、引用或依赖其他 Container；这些关系用于判断部署、接口和变更影响。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>该节点进入 Container 层，是因为本地仓库证据显示它具备应用、服务、数据存储、运行入口、部署单元、对外接口或独立执行语义；不是因为它只是一个目录或 package。</dd></div>
+          <div><dt>下钻意图</dt><dd>从 apps/linux_uconsole_gtk 下钻到 Component，用来查看边界内部的职责分解。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:container:apps-linux_uconsole_gtk:dep:apps-esp32_lvgl" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>apps/esp32_lvgl</h3>
+        <p>Container · medium</p>
+        <p>apps/linux_uconsole_gtk 依赖 apps/esp32_lvgl。</p>
+        <dl>
+          <div><dt>责任</dt><dd>apps/linux_uconsole_gtk 依赖 apps/esp32_lvgl。</dd></div>
+          <div><dt>边界</dt><dd>apps/esp32_lvgl 不属于 apps/linux_uconsole_gtk 的内部边界；它在当前图中只是被依赖的相邻模块。</dd></div>
+          <div><dt>关系意义</dt><dd>apps/linux_uconsole_gtk -&gt; apps/esp32_lvgl 表示本地仓库证据中存在跨边界调用、引用或配置依赖；它说明技术协作方向，但不能单独证明业务流程关系。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>apps/esp32_lvgl 按路径归属被投影为相邻 Container 候选，而不是 apps/linux_uconsole_gtk 内部 Component。</dd></div>
+          <div><dt>下钻意图</dt><dd>进入 apps/esp32_lvgl 的独立 Container 文档，可以查看它自己的职责和证据；如果没有独立文档，则只把它当作外部依赖事实。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:container:apps-linux_uconsole_gtk:dep:apps-linux_sim_shell" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>apps/linux_sim_shell</h3>
+        <p>Container · medium</p>
+        <p>apps/linux_uconsole_gtk 依赖 apps/linux_sim_shell。</p>
+        <dl>
+          <div><dt>责任</dt><dd>apps/linux_uconsole_gtk 依赖 apps/linux_sim_shell。</dd></div>
+          <div><dt>边界</dt><dd>apps/linux_sim_shell 不属于 apps/linux_uconsole_gtk 的内部边界；它在当前图中只是被依赖的相邻模块。</dd></div>
+          <div><dt>关系意义</dt><dd>apps/linux_uconsole_gtk -&gt; apps/linux_sim_shell 表示本地仓库证据中存在跨边界调用、引用或配置依赖；它说明技术协作方向，但不能单独证明业务流程关系。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>apps/linux_sim_shell 按路径归属被投影为相邻 Container 候选，而不是 apps/linux_uconsole_gtk 内部 Component。</dd></div>
+          <div><dt>下钻意图</dt><dd>进入 apps/linux_sim_shell 的独立 Container 文档，可以查看它自己的职责和证据；如果没有独立文档，则只把它当作外部依赖事实。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:container:apps-linux_uconsole_gtk:dep:apps-linux_cardputer_zero" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>apps/linux_cardputer_zero</h3>
+        <p>Container · medium</p>
+        <p>apps/linux_uconsole_gtk 依赖 apps/linux_cardputer_zero。</p>
+        <dl>
+          <div><dt>责任</dt><dd>apps/linux_uconsole_gtk 依赖 apps/linux_cardputer_zero。</dd></div>
+          <div><dt>边界</dt><dd>apps/linux_cardputer_zero 不属于 apps/linux_uconsole_gtk 的内部边界；它在当前图中只是被依赖的相邻模块。</dd></div>
+          <div><dt>关系意义</dt><dd>apps/linux_uconsole_gtk -&gt; apps/linux_cardputer_zero 表示本地仓库证据中存在跨边界调用、引用或配置依赖；它说明技术协作方向，但不能单独证明业务流程关系。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>apps/linux_cardputer_zero 按路径归属被投影为相邻 Container 候选，而不是 apps/linux_uconsole_gtk 内部 Component。</dd></div>
+          <div><dt>下钻意图</dt><dd>进入 apps/linux_cardputer_zero 的独立 Container 文档，可以查看它自己的职责和证据；如果没有独立文档，则只把它当作外部依赖事实。</dd></div>
+        </dl>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer architecture-c4-links" data-praxis-anchor="architecture:c4:drilldowns" data-praxis-kind="architecture_c4_links">
+    <h2>可下钻 C4</h2>
+    <div class="layer-grid">
+      <article class="layer-card document-entry-card" role="link" tabindex="0" data-praxis-anchor="architecture:c4:component:apps-linux_uconsole_gtk" data-praxis-kind="architecture_c4_link" data-praxis-document-title="组件职责：apps/linux_uconsole_gtk" data-praxis-document-summary="进入 组件职责：apps/linux_uconsole_gtk 可以回答“容器边界：apps/linux_uconsole_gtk 由哪些内部组件承载”。重点看入口、编排、适配、契约和共享对象，而不是浏览全量文件。" data-praxis-document-md="docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md" data-praxis-document-html="docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html">
+        <strong>组件职责：apps/linux_uconsole_gtk</strong>
+        <span>contains</span>
+        <p>进入 组件职责：apps/linux_uconsole_gtk 可以回答“容器边界：apps/linux_uconsole_gtk 由哪些内部组件承载”。重点看入口、编排、适配、契约和共享对象，而不是浏览全量文件。</p>
+        <small>从 C4 Component 层解释 apps/linux_uconsole_gtk 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。</small>
+      </article>
+      <article class="layer-card document-entry-card" role="link" tabindex="0" data-praxis-anchor="architecture:c4:code:apps-linux_uconsole_gtk" data-praxis-kind="architecture_c4_link" data-praxis-document-title="代码锚点：apps/linux_uconsole_gtk" data-praxis-document-summary="进入 代码锚点：apps/linux_uconsole_gtk 是为了把 容器边界：apps/linux_uconsole_gtk 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。" data-praxis-document-md="docs/architecture/c4/code/apps-linux_uconsole_gtk/code.md" data-praxis-document-html="docs/architecture/c4/code/apps-linux_uconsole_gtk/code.html">
+        <strong>代码锚点：apps/linux_uconsole_gtk</strong>
+        <span>details</span>
+        <p>进入 代码锚点：apps/linux_uconsole_gtk 是为了把 容器边界：apps/linux_uconsole_gtk 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。</p>
+        <small>从 C4 Code 层解释 apps/linux_uconsole_gtk 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。</small>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer architecture-c4-links" data-praxis-anchor="architecture:c4:engineering-links" data-praxis-kind="architecture_c4_links">
+    <h2>关联软件结构模型</h2>
+    <div class="layer-grid">
+      <article class="layer-card document-entry-card" role="link" tabindex="0" data-praxis-anchor="architecture:c4:engineering-link:docs-engineering-package-diagrams-apps-linux_uconsole_gtk-package-diagram" data-praxis-kind="architecture_c4_link" data-praxis-document-title="apps/linux_uconsole_gtk Package Diagram" data-praxis-document-summary="查看该 Container 所属软件结构 package/module 的边界、依赖和复杂度候选点。" data-praxis-document-md="docs/engineering/package-diagrams/apps-linux_uconsole_gtk/package-diagram.md" data-praxis-document-html="docs/engineering/package-diagrams/apps-linux_uconsole_gtk/package-diagram.html">
+        <strong>apps/linux_uconsole_gtk Package Diagram</strong>
+        <span>related_engineering</span>
+        <p>查看该 Container 所属软件结构 package/module 的边界、依赖和复杂度候选点。</p>
+        <small>查看该 Container 所属软件结构 package/module 的边界、依赖和复杂度候选点。</small>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:evidence" data-praxis-kind="architecture_c4_list">
+    <h2>证据</h2>
+    <ul>
+      <li>apps/linux_uconsole_gtk/APP_SHELL_MANIFEST.md</li>
+      <li>apps/linux_uconsole_gtk/CMakeLists.txt</li>
+      <li>apps/linux_uconsole_gtk/packaging/trailmate-uconsole.desktop</li>
+      <li>apps/linux_uconsole_gtk/packaging/trailmate-uconsole.png</li>
+      <li>apps/linux_uconsole_gtk/README.md</li>
+      <li>apps/linux_uconsole_gtk/src/linux_uconsole_gtk_app_shell.cpp</li>
+      <li>apps/linux_uconsole_gtk/src/linux_uconsole_gtk_app_shell.h</li>
+      <li>apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:questions" data-praxis-kind="architecture_c4_list">
+    <h2>判定依据</h2>
+    <ul>
+      <li>该边界必须由运行入口、构建/部署配置、服务接口、应用入口、数据存储或独立执行证据支撑；仅靠目录名、文件数量或依赖数量不足以成立。</li>
+      <li>缺少运行、部署、接口或数据存储证据时，生成流程会降低置信度或不生成独立 Container。</li>
+    </ul>
+  </section>
+  <script type="application/json" id="praxis-architecture-c4-document">{"id":"architecture:c4:container:apps-linux_uconsole_gtk","level":"container","title":"容器边界：apps/linux_uconsole_gtk","summary":"apps/linux_uconsole_gtk 是 C4 Container 层候选边界：它必须表现为应用、服务、数据存储、可运行单元或可独立部署/执行的系统部分，而不是普通目录、代码分层或共享工具集合。","docPath":"docs/architecture/c4/containers/apps-linux_uconsole_gtk/container.md","htmlPath":"docs/architecture/c4/containers/apps-linux_uconsole_gtk/container.html","anchor":"architecture:c4:container:apps-linux_uconsole_gtk","status":"candidate","confidence":"high","mermaid":"flowchart LR\n  container[\"apps/linux_uconsole_gtk\"]\n  dependency_1[\"apps/esp32_lvgl\"]\n  container --\u003e dependency_1\n  dependency_2[\"apps/linux_sim_shell\"]\n  container --\u003e dependency_2\n  dependency_3[\"apps/linux_cardputer_zero\"]\n  container --\u003e dependency_3","responsibility":"apps/linux_uconsole_gtk 是应用级 Container 候选：仓库证据显示它靠近可运行入口、桌面/前端/后端应用壳或用户可感知的系统能力。","boundary":"边界来自仓库路径 apps/linux_uconsole_gtk。C4 Container 不等于任意 package 或代码 layer；只有具备应用、服务、数据存储、运行入口、部署单元、对外接口或独立执行语义的边界才进入本层。普通配置文件、文档目录、CI 目录、仓库治理文件和纯代码分层只能作为证据或软件结构模型对象，不作为 Container。","relationships":["依赖其他 Container：apps/esp32_lvgl、apps/linux_sim_shell、apps/linux_cardputer_zero。","包含 11 个候选组件视图对象、0 条运行/协作链路、0 个运行或构建节点。"],"businessRelation":["这个 Container 不是业务用例本身；它只解释业务能力进入或通过哪个软件系统内部应用/服务/数据存储/运行单元。","如果组织/过程模型中的 Use Case 引用该边界，应在 Use Case 下钻文档中说明它如何进入这个 Container，而不是把业务流程写进 C4 Container 图。"],"engineeringRelation":["对应软件结构模型 Package Diagram：docs/engineering/package-diagrams/apps-linux_uconsole_gtk/package-diagram.html。","继续进入软件结构模型可以查看下钻 UML、结构协作、运行链路和复杂度候选点。"],"evidencePaths":["apps/linux_uconsole_gtk/APP_SHELL_MANIFEST.md","apps/linux_uconsole_gtk/CMakeLists.txt","apps/linux_uconsole_gtk/packaging/trailmate-uconsole.desktop","apps/linux_uconsole_gtk/packaging/trailmate-uconsole.png","apps/linux_uconsole_gtk/README.md","apps/linux_uconsole_gtk/src/linux_uconsole_gtk_app_shell.cpp","apps/linux_uconsole_gtk/src/linux_uconsole_gtk_app_shell.h","apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp"],"questions":["该边界必须由运行入口、构建/部署配置、服务接口、应用入口、数据存储或独立执行证据支撑；仅靠目录名、文件数量或依赖数量不足以成立。","缺少运行、部署、接口或数据存储证据时，生成流程会降低置信度或不生成独立 Container。"],"scope":{"packageId":"apps/linux_uconsole_gtk","filePath":"apps/linux_uconsole_gtk"},"elements":[{"id":"architecture:c4:container:apps-linux_uconsole_gtk:self","label":"apps/linux_uconsole_gtk","level":"container","anchor":"architecture:c4:container:apps-linux_uconsole_gtk:self","summary":"图中这个节点代表 apps/linux_uconsole_gtk 这个 C4 Container；当前文档记录 11 个组件下钻入口、0 条运行协作线索和 0 个运行或构建节点。","responsibility":"apps/linux_uconsole_gtk 是应用级 Container 候选：仓库证据显示它靠近可运行入口、桌面/前端/后端应用壳或用户可感知的系统能力。","boundary":"边界来自仓库路径 apps/linux_uconsole_gtk；该路径下的入口、服务接口、应用代码、运行配置和部署证据共同支撑它进入 Container 层，普通配置文件、文档目录或纯代码分层不会单独形成 Container。","relationshipMeaning":"图中从 apps/linux_uconsole_gtk 指向外部边界，表示这个可运行边界会调用、引用或依赖其他 Container；这些关系用于判断部署、接口和变更影响。","whyThisLevel":"该节点进入 Container 层，是因为本地仓库证据显示它具备应用、服务、数据存储、运行入口、部署单元、对外接口或独立执行语义；不是因为它只是一个目录或 package。","drilldownIntent":"从 apps/linux_uconsole_gtk 下钻到 Component，用来查看边界内部的职责分解。","evidence":["apps/linux_uconsole_gtk/APP_SHELL_MANIFEST.md","apps/linux_uconsole_gtk/CMakeLists.txt","apps/linux_uconsole_gtk/packaging/trailmate-uconsole.desktop","apps/linux_uconsole_gtk/packaging/trailmate-uconsole.png","apps/linux_uconsole_gtk/README.md","apps/linux_uconsole_gtk/src/linux_uconsole_gtk_app_shell.cpp","apps/linux_uconsole_gtk/src/linux_uconsole_gtk_app_shell.h","apps/linux_uconsole_gtk/src/linux_uconsole_gtk_page_registry_adoption.cpp"],"confidence":"high","drilldowns":[{"id":"architecture:c4:component:apps-linux_uconsole_gtk","level":"component","title":"组件职责：apps/linux_uconsole_gtk","summary":"从 C4 Component 层解释 apps/linux_uconsole_gtk 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。","docPath":"docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md","htmlPath":"docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html","anchor":"architecture:c4:component:apps-linux_uconsole_gtk","relation":"contains","reason":"进入 组件职责：apps/linux_uconsole_gtk 可以回答“容器边界：apps/linux_uconsole_gtk 由哪些内部组件承载”。重点看入口、编排、适配、契约和共享对象，而不是浏览全量文件。"},{"id":"architecture:c4:code:apps-linux_uconsole_gtk","level":"code","title":"代码锚点：apps/linux_uconsole_gtk","summary":"从 C4 Code 层解释 apps/linux_uconsole_gtk 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。","docPath":"docs/architecture/c4/code/apps-linux_uconsole_gtk/code.md","htmlPath":"docs/architecture/c4/code/apps-linux_uconsole_gtk/code.html","anchor":"architecture:c4:code:apps-linux_uconsole_gtk","relation":"details","reason":"进入 代码锚点：apps/linux_uconsole_gtk 是为了把 容器边界：apps/linux_uconsole_gtk 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。"}]},{"id":"architecture:c4:container:apps-linux_uconsole_gtk:dep:apps-esp32_lvgl","label":"apps/esp32_lvgl","level":"container","anchor":"architecture:c4:container:apps-linux_uconsole_gtk:dep:apps-esp32_lvgl","summary":"apps/linux_uconsole_gtk 依赖 apps/esp32_lvgl。","responsibility":"apps/linux_uconsole_gtk 依赖 apps/esp32_lvgl。","boundary":"apps/esp32_lvgl 不属于 apps/linux_uconsole_gtk 的内部边界；它在当前图中只是被依赖的相邻模块。","relationshipMeaning":"apps/linux_uconsole_gtk -\u003e apps/esp32_lvgl 表示本地仓库证据中存在跨边界调用、引用或配置依赖；它说明技术协作方向，但不能单独证明业务流程关系。","whyThisLevel":"apps/esp32_lvgl 按路径归属被投影为相邻 Container 候选，而不是 apps/linux_uconsole_gtk 内部 Component。","drilldownIntent":"进入 apps/esp32_lvgl 的独立 Container 文档，可以查看它自己的职责和证据；如果没有独立文档，则只把它当作外部依赖事实。","evidence":["dependency edge: apps/linux_uconsole_gtk -\u003e apps/esp32_lvgl"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:container:apps-linux_uconsole_gtk:dep:apps-linux_sim_shell","label":"apps/linux_sim_shell","level":"container","anchor":"architecture:c4:container:apps-linux_uconsole_gtk:dep:apps-linux_sim_shell","summary":"apps/linux_uconsole_gtk 依赖 apps/linux_sim_shell。","responsibility":"apps/linux_uconsole_gtk 依赖 apps/linux_sim_shell。","boundary":"apps/linux_sim_shell 不属于 apps/linux_uconsole_gtk 的内部边界；它在当前图中只是被依赖的相邻模块。","relationshipMeaning":"apps/linux_uconsole_gtk -\u003e apps/linux_sim_shell 表示本地仓库证据中存在跨边界调用、引用或配置依赖；它说明技术协作方向，但不能单独证明业务流程关系。","whyThisLevel":"apps/linux_sim_shell 按路径归属被投影为相邻 Container 候选，而不是 apps/linux_uconsole_gtk 内部 Component。","drilldownIntent":"进入 apps/linux_sim_shell 的独立 Container 文档，可以查看它自己的职责和证据；如果没有独立文档，则只把它当作外部依赖事实。","evidence":["dependency edge: apps/linux_uconsole_gtk -\u003e apps/linux_sim_shell"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:container:apps-linux_uconsole_gtk:dep:apps-linux_cardputer_zero","label":"apps/linux_cardputer_zero","level":"container","anchor":"architecture:c4:container:apps-linux_uconsole_gtk:dep:apps-linux_cardputer_zero","summary":"apps/linux_uconsole_gtk 依赖 apps/linux_cardputer_zero。","responsibility":"apps/linux_uconsole_gtk 依赖 apps/linux_cardputer_zero。","boundary":"apps/linux_cardputer_zero 不属于 apps/linux_uconsole_gtk 的内部边界；它在当前图中只是被依赖的相邻模块。","relationshipMeaning":"apps/linux_uconsole_gtk -\u003e apps/linux_cardputer_zero 表示本地仓库证据中存在跨边界调用、引用或配置依赖；它说明技术协作方向，但不能单独证明业务流程关系。","whyThisLevel":"apps/linux_cardputer_zero 按路径归属被投影为相邻 Container 候选，而不是 apps/linux_uconsole_gtk 内部 Component。","drilldownIntent":"进入 apps/linux_cardputer_zero 的独立 Container 文档，可以查看它自己的职责和证据；如果没有独立文档，则只把它当作外部依赖事实。","evidence":["dependency edge: apps/linux_uconsole_gtk -\u003e apps/linux_cardputer_zero"],"confidence":"medium","drilldowns":[]}],"drilldowns":[{"id":"architecture:c4:component:apps-linux_uconsole_gtk","level":"component","title":"组件职责：apps/linux_uconsole_gtk","summary":"从 C4 Component 层解释 apps/linux_uconsole_gtk 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。","docPath":"docs/architecture/c4/components/apps-linux_uconsole_gtk/component.md","htmlPath":"docs/architecture/c4/components/apps-linux_uconsole_gtk/component.html","anchor":"architecture:c4:component:apps-linux_uconsole_gtk","relation":"contains","reason":"进入 组件职责：apps/linux_uconsole_gtk 可以回答“容器边界：apps/linux_uconsole_gtk 由哪些内部组件承载”。重点看入口、编排、适配、契约和共享对象，而不是浏览全量文件。"},{"id":"architecture:c4:code:apps-linux_uconsole_gtk","level":"code","title":"代码锚点：apps/linux_uconsole_gtk","summary":"从 C4 Code 层解释 apps/linux_uconsole_gtk 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。","docPath":"docs/architecture/c4/code/apps-linux_uconsole_gtk/code.md","htmlPath":"docs/architecture/c4/code/apps-linux_uconsole_gtk/code.html","anchor":"architecture:c4:code:apps-linux_uconsole_gtk","relation":"details","reason":"进入 代码锚点：apps/linux_uconsole_gtk 是为了把 容器边界：apps/linux_uconsole_gtk 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。"}],"relatedEngineeringDocs":[{"id":"architecture:c4:engineering-link:docs-engineering-package-diagrams-apps-linux_uconsole_gtk-package-diagram","level":"code","title":"apps/linux_uconsole_gtk Package Diagram","summary":"查看该 Container 所属软件结构 package/module 的边界、依赖和复杂度候选点。","docPath":"docs/engineering/package-diagrams/apps-linux_uconsole_gtk/package-diagram.md","htmlPath":"docs/engineering/package-diagrams/apps-linux_uconsole_gtk/package-diagram.html","anchor":"architecture:c4:engineering-link:docs-engineering-package-diagrams-apps-linux_uconsole_gtk-package-diagram","relation":"related_engineering","reason":"查看该 Container 所属软件结构 package/module 的边界、依赖和复杂度候选点。"}]}</script>
+</main>
+</body>
+</html>

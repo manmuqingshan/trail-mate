@@ -301,6 +301,7 @@ class AppContext final : public IAppBleFacade
     QueueHandle_t config_save_queue_ = nullptr;
     TaskHandle_t config_save_task_ = nullptr;
     AppConfig pending_config_save_{};
+    AppConfig active_config_save_{};
     uint32_t pending_config_save_generation_ = 0;
     uint32_t completed_config_save_generation_ = 0;
     bool config_save_pending_ = false;

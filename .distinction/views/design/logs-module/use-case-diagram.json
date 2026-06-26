@@ -1,0 +1,445 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:logs-module",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T13:19:05.616Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "trail-mate-system"
+      },
+      "summary": "整个 Trail Mate 跨平台户外伴侣系统，提供聊天、地图、设备监控和设置等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "包括所有业务模块：聊天、地图、设备状态、日志、设置、电源管理",
+        "responsibility": "为户外用户提供一体化通信、导航和设备管理",
+        "businessTerms": [
+          "聊天",
+          "地图",
+          "GPS",
+          "设置",
+          "设备状态",
+          "日志"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:logs-module",
+      "kind": "design_context",
+      "label": "日志模块",
+      "source": {
+        "type": "model",
+        "id": "logs-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "logs-module"
+      },
+      "summary": "显示系统运行日志，如无线通信、GPS 事件等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "日志页面，日志记录与展示",
+        "responsibility": "帮助用户和开发者排查问题",
+        "businessTerms": [
+          "日志",
+          "事件"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "user"
+      },
+      "summary": "使用 Trail Mate 设备进行户外活动的最终用户。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:view-logs",
+      "kind": "design_use_case",
+      "label": "查看系统日志",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-logs"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-logs"
+      },
+      "summary": "用户查看系统各组件的运行日志，用于故障排除。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-538a0b96ee27455d2edc422fd50a6935",
+          "codegraph:function-eff7442c19c5f3aadbffd864930c85e3"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "logs-module",
+        "trigger": "用户点击日志标签页",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-538a0b96ee27455d2edc422fd50a6935",
+          "behavior-slice:ui-route-codegraph-function-eff7442c19c5f3aadbffd864930c85e3"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-view-logs-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：查看系统日志",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-logs-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-logs-activity"
+      },
+      "summary": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-logs",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「查看系统日志」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "alternativeFlows[1]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「查看系统日志」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看系统日志」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「查看系统日志」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "alternativeFlows[1]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「查看系统日志」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「查看系统日志」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-logs/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-logs/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-view-logs-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：查看系统日志主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-logs-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-logs-sequence"
+      },
+      "summary": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:view-logs",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「查看系统日志」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「查看系统日志」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「查看系统日志」的主成功交互场景。",
+        "coverageBoundary": "覆盖「查看系统日志」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「查看系统日志」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「查看系统日志」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/view-logs/sequences/sequence-use-case-view-logs-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/view-logs/sequences/sequence-use-case-view-logs-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:logs-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:logs-module",
+      "source": {
+        "type": "model",
+        "id": "logs-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "logs-module"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 日志模块",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:logs-module:use-case:view-logs",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:logs-module",
+      "targetId": "projection-node:design-use-case:use-case:view-logs",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-logs"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-logs"
+      },
+      "confidence": "medium",
+      "summary": "logs-module contains 查看系统日志"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:view-logs:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:view-logs",
+      "source": {
+        "type": "model",
+        "id": "use-case:view-logs"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-logs"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 查看系统日志",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-logs:activity:use-case-view-logs-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-logs",
+      "targetId": "projection-node:design-activity:activity:use-case-view-logs-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-view-logs-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-view-logs-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：查看系统日志，用于解释 Use Case「查看系统日志」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-logs",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:view-logs:sequence:use-case-view-logs-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:view-logs",
+      "targetId": "projection-node:design-sequence:sequence:use-case-view-logs-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-view-logs-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-view-logs-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：查看系统日志主成功场景，用于解释 Use Case「查看系统日志」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:view-logs",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

@@ -243,6 +243,7 @@ bool LilyGoDispArduinoSPI::init(int sck,
 
     _spi = &spi;
     g_display_spi = this;
+    _spi_freq = freq_Mhz * 1000U * 1000U;
 
     if (rst != -1)
     {
@@ -284,8 +285,6 @@ bool LilyGoDispArduinoSPI::init(int sck,
     }
 
     setRotation(0);
-
-    _spi_freq = freq_Mhz * 1000U * 1000U;
 
     std::vector<uint16_t> draw_buf(_width * _height, 0x0000);
     pushColors(0, 0, _width, _height, draw_buf.data());
@@ -335,27 +334,10 @@ void LilyGoDispArduinoSPI::pushColorsLocked(uint16_t* data, uint32_t len)
     digitalWrite(_dc, HIGH);
     if (_transfer_config.rgb565_msb_first)
     {
-        // Keep pixel byte-order handling in one place: display drivers describe
-        // how RGB565 must be placed on the wire, and LVGL stays unaware of it.
-        constexpr size_t kChunkPixels = 96;
-        uint8_t chunk[kChunkPixels * sizeof(uint16_t)];
-        uint32_t offset = 0;
-        while (offset < len)
-        {
-            size_t batch = len - offset;
-            if (batch > kChunkPixels)
-            {
-                batch = kChunkPixels;
-            }
-            for (size_t i = 0; i < batch; ++i)
-            {
-                const uint16_t pixel = data[offset + i];
-                chunk[i * 2] = static_cast<uint8_t>(pixel >> 8);
-                chunk[i * 2 + 1] = static_cast<uint8_t>(pixel & 0xFF);
-            }
-            _spi->writeBytes(chunk, batch * sizeof(uint16_t));
-            offset += static_cast<uint32_t>(batch);
-        }
+        // Keep RGB565 wire ordering in the SPI driver instead of copying every
+        // flush through a tiny stack chunk. The Arduino core writes pixels in
+        // 16-bit MSB order for ILI9341/ST77xx-style panels.
+        _spi->writePixels(data, len * sizeof(uint16_t));
     }
     else
     {

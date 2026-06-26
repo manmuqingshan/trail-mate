@@ -47,6 +47,13 @@ namespace
 {
 constexpr char kLvglFlashFsLetter = 'F';
 constexpr const char* kLvglFlashFsMountPoint = "/fs";
+#if defined(ARDUINO_T_DECK)
+#ifndef TRAIL_MATE_TDECK_DMA_DRAW_BUFFER_LINES
+#define TRAIL_MATE_TDECK_DMA_DRAW_BUFFER_LINES 40
+#endif
+constexpr size_t kTDeckDmaDrawBufferLines = TRAIL_MATE_TDECK_DMA_DRAW_BUFFER_LINES;
+static_assert(kTDeckDmaDrawBufferLines >= 10, "TDeck draw buffers below 10 lines make refresh visibly unstable");
+#endif
 // LVGL's SD drive callback can still be reached by resource-pack and image
 // paths. Keep every callback acquisition extremely short: a busy shared
 // bus must surface as LV_FS_RES_BUSY/failed open, not as a blocked UI frame.
@@ -1018,7 +1025,11 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
 #if LV_TEST_FORCE_DMA_FULL_SIZE
         // keep full size for testing if memory allows
 #else
+#if defined(ARDUINO_T_DECK)
+        lv_buffer_size = board.width() * kTDeckDmaDrawBufferLines * sizeof(lv_color16_t);
+#else
         lv_buffer_size = (board.width() * board.height() / 6) * sizeof(lv_color16_t);
+#endif
 #endif
         buf = (lv_color16_t*)heap_caps_malloc(lv_buffer_size, MALLOC_CAP_DMA);
         buf1 = (lv_color16_t*)heap_caps_malloc(lv_buffer_size, MALLOC_CAP_DMA);

@@ -1,0 +1,10 @@
+flowchart LR
+  actor_actor_user["&laquo;Actor&raquo;<br/>用户"]
+  external_external_system_meshtastic_network["&laquo;External System&raquo;<br/>Meshtastic 网络"]
+  subgraph system_system_trail_mate["Trail Mate 系统"]
+    subgraph system_business_module_team_collaboration["团队协作"]
+      useCase_use_case_manage_team_sharing(["管理团队共享位置"])
+    end
+  end
+  actor_actor_user --- useCase_use_case_manage_team_sharing
+  external_external_system_meshtastic_network --- useCase_use_case_manage_team_sharing

@@ -1,0 +1,798 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:sstv",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T09:32:40.935Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:sstv",
+      "kind": "design_context",
+      "label": "SSTV 图像通信",
+      "source": {
+        "type": "model",
+        "id": "context:sstv"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:sstv"
+      },
+      "summary": "一种通过无线电传输静态图像的功能，常见于业余无线电，在户外可用来分享营地照片或地图。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "scope": "一种通过无线电传输静态图像的功能，常见于业余无线电，在户外可用来分享营地照片或地图。",
+        "responsibility": "一种通过无线电传输静态图像的功能，常见于业余无线电，在户外可用来分享营地照片或地图。",
+        "businessTerms": [
+          "SSTV",
+          "图像通信",
+          "一种通过无线电传输静态图像的功能",
+          "常见于业余无线电",
+          "在户外可用来分享营地照片或地图"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:actor-user",
+      "kind": "design_actor",
+      "label": "actor:user",
+      "source": {
+        "type": "model",
+        "id": "actor:actor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:actor-user"
+      },
+      "summary": "Actor participating in actor:user.",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379321376"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "role"
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:actor-remote-device",
+      "kind": "design_actor",
+      "label": "actor:remote-device",
+      "source": {
+        "type": "model",
+        "id": "actor:actor-remote-device"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:actor-remote-device"
+      },
+      "summary": "Actor participating in actor:remote-device.",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "role"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:sstv",
+      "kind": "design_use_case",
+      "label": "接收 SSTV 图像",
+      "source": {
+        "type": "model",
+        "id": "use-case:sstv"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      },
+      "summary": "用户通过设备接收并显示来自无线电的慢扫描电视（SSTV）图像。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "支持的 SSTV 模式有哪些（Scottie, Martin, Robot 等）？",
+          "发送时需要选择频率和模式吗？",
+          "是否支持通过 mesh 网络转发 SSTV 图像给队友？"
+        ],
+        "contextId": "context:sstv",
+        "trigger": "用户打开 SSTV 页面并开始接收。",
+        "primaryActorIds": [
+          "actor:actor-user"
+        ],
+        "supportingActorIds": [
+          "actor:actor-remote-device"
+        ],
+        "externalSystemIds": [],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-sstv-sstv-1",
+      "kind": "design_activity",
+      "label": "接收 SSTV 图像的业务流程",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-sstv-sstv-1"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-sstv-sstv-1"
+      },
+      "summary": "描述从监听、解码到显示保存的完整流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:sstv",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功路径，包含解码成功和失败处理。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..5]",
+            "failureFlows[1]"
+          ],
+          "boundary": "从打开页面到图像保存显示。",
+          "notCovered": [
+            "发送 SSTV",
+            "图像编辑"
+          ],
+          "rationale": "接收是 SSTV 的主要交互之一。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "codeAnchors": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "outOfScopeCode": [
+              "无线电硬件驱动细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功路径，包含解码成功和失败处理。",
+        "coverageBoundary": "从打开页面到图像保存显示。",
+        "coverageRationale": "接收是 SSTV 的主要交互之一。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..5]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "发送 SSTV",
+          "图像编辑"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "codeAnchors": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "outOfScopeCode": [
+            "无线电硬件驱动细节"
+          ]
+        },
+        "explanation": {
+          "business": "用户希望使用 SSTV 功能在无网络环境下发送图像，接收方需要可靠解码。",
+          "uml": "活动图包含启动监听、信号检测、解码、显示和保存节点，判断解码是否成功。",
+          "design": "SSTV 解码器是一个独立组件，通过监听信号事件触发。采用状态机管理解码进度（等待同步、解码中、完成）。",
+          "implementation": "解码算法可能在 sstv/ 目录下实现，UI 部分在对应的应用界面。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/sstv/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/sstv/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-sstv-sstv-2",
+      "kind": "design_sequence",
+      "label": "接收 SSTV 图像主成功场景交互",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-sstv-sstv-2"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-sstv-sstv-2"
+      },
+      "summary": "展示用户、SSTV UI、无线电接收器和解码器之间的交互。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:sstv",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功路径接收和显示。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..5]"
+          ],
+          "boundary": "从用户启动到图像保存。",
+          "notCovered": [
+            "发送流程"
+          ],
+          "rationale": "接收场景需要解释无线电信号到图像的转换流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "codeAnchors": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "outOfScopeCode": [
+              "文件系统操作细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功路径接收和显示。",
+        "coverageBoundary": "从用户启动到图像保存。",
+        "coverageRationale": "接收场景需要解释无线电信号到图像的转换流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..5]"
+        ],
+        "notCovered": [
+          "发送流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "codeAnchors": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "outOfScopeCode": [
+            "文件系统操作细节"
+          ]
+        },
+        "explanation": {
+          "business": "在户外，用户接收队友发送的营地照片。",
+          "uml": "序列图中用户触发接收，SSTVController 请求 Radio 监听，解码后返回图像数据并通知 UI。",
+          "design": "Radio 作为适配器提供原始音频流，SSTVDecoder 负责解析，SSTVController 协调。",
+          "implementation": "代码可能在 sstv/usecase/sstv_service.h 中定义。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/sstv/sequences/sequence-use-case-sstv-sstv-2.md",
+        "htmlPath": "docs/design/use-case-diagrams/sstv/sequences/sequence-use-case-sstv-sstv-2.html"
+      }
+    },
+    {
+      "id": "projection-node:design-class-collaboration:class-collaboration:use-case-sstv-sstv-3",
+      "kind": "design_class_collaboration",
+      "label": "接收 SSTV 图像的结构协作",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-sstv-sstv-3"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-sstv-sstv-3"
+      },
+      "summary": "展示 SSTV 接收相关的应用服务、无线电端口和解码器接口。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:sstv",
+        "diagramKind": "class_collaboration",
+        "coverage": {
+          "scenario": "结构切片，覆盖接收所需组件。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..5]"
+          ],
+          "boundary": "SSTV 相关类。",
+          "notCovered": [
+            "发送流程类"
+          ],
+          "rationale": "通过端口-适配器隔离无线电硬件。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "codeAnchors": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "outOfScopeCode": [
+              "GPS 模块"
+            ]
+          }
+        },
+        "coverageScenario": "结构切片，覆盖接收所需组件。",
+        "coverageBoundary": "SSTV 相关类。",
+        "coverageRationale": "通过端口-适配器隔离无线电硬件。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..5]"
+        ],
+        "notCovered": [
+          "发送流程类"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "codeAnchors": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "outOfScopeCode": [
+            "GPS 模块"
+          ]
+        },
+        "explanation": {
+          "business": "SSTV 接收需要解码器，无线电模块提供音频流。",
+          "uml": "类图展示 SSTVService 依赖 IRadioReceiver 获取音频，依赖 ISSTVDecoder 解码。",
+          "design": "端口-适配器模式，解码器可替换为软件或硬件实现。",
+          "implementation": "接口可能在 sstv/ports/ 定义。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/sstv/realization/class-collaboration.md",
+        "htmlPath": "docs/design/use-case-diagrams/sstv/realization/class-collaboration.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:sstv:use-case:sstv",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:sstv",
+      "targetId": "projection-node:design-use-case:use-case:sstv",
+      "source": {
+        "type": "model",
+        "id": "use-case:sstv"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      },
+      "confidence": "medium",
+      "summary": "context:sstv contains 接收 SSTV 图像"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:actor-user:use-case:sstv:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:actor-user",
+      "targetId": "projection-node:design-use-case:use-case:sstv",
+      "source": {
+        "type": "model",
+        "id": "use-case:sstv"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      },
+      "confidence": "medium",
+      "summary": "actor:actor-user participates in 接收 SSTV 图像",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:actor-remote-device:use-case:sstv:supporting_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:actor-remote-device",
+      "targetId": "projection-node:design-use-case:use-case:sstv",
+      "source": {
+        "type": "model",
+        "id": "use-case:sstv"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      },
+      "confidence": "medium",
+      "summary": "actor:actor-remote-device participates in 接收 SSTV 图像",
+      "metadata": {
+        "participation": "supporting_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:sstv:activity:use-case-sstv-sstv-1",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:sstv",
+      "targetId": "projection-node:design-activity:activity:use-case-sstv-sstv-1",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-sstv-sstv-1"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-sstv-sstv-1"
+      },
+      "confidence": "medium",
+      "summary": "描述从监听、解码到显示保存的完整流程。",
+      "metadata": {
+        "useCaseId": "use-case:sstv",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:sstv:sequence:use-case-sstv-sstv-2",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:sstv",
+      "targetId": "projection-node:design-sequence:sequence:use-case-sstv-sstv-2",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-sstv-sstv-2"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-sstv-sstv-2"
+      },
+      "confidence": "medium",
+      "summary": "展示用户、SSTV UI、无线电接收器和解码器之间的交互。",
+      "metadata": {
+        "useCaseId": "use-case:sstv",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:sstv:class-collaboration:use-case-sstv-sstv-3",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:sstv",
+      "targetId": "projection-node:design-class-collaboration:class-collaboration:use-case-sstv-sstv-3",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-sstv-sstv-3"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-sstv-sstv-3"
+      },
+      "confidence": "medium",
+      "summary": "展示 SSTV 接收相关的应用服务、无线电端口和解码器接口。",
+      "metadata": {
+        "useCaseId": "use-case:sstv",
+        "diagramKind": "class_collaboration"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:chat-media-support",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:send-text-message"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "聊天是否支持图片、位置等富媒体消息？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      }
+    },
+    {
+      "id": "annotation:question:team-location-interval",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:view-team-locations"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队位置更新频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-team-locations"
+      }
+    },
+    {
+      "id": "annotation:question:team-creation",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:join-team"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队是由创始人创建还是自动发现形成？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:join-team"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "地图数据是预装还是 Wi‑Fi 下载？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "缩放级别范围是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "标记点数据如何管理？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "航迹数据保存格式和策略是什么？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持多段航迹合并？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "轨迹点采样频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "支持的 SSTV 模式有哪些（Scottie, Martin, Robot 等）？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "发送时需要选择频率和模式吗？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持通过 mesh 网络转发 SSTV 图像给队友？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要低电量自动提醒？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "功耗历史数据保留多长时间？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持太阳能充电状态显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要支持多个轨迹的叠加显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "导航时是否激发声音或视觉偏离警告？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "路线文件的来源是否包括通过 mesh 网络接收？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-story-intake:1782379621985",
+    "design-story-intake:1782379321376",
+    "design-story-intake:1782379952549",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

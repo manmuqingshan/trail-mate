@@ -546,23 +546,8 @@ bool parse_manifest_file(const std::string& path, Manifest& out)
 {
     out.clear();
 
-    std::string contents;
-    if (!::ui::fs::read_text_file(path.c_str(), contents))
-    {
-        return false;
-    }
-
-    std::size_t line_start = 0;
-    while (line_start <= contents.size())
-    {
-        const std::size_t line_end = contents.find('\n', line_start);
-        std::string line = contents.substr(
-            line_start,
-            line_end == std::string::npos ? std::string::npos : (line_end - line_start));
-        if (!line.empty() && line.back() == '\r')
-        {
-            line.pop_back();
-        }
+    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line)
+                                                        {
         trim_in_place(line);
 
         if (!line.empty() && line[0] != '#' && line[0] != ';')
@@ -578,15 +563,9 @@ bool parse_manifest_file(const std::string& path, Manifest& out)
                 }
             }
         }
+        return true; });
 
-        if (line_end == std::string::npos)
-        {
-            break;
-        }
-        line_start = line_end + 1U;
-    }
-
-    return !out.empty();
+    return read_ok && !out.empty();
 }
 
 bool list_directory_entries(const char* path, std::vector<std::string>& out)
@@ -762,6 +741,49 @@ bool parse_codepoint_token(const std::string& token, uint32_t& out_codepoint)
     return true;
 }
 
+bool parse_range_token(std::string token, std::vector<CodepointRange>& out)
+{
+    const std::size_t comment = token.find('#');
+    if (comment != std::string::npos)
+    {
+        token.resize(comment);
+    }
+    trim_in_place(token);
+    if (token.empty())
+    {
+        return true;
+    }
+
+    const std::size_t dash = token.find('-');
+    uint32_t first = 0;
+    uint32_t last = 0;
+    if (dash == std::string::npos)
+    {
+        if (parse_codepoint_token(token, first))
+        {
+            last = first;
+            CodepointRange range;
+            range.first = first;
+            range.last = last;
+            out.push_back(range);
+        }
+    }
+    else
+    {
+        const std::string lhs = trim_copy(token.substr(0, dash));
+        const std::string rhs = trim_copy(token.substr(dash + 1));
+        if (parse_codepoint_token(lhs, first) && parse_codepoint_token(rhs, last) &&
+            first <= last)
+        {
+            CodepointRange range;
+            range.first = first;
+            range.last = last;
+            out.push_back(range);
+        }
+    }
+    return true;
+}
+
 void normalize_ranges(std::vector<CodepointRange>& ranges)
 {
     if (ranges.empty())
@@ -802,65 +824,29 @@ bool parse_ranges_file(const std::string& path, std::vector<CodepointRange>& out
 {
     out.clear();
 
-    std::string contents;
-    if (!::ui::fs::read_text_file(path.c_str(), contents))
-    {
-        return false;
-    }
-
-    std::size_t token_start = 0;
-    while (token_start <= contents.size())
-    {
-        const std::size_t token_end = contents.find_first_of(",\r\n", token_start);
-        std::string token = contents.substr(
-            token_start,
-            token_end == std::string::npos ? std::string::npos : (token_end - token_start));
-        const std::size_t comment = token.find('#');
-        if (comment != std::string::npos)
+    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line)
+                                                        {
+        std::size_t token_start = 0;
+        while (token_start <= line.size())
         {
-            token.resize(comment);
-        }
-        trim_in_place(token);
-        if (!token.empty())
-        {
-            const std::size_t dash = token.find('-');
-            uint32_t first = 0;
-            uint32_t last = 0;
-            if (dash == std::string::npos)
+            const std::size_t token_end = line.find(',', token_start);
+            std::string token = line.substr(
+                token_start,
+                token_end == std::string::npos ? std::string::npos : (token_end - token_start));
+            if (!parse_range_token(std::move(token), out))
             {
-                if (parse_codepoint_token(token, first))
-                {
-                    last = first;
-                    CodepointRange range;
-                    range.first = first;
-                    range.last = last;
-                    out.push_back(range);
-                }
+                return false;
             }
-            else
+            if (token_end == std::string::npos)
             {
-                const std::string lhs = trim_copy(token.substr(0, dash));
-                const std::string rhs = trim_copy(token.substr(dash + 1));
-                if (parse_codepoint_token(lhs, first) && parse_codepoint_token(rhs, last) &&
-                    first <= last)
-                {
-                    CodepointRange range;
-                    range.first = first;
-                    range.last = last;
-                    out.push_back(range);
-                }
+                break;
             }
+            token_start = token_end + 1U;
         }
-
-        if (token_end == std::string::npos)
-        {
-            break;
-        }
-        token_start = token_end + 1U;
-    }
+        return true; });
 
     normalize_ranges(out);
-    return !out.empty();
+    return read_ok && !out.empty();
 }
 
 FontPackUsage parse_font_usage(const char* value)
@@ -2155,24 +2141,8 @@ bool parse_locale_strings(const std::string& path,
 {
     out.clear();
 
-    std::string contents;
-    if (!::ui::fs::read_text_file(path.c_str(), contents))
-    {
-        return false;
-    }
-
-    std::size_t line_start = 0;
-    while (line_start <= contents.size())
-    {
-        const std::size_t line_end = contents.find('\n', line_start);
-        std::string line = contents.substr(
-            line_start,
-            line_end == std::string::npos ? std::string::npos : (line_end - line_start));
-        if (!line.empty() && line.back() == '\r')
-        {
-            line.pop_back();
-        }
-
+    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line)
+                                                        {
         if (!line.empty() && line[0] != '#')
         {
             const std::size_t sep = line.find('\t');
@@ -2186,13 +2156,7 @@ bool parse_locale_strings(const std::string& path,
                 }
             }
         }
-
-        if (line_end == std::string::npos)
-        {
-            break;
-        }
-        line_start = line_end + 1U;
-    }
+        return true; });
 
     std::sort(out.begin(),
               out.end(),
@@ -2202,7 +2166,7 @@ bool parse_locale_strings(const std::string& path,
                   return lhs.first < rhs.first;
               });
 
-    return !out.empty();
+    return read_ok && !out.empty();
 }
 
 bool catalog_external_locale_pack(const std::string& pack_dir)

@@ -23,7 +23,6 @@ namespace phone::meshtastic
 namespace
 {
 
-constexpr uint8_t kQueueDepthHint = 4;
 constexpr meshtastic_AdminMessage_ConfigType kConfigSnapshotTypes[] = {
     meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG,
     meshtastic_AdminMessage_ConfigType_POSITION_CONFIG,
@@ -56,7 +55,7 @@ void logDual(const char* format, ...)
         return;
     }
 
-    char buffer[192] = {};
+    char buffer[160] = {};
     va_list args;
     va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
@@ -77,6 +76,17 @@ void copyBounded(char* dst, size_t dst_len, const char* src)
     }
     std::strncpy(dst, src, dst_len - 1);
     dst[dst_len - 1] = '\0';
+}
+
+bool hasBoundedText(const char* text, size_t max_len)
+{
+    return text && max_len > 0 && text[0] != '\0';
+}
+
+bool hasAndroidVisibleNodeName(const PhoneNodeView& entry)
+{
+    return hasBoundedText(entry.short_name, sizeof(entry.short_name)) ||
+           hasBoundedText(entry.long_name, sizeof(entry.long_name));
 }
 
 void applyChannelPsk(uint8_t* dst,
@@ -110,6 +120,27 @@ void applyChannelPsk(uint8_t* dst,
     }
 }
 
+bool shortPskIndexForExpandedKey(const uint8_t* key, size_t key_len, uint8_t* out_index)
+{
+    if (!key || key_len != chat::kMeshtasticChannelKeyDefaultLen || !out_index)
+    {
+        return false;
+    }
+
+    uint8_t expanded[chat::kMeshtasticChannelKeyDefaultLen] = {};
+    for (unsigned index = 1; index <= 255; ++index)
+    {
+        size_t expanded_len = 0;
+        chat::meshtastic::expandShortPsk(static_cast<uint8_t>(index), expanded, &expanded_len);
+        if (expanded_len == key_len && std::memcmp(expanded, key, key_len) == 0)
+        {
+            *out_index = static_cast<uint8_t>(index);
+            return true;
+        }
+    }
+    return false;
+}
+
 size_t meshtasticKeyLen(const uint8_t* key, size_t key_capacity, uint8_t stored_len)
 {
     return chat::normalizeMeshtasticChannelKeyLen(key, key_capacity, stored_len);
@@ -123,7 +154,10 @@ void logChannelSummary(const char* prefix, const meshtastic_Channel& channel)
     const unsigned id = channel.has_settings ? static_cast<unsigned>(channel.settings.id) : 0U;
     const unsigned uplink = channel.has_settings && channel.settings.uplink_enabled ? 1U : 0U;
     const unsigned downlink = channel.has_settings && channel.settings.downlink_enabled ? 1U : 0U;
-    logDual("[BLE][mtcore][channel] %s idx=%d role=%u has_settings=%u ch_num=%u name=%s id=%u psk_size=%u uplink=%u downlink=%u\n",
+    const bool has_module_settings = channel.has_settings && channel.settings.has_module_settings;
+    const uint32_t position_precision = has_module_settings ? channel.settings.module_settings.position_precision : 0U;
+    const unsigned is_muted = has_module_settings && channel.settings.module_settings.is_muted ? 1U : 0U;
+    logDual("[BLE][mtcore][channel] %s idx=%d role=%u has_settings=%u ch_num=%u name=%s id=%u psk_size=%u uplink=%u downlink=%u module=%u pos_prec=%lu muted=%u\n",
             prefix ? prefix : "channel",
             static_cast<int>(channel.index),
             static_cast<unsigned>(channel.role),
@@ -133,7 +167,10 @@ void logChannelSummary(const char* prefix, const meshtastic_Channel& channel)
             id,
             psk_size,
             uplink,
-            downlink);
+            downlink,
+            has_module_settings ? 1U : 0U,
+            static_cast<unsigned long>(position_precision),
+            is_muted);
 }
 
 bool parsePosixTzOffsetMinutes(const char* tzdef, int* out_offset_min)
@@ -334,6 +371,24 @@ meshtastic_Config_DeviceConfig_Role roleFromEntry(uint8_t role)
     }
 }
 
+meshtastic_HardwareModel localHardwareModel()
+{
+#if defined(ARDUINO_T_DECK_PRO)
+    return meshtastic_HardwareModel_T_DECK_PRO;
+#elif defined(ARDUINO_T_DECK)
+    return meshtastic_HardwareModel_T_DECK;
+#elif defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_LILYGO_LORA_SX1262) || \
+    defined(ARDUINO_LILYGO_LORA_SX1280) || defined(ARDUINO_LILYGO_LORA_LR1121)
+    return meshtastic_HardwareModel_T_LORA_PAGER;
+#elif defined(ARDUINO_LILYGO_TWATCH_S3)
+    return meshtastic_HardwareModel_T_WATCH_S3;
+#elif defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    return meshtastic_HardwareModel_MESH_TAB;
+#else
+    return meshtastic_HardwareModel_PRIVATE_HW;
+#endif
+}
+
 void initDefaultModuleConfig(meshtastic_LocalModuleConfig* out, uint32_t self_node)
 {
     config_bridge::initDefaultModuleConfig(out, self_node);
@@ -450,36 +505,57 @@ void MeshtasticPhoneCore::reset()
     config_channel_index_ = 0;
     config_type_index_ = 0;
     config_module_type_index_ = 0;
+    from_radio_id_ = 0;
     last_to_radio_len_ = 0;
     std::memset(last_to_radio_, 0, sizeof(last_to_radio_));
     config_flow_active_ = false;
-    frame_queue_.clear();
+    deferred_config_save_pending_ = false;
+    deferred_module_config_save_pending_ = false;
+    deferred_bluetooth_config_apply_pending_ = false;
+    admin_edit_transaction_open_ = false;
+    admin_edit_transaction_dirty_ = false;
+    admin_edit_transaction_module_dirty_ = false;
+    admin_edit_transaction_bluetooth_dirty_ = false;
+    admin_edit_transaction_restart_pending_ = false;
+    restart_pending_ = false;
     queue_status_queue_.clear();
     packet_queue_.clear();
 }
 
 void MeshtasticPhoneCore::onIncomingText(const chat::MeshIncomingText& msg)
 {
-    packet_queue_.push_back(buildPacketFromText(msg));
+    bool dropped = false;
+    auto& packet = packet_queue_.pushSlotDropOldest(&dropped);
+    fillPacketFromText(msg, &packet);
+    if (dropped)
+    {
+        logDual("[BLE][mtcore] packet queue dropped oldest before text enqueue\n");
+    }
     logDual("[BLE][mtcore] enqueue text packet id=%08lX from=%08lX to=%08lX len=%u\n",
-            static_cast<unsigned long>(packet_queue_.back().id),
-            static_cast<unsigned long>(packet_queue_.back().from),
-            static_cast<unsigned long>(packet_queue_.back().to),
-            static_cast<unsigned>(packet_queue_.back().decoded.payload.size));
-    notifyFromNum(packet_queue_.back().id);
+            static_cast<unsigned long>(packet.id),
+            static_cast<unsigned long>(packet.from),
+            static_cast<unsigned long>(packet.to),
+            static_cast<unsigned>(packet.decoded.payload.size));
+    notifyFromNum(packet.id);
 }
 
 void MeshtasticPhoneCore::onIncomingData(const chat::MeshIncomingData& msg)
 {
-    packet_queue_.push_back(buildPacketFromData(msg));
+    bool dropped = false;
+    auto& packet = packet_queue_.pushSlotDropOldest(&dropped);
+    fillPacketFromData(msg, &packet);
+    if (dropped)
+    {
+        logDual("[BLE][mtcore] packet queue dropped oldest before data enqueue\n");
+    }
     logDual("[BLE][mtcore] enqueue data packet id=%08lX port=%u req=%08lX from=%08lX to=%08lX len=%u\n",
-            static_cast<unsigned long>(packet_queue_.back().id),
-            static_cast<unsigned>(packet_queue_.back().decoded.portnum),
-            static_cast<unsigned long>(packet_queue_.back().decoded.request_id),
-            static_cast<unsigned long>(packet_queue_.back().from),
-            static_cast<unsigned long>(packet_queue_.back().to),
-            static_cast<unsigned>(packet_queue_.back().decoded.payload.size));
-    notifyFromNum(packet_queue_.back().id);
+            static_cast<unsigned long>(packet.id),
+            static_cast<unsigned>(packet.decoded.portnum),
+            static_cast<unsigned long>(packet.decoded.request_id),
+            static_cast<unsigned long>(packet.from),
+            static_cast<unsigned long>(packet.to),
+            static_cast<unsigned>(packet.decoded.payload.size));
+    notifyFromNum(packet.id);
 }
 
 bool MeshtasticPhoneCore::isSendingPackets() const
@@ -619,11 +695,22 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         has_resp = true;
         break;
     case meshtastic_AdminMessage_get_channel_request_tag:
+    {
+        const uint32_t raw_channel_request = req.get_channel_request;
+        const uint8_t channel_index =
+            static_cast<uint8_t>(raw_channel_request > 0 ? (raw_channel_request - 1) : 0);
+        logDual("[BLE][mtcore][channel] get_req raw=%lu idx=%u\n",
+                static_cast<unsigned long>(raw_channel_request),
+                static_cast<unsigned>(channel_index));
         resp.which_payload_variant = meshtastic_AdminMessage_get_channel_response_tag;
-        resp.get_channel_response = buildChannel(static_cast<uint8_t>(req.get_channel_request > 0 ? (req.get_channel_request - 1) : 0));
+        resp.get_channel_response = buildChannel(channel_index);
+        logChannelSummary("get_resp", resp.get_channel_response);
         has_resp = true;
         break;
+    }
     case meshtastic_AdminMessage_get_config_request_tag:
+        logDual("[BLE][mtcore] get_config req type=%u\n",
+                static_cast<unsigned>(req.get_config_request));
         resp.which_payload_variant = meshtastic_AdminMessage_get_config_response_tag;
         resp.get_config_response = buildConfig(req.get_config_request);
         has_resp = true;
@@ -676,14 +763,42 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         copyBounded(cfg.node_name, sizeof(cfg.node_name), req.set_owner.long_name);
         copyBounded(cfg.short_name, sizeof(cfg.short_name), req.set_owner.short_name);
         app_.setMeshtasticPhoneConfig(cfg);
-        app_.saveConfig();
+        if (admin_edit_transaction_open_)
+        {
+            admin_edit_transaction_dirty_ = true;
+            logDual("[BLE][mtcore] set_owner save deferred by edit transaction\n");
+        }
+        else
+        {
+            deferred_config_save_pending_ = true;
+        }
         app_.applyUserInfo();
         resp.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
         resp.get_owner_response = buildSelfNodeInfo().user;
         has_resp = true;
         break;
     case meshtastic_AdminMessage_set_channel_tag:
+    {
         logChannelSummary("set_req", req.set_channel);
+        const bool has_module_settings =
+            req.set_channel.has_settings && req.set_channel.settings.has_module_settings;
+        auto apply_module_settings = [&](bool& dst_has_module_settings,
+                                         uint32_t& dst_position_precision,
+                                         bool& dst_is_muted)
+        {
+            dst_has_module_settings = has_module_settings;
+            if (has_module_settings)
+            {
+                dst_position_precision = req.set_channel.settings.module_settings.position_precision;
+                dst_is_muted = req.set_channel.settings.module_settings.is_muted;
+            }
+            else
+            {
+                dst_position_precision = 0;
+                dst_is_muted = false;
+            }
+        };
+
         if (req.set_channel.index == 0)
         {
             cfg.primary_enabled = (req.set_channel.role != meshtastic_Channel_Role_DISABLED);
@@ -697,6 +812,9 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
                             sizeof(cfg.mesh.primary_key),
                             &cfg.mesh.primary_key_len,
                             req.set_channel.settings.psk);
+            apply_module_settings(cfg.primary_channel_has_module_settings,
+                                  cfg.primary_channel_position_precision,
+                                  cfg.primary_channel_is_muted);
         }
         else if (req.set_channel.index == 1)
         {
@@ -711,15 +829,27 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
                             sizeof(cfg.mesh.secondary_key),
                             &cfg.mesh.secondary_key_len,
                             req.set_channel.settings.psk);
+            apply_module_settings(cfg.secondary_channel_has_module_settings,
+                                  cfg.secondary_channel_position_precision,
+                                  cfg.secondary_channel_is_muted);
         }
         app_.setMeshtasticPhoneConfig(cfg);
-        app_.saveConfig();
         app_.applyMeshConfig();
+        if (admin_edit_transaction_open_)
+        {
+            admin_edit_transaction_dirty_ = true;
+            logDual("[BLE][mtcore] set_channel save deferred by edit transaction\n");
+        }
+        else
+        {
+            deferred_config_save_pending_ = true;
+        }
         resp.which_payload_variant = meshtastic_AdminMessage_get_channel_response_tag;
         resp.get_channel_response = buildChannel(req.set_channel.index);
         logChannelSummary("set_resp", resp.get_channel_response);
         has_resp = true;
         break;
+    }
     case meshtastic_AdminMessage_set_config_tag:
         switch (req.set_config.which_payload_variant)
         {
@@ -749,8 +879,16 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
                     cfg.mesh.config_ok_to_mqtt ? 1U : 0U,
                     cfg.mesh.ignore_mqtt ? 1U : 0U);
             app_.setMeshtasticPhoneConfig(cfg);
-            app_.saveConfig();
-            logDual("[BLE][mtcore] set_config lora post-save\n");
+            if (admin_edit_transaction_open_)
+            {
+                admin_edit_transaction_dirty_ = true;
+                logDual("[BLE][mtcore] set_config lora save deferred by edit transaction\n");
+            }
+            else
+            {
+                deferred_config_save_pending_ = true;
+                logDual("[BLE][mtcore] set_config lora save deferred\n");
+            }
             app_.applyMeshConfig();
             logDual("[BLE][mtcore] set_config lora post-apply\n");
             break;
@@ -758,7 +896,15 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
             cfg.gps_enabled = req.set_config.payload_variant.position.gps_enabled;
             cfg.gps_interval_ms = req.set_config.payload_variant.position.gps_update_interval * 1000U;
             app_.setMeshtasticPhoneConfig(cfg);
-            app_.saveConfig();
+            if (admin_edit_transaction_open_)
+            {
+                admin_edit_transaction_dirty_ = true;
+                logDual("[BLE][mtcore] set_config position save deferred by edit transaction\n");
+            }
+            else
+            {
+                deferred_config_save_pending_ = true;
+            }
             app_.applyPositionConfig();
             break;
         case meshtastic_Config_bluetooth_tag:
@@ -768,11 +914,18 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
             {
                 bluetooth_config_.fixed_pin = 0;
             }
-            if (bluetooth_config_hooks_)
+            if (admin_edit_transaction_open_)
             {
-                bluetooth_config_hooks_->saveBluetoothConfig(bluetooth_config_);
+                admin_edit_transaction_bluetooth_dirty_ = true;
+                logDual("[BLE][mtcore] set_config bluetooth apply deferred by edit transaction enabled=%u\n",
+                        bluetooth_config_.enabled ? 1U : 0U);
             }
-            app_.setBleEnabled(req.set_config.payload_variant.bluetooth.enabled);
+            else
+            {
+                deferred_bluetooth_config_apply_pending_ = true;
+                logDual("[BLE][mtcore] set_config bluetooth apply deferred enabled=%u\n",
+                        bluetooth_config_.enabled ? 1U : 0U);
+            }
             break;
         case meshtastic_Config_device_tag:
         {
@@ -854,6 +1007,14 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
             module_config_.has_mqtt = true;
             module_config_.mqtt = req.set_module_config.payload_variant.mqtt;
             applyLegacyMqttDefaults(&module_config_);
+            if (admin_edit_transaction_open_)
+            {
+                admin_edit_transaction_restart_pending_ = true;
+            }
+            else
+            {
+                restart_pending_ = true;
+            }
             break;
         case meshtastic_ModuleConfig_serial_tag:
             module_config_.has_serial = true;
@@ -906,12 +1067,16 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         default:
             break;
         }
-        if (module_config_hooks_)
+        if (admin_edit_transaction_open_)
         {
-            logDual("[BLE][mtcore] set_module_config pre-save variant=%u\n",
+            admin_edit_transaction_module_dirty_ = true;
+            logDual("[BLE][mtcore] set_module_config save deferred by edit transaction variant=%u\n",
                     static_cast<unsigned>(req.set_module_config.which_payload_variant));
-            module_config_hooks_->saveModuleConfig(module_config_);
-            logDual("[BLE][mtcore] set_module_config post-save variant=%u\n",
+        }
+        else
+        {
+            deferred_module_config_save_pending_ = true;
+            logDual("[BLE][mtcore] set_module_config save deferred variant=%u\n",
                     static_cast<unsigned>(req.set_module_config.which_payload_variant));
         }
 
@@ -953,6 +1118,48 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         resp.get_ui_config_response = buildDeviceUi();
         has_resp = true;
         break;
+    case meshtastic_AdminMessage_begin_edit_settings_tag:
+        admin_edit_transaction_open_ = true;
+        admin_edit_transaction_dirty_ = false;
+        admin_edit_transaction_module_dirty_ = false;
+        admin_edit_transaction_bluetooth_dirty_ = false;
+        admin_edit_transaction_restart_pending_ = false;
+        logDual("[BLE][mtcore] edit settings begin\n");
+        break;
+    case meshtastic_AdminMessage_commit_edit_settings_tag:
+    {
+        const bool dirty = admin_edit_transaction_dirty_;
+        const bool module_dirty = admin_edit_transaction_module_dirty_;
+        const bool bluetooth_dirty = admin_edit_transaction_bluetooth_dirty_;
+        const bool restart_after_commit = admin_edit_transaction_restart_pending_;
+        admin_edit_transaction_open_ = false;
+        admin_edit_transaction_dirty_ = false;
+        admin_edit_transaction_module_dirty_ = false;
+        admin_edit_transaction_bluetooth_dirty_ = false;
+        admin_edit_transaction_restart_pending_ = false;
+        if (dirty)
+        {
+            deferred_config_save_pending_ = true;
+        }
+        if (module_dirty)
+        {
+            deferred_module_config_save_pending_ = true;
+        }
+        if (bluetooth_dirty)
+        {
+            deferred_bluetooth_config_apply_pending_ = true;
+        }
+        if (restart_after_commit)
+        {
+            restart_pending_ = true;
+        }
+        logDual("[BLE][mtcore] edit settings commit dirty=%u module_dirty=%u bluetooth_dirty=%u restart=%u\n",
+                dirty ? 1U : 0U,
+                module_dirty ? 1U : 0U,
+                bluetooth_dirty ? 1U : 0U,
+                restart_after_commit ? 1U : 0U);
+        break;
+    }
     case meshtastic_AdminMessage_set_time_only_tag:
     {
         return app_.syncCurrentEpochSeconds(static_cast<uint32_t>(req.set_time_only));
@@ -1001,7 +1208,12 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         return false;
     }
     reply.decoded.payload.size = static_cast<pb_size_t>(out_stream.bytes_written);
-    packet_queue_.push_back(reply);
+    bool dropped = false;
+    packet_queue_.pushDropOldest(reply, &dropped);
+    if (dropped)
+    {
+        logDual("[BLE][mtcore] packet queue dropped oldest before admin response\n");
+    }
     return true;
 }
 
@@ -1061,7 +1273,12 @@ bool MeshtasticPhoneCore::handleLocalSelfPacket(meshtastic_MeshPacket& packet)
             return false;
         }
         reply.decoded.payload.size = static_cast<pb_size_t>(out_stream.bytes_written);
-        packet_queue_.push_back(reply);
+        bool dropped = false;
+        packet_queue_.pushDropOldest(reply, &dropped);
+        if (dropped)
+        {
+            logDual("[BLE][mtcore] packet queue dropped oldest before telemetry loopback\n");
+        }
         notifyFromNum(reply.id);
         return true;
     }
@@ -1092,7 +1309,12 @@ bool MeshtasticPhoneCore::handleLocalSelfPacket(meshtastic_MeshPacket& packet)
             return true;
         }
         reply.decoded.payload.size = static_cast<pb_size_t>(payload_len);
-        packet_queue_.push_back(reply);
+        bool dropped = false;
+        packet_queue_.pushDropOldest(reply, &dropped);
+        if (dropped)
+        {
+            logDual("[BLE][mtcore] packet queue dropped oldest before position loopback\n");
+        }
         notifyFromNum(reply.id);
         return true;
     }
@@ -1122,7 +1344,12 @@ bool MeshtasticPhoneCore::handleLocalSelfPacket(meshtastic_MeshPacket& packet)
             return false;
         }
         reply.decoded.payload.size = static_cast<pb_size_t>(out_stream.bytes_written);
-        packet_queue_.push_back(reply);
+        bool dropped = false;
+        packet_queue_.pushDropOldest(reply, &dropped);
+        if (dropped)
+        {
+            logDual("[BLE][mtcore] packet queue dropped oldest before nodeinfo loopback\n");
+        }
         notifyFromNum(reply.id);
         return true;
     }
@@ -1143,15 +1370,21 @@ bool MeshtasticPhoneCore::handleLocalSelfPacket(meshtastic_MeshPacket& packet)
 
 void MeshtasticPhoneCore::pumpIncomingAppData()
 {
-    for (uint8_t count = 0; count < kQueueDepthHint; ++count)
+    for (uint8_t count = 0; count < kPhoneQueueDepth; ++count)
     {
         chat::MeshIncomingData incoming{};
         if (!app_.pollIncomingPhoneData(incoming))
         {
             break;
         }
-        packet_queue_.push_back(buildPacketFromData(incoming));
-        notifyFromNum(packet_queue_.back().id);
+        bool dropped = false;
+        auto& packet = packet_queue_.pushSlotDropOldest(&dropped);
+        fillPacketFromData(incoming, &packet);
+        if (dropped)
+        {
+            logDual("[BLE][mtcore] packet queue dropped oldest before app data enqueue\n");
+        }
+        notifyFromNum(packet.id);
     }
 }
 
@@ -1176,13 +1409,6 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         }
     }
 
-    if (!frame_queue_.empty())
-    {
-        *out = frame_queue_.front();
-        frame_queue_.pop_front();
-        return true;
-    }
-
     if (config_flow_active_ && popConfigSnapshotFrame(out))
     {
         return true;
@@ -1197,20 +1423,59 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
 
     auto& from = from_radio_scratch_;
     std::memset(&from, 0, sizeof(from));
-    if (!queue_status_queue_.empty())
+    if (const meshtastic_QueueStatus* status = queue_status_queue_.front())
     {
         from.which_payload_variant = meshtastic_FromRadio_queueStatus_tag;
-        from.queueStatus = queue_status_queue_.front();
-        queue_status_queue_.pop_front();
-        return encodeFromRadio(from, from.queueStatus.mesh_packet_id, out);
+        from.queueStatus = *status;
+        const uint32_t mesh_packet_id = status->mesh_packet_id;
+        queue_status_queue_.pop();
+        return encodeFromRadio(from, mesh_packet_id, out);
     }
 
-    if (!packet_queue_.empty())
+    if (const meshtastic_MeshPacket* packet = packet_queue_.front())
     {
         from.which_payload_variant = meshtastic_FromRadio_packet_tag;
-        from.packet = packet_queue_.front();
-        packet_queue_.pop_front();
-        return encodeFromRadio(from, from.packet.id, out);
+        from.packet = *packet;
+        const uint32_t packet_id = packet->id;
+        packet_queue_.pop();
+        return encodeFromRadio(from, packet_id, out);
+    }
+
+    if (deferred_config_save_pending_)
+    {
+        deferred_config_save_pending_ = false;
+        logDual("[BLE][mtcore] deferred config save after response drain\n");
+        app_.saveConfig();
+    }
+
+    if (deferred_module_config_save_pending_)
+    {
+        deferred_module_config_save_pending_ = false;
+        if (module_config_hooks_)
+        {
+            logDual("[BLE][mtcore] deferred module config save after response drain\n");
+            module_config_hooks_->saveModuleConfig(module_config_);
+        }
+    }
+
+    if (deferred_bluetooth_config_apply_pending_)
+    {
+        deferred_bluetooth_config_apply_pending_ = false;
+        if (bluetooth_config_hooks_)
+        {
+            logDual("[BLE][mtcore] deferred bluetooth config save after response drain\n");
+            bluetooth_config_hooks_->saveBluetoothConfig(bluetooth_config_);
+        }
+        logDual("[BLE][mtcore] deferred bluetooth enabled apply=%u after response drain\n",
+                bluetooth_config_.enabled ? 1U : 0U);
+        app_.setBleEnabled(bluetooth_config_.enabled);
+    }
+
+    if (restart_pending_)
+    {
+        restart_pending_ = false;
+        logDual("[BLE][mtcore] restart after module config save\n");
+        app_.restartDevice();
     }
 
     return false;
@@ -1226,8 +1491,15 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
     auto& from = from_radio_scratch_;
     std::memset(&from, 0, sizeof(from));
     const uint32_t from_num = config_nonce_;
+    const bool only_config = config_nonce_ == defaults::kConfigNonceOnlyConfig;
+    const bool only_nodes = config_nonce_ == defaults::kConfigNonceOnlyNodes;
 
-    if (config_node_index_ == 0)
+    if (only_nodes && config_node_index_ < 2)
+    {
+        config_node_index_ = 2;
+    }
+
+    if (!only_nodes && config_node_index_ == 0)
     {
         from.which_payload_variant = meshtastic_FromRadio_my_info_tag;
         fillMyInfo(&from.my_info);
@@ -1239,7 +1511,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         return encodeFromRadio(from, from_num, out);
     }
 
-    if (config_node_index_ == 1)
+    if (!only_nodes && config_node_index_ == 1)
     {
         from.which_payload_variant = meshtastic_FromRadio_deviceuiConfig_tag;
         fillDeviceUi(&from.deviceuiConfig);
@@ -1251,7 +1523,12 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         return encodeFromRadio(from, from_num, out);
     }
 
-    if (config_node_index_ == 2)
+    if (only_config && config_node_index_ == 2)
+    {
+        config_node_index_ = 3;
+    }
+
+    if (!only_config && config_node_index_ == 2)
     {
         from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
         fillSelfNodeInfo(&from.node_info);
@@ -1265,7 +1542,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
 
     const size_t node_count = app_.phoneNodeCount();
     PhoneNodeView entry{};
-    while ((config_node_index_ - 3) < node_count)
+    while (!only_config && (config_node_index_ - 3) < node_count)
     {
         const size_t node_index = config_node_index_ - 3;
         ++config_node_index_;
@@ -1277,12 +1554,16 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         {
             continue;
         }
+        if (!hasAndroidVisibleNodeName(entry))
+        {
+            continue;
+        }
         from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
         fillNodeInfoFromEntry(entry, &from.node_info);
         return encodeFromRadio(from, entry.node_id, out);
     }
 
-    if (config_channel_index_ == 0)
+    if (!only_nodes && config_channel_index_ == 0)
     {
         from.which_payload_variant = meshtastic_FromRadio_metadata_tag;
         fillMetadata(&from.metadata);
@@ -1291,7 +1572,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
     }
 
     const uint8_t channel_slot = static_cast<uint8_t>(config_channel_index_ - 1);
-    if (channel_slot < defaults::kMaxMeshtasticChannels)
+    if (!only_nodes && channel_slot < defaults::kMaxMeshtasticChannels)
     {
         from.which_payload_variant = meshtastic_FromRadio_channel_tag;
         fillChannel(channel_slot, &from.channel);
@@ -1300,14 +1581,14 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         return encodeFromRadio(from, from_num, out);
     }
 
-    if (config_type_index_ < (sizeof(kConfigSnapshotTypes) / sizeof(kConfigSnapshotTypes[0])))
+    if (!only_nodes && config_type_index_ < (sizeof(kConfigSnapshotTypes) / sizeof(kConfigSnapshotTypes[0])))
     {
         from.which_payload_variant = meshtastic_FromRadio_config_tag;
         fillConfig(kConfigSnapshotTypes[config_type_index_++], &from.config);
         return encodeFromRadio(from, from_num, out);
     }
 
-    if (config_module_type_index_ < (sizeof(kModuleSnapshotTypes) / sizeof(kModuleSnapshotTypes[0])))
+    if (!only_nodes && config_module_type_index_ < (sizeof(kModuleSnapshotTypes) / sizeof(kModuleSnapshotTypes[0])))
     {
         from.which_payload_variant = meshtastic_FromRadio_moduleConfig_tag;
         fillModuleConfig(kModuleSnapshotTypes[config_module_type_index_++], &from.moduleConfig);
@@ -1345,7 +1626,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
     return encodeFromRadio(from, from_num, out);
 }
 
-bool MeshtasticPhoneCore::encodeFromRadio(const meshtastic_FromRadio& from, uint32_t from_num, MeshtasticBleFrame* out) const
+bool MeshtasticPhoneCore::encodeFromRadio(meshtastic_FromRadio& from, uint32_t from_num, MeshtasticBleFrame* out)
 {
     if (!out)
     {
@@ -1355,14 +1636,13 @@ bool MeshtasticPhoneCore::encodeFromRadio(const meshtastic_FromRadio& from, uint
         return false;
     }
 
-    meshtastic_FromRadio encoded = from;
-    if (from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag ||
-        from.which_payload_variant == meshtastic_FromRadio_packet_tag)
+    from.id = ++from_radio_id_;
+    if (from.id == 0)
     {
-        encoded.id = from_num;
+        from.id = ++from_radio_id_;
     }
     pb_ostream_t ostream = pb_ostream_from_buffer(out->buf, sizeof(out->buf));
-    if (!pb_encode(&ostream, meshtastic_FromRadio_fields, &encoded))
+    if (!pb_encode(&ostream, meshtastic_FromRadio_fields, &from))
     {
         logDual("[BLE][mtcore] encode from_radio failed: variant=%u from_num=%08lX\n",
                 static_cast<unsigned>(from.which_payload_variant),
@@ -1372,8 +1652,9 @@ bool MeshtasticPhoneCore::encodeFromRadio(const meshtastic_FromRadio& from, uint
 
     out->len = ostream.bytes_written;
     out->from_num = from_num;
-    logDual("[BLE][mtcore] encode from_radio ok: variant=%u from_num=%08lX len=%u\n",
+    logDual("[BLE][mtcore] encode from_radio ok: variant=%u id=%08lX from_num=%08lX len=%u\n",
             static_cast<unsigned>(from.which_payload_variant),
+            static_cast<unsigned long>(from.id),
             static_cast<unsigned long>(from_num),
             static_cast<unsigned>(out->len));
     return true;
@@ -1383,10 +1664,17 @@ void MeshtasticPhoneCore::enqueueQueueStatus(uint32_t packet_id, bool ok)
 {
     meshtastic_QueueStatus status = meshtastic_QueueStatus_init_zero;
     status.res = ok ? 0 : 1;
-    status.free = kQueueDepthHint;
-    status.maxlen = kQueueDepthHint;
+    const size_t queue_depth = queue_status_queue_.size();
+    status.free = static_cast<uint32_t>(
+        queue_depth < queue_status_queue_.capacity() ? queue_status_queue_.capacity() - queue_depth : 0U);
+    status.maxlen = static_cast<uint32_t>(queue_status_queue_.capacity());
     status.mesh_packet_id = packet_id;
-    queue_status_queue_.push_back(status);
+    bool dropped = false;
+    queue_status_queue_.pushDropOldest(status, &dropped);
+    if (dropped)
+    {
+        logDual("[BLE][mtcore] queue status dropped oldest before enqueue\n");
+    }
     logDual("[BLE][mtcore] queue status mesh_packet_id=%08lX ok=%u depth=%u\n",
             static_cast<unsigned long>(packet_id),
             ok ? 1U : 0U,
@@ -1403,7 +1691,6 @@ void MeshtasticPhoneCore::enqueueConfigSnapshot(uint32_t config_nonce)
     config_channel_index_ = 0;
     config_type_index_ = 0;
     config_module_type_index_ = 0;
-    frame_queue_.clear();
     if (config_lifecycle_hooks_)
     {
         config_lifecycle_hooks_->onConfigStart();
@@ -1416,15 +1703,6 @@ void MeshtasticPhoneCore::enqueueConfigSnapshot(uint32_t config_nonce)
             static_cast<unsigned long>(config_nonce));
     logRuntimeFootprint("cfg_start");
     notifyFromNum(config_nonce);
-}
-
-void MeshtasticPhoneCore::enqueueFromRadio(const meshtastic_FromRadio& from, uint32_t from_num)
-{
-    MeshtasticBleFrame frame{};
-    if (encodeFromRadio(from, from_num, &frame))
-    {
-        frame_queue_.push_back(frame);
-    }
 }
 
 void MeshtasticPhoneCore::notifyFromNum(uint32_t from_num)
@@ -1485,11 +1763,11 @@ void MeshtasticPhoneCore::fillSelfNodeInfo(meshtastic_NodeInfo* out) const
     app_.getEffectiveUserInfo(long_name, sizeof(long_name), short_name, sizeof(short_name));
 
     char user_id[16] = {};
-    std::snprintf(user_id, sizeof(user_id), "!%08lX", static_cast<unsigned long>(app_.getSelfNodeId()));
+    std::snprintf(user_id, sizeof(user_id), "!%08lx", static_cast<unsigned long>(app_.getSelfNodeId()));
     copyBounded(info.user.id, sizeof(info.user.id), user_id);
     copyBounded(info.user.long_name, sizeof(info.user.long_name), long_name);
     copyBounded(info.user.short_name, sizeof(info.user.short_name), short_name);
-    info.user.hw_model = meshtastic_HardwareModel_UNSET;
+    info.user.hw_model = localHardwareModel();
     info.user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     info.channel = 0;
     info.last_heard = nowSeconds();
@@ -1513,19 +1791,22 @@ void MeshtasticPhoneCore::fillNodeInfoFromEntry(const PhoneNodeView& entry, mesh
     meshtastic_NodeInfo& info = *out;
     std::memset(&info, 0, sizeof(info));
     info.num = entry.node_id;
-    info.has_user = true;
+    info.has_user = hasAndroidVisibleNodeName(entry);
 
     char user_id[16] = {};
-    std::snprintf(user_id, sizeof(user_id), "!%08lX", static_cast<unsigned long>(entry.node_id));
-    copyBounded(info.user.id, sizeof(info.user.id), user_id);
-    copyBounded(info.user.long_name, sizeof(info.user.long_name), entry.long_name);
-    copyBounded(info.user.short_name, sizeof(info.user.short_name), entry.short_name);
-    if (entry.has_macaddr)
+    if (info.has_user)
     {
-        memcpy(info.user.macaddr, entry.macaddr, sizeof(info.user.macaddr));
+        std::snprintf(user_id, sizeof(user_id), "!%08lX", static_cast<unsigned long>(entry.node_id));
+        copyBounded(info.user.id, sizeof(info.user.id), user_id);
+        copyBounded(info.user.long_name, sizeof(info.user.long_name), entry.long_name);
+        copyBounded(info.user.short_name, sizeof(info.user.short_name), entry.short_name);
+        if (entry.has_macaddr)
+        {
+            memcpy(info.user.macaddr, entry.macaddr, sizeof(info.user.macaddr));
+        }
+        info.user.hw_model = static_cast<meshtastic_HardwareModel>(entry.hw_model);
+        info.user.role = roleFromEntry(entry.role);
     }
-    info.user.hw_model = static_cast<meshtastic_HardwareModel>(entry.hw_model);
-    info.user.role = roleFromEntry(entry.role);
     info.channel = entry.channel;
     info.last_heard = entry.last_seen;
     info.snr = entry.snr;
@@ -1601,7 +1882,7 @@ void MeshtasticPhoneCore::fillMetadata(meshtastic_DeviceMetadata* out) const
 #endif
     metadata.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     metadata.position_flags = 0;
-    metadata.hw_model = meshtastic_HardwareModel_UNSET;
+    metadata.hw_model = localHardwareModel();
     metadata.excluded_modules = 0;
 }
 
@@ -1717,7 +1998,15 @@ void MeshtasticPhoneCore::fillChannel(uint8_t idx, meshtastic_Channel* out) cons
     channel.settings.channel_num = idx;
     channel.settings.uplink_enabled = (idx == 0) ? cfg.primary_uplink_enabled : cfg.secondary_uplink_enabled;
     channel.settings.downlink_enabled = (idx == 0) ? cfg.primary_downlink_enabled : cfg.secondary_downlink_enabled;
-    channel.settings.has_module_settings = false;
+    channel.settings.has_module_settings =
+        (idx == 0) ? cfg.primary_channel_has_module_settings : cfg.secondary_channel_has_module_settings;
+    if (channel.settings.has_module_settings)
+    {
+        channel.settings.module_settings.position_precision =
+            (idx == 0) ? cfg.primary_channel_position_precision : cfg.secondary_channel_position_precision;
+        channel.settings.module_settings.is_muted =
+            (idx == 0) ? cfg.primary_channel_is_muted : cfg.secondary_channel_is_muted;
+    }
 
     if (idx == 0)
     {
@@ -1730,10 +2019,19 @@ void MeshtasticPhoneCore::fillChannel(uint8_t idx, meshtastic_Channel* out) cons
                                                 cfg.mesh.primary_key_len);
         if (key_len > 0)
         {
-            channel.settings.psk.size = key_len;
-            std::memcpy(channel.settings.psk.bytes,
-                        cfg.mesh.primary_key,
-                        key_len);
+            uint8_t short_psk_index = 0;
+            if (shortPskIndexForExpandedKey(cfg.mesh.primary_key, key_len, &short_psk_index))
+            {
+                channel.settings.psk.size = 1;
+                channel.settings.psk.bytes[0] = short_psk_index;
+            }
+            else
+            {
+                channel.settings.psk.size = key_len;
+                std::memcpy(channel.settings.psk.bytes,
+                            cfg.mesh.primary_key,
+                            key_len);
+            }
         }
         else
         {
@@ -1752,10 +2050,19 @@ void MeshtasticPhoneCore::fillChannel(uint8_t idx, meshtastic_Channel* out) cons
                                                 cfg.mesh.secondary_key_len);
         if (key_len > 0)
         {
-            channel.settings.psk.size = key_len;
-            std::memcpy(channel.settings.psk.bytes,
-                        cfg.mesh.secondary_key,
-                        key_len);
+            uint8_t short_psk_index = 0;
+            if (shortPskIndexForExpandedKey(cfg.mesh.secondary_key, key_len, &short_psk_index))
+            {
+                channel.settings.psk.size = 1;
+                channel.settings.psk.bytes[0] = short_psk_index;
+            }
+            else
+            {
+                channel.settings.psk.size = key_len;
+                std::memcpy(channel.settings.psk.bytes,
+                            cfg.mesh.secondary_key,
+                            key_len);
+            }
         }
     }
 }
@@ -1853,7 +2160,10 @@ void MeshtasticPhoneCore::fillConfig(meshtastic_AdminMessage_ConfigType type, me
             cfg_out.payload_variant.bluetooth = bluetooth;
         }
         cfg_out.payload_variant.bluetooth = bluetooth_config_;
-        cfg_out.payload_variant.bluetooth.enabled = app_.isBleEnabled();
+        if (!deferred_bluetooth_config_apply_pending_ && !admin_edit_transaction_bluetooth_dirty_)
+        {
+            cfg_out.payload_variant.bluetooth.enabled = app_.isBleEnabled();
+        }
         break;
     case meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG:
         cfg_out.which_payload_variant = meshtastic_Config_security_tag;
@@ -1961,9 +2271,14 @@ meshtastic_ModuleConfig MeshtasticPhoneCore::buildModuleConfig(meshtastic_AdminM
     return out;
 }
 
-meshtastic_MeshPacket MeshtasticPhoneCore::buildPacketFromText(const chat::MeshIncomingText& msg) const
+void MeshtasticPhoneCore::fillPacketFromText(const chat::MeshIncomingText& msg, meshtastic_MeshPacket* out) const
 {
-    meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
+    if (!out)
+    {
+        return;
+    }
+    meshtastic_MeshPacket& packet = *out;
+    std::memset(&packet, 0, sizeof(packet));
     packet.from = msg.from;
     packet.to = msg.to;
     packet.channel = channelIndexFromId(msg.channel);
@@ -1972,26 +2287,27 @@ meshtastic_MeshPacket MeshtasticPhoneCore::buildPacketFromText(const chat::MeshI
     packet.rx_snr = msg.rx_meta.snr_db_x10 / 10.0f;
     packet.rx_rssi = msg.rx_meta.rssi_dbm_x10 / 10;
     packet.hop_limit = msg.hop_limit;
+    packet.via_mqtt = msg.rx_meta.from_is;
+    packet.relay_node = msg.rx_meta.relay_node;
     packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
-    packet.decoded = meshtastic_Data_init_zero;
     packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-    packet.decoded.source = msg.from;
-    packet.decoded.dest = msg.to;
     packet.decoded.want_response = false;
-    packet.decoded.has_bitfield = true;
-    packet.decoded.bitfield = 0;
     packet.decoded.payload.size = static_cast<pb_size_t>(
         std::min(msg.text.size(), sizeof(packet.decoded.payload.bytes)));
     if (packet.decoded.payload.size > 0)
     {
         std::memcpy(packet.decoded.payload.bytes, msg.text.data(), packet.decoded.payload.size);
     }
-    return packet;
 }
 
-meshtastic_MeshPacket MeshtasticPhoneCore::buildPacketFromData(const chat::MeshIncomingData& msg) const
+void MeshtasticPhoneCore::fillPacketFromData(const chat::MeshIncomingData& msg, meshtastic_MeshPacket* out) const
 {
-    meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
+    if (!out)
+    {
+        return;
+    }
+    meshtastic_MeshPacket& packet = *out;
+    std::memset(&packet, 0, sizeof(packet));
     packet.from = msg.from;
     packet.to = msg.to;
     packet.channel = channelIndexFromId(msg.channel);
@@ -2013,9 +2329,9 @@ meshtastic_MeshPacket MeshtasticPhoneCore::buildPacketFromData(const chat::MeshI
     packet.rx_snr = msg.rx_meta.snr_db_x10 / 10.0f;
     packet.rx_rssi = msg.rx_meta.rssi_dbm_x10 / 10;
     packet.hop_limit = msg.hop_limit;
+    packet.via_mqtt = msg.rx_meta.from_is;
     packet.relay_node = msg.rx_meta.relay_node;
     packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
-    packet.decoded = meshtastic_Data_init_zero;
     packet.decoded.portnum = static_cast<meshtastic_PortNum>(msg.portnum);
     packet.decoded.source = msg.from;
     packet.decoded.dest = msg.to;
@@ -2029,7 +2345,6 @@ meshtastic_MeshPacket MeshtasticPhoneCore::buildPacketFromData(const chat::MeshI
     {
         std::memcpy(packet.decoded.payload.bytes, msg.payload.data(), packet.decoded.payload.size);
     }
-    return packet;
 }
 
 } // namespace phone::meshtastic

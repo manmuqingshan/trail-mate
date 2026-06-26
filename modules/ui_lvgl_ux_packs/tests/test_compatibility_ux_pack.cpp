@@ -11,15 +11,15 @@ int main()
     assert(pack.profile().input_model == ui_lvgl_ux::InputModel::ButtonsOnly);
     assert(pack.features().chat);
     assert(pack.features().walkie);
-    assert(pack.features().sstv);
+    assert(!pack.features().sstv);
     assert(pack.features().extensions);
 
     ui_lvgl_ux::ScreenRegistry screens;
     pack.buildScreens(screens);
-    assert(screens.size() == 11);
+    assert(screens.size() == 10);
     assert(screens.items()[0].id == ui_lvgl_ux::ScreenId::Dashboard);
     assert(screens.items()[1].id == ui_lvgl_ux::ScreenId::Chat);
-    assert(screens.items()[10].id == ui_lvgl_ux::ScreenId::Extensions);
+    assert(screens.items()[9].id == ui_lvgl_ux::ScreenId::Extensions);
 
     ui_lvgl_ux::InputBindingSet bindings;
     pack.buildInputBindings(bindings);

@@ -22,6 +22,7 @@
 #endif
 #include "ui/screens/settings/settings_page_shell.h"
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
+#include "ui/screens/sstv/sstv_page_runtime.h"
 #include "ui/screens/sstv/sstv_page_shell.h"
 #endif
 #if !defined(GAT562_NO_TEAM) || !GAT562_NO_TEAM
@@ -150,6 +151,18 @@ AppScreen* s_apps[kMaxMenuApps] = {};
 ui::StaticAppCatalogState s_catalog_state = ui::makeStaticAppCatalogState(s_apps);
 ui::AppCatalog s_catalog = ui::makeStaticAppCatalog(&s_catalog_state);
 
+#if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
+bool sstv_available()
+{
+    return sstv_page::ui::runtime::is_available();
+}
+#else
+bool sstv_available()
+{
+    return false;
+}
+#endif
+
 } // namespace
 
 namespace ui::app_catalog_builder
@@ -191,7 +204,7 @@ AppCatalog build(const FeatureFlags& flags)
             add(&s_pc_link_app);
 #endif
         }
-        if (flags.profile == CatalogProfile::PioDefault && flags.include_sstv)
+        if (flags.profile == CatalogProfile::PioDefault && flags.include_sstv && sstv_available())
         {
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
             add(&s_sstv_app);
@@ -211,7 +224,7 @@ AppCatalog build(const FeatureFlags& flags)
             add(&s_usb_app);
 #endif
         }
-        if (flags.profile == CatalogProfile::IdfDefault && flags.include_sstv)
+        if (flags.profile == CatalogProfile::IdfDefault && flags.include_sstv && sstv_available())
         {
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
             add(&s_sstv_app);

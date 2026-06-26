@@ -22,6 +22,8 @@ constexpr const char* kPackRootEnv = "TRAIL_MATE_PACK_ROOT";
 constexpr const char* kSettingsNs = "extensions";
 constexpr const char* kInstalledIdsKey = "installed_package_ids_v1";
 constexpr const char* kInstalledStorage = "linux-local";
+constexpr std::size_t kTextFileReadChunkBytes = 4096;
+constexpr std::size_t kMaxDescriptionBytes = 16 * 1024;
 
 std::string trim_copy(std::string value)
 {
@@ -56,7 +58,7 @@ std::vector<std::string> split_csv(const std::string& value)
     return out;
 }
 
-std::string read_text_file(const std::filesystem::path& path)
+std::string read_trimmed_text_file(const std::filesystem::path& path)
 {
     std::ifstream stream(path, std::ios::binary);
     if (!stream.is_open())
@@ -64,9 +66,21 @@ std::string read_text_file(const std::filesystem::path& path)
         return {};
     }
 
-    std::ostringstream contents;
-    contents << stream.rdbuf();
-    return trim_copy(contents.str());
+    std::string contents;
+    char buffer[kTextFileReadChunkBytes];
+    while (stream.good() && contents.size() < kMaxDescriptionBytes)
+    {
+        const std::size_t remaining = kMaxDescriptionBytes - contents.size();
+        const std::size_t chunk = std::min<std::size_t>(sizeof(buffer), remaining);
+        stream.read(buffer, static_cast<std::streamsize>(chunk));
+        const std::streamsize got = stream.gcount();
+        if (got <= 0)
+        {
+            break;
+        }
+        contents.append(buffer, static_cast<std::size_t>(got));
+    }
+    return trim_copy(std::move(contents));
 }
 
 std::filesystem::path repo_root_from_source()
@@ -229,7 +243,7 @@ bool load_package_from_dir(const std::filesystem::path& dir, PackageRecord& out_
         }
         else if (key == "description")
         {
-            out_package.description = read_text_file(dir / value);
+            out_package.description = read_trimmed_text_file(dir / value);
         }
         else if (key == "author")
         {

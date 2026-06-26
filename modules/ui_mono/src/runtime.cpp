@@ -4444,11 +4444,11 @@ void Runtime::renderCompose()
     }
 
     const int action_y = line_h * 7;
-    const int action_x[5] = {0, 24, 48, 72, 96};
+    const int action_x[5] = {0, 24, 44, 70, 104};
     const char* action_labels[5] = {composeModeLabel(compose_mode_),
                                     "  ",
-                                    "\xE2\x86\x90",
-                                    "\xE2\x87\xA4",
+                                    "BACK",
+                                    "DELETE",
                                     edit_target_ == EditTarget::Message ? "SEND" : "OK"};
     for (size_t i = 0; i < 5; ++i)
     {

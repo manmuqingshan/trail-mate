@@ -1,0 +1,777 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:device-power-management",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T13:19:05.616Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "trail-mate-system"
+      },
+      "summary": "整个 Trail Mate 跨平台户外伴侣系统，提供聊天、地图、设备监控和设置等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "包括所有业务模块：聊天、地图、设备状态、日志、设置、电源管理",
+        "responsibility": "为户外用户提供一体化通信、导航和设备管理",
+        "businessTerms": [
+          "聊天",
+          "地图",
+          "GPS",
+          "设置",
+          "设备状态",
+          "日志"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:device-power-management",
+      "kind": "design_context",
+      "label": "设备电源管理",
+      "source": {
+        "type": "model",
+        "id": "device-power-management"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "device-power-management"
+      },
+      "summary": "提供设备电源状态的控制，包括关机、重启、休眠、唤醒以及外设电源管理。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "trail-mate-system",
+        "scope": "电源管理页面，底层电源控制接口",
+        "responsibility": "管理设备整体功耗和屏幕/模块电源状态",
+        "businessTerms": [
+          "关机",
+          "休眠",
+          "唤醒",
+          "电源",
+          "屏幕休眠",
+          "GPS 电源"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "user"
+      },
+      "summary": "使用 Trail Mate 设备进行户外活动的最终用户。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:manage-device-power",
+      "kind": "design_use_case",
+      "label": "管理设备电源",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-device-power"
+      },
+      "summary": "用户通过按钮或界面操作控制设备的电源状态，包括关机、休眠、唤醒、屏幕开关等。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-2a14b0bc9339d3581fb8e2033d9db1a6",
+          "codegraph:function-a6ae4ae72ccbb7527c1ce19dd6963aa8",
+          "codegraph:function-9cbdd982db98f42983509330776745af",
+          "codegraph:function-26b4b8cf2688fc8f96348ac9d81cf55b",
+          "codegraph:function-b5392a6da55d519c18256cc5f54e1ac3",
+          "codegraph:function-87e3d3435ff72a1cbd2b7bf2ec1a02d8",
+          "codegraph:function-03d57aae99a07e8d5517c211a9eed969",
+          "codegraph:function-62f15a6f735eb40208482c7933b5b78b",
+          "codegraph:function-0675181f511b2fde8b19d6e405674c23",
+          "codegraph:function-3e6afe91608021f0aff741ec74b71ab1"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "device-power-management",
+        "trigger": "用户按下电源键或选择电源菜单项",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-2a14b0bc9339d3581fb8e2033d9db1a6",
+          "behavior-slice:ui-route-codegraph-function-87e3d3435ff72a1cbd2b7bf2ec1a02d8",
+          "behavior-slice:ui-route-codegraph-function-a6ae4ae72ccbb7527c1ce19dd6963aa8",
+          "behavior-slice:ui-route-codegraph-function-9cbdd982db98f42983509330776745af",
+          "behavior-slice:ui-route-codegraph-function-26b4b8cf2688fc8f96348ac9d81cf55b",
+          "behavior-slice:ui-route-codegraph-function-b5392a6da55d519c18256cc5f54e1ac3",
+          "behavior-slice:ui-route-codegraph-function-03d57aae99a07e8d5517c211a9eed969",
+          "behavior-slice:ui-route-codegraph-function-62f15a6f735eb40208482c7933b5b78b",
+          "behavior-slice:ui-route-codegraph-function-0675181f511b2fde8b19d6e405674c23",
+          "behavior-slice:ui-route-codegraph-function-3e6afe91608021f0aff741ec74b71ab1"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "kind": "design_use_case",
+      "label": "控制GPS模块开关",
+      "source": {
+        "type": "model",
+        "id": "use-case:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:toggle-gps-power"
+      },
+      "summary": "用户打开或关闭 GPS 模块以节省电量。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-8c510b18b65828286411822c13d556e6",
+          "codegraph:method-06cae0dbe58f597b1e7e1150f04afd62"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "device-power-management",
+        "trigger": "用户在电源管理界面操作 GPS 开关",
+        "primaryActorIds": [
+          "user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-method-8c510b18b65828286411822c13d556e6"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:manage-device-power",
+      "kind": "design_activity",
+      "label": "业务流程：管理设备电源",
+      "source": {
+        "type": "model",
+        "id": "activity:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:manage-device-power"
+      },
+      "summary": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:manage-device-power",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「管理设备电源」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "alternativeFlows[1]",
+            "alternativeFlows[2]",
+            "alternativeFlows[3]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「管理设备电源」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「管理设备电源」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「管理设备电源」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "alternativeFlows[1]",
+          "alternativeFlows[2]",
+          "alternativeFlows[3]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「管理设备电源」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「管理设备电源」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-device-power/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-device-power/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:manage-device-power-main-success",
+      "kind": "design_sequence",
+      "label": "管理设备电源 - 关机主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:manage-device-power-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:manage-device-power-main-success"
+      },
+      "summary": "用户触发关机操作，系统执行关机流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:manage-device-power",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「管理设备电源」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「管理设备电源」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "用户触发关机操作，系统执行关机流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「管理设备电源」的主成功交互场景。",
+        "coverageBoundary": "覆盖「管理设备电源」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "用户触发关机操作，系统执行关机流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「管理设备电源」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「管理设备电源」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "用户触发关机操作，系统执行关机流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_power_logic.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-device-power/sequences/sequence-manage-device-power-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-device-power/sequences/sequence-manage-device-power-main-success.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:toggle-gps-power",
+      "kind": "design_activity",
+      "label": "业务流程：控制GPS模块开关",
+      "source": {
+        "type": "model",
+        "id": "activity:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:toggle-gps-power"
+      },
+      "summary": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:toggle-gps-power",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「控制GPS模块开关」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]",
+            "alternativeFlows[1]",
+            "alternativeFlows[2]",
+            "failureFlows[1]"
+          ],
+          "boundary": "覆盖「控制GPS模块开关」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「控制GPS模块开关」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「控制GPS模块开关」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]",
+          "alternativeFlows[1]",
+          "alternativeFlows[2]",
+          "failureFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「控制GPS模块开关」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「控制GPS模块开关」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h，代码锚点 boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/toggle-gps-power/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/toggle-gps-power/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:toggle-gps-power-main-success",
+      "kind": "design_sequence",
+      "label": "控制GPS模块开关 - 开启GPS主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:toggle-gps-power-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:toggle-gps-power-main-success"
+      },
+      "summary": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:toggle-gps-power",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「控制GPS模块开关」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]"
+          ],
+          "boundary": "覆盖「控制GPS模块开关」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h"
+            ],
+            "codeAnchors": [
+              "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「控制GPS模块开关」的主成功交互场景。",
+        "coverageBoundary": "覆盖「控制GPS模块开关」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h"
+          ],
+          "codeAnchors": [
+            "boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「控制GPS模块开关」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「控制GPS模块开关」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h，代码锚点 boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/toggle-gps-power/sequences/sequence-toggle-gps-power-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/toggle-gps-power/sequences/sequence-toggle-gps-power-main-success.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:device-power-management",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:device-power-management",
+      "source": {
+        "type": "model",
+        "id": "device-power-management"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "device-power-management"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 设备电源管理",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:device-power-management:use-case:manage-device-power",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:device-power-management",
+      "targetId": "projection-node:design-use-case:use-case:manage-device-power",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-device-power"
+      },
+      "confidence": "medium",
+      "summary": "device-power-management contains 管理设备电源"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:manage-device-power:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:manage-device-power",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-device-power"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 管理设备电源",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:device-power-management:use-case:toggle-gps-power",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:device-power-management",
+      "targetId": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "source": {
+        "type": "model",
+        "id": "use-case:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:toggle-gps-power"
+      },
+      "confidence": "medium",
+      "summary": "device-power-management contains 控制GPS模块开关"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:user:use-case:toggle-gps-power:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:user",
+      "targetId": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "source": {
+        "type": "model",
+        "id": "use-case:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:toggle-gps-power"
+      },
+      "confidence": "medium",
+      "summary": "user participates in 控制GPS模块开关",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-device-power:activity:manage-device-power",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-device-power",
+      "targetId": "projection-node:design-activity:activity:manage-device-power",
+      "source": {
+        "type": "model",
+        "id": "activity:manage-device-power"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:manage-device-power"
+      },
+      "confidence": "medium",
+      "summary": "描述用户触发电源操作后，系统执行关机、休眠、唤醒等的主要流程。",
+      "metadata": {
+        "useCaseId": "use-case:manage-device-power",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-device-power:sequence:manage-device-power-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-device-power",
+      "targetId": "projection-node:design-sequence:sequence:manage-device-power-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:manage-device-power-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:manage-device-power-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户触发关机操作，系统执行关机流程。",
+      "metadata": {
+        "useCaseId": "use-case:manage-device-power",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:toggle-gps-power:activity:toggle-gps-power",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "targetId": "projection-node:design-activity:activity:toggle-gps-power",
+      "source": {
+        "type": "model",
+        "id": "activity:toggle-gps-power"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:toggle-gps-power"
+      },
+      "confidence": "medium",
+      "summary": "描述用户操作GPS开关后，系统启用或关闭GPS模块的流程。",
+      "metadata": {
+        "useCaseId": "use-case:toggle-gps-power",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:toggle-gps-power:sequence:toggle-gps-power-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:toggle-gps-power",
+      "targetId": "projection-node:design-sequence:sequence:toggle-gps-power-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:toggle-gps-power-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:toggle-gps-power-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户选择开启GPS，系统使能GPS电源并更新状态。",
+      "metadata": {
+        "useCaseId": "use-case:toggle-gps-power",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

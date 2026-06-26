@@ -8,6 +8,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 
 #include <Preferences.h>
+#include <algorithm>
 #include <string>
 
 namespace chat
@@ -16,6 +17,8 @@ namespace infra
 {
 namespace
 {
+
+constexpr size_t kRawBlobReadChunkBytes = 256;
 
 std::string makeTempSdPath(const char* path)
 {
@@ -85,7 +88,7 @@ bool savePreferencesMetadata(Preferences& prefs,
 
 } // namespace
 
-bool loadRawBlobFromSd(const char* path, std::vector<uint8_t>& out)
+bool loadRawBlobFromSd(const char* path, std::vector<uint8_t>& out, size_t max_len)
 {
     out.clear();
     if (!path || path[0] == '\0' ||
@@ -101,20 +104,29 @@ bool loadRawBlobFromSd(const char* path, std::vector<uint8_t>& out)
     }
 
     const size_t file_size = file.size();
-    if (file_size == 0)
+    if (file_size == 0 || file_size > max_len)
     {
         file.close();
         return false;
     }
 
-    out.resize(file_size);
-    const size_t read_bytes = file.read(out.data(), file_size);
-    file.close();
-    if (read_bytes != file_size)
+    out.reserve(file_size);
+    uint8_t buffer[kRawBlobReadChunkBytes];
+    size_t total_read = 0;
+    while (total_read < file_size)
     {
-        out.clear();
-        return false;
+        const size_t chunk = std::min(kRawBlobReadChunkBytes, file_size - total_read);
+        const size_t read_bytes = file.read(buffer, chunk);
+        if (read_bytes != chunk)
+        {
+            file.close();
+            out.clear();
+            return false;
+        }
+        out.insert(out.end(), buffer, buffer + read_bytes);
+        total_read += read_bytes;
     }
+    file.close();
     return true;
 }
 

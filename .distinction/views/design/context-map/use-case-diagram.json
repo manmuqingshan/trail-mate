@@ -1,0 +1,568 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:map",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T13:58:33.932Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "context:trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:trail-mate-system"
+      },
+      "summary": "跨平台野外通信和组成员追踪系统，支持多种硬件设备（ESP32、nRF52、Linux）和应用（桌面GTK、模拟器、Cardputer零）。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖所有业务目标：通信、位置共享、地图导航、设备管理、系统设置。",
+        "responsibility": "为徒步者、野外工作者提供离线通信、团队追踪、地图查看和硬件管理能力。",
+        "businessTerms": [
+          "聊天消息",
+          "团队成员",
+          "无线电",
+          "GPS",
+          "地图瓦片",
+          "电池",
+          "SD卡",
+          "屏幕休眠"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:context:map",
+      "kind": "design_context",
+      "label": "地图与导航",
+      "source": {
+        "type": "model",
+        "id": "context:map"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:map"
+      },
+      "summary": "加载并显示离线地图瓦片，在地图上标注节点位置，支持地图浏览和缩放。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "context:trail-mate-system",
+        "scope": "覆盖地图渲染、瓦片缓存、视图控制等与地图交互相关的业务。",
+        "responsibility": "为徒步者提供地理空间参考，显示当前及历史轨迹，辅助导航。",
+        "businessTerms": [
+          "地图瓦片",
+          "视口",
+          "缩放级别",
+          "标记点"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:hiker",
+      "kind": "design_actor",
+      "label": "徒步者",
+      "source": {
+        "type": "model",
+        "id": "actor:hiker"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:hiker"
+      },
+      "summary": "使用 Trail Mate 设备进行野外通信和定位的最终用户。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:browse-map",
+      "kind": "design_use_case",
+      "label": "浏览地图",
+      "source": {
+        "type": "model",
+        "id": "use-case:browse-map"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:browse-map"
+      },
+      "summary": "加载离线地图瓦片，通过平移和缩放查看地图区域，显示节点标记。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:function-5012e49a183e80a2f8940a8ca6469262"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:map",
+        "trigger": "用户切换到地图页面。",
+        "primaryActorIds": [
+          "actor:hiker"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-5012e49a183e80a2f8940a8ca6469262"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:browse-map",
+      "kind": "design_activity",
+      "label": "业务流程：浏览地图",
+      "source": {
+        "type": "model",
+        "id": "activity:browse-map"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:browse-map"
+      },
+      "summary": "用户平移和缩放地图，系统动态加载并渲染瓦片。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:browse-map",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "覆盖地图页面从打开到交互浏览的完整流程。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1-5]"
+          ],
+          "boundary": "进入地图页面开始，到用户退出结束。",
+          "notCovered": [
+            "离线地图瓦片预加载策略",
+            "GPS位置标注叠加"
+          ],
+          "rationale": "Activity图展示用户与地图的交互循环，以及瓦片加载逻辑。",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "boards"
+            ],
+            "entryPoints": [
+              "MapPageLogic::lifecycle"
+            ],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp::makeMapPageLifecycle"
+            ],
+            "outOfScopeCode": [
+              "瓦片缓存和请求队列实现"
+            ]
+          }
+        },
+        "coverageScenario": "覆盖地图页面从打开到交互浏览的完整流程。",
+        "coverageBoundary": "进入地图页面开始，到用户退出结束。",
+        "coverageRationale": "Activity图展示用户与地图的交互循环，以及瓦片加载逻辑。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1-5]"
+        ],
+        "notCovered": [
+          "离线地图瓦片预加载策略",
+          "GPS位置标注叠加"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "boards"
+          ],
+          "entryPoints": [
+            "MapPageLogic::lifecycle"
+          ],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp::makeMapPageLifecycle"
+          ],
+          "outOfScopeCode": [
+            "瓦片缓存和请求队列实现"
+          ]
+        },
+        "explanation": {
+          "business": "用户打开地图页面，查看当前位置周边地图。可以拖动查看其他区域。",
+          "uml": "开始 -> 加载当前视口瓦片 -> 显示地图。用户拖动/缩放触发新瓦片加载循环。",
+          "design": "地图渲染和交互由 MapPageLogic 协调，瓦片管理由 TileCache 负责，实现视口和数据的分离。",
+          "implementation": "在 gtk_uconsole_map_logic.cpp 中，生命周期函数创建地图控件并绑定交互回调。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/browse-map/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/browse-map/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-class-collaboration:class-collaboration:browse-map",
+      "kind": "design_class_collaboration",
+      "label": "结构承载：地图组件协作关系",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:browse-map"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:browse-map"
+      },
+      "summary": "描述地图页面涉及的核心类及其关系。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "low",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:browse-map",
+        "diagramKind": "class_collaboration",
+        "coverage": {
+          "scenario": "地图页面加载和瓦片管理。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "仅限于地图页面相关的UI和数据处理类。",
+          "notCovered": [
+            "低层图形渲染库",
+            "SD卡文件系统"
+          ],
+          "rationale": "展示地图功能的设计模式：策略模式可能用于不同地图源。",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk"
+            ],
+            "entryPoints": [
+              "GtkUConsoleMapLayout"
+            ],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp",
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp",
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+            ],
+            "outOfScopeCode": [
+              "具体瓦片解码实现"
+            ]
+          }
+        },
+        "coverageScenario": "地图页面加载和瓦片管理。",
+        "coverageBoundary": "仅限于地图页面相关的UI和数据处理类。",
+        "coverageRationale": "展示地图功能的设计模式：策略模式可能用于不同地图源。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "低层图形渲染库",
+          "SD卡文件系统"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk"
+          ],
+          "entryPoints": [
+            "GtkUConsoleMapLayout"
+          ],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp",
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp",
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+          ],
+          "outOfScopeCode": [
+            "具体瓦片解码实现"
+          ]
+        },
+        "explanation": {
+          "business": "地图浏览功能由MapLogic和MapLayout协作完成，MapLogic处理数据和交互，MapLayout负责UI渲染。",
+          "uml": "MapLogic 类包含一个 MapModel（可能存储瓦片来源、视口信息），MapLayout 使用 GTK 控件显示地图。",
+          "design": "这里采用了典型的 MVP 或 MVC 变体：Logic 作为控制器，Layout 作为视图。地图数据通过 TileCache 等管理。",
+          "implementation": "gtk_uconsole_map_logic.cpp 中可能实例化 MapModel 和控件交互。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/browse-map/realization/class-collaboration.md",
+        "htmlPath": "docs/design/use-case-diagrams/browse-map/realization/class-collaboration.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-browse-map-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：浏览地图主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-browse-map-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-browse-map-sequence"
+      },
+      "summary": "Sequence Diagram：浏览地图主成功场景，用于解释 Use Case「浏览地图」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:browse-map",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「浏览地图」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]"
+          ],
+          "boundary": "覆盖「浏览地图」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「浏览地图」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「浏览地图」的主成功交互场景。",
+        "coverageBoundary": "覆盖「浏览地图」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「浏览地图」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「浏览地图」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「浏览地图」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「浏览地图」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/browse-map/sequences/sequence-use-case-browse-map-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/browse-map/sequences/sequence-use-case-browse-map-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:trail-mate-system:context:map",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:trail-mate-system",
+      "targetId": "projection-node:design-context:context:map",
+      "source": {
+        "type": "model",
+        "id": "context:map"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:map"
+      },
+      "confidence": "high",
+      "summary": "context:trail-mate-system contains 地图与导航",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:map:use-case:browse-map",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:map",
+      "targetId": "projection-node:design-use-case:use-case:browse-map",
+      "source": {
+        "type": "model",
+        "id": "use-case:browse-map"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:browse-map"
+      },
+      "confidence": "high",
+      "summary": "context:map contains 浏览地图"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:hiker:use-case:browse-map:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:hiker",
+      "targetId": "projection-node:design-use-case:use-case:browse-map",
+      "source": {
+        "type": "model",
+        "id": "use-case:browse-map"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:browse-map"
+      },
+      "confidence": "high",
+      "summary": "actor:hiker participates in 浏览地图",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:browse-map:activity:browse-map",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:browse-map",
+      "targetId": "projection-node:design-activity:activity:browse-map",
+      "source": {
+        "type": "model",
+        "id": "activity:browse-map"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:browse-map"
+      },
+      "confidence": "high",
+      "summary": "用户平移和缩放地图，系统动态加载并渲染瓦片。",
+      "metadata": {
+        "useCaseId": "use-case:browse-map",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:browse-map:class-collaboration:browse-map",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:browse-map",
+      "targetId": "projection-node:design-class-collaboration:class-collaboration:browse-map",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:browse-map"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:browse-map"
+      },
+      "confidence": "low",
+      "summary": "描述地图页面涉及的核心类及其关系。",
+      "metadata": {
+        "useCaseId": "use-case:browse-map",
+        "diagramKind": "class_collaboration"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:browse-map:sequence:use-case-browse-map-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:browse-map",
+      "targetId": "projection-node:design-sequence:sequence:use-case-browse-map-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-browse-map-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-browse-map-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：浏览地图主成功场景，用于解释 Use Case「浏览地图」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:browse-map",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

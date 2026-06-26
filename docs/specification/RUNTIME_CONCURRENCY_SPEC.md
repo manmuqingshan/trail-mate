@@ -11,6 +11,11 @@ guidance for UI/storage responsiveness are defined in
 Active-path migrations that touch UI/storage/event responsiveness must satisfy
 that document's UML coverage gate before implementation begins.
 
+Meshtastic Android App BLE connection is the concrete phone-BLE protocol case for
+the `ble_write` rule below. Its full connection sequence, GATT drain semantics,
+config snapshot state machine, response-drain-before-save rule, and forbidden
+bypasses are specified in `MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`.
+
 ## Sources of Concurrency
 
 Trail Mate targets may receive work from:

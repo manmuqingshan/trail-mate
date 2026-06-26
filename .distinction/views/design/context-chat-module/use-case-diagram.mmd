@@ -1,0 +1,13 @@
+flowchart LR
+  actor_actor_user["&laquo;Actor&raquo;<br/>用户（徒步者）"]
+  actor_actor_remote_device["&laquo;Actor&raquo;<br/>远程设备（其他节点）"]
+  subgraph system_context_trail_mate_system["Trail Mate 系统"]
+    subgraph system_context_chat_module["聊天通信"]
+      useCase_use_case_send_text_message(["发送文字消息"])
+      useCase_use_case_receive_text_message(["接收文字消息"])
+      useCase_use_case_view_chat_history(["查看聊天历史"])
+    end
+  end
+  actor_actor_user --- useCase_use_case_send_text_message
+  actor_actor_remote_device --- useCase_use_case_receive_text_message
+  actor_actor_user --- useCase_use_case_view_chat_history

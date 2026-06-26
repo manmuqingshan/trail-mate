@@ -6,6 +6,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#if defined(ESP_PLATFORM)
+#include "esp_heap_caps.h"
+#include <new>
+#endif
 
 namespace phone::meshcore
 {
@@ -166,8 +170,31 @@ uint32_t nowSeconds()
 
 } // namespace
 
+#if defined(ESP_PLATFORM)
+void* MeshCorePhoneCore::operator new(std::size_t size)
+{
+    void* ptr = heap_caps_malloc_prefer(size,
+                                        2,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return ptr != nullptr ? ptr : ::operator new(size);
+}
+
+void MeshCorePhoneCore::operator delete(void* ptr) noexcept
+{
+    heap_caps_free(ptr);
+}
+
+void MeshCorePhoneCore::operator delete(void* ptr, std::size_t) noexcept
+{
+    operator delete(ptr);
+}
+#endif
+
 MeshCorePhoneCore::MeshCorePhoneCore(IPhoneAppFacade& app, const std::string& device_name, MeshCorePhoneHooks* hooks)
-    : app_(app), device_name_(device_name), hooks_(hooks) {}
+    : app_(app), device_name_(device_name), hooks_(hooks)
+{
+}
 
 void MeshCorePhoneCore::reset()
 {

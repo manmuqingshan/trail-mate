@@ -1,0 +1,1360 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>用例图地图</title>
+  <style>
+:root { color-scheme: dark; --bg: #0f141b; --panel: #151c25; --panel-2: #101720; --border: #2b3a4a; --text: #e8eef6; --muted: #9caaba; --accent: #73b7ff; --ok: #7bd88f; --warn: #ffd166; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, Segoe UI, system-ui, sans-serif; line-height: 1.5; }
+    .praxis-design-map { display: grid; gap: 24px; max-width: 1440px; margin: 0 auto; padding: 28px; }
+    .map-header, .map-policy, .context-index, .diagram-index, .diagram-section, .map-changelog { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 18px; }
+    .map-header p, .section-heading p, .layer-note, .diagram-index span { color: var(--muted); margin: 0; }
+    h1, h2, h3, h4 { margin: 0 0 10px; line-height: 1.2; }
+    .context-tree { display: grid; gap: 10px; padding-left: 22px; }
+    .context-tree li { padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    .context-tree li li { margin-top: 8px; background: #0d141d; }
+    .context-tree span, .context-tree p { color: var(--muted); margin: 4px 0 0; }
+    .diagram-index ol { display: grid; gap: 10px; padding-left: 22px; }
+    .diagram-index li { padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    a { color: var(--accent); }
+    .diagram-sections { display: grid; gap: 22px; }
+    .section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+    .section-heading span { border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; color: var(--muted); white-space: nowrap; }
+    .design-map-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr); gap: 14px; align-items: start; }
+    .base-layer, .overlay-layer, .flow-layer, .timeline-layer, .metric-index-layer, .uml-tree-layer, .semantic-layer { border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); padding: 14px; }
+    .semantic-layer { display: grid; gap: 10px; margin: 14px 0; }
+    .semantic-layer p, .semantic-layer dd { margin: 0; color: var(--muted); }
+    .semantic-layer .layer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .layer-card { border: 1px solid var(--border); border-radius: 8px; background: #0d141d; padding: 10px; overflow-wrap: anywhere; }
+    .layer-card ul { margin: 0; padding-left: 18px; }
+    .implementation-scope-card dl { display: grid; gap: 6px; margin: 0; }
+    .implementation-scope-card dt { color: var(--text); font-weight: 700; }
+    .implementation-scope-card dd { margin: 2px 0 0; }
+    .uml-tree-layer { margin: 14px 0; }
+    .uml-tree-layer ol { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+    .uml-tree-layer li { border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; background: #0d141d; }
+    .uml-tree-layer a { text-decoration: none; }
+    .metric-index-layer { margin: 14px 0; display: grid; gap: 10px; }
+    .metric-index-layer p { margin: 0; color: var(--muted); }
+    .metric-index-grid { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; }
+    .metric-group { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: #0d141d; }
+    .metric-group header { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .metric-group header strong { font-size: 18px; }
+    .metric-group ol { display: grid; gap: 8px; margin: 8px 0 0; padding-left: 18px; }
+    .metric-group li { overflow-wrap: anywhere; }
+    .metric-group li span, .metric-group li p { display: block; color: var(--muted); font-size: 0.9em; }
+    .metric-group pre { max-height: 260px; overflow: auto; margin: 8px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #080e15; color: #d8e2ee; font-family: SFMono-Regular, Consolas, Liberation Mono, monospace; font-size: 12px; }
+    .overlay-layer { display: grid; gap: 8px; }
+    .overlay-layer ul { display: grid; gap: 8px; padding-left: 18px; margin: 0; }
+    .overlay-layer li span { display: block; color: var(--muted); font-size: 0.9em; }
+    .mermaid { overflow: auto; min-height: 220px; max-height: 520px; margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: #0b1016; color: #d8e2ee; font-family: SFMono-Regular, Consolas, Liberation Mono, monospace; font-size: 12px; }
+    .flow-layer { margin-top: 14px; display: grid; gap: 12px; }
+    .flow-layer section { border-top: 1px solid var(--border); padding-top: 10px; }
+    .timeline-layer { margin-top: 14px; }
+    [data-praxis-anchor] { scroll-margin-top: 18px; }
+    [data-praxis-status="candidate"] { border-color: #7a642f; }
+    [data-praxis-status="confirmed"] { border-color: #2f7a4d; }
+    @media (max-width: 900px) { .praxis-design-map { padding: 14px; } .design-map-grid, .metric-index-grid { grid-template-columns: 1fr; } .section-heading { display: grid; } }
+  </style>
+</head>
+<body>
+<article class="praxis-design-map" data-praxis-doc="use-case-diagrams-map" data-praxis-schema="praxis.semanticDesignHtml.v1" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true" data-praxis-source-md="docs/design/use-case-diagrams-maps.md">
+  <header class="map-header" data-praxis-kind="design_context" data-praxis-anchor="design-map:use-case-diagrams" data-praxis-layer="base">
+    <p>Praxis Design Explorer</p>
+    <h1>用例图地图</h1>
+    <span>项目版本 0.0.0 · Git 34aad0bffa2f dirty · 更新于 2026-06-25T14:17:55.307Z · 来源 Agent 候选分析</span>
+  </header>
+
+  <section class="map-policy" data-praxis-kind="annotation" data-praxis-anchor="design-map:version-policy" data-praxis-layer="timeline">
+    <h2>版本策略</h2>
+    <ul>
+      <li>agent 在识别真实需求或设计变更后决定版本 bump。</li>
+      <li>每一次版本变化都应对应一个边界清晰的原子化 git commit。</li>
+      <li><strong>MAJOR</strong>：参与者边界、系统边界、核心故事职责、公开 API 或数据契约发生不兼容变化。</li>
+      <li><strong>MINOR</strong>：向后兼容地新增用例、参与者、外部系统、流程或设计能力。</li>
+      <li><strong>PATCH</strong>：向后兼容的问题修复、澄清、证据补充、图布局或非行为性文档修正。</li>
+    </ul>
+  </section>
+
+  <section class="context-index" data-praxis-kind="design_context" data-praxis-anchor="design-map:context-index" data-praxis-layer="base">
+    <h2>业务模块边界</h2>
+    <ol class="context-tree">
+      <li data-praxis-kind="design_context" data-praxis-anchor="system:trail-mate" data-praxis-context-kind="system">
+        <strong>Trail Mate 系统</strong>
+        <span>系统边界</span>
+        <p>管理整个应用的用户目标和业务能力</p>
+        <ol>
+          <li data-praxis-kind="design_context" data-praxis-anchor="business_module:device-management" data-praxis-context-kind="business_module">
+            <strong>设备管理</strong>
+            <span>业务模块</span>
+            <p>提供设备状态的可见性和用户可控的硬件管理</p>
+          </li>
+          <li data-praxis-kind="design_context" data-praxis-anchor="business_module:chat-communication" data-praxis-context-kind="business_module">
+            <strong>聊天通信</strong>
+            <span>业务模块</span>
+            <p>管理用户间的消息传递和无线电链路配置</p>
+          </li>
+          <li data-praxis-kind="design_context" data-praxis-anchor="business_module:map-navigation" data-praxis-context-kind="business_module">
+            <strong>地图导航</strong>
+            <span>业务模块</span>
+            <p>提供基于地图的位置可视化和导航</p>
+          </li>
+          <li data-praxis-kind="design_context" data-praxis-anchor="business_module:team-collaboration" data-praxis-context-kind="business_module">
+            <strong>团队协作</strong>
+            <span>业务模块</span>
+            <p>支持多个用户组成团队并共享实时位置</p>
+          </li>
+          <li data-praxis-kind="design_context" data-praxis-anchor="business_module:diagnostics-tools" data-praxis-context-kind="business_module">
+            <strong>诊断工具</strong>
+            <span>业务模块</span>
+            <p>提供系统诊断和现场数据采集工具</p>
+          </li>
+        </ol>
+      </li>
+    </ol>
+  </section>
+
+  <nav class="diagram-index" data-praxis-kind="annotation" data-praxis-anchor="design-map:use-case-index" data-praxis-layer="base">
+    <h2>用例图索引</h2>
+    <ol><li data-praxis-kind="use_case" data-praxis-anchor="use-case:view-device-overview" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-view-device-overview">查看设备概览</a><a href="use-case-diagrams/view-device-overview.html">独立页面</a><span>Trail Mate 系统 / 设备管理 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:send-text-message" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-send-text-message">发送文本消息</a><a href="use-case-diagrams/send-text-message.html">独立页面</a><span>Trail Mate 系统 / 聊天通信 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:view-map-navigate" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-view-map-navigate">查看地图并导航</a><a href="use-case-diagrams/view-map-navigate.html">独立页面</a><span>Trail Mate 系统 / 地图导航 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-status="candidate" data-praxis-confidence="low"><a href="#use-case-diagram-use-case-manage-team-sharing">管理团队共享位置</a><a href="use-case-diagrams/manage-team-sharing.html">独立页面</a><span>Trail Mate 系统 / 团队协作 · 下钻 UML 2 · candidate · low · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:view-data-details" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-view-data-details">查看数据详情</a><a href="use-case-diagrams/view-data-details.html">独立页面</a><span>Trail Mate 系统 / 设备管理 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:view-hardware-status" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-view-hardware-status">查看硬件状态</a><a href="use-case-diagrams/view-hardware-status.html">独立页面</a><span>Trail Mate 系统 / 设备管理 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:view-system-logs" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-view-system-logs">查看系统日志</a><a href="use-case-diagrams/view-system-logs.html">独立页面</a><span>Trail Mate 系统 / 设备管理 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-device-settings" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-manage-device-settings">管理设备设置</a><a href="use-case-diagrams/manage-device-settings.html">独立页面</a><span>Trail Mate 系统 / 设备管理 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:sync-gps-time" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-sync-gps-time">同步 GPS 时间</a><a href="use-case-diagrams/sync-gps-time.html">独立页面</a><span>Trail Mate 系统 / 设备管理 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:control-device-notifications" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-control-device-notifications">控制设备通知</a><a href="use-case-diagrams/control-device-notifications.html">独立页面</a><span>Trail Mate 系统 / 设备管理 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:power-off-device" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-power-off-device">关闭设备电源</a><a href="use-case-diagrams/power-off-device.html">独立页面</a><span>Trail Mate 系统 / 设备管理 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-sd-card" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-manage-sd-card">管理 SD 卡</a><a href="use-case-diagrams/manage-sd-card.html">独立页面</a><span>Trail Mate 系统 / 设备管理 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-receive-text-message">接收文本消息</a><a href="use-case-diagrams/receive-text-message.html">独立页面</a><span>Trail Mate 系统 / 聊天通信 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-configure-radio-parameters">配置无线电参数</a><a href="use-case-diagrams/configure-radio-parameters.html">独立页面</a><span>Trail Mate 系统 / 聊天通信 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li><li data-praxis-kind="use_case" data-praxis-anchor="use-case:capture-screenshot" data-praxis-status="candidate" data-praxis-confidence="medium"><a href="#use-case-diagram-use-case-capture-screenshot">捕获屏幕截图</a><a href="use-case-diagrams/capture-screenshot.html">独立页面</a><span>Trail Mate 系统 / 诊断工具 · 下钻 UML 2 · candidate · medium · 0.0.0 · 2026-06-25T14:17:55.307Z</span></li></ol>
+  </nav>
+
+  <main class="diagram-sections">
+    <section id="use-case-diagram-use-case-view-device-overview" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-device-overview" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 设备管理</p>
+          <h2>查看设备概览</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:view-device-overview">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:view-device-overview" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/view-device-overview.html">
+        <a href="use-case-diagrams/view-device-overview.html">Use Case Diagram：查看设备概览</a>
+      </li>
+      <li data-praxis-uml-node="activity:view-device-overview" data-praxis-parent-use-case="use-case:view-device-overview" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/view-device-overview/activity.html" data-praxis-coverage-scenario="主成功场景" data-praxis-coverage-boundary="从用户选择概览页开始，到状态显示结束">
+        <a href="use-case-diagrams/view-device-overview/activity.html">Activity Diagram：业务流程：查看设备概览</a>
+      </li>
+      <li data-praxis-uml-node="sequence:view-device-overview-main" data-praxis-parent-use-case="use-case:view-device-overview" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/view-device-overview/sequences/sequence-view-device-overview-main.html" data-praxis-coverage-scenario="概览页面的主交互流" data-praxis-coverage-boundary="从用户点击概览标签到 UI 刷新状态指示器">
+        <a href="use-case-diagrams/view-device-overview/sequences/sequence-view-device-overview-main.html">Sequence Diagram：对象交互：查看设备概览主成功场景</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-device-overview" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-device-overview" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_device_management[&quot;设备管理&quot;]
+      useCase_use_case_view_device_overview([&quot;查看设备概览&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_view_device_overview</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:view-device-overview" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:view-device-overview" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户打开主概览页面，系统汇总展示关键硬件状态、电池、GPS、无线电等简要信息</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-device-overview" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:view-device-overview" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>medium</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp · n/a<span>概览页面的生命周期和刷新逻辑存在</span></li><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/include/boards/tlora_pager/tlora_pager_board.h · 1-1<span>硬件状态查询方法集中定义在 TLoRaPagerBoard 类中</span></li><li><strong>strong</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_widgets.cpp · 1-1<span>实现概览页面的 UI 组件和硬件状态获取逻辑</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-device-overview" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:view-device-overview" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 8 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-device-overview" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:view-device-overview" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-device-overview" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>1. 用户进入概览页面</li><li>2. 系统读取电池电量、GPS 坐标、无线连接状态等</li><li>3. 系统在界面上展示所有状态</li><li>用户选择查看设备概览</li><li>系统收集电池电量、充电状态、GPS 可用性、无线电状态等</li><li>系统在界面上展示这些状态信息</li><li>用户选择概览页面</li><li>系统请求刷新硬件状态数据</li><li>系统更新页面上的各硬件状态指示器</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>某个硬件模块未就绪时，对应状态显示为未就绪或未知</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-device-overview" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:view-device-overview" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「查看设备概览」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-send-text-message" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:send-text-message" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 聊天通信</p>
+          <h2>发送文本消息</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:send-text-message">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:send-text-message" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/send-text-message.html">
+        <a href="use-case-diagrams/send-text-message.html">Use Case Diagram：发送文本消息</a>
+      </li>
+      <li data-praxis-uml-node="activity:send-text-message-activity" data-praxis-parent-use-case="use-case:send-text-message" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/send-text-message/activity.html" data-praxis-coverage-scenario="消息发送的主流程" data-praxis-coverage-boundary="从用户编写消息到无线电成功发射">
+        <a href="use-case-diagrams/send-text-message/activity.html">Activity Diagram：业务流程：发送文本消息</a>
+      </li>
+      <li data-praxis-uml-node="sequence:send-text-message-sequence" data-praxis-parent-use-case="use-case:send-text-message" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message-sequence.html" data-praxis-coverage-scenario="消息发送的同步交互" data-praxis-coverage-boundary="从用户按下发送到无线电发射完成">
+        <a href="use-case-diagrams/send-text-message/sequences/sequence-send-text-message-sequence.html">Sequence Diagram：对象交互：发送文本消息主成功场景</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:send-text-message" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:send-text-message" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  external_external_system_meshtastic_network[&quot;&amp;laquo;External System&amp;raquo;&lt;br/&gt;Meshtastic 网络&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_chat_communication[&quot;聊天通信&quot;]
+      useCase_use_case_send_text_message([&quot;发送文本消息&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_send_text_message
+  external_external_system_meshtastic_network --- useCase_use_case_send_text_message</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:send-text-message" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:send-text-message" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户输入文本，通过 Meshtastic 网络将消息发送给其他节点</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:send-text-message" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:send-text-message" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp · 9-9<span>Nrf52 节点固件包含聊天服务</span></li><li><strong>strong</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp · 1-1<span>聊天页面生命周期提供输入处理与发送逻辑</span></li><li><strong>strong</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp · 1-1<span>聊天逻辑处理消息发送流程</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:send-text-message" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:send-text-message" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 2 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:send-text-message" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:send-text-message" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:send-text-message" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>1. 用户输入文本并触发发送</li><li>2. 系统通过 ChatService 将消息打包</li><li>3. 通过 MeshAdapter 发送到网络</li><li>4. 显示发送成功反馈</li><li>用户在聊天页面输入消息并触发发送命令</li><li>系统将消息打包并通过无线电发送</li><li>系统将发出的消息添加到本地历史记录</li><li>用户编写文本消息</li><li>用户触发发送</li><li>系统将消息封装并通过无线电发射</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>无线电通道忙碌或超时，向用户显示发送失败提示</li><li>无线电发送失败，系统显示错误提示</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:send-text-message" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:send-text-message" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「发送文本消息」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-view-map-navigate" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-map-navigate" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 地图导航</p>
+          <h2>查看地图并导航</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:view-map-navigate">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:view-map-navigate" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/view-map-navigate.html">
+        <a href="use-case-diagrams/view-map-navigate.html">Use Case Diagram：查看地图并导航</a>
+      </li>
+      <li data-praxis-uml-node="activity:view-map-navigate-activity" data-praxis-parent-use-case="use-case:view-map-navigate" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/view-map-navigate/activity.html" data-praxis-coverage-scenario="地图导航主流程" data-praxis-coverage-boundary="从用户打开地图到显示当前位置">
+        <a href="use-case-diagrams/view-map-navigate/activity.html">Activity Diagram：业务流程：查看地图并导航</a>
+      </li>
+      <li data-praxis-uml-node="sequence:view-map-navigate-sequence" data-praxis-parent-use-case="use-case:view-map-navigate" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate-sequence.html" data-praxis-coverage-scenario="地图初始化交互" data-praxis-coverage-boundary="从用户请求地图到显示位置">
+        <a href="use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate-sequence.html">Sequence Diagram：对象交互：查看地图导航主成功场景</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-map-navigate" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-map-navigate" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_map_navigation[&quot;地图导航&quot;]
+      useCase_use_case_view_map_navigate([&quot;查看地图并导航&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_view_map_navigate</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:view-map-navigate" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:view-map-navigate" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户在地图界面上查看自己的当前位置和历史轨迹</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-map-navigate" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:view-map-navigate" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>medium</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp · n/a<span>存在地图页面逻辑实现</span></li><li><strong>medium</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp · 1-1<span>地图逻辑文件负责地图视图和位置更新</span></li><li><strong>medium</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp · 1-1<span>地图页面布局，包含地图显示入口</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-map-navigate" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:view-map-navigate" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 1 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-map-navigate" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:view-map-navigate" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-map-navigate" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>1. 用户打开地图页面</li><li>2. 系统获取当前 GPS 坐标</li><li>3. 系统加载地图瓦片并渲染</li><li>4. 系统显示位置标记和轨迹</li><li>用户选择地图导航功能</li><li>系统获取当前位置坐标</li><li>系统在地图上渲染位置标记和路径</li><li>用户打开地图页面</li><li>系统加载地图瓦片</li><li>系统获取当前 GPS 位置并显示</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>GPS 未定位时，显示上次已知位置或提示用户等待定位</li><li>GPS 未锁定，地图显示默认位置</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-map-navigate" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:view-map-navigate" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「查看地图并导航」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-manage-team-sharing" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-status="candidate" data-praxis-confidence="low">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 团队协作</p>
+          <h2>管理团队共享位置</h2>
+        </div>
+        <span>candidate · low</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:manage-team-sharing">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:manage-team-sharing" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/manage-team-sharing.html">
+        <a href="use-case-diagrams/manage-team-sharing.html">Use Case Diagram：管理团队共享位置</a>
+      </li>
+      <li data-praxis-uml-node="activity:manage-team-sharing" data-praxis-parent-use-case="use-case:manage-team-sharing" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/manage-team-sharing/activity.html" data-praxis-coverage-scenario="主成功场景" data-praxis-coverage-boundary="从团队管理到位置共享">
+        <a href="use-case-diagrams/manage-team-sharing/activity.html">Activity Diagram：业务流程：管理团队共享</a>
+      </li>
+      <li data-praxis-uml-node="sequence:manage-team-sharing" data-praxis-parent-use-case="use-case:manage-team-sharing" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing.html" data-praxis-coverage-scenario="主成功场景" data-praxis-coverage-boundary="UI 到网络">
+        <a href="use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing.html">Sequence Diagram：对象交互：管理团队共享</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  external_external_system_meshtastic_network[&quot;&amp;laquo;External System&amp;raquo;&lt;br/&gt;Meshtastic 网络&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_team_collaboration[&quot;团队协作&quot;]
+      useCase_use_case_manage_team_sharing([&quot;管理团队共享位置&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_manage_team_sharing
+  external_external_system_meshtastic_network --- useCase_use_case_manage_team_sharing</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:manage-team-sharing" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户创建或加入团队，与团队成员共享实时位置</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:manage-team-sharing" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>medium</strong> 本地仓库扫描 · apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp · 524-524<span>ESP32 固件中存在 TeamController</span></li><li><strong>medium</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp · 1-1<span>团队管理逻辑</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:manage-team-sharing" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>暂未关联可展示的本地仓库证据。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:manage-team-sharing" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>1. 用户打开团队页面</li><li>2. 系统获取当前 GPS 位置</li><li>3. 系统通过 TeamService 将位置广播到团队频道</li><li>4. 其他团队成员的位置在地图上显示</li><li>用户选择创建或加入团队</li><li>系统通过 Meshtastic 网络发送/接收团队位置数据</li><li>系统在地图上渲染团队成员位置</li><li>用户创建新团队或加入已有团队</li><li>系统通过 Meshtastic 网络广播团队信息</li><li>位置数据在团队内共享</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>网络不可用时只能查看缓存数据</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:manage-team-sharing" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「管理团队共享位置」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-view-data-details" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-data-details" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 设备管理</p>
+          <h2>查看数据详情</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:view-data-details">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:view-data-details" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/view-data-details.html">
+        <a href="use-case-diagrams/view-data-details.html">Use Case Diagram：查看数据详情</a>
+      </li>
+      <li data-praxis-uml-node="activity:view-data-details-activity" data-praxis-parent-use-case="use-case:view-data-details" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/view-data-details/activity.html" data-praxis-coverage-scenario="数据页面刷新" data-praxis-coverage-boundary="从用户选择数据页面到显示最新读数">
+        <a href="use-case-diagrams/view-data-details/activity.html">Activity Diagram：业务流程：查看数据详情</a>
+      </li>
+      <li data-praxis-uml-node="sequence:view-data-details-sequence" data-praxis-parent-use-case="use-case:view-data-details" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/view-data-details/sequences/sequence-view-data-details-sequence.html" data-praxis-coverage-scenario="数据刷新交互" data-praxis-coverage-boundary="从用户触发刷新到 UI 更新">
+        <a href="use-case-diagrams/view-data-details/sequences/sequence-view-data-details-sequence.html">Sequence Diagram：对象交互：查看数据详情</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-data-details" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-data-details" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_device_management[&quot;设备管理&quot;]
+      useCase_use_case_view_data_details([&quot;查看数据详情&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_view_data_details</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:view-data-details" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:view-data-details" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户打开数据页面，查看传感器收集的详细数据（如温度、气压等）</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-data-details" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:view-data-details" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp · 1-1<span>数据页面逻辑包含刷新和生命周期函数</span></li><li><strong>medium</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_data_logic.cpp · 1-1<span>数据页面的逻辑实现</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-data-details" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:view-data-details" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 3 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-data-details" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:view-data-details" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-data-details" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户选择查看数据</li><li>系统获取传感器数据（温度、海拔、气压等）</li><li>系统将数据格式化并显示在界面上</li><li>用户选择数据页面</li><li>系统从传感器获取最新数据并显示</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>某些传感器未就绪时，对应字段显示 N/A</li><li>传感器读取失败，页面显示错误状态</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-data-details" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:view-data-details" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「查看数据详情」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-view-hardware-status" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-hardware-status" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 设备管理</p>
+          <h2>查看硬件状态</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:view-hardware-status">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:view-hardware-status" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/view-hardware-status.html">
+        <a href="use-case-diagrams/view-hardware-status.html">Use Case Diagram：查看硬件状态</a>
+      </li>
+      <li data-praxis-uml-node="activity:view-hardware-status-activity" data-praxis-parent-use-case="use-case:view-hardware-status" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/view-hardware-status/activity.html" data-praxis-coverage-scenario="硬件状态查询流程" data-praxis-coverage-boundary="从用户选择硬件页面到显示所有模块状态">
+        <a href="use-case-diagrams/view-hardware-status/activity.html">Activity Diagram：业务流程：查看硬件状态</a>
+      </li>
+      <li data-praxis-uml-node="sequence:view-hardware-status-sequence" data-praxis-parent-use-case="use-case:view-hardware-status" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/view-hardware-status/sequences/sequence-view-hardware-status-sequence.html" data-praxis-coverage-scenario="硬件状态查询交互" data-praxis-coverage-boundary="从用户触发硬件页面到状态刷新完成">
+        <a href="use-case-diagrams/view-hardware-status/sequences/sequence-view-hardware-status-sequence.html">Sequence Diagram：对象交互：查看硬件状态</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-hardware-status" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-hardware-status" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_device_management[&quot;设备管理&quot;]
+      useCase_use_case_view_hardware_status([&quot;查看硬件状态&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_view_hardware_status</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:view-hardware-status" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:view-hardware-status" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户查看所有硬件模块的就绪状态，包括 GPS、无线电、传感器、SD 卡、电池、充电等</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-hardware-status" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:view-hardware-status" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_hardware_logic.cpp · 1-1<span>硬件页面逻辑负责调用各种硬件状态检查函数</span></li><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>硬件状态查询的实现</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-hardware-status" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:view-hardware-status" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 10 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-hardware-status" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:view-hardware-status" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-hardware-status" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户选择查看硬件状态</li><li>系统依次检查 GPS、无线电、传感器、SD 卡、电池等</li><li>系统显示每个硬件的状态（就绪/未就绪/错误）及电池电量、温度、充电状态</li><li>用户选择硬件状态页面</li><li>系统逐一查询各个硬件模块的状态并显示</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>某硬件不可用时显示为未就绪，不影响其他硬件检查</li><li>某个硬件模块无响应，显示未就绪</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-hardware-status" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:view-hardware-status" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「查看硬件状态」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-view-system-logs" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-system-logs" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 设备管理</p>
+          <h2>查看系统日志</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:view-system-logs">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:view-system-logs" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/view-system-logs.html">
+        <a href="use-case-diagrams/view-system-logs.html">Use Case Diagram：查看系统日志</a>
+      </li>
+      <li data-praxis-uml-node="activity:view-system-logs-activity" data-praxis-parent-use-case="use-case:view-system-logs" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/view-system-logs/activity.html" data-praxis-coverage-scenario="日志页面刷新" data-praxis-coverage-boundary="从用户选择日志页面到显示日志条目">
+        <a href="use-case-diagrams/view-system-logs/activity.html">Activity Diagram：业务流程：查看系统日志</a>
+      </li>
+      <li data-praxis-uml-node="sequence:view-system-logs-sequence" data-praxis-parent-use-case="use-case:view-system-logs" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/view-system-logs/sequences/sequence-view-system-logs-sequence.html" data-praxis-coverage-scenario="日志刷新交互" data-praxis-coverage-boundary="从用户请求日志到列表更新">
+        <a href="use-case-diagrams/view-system-logs/sequences/sequence-view-system-logs-sequence.html">Sequence Diagram：对象交互：查看系统日志</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-system-logs" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-system-logs" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_device_management[&quot;设备管理&quot;]
+      useCase_use_case_view_system_logs([&quot;查看系统日志&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_view_system_logs</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:view-system-logs" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:view-system-logs" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户打开日志页面，查看系统运行日志和事件记录</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-system-logs" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:view-system-logs" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp · 1-1<span>日志页面逻辑</span></li><li><strong>medium</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_logs_logic.cpp · 1-1<span>日志页面逻辑实现</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-system-logs" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:view-system-logs" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 3 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:view-system-logs" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:view-system-logs" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-system-logs" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户选择查看日志</li><li>系统获取最近的日志记录</li><li>系统将日志内容添加到日志视图</li><li>用户选择日志页面</li><li>系统从日志缓冲区读取并格式化显示</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>无日志时显示空状态提示</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:view-system-logs" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:view-system-logs" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「查看系统日志」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-manage-device-settings" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-device-settings" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 设备管理</p>
+          <h2>管理设备设置</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:manage-device-settings">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:manage-device-settings" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/manage-device-settings.html">
+        <a href="use-case-diagrams/manage-device-settings.html">Use Case Diagram：管理设备设置</a>
+      </li>
+      <li data-praxis-uml-node="activity:manage-device-settings-activity" data-praxis-parent-use-case="use-case:manage-device-settings" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/manage-device-settings/activity.html" data-praxis-coverage-scenario="修改并保存一个设置" data-praxis-coverage-boundary="从用户修改设置到系统应用新值">
+        <a href="use-case-diagrams/manage-device-settings/activity.html">Activity Diagram：业务流程：管理设备设置</a>
+      </li>
+      <li data-praxis-uml-node="sequence:manage-device-settings-sequence" data-praxis-parent-use-case="use-case:manage-device-settings" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/manage-device-settings/sequences/sequence-manage-device-settings-sequence.html" data-praxis-coverage-scenario="保存一个设置的交互" data-praxis-coverage-boundary="从用户点击保存到设置生效">
+        <a href="use-case-diagrams/manage-device-settings/sequences/sequence-manage-device-settings-sequence.html">Sequence Diagram：对象交互：管理设备设置</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-device-settings" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-device-settings" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_device_management[&quot;设备管理&quot;]
+      useCase_use_case_manage_device_settings([&quot;管理设备设置&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_manage_device_settings</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:manage-device-settings" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:manage-device-settings" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户打开设置页面，查看和修改设备参数，如界面、声音、网络等</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:manage-device-settings" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:manage-device-settings" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp · 1-1<span>设置页面逻辑</span></li><li><strong>medium</strong> 本地仓库扫描 · apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp · 1-1<span>设置逻辑实现</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:manage-device-settings" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:manage-device-settings" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 4 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:manage-device-settings" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:manage-device-settings" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-device-settings" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户打开设置页面，查看当前各项配置</li><li>用户修改某项设置（如音量、屏幕亮度等）</li><li>系统保存新值并应用</li><li>用户选择设置页面</li><li>用户修改某个设置项</li><li>系统保存新值并通知相关模块</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>无</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-device-settings" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:manage-device-settings" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「管理设备设置」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-sync-gps-time" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:sync-gps-time" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 设备管理</p>
+          <h2>同步 GPS 时间</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:sync-gps-time">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:sync-gps-time" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/sync-gps-time.html">
+        <a href="use-case-diagrams/sync-gps-time.html">Use Case Diagram：同步 GPS 时间</a>
+      </li>
+      <li data-praxis-uml-node="activity:sync-gps-time-activity" data-praxis-parent-use-case="use-case:sync-gps-time" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/sync-gps-time/activity.html" data-praxis-coverage-scenario="时间同步的主流程" data-praxis-coverage-boundary="从用户触发同步到 RTC 时间更新">
+        <a href="use-case-diagrams/sync-gps-time/activity.html">Activity Diagram：业务流程：同步 GPS 时间</a>
+      </li>
+      <li data-praxis-uml-node="sequence:sync-gps-time-sequence" data-praxis-parent-use-case="use-case:sync-gps-time" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/sync-gps-time/sequences/sequence-sync-gps-time-sequence.html" data-praxis-coverage-scenario="时间同步交互" data-praxis-coverage-boundary="从用户触发同步到 RTC 更新">
+        <a href="use-case-diagrams/sync-gps-time/sequences/sequence-sync-gps-time-sequence.html">Sequence Diagram：对象交互：同步 GPS 时间</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:sync-gps-time" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:sync-gps-time" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_device_management[&quot;设备管理&quot;]
+      useCase_use_case_sync_gps_time([&quot;同步 GPS 时间&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_sync_gps_time</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:sync-gps-time" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:sync-gps-time" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户触发从 GPS 模块获取准确时间并同步到设备 RTC，或调整 RTC 偏移</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:sync-gps-time" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:sync-gps-time" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>时间同步相关函数实现在 TLoRaPagerBoard 中</span></li><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>与 RTC 同步相关的方法</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:sync-gps-time" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:sync-gps-time" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 4 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:sync-gps-time" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:sync-gps-time" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:sync-gps-time" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户选择同步时间或进入自动同步流程</li><li>系统从 GPS 模块读取 UTC 时间</li><li>系统更新 RTC 并调整偏移值</li><li>用户触发时间同步</li><li>系统从 GPS 获取当前 UTC 时间</li><li>系统写入 RTC</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>GPS 未就绪或信号差，同步失败并提示用户</li><li>GPS 未锁定，同步失败</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:sync-gps-time" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:sync-gps-time" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「同步 GPS 时间」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-control-device-notifications" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:control-device-notifications" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 设备管理</p>
+          <h2>控制设备通知</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:control-device-notifications">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:control-device-notifications" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/control-device-notifications.html">
+        <a href="use-case-diagrams/control-device-notifications.html">Use Case Diagram：控制设备通知</a>
+      </li>
+      <li data-praxis-uml-node="activity:control-device-notifications-activity" data-praxis-parent-use-case="use-case:control-device-notifications" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/control-device-notifications/activity.html" data-praxis-coverage-scenario="调整通知参数" data-praxis-coverage-boundary="从用户修改参数到设置立即生效">
+        <a href="use-case-diagrams/control-device-notifications/activity.html">Activity Diagram：业务流程：控制设备通知</a>
+      </li>
+      <li data-praxis-uml-node="sequence:control-device-notifications" data-praxis-parent-use-case="use-case:control-device-notifications" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/control-device-notifications/sequences/sequence-control-device-notifications.html" data-praxis-coverage-scenario="音量设置" data-praxis-coverage-boundary="UI 到 Board">
+        <a href="use-case-diagrams/control-device-notifications/sequences/sequence-control-device-notifications.html">Sequence Diagram：对象交互：控制通知</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:control-device-notifications" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:control-device-notifications" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_device_management[&quot;设备管理&quot;]
+      useCase_use_case_control_device_notifications([&quot;控制设备通知&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_control_device_notifications</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:control-device-notifications" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:control-device-notifications" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户设置消息提示音、音量以及振动强度</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:control-device-notifications" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:control-device-notifications" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>声音和振动控制函数</span></li><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>与通知控制相关的方法</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:control-device-notifications" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:control-device-notifications" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 6 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:control-device-notifications" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:control-device-notifications" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:control-device-notifications" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户调整提示音音量或选择是否开启振动</li><li>系统保存设置并应用到后续通知</li><li>收到新消息时，系统播放相应提示音并/或振动</li><li>用户修改通知音量或振动强度</li><li>系统保存设置并立即应用</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>音频设备未就绪时静默，振动器未就绪时忽略振动</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:control-device-notifications" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:control-device-notifications" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「控制设备通知」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-power-off-device" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:power-off-device" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 设备管理</p>
+          <h2>关闭设备电源</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:power-off-device">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:power-off-device" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/power-off-device.html">
+        <a href="use-case-diagrams/power-off-device.html">Use Case Diagram：关闭设备电源</a>
+      </li>
+      <li data-praxis-uml-node="activity:power-off-device-activity" data-praxis-parent-use-case="use-case:power-off-device" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/power-off-device/activity.html" data-praxis-coverage-scenario="关机流程" data-praxis-coverage-boundary="从用户触发关机到电源关闭">
+        <a href="use-case-diagrams/power-off-device/activity.html">Activity Diagram：业务流程：关闭设备电源</a>
+      </li>
+      <li data-praxis-uml-node="sequence:power-off-device-sequence" data-praxis-parent-use-case="use-case:power-off-device" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/power-off-device/sequences/sequence-power-off-device-sequence.html" data-praxis-coverage-scenario="关机时的交互" data-praxis-coverage-boundary="从用户确认关机到最终断电">
+        <a href="use-case-diagrams/power-off-device/sequences/sequence-power-off-device-sequence.html">Sequence Diagram：对象交互：关机</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:power-off-device" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:power-off-device" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_device_management[&quot;设备管理&quot;]
+      useCase_use_case_power_off_device([&quot;关闭设备电源&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_power_off_device</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:power-off-device" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:power-off-device" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户通过长按电源按钮或菜单选择关机，系统安全关闭硬件</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:power-off-device" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:power-off-device" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>关机逻辑</span></li><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>关机相关方法</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:power-off-device" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:power-off-device" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 3 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:power-off-device" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:power-off-device" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:power-off-device" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户触发关机指令</li><li>系统执行关机流程：停止无线电、保存数据、卸载 SD 卡等</li><li>系统关闭电源</li><li>用户触发关机流程</li><li>系统关闭所有外设和无线电</li><li>系统切断电源</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>无</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:power-off-device" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:power-off-device" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「关闭设备电源」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-manage-sd-card" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-sd-card" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 设备管理</p>
+          <h2>管理 SD 卡</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:manage-sd-card">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:manage-sd-card" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/manage-sd-card.html">
+        <a href="use-case-diagrams/manage-sd-card.html">Use Case Diagram：管理 SD 卡</a>
+      </li>
+      <li data-praxis-uml-node="activity:manage-sd-card-activity" data-praxis-parent-use-case="use-case:manage-sd-card" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/manage-sd-card/activity.html" data-praxis-coverage-scenario="SD 卡挂载/卸载流程" data-praxis-coverage-boundary="从用户进入 SD 卡管理到操作完成">
+        <a href="use-case-diagrams/manage-sd-card/activity.html">Activity Diagram：业务流程：管理 SD 卡</a>
+      </li>
+      <li data-praxis-uml-node="sequence:manage-sd-card-sequence" data-praxis-parent-use-case="use-case:manage-sd-card" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/manage-sd-card/sequences/sequence-manage-sd-card-sequence.html" data-praxis-coverage-scenario="SD 卡操作交互" data-praxis-coverage-boundary="从用户操作到 Board 返回结果">
+        <a href="use-case-diagrams/manage-sd-card/sequences/sequence-manage-sd-card-sequence.html">Sequence Diagram：对象交互：管理 SD 卡</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-sd-card" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-sd-card" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_device_management[&quot;设备管理&quot;]
+      useCase_use_case_manage_sd_card([&quot;管理 SD 卡&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_manage_sd_card</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:manage-sd-card" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:manage-sd-card" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户查看 SD 卡就绪状态，安装或卸载 SD 卡</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:manage-sd-card" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:manage-sd-card" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>SD 卡管理函数</span></li><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>SD 卡操作相关方法</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:manage-sd-card" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:manage-sd-card" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 3 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:manage-sd-card" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:manage-sd-card" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-sd-card" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户插入 SD 卡或选择安装/检查</li><li>系统尝试初始化 SD 卡，进行就绪检查</li><li>系统更新 SD 卡状态，如果就绪则允许日志、数据等存入 SD 卡</li><li>用户进入 SD 卡管理</li><li>系统检测 SD 卡状态</li><li>用户选择挂载或卸载，系统执行操作</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>SD 卡未插入或损坏，提示错误并显示未就绪</li><li>SD 卡未插入，操作失败</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:manage-sd-card" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:manage-sd-card" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「管理 SD 卡」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-receive-text-message" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 聊天通信</p>
+          <h2>接收文本消息</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:receive-text-message">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:receive-text-message" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/receive-text-message.html">
+        <a href="use-case-diagrams/receive-text-message.html">Use Case Diagram：接收文本消息</a>
+      </li>
+      <li data-praxis-uml-node="activity:receive-text-message" data-praxis-parent-use-case="use-case:receive-text-message" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/receive-text-message/activity.html" data-praxis-coverage-scenario="主成功场景" data-praxis-coverage-boundary="从无线电中断到 UI 更新">
+        <a href="use-case-diagrams/receive-text-message/activity.html">Activity Diagram：业务流程：接收文本消息</a>
+      </li>
+      <li data-praxis-uml-node="sequence:receive-text-message-sequence" data-praxis-parent-use-case="use-case:receive-text-message" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message-sequence.html" data-praxis-coverage-scenario="消息接收的异步交互" data-praxis-coverage-boundary="从无线电硬件到聊天 UI 更新">
+        <a href="use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message-sequence.html">Sequence Diagram：对象交互：接收文本消息</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  external_external_system_meshtastic_network[&quot;&amp;laquo;External System&amp;raquo;&lt;br/&gt;Meshtastic 网络&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_chat_communication[&quot;聊天通信&quot;]
+      useCase_use_case_receive_text_message([&quot;接收文本消息&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_receive_text_message
+  external_external_system_meshtastic_network --- useCase_use_case_receive_text_message</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:receive-text-message" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>系统监听无线电信号，接收来自其他节点的文本消息，并将其显示在聊天界面</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:receive-text-message" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>接收消息函数</span></li><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>消息接收和无线电解码相关方法</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:receive-text-message" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 3 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:receive-text-message" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:receive-text-message" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>无线电模块接收到数据包</li><li>系统读取数据并解析为文本消息</li><li>系统将消息添加到当前聊天窗口，并可能触发通知</li><li>无线电模块接收到消息数据包</li><li>系统解析数据包并转换为文本</li><li>系统将消息推送到 UI 聊天窗口</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>数据包解析失败，丢弃或记录错误日志</li><li>数据包损坏，丢弃</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:receive-text-message" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:receive-text-message" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「接收文本消息」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-configure-radio-parameters" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 聊天通信</p>
+          <h2>配置无线电参数</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:configure-radio-parameters">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:configure-radio-parameters" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/configure-radio-parameters.html">
+        <a href="use-case-diagrams/configure-radio-parameters.html">Use Case Diagram：配置无线电参数</a>
+      </li>
+      <li data-praxis-uml-node="activity:configure-radio-parameters" data-praxis-parent-use-case="use-case:configure-radio-parameters" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/configure-radio-parameters/activity.html" data-praxis-coverage-scenario="主成功场景" data-praxis-coverage-boundary="从设置到应用">
+        <a href="use-case-diagrams/configure-radio-parameters/activity.html">Activity Diagram：业务流程：配置无线电参数</a>
+      </li>
+      <li data-praxis-uml-node="sequence:configure-radio-parameters" data-praxis-parent-use-case="use-case:configure-radio-parameters" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.html" data-praxis-coverage-scenario="LoRa 配置" data-praxis-coverage-boundary="UI 到 radio 驱动">
+        <a href="use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.html">Sequence Diagram：对象交互：配置无线电</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  external_external_system_meshtastic_network[&quot;&amp;laquo;External System&amp;raquo;&lt;br/&gt;Meshtastic 网络&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_chat_communication[&quot;聊天通信&quot;]
+      useCase_use_case_configure_radio_parameters([&quot;配置无线电参数&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_configure_radio_parameters
+  external_external_system_meshtastic_network --- useCase_use_case_configure_radio_parameters</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:configure-radio-parameters" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户调整 LoRa 或 FSK 无线电调制、频率、功率、超时等参数</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:configure-radio-parameters" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>无线电配置函数</span></li><li><strong>strong</strong> 本地仓库扫描 · boards/tlora_pager/src/tlora_pager_board.cpp · 1-1<span>无线电配置相关方法</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:configure-radio-parameters" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 5 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:configure-radio-parameters" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户修改无线电频率、调制方式或功率设置</li><li>系统应用新的无线电配置</li><li>系统开始使用新参数发送/接收数据</li><li>用户修改无线电参数</li><li>系统验证参数合法性</li><li>系统将参数写入无线电模块并生效</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>设置无效时，回滚到之前有效配置或提示错误</li><li>参数不合法，系统拒绝并提示</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:configure-radio-parameters" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「配置无线电参数」。</p>
+        </article>
+      </section>
+    </section>
+    <section id="use-case-diagram-use-case-capture-screenshot" class="diagram-section" data-praxis-kind="use_case" data-praxis-anchor="use-case:capture-screenshot" data-praxis-status="candidate" data-praxis-confidence="medium">
+      <div class="section-heading">
+        <div>
+          <p>Trail Mate 系统 / 诊断工具</p>
+          <h2>捕获屏幕截图</h2>
+        </div>
+        <span>candidate · medium</span>
+      </div>
+
+    <nav class="uml-tree-layer" data-praxis-kind="annotation" data-praxis-layer="uml_tree" data-praxis-anchor="use-case:capture-screenshot">
+      <h3>UML 下钻树</h3>
+      <ol>
+      <li data-praxis-uml-node="use-case:capture-screenshot" data-praxis-diagram-kind="use_case_diagram" data-praxis-html-path="docs/design/use-case-diagrams/capture-screenshot.html">
+        <a href="use-case-diagrams/capture-screenshot.html">Use Case Diagram：捕获屏幕截图</a>
+      </li>
+      <li data-praxis-uml-node="activity:capture-screenshot-activity" data-praxis-parent-use-case="use-case:capture-screenshot" data-praxis-diagram-kind="activity" data-praxis-html-path="docs/design/use-case-diagrams/capture-screenshot/activity.html" data-praxis-coverage-scenario="屏幕截图获取流程" data-praxis-coverage-boundary="从用户启动工具到 PNG 文件保存">
+        <a href="use-case-diagrams/capture-screenshot/activity.html">Activity Diagram：业务流程：捕获屏幕截图</a>
+      </li>
+      <li data-praxis-uml-node="sequence:capture-screenshot-sequence" data-praxis-parent-use-case="use-case:capture-screenshot" data-praxis-diagram-kind="sequence" data-praxis-html-path="docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot-sequence.html" data-praxis-coverage-scenario="截图流程的调用链" data-praxis-coverage-boundary="从工具启动到文件写入">
+        <a href="use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot-sequence.html">Sequence Diagram：对象交互：捕获屏幕截图</a>
+      </li>
+      </ol>
+    </nav>
+
+      <div class="design-map-grid">
+        <div class="base-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:capture-screenshot" data-praxis-layer="base">
+          <h3>UML 底图</h3>
+          <pre class="mermaid" data-praxis-kind="use_case" data-praxis-anchor="use-case:capture-screenshot" data-praxis-layer="base"><code>flowchart LR
+  actor_actor_user[&quot;&amp;laquo;Actor&amp;raquo;&lt;br/&gt;用户&quot;]
+  subgraph system_system_trail_mate[&quot;Trail Mate 系统&quot;]
+    subgraph system_business_module_diagnostics_tools[&quot;诊断工具&quot;]
+      useCase_use_case_capture_screenshot([&quot;捕获屏幕截图&quot;])
+    end
+  end
+  actor_actor_user --- useCase_use_case_capture_screenshot</code></pre>
+        </div>
+
+        <!-- praxis:managed:start anchor="use-case:capture-screenshot" layer="explanation" -->
+<aside class="overlay-layer explanation-layer" data-praxis-kind="annotation" data-praxis-layer="explanation" data-praxis-anchor="use-case:capture-screenshot" data-praxis-status="candidate" data-praxis-author="agent">
+  <h3>解释图层</h3>
+  <p>用户运行截屏工具，自动操作设备界面并捕获当前屏幕内容，保存为 PNG 文件</p>
+  <p class="layer-note">此图层是 agent 生成的候选设计解释，状态以证据和置信度为准。</p>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:capture-screenshot" layer="evidence" -->
+<aside class="overlay-layer evidence-layer" data-praxis-kind="evidence" data-praxis-layer="evidence" data-praxis-anchor="use-case:capture-screenshot" data-praxis-status="candidate">
+  <h3>证据图层</h3>
+  <ul><li><strong>strong</strong> 本地仓库扫描 · apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp · 1-1<span>截屏工具主函数和辅助函数</span></li><li><strong>strong</strong> 本地仓库扫描 · apps/linux_cardputer_zero/tools/cardputer_zero_screenshot_capture.cpp · 1-1<span>截屏工具实现</span></li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:capture-screenshot" layer="code_mapping" -->
+<aside class="overlay-layer code-layer" data-praxis-kind="annotation" data-praxis-layer="code_mapping" data-praxis-anchor="use-case:capture-screenshot" data-praxis-status="candidate">
+  <h3>本地仓库证据线索</h3>
+  <p class="layer-note">这里记录可追溯的实现证据数量，不表示当前 Use Case 覆盖了全部实现代码。完整调用链、类协作和设计模式承载应进入 Sequence Diagram、Class Collaboration 或实现证据视图。</p>
+  <ul><li>已关联 14 条本地仓库证据；具体文件、行号和摘要见证据图层。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+        <!-- praxis:managed:start anchor="use-case:capture-screenshot" layer="question" -->
+<aside class="overlay-layer question-layer" data-praxis-kind="question" data-praxis-layer="question" data-praxis-anchor="use-case:capture-screenshot" data-praxis-status="candidate">
+  <h3>待裁决图层</h3>
+  <ul><li>这个用例没有外部业务裁决问题。</li></ul>
+</aside>
+<!-- praxis:managed:end -->
+      </div>
+
+      <section class="flow-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:capture-screenshot" data-praxis-layer="timeline">
+        <h3>场景路径</h3>
+<section><h4>主成功路径</h4><ol><li>用户启动截屏工具并指定操作脚本或参数</li><li>工具模拟按键导航到目标界面</li><li>工具触发屏幕捕获并保存为 PNG 文件</li><li>用户启动截屏工具</li><li>工具模拟按键操作以切换界面</li><li>工具捕获当前屏幕内容并保存为文件</li></ol></section>
+<section><h4>备选路径</h4><ol><li>无</li></ol></section>
+<section><h4>失败路径</h4><ol><li>设备未就绪或模拟按键失败，工具报错退出</li></ol></section>
+      </section>
+
+      <section class="timeline-layer" data-praxis-kind="use_case" data-praxis-anchor="use-case:capture-screenshot" data-praxis-layer="timeline">
+        <h3>变更记录</h3>
+        <article data-praxis-change="none" data-praxis-anchor="use-case:capture-screenshot" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+          <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+          <span>Git 34aad0bffa2f · main · dirty</span>
+          <p>恢复或更新候选用例图「捕获屏幕截图」。</p>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <section class="map-changelog" data-praxis-role="changelog" data-praxis-kind="annotation" data-praxis-anchor="design-map:changelog" data-praxis-layer="timeline">
+    <h2>地图变更记录</h2>
+    <article data-praxis-change="none" data-praxis-anchor="design-map:use-case-diagrams" data-praxis-version="0.0.0" data-praxis-version-bump="none" data-praxis-version-reason="本次渲染没有单独的 agent 版本决策。" data-praxis-commit-scope="" data-praxis-commit-summary="" data-praxis-git-branch="main" data-praxis-git-commit="34aad0bffa2f6450192f655f248a94b6c3cbd767" data-praxis-git-dirty="true">
+      <time datetime="2026-06-25T14:17:55.307Z">2026-06-25T14:17:55.307Z</time>
+      <span>Git 34aad0bffa2f · main · dirty</span>
+      <p>更新用例图地图，并链接 15 个候选用例图独立文档。</p>
+    </article>
+  </section>
+</article>
+</body>
+</html>

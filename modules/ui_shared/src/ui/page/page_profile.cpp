@@ -191,6 +191,17 @@ PageLayoutProfile make_t_display_p4_profile()
     profile.ime_toggle_height = 34;
     profile.ime_candidate_button_height = 40;
     profile.ime_keyboard_height = 260;
+#if defined(CONFIG_TRAIL_MATE_T_DISPLAY_P4_PANEL_HI8561)
+    profile.control_button_height = 40;
+    profile.modal_margin = 12;
+    profile.modal_pad = 10;
+    profile.popup_title_height = 34;
+    profile.ime_bar_height = 32;
+    profile.ime_toggle_width = 68;
+    profile.ime_toggle_height = 26;
+    profile.ime_candidate_button_height = 32;
+    profile.ime_keyboard_height = 188;
+#endif
     return profile;
 }
 

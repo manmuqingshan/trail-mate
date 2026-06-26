@@ -3,7 +3,9 @@
 #include "platform/esp/common/shared_spi_lock.h"
 
 #include <cmath>
+#include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <new>
 
 namespace gps
 {
@@ -124,8 +126,19 @@ void write_track_point(SdRuntimeFile& f, TrackFormat format, const TrackPoint& p
 
 TrackRecorder& TrackRecorder::getInstance()
 {
-    static TrackRecorder instance;
-    return instance;
+    static TrackRecorder* instance = []() -> TrackRecorder*
+    {
+        void* storage = heap_caps_malloc_prefer(sizeof(TrackRecorder),
+                                                2,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (storage == nullptr)
+        {
+            storage = ::operator new(sizeof(TrackRecorder));
+        }
+        return new (storage) TrackRecorder();
+    }();
+    return *instance;
 }
 
 bool TrackRecorder::ensureDir() const

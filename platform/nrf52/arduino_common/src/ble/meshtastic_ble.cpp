@@ -512,98 +512,106 @@ void MeshtasticBleService::handleToPhone()
         return;
     }
 
-    const bool waiting_for_read = read_waiting_.load();
-    const bool in_send_packets = phone_session_->isSendingPackets();
-    const bool config_flow_active = phone_session_->isConfigFlowActive();
-    const bool can_prepare = connected_ && (!in_send_packets || config_flow_active);
+    for (uint8_t produced = 0; produced < kToPhoneQueueDepth; ++produced)
+    {
+        const bool waiting_for_read = read_waiting_.load();
+        const bool in_send_packets = phone_session_->isSendingPackets();
+        const bool config_flow_active = phone_session_->isConfigFlowActive();
+        const bool can_prepare = connected_ && (!in_send_packets || config_flow_active);
 
-    if (config_flow_active && !from_num_notify_enabled_)
-    {
-        return;
-    }
-
-    if (config_flow_active && (from_radio_preloaded_valid_ || to_phone_count_ > 0 || pending_to_phone_valid_))
-    {
-        return;
-    }
-
-    Frame frame{};
-    if (pending_to_phone_valid_)
-    {
-        frame = pending_to_phone_;
-        bleLogBoth("[BLE][nrf52][mt][flow] handleToPhone use-pending from_num=%08lX len=%u",
-                   static_cast<unsigned long>(frame.from_num),
-                   static_cast<unsigned>(frame.len));
-    }
-    else
-    {
-        if (!waiting_for_read && !can_prepare)
-        {
-            return;
-        }
-        if (to_phone_count_ >= kToPhoneQueueDepth)
+        if (config_flow_active && !from_num_notify_enabled_)
         {
             return;
         }
 
-        phone::meshtastic::MeshtasticBleFrame session_frame{};
-        if (!phone_session_->popToPhone(&session_frame))
+        if (config_flow_active && (from_radio_preloaded_valid_ || to_phone_count_ > 0 || pending_to_phone_valid_))
         {
-            if (waiting_for_read && in_send_packets)
+            return;
+        }
+
+        Frame* frame = nullptr;
+        if (pending_to_phone_valid_)
+        {
+            frame = &pending_to_phone_;
+            bleLogBoth("[BLE][nrf52][mt][flow] handleToPhone use-pending from_num=%08lX len=%u",
+                       static_cast<unsigned long>(frame->from_num),
+                       static_cast<unsigned>(frame->len));
+        }
+        else
+        {
+            if (!waiting_for_read && !can_prepare)
             {
-                read_waiting_.store(false);
+                return;
             }
-            return;
-        }
+            if (to_phone_count_ >= kToPhoneQueueDepth)
+            {
+                return;
+            }
 
-        if (session_frame.len == 0 || session_frame.len > frame.buf.size())
-        {
-            bleLogBoth("[BLE][nrf52][mt] drop oversize to_phone frame from_num=%08lX len=%u max=%u",
+            auto& session_frame = session_frame_scratch_;
+            std::memset(&session_frame, 0, sizeof(session_frame));
+            if (!phone_session_->popToPhone(&session_frame))
+            {
+                if (waiting_for_read && in_send_packets)
+                {
+                    read_waiting_.store(false);
+                }
+                return;
+            }
+
+            auto& scratch = pending_to_phone_;
+            scratch = Frame{};
+            if (session_frame.len == 0 || session_frame.len > scratch.buf.size())
+            {
+                bleLogBoth("[BLE][nrf52][mt] drop oversize to_phone frame from_num=%08lX len=%u max=%u",
+                           static_cast<unsigned long>(session_frame.from_num),
+                           static_cast<unsigned>(session_frame.len),
+                           static_cast<unsigned>(scratch.buf.size()));
+                if (waiting_for_read && in_send_packets)
+                {
+                    read_waiting_.store(false);
+                }
+                return;
+            }
+
+            bleLogBoth("[BLE][nrf52][mt][flow] handleToPhone pop from_num=%08lX len=%u buf=%p waiting=%u can_prepare=%u",
                        static_cast<unsigned long>(session_frame.from_num),
                        static_cast<unsigned>(session_frame.len),
-                       static_cast<unsigned>(frame.buf.size()));
-            if (waiting_for_read && in_send_packets)
+                       static_cast<const void*>(session_frame.buf),
+                       waiting_for_read ? 1U : 0U,
+                       can_prepare ? 1U : 0U);
+
+            scratch.len = session_frame.len;
+            scratch.from_num = session_frame.from_num;
+            std::memcpy(scratch.buf.data(), session_frame.buf, session_frame.len);
+            frame = &scratch;
+        }
+
+        if (enqueueToPhoneFrame(*frame))
+        {
+            pending_to_phone_valid_ = false;
+            Serial2.printf("[BLE][nrf52][mt] to_phone enqueue from_num=%08lX len=%u q=%u\n",
+                           static_cast<unsigned long>(frame->from_num),
+                           static_cast<unsigned>(frame->len),
+                           static_cast<unsigned>(to_phone_count_));
+            if (!waiting_for_read && (in_send_packets || config_flow_active))
             {
-                read_waiting_.store(false);
+                notifyFromNum(frame->from_num);
+                return;
             }
-            return;
+            if (!can_prepare || config_flow_active || to_phone_count_ >= kToPhoneQueueDepth)
+            {
+                return;
+            }
+            continue;
         }
 
-        bleLogBoth("[BLE][nrf52][mt][flow] handleToPhone pop from_num=%08lX len=%u buf=%p waiting=%u can_prepare=%u",
-                   static_cast<unsigned long>(session_frame.from_num),
-                   static_cast<unsigned>(session_frame.len),
-                   static_cast<const void*>(session_frame.buf),
-                   waiting_for_read ? 1U : 0U,
-                   can_prepare ? 1U : 0U);
-
-        frame.len = session_frame.len;
-        frame.from_num = session_frame.from_num;
-        std::memcpy(frame.buf.data(), session_frame.buf, session_frame.len);
-    }
-
-    if (enqueueToPhoneFrame(frame))
-    {
-        pending_to_phone_valid_ = false;
-        Serial2.printf("[BLE][nrf52][mt] to_phone enqueue from_num=%08lX len=%u q=%u\n",
-                       static_cast<unsigned long>(frame.from_num),
-                       static_cast<unsigned>(frame.len),
-                       static_cast<unsigned>(to_phone_count_));
-        if (!waiting_for_read && (in_send_packets || config_flow_active))
-        {
-            notifyFromNum(frame.from_num);
-        }
-        else if (can_prepare && !config_flow_active && to_phone_count_ < kToPhoneQueueDepth)
-        {
-            handleToPhone();
-        }
-    }
-    else
-    {
-        pending_to_phone_ = frame;
+        pending_to_phone_ = *frame;
         pending_to_phone_valid_ = true;
         Serial2.printf("[BLE][nrf52][mt] to_phone defer from_num=%08lX len=%u\n",
-                       static_cast<unsigned long>(frame.from_num),
-                       static_cast<unsigned>(frame.len));
+                       static_cast<unsigned long>(frame->from_num),
+                       static_cast<unsigned>(frame->len));
+        return;
     }
 }
 
@@ -794,7 +802,8 @@ void MeshtasticBleService::prepareReadableFromRadio()
         return;
     }
 
-    Frame frame{};
+    Frame& frame = from_radio_preloaded_;
+    frame = Frame{};
     if (!popQueuedToPhoneFrame(&frame))
     {
         return;
@@ -809,7 +818,6 @@ void MeshtasticBleService::prepareReadableFromRadio()
                isReadWaiting() ? 1U : 0U);
 
     from_radio_.write(frame.buf.data(), frame.len);
-    from_radio_preloaded_ = frame;
     from_radio_preloaded_valid_ = true;
 
     bleLogBoth("[BLE][nrf52][mt][flow] preload from_num=%08lX len=%u q=%u",

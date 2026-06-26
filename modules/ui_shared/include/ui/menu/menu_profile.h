@@ -85,6 +85,7 @@ struct MenuLayoutProfile
     bool show_memory_stats = true;
     bool scroll_card_label = false;
     bool large_touch_hitbox = false;
+    bool transition_animation = true;
 
     const lv_font_t* card_label_font = &lv_font_montserrat_14;
     const lv_font_t* desc_font = &lv_font_montserrat_14;

@@ -1,0 +1,8 @@
+flowchart LR
+  actor_actor_user["&laquo;Actor&raquo;<br/>用户"]
+  subgraph system_system_trail_mate["Trail Mate 系统"]
+    subgraph system_business_module_diagnostics_tools["诊断工具"]
+      useCase_use_case_capture_screenshot(["捕获屏幕截图"])
+    end
+  end
+  actor_actor_user --- useCase_use_case_capture_screenshot

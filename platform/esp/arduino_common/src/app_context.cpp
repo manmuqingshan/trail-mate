@@ -21,12 +21,14 @@
 
 #include <cstdio>
 #include <cstring>
+#include <esp_heap_caps.h>
+#include <new>
 
 namespace app
 {
 namespace
 {
-constexpr uint32_t kConfigSaveTaskStackBytes = 8 * 1024;
+constexpr uint32_t kConfigSaveTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kConfigSaveTaskPriority = 1;
 constexpr TickType_t kConfigSaveMutexWait = pdMS_TO_TICKS(20);
 constexpr TickType_t kConfigSaveDebounceTicks = pdMS_TO_TICKS(250);
@@ -35,8 +37,19 @@ constexpr TickType_t kConfigSaveRetryDelayTicks = pdMS_TO_TICKS(1000);
 
 AppContext& AppContext::getInstance()
 {
-    static AppContext instance;
-    return instance;
+    static AppContext* instance = []() -> AppContext*
+    {
+        void* storage = heap_caps_malloc_prefer(sizeof(AppContext),
+                                                2,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (storage == nullptr)
+        {
+            storage = ::operator new(sizeof(AppContext));
+        }
+        return new (storage) AppContext();
+    }();
+    return *instance;
 }
 
 AppContext::AppContext()
@@ -285,7 +298,6 @@ void AppContext::configSaveLoop()
         vTaskDelay(kConfigSaveDebounceTicks);
         for (;;)
         {
-            AppConfig snapshot{};
             uint32_t generation = 0;
 
             if (xSemaphoreTake(config_save_mutex_, portMAX_DELAY) != pdTRUE)
@@ -298,7 +310,7 @@ void AppContext::configSaveLoop()
                 xSemaphoreGive(config_save_mutex_);
                 break;
             }
-            snapshot = pending_config_save_;
+            active_config_save_ = pending_config_save_;
             generation = pending_config_save_generation_;
             config_save_pending_ = false;
             config_save_busy_ = true;
@@ -307,7 +319,7 @@ void AppContext::configSaveLoop()
             Serial.printf("[AppCfg][SAVE_ASYNC] flush begin gen=%lu\n",
                           static_cast<unsigned long>(generation));
             const bool ok = platform_bindings_.save_app_config
-                                ? platform_bindings_.save_app_config(snapshot)
+                                ? platform_bindings_.save_app_config(active_config_save_)
                                 : false;
 
             bool has_more = false;
@@ -321,7 +333,7 @@ void AppContext::configSaveLoop()
                 }
                 else if (!config_save_pending_)
                 {
-                    pending_config_save_ = snapshot;
+                    pending_config_save_ = active_config_save_;
                     config_save_pending_ = true;
                 }
                 has_more = config_save_pending_;

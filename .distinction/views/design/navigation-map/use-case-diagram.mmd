@@ -1,0 +1,8 @@
+flowchart LR
+  actor_actor_gps_satellites["&laquo;Actor&raquo;<br/>GPS 卫星系统"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_navigation_map["导航与地图"]
+      useCase_use_case_read_gps_position(["获取 GPS 位置"])
+    end
+  end
+  actor_actor_gps_satellites --- useCase_use_case_read_gps_position

@@ -1,0 +1,849 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:team-module",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T09:32:40.935Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "context:trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:trail-mate-system"
+      },
+      "summary": "一款为户外徒步团队提供离线通信、位置共享和团队协作的嵌入式设备软件系统。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "涵盖聊天、联系人、地图、团队、配置和硬件监控等所有面向用户的功能。",
+        "responsibility": "提供用户在无网络环境下进行通信、定位和协作的能力。",
+        "businessTerms": [
+          "设备",
+          "节点",
+          "团队",
+          "消息",
+          "位置"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:context:team-module",
+      "kind": "design_context",
+      "label": "团队协作",
+      "source": {
+        "type": "model",
+        "id": "context:team-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:team-module"
+      },
+      "summary": "提供团队创建、加入、成员追踪和配对功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "context:trail-mate-system",
+        "scope": "团队生命周期管理、成员位置跟踪、配对协调。",
+        "responsibility": "支持团队户外活动的协调和安全。",
+        "businessTerms": [
+          "团队",
+          "配对",
+          "跟踪"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:user",
+      "kind": "design_actor",
+      "label": "用户（徒步者）",
+      "source": {
+        "type": "model",
+        "id": "actor:user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:user"
+      },
+      "summary": "使用设备进行通信、导航和团队协作的户外活动参与者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:join-team",
+      "kind": "design_use_case",
+      "label": "加入团队",
+      "source": {
+        "type": "model",
+        "id": "use-case:join-team"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:join-team"
+      },
+      "summary": "用户扫描附近的团队并加入，以共享位置和消息。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:import-8196b7b887a71fb77dbf3952ad2f6360"
+        ],
+        "evidenceCount": 1,
+        "questions": [
+          "如何定义团队？是创始人创建还是自动形成？",
+          "团队成员上限是多少？"
+        ],
+        "contextId": "context:team-module",
+        "trigger": "用户打开团队界面并选择“加入团队”。",
+        "primaryActorIds": [
+          "actor:user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:api-route-code-file-build-t-display-p4-tft-esp-idf-main-cmakefiles-idf-main-dir-modules-core-team-src-usecase-team-p"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-join-team-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：加入团队",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-join-team-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-join-team-activity"
+      },
+      "summary": "Activity Diagram：加入团队，用于解释 Use Case「加入团队」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；当前没有足够代码关系证据，不能当作已完成的代码事实解释。"
+        ],
+        "useCaseId": "use-case:join-team",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「加入团队」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]",
+            "alternativeFlows[1]",
+            "failureFlows[1]",
+            "failureFlows[2]"
+          ],
+          "boundary": "覆盖「加入团队」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「加入团队」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:api-route-code-file-build-t-display-p4-tft-esp-idf-main-cmakefiles-idf-main-dir-modules-core-team-src-usecase-team-p"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "build.t_display_p4_tft/esp-idf/main/CMakeFiles/__idf_main.dir/__/__/__/modules/core_team/src/usecase/team_pairing_coordinator.cpp.obj#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「加入团队」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「加入团队」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「加入团队」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]",
+          "alternativeFlows[1]",
+          "failureFlows[1]",
+          "failureFlows[2]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:api-route-code-file-build-t-display-p4-tft-esp-idf-main-cmakefiles-idf-main-dir-modules-core-team-src-usecase-team-p"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "build.t_display_p4_tft/esp-idf/main/CMakeFiles/__idf_main.dir/__/__/__/modules/core_team/src/usecase/team_pairing_coordinator.cpp.obj#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「加入团队」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「加入团队」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「加入团队」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 build.t_display_p4_tft/esp-idf/main/CMakeFiles/__idf_main.dir/__/__/__/modules/core_team/src/usecase/team_pairing_coordinator.cpp.obj#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/join-team/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/join-team/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-join-team-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：加入团队主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-join-team-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-join-team-sequence"
+      },
+      "summary": "Sequence Diagram：加入团队主成功场景，用于解释 Use Case「加入团队」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；当前没有足够代码关系证据，不能当作已完成的代码事实解释。"
+        ],
+        "useCaseId": "use-case:join-team",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「加入团队」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]",
+            "mainSuccessScenario[5]"
+          ],
+          "boundary": "覆盖「加入团队」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「加入团队」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:api-route-code-file-build-t-display-p4-tft-esp-idf-main-cmakefiles-idf-main-dir-modules-core-team-src-usecase-team-p"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "build.t_display_p4_tft/esp-idf/main/CMakeFiles/__idf_main.dir/__/__/__/modules/core_team/src/usecase/team_pairing_coordinator.cpp.obj#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「加入团队」的主成功交互场景。",
+        "coverageBoundary": "覆盖「加入团队」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「加入团队」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]",
+          "mainSuccessScenario[5]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:api-route-code-file-build-t-display-p4-tft-esp-idf-main-cmakefiles-idf-main-dir-modules-core-team-src-usecase-team-p"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "build.t_display_p4_tft/esp-idf/main/CMakeFiles/__idf_main.dir/__/__/__/modules/core_team/src/usecase/team_pairing_coordinator.cpp.obj#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「加入团队」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「加入团队」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「加入团队」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 build.t_display_p4_tft/esp-idf/main/CMakeFiles/__idf_main.dir/__/__/__/modules/core_team/src/usecase/team_pairing_coordinator.cpp.obj#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/join-team/sequences/sequence-use-case-join-team-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/join-team/sequences/sequence-use-case-join-team-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-class-collaboration:class-collaboration:use-case-join-team-class-collaboration",
+      "kind": "design_class_collaboration",
+      "label": "Class / Structural Collaboration Diagram：加入团队",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-join-team-class-collaboration"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-join-team-class-collaboration"
+      },
+      "summary": "Class / Structural Collaboration Diagram：加入团队，用于解释 Use Case「加入团队」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；当前没有足够代码关系证据，不能当作已完成的代码事实解释。"
+        ],
+        "useCaseId": "use-case:join-team",
+        "diagramKind": "class_collaboration",
+        "coverage": {
+          "scenario": "解释 Use Case「加入团队」的结构协作和设计承载关系。",
+          "coveredUseCaseFlows": [
+            "structural collaboration slice for this Use Case"
+          ],
+          "boundary": "覆盖「加入团队」实现该故事所需的结构协作切片，不是全量类图。",
+          "notCovered": [
+            "全量类图",
+            "目录结构图",
+            "没有 Use Case 解释价值的 DTO/Mapper/Repository 堆叠"
+          ],
+          "rationale": "需要用 Class / Structural Collaboration Diagram 检查「加入团队」由哪些结构角色和设计关系承载。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:api-route-code-file-build-t-display-p4-tft-esp-idf-main-cmakefiles-idf-main-dir-modules-core-team-src-usecase-team-p"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "build.t_display_p4_tft/esp-idf/main/CMakeFiles/__idf_main.dir/__/__/__/modules/core_team/src/usecase/team_pairing_coordinator.cpp.obj#L1"
+            ],
+            "outOfScopeCode": [
+              "仓库全量类图",
+              "无 Use Case 职责解释价值的技术类"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「加入团队」的结构协作和设计承载关系。",
+        "coverageBoundary": "覆盖「加入团队」实现该故事所需的结构协作切片，不是全量类图。",
+        "coverageRationale": "需要用 Class / Structural Collaboration Diagram 检查「加入团队」由哪些结构角色和设计关系承载。",
+        "coveredUseCaseFlows": [
+          "structural collaboration slice for this Use Case"
+        ],
+        "notCovered": [
+          "全量类图",
+          "目录结构图",
+          "没有 Use Case 解释价值的 DTO/Mapper/Repository 堆叠"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:api-route-code-file-build-t-display-p4-tft-esp-idf-main-cmakefiles-idf-main-dir-modules-core-team-src-usecase-team-p"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "build.t_display_p4_tft/esp-idf/main/CMakeFiles/__idf_main.dir/__/__/__/modules/core_team/src/usecase/team_pairing_coordinator.cpp.obj#L1"
+          ],
+          "outOfScopeCode": [
+            "仓库全量类图",
+            "无 Use Case 职责解释价值的技术类"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Class / Structural Collaboration Diagram 说明「加入团队」由哪些结构角色承载，以及这些角色为什么足以解释该业务能力。",
+          "uml": "读图时重点看类/接口承担的结构职责、依赖方向、接口实现、策略选择和端口适配关系；该图不是全量类图，也不是目录结构图。",
+          "design": "设计上，这张图用于解释「加入团队」背后的结构承载方式：应用服务如何编排，领域对象/服务承载哪些规则，接口/端口如何隔离外部系统，是否存在策略、工厂、端口适配器、状态或规格等模式。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 build.t_display_p4_tft/esp-idf/main/CMakeFiles/__idf_main.dir/__/__/__/modules/core_team/src/usecase/team_pairing_coordinator.cpp.obj#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/join-team/realization/class-collaboration.md",
+        "htmlPath": "docs/design/use-case-diagrams/join-team/realization/class-collaboration.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:trail-mate-system:context:team-module",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:trail-mate-system",
+      "targetId": "projection-node:design-context:context:team-module",
+      "source": {
+        "type": "model",
+        "id": "context:team-module"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:team-module"
+      },
+      "confidence": "high",
+      "summary": "context:trail-mate-system contains 团队协作",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:team-module:use-case:join-team",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:team-module",
+      "targetId": "projection-node:design-use-case:use-case:join-team",
+      "source": {
+        "type": "model",
+        "id": "use-case:join-team"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:join-team"
+      },
+      "confidence": "medium",
+      "summary": "context:team-module contains 加入团队"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:user:use-case:join-team:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:user",
+      "targetId": "projection-node:design-use-case:use-case:join-team",
+      "source": {
+        "type": "model",
+        "id": "use-case:join-team"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:join-team"
+      },
+      "confidence": "medium",
+      "summary": "actor:user participates in 加入团队",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:join-team:activity:use-case-join-team-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:join-team",
+      "targetId": "projection-node:design-activity:activity:use-case-join-team-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-join-team-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-join-team-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：加入团队，用于解释 Use Case「加入团队」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:join-team",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:join-team:sequence:use-case-join-team-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:join-team",
+      "targetId": "projection-node:design-sequence:sequence:use-case-join-team-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-join-team-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-join-team-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：加入团队主成功场景，用于解释 Use Case「加入团队」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:join-team",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:join-team:class-collaboration:use-case-join-team-class-collaboration",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:join-team",
+      "targetId": "projection-node:design-class-collaboration:class-collaboration:use-case-join-team-class-collaboration",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-join-team-class-collaboration"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-join-team-class-collaboration"
+      },
+      "confidence": "medium",
+      "summary": "Class / Structural Collaboration Diagram：加入团队，用于解释 Use Case「加入团队」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:join-team",
+        "diagramKind": "class_collaboration"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:chat-media-support",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:send-text-message"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "聊天是否支持图片、位置等富媒体消息？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      }
+    },
+    {
+      "id": "annotation:question:team-location-interval",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:view-team-locations"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队位置更新频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-team-locations"
+      }
+    },
+    {
+      "id": "annotation:question:team-creation",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:join-team"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队是由创始人创建还是自动发现形成？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:join-team"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "地图数据是预装还是 Wi‑Fi 下载？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "缩放级别范围是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "标记点数据如何管理？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "航迹数据保存格式和策略是什么？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持多段航迹合并？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "轨迹点采样频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "支持的 SSTV 模式有哪些（Scottie, Martin, Robot 等）？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "发送时需要选择频率和模式吗？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持通过 mesh 网络转发 SSTV 图像给队友？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要低电量自动提醒？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "功耗历史数据保留多长时间？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持太阳能充电状态显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要支持多个轨迹的叠加显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "导航时是否激发声音或视觉偏离警告？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "路线文件的来源是否包括通过 mesh 网络接收？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-story-intake:1782379621985",
+    "design-story-intake:1782379321376",
+    "design-story-intake:1782379952549",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

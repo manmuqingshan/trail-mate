@@ -18,8 +18,14 @@ jobs:
       - name: Verify shared/platform UI boundaries
         run: python3 scripts/check_platform_ui_boundaries.py
 
+      - name: Verify ESP stack hygiene
+        run: python3 scripts/check_esp_stack_hygiene.py
+
       - name: Verify repository root has no build artifacts
         run: python3 scripts/check_root_build_artifacts.py
+
+      - name: Verify locale packs
+        run: python3 tools/validate_locale_packs.py --pack-root packs
 
   format:
     name: Format Check
@@ -120,6 +126,46 @@ jobs:
             --dist dist \
             --boot-app0 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
             --esptool ~/.platformio/packages/tool-esptoolpy/esptool.py
+
+      - name: Collect debug symbols
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          BUILD_DIR=".pio/build/${{ matrix.env }}"
+          SYMBOL_DIR="dist/symbols/${{ matrix.env }}"
+          mkdir -p "${SYMBOL_DIR}"
+
+          copied=0
+          for name in firmware.elf firmware.map firmware.bin firmware.hex; do
+            if [ -f "${BUILD_DIR}/${name}" ]; then
+              cp "${BUILD_DIR}/${name}" "${SYMBOL_DIR}/${name}"
+              copied=$((copied + 1))
+            fi
+          done
+
+          if [ "${copied}" -eq 0 ]; then
+            echo "No debug symbol inputs found for ${{ matrix.env }}"
+            rm -rf "${SYMBOL_DIR}"
+            exit 0
+          fi
+
+          {
+            echo "schema=trail-mate.symbols.v1"
+            echo "env=${{ matrix.env }}"
+            echo "version=${{ steps.version.outputs.version }}"
+            echo "git_ref=${GITHUB_REF}"
+            echo "git_ref_name=${GITHUB_REF_NAME}"
+            echo "git_sha=${GITHUB_SHA}"
+            echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "${SYMBOL_DIR}/manifest.txt"
+
+          if [ -f "${BUILD_DIR}/firmware.bin" ]; then
+            python ~/.platformio/packages/tool-esptoolpy/esptool.py image_info --version 2 \
+              "${BUILD_DIR}/firmware.bin" > "${SYMBOL_DIR}/firmware-image-info.txt"
+          fi
+
+          (cd "${SYMBOL_DIR}" && sha256sum * > SHA256SUMS)
+          (cd dist/symbols && python -m zipfile -c "../trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}-symbols.zip" "${{ matrix.env }}")
+          rm -rf dist/symbols
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4

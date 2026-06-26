@@ -41,3 +41,34 @@ This project is indexed by GitNexus as **trail-mate** (43886 symbols, 82034 rela
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+# Trail Mate Agent Rules
+
+## PlatformIO Builds, Uploads, And Monitors
+
+- When a PlatformIO build/upload is started, let it run until it explicitly completes with success or failure. Do not impose an arbitrary time limit such as 120s or 300s.
+- Never treat a tool-call timeout as the build result. The only valid build result is the PlatformIO process exit code and its final log output.
+- Never use a foreground `shell_command` call as the control mechanism for long PlatformIO builds. The shell tool timeout must not become a build timeout.
+- For any long build, start it as a hidden background process, redirect stdout/stderr to a log file, record the PID and log path, and poll with short commands until the process exits.
+- Run PlatformIO build, upload, or monitor when it is part of the requested verification, and make sure each started process reaches a definite terminal state.
+- Before starting a PlatformIO build/upload/monitor, check for existing processes for the same repository and environment. Do not start a duplicate build.
+- If a tool call times out, is interrupted, or ends unexpectedly while a build/upload is running, immediately check the recorded PID and any orphaned `pio`, compiler, linker, and `.pio/build/<env>` processes before doing anything else.
+- Stop only clearly matching stale processes for this repository/environment. Never use broad process kills.
+- Keep serial monitoring short and bounded unless the user explicitly asks for a longer capture.
+- Prefer CI/release-time artifacts for routine build outputs. Do not rebuild locally on every small change.
+
+## ESP Stack Hygiene
+
+- Treat large protocol, config, frame, protobuf/nanopb, and byte-buffer objects as forbidden automatic locals on ESP task stacks.
+- In ESP BLE/Meshtastic hot paths, do not create local `MeshtasticBleFrame`, `meshtastic_*` frame/config objects, or large byte arrays. Use member scratch storage, fixed-depth ring slots, static storage with clear ownership, or caller-provided output storage.
+- Do not introduce `std::deque` in ESP BLE/Meshtastic bridge headers. Prefer fixed-depth ring buffers with explicit full/drop policy.
+- Run `python3 scripts/check_esp_stack_hygiene.py` before committing changes that touch ESP BLE, Meshtastic bridge, app config save/load, or Android BLE connection flows. On Windows, if `python`/`python3` resolves to the Microsoft Store alias, use the real Python executable path reported by `where.exe python`.
+- If the stack guard fails, fix the ownership/storage model. Do not bypass it with a local exception unless the user explicitly accepts the stack budget and the reason is documented next to the exception.
+
+## PowerShell Command Discipline
+
+- Keep PowerShell commands short and single-purpose. Avoid dense one-liners with complex quoting, nested shells, or long chained pipelines.
+- Prefer native PowerShell cmdlets end to end. Do not mix PowerShell enumeration with `cmd /c` for file or process operations.
+- Use `rg`/`rg --files` for search, `git` for git state, and `apply_patch` for manual file edits.
+- For repeated or complex local operations, write down the intended steps first and run them as small observable commands instead of one large opaque command.
+- After any failed or timed-out command, inspect the process state before retrying.

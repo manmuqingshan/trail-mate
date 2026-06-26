@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -52,7 +53,12 @@
 #include "ui/widgets/top_bar.h"
 #include "ui_presentation/settings/settings_model.h"
 
+#if UI_SHARED_TOUCH_IME_ENABLED
+#include "ui/LV_Helper.h"
+#endif
+
 #if defined(ESP_PLATFORM)
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #endif
 
@@ -78,13 +84,19 @@ namespace wifi_runtime = ::platform::ui::wifi;
 
 constexpr size_t kMaxItems = 32;
 constexpr size_t kMaxOptions = 40;
-constexpr size_t kMaxWifiNetworks = 24;
+constexpr size_t kMaxWifiNetworks = 8;
+constexpr size_t kChatRegionOptionCapacity = 32;
+constexpr size_t kMeshCoreRegionPresetOptionCapacity = 32;
+constexpr size_t kLocaleOptionCapacity = 16;
+constexpr size_t kTimeZoneOptionCapacity = 32;
 constexpr const char* kPrefsNs = "settings";
 constexpr int kChatContactAlertsNone = 0;
 constexpr int kChatContactAlertsContacts = 1;
 constexpr int kChatContactAlertsAll = 2;
 constexpr int kNetTxPowerMin = app::AppConfig::kTxPowerMinDbm;
 constexpr int kNetTxPowerMax = app::AppConfig::kTxPowerMaxDbm;
+constexpr size_t kTxPowerOptionCapacity =
+    static_cast<size_t>(kNetTxPowerMax - kNetTxPowerMin + 1);
 constexpr int kGpsInitProbeMinMs = 250;
 constexpr int kGpsInitProbeMaxMs = 1600;
 
@@ -109,6 +121,42 @@ struct ImeToggleClick
     lv_obj_t* state_label = nullptr;
 };
 
+struct DynamicOptionStorage
+{
+    settings::ui::SettingOption chat_region_options[kChatRegionOptionCapacity] = {};
+    settings::ui::SettingOption meshcore_region_preset_options[kMeshCoreRegionPresetOptionCapacity] = {};
+    settings::ui::SettingOption tx_power_options[kTxPowerOptionCapacity] = {};
+    char tx_power_labels[kTxPowerOptionCapacity][12] = {};
+    settings::ui::SettingOption locale_options[kLocaleOptionCapacity] = {};
+    char locale_option_labels[kLocaleOptionCapacity][48] = {};
+    settings::ui::SettingOption time_zone_options[kTimeZoneOptionCapacity] = {};
+    char custom_time_zone_label[32] = {};
+    settings::ui::SettingOption wifi_network_options[kMaxWifiNetworks] = {};
+    char wifi_network_option_labels[kMaxWifiNetworks][64] = {};
+    wifi_runtime::ScanResult wifi_scan_results[kMaxWifiNetworks] = {};
+};
+
+DynamicOptionStorage& dynamic_options()
+{
+    static DynamicOptionStorage* storage = []() -> DynamicOptionStorage*
+    {
+#if defined(ESP_PLATFORM)
+        void* ptr = heap_caps_malloc_prefer(sizeof(DynamicOptionStorage),
+                                            2,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (ptr == nullptr)
+        {
+            ptr = ::operator new(sizeof(DynamicOptionStorage));
+        }
+        return new (ptr) DynamicOptionStorage();
+#else
+        return new DynamicOptionStorage();
+#endif
+    }();
+    return *storage;
+}
+
 gps_runtime::GpsReceiverInitConfig make_gps_receiver_init_config(const app::AppConfig& config)
 {
     gps_runtime::GpsReceiverInitConfig init{};
@@ -130,23 +178,12 @@ static lv_group_t* s_modal_prev_group = nullptr;
 static int s_pending_category = -1;
 static bool s_category_update_scheduled = false;
 static bool s_building_list = false;
-static settings::ui::SettingOption kChatRegionOptions[32] = {};
 static size_t kChatRegionOptionCount = 0;
-static settings::ui::SettingOption kMeshCoreRegionPresetOptions[32] = {};
 static size_t kMeshCoreRegionPresetOptionCount = 0;
-static settings::ui::SettingOption kTxPowerOptions[64] = {};
 static size_t kTxPowerOptionCount = 0;
-static char kTxPowerLabels[64][12] = {};
-static settings::ui::SettingOption kLocaleOptions[16] = {};
 static size_t kLocaleOptionCount = 0;
-static char kLocaleOptionLabels[16][48] = {};
-static settings::ui::SettingOption kTimeZoneOptions[32] = {};
 static size_t kTimeZoneOptionCount = 0;
-static char kCustomTimeZoneLabel[32] = {};
-static settings::ui::SettingOption kWifiNetworkOptions[kMaxWifiNetworks] = {};
 static size_t kWifiNetworkOptionCount = 0;
-static char kWifiNetworkOptionLabels[kMaxWifiNetworks][64] = {};
-static wifi_runtime::ScanResult kWifiScanResults[kMaxWifiNetworks] = {};
 static lv_timer_t* s_firmware_update_timer = nullptr;
 static bool s_firmware_overlay_owned = false;
 static firmware_update_runtime::Phase s_last_firmware_phase = firmware_update_runtime::Phase::Unsupported;
@@ -173,15 +210,16 @@ static bool apply_settings_bool_patch(const char* key, bool value)
 
 static void refresh_timezone_options()
 {
+    auto& options = dynamic_options();
     size_t profile_count = 0;
     const auto* profiles = ::platform::ui::time::timezone_profiles(&profile_count);
     kTimeZoneOptionCount = 0;
-    const size_t limit = sizeof(kTimeZoneOptions) / sizeof(kTimeZoneOptions[0]);
+    const size_t limit = kTimeZoneOptionCapacity;
     for (size_t i = 0; profiles && i < profile_count && kTimeZoneOptionCount < limit; ++i)
     {
-        kTimeZoneOptions[kTimeZoneOptionCount++] = {profiles[i].label, profiles[i].id};
+        options.time_zone_options[kTimeZoneOptionCount++] = {profiles[i].label, profiles[i].id};
     }
-    kCustomTimeZoneLabel[0] = '\0';
+    options.custom_time_zone_label[0] = '\0';
 }
 
 static void append_custom_timezone_option_if_needed(int profile_id, int offset_min)
@@ -190,18 +228,19 @@ static void append_custom_timezone_option_if_needed(int profile_id, int offset_m
     {
         return;
     }
-    if (kTimeZoneOptionCount >= sizeof(kTimeZoneOptions) / sizeof(kTimeZoneOptions[0]))
+    auto& options = dynamic_options();
+    if (kTimeZoneOptionCount >= kTimeZoneOptionCapacity)
     {
         return;
     }
 
     char tzdef[24] = {};
     ::platform::ui::time::build_fixed_posix_tzdef(offset_min, tzdef, sizeof(tzdef));
-    std::snprintf(kCustomTimeZoneLabel,
-                  sizeof(kCustomTimeZoneLabel),
+    std::snprintf(options.custom_time_zone_label,
+                  sizeof(options.custom_time_zone_label),
                   "Fixed %s",
                   tzdef[0] != '\0' ? tzdef : "UTC");
-    kTimeZoneOptions[kTimeZoneOptionCount++] = {kCustomTimeZoneLabel, profile_id};
+    options.time_zone_options[kTimeZoneOptionCount++] = {options.custom_time_zone_label, profile_id};
 }
 
 static void update_item_value(settings::ui::ItemWidget& widget);
@@ -214,6 +253,7 @@ static bool option_labels_are_translated(const settings::ui::SettingItem& item);
 static bool option_labels_use_content_font(const settings::ui::SettingItem& item);
 static void apply_locale_preview_font(lv_obj_t* label, const settings::ui::SettingItem& item, int value);
 static void refresh_language_pack_options();
+static void bind_dynamic_option_storage_to_items();
 
 static void copy_bounded(char* out, size_t out_len, const char* text)
 {
@@ -298,12 +338,13 @@ static void format_enabled_ime_summary(char* out, size_t out_len)
 
 static void clear_wifi_scan_options()
 {
+    auto& options = dynamic_options();
     kWifiNetworkOptionCount = 0;
     for (size_t i = 0; i < kMaxWifiNetworks; ++i)
     {
-        kWifiNetworkOptions[i] = settings::ui::SettingOption{};
-        kWifiNetworkOptionLabels[i][0] = '\0';
-        kWifiScanResults[i] = wifi_runtime::ScanResult{};
+        options.wifi_network_options[i] = settings::ui::SettingOption{};
+        options.wifi_network_option_labels[i][0] = '\0';
+        options.wifi_scan_results[i] = wifi_runtime::ScanResult{};
     }
     g_settings.wifi_network_index = -1;
 }
@@ -311,19 +352,20 @@ static void clear_wifi_scan_options()
 static void rebuild_wifi_scan_options(const std::vector<wifi_runtime::ScanResult>& results)
 {
     clear_wifi_scan_options();
+    auto& options = dynamic_options();
 
     const size_t limit = results.size() < kMaxWifiNetworks ? results.size() : kMaxWifiNetworks;
     for (size_t i = 0; i < limit; ++i)
     {
-        kWifiScanResults[i] = results[i];
-        std::snprintf(kWifiNetworkOptionLabels[i],
-                      sizeof(kWifiNetworkOptionLabels[i]),
+        options.wifi_scan_results[i] = results[i];
+        std::snprintf(options.wifi_network_option_labels[i],
+                      sizeof(options.wifi_network_option_labels[i]),
                       "%s (%d dBm%s)",
                       results[i].ssid,
                       results[i].rssi,
                       results[i].requires_password ? ", lock" : "");
-        kWifiNetworkOptions[i].label = kWifiNetworkOptionLabels[i];
-        kWifiNetworkOptions[i].value = static_cast<int>(i);
+        options.wifi_network_options[i].label = options.wifi_network_option_labels[i];
+        options.wifi_network_options[i].value = static_cast<int>(i);
     }
     kWifiNetworkOptionCount = limit;
 }
@@ -1226,6 +1268,8 @@ static void settings_load()
 #if defined(ESP_PLATFORM)
     ESP_LOGI(kLogTag, "settings_load begin");
 #endif
+    bind_dynamic_option_storage_to_items();
+    auto& options = dynamic_options();
     app::IAppFacade& app_ctx = app::appFacade();
     g_settings.chat_protocol = static_cast<int>(app_ctx.getConfig().mesh_protocol);
 
@@ -1233,12 +1277,12 @@ static void settings_load()
     {
         size_t region_count = 0;
         const chat::meshtastic::RegionInfo* regions = chat::meshtastic::getRegionTable(&region_count);
-        size_t limit = sizeof(kChatRegionOptions) / sizeof(kChatRegionOptions[0]);
+        size_t limit = kChatRegionOptionCapacity;
         kChatRegionOptionCount = (region_count < limit) ? region_count : limit;
         for (size_t i = 0; i < kChatRegionOptionCount; ++i)
         {
-            kChatRegionOptions[i].label = regions[i].label;
-            kChatRegionOptions[i].value = regions[i].code;
+            options.chat_region_options[i].label = regions[i].label;
+            options.chat_region_options[i].value = regions[i].code;
         }
     }
     if (kMeshCoreRegionPresetOptionCount == 0)
@@ -1246,11 +1290,11 @@ static void settings_load()
         size_t preset_count = 0;
         const chat::meshcore::RegionPreset* presets =
             chat::meshcore::getRegionPresetTable(&preset_count);
-        size_t limit = sizeof(kMeshCoreRegionPresetOptions) / sizeof(kMeshCoreRegionPresetOptions[0]);
+        size_t limit = kMeshCoreRegionPresetOptionCapacity;
         if (limit > 0)
         {
-            kMeshCoreRegionPresetOptions[0].label = "Custom";
-            kMeshCoreRegionPresetOptions[0].value = 0;
+            options.meshcore_region_preset_options[0].label = "Custom";
+            options.meshcore_region_preset_options[0].value = 0;
             size_t copy_count = preset_count;
             if (copy_count > (limit - 1))
             {
@@ -1258,24 +1302,25 @@ static void settings_load()
             }
             for (size_t i = 0; i < copy_count; ++i)
             {
-                kMeshCoreRegionPresetOptions[i + 1].label = presets[i].title;
-                kMeshCoreRegionPresetOptions[i + 1].value = presets[i].id;
+                options.meshcore_region_preset_options[i + 1].label = presets[i].title;
+                options.meshcore_region_preset_options[i + 1].value = presets[i].id;
             }
             kMeshCoreRegionPresetOptionCount = copy_count + 1;
         }
     }
     if (kTxPowerOptionCount == 0)
     {
-        size_t limit = sizeof(kTxPowerOptions) / sizeof(kTxPowerOptions[0]);
+        size_t limit = kTxPowerOptionCapacity;
         int value = kNetTxPowerMin;
         while (value <= kNetTxPowerMax && kTxPowerOptionCount < limit)
         {
-            snprintf(kTxPowerLabels[kTxPowerOptionCount],
-                     sizeof(kTxPowerLabels[kTxPowerOptionCount]),
+            snprintf(options.tx_power_labels[kTxPowerOptionCount],
+                     sizeof(options.tx_power_labels[kTxPowerOptionCount]),
                      "%d dBm",
                      value);
-            kTxPowerOptions[kTxPowerOptionCount].label = kTxPowerLabels[kTxPowerOptionCount];
-            kTxPowerOptions[kTxPowerOptionCount].value = value;
+            options.tx_power_options[kTxPowerOptionCount].label =
+                options.tx_power_labels[kTxPowerOptionCount];
+            options.tx_power_options[kTxPowerOptionCount].value = value;
             kTxPowerOptionCount++;
             value++;
         }
@@ -1487,8 +1532,9 @@ static void settings_load()
 
 static void refresh_language_pack_options()
 {
+    auto& options = dynamic_options();
     kLocaleOptionCount = 0;
-    const size_t locale_limit = sizeof(kLocaleOptions) / sizeof(kLocaleOptions[0]);
+    const size_t locale_limit = kLocaleOptionCapacity;
     for (size_t index = 0; index < ::ui::i18n::locale_count() && kLocaleOptionCount < locale_limit; ++index)
     {
         const ::ui::i18n::LocaleInfo* locale = ::ui::i18n::locale_at(index);
@@ -1499,12 +1545,13 @@ static void refresh_language_pack_options()
 
         const char* display_name =
             (locale->native_name && locale->native_name[0] != '\0') ? locale->native_name : locale->display_name;
-        std::snprintf(kLocaleOptionLabels[kLocaleOptionCount],
-                      sizeof(kLocaleOptionLabels[kLocaleOptionCount]),
+        std::snprintf(options.locale_option_labels[kLocaleOptionCount],
+                      sizeof(options.locale_option_labels[kLocaleOptionCount]),
                       "%s",
                       display_name ? display_name : "");
-        kLocaleOptions[kLocaleOptionCount].label = kLocaleOptionLabels[kLocaleOptionCount];
-        kLocaleOptions[kLocaleOptionCount].value = static_cast<int>(index);
+        options.locale_options[kLocaleOptionCount].label =
+            options.locale_option_labels[kLocaleOptionCount];
+        options.locale_options[kLocaleOptionCount].value = static_cast<int>(index);
         ++kLocaleOptionCount;
     }
     g_settings.display_locale_index = ::ui::i18n::current_locale_index();
@@ -1574,6 +1621,10 @@ static void format_value(const settings::ui::SettingItem& item, char* out, size_
         else if (item.pref_key && std::strcmp(item.pref_key, "manual_time_set") == 0)
         {
             format_manual_datetime_summary(out, out_len);
+        }
+        else if (item.pref_key && std::strcmp(item.pref_key, "c6_enter_download") == 0)
+        {
+            snprintf(out, out_len, "%s", ::ui::i18n::tr("Enter"));
         }
         else
         {
@@ -1667,6 +1718,75 @@ static void on_text_modal_key(lv_event_t* e)
     {
         return;
     }
+}
+
+static bool text_modal_hardware_keyboard_available()
+{
+#if UI_SHARED_TOUCH_IME_ENABLED
+    return lv_get_keyboard_indev() != nullptr;
+#else
+    return false;
+#endif
+}
+
+static bool should_use_touch_text_modal_layout(const ::ui::page_profile::PageLayoutProfile& profile)
+{
+    return profile.large_touch_hitbox && profile.ime_keyboard_height > 0 &&
+           !text_modal_hardware_keyboard_available();
+}
+
+static lv_coord_t resolve_text_modal_ime_host_height(
+    const ::ui::page_profile::PageLayoutProfile& profile,
+    bool touch_ime_layout)
+{
+    if (!touch_ime_layout)
+    {
+        return 24;
+    }
+    return profile.ime_bar_height + profile.ime_candidate_button_height +
+           profile.ime_keyboard_height + 16;
+}
+
+static lv_coord_t resolve_text_modal_button_height(
+    const ::ui::page_profile::PageLayoutProfile& profile,
+    bool touch_ime_layout)
+{
+    return touch_ime_layout ? profile.control_button_height
+                            : ::ui::page_profile::resolve_control_button_height();
+}
+
+static lv_coord_t resolve_text_modal_width(
+    const ::ui::page_profile::PageLayoutProfile& profile,
+    bool touch_ime_layout)
+{
+    if (!touch_ime_layout)
+    {
+        return 300;
+    }
+    return profile.ime_keyboard_height <= 220 ? 760 : 560;
+}
+
+static lv_coord_t resolve_text_modal_height(
+    const ::ui::page_profile::PageLayoutProfile& profile,
+    bool touch_ime_layout)
+{
+    if (!touch_ime_layout)
+    {
+        return 204;
+    }
+    if (profile.ime_keyboard_height > 220)
+    {
+        return 520;
+    }
+    const lv_coord_t title_block_height = 24;
+    const lv_coord_t textarea_height = 36;
+    const lv_coord_t gap_after_textarea = 8;
+    const lv_coord_t gap_before_buttons = 10;
+    return profile.modal_pad * 2 + title_block_height + textarea_height +
+           gap_after_textarea +
+           resolve_text_modal_ime_host_height(profile, touch_ime_layout) +
+           gap_before_buttons +
+           resolve_text_modal_button_height(profile, touch_ime_layout);
 }
 
 static lv_obj_t* create_modal_root(lv_coord_t width, lv_coord_t height)
@@ -1945,10 +2065,13 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     }
     modal_prepare_group();
     const auto& profile = ::ui::page_profile::current();
-    const bool touch_ime_layout =
-        profile.large_touch_hitbox && profile.ime_keyboard_height > 0;
-    g_state.modal_root = create_modal_root(touch_ime_layout ? 560 : 300,
-                                           touch_ime_layout ? 520 : 204);
+    const bool touch_ime_layout = should_use_touch_text_modal_layout(profile);
+    const lv_coord_t ime_host_height =
+        resolve_text_modal_ime_host_height(profile, touch_ime_layout);
+    const lv_coord_t button_height =
+        resolve_text_modal_button_height(profile, touch_ime_layout);
+    g_state.modal_root = create_modal_root(resolve_text_modal_width(profile, touch_ime_layout),
+                                           resolve_text_modal_height(profile, touch_ime_layout));
     lv_obj_t* win = lv_obj_get_child(g_state.modal_root, 0);
 
     lv_obj_t* title = lv_label_create(win);
@@ -1963,7 +2086,7 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
         lv_textarea_set_password_mode(g_state.modal_textarea, true);
     }
     lv_obj_set_width(g_state.modal_textarea, LV_PCT(100));
-    lv_obj_align(g_state.modal_textarea, LV_ALIGN_TOP_MID, 0, ::ui::page_profile::current().large_touch_hitbox ? 40 : 28);
+    lv_obj_align(g_state.modal_textarea, LV_ALIGN_TOP_MID, 0, 28);
     if (item.text_value)
     {
         lv_textarea_set_text(g_state.modal_textarea, item.text_value);
@@ -1973,15 +2096,11 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
 
     lv_obj_t* ime_host = lv_obj_create(win);
     lv_obj_set_width(ime_host, LV_PCT(100));
-    lv_obj_set_height(ime_host,
-                      touch_ime_layout
-                          ? profile.ime_bar_height + profile.ime_candidate_button_height +
-                                profile.ime_keyboard_height + 24
-                          : 24);
+    lv_obj_set_height(ime_host, ime_host_height);
     lv_obj_align(ime_host,
                  LV_ALIGN_TOP_MID,
                  0,
-                 touch_ime_layout ? 92 : 62);
+                 touch_ime_layout ? 72 : 62);
     lv_obj_set_style_pad_all(ime_host, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ime_host, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(ime_host, 0, LV_PART_MAIN);
@@ -2026,14 +2145,14 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* save_btn = lv_btn_create(btn_row);
-    lv_obj_set_size(save_btn, ::ui::page_profile::resolve_control_button_min_width(), ::ui::page_profile::resolve_control_button_height());
+    lv_obj_set_size(save_btn, ::ui::page_profile::resolve_control_button_min_width(), button_height);
     lv_obj_t* save_label = lv_label_create(save_btn);
     ::ui::i18n::set_label_text(save_label, "Save");
     lv_obj_center(save_label);
     lv_obj_add_event_cb(save_btn, on_text_save_clicked, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t* cancel_btn = lv_btn_create(btn_row);
-    lv_obj_set_size(cancel_btn, ::ui::page_profile::resolve_control_button_min_width(), ::ui::page_profile::resolve_control_button_height());
+    lv_obj_set_size(cancel_btn, ::ui::page_profile::resolve_control_button_min_width(), button_height);
     lv_obj_t* cancel_label = lv_label_create(cancel_btn);
     ::ui::i18n::set_label_text(cancel_label, "Cancel");
     lv_obj_center(cancel_label);
@@ -2287,7 +2406,7 @@ static void on_option_clicked(lv_event_t* e)
             static_cast<size_t>(payload->value) < kWifiNetworkOptionCount)
         {
             const wifi_runtime::ScanResult& result =
-                kWifiScanResults[static_cast<size_t>(payload->value)];
+                dynamic_options().wifi_scan_results[static_cast<size_t>(payload->value)];
             copy_bounded(g_settings.wifi_ssid, sizeof(g_settings.wifi_ssid), result.ssid);
             wifi_runtime::Config config{};
             config.enabled = g_settings.wifi_enabled;
@@ -3601,7 +3720,7 @@ static settings::ui::SettingItem kChatItems[] = {
     {"User Name", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.user_name, sizeof(g_settings.user_name), false, "chat_user"},
     {"Short Name", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.short_name, sizeof(g_settings.short_name), false, "chat_short"},
     {"Protocol", settings::ui::SettingType::Enum, kChatProtocolOptions, 4, &g_settings.chat_protocol, nullptr, nullptr, 0, false, "mesh_protocol"},
-    {"Region", settings::ui::SettingType::Enum, kChatRegionOptions, 0, &g_settings.chat_region, nullptr, nullptr, 0, false, "chat_region"},
+    {"Region", settings::ui::SettingType::Enum, nullptr, 0, &g_settings.chat_region, nullptr, nullptr, 0, false, "chat_region"},
     {"Channel", settings::ui::SettingType::Enum, kChatChannelOptions, 2, &g_settings.chat_channel, nullptr, nullptr, 0, false, "chat_channel"},
     {"Channel Key / PSK", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.chat_psk, sizeof(g_settings.chat_psk), true, "chat_psk"},
     {"Encryption Mode", settings::ui::SettingType::Enum, kPrivacyEncryptOptions, 3, &g_settings.privacy_encrypt_mode, nullptr, nullptr, 0, false, "privacy_encrypt"},
@@ -3618,7 +3737,7 @@ static settings::ui::SettingItem kNetworkItems[] = {
     {"Manual BW", settings::ui::SettingType::Enum, kNetManualBwOptions, sizeof(kNetManualBwOptions) / sizeof(kNetManualBwOptions[0]), &g_settings.net_manual_bw, nullptr, nullptr, 0, false, "net_bw"},
     {"Manual SF", settings::ui::SettingType::Enum, kSfOptions, sizeof(kSfOptions) / sizeof(kSfOptions[0]), &g_settings.net_manual_sf, nullptr, nullptr, 0, false, "net_sf"},
     {"Manual CR", settings::ui::SettingType::Enum, kCrOptions, sizeof(kCrOptions) / sizeof(kCrOptions[0]), &g_settings.net_manual_cr, nullptr, nullptr, 0, false, "net_cr"},
-    {"TX Power", settings::ui::SettingType::Enum, kTxPowerOptions,
+    {"TX Power", settings::ui::SettingType::Enum, nullptr,
      0, &g_settings.net_tx_power, nullptr, nullptr, 0, false, "net_tx_power"},
     {"Hop Limit", settings::ui::SettingType::Enum, kHopLimitOptions, sizeof(kHopLimitOptions) / sizeof(kHopLimitOptions[0]), &g_settings.net_hop_limit, nullptr, nullptr, 0, false, "net_hop_limit"},
     {"TX Enabled", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.net_tx_enabled, nullptr, 0, false, "net_tx_enabled"},
@@ -3626,12 +3745,12 @@ static settings::ui::SettingItem kNetworkItems[] = {
     {"Channel Slot", settings::ui::SettingType::Enum, kChannelNumOptions, sizeof(kChannelNumOptions) / sizeof(kChannelNumOptions[0]), &g_settings.net_channel_num, nullptr, nullptr, 0, false, "net_channel_num"},
     {"Freq Offset (MHz)", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.net_freq_offset, sizeof(g_settings.net_freq_offset), false, "net_freq_offset"},
     {"Override Freq (MHz)", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.net_override_freq, sizeof(g_settings.net_override_freq), false, "net_override_freq"},
-    {"MC Region Preset", settings::ui::SettingType::Enum, kMeshCoreRegionPresetOptions, 0, &g_settings.mc_region_preset, nullptr, nullptr, 0, false, "mc_region_preset"},
+    {"MC Region Preset", settings::ui::SettingType::Enum, nullptr, 0, &g_settings.mc_region_preset, nullptr, nullptr, 0, false, "mc_region_preset"},
     {"MC Frequency (MHz)", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_freq, sizeof(g_settings.mc_freq), false, "mc_freq"},
     {"MC Bandwidth (kHz)", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_bw, sizeof(g_settings.mc_bw), false, "mc_bw"},
     {"MC Spread Factor", settings::ui::SettingType::Enum, kSfOptions, sizeof(kSfOptions) / sizeof(kSfOptions[0]), &g_settings.mc_sf, nullptr, nullptr, 0, false, "mc_sf"},
     {"MC Coding Rate", settings::ui::SettingType::Enum, kCrOptions, sizeof(kCrOptions) / sizeof(kCrOptions[0]), &g_settings.mc_cr, nullptr, nullptr, 0, false, "mc_cr"},
-    {"MC TX Power", settings::ui::SettingType::Enum, kTxPowerOptions, 0, &g_settings.mc_tx_power, nullptr, nullptr, 0, false, "mc_tx_power"},
+    {"MC TX Power", settings::ui::SettingType::Enum, nullptr, 0, &g_settings.mc_tx_power, nullptr, nullptr, 0, false, "mc_tx_power"},
     {"MC Repeat", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mc_client_repeat, nullptr, 0, false, "mc_repeat"},
     {"MC RX Delay Base", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_rx_delay, sizeof(g_settings.mc_rx_delay), false, "mc_rx_delay"},
     {"MC Airtime Factor", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_airtime, sizeof(g_settings.mc_airtime), false, "mc_airtime"},
@@ -3647,7 +3766,7 @@ static settings::ui::SettingItem kNetworkItems[] = {
 };
 
 static settings::ui::SettingItem kScreenItems[] = {
-    {"Display Language", settings::ui::SettingType::Enum, kLocaleOptions,
+    {"Display Language", settings::ui::SettingType::Enum, nullptr,
      0, &g_settings.display_locale_index, nullptr, nullptr, 0, false,
      "display_locale"},
     {"Enabled IMEs", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "enabled_imes"},
@@ -3660,7 +3779,8 @@ static settings::ui::SettingItem kScreenItems[] = {
     {"Bluetooth", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.ble_enabled, nullptr, 0, false, "ble_enabled"},
     {"C6 Companion", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr,
      g_settings.c6_companion_status, sizeof(g_settings.c6_companion_status), false, "c6_companion_status"},
-    {"Time Zone", settings::ui::SettingType::Enum, kTimeZoneOptions, 0, &g_settings.timezone_profile_id, nullptr, nullptr, 0, false, "timezone_profile"},
+    {"C6 Download Mode", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "c6_enter_download"},
+    {"Time Zone", settings::ui::SettingType::Enum, nullptr, 0, &g_settings.timezone_profile_id, nullptr, nullptr, 0, false, "timezone_profile"},
     {"Date/Time", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "manual_time_set"},
     {"Gauge Design (mAh)", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr,
      g_settings.gauge_design_mah, sizeof(g_settings.gauge_design_mah), false, "gauge_design_mah"},
@@ -3673,7 +3793,7 @@ static settings::ui::SettingItem kWifiItems[] = {
     {"Wi-Fi Enabled", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.wifi_enabled, nullptr, 0, false, "wifi_enabled"},
     {"Status", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.wifi_status, sizeof(g_settings.wifi_status), false, "wifi_status"},
     {"Scan Networks", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "wifi_scan"},
-    {"Detected Network", settings::ui::SettingType::Enum, kWifiNetworkOptions, 0, &g_settings.wifi_network_index, nullptr, nullptr, 0, false, "wifi_network"},
+    {"Detected Network", settings::ui::SettingType::Enum, nullptr, 0, &g_settings.wifi_network_index, nullptr, nullptr, 0, false, "wifi_network"},
     {"SSID", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.wifi_ssid, sizeof(g_settings.wifi_ssid), false, "wifi_ssid"},
     {"Password", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.wifi_password, sizeof(g_settings.wifi_password), true, "wifi_password"},
     {"Connect", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "wifi_connect"},
@@ -3852,7 +3972,8 @@ static bool should_show_item(const settings::ui::SettingItem& item)
     {
         return false;
     }
-    if (has_pref_key(item, "c6_companion_status") &&
+    if ((has_pref_key(item, "c6_companion_status") ||
+         has_pref_key(item, "c6_enter_download")) &&
         !wireless_companion_runtime::is_supported())
     {
         return false;
@@ -4301,6 +4422,15 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
         {
             open_manual_datetime_modal(widget);
         }
+        else if (item.pref_key && strcmp(item.pref_key, "c6_enter_download") == 0)
+        {
+            const bool ok = wireless_companion_runtime::enter_download_mode();
+            refresh_wireless_companion_state_from_runtime();
+            refresh_visible_item_values();
+            ::ui::feedback::show_notice(
+                ::ui::i18n::tr(ok ? "C6 download mode requested" : "C6 download mode failed"),
+                ok ? 3000 : 4000);
+        }
         else if (item.pref_key && strcmp(item.pref_key, "wifi_scan") == 0)
         {
             std::vector<wifi_runtime::ScanResult> results;
@@ -4313,7 +4443,8 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
                 rebuild_wifi_scan_options(results);
                 for (size_t i = 0; i < kWifiNetworkOptionCount; ++i)
                 {
-                    if (std::strcmp(kWifiScanResults[i].ssid, g_settings.wifi_ssid) == 0)
+                    if (std::strcmp(dynamic_options().wifi_scan_results[i].ssid,
+                                    g_settings.wifi_ssid) == 0)
                     {
                         g_settings.wifi_network_index = static_cast<int>(i);
                         break;
@@ -4501,6 +4632,47 @@ static void on_list_back_clicked(lv_event_t* /*e*/)
 static void settings_back_cb(void* /*user_data*/)
 {
     ui_request_exit_to_menu();
+}
+
+static void bind_dynamic_option_storage_to_items()
+{
+    auto& options = dynamic_options();
+    for (settings::ui::SettingItem& item : kChatItems)
+    {
+        if (has_pref_key(item, "chat_region"))
+        {
+            item.options = options.chat_region_options;
+        }
+    }
+    for (settings::ui::SettingItem& item : kNetworkItems)
+    {
+        if (has_pref_key(item, "net_tx_power") || has_pref_key(item, "mc_tx_power"))
+        {
+            item.options = options.tx_power_options;
+        }
+        else if (has_pref_key(item, "mc_region_preset"))
+        {
+            item.options = options.meshcore_region_preset_options;
+        }
+    }
+    for (settings::ui::SettingItem& item : kScreenItems)
+    {
+        if (has_pref_key(item, "display_locale"))
+        {
+            item.options = options.locale_options;
+        }
+        else if (has_pref_key(item, "timezone_profile"))
+        {
+            item.options = options.time_zone_options;
+        }
+    }
+    for (settings::ui::SettingItem& item : kWifiItems)
+    {
+        if (has_pref_key(item, "wifi_network"))
+        {
+            item.options = options.wifi_network_options;
+        }
+    }
 }
 
 static void refresh_timezone_option_count()

@@ -23,7 +23,7 @@ struct PreferencesBlobMetadata
     uint32_t crc = 0;
 };
 
-bool loadRawBlobFromSd(const char* path, std::vector<uint8_t>& out);
+bool loadRawBlobFromSd(const char* path, std::vector<uint8_t>& out, size_t max_len);
 bool saveRawBlobToSd(const char* path, const uint8_t* data, size_t len);
 bool loadRawBlobFromPreferences(const char* ns, const char* key, std::vector<uint8_t>& out);
 bool saveRawBlobToPreferences(const char* ns, const char* key, const uint8_t* data, size_t len);

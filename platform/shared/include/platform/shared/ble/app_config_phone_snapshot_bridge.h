@@ -42,6 +42,12 @@ inline ::phone::MeshtasticPhoneConfigSnapshot makeMeshtasticPhoneConfigSnapshot(
     snapshot.primary_downlink_enabled = cfg.primary_downlink_enabled;
     snapshot.secondary_uplink_enabled = cfg.secondary_uplink_enabled;
     snapshot.secondary_downlink_enabled = cfg.secondary_downlink_enabled;
+    snapshot.primary_channel_has_module_settings = cfg.primary_channel_has_module_settings;
+    snapshot.primary_channel_position_precision = cfg.primary_channel_position_precision;
+    snapshot.primary_channel_is_muted = cfg.primary_channel_is_muted;
+    snapshot.secondary_channel_has_module_settings = cfg.secondary_channel_has_module_settings;
+    snapshot.secondary_channel_position_precision = cfg.secondary_channel_position_precision;
+    snapshot.secondary_channel_is_muted = cfg.secondary_channel_is_muted;
     snapshot.gps_enabled = cfg.gps_enabled;
     snapshot.gps_mode = cfg.gps_mode;
     snapshot.gps_interval_ms = cfg.gps_interval_ms;
@@ -62,6 +68,12 @@ inline void applyMeshtasticPhoneConfigSnapshot(app::AppConfig& cfg,
     cfg.primary_downlink_enabled = snapshot.primary_downlink_enabled;
     cfg.secondary_uplink_enabled = snapshot.secondary_uplink_enabled;
     cfg.secondary_downlink_enabled = snapshot.secondary_downlink_enabled;
+    cfg.primary_channel_has_module_settings = snapshot.primary_channel_has_module_settings;
+    cfg.primary_channel_position_precision = snapshot.primary_channel_position_precision;
+    cfg.primary_channel_is_muted = snapshot.primary_channel_is_muted;
+    cfg.secondary_channel_has_module_settings = snapshot.secondary_channel_has_module_settings;
+    cfg.secondary_channel_position_precision = snapshot.secondary_channel_position_precision;
+    cfg.secondary_channel_is_muted = snapshot.secondary_channel_is_muted;
     cfg.gps_enabled = snapshot.gps_enabled;
     cfg.gps_mode = snapshot.gps_mode;
     cfg.gps_interval_ms = snapshot.gps_interval_ms;

@@ -1,0 +1,2968 @@
+{
+  "schemaVersion": "praxis.designDiscoveryProgress.v1",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "runId": "design-discovery:1782397072885",
+  "updatedAt": "2026-06-25T14:37:21.491Z",
+  "status": "complete",
+  "stage": "complete",
+  "title": "Design Discovery 完成",
+  "detail": "已生成 15 个候选用例图。",
+  "events": [
+    {
+      "id": "design-discovery:1782397072885:prepare:1782397072889",
+      "kind": "runtime_event",
+      "stage": "prepare",
+      "status": "done",
+      "title": "准备 Design Discovery",
+      "content": "检查项目和生成策略。",
+      "timestamp": "2026-06-25T14:17:52.889Z",
+      "metadata": [
+        "root: C:\\Users\\vicliu\\Projects\\trail-mate",
+        "run: design-discovery:1782397072885"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:collect_facts:1782397072891",
+      "kind": "command_run",
+      "stage": "collect_facts",
+      "status": "done",
+      "title": "运行仓库发现",
+      "command": "praxis-runtime design:discover",
+      "content": "读取仓库扫描和本地代码事实证据。",
+      "timestamp": "2026-06-25T14:17:52.891Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:collect_facts:1782397074807",
+      "kind": "file_read",
+      "stage": "collect_facts",
+      "status": "done",
+      "title": "读取或生成本地代码事实",
+      "command": "praxis-runtime design:discover",
+      "content": "本地代码事实已就绪，准备抽取设计候选证据。",
+      "timestamp": "2026-06-25T14:17:54.807Z",
+      "path": ".distinction/cache/code-fact-graph.json",
+      "metadata": [
+        "files: 12000",
+        "nodes: 15329",
+        "edges: 16133",
+        "provider: [object Object]"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:collect_facts:1782397075292",
+      "kind": "file_edit",
+      "stage": "collect_facts",
+      "status": "done",
+      "title": "生成 Code-First Discovery Spine",
+      "command": "praxis-runtime design:discover",
+      "content": "Code-First Discovery Spine 已生成，Design / Engineering / Architecture 将共享这份代码理解骨架。",
+      "timestamp": "2026-06-25T14:17:55.292Z",
+      "path": "docs/code-understanding/code-first-discovery-spine.md",
+      "metadata": [
+        "behavior slices: 420",
+        "structural clusters: 17",
+        "runtime boundaries: 0",
+        "unknown gaps: 2062"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:agent_thinking:1782397075293",
+      "kind": "assistant_message",
+      "stage": "agent_thinking",
+      "status": "done",
+      "title": "Design Discovery Agent",
+      "content": "正在从本地仓库证据恢复候选故事、参与者、上下文和用例边界。",
+      "timestamp": "2026-06-25T14:17:55.293Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:agent_thinking:1782397075360",
+      "kind": "runtime_event",
+      "stage": "agent_thinking",
+      "status": "done",
+      "title": "构造模型请求",
+      "content": "已构造 Design Discovery 模型请求上下文。",
+      "timestamp": "2026-06-25T14:17:55.360Z",
+      "metadata": [
+        "selected code facts: 0",
+        "spine behavior slices: 420",
+        "spine unknown gaps: 2062",
+        "selected memory: 0",
+        "truncated code facts: 0",
+        "truncated memory: 0"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:agent_thinking:1782397075362",
+      "kind": "tool_call",
+      "stage": "agent_thinking",
+      "status": "done",
+      "title": "调用 Design Discovery 模型",
+      "content": "正在调用 Design Discovery 模型。",
+      "timestamp": "2026-06-25T14:17:55.362Z",
+      "command": "deepseek/deepseek-v4-pro",
+      "metadata": [
+        "task: design.discovery.use_cases",
+        "reasoning: true",
+        "effort: high",
+        "timeout: no timeout"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:agent_thinking:1782397230490",
+      "kind": "assistant_message",
+      "stage": "agent_thinking",
+      "status": "done",
+      "title": "模型返回",
+      "content": "模型已返回，正在解析候选 Interaction Model。",
+      "timestamp": "2026-06-25T14:20:30.490Z",
+      "metadata": [
+        "provider: deepseek",
+        "model: deepseek-v4-pro",
+        "content_chars: 19058",
+        "usage: {\"prompt_tokens\":535513,\"completion_tokens\":9702,\"total_tokens\":545215,\"prompt_tokens_details\":{\"cached_tokens\":6144},\"completion_tokens_details\":{\"reasoning_tokens\":3930},\"prompt_cache_hit_tokens\":6144,\"prompt_cache_miss_tokens\":529369}"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:agent_thinking:1782397230600",
+      "kind": "assistant_message",
+      "stage": "agent_thinking",
+      "status": "done",
+      "title": "Design Discovery 覆盖续跑 1",
+      "content": "仍有可观察行为入口未被候选故事解释，正在追加一轮证据驱动补齐。",
+      "timestamp": "2026-06-25T14:20:30.600Z",
+      "metadata": [
+        "previous use cases: 4",
+        "uncovered behavior slices: 133"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:agent_thinking:1782397586227",
+      "kind": "assistant_message",
+      "stage": "agent_thinking",
+      "status": "done",
+      "title": "Design Discovery 覆盖续跑 2",
+      "content": "仍有可观察行为入口未被候选故事解释，正在追加一轮证据驱动补齐。",
+      "timestamp": "2026-06-25T14:26:26.227Z",
+      "metadata": [
+        "previous use cases: 15",
+        "uncovered behavior slices: 23"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:agent_thinking:1782397936515",
+      "kind": "assistant_message",
+      "stage": "agent_thinking",
+      "status": "done",
+      "title": "Design Discovery 覆盖续跑 3",
+      "content": "仍有可观察行为入口未被候选故事解释，正在追加一轮证据驱动补齐。",
+      "timestamp": "2026-06-25T14:32:16.515Z",
+      "metadata": [
+        "previous use cases: 15",
+        "uncovered behavior slices: 21"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:agent_thinking:1782398239707",
+      "kind": "validation",
+      "stage": "agent_thinking",
+      "status": "done",
+      "title": "覆盖续跑停止",
+      "content": "覆盖续跑没有产生更完整模型，保留上一轮有效结果并停止自动续跑。",
+      "timestamp": "2026-06-25T14:37:19.707Z",
+      "metadata": [
+        "kept use cases: 15",
+        "continuation use cases: 15",
+        "merged use cases: 15",
+        "kept uncovered slices: 21",
+        "continuation uncovered slices: 21"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:agent_thinking:1782398239709",
+      "kind": "validation",
+      "stage": "agent_thinking",
+      "status": "done",
+      "title": "解析模型输出",
+      "content": "模型输出已解析为 15 个候选用例。",
+      "timestamp": "2026-06-25T14:37:19.709Z",
+      "metadata": [
+        "contexts: 6",
+        "actors: 1",
+        "external systems: 1",
+        "use cases: 15",
+        "relations: 43",
+        "drilldown diagrams: 66",
+        "questions: 0"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:normalize_model:1782398239711",
+      "kind": "validation",
+      "stage": "normalize_model",
+      "status": "done",
+      "title": "校验 Interaction Model",
+      "content": "已将 agent 输出规范化为 15 个候选用例、1 个参与者、43 条关系。",
+      "timestamp": "2026-06-25T14:37:19.711Z",
+      "metadata": [
+        "contexts: 6",
+        "actors: 1",
+        "external systems: 1",
+        "use cases: 15",
+        "relations: 43",
+        "drilldown diagrams: 66",
+        "questions: 0"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398239713",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "准备写入设计文档",
+      "path": "docs/design/use-case-diagrams-maps.md",
+      "content": "正在持久化 15 个候选用例图文档。",
+      "metadata": [
+        "docs/design/use-case-diagrams-maps.html",
+        "docs/design/use-case-diagrams/*.md",
+        "docs/design/use-case-diagrams/*.html"
+      ],
+      "timestamp": "2026-06-25T14:37:19.713Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398239828",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "清理旧设计投影",
+      "path": "docs/design/use-case-diagrams",
+      "content": "已清理旧版 managed 设计投影，避免过期 UML 文档继续出现在界面。",
+      "metadata": [
+        "only Praxis managed markdown/html documents are removed"
+      ],
+      "timestamp": "2026-06-25T14:37:19.828Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240469",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入地图 Markdown",
+      "path": "docs/design/use-case-diagrams-maps.md",
+      "content": "已写入 Use Case Diagram 地图 Markdown。",
+      "metadata": [
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "timestamp": "2026-06-25T14:37:20.469Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240658",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入地图 HTML",
+      "path": "docs/design/use-case-diagrams-maps.html",
+      "content": "已写入语义化 HTML 设计地图。",
+      "metadata": [
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "timestamp": "2026-06-25T14:37:20.658Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240837",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-device-overview.md",
+      "content": "已写入 Use Case Diagram Markdown：查看设备概览",
+      "metadata": [
+        "use-case:view-device-overview",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.837Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240839",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-device-overview.html",
+      "content": "已写入 Use Case Diagram HTML：查看设备概览",
+      "metadata": [
+        "use-case:view-device-overview",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.839Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240845",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-device-overview/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看设备概览",
+      "metadata": [
+        "use-case:view-device-overview",
+        "activity:view-device-overview",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.845Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240848",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-device-overview/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看设备概览",
+      "metadata": [
+        "use-case:view-device-overview",
+        "activity:view-device-overview",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.848Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240851",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-device-overview/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看设备概览",
+      "metadata": [
+        "use-case:view-device-overview",
+        "activity:view-device-overview-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.851Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240853",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-device-overview/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看设备概览",
+      "metadata": [
+        "use-case:view-device-overview",
+        "activity:view-device-overview-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.853Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240858",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-device-overview/sequences/sequence-view-device-overview-main.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看设备概览主成功场景",
+      "metadata": [
+        "use-case:view-device-overview",
+        "sequence:view-device-overview-main",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.858Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240860",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-device-overview/sequences/sequence-view-device-overview-main.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看设备概览主成功场景",
+      "metadata": [
+        "use-case:view-device-overview",
+        "sequence:view-device-overview-main",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.860Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240865",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-device-overview/sequences/sequence-view-device-overview.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看设备概览主成功场景",
+      "metadata": [
+        "use-case:view-device-overview",
+        "sequence:view-device-overview",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.865Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240867",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-device-overview/sequences/sequence-view-device-overview.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看设备概览主成功场景",
+      "metadata": [
+        "use-case:view-device-overview",
+        "sequence:view-device-overview",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.867Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240871",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/send-text-message.md",
+      "content": "已写入 Use Case Diagram Markdown：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.870Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240873",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/send-text-message.html",
+      "content": "已写入 Use Case Diagram HTML：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.873Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240875",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/send-text-message/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "activity:send-text-message",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.875Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240878",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/send-text-message/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "activity:send-text-message",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.878Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240880",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/send-text-message/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "activity:send-text-message-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.880Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240882",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/send-text-message/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "activity:send-text-message-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.882Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240884",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/send-text-message/activity.md",
+      "content": "已写入 Activity Diagram Markdown：Activity Diagram：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "activity:use-case-send-text-message-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.884Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240887",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/send-text-message/activity.html",
+      "content": "已写入 Activity Diagram HTML：Activity Diagram：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "activity:use-case-send-text-message-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.887Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240890",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "sequence:send-text-message",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.889Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240892",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：发送文本消息",
+      "metadata": [
+        "use-case:send-text-message",
+        "sequence:send-text-message",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.892Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240904",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：发送文本消息主成功场景",
+      "metadata": [
+        "use-case:send-text-message",
+        "sequence:send-text-message-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.904Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240906",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：发送文本消息主成功场景",
+      "metadata": [
+        "use-case:send-text-message",
+        "sequence:send-text-message-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.906Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240908",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-use-case-send-text-message-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：Sequence Diagram：发送文本消息主成功场景",
+      "metadata": [
+        "use-case:send-text-message",
+        "sequence:use-case-send-text-message-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.908Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240911",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/send-text-message/sequences/sequence-use-case-send-text-message-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：Sequence Diagram：发送文本消息主成功场景",
+      "metadata": [
+        "use-case:send-text-message",
+        "sequence:use-case-send-text-message-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.911Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240915",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-map-navigate.md",
+      "content": "已写入 Use Case Diagram Markdown：查看地图并导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.915Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240917",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-map-navigate.html",
+      "content": "已写入 Use Case Diagram HTML：查看地图并导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.917Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240920",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看地图并导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "activity:view-map-navigate-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.920Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240922",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看地图并导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "activity:view-map-navigate-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.922Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240925",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看地图导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "activity:view-map-navigate",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.925Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240927",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看地图导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "activity:view-map-navigate",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.927Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240929",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/activity.md",
+      "content": "已写入 Activity Diagram Markdown：Activity Diagram：查看地图并导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "activity:use-case-view-map-navigate-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.929Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240931",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/activity.html",
+      "content": "已写入 Activity Diagram HTML：Activity Diagram：查看地图并导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "activity:use-case-view-map-navigate-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.931Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240933",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看地图导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "sequence:view-map-navigate",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.933Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240936",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看地图导航",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "sequence:view-map-navigate",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.936Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240941",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看地图导航主成功场景",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "sequence:view-map-navigate-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.941Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240943",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-view-map-navigate-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看地图导航主成功场景",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "sequence:view-map-navigate-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.943Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240945",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-use-case-view-map-navigate-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：Sequence Diagram：查看地图并导航主成功场景",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "sequence:use-case-view-map-navigate-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.945Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240948",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-map-navigate/sequences/sequence-use-case-view-map-navigate-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：Sequence Diagram：查看地图并导航主成功场景",
+      "metadata": [
+        "use-case:view-map-navigate",
+        "sequence:use-case-view-map-navigate-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.948Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240952",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing.md",
+      "content": "已写入 Use Case Diagram Markdown：管理团队共享位置",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "candidate",
+        "low"
+      ],
+      "timestamp": "2026-06-25T14:37:20.952Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240954",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing.html",
+      "content": "已写入 Use Case Diagram HTML：管理团队共享位置",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "candidate",
+        "low"
+      ],
+      "timestamp": "2026-06-25T14:37:20.954Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240957",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：管理团队共享",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "activity:manage-team-sharing",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.957Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240960",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：管理团队共享",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "activity:manage-team-sharing",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.960Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240962",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：管理团队共享位置",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "activity:manage-team-sharing-activity",
+        "candidate",
+        "low"
+      ],
+      "timestamp": "2026-06-25T14:37:20.962Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240964",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：管理团队共享位置",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "activity:manage-team-sharing-activity",
+        "candidate",
+        "low"
+      ],
+      "timestamp": "2026-06-25T14:37:20.964Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240967",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/activity.md",
+      "content": "已写入 Activity Diagram Markdown：Activity Diagram：管理团队共享位置",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "activity:use-case-manage-team-sharing-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.967Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240970",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/activity.html",
+      "content": "已写入 Activity Diagram HTML：Activity Diagram：管理团队共享位置",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "activity:use-case-manage-team-sharing-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.970Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240972",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：管理团队共享",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "sequence:manage-team-sharing",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.972Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240974",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：管理团队共享",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "sequence:manage-team-sharing",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.974Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240977",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：管理团队共享位置主成功场景",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "sequence:manage-team-sharing-sequence",
+        "candidate",
+        "low"
+      ],
+      "timestamp": "2026-06-25T14:37:20.977Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240979",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：管理团队共享位置主成功场景",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "sequence:manage-team-sharing-sequence",
+        "candidate",
+        "low"
+      ],
+      "timestamp": "2026-06-25T14:37:20.979Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240983",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-use-case-manage-team-sharing-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：Sequence Diagram：管理团队共享位置主成功场景",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "sequence:use-case-manage-team-sharing-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.983Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240985",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-use-case-manage-team-sharing-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：Sequence Diagram：管理团队共享位置主成功场景",
+      "metadata": [
+        "use-case:manage-team-sharing",
+        "sequence:use-case-manage-team-sharing-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.985Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240989",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-data-details.md",
+      "content": "已写入 Use Case Diagram Markdown：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.989Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240991",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-data-details.html",
+      "content": "已写入 Use Case Diagram HTML：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.991Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240994",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-data-details/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "activity:view-data-details",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.994Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240996",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-data-details/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "activity:view-data-details",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:20.996Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398240999",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-data-details/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "activity:view-data-details-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:20.999Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241002",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-data-details/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "activity:view-data-details-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.002Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241005",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-data-details/sequences/sequence-view-data-details.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "sequence:view-data-details",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.005Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241007",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-data-details/sequences/sequence-view-data-details.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "sequence:view-data-details",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.007Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241011",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-data-details/sequences/sequence-view-data-details-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "sequence:view-data-details-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.011Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241015",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-data-details/sequences/sequence-view-data-details-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看数据详情",
+      "metadata": [
+        "use-case:view-data-details",
+        "sequence:view-data-details-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.015Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241019",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-hardware-status.md",
+      "content": "已写入 Use Case Diagram Markdown：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.019Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241022",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-hardware-status.html",
+      "content": "已写入 Use Case Diagram HTML：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.022Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241028",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-hardware-status/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "activity:view-hardware-status",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.028Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241031",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-hardware-status/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "activity:view-hardware-status",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.031Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241034",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-hardware-status/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "activity:view-hardware-status-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.034Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241037",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-hardware-status/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "activity:view-hardware-status-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.037Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241040",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-hardware-status/sequences/sequence-view-hardware-status.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "sequence:view-hardware-status",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.040Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241043",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-hardware-status/sequences/sequence-view-hardware-status.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "sequence:view-hardware-status",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.043Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241047",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-hardware-status/sequences/sequence-view-hardware-status-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "sequence:view-hardware-status-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.047Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241050",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-hardware-status/sequences/sequence-view-hardware-status-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看硬件状态",
+      "metadata": [
+        "use-case:view-hardware-status",
+        "sequence:view-hardware-status-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.050Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241054",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-system-logs.md",
+      "content": "已写入 Use Case Diagram Markdown：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.054Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241057",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-system-logs.html",
+      "content": "已写入 Use Case Diagram HTML：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.057Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241060",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-system-logs/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "activity:view-system-logs",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.060Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241063",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-system-logs/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "activity:view-system-logs",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.063Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241066",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-system-logs/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "activity:view-system-logs-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.066Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241069",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-system-logs/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "activity:view-system-logs-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.069Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241072",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-system-logs/sequences/sequence-view-system-logs.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "sequence:view-system-logs",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.072Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241075",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-system-logs/sequences/sequence-view-system-logs.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "sequence:view-system-logs",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.075Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241079",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/view-system-logs/sequences/sequence-view-system-logs-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "sequence:view-system-logs-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.079Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241082",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/view-system-logs/sequences/sequence-view-system-logs-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：查看系统日志",
+      "metadata": [
+        "use-case:view-system-logs",
+        "sequence:view-system-logs-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.082Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241085",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-device-settings.md",
+      "content": "已写入 Use Case Diagram Markdown：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.085Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241088",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-device-settings.html",
+      "content": "已写入 Use Case Diagram HTML：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.088Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241092",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-device-settings/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "activity:manage-device-settings",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.091Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241094",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-device-settings/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "activity:manage-device-settings",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.094Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241097",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-device-settings/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "activity:manage-device-settings-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.097Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241100",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-device-settings/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "activity:manage-device-settings-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.100Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241103",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-device-settings/sequences/sequence-manage-device-settings.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "sequence:manage-device-settings",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.103Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241106",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-device-settings/sequences/sequence-manage-device-settings.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "sequence:manage-device-settings",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.106Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241111",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-device-settings/sequences/sequence-manage-device-settings-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "sequence:manage-device-settings-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.111Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241114",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-device-settings/sequences/sequence-manage-device-settings-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：管理设备设置",
+      "metadata": [
+        "use-case:manage-device-settings",
+        "sequence:manage-device-settings-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.114Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241117",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/sync-gps-time.md",
+      "content": "已写入 Use Case Diagram Markdown：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.117Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241120",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/sync-gps-time.html",
+      "content": "已写入 Use Case Diagram HTML：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.120Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241124",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/sync-gps-time/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "activity:sync-gps-time",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.124Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241127",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/sync-gps-time/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "activity:sync-gps-time",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.127Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241131",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/sync-gps-time/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "activity:sync-gps-time-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.131Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241134",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/sync-gps-time/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "activity:sync-gps-time-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.134Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241138",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/sync-gps-time/sequences/sequence-sync-gps-time.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "sequence:sync-gps-time",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.138Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241142",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/sync-gps-time/sequences/sequence-sync-gps-time.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "sequence:sync-gps-time",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.142Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241146",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/sync-gps-time/sequences/sequence-sync-gps-time-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "sequence:sync-gps-time-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.146Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241149",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/sync-gps-time/sequences/sequence-sync-gps-time-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：同步 GPS 时间",
+      "metadata": [
+        "use-case:sync-gps-time",
+        "sequence:sync-gps-time-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.149Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241153",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/control-device-notifications.md",
+      "content": "已写入 Use Case Diagram Markdown：控制设备通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.153Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241156",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/control-device-notifications.html",
+      "content": "已写入 Use Case Diagram HTML：控制设备通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.156Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241162",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/control-device-notifications/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：控制设备通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "activity:control-device-notifications-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.162Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241165",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/control-device-notifications/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：控制设备通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "activity:control-device-notifications-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.165Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241168",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/control-device-notifications/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：控制通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "activity:control-device-notifications",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.168Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241171",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/control-device-notifications/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：控制通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "activity:control-device-notifications",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.171Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241176",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/control-device-notifications/sequences/sequence-control-device-notifications-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：控制设备通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "sequence:control-device-notifications-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.176Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241180",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/control-device-notifications/sequences/sequence-control-device-notifications-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：控制设备通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "sequence:control-device-notifications-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.180Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241183",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/control-device-notifications/sequences/sequence-control-device-notifications.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：控制通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "sequence:control-device-notifications",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.183Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241187",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/control-device-notifications/sequences/sequence-control-device-notifications.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：控制通知",
+      "metadata": [
+        "use-case:control-device-notifications",
+        "sequence:control-device-notifications",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.187Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241190",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/power-off-device.md",
+      "content": "已写入 Use Case Diagram Markdown：关闭设备电源",
+      "metadata": [
+        "use-case:power-off-device",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.190Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241193",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/power-off-device.html",
+      "content": "已写入 Use Case Diagram HTML：关闭设备电源",
+      "metadata": [
+        "use-case:power-off-device",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.193Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241196",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/power-off-device/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：关闭设备电源",
+      "metadata": [
+        "use-case:power-off-device",
+        "activity:power-off-device-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.196Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241202",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/power-off-device/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：关闭设备电源",
+      "metadata": [
+        "use-case:power-off-device",
+        "activity:power-off-device-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.202Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241207",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/power-off-device/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：关机",
+      "metadata": [
+        "use-case:power-off-device",
+        "activity:power-off-device",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.207Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241211",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/power-off-device/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：关机",
+      "metadata": [
+        "use-case:power-off-device",
+        "activity:power-off-device",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.211Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241216",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/power-off-device/sequences/sequence-power-off-device.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：关机",
+      "metadata": [
+        "use-case:power-off-device",
+        "sequence:power-off-device",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.216Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241223",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/power-off-device/sequences/sequence-power-off-device.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：关机",
+      "metadata": [
+        "use-case:power-off-device",
+        "sequence:power-off-device",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.223Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241228",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/power-off-device/sequences/sequence-power-off-device-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：关机",
+      "metadata": [
+        "use-case:power-off-device",
+        "sequence:power-off-device-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.228Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241231",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/power-off-device/sequences/sequence-power-off-device-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：关机",
+      "metadata": [
+        "use-case:power-off-device",
+        "sequence:power-off-device-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.231Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241235",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-sd-card.md",
+      "content": "已写入 Use Case Diagram Markdown：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.235Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241238",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-sd-card.html",
+      "content": "已写入 Use Case Diagram HTML：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.238Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241242",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-sd-card/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "activity:manage-sd-card",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.242Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241245",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-sd-card/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "activity:manage-sd-card",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.245Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241249",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-sd-card/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "activity:manage-sd-card-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.249Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241252",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-sd-card/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "activity:manage-sd-card-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.252Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241255",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-sd-card/sequences/sequence-manage-sd-card.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "sequence:manage-sd-card",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.255Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241258",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-sd-card/sequences/sequence-manage-sd-card.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "sequence:manage-sd-card",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.258Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241262",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/manage-sd-card/sequences/sequence-manage-sd-card-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "sequence:manage-sd-card-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.262Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241265",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/manage-sd-card/sequences/sequence-manage-sd-card-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：管理 SD 卡",
+      "metadata": [
+        "use-case:manage-sd-card",
+        "sequence:manage-sd-card-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.265Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241270",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/receive-text-message.md",
+      "content": "已写入 Use Case Diagram Markdown：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.270Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241273",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/receive-text-message.html",
+      "content": "已写入 Use Case Diagram HTML：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.273Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241277",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/receive-text-message/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "activity:receive-text-message",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.277Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241281",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/receive-text-message/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "activity:receive-text-message",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.281Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241284",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/receive-text-message/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "activity:receive-text-message-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.284Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241287",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/receive-text-message/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "activity:receive-text-message-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.287Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241291",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "sequence:receive-text-message",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.291Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241294",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "sequence:receive-text-message",
+        "candidate",
+        "high"
+      ],
+      "timestamp": "2026-06-25T14:37:21.294Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241299",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "sequence:receive-text-message-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.299Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241304",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/receive-text-message/sequences/sequence-receive-text-message-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：接收文本消息",
+      "metadata": [
+        "use-case:receive-text-message",
+        "sequence:receive-text-message-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.304Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241308",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters.md",
+      "content": "已写入 Use Case Diagram Markdown：配置无线电参数",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.308Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241314",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters.html",
+      "content": "已写入 Use Case Diagram HTML：配置无线电参数",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.314Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241325",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：配置无线电参数",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "activity:configure-radio-parameters",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.325Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241330",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：配置无线电参数",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "activity:configure-radio-parameters",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.330Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241334",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：配置无线电参数",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "activity:configure-radio-parameters-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.334Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241337",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：配置无线电参数",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "activity:configure-radio-parameters-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.337Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241343",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：配置无线电",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "sequence:configure-radio-parameters",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.343Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241349",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：配置无线电",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "sequence:configure-radio-parameters",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.349Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241353",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：配置无线电参数",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "sequence:configure-radio-parameters-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.353Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241359",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：配置无线电参数",
+      "metadata": [
+        "use-case:configure-radio-parameters",
+        "sequence:configure-radio-parameters-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.359Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241364",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/capture-screenshot.md",
+      "content": "已写入 Use Case Diagram Markdown：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.364Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241368",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Use Case Diagram HTML",
+      "path": "docs/design/use-case-diagrams/capture-screenshot.html",
+      "content": "已写入 Use Case Diagram HTML：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.368Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241372",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/capture-screenshot/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "activity:capture-screenshot",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.372Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241376",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/capture-screenshot/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "activity:capture-screenshot",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.376Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241380",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/capture-screenshot/activity.md",
+      "content": "已写入 Activity Diagram Markdown：业务流程：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "activity:capture-screenshot-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.379Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241383",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Activity Diagram HTML",
+      "path": "docs/design/use-case-diagrams/capture-screenshot/activity.html",
+      "content": "已写入 Activity Diagram HTML：业务流程：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "activity:capture-screenshot-activity",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.383Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241388",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "sequence:capture-screenshot",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.388Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241392",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "sequence:capture-screenshot",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.392Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241400",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram Markdown",
+      "path": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot-sequence.md",
+      "content": "已写入 Sequence Diagram Markdown：对象交互：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "sequence:capture-screenshot-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.400Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241414",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入 Sequence Diagram HTML",
+      "path": "docs/design/use-case-diagrams/capture-screenshot/sequences/sequence-capture-screenshot-sequence.html",
+      "content": "已写入 Sequence Diagram HTML：对象交互：捕获屏幕截图",
+      "metadata": [
+        "use-case:capture-screenshot",
+        "sequence:capture-screenshot-sequence",
+        "candidate",
+        "medium"
+      ],
+      "timestamp": "2026-06-25T14:37:21.414Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241417",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入独立用例图文档",
+      "path": "docs/design/use-case-diagrams",
+      "content": "已写入 162 份独立 Use Case Diagram 文档。",
+      "metadata": [
+        "docs/design/use-case-diagrams/view-device-overview.md",
+        "docs/design/use-case-diagrams/view-device-overview/activity.md",
+        "docs/design/use-case-diagrams/view-device-overview/activity.md",
+        "docs/design/use-case-diagrams/view-device-overview/sequences/sequence-view-device-overview-main.md",
+        "docs/design/use-case-diagrams/view-device-overview/sequences/sequence-view-device-overview.md",
+        "docs/design/use-case-diagrams/send-text-message.md",
+        "docs/design/use-case-diagrams/send-text-message/activity.md",
+        "docs/design/use-case-diagrams/send-text-message/activity.md",
+        "docs/design/use-case-diagrams/send-text-message/activity.md",
+        "docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message.md"
+      ],
+      "timestamp": "2026-06-25T14:37:21.417Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:persist_docs:1782398241426",
+      "kind": "file_edit",
+      "stage": "persist_docs",
+      "status": "done",
+      "title": "写入模型快照",
+      "path": ".distinction/cache/design/interaction-model-candidate.json",
+      "content": "已写入 Interaction Model 快照。",
+      "metadata": [
+        "docs/design/use-case-diagrams-maps.html"
+      ],
+      "timestamp": "2026-06-25T14:37:21.426Z"
+    },
+    {
+      "id": "design-discovery:1782397072885:project_views:1782398241429",
+      "kind": "runtime_event",
+      "stage": "project_views",
+      "status": "done",
+      "title": "重建 Design Explorer 投影",
+      "content": "正在从代码事实生成的 Interaction Model 重建 Design Explorer 投影。",
+      "timestamp": "2026-06-25T14:37:21.429Z",
+      "metadata": [
+        "source: local repository evidence",
+        "docs/design: generated projection artifact"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:project_views:1782398241485",
+      "kind": "file_edit",
+      "stage": "project_views",
+      "status": "done",
+      "title": "写入投影视图",
+      "content": "已生成 6 个用例图投影视图。",
+      "timestamp": "2026-06-25T14:37:21.485Z",
+      "path": ".distinction/cache/projection-manifest.json",
+      "metadata": [
+        ".distinction/views/design/use-case-list.json",
+        ".distinction/views/design/system-trail-mate/use-case-diagram.json",
+        ".distinction/views/design/business_module-device-management/use-case-diagram.json",
+        ".distinction/views/design/business_module-chat-communication/use-case-diagram.json",
+        ".distinction/views/design/business_module-map-navigation/use-case-diagram.json",
+        ".distinction/views/design/business_module-team-collaboration/use-case-diagram.json",
+        ".distinction/views/design/business_module-diagnostics-tools/use-case-diagram.json"
+      ]
+    },
+    {
+      "id": "design-discovery:1782397072885:complete:1782398241491",
+      "kind": "final_summary",
+      "stage": "complete",
+      "status": "done",
+      "title": "Design Discovery 完成",
+      "content": "已生成 15 个候选用例图。",
+      "timestamp": "2026-06-25T14:37:21.491Z",
+      "metadata": [
+        "contexts: 6",
+        "actors: 1",
+        "external systems: 1",
+        "use cases: 15",
+        "relations: 43",
+        "drilldown diagrams: 66",
+        "questions: 0"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "prepare",
+      "title": "准备 Design Discovery",
+      "detail": "检查项目和生成策略。",
+      "status": "done"
+    },
+    {
+      "id": "collect_facts",
+      "title": "收集代码事实",
+      "detail": "读取仓库扫描和本地代码事实证据。",
+      "status": "done"
+    },
+    {
+      "id": "read_memory",
+      "title": "读取项目记忆",
+      "detail": "查找 docs-backed memory 和迁移证据。",
+      "status": "done"
+    },
+    {
+      "id": "agent_thinking",
+      "title": "Design Discovery Agent",
+      "detail": "恢复故事、参与者、上下文和用例边界。",
+      "status": "done"
+    },
+    {
+      "id": "normalize_model",
+      "title": "规范化 Interaction Model",
+      "detail": "在持久化前校验并修复候选模型形状。",
+      "status": "done"
+    },
+    {
+      "id": "persist_docs",
+      "title": "写入 docs/design",
+      "detail": "生成 Markdown、Semantic HTML 和独立用例图文档。",
+      "status": "done"
+    },
+    {
+      "id": "project_views",
+      "title": "重建投影",
+      "detail": "把 docs-backed 设计地图投影到 Design Explorer 视图。",
+      "status": "done"
+    },
+    {
+      "id": "complete",
+      "title": "Design Discovery 完成",
+      "detail": "Design Explorer 可以加载生成的设计地图。",
+      "status": "done"
+    }
+  ]
+}

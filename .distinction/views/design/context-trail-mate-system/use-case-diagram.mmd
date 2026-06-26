@@ -1,0 +1,55 @@
+flowchart LR
+  actor_actor_hiker["&laquo;Actor&raquo;<br/>徒步者"]
+  actor_actor_admin["&laquo;Actor&raquo;<br/>管理员"]
+  external_external_gps_satellite["&laquo;External System&raquo;<br/>GPS卫星"]
+  external_external_lora_network["&laquo;External System&raquo;<br/>LoRa无线电网关"]
+  subgraph system_context_trail_mate_system["Trail Mate 系统"]
+    subgraph system_context_chat["通信与消息"]
+      useCase_use_case_play_alert_tone(["播放消息提示音"])
+      useCase_use_case_view_chat_history(["查看聊天历史"])
+      useCase_use_case_send_chat_message(["发送聊天消息"])
+    end
+    subgraph system_context_team["团队追踪与位置共享"]
+      useCase_use_case_view_team_members_position(["查看团队成员位置"])
+    end
+    subgraph system_context_map["地图与导航"]
+      useCase_use_case_browse_map(["浏览地图"])
+    end
+    subgraph system_context_device_management["设备管理"]
+      useCase_use_case_view_hardware_status(["查看硬件状态"])
+      useCase_use_case_monitor_battery(["监控电池状态"])
+      useCase_use_case_manage_radio_communication(["管理无线电通信"])
+      useCase_use_case_sync_gps_time(["从GPS同步系统时间"])
+      useCase_use_case_manage_screen_sleep(["管理屏幕休眠"])
+      useCase_use_case_shutdown_device(["关闭设备"])
+      useCase_use_case_install_sd_card(["安装SD卡"])
+    end
+    subgraph system_context_settings["系统设置与配置"]
+      useCase_use_case_manage_system_settings(["管理系统设置"])
+      useCase_use_case_configure_radio_settings(["配置无线电网络参数"])
+    end
+    useCase_use_case_view_overview(["查看系统概览"])
+    useCase_use_case_view_system_logs(["查看系统日志"])
+  end
+  actor_actor_hiker --- useCase_use_case_view_hardware_status
+  actor_actor_hiker --- useCase_use_case_monitor_battery
+  actor_actor_hiker --- useCase_use_case_manage_radio_communication
+  actor_actor_admin --- useCase_use_case_manage_radio_communication
+  external_external_lora_network --- useCase_use_case_manage_radio_communication
+  actor_actor_hiker --- useCase_use_case_sync_gps_time
+  external_external_gps_satellite --- useCase_use_case_sync_gps_time
+  actor_actor_hiker --- useCase_use_case_manage_screen_sleep
+  actor_actor_hiker --- useCase_use_case_shutdown_device
+  actor_actor_hiker --- useCase_use_case_install_sd_card
+  actor_actor_hiker --- useCase_use_case_play_alert_tone
+  actor_actor_hiker --- useCase_use_case_view_chat_history
+  actor_actor_hiker --- useCase_use_case_send_chat_message
+  external_external_lora_network --- useCase_use_case_send_chat_message
+  actor_actor_hiker --- useCase_use_case_view_team_members_position
+  actor_actor_hiker --- useCase_use_case_browse_map
+  actor_actor_hiker --- useCase_use_case_view_overview
+  actor_actor_admin --- useCase_use_case_view_system_logs
+  actor_actor_admin --- useCase_use_case_manage_system_settings
+  actor_actor_hiker --- useCase_use_case_manage_system_settings
+  actor_actor_admin --- useCase_use_case_configure_radio_settings
+  useCase_use_case_manage_system_settings -.->|&laquo;include&raquo;| useCase_use_case_configure_radio_settings

@@ -1,0 +1,16 @@
+flowchart LR
+  actor_actor_user["&laquo;Actor&raquo;<br/>用户"]
+  external_external_system_meshtastic_network["&laquo;External System&raquo;<br/>Meshtastic 网络"]
+  subgraph system_system_trail_mate["Trail Mate 系统"]
+    subgraph system_business_module_chat_communication["聊天通信"]
+      useCase_use_case_send_text_message(["发送文本消息"])
+      useCase_use_case_receive_text_message(["接收文本消息"])
+      useCase_use_case_configure_radio_parameters(["配置无线电参数"])
+    end
+  end
+  actor_actor_user --- useCase_use_case_send_text_message
+  external_external_system_meshtastic_network --- useCase_use_case_send_text_message
+  actor_actor_user --- useCase_use_case_receive_text_message
+  external_external_system_meshtastic_network --- useCase_use_case_receive_text_message
+  actor_actor_user --- useCase_use_case_configure_radio_parameters
+  external_external_system_meshtastic_network --- useCase_use_case_configure_radio_parameters

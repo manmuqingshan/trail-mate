@@ -1,0 +1,751 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:item-ajfw3y",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T09:32:40.935Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:item-ajfw3y",
+      "kind": "design_context",
+      "label": "位置追踪",
+      "source": {
+        "type": "model",
+        "id": "context:item-ajfw3y"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:item-ajfw3y"
+      },
+      "summary": "与位置记录和回放相关的功能，属于地图与导航模块的扩展，专注于户外运动中的数据记录而非团队位置。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "business_module",
+        "scope": "与位置记录和回放相关的功能，属于地图与导航模块的扩展，专注于户外运动中的数据记录而非团队位置。",
+        "responsibility": "与位置记录和回放相关的功能，属于地图与导航模块的扩展，专注于户外运动中的数据记录而非团队位置。",
+        "businessTerms": [
+          "位置追踪",
+          "与位置记录和回放相关的功能",
+          "属于地图与导航模块的扩展",
+          "专注于户外运动中的数据记录而非团队位置"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:actor-user",
+      "kind": "design_actor",
+      "label": "actor:user",
+      "source": {
+        "type": "model",
+        "id": "actor:actor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:actor-user"
+      },
+      "summary": "Actor participating in actor:user.",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379321376"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "role"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:item-qp99mz",
+      "kind": "design_use_case",
+      "label": "浏览追踪记录",
+      "source": {
+        "type": "model",
+        "id": "use-case:item-qp99mz"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      },
+      "summary": "用户可在 Tracker 页面查看当前徒步活动的轨迹记录，包括已走过的路径、当前速度、移动距离、时间等信息。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "航迹数据保存格式和策略是什么？",
+          "是否支持多段航迹合并？",
+          "轨迹点采样频率是多少？"
+        ],
+        "contextId": "context:item-ajfw3y",
+        "trigger": "用户打开 Tracker 页面。",
+        "primaryActorIds": [
+          "actor:actor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-item-qp99mz-1",
+      "kind": "design_activity",
+      "label": "浏览追踪记录的业务流程",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-item-qp99mz-1"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-item-qp99mz-1"
+      },
+      "summary": "描述从打开页面到记录、暂停、标记航点直至保存的流程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:item-qp99mz",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功路径，包含记录、暂停和航点标记。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..4]"
+          ],
+          "boundary": "从进入 Tracker 界面到用户离开或关闭记录。",
+          "notCovered": [
+            "航迹回放界面",
+            "团队共享轨迹"
+          ],
+          "rationale": "记录是追踪功能的核心流程。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "codeAnchors": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "outOfScopeCode": [
+              "团队位置同步代码"
+            ]
+          }
+        },
+        "coverageScenario": "主成功路径，包含记录、暂停和航点标记。",
+        "coverageBoundary": "从进入 Tracker 界面到用户离开或关闭记录。",
+        "coverageRationale": "记录是追踪功能的核心流程。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..4]"
+        ],
+        "notCovered": [
+          "航迹回放界面",
+          "团队共享轨迹"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "codeAnchors": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "outOfScopeCode": [
+            "团队位置同步代码"
+          ]
+        },
+        "explanation": {
+          "business": "用户希望通过设备记录自己的徒步轨迹，以便回顾和分析。",
+          "uml": "活动图从打开页面开始，包含实时更新、暂停、标记航点等活动，最后以停止记录结束。",
+          "design": "该流程可能依赖 GPS 服务获取位置，轨迹存储服务管理数据持久化，属于数据采集类用例，无复杂分支。",
+          "implementation": "待根据仓库分析定位相关模块（如 gps 或 tracker 目录）。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/item-qp99mz/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/item-qp99mz/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-item-qp99mz-2",
+      "kind": "design_sequence",
+      "label": "浏览追踪记录主成功场景交互",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-item-qp99mz-2"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-item-qp99mz-2"
+      },
+      "summary": "展示用户、Tracker UI、GPS 服务和存储服务之间的协作。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:item-qp99mz",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功路径：开始记录到暂停/停止。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..4]"
+          ],
+          "boundary": "从用户触发记录到数据存储。",
+          "notCovered": [
+            "航点编辑",
+            "轨迹回放"
+          ],
+          "rationale": "核心交互体现了数据采集的简单管道。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "codeAnchors": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "outOfScopeCode": [
+              "地图渲染相关"
+            ]
+          }
+        },
+        "coverageScenario": "主成功路径：开始记录到暂停/停止。",
+        "coverageBoundary": "从用户触发记录到数据存储。",
+        "coverageRationale": "核心交互体现了数据采集的简单管道。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..4]"
+        ],
+        "notCovered": [
+          "航点编辑",
+          "轨迹回放"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "codeAnchors": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "outOfScopeCode": [
+            "地图渲染相关"
+          ]
+        },
+        "explanation": {
+          "business": "用户启动记录后，系统持续采集位置并计算运动指标。",
+          "uml": "序列图展示 User、TrackerInterface、GpsService、TrackStore 四个生命线，消息包括开始记录、定期获取位置、计算统计、保存轨迹。",
+          "design": "采用观察者或轮询模式从 GPS 服务获取数据，TrackerInterface 负责统计，TrackStore 负责持久化。",
+          "implementation": "待仓库证据补充。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/item-qp99mz/sequences/sequence-use-case-item-qp99mz-2.md",
+        "htmlPath": "docs/design/use-case-diagrams/item-qp99mz/sequences/sequence-use-case-item-qp99mz-2.html"
+      }
+    },
+    {
+      "id": "projection-node:design-class-collaboration:class-collaboration:use-case-item-qp99mz-3",
+      "kind": "design_class_collaboration",
+      "label": "浏览追踪记录的结构协作",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-item-qp99mz-3"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-item-qp99mz-3"
+      },
+      "summary": "展示追踪用例涉及的应用服务、依赖的 GPS 端口和存储接口。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-story-intake:1782379621985"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:item-qp99mz",
+        "diagramKind": "class_collaboration",
+        "coverage": {
+          "scenario": "结构切片，覆盖记录和存储所需组件。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1..4]"
+          ],
+          "boundary": "仅包含追踪直接关联的对象。",
+          "notCovered": [
+            "UI 控件",
+            "地图渲染"
+          ],
+          "rationale": "展示端口-适配器模式在追踪模块的应用。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "codeAnchors": [
+              "docs/design/use-case-diagrams-maps.md"
+            ],
+            "outOfScopeCode": [
+              "团队协作模块"
+            ]
+          }
+        },
+        "coverageScenario": "结构切片，覆盖记录和存储所需组件。",
+        "coverageBoundary": "仅包含追踪直接关联的对象。",
+        "coverageRationale": "展示端口-适配器模式在追踪模块的应用。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1..4]"
+        ],
+        "notCovered": [
+          "UI 控件",
+          "地图渲染"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "codeAnchors": [
+            "docs/design/use-case-diagrams-maps.md"
+          ],
+          "outOfScopeCode": [
+            "团队协作模块"
+          ]
+        },
+        "explanation": {
+          "business": "追踪需要 GPS 位置和持久化能力。",
+          "uml": "类图显示 TrackingService 依赖 IGpsProvider 和 ITrackStore 接口。",
+          "design": "通过接口隔离硬件 GPS 获取和存储介质，便于移植。",
+          "implementation": "接口可能在 tracker/ports/ 定义，具体实现在各平台适配。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/item-qp99mz/realization/class-collaboration.md",
+        "htmlPath": "docs/design/use-case-diagrams/item-qp99mz/realization/class-collaboration.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:item-ajfw3y:use-case:item-qp99mz",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:item-ajfw3y",
+      "targetId": "projection-node:design-use-case:use-case:item-qp99mz",
+      "source": {
+        "type": "model",
+        "id": "use-case:item-qp99mz"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      },
+      "confidence": "medium",
+      "summary": "context:item-ajfw3y contains 浏览追踪记录"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:actor-user:use-case:item-qp99mz:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:actor-user",
+      "targetId": "projection-node:design-use-case:use-case:item-qp99mz",
+      "source": {
+        "type": "model",
+        "id": "use-case:item-qp99mz"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      },
+      "confidence": "medium",
+      "summary": "actor:actor-user participates in 浏览追踪记录",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:item-qp99mz:activity:use-case-item-qp99mz-1",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:item-qp99mz",
+      "targetId": "projection-node:design-activity:activity:use-case-item-qp99mz-1",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-item-qp99mz-1"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-item-qp99mz-1"
+      },
+      "confidence": "medium",
+      "summary": "描述从打开页面到记录、暂停、标记航点直至保存的流程。",
+      "metadata": {
+        "useCaseId": "use-case:item-qp99mz",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:item-qp99mz:sequence:use-case-item-qp99mz-2",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:item-qp99mz",
+      "targetId": "projection-node:design-sequence:sequence:use-case-item-qp99mz-2",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-item-qp99mz-2"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-item-qp99mz-2"
+      },
+      "confidence": "medium",
+      "summary": "展示用户、Tracker UI、GPS 服务和存储服务之间的协作。",
+      "metadata": {
+        "useCaseId": "use-case:item-qp99mz",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:item-qp99mz:class-collaboration:use-case-item-qp99mz-3",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:item-qp99mz",
+      "targetId": "projection-node:design-class-collaboration:class-collaboration:use-case-item-qp99mz-3",
+      "source": {
+        "type": "model",
+        "id": "class-collaboration:use-case-item-qp99mz-3"
+      },
+      "anchor": {
+        "kind": "design_class_collaboration",
+        "id": "class-collaboration:use-case-item-qp99mz-3"
+      },
+      "confidence": "medium",
+      "summary": "展示追踪用例涉及的应用服务、依赖的 GPS 端口和存储接口。",
+      "metadata": {
+        "useCaseId": "use-case:item-qp99mz",
+        "diagramKind": "class_collaboration"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:chat-media-support",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:send-text-message"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "聊天是否支持图片、位置等富媒体消息？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:send-text-message"
+      }
+    },
+    {
+      "id": "annotation:question:team-location-interval",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:view-team-locations"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队位置更新频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:view-team-locations"
+      }
+    },
+    {
+      "id": "annotation:question:team-creation",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:join-team"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "团队是由创始人创建还是自动发现形成？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:join-team"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "地图数据是预装还是 Wi‑Fi 下载？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "缩放级别范围是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-ecxnmv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-ecxnmv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "标记点数据如何管理？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-ecxnmv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "航迹数据保存格式和策略是什么？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持多段航迹合并？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-qp99mz-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-qp99mz"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "轨迹点采样频率是多少？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-qp99mz"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "支持的 SSTV 模式有哪些（Scottie, Martin, Robot 等）？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "发送时需要选择频率和模式吗？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-sstv-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:sstv"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持通过 mesh 网络转发 SSTV 图像给队友？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:sstv"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要低电量自动提醒？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "功耗历史数据保留多长时间？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-item-5hhr9g-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:item-5hhr9g"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否支持太阳能充电状态显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:item-5hhr9g"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-1",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "是否需要支持多个轨迹的叠加显示？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-2",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "导航时是否激发声音或视觉偏离警告？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    },
+    {
+      "id": "annotation:question:use-case-gpx-3",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-use-case:use-case:gpx"
+      ],
+      "targetEdgeIds": [],
+      "severity": "medium",
+      "status": "open",
+      "summary": "路线文件的来源是否包括通过 mesh 网络接收？",
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:gpx"
+      }
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-story-intake:1782379621985",
+    "design-story-intake:1782379321376",
+    "design-story-intake:1782379952549",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

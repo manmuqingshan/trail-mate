@@ -1,0 +1,10 @@
+flowchart LR
+  actor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_chat_module["聊天模块"]
+      useCase_use_case_view_chat(["查看聊天消息"])
+      useCase_use_case_send_message(["发送短消息"])
+    end
+  end
+  actor_user --- useCase_use_case_view_chat
+  actor_user --- useCase_use_case_send_message

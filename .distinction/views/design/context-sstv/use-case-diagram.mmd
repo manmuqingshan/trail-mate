@@ -1,0 +1,8 @@
+flowchart LR
+  actor_actor_actor_user["&laquo;Actor&raquo;<br/>actor:user"]
+  actor_actor_actor_remote_device["&laquo;Actor&raquo;<br/>actor:remote-device"]
+  subgraph system_context_sstv["SSTV 图像通信"]
+    useCase_use_case_sstv(["接收 SSTV 图像"])
+  end
+  actor_actor_actor_user --- useCase_use_case_sstv
+  actor_actor_actor_remote_device --- useCase_use_case_sstv

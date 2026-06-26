@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#include <cstddef>
 #include <vector>
 
 namespace chat
@@ -24,6 +25,10 @@ class NodeStore : public contacts::INodeStore,
                   private contacts::INodeBlobStore
 {
   public:
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t) noexcept;
+
     NodeStore();
 
     void begin() override;

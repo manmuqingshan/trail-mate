@@ -46,6 +46,7 @@ struct Status
 
 bool is_supported();
 Status status();
+bool enter_download_mode();
 const char* state_name(State state);
 const char* service_state_name(uint8_t state);
 

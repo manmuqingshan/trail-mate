@@ -1,0 +1,15 @@
+flowchart LR
+  actor_actor_outdoor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  actor_actor_mesh_network["&laquo;Actor&raquo;<br/>Mesh 网络"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_communication_services["通信服务"]
+      useCase_use_case_configure_wireless(["配置无线连接"])
+      useCase_use_case_send_text_message(["发送文字消息"])
+      useCase_use_case_receive_message(["接收消息"])
+    end
+  end
+  actor_actor_outdoor_user --- useCase_use_case_configure_wireless
+  external_actor_ble_devices --- useCase_use_case_configure_wireless
+  actor_actor_outdoor_user --- useCase_use_case_send_text_message
+  external_actor_mesh_network --- useCase_use_case_send_text_message
+  actor_actor_mesh_network --- useCase_use_case_receive_message

@@ -1,0 +1,467 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:context:map-location",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T11:14:22.837Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 户外通信与导航系统",
+      "source": {
+        "type": "model",
+        "id": "context:trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:trail-mate-system"
+      },
+      "summary": "面向户外爱好者的跨平台通信与导航系统，提供文字聊天、联系人管理、地图定位、团队协作和网络连接等功能。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖 Trail Mate 应用的全部业务能力，包括聊天、联系人、地图、团队和配置。",
+        "responsibility": "为户外用户提供离网通信（Mesh）、位置共享、团队追踪和个性化设置。",
+        "businessTerms": [
+          "户外活动",
+          "离网通信",
+          "网格网络",
+          "团队追踪",
+          "GPS 定位"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:context:map-location",
+      "kind": "design_context",
+      "label": "地图与定位",
+      "source": {
+        "type": "model",
+        "id": "context:map-location"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:map-location"
+      },
+      "summary": "显示当前位置、卫星状态、浏览地图以及记录移动轨迹。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:import-f3f427f14d3d8e0c78faeb6d2a1ae1db"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_capability",
+        "parentContextId": "context:trail-mate-system",
+        "scope": "GPS 定位、地图渲染、轨迹记录、天空图。",
+        "responsibility": "提供户外地理空间信息服务。",
+        "businessTerms": [
+          "GPS",
+          "地图瓦片",
+          "轨迹",
+          "定位"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:outdoor-user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "actor:outdoor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:outdoor-user"
+      },
+      "summary": "使用 Trail Mate 设备进行通信、导航和团队协作的户外活动参与者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:show-gps-info",
+      "kind": "design_use_case",
+      "label": "显示 GPS 位置和卫星信息",
+      "source": {
+        "type": "model",
+        "id": "use-case:show-gps-info"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:show-gps-info"
+      },
+      "summary": "用户查看当前 GPS 定位状态、卫星天空图和位置地图。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:import-f76742e1f784c0508fe3a8d8ff87e368"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "context:map-location",
+        "trigger": "用户切换到 GPS/地图页面。",
+        "primaryActorIds": [
+          "actor:outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [],
+        "entryPointIds": []
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-show-gps-info",
+      "kind": "design_activity",
+      "label": "业务流程：展示 GPS 信息",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-show-gps-info"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-show-gps-info"
+      },
+      "summary": "用户查看 GPS 位置和卫星天空图的过程。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:import-f76742e1f784c0508fe3a8d8ff87e368"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case:show-gps-info",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功场景显示位置和天空图。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1-4]"
+          ],
+          "boundary": "从用户进入 GPS 页面到数据渲染完成。",
+          "notCovered": [
+            "地图瓦片下载",
+            "GPS 芯片驱动"
+          ],
+          "rationale": "需要解释 GPS 数据如何传递到 UI 和天空图 Presenter。",
+          "implementationScope": {
+            "modules": [
+              "modules/core_gps",
+              "UI 模块"
+            ],
+            "entryPoints": [
+              "GPS 页面渲染"
+            ],
+            "keyFiles": [
+              "gps/usecase/gnss_skyplot_presenter.h",
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L14-L15"
+            ],
+            "outOfScopeCode": [
+              "NMEA 解析"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景显示位置和天空图。",
+        "coverageBoundary": "从用户进入 GPS 页面到数据渲染完成。",
+        "coverageRationale": "需要解释 GPS 数据如何传递到 UI 和天空图 Presenter。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1-4]"
+        ],
+        "notCovered": [
+          "地图瓦片下载",
+          "GPS 芯片驱动"
+        ],
+        "implementationScope": {
+          "modules": [
+            "modules/core_gps",
+            "UI 模块"
+          ],
+          "entryPoints": [
+            "GPS 页面渲染"
+          ],
+          "keyFiles": [
+            "gps/usecase/gnss_skyplot_presenter.h",
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L14-L15"
+          ],
+          "outOfScopeCode": [
+            "NMEA 解析"
+          ]
+        },
+        "explanation": {
+          "business": "户外用户需要了解当前定位精度和卫星分布。",
+          "uml": "Activity 从 GPS 状态读取开始，分别处理位置显示和天空图渲染。",
+          "design": "位置服务 LocationService 提供位置，GnssSkyplotPresenter 生成天空图数据。",
+          "implementation": "UI 逻辑调用 LocationService::getCurrentPosition 和 SkyplotPresenter::update()。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/show-gps-info/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/show-gps-info/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-show-gps-info-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：显示 GPS 位置和卫星信息主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-show-gps-info-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-show-gps-info-sequence"
+      },
+      "summary": "Sequence Diagram：显示 GPS 位置和卫星信息主成功场景，用于解释 Use Case「显示 GPS 位置和卫星信息」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:show-gps-info",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「显示 GPS 位置和卫星信息」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「显示 GPS 位置和卫星信息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「显示 GPS 位置和卫星信息」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L14-L15"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「显示 GPS 位置和卫星信息」的主成功交互场景。",
+        "coverageBoundary": "覆盖「显示 GPS 位置和卫星信息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「显示 GPS 位置和卫星信息」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L14-L15"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「显示 GPS 位置和卫星信息」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「显示 GPS 位置和卫星信息」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「显示 GPS 位置和卫星信息」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_overview_logic.cpp#L14-L15。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/show-gps-info/sequences/sequence-use-case-show-gps-info-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/show-gps-info/sequences/sequence-use-case-show-gps-info-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:context:trail-mate-system:context:map-location",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:trail-mate-system",
+      "targetId": "projection-node:design-context:context:map-location",
+      "source": {
+        "type": "model",
+        "id": "context:map-location"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:map-location"
+      },
+      "confidence": "medium",
+      "summary": "context:trail-mate-system contains 地图与定位",
+      "metadata": {
+        "contextKind": "business_capability"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:context:map-location:use-case:show-gps-info",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:context:map-location",
+      "targetId": "projection-node:design-use-case:use-case:show-gps-info",
+      "source": {
+        "type": "model",
+        "id": "use-case:show-gps-info"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:show-gps-info"
+      },
+      "confidence": "medium",
+      "summary": "context:map-location contains 显示 GPS 位置和卫星信息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:outdoor-user:use-case:show-gps-info:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case:show-gps-info",
+      "source": {
+        "type": "model",
+        "id": "use-case:show-gps-info"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:show-gps-info"
+      },
+      "confidence": "medium",
+      "summary": "actor:outdoor-user participates in 显示 GPS 位置和卫星信息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:show-gps-info:activity:use-case-show-gps-info",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:show-gps-info",
+      "targetId": "projection-node:design-activity:activity:use-case-show-gps-info",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-show-gps-info"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-show-gps-info"
+      },
+      "confidence": "medium",
+      "summary": "用户查看 GPS 位置和卫星天空图的过程。",
+      "metadata": {
+        "useCaseId": "use-case:show-gps-info",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:show-gps-info:sequence:use-case-show-gps-info-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:show-gps-info",
+      "targetId": "projection-node:design-sequence:sequence:use-case-show-gps-info-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-show-gps-info-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-show-gps-info-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：显示 GPS 位置和卫星信息主成功场景，用于解释 Use Case「显示 GPS 位置和卫星信息」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:show-gps-info",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:missing-phone-app-connector",
+      "kind": "design_question",
+      "targetNodeIds": [
+        "projection-node:design-context:context:device-settings"
+      ],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "系统中是否有通过手机 App 配置设备或发送消息的用例？当前证据主要来自 BLE 服务代码，但未见明确的手机应用交互用例。",
+      "anchor": {
+        "kind": "design_context",
+        "id": "context:device-settings"
+      }
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

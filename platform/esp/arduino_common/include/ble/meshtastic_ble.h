@@ -17,7 +17,7 @@
 #include <NimBLEDevice.h>
 #include <array>
 #include <atomic>
-#include <deque>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -34,6 +34,10 @@ class MeshtasticBleService : public BleService,
   public:
     MeshtasticBleService(app::IAppBleFacade& ctx, const std::string& device_name);
     ~MeshtasticBleService() override;
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
 
     bool start() override;
     void stop() override;
@@ -70,6 +74,7 @@ class MeshtasticBleService : public BleService,
     uint16_t conn_handle_ = 0;
     bool conn_handle_valid_ = false;
     bool from_num_subscribed_ = false;
+    uint32_t from_num_notify_counter_ = 0;
     bool from_radio_sync_subscribed_ = false;
     uint16_t from_radio_sync_sub_value_ = 0;
     std::atomic<uint32_t> pending_passkey_{0};
@@ -99,6 +104,9 @@ class MeshtasticBleService : public BleService,
     bool pending_to_phone_valid_ = false;
     Frame pending_to_phone_{};
     uint32_t pending_to_phone_from_num_ = 0;
+    Frame to_phone_scratch_{};
+    Frame read_frame_scratch_{};
+    phone::meshtastic::MeshtasticBleFrame session_frame_scratch_{};
 
     SemaphoreHandle_t from_phone_mutex_ = nullptr;
     SemaphoreHandle_t to_phone_mutex_ = nullptr;
@@ -118,7 +126,7 @@ class MeshtasticBleService : public BleService,
     }
 
     void setupService();
-    void startAdvertising();
+    bool startAdvertising();
     void requestHighThroughputConnection();
     void requestLowerPowerConnection();
     void handleFromPhone();

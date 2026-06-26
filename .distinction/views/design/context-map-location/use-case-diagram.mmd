@@ -1,0 +1,8 @@
+flowchart LR
+  actor_actor_outdoor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_context_trail_mate_system["Trail Mate 户外通信与导航系统"]
+    subgraph system_context_map_location["地图与定位"]
+      useCase_use_case_show_gps_info(["显示 GPS 位置和卫星信息"])
+    end
+  end
+  actor_actor_outdoor_user --- useCase_use_case_show_gps_info

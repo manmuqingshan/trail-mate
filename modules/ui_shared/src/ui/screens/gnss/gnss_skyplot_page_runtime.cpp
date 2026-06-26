@@ -13,6 +13,13 @@
 #include <cstdio>
 #include <cstring>
 
+#if defined(ESP_PLATFORM)
+#include "esp_attr.h"
+#define UI_GNSS_STATE_RAM_ATTR EXT_RAM_ATTR
+#else
+#define UI_GNSS_STATE_RAM_ATTR
+#endif
+
 #if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
 #define lv_font_montserrat_12 lv_font_montserrat_14
 #endif
@@ -597,13 +604,13 @@ struct SkyPlotUi
     lv_point_precise_t ew_points[2]{};
 };
 
-static SkyPlotUi s_ui{};
-static SkyPlotLayout s_layout{};
+static UI_GNSS_STATE_RAM_ATTR SkyPlotUi s_ui{};
+static UI_GNSS_STATE_RAM_ATTR SkyPlotLayout s_layout{};
 static lv_timer_t* s_refresh_timer = nullptr;
 
-static SatInfo s_cached_sats[kMaxSats];
+static UI_GNSS_STATE_RAM_ATTR SatInfo s_cached_sats[kMaxSats];
 static int s_cached_sat_count = 0;
-static GnssStatus s_cached_status{};
+static UI_GNSS_STATE_RAM_ATTR GnssStatus s_cached_status{};
 static bool s_cached_status_valid = false;
 
 lv_color_t sys_color(SatInfo::Sys sys)

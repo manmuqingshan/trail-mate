@@ -109,7 +109,7 @@
 | P1 CMake source list 收口 | `cmake/TrailMateLinuxSources.cmake` 的路径注释已经校准为“从 helper 所在目录推 repo root”；rpi target 继续显式编入 `evdev_input.cpp` | 结构上继续健康；当前剩余不是再抽象，而是完整 Linux/WSL build、ctest 和 rpi target build |
 | P2 LVGL ownership 拆分 | `ShellSession` / `CanvasLvglHost` / `NativeLvglHost` 结构未再倒退；callback 精确签名和 `hasPendingKeyEvent()` 仍保持 | 方向稳定；仍需构建确认 LVGL typedef/前向声明兼容性，并把 SDK main loop 从注释切到 `NativeLvglHost` |
 | P3 真机输入 | CMake framebuffer path 的 evdev adapter 仍是当前 shared shell 输入主线；SDK path 也已用 LVGL evdev 创建 pointer/keypad | 输入结构明显增强；仍缺真机事件码采样、Fn/组合键映射、press/release 回归和 rpi build 结果 |
-| P4 runtime path/env | settings、route、tracker、hostlink、team store、SSTV 已基本走 `runtime_paths`；hostlink 默认 bind 已是 `127.0.0.1`，需要对外监听时显式设 `TRAIL_MATE_HOSTLINK_BIND=0.0.0.0` | P4 从“零散 helper”推进到“多数核心写入点收口”；剩余 map tiles、pack repository、旧 env 常量、`safe_write_under_root()` fsync 注释/实现不一致 |
+| P4 runtime path/env | settings、route、tracker、hostlink、team store、SSTV 已基本走 `runtime_paths`；hostlink 默认 bind 已是 `127.0.0.1`，需要对外监听时显式设 `TRAIL_MATE_HOSTLINK_BIND=0.1.30-alpha.0` | P4 从“零散 helper”推进到“多数核心写入点收口”；剩余 map tiles、pack repository、旧 env 常量、`safe_write_under_root()` fsync 注释/实现不一致 |
 | P5 capability truth model | 新增 `modules/core_sys/include/platform/ui/capability_status.h`，Linux 侧 `platform/linux/capability_status.h` 变为 re-export；LoRa/Walkie/SSTV 实现层返回 `Simulated` | 概念已经进入合约层，但 public runtime headers 尚未声明 `capability_status()`，contract README 未列入 `capability_status.h`，UI 也还没消费；因此只能算“合约种子落地”，不能算能力呈现完成 |
 | P6 demo world/facade 拆分 | `runtime_mode` 继续只 gate demo seed；`MinimalLinuxAppFacade` 仍总是组合 loopback mesh、dummy crypto、loopback pairing | demo/local 的数据种子边界更清楚，但真实设备 composition 仍不干净；另有 Windows simulator 会覆盖用户预设 `TRAIL_MATE_RUNTIME_MODE` 的小坑 |
 | P7 M5 SDK 主路径 | `apps/linux_rpi/main/src/main.cpp` 已具备 ST7789 framebuffer 探测、LVGL fbdev、LVGL evdev pointer/keypad、启动日志和 bring-up UI；shared shell 接入代码仍在注释中 | SDK path 已不再是空壳，但仍是 bring-up UI，不是 Trail Mate shared shell；L5 仍未完成 |
@@ -307,7 +307,7 @@ SDL 模拟器有完整键盘和鼠标映射。Pi CMake framebuffer path 现在�
 
 8. 真机安全和网络默认值需要持续保持谨慎。
 
-`hostlink` 当前已经默认 bind 到 `127.0.0.1`，这比上一版更适合真机安全默认值。需要对外监听时应显式设置 `TRAIL_MATE_HOSTLINK_BIND=0.0.0.0`，并在 UI 或文档里说明这会把端口暴露到设备所在网络。
+`hostlink` 当前已经默认 bind 到 `127.0.0.1`，这比上一版更适合真机安全默认值。需要对外监听时应显式设置 `TRAIL_MATE_HOSTLINK_BIND=0.1.30-alpha.0`，并在 UI 或文档里说明这会把端口暴露到设备所在网络。
 
 ## 3. 目标结构规划
 
@@ -1219,7 +1219,7 @@ LVGL 适配最容易失控，必须明确 owner。
 建议：
 
 - simulator 默认 bind `127.0.0.1`。
-- 真机要对外监听时必须显式设置 `TRAIL_MATE_HOSTLINK_BIND=0.0.0.0`。
+- 真机要对外监听时必须显式设置 `TRAIL_MATE_HOSTLINK_BIND=0.1.30-alpha.0`。
 - endpoint file 写入 SD root 下 `hostlink/endpoint.txt` 可以保留。
 - 后续如果承载敏感操作，需要认证或 pairing，不要只靠局域网隔离。
 

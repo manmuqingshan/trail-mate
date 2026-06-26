@@ -1,0 +1,1149 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:communication-services",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T11:28:31.620Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:trail-mate-system",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "trail-mate-system"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "trail-mate-system"
+      },
+      "summary": "跨平台户外团队通信和导航系统。包含硬件管理、无线通信、UI 呈现、团队协作和地图导航等能力。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖从硬件板载传感器到上层 UI 的完整户外团队通信和导航产品功能。",
+        "responsibility": "为户外团队提供实时位置共享、文字通信、环境感知和导航支持。",
+        "businessTerms": [
+          "节点",
+          "消息",
+          "团队",
+          "轨迹",
+          "位置",
+          "截图"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:communication-services",
+      "kind": "design_context",
+      "label": "通信服务",
+      "source": {
+        "type": "model",
+        "id": "communication-services"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "communication-services"
+      },
+      "summary": "管理无线通信链路，包括 BLE、WiFi、ESPNow 和 Mesh 网络，以及消息的发送与接收。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "contextKind": "bounded_context",
+        "parentContextId": "trail-mate-system",
+        "scope": "负责配置无线协议栈，处理文本消息和位置信息的收发，维护节点连接。",
+        "responsibility": "为 UI 和团队协作提供可靠的消息通信通道。",
+        "businessTerms": [
+          "BLE",
+          "WiFi",
+          "Mesh",
+          "消息",
+          "位置广播"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor-outdoor-user",
+      "kind": "design_actor",
+      "label": "户外用户",
+      "source": {
+        "type": "model",
+        "id": "actor-outdoor-user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor-outdoor-user"
+      },
+      "summary": "携带 Trail Mate 设备的户外活动爱好者。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor-mesh-network",
+      "kind": "design_actor",
+      "label": "Mesh 网络",
+      "source": {
+        "type": "model",
+        "id": "actor-mesh-network"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor-mesh-network"
+      },
+      "summary": "由附近节点构成的无线自组织网络。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "high",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "actorType": "external_system"
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case-configure-wireless",
+      "kind": "design_use_case",
+      "label": "配置无线连接",
+      "source": {
+        "type": "model",
+        "id": "use-case-configure-wireless"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-configure-wireless"
+      },
+      "summary": "用户启用、禁用或修改无线模块（BLE、WiFi）的配置。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextId": "communication-services",
+        "trigger": "用户在设置中操作无线开关。",
+        "primaryActorIds": [
+          "actor-outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "actor-ble-devices"
+        ],
+        "entryPointIds": [
+          "behavior-slice:ui-route-codegraph-function-537edf895d25fceddf733ab6ed611047"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case-send-text-message",
+      "kind": "design_use_case",
+      "label": "发送文字消息",
+      "source": {
+        "type": "model",
+        "id": "use-case-send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-send-text-message"
+      },
+      "summary": "用户撰写并发送一条文字消息给指定节点或广播。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextId": "communication-services",
+        "trigger": "用户输入消息并点击发送。",
+        "primaryActorIds": [
+          "actor-outdoor-user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "actor-mesh-network"
+        ],
+        "entryPointIds": [
+          "behavior-slice:api-route-codegraph-method-64e00b9e34a8c17deba799357b3d8dfa"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case-receive-message",
+      "kind": "design_use_case",
+      "label": "接收消息",
+      "source": {
+        "type": "model",
+        "id": "use-case-receive-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-receive-message"
+      },
+      "summary": "设备自动从网络接收其他节点发来的文字消息。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextId": "communication-services",
+        "trigger": "网络收到新消息。",
+        "primaryActorIds": [],
+        "supportingActorIds": [
+          "actor-mesh-network"
+        ],
+        "externalSystemIds": [],
+        "entryPointIds": [
+          "behavior-slice:api-route-codegraph-method-64e00b9e34a8c17deba799357b3d8dfa"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:send-text-message",
+      "kind": "design_activity",
+      "label": "业务流程：发送文字消息",
+      "source": {
+        "type": "model",
+        "id": "activity:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-text-message"
+      },
+      "summary": "用户输入消息并发送，系统通过 Mesh 网络广播。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-d1660b9b033d2aaf199da70131b14a64"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case-send-text-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "用户发送消息的完整业务流。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario",
+            "alternativeFlows[3a]"
+          ],
+          "boundary": "从 UI 发送按钮到消息提交至网络。",
+          "notCovered": [
+            "消息发送确认的异步回调细节",
+            "重试机制具体实现"
+          ],
+          "rationale": "需要一张活动图说明消息发送的业务步骤。",
+          "implementationScope": {
+            "modules": [
+              "apps/esp32_lvgl",
+              "firmware/c6_companion"
+            ],
+            "entryPoints": [
+              "ChatService::sendText"
+            ],
+            "keyFiles": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp"
+            ],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp::IdfNullMeshAdapter::sendText"
+            ],
+            "outOfScopeCode": [
+              "底层无线发包细节"
+            ]
+          }
+        },
+        "coverageScenario": "用户发送消息的完整业务流。",
+        "coverageBoundary": "从 UI 发送按钮到消息提交至网络。",
+        "coverageRationale": "需要一张活动图说明消息发送的业务步骤。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario",
+          "alternativeFlows[3a]"
+        ],
+        "notCovered": [
+          "消息发送确认的异步回调细节",
+          "重试机制具体实现"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/esp32_lvgl",
+            "firmware/c6_companion"
+          ],
+          "entryPoints": [
+            "ChatService::sendText"
+          ],
+          "keyFiles": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp"
+          ],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp::IdfNullMeshAdapter::sendText"
+          ],
+          "outOfScopeCode": [
+            "底层无线发包细节"
+          ]
+        },
+        "explanation": {
+          "business": "用户通过消息功能与队友沟通。",
+          "uml": "开始节点后，用户输入内容，系统检查输入有效性，然后将消息提交给聊天服务，聊天服务选择适配器发送。",
+          "design": "使用端口-适配器模式，ChatService 依赖 IMeshAdapter 接口，发送时通过具体适配器（如 ESPNow 或 LoRa）进行。",
+          "implementation": "发送消息的实现分散在 ChatService 和具体的 MeshAdapter 子类中。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-send-text-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-send-text-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:send-text-message-main-success",
+      "kind": "design_sequence",
+      "label": "对象交互：发送文字消息主流程",
+      "source": {
+        "type": "model",
+        "id": "sequence:send-text-message-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:send-text-message-main-success"
+      },
+      "summary": "用户输入消息，UI 调用聊天服务并将消息传递给 MeshAdapter 发送。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [
+          "codegraph:method-d1660b9b033d2aaf199da70131b14a64"
+        ],
+        "evidenceCount": 1,
+        "questions": [],
+        "useCaseId": "use-case-send-text-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从 UI 触发到消息发送完毕。",
+          "notCovered": [
+            "消息存储到本地数据库的交互",
+            "发送确认的后续处理"
+          ],
+          "rationale": "解释 UI、应用服务和基础适配器之间的协作。",
+          "implementationScope": {
+            "modules": [
+              "apps/esp32_lvgl"
+            ],
+            "entryPoints": [
+              "UI send button handler"
+            ],
+            "keyFiles": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp"
+            ],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp::IdfAppFacadeRuntime::getChatService"
+            ],
+            "outOfScopeCode": [
+              "板级 BLE/ESPNow 驱动"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "从 UI 触发到消息发送完毕。",
+        "coverageRationale": "解释 UI、应用服务和基础适配器之间的协作。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "消息存储到本地数据库的交互",
+          "发送确认的后续处理"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/esp32_lvgl"
+          ],
+          "entryPoints": [
+            "UI send button handler"
+          ],
+          "keyFiles": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp"
+          ],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp::IdfAppFacadeRuntime::getChatService"
+          ],
+          "outOfScopeCode": [
+            "板级 BLE/ESPNow 驱动"
+          ]
+        },
+        "explanation": {
+          "business": "用户发送消息，系统需保证消息被可靠发送。",
+          "uml": "参与者：User, UI, ChatService, MeshAdapter。消息：1. sendMessage(text); 2. ChatService 处理消息; 3. 调用 MeshAdapter.sendText(text); 4. 返回结果。",
+          "design": "ChatService 作为用例服务，隔离 UI 与底层适配器。",
+          "implementation": "IdfAppFacadeRuntime 提供了 getChatService 访问聊天服务。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-send-text-message/sequences/sequence-send-text-message-main-success.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-send-text-message/sequences/sequence-send-text-message-main-success.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-configure-wireless-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：配置无线连接",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-configure-wireless-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-configure-wireless-activity"
+      },
+      "summary": "Activity Diagram：配置无线连接，用于解释 Use Case「配置无线连接」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case-configure-wireless",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「配置无线连接」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "alternativeFlows[1]"
+          ],
+          "boundary": "覆盖「配置无线连接」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「配置无线连接」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:ui-route-codegraph-function-537edf895d25fceddf733ab6ed611047"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L1",
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「配置无线连接」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「配置无线连接」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「配置无线连接」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "alternativeFlows[1]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:ui-route-codegraph-function-537edf895d25fceddf733ab6ed611047"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L1",
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「配置无线连接」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「配置无线连接」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「配置无线连接」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L1、apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-configure-wireless/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-configure-wireless/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-configure-wireless-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：配置无线连接主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-configure-wireless-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-configure-wireless-sequence"
+      },
+      "summary": "Sequence Diagram：配置无线连接主成功场景，用于解释 Use Case「配置无线连接」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case-configure-wireless",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「配置无线连接」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "覆盖「配置无线连接」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「配置无线连接」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:ui-route-codegraph-function-537edf895d25fceddf733ab6ed611047"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L1",
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「配置无线连接」的主成功交互场景。",
+        "coverageBoundary": "覆盖「配置无线连接」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「配置无线连接」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:ui-route-codegraph-function-537edf895d25fceddf733ab6ed611047"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L1",
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「配置无线连接」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「配置无线连接」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「配置无线连接」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L1、apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-configure-wireless/sequences/sequence-use-case-configure-wireless-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-configure-wireless/sequences/sequence-use-case-configure-wireless-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-receive-message-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：接收消息",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-receive-message-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-receive-message-activity"
+      },
+      "summary": "Activity Diagram：接收消息，用于解释 Use Case「接收消息」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case-receive-message",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「接收消息」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「接收消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「接收消息」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:api-route-codegraph-method-64e00b9e34a8c17deba799357b3d8dfa"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「接收消息」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「接收消息」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「接收消息」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:api-route-codegraph-method-64e00b9e34a8c17deba799357b3d8dfa"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「接收消息」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「接收消息」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「接收消息」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-receive-message/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-receive-message/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-receive-message-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：接收消息主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-receive-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-receive-message-sequence"
+      },
+      "summary": "Sequence Diagram：接收消息主成功场景，用于解释 Use Case「接收消息」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case-receive-message",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「接收消息」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「接收消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「接收消息」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [
+              "behavior-slice:api-route-codegraph-method-64e00b9e34a8c17deba799357b3d8dfa"
+            ],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「接收消息」的主成功交互场景。",
+        "coverageBoundary": "覆盖「接收消息」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「接收消息」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [
+            "behavior-slice:api-route-codegraph-method-64e00b9e34a8c17deba799357b3d8dfa"
+          ],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「接收消息」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「接收消息」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「接收消息」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L1。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/use-case-receive-message/sequences/sequence-use-case-receive-message-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/use-case-receive-message/sequences/sequence-use-case-receive-message-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:trail-mate-system:communication-services",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:trail-mate-system",
+      "targetId": "projection-node:design-context:communication-services",
+      "source": {
+        "type": "model",
+        "id": "communication-services"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "communication-services"
+      },
+      "confidence": "medium",
+      "summary": "trail-mate-system contains 通信服务",
+      "metadata": {
+        "contextKind": "bounded_context"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:communication-services:use-case-configure-wireless",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:communication-services",
+      "targetId": "projection-node:design-use-case:use-case-configure-wireless",
+      "source": {
+        "type": "model",
+        "id": "use-case-configure-wireless"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-configure-wireless"
+      },
+      "confidence": "medium",
+      "summary": "communication-services contains 配置无线连接"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor-outdoor-user:use-case-configure-wireless:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor-outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case-configure-wireless",
+      "source": {
+        "type": "model",
+        "id": "use-case-configure-wireless"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-configure-wireless"
+      },
+      "confidence": "medium",
+      "summary": "actor-outdoor-user participates in 配置无线连接",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:actor-ble-devices:use-case-configure-wireless",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:actor-ble-devices",
+      "targetId": "projection-node:design-use-case:use-case-configure-wireless",
+      "source": {
+        "type": "model",
+        "id": "use-case-configure-wireless"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-configure-wireless"
+      },
+      "confidence": "medium",
+      "summary": "actor-ble-devices participates in 配置无线连接",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:communication-services:use-case-send-text-message",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:communication-services",
+      "targetId": "projection-node:design-use-case:use-case-send-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case-send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-send-text-message"
+      },
+      "confidence": "medium",
+      "summary": "communication-services contains 发送文字消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor-outdoor-user:use-case-send-text-message:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor-outdoor-user",
+      "targetId": "projection-node:design-use-case:use-case-send-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case-send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-send-text-message"
+      },
+      "confidence": "medium",
+      "summary": "actor-outdoor-user participates in 发送文字消息",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:actor-mesh-network:use-case-send-text-message",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:actor-mesh-network",
+      "targetId": "projection-node:design-use-case:use-case-send-text-message",
+      "source": {
+        "type": "model",
+        "id": "use-case-send-text-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-send-text-message"
+      },
+      "confidence": "medium",
+      "summary": "actor-mesh-network participates in 发送文字消息",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:communication-services:use-case-receive-message",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:communication-services",
+      "targetId": "projection-node:design-use-case:use-case-receive-message",
+      "source": {
+        "type": "model",
+        "id": "use-case-receive-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-receive-message"
+      },
+      "confidence": "medium",
+      "summary": "communication-services contains 接收消息"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor-mesh-network:use-case-receive-message:supporting_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor-mesh-network",
+      "targetId": "projection-node:design-use-case:use-case-receive-message",
+      "source": {
+        "type": "model",
+        "id": "use-case-receive-message"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case-receive-message"
+      },
+      "confidence": "medium",
+      "summary": "actor-mesh-network participates in 接收消息",
+      "metadata": {
+        "participation": "supporting_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-send-text-message:activity:send-text-message",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-send-text-message",
+      "targetId": "projection-node:design-activity:activity:send-text-message",
+      "source": {
+        "type": "model",
+        "id": "activity:send-text-message"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:send-text-message"
+      },
+      "confidence": "medium",
+      "summary": "用户输入消息并发送，系统通过 Mesh 网络广播。",
+      "metadata": {
+        "useCaseId": "use-case-send-text-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-send-text-message:sequence:send-text-message-main-success",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-send-text-message",
+      "targetId": "projection-node:design-sequence:sequence:send-text-message-main-success",
+      "source": {
+        "type": "model",
+        "id": "sequence:send-text-message-main-success"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:send-text-message-main-success"
+      },
+      "confidence": "medium",
+      "summary": "用户输入消息，UI 调用聊天服务并将消息传递给 MeshAdapter 发送。",
+      "metadata": {
+        "useCaseId": "use-case-send-text-message",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-configure-wireless:activity:use-case-configure-wireless-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-configure-wireless",
+      "targetId": "projection-node:design-activity:activity:use-case-configure-wireless-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-configure-wireless-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-configure-wireless-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：配置无线连接，用于解释 Use Case「配置无线连接」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case-configure-wireless",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-configure-wireless:sequence:use-case-configure-wireless-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-configure-wireless",
+      "targetId": "projection-node:design-sequence:sequence:use-case-configure-wireless-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-configure-wireless-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-configure-wireless-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：配置无线连接主成功场景，用于解释 Use Case「配置无线连接」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case-configure-wireless",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-receive-message:activity:use-case-receive-message-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-receive-message",
+      "targetId": "projection-node:design-activity:activity:use-case-receive-message-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-receive-message-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-receive-message-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：接收消息，用于解释 Use Case「接收消息」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case-receive-message",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case-receive-message:sequence:use-case-receive-message-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case-receive-message",
+      "targetId": "projection-node:design-sequence:sequence:use-case-receive-message-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-receive-message-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-receive-message-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：接收消息主成功场景，用于解释 Use Case「接收消息」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case-receive-message",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "annotation:question:missing-user-stories",
+      "kind": "design_question",
+      "targetNodeIds": [],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "当前从代码恢复的候选用例可能不完整，请确认是否还有其他重要的用户操作场景未被覆盖。"
+    },
+    {
+      "id": "annotation:question:context-boundaries",
+      "kind": "design_question",
+      "targetNodeIds": [],
+      "targetEdgeIds": [],
+      "severity": "info",
+      "status": "open",
+      "summary": "硬件管理与通信服务之间的边界划分是否合理？是否需要将部分子用例拆分或合并？"
+    }
+  ],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

@@ -1,0 +1,927 @@
+{
+  "schemaVersion": "praxis.projectedGraphView.v1",
+  "id": "view:design:use-case:business_module:team-collaboration",
+  "kind": "design_use_case",
+  "root": "C:\\Users\\vicliu\\Projects\\trail-mate",
+  "generatedAt": "2026-06-25T14:37:21.431Z",
+  "authority": "review_cache",
+  "nodes": [
+    {
+      "id": "projection-node:design-context:system:trail-mate",
+      "kind": "design_context",
+      "label": "Trail Mate 系统",
+      "source": {
+        "type": "model",
+        "id": "system:trail-mate"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "system:trail-mate"
+      },
+      "summary": "跨平台离线通信与位置共享系统，包含嵌入式设备和桌面应用",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "system",
+        "scope": "覆盖整体的通信、地图、团队和诊断功能",
+        "responsibility": "管理整个应用的用户目标和业务能力",
+        "businessTerms": [
+          "节点",
+          "频道",
+          "团队",
+          "位置",
+          "消息"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-context:business_module:team-collaboration",
+      "kind": "design_context",
+      "label": "团队协作",
+      "source": {
+        "type": "model",
+        "id": "business_module:team-collaboration"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "business_module:team-collaboration"
+      },
+      "summary": "创建或加入团队，共享位置和状态",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "low",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "contextKind": "business_module",
+        "parentContextId": "system:trail-mate",
+        "scope": "覆盖团队创建、加入和位置共享相关操作",
+        "responsibility": "支持多个用户组成团队并共享实时位置",
+        "businessTerms": [
+          "团队",
+          "成员",
+          "共享位置"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-actor:actor:user",
+      "kind": "design_actor",
+      "label": "用户",
+      "source": {
+        "type": "model",
+        "id": "actor:user"
+      },
+      "anchor": {
+        "kind": "design_actor",
+        "id": "actor:user"
+      },
+      "summary": "使用 Trail Mate 设备的最终用户，可以查看状态、收发消息、配置设备、使用诊断工具",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": [],
+        "actorType": "person"
+      }
+    },
+    {
+      "id": "projection-node:design-external-system:external_system:meshtastic-network",
+      "kind": "design_external_system",
+      "label": "Meshtastic 网络",
+      "source": {
+        "type": "model",
+        "id": "external_system:meshtastic-network"
+      },
+      "anchor": {
+        "kind": "design_external_system",
+        "id": "external_system:meshtastic-network"
+      },
+      "summary": "基于 LoRa 的 Mesh 通信网络，用于传输消息和位置信息",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 1,
+        "questions": []
+      }
+    },
+    {
+      "id": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "kind": "design_use_case",
+      "label": "管理团队共享位置",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-team-sharing"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-team-sharing"
+      },
+      "summary": "用户创建或加入团队，与团队成员共享实时位置",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "low",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 2,
+        "questions": [],
+        "contextId": "business_module:team-collaboration",
+        "trigger": "用户进入团队管理界面",
+        "primaryActorIds": [
+          "actor:user"
+        ],
+        "supportingActorIds": [],
+        "externalSystemIds": [
+          "external_system:meshtastic-network"
+        ],
+        "entryPointIds": [
+          "behavior-slice:api-route-codegraph-method-64e00b9e34a8c17deba799357b3d8dfa"
+        ]
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:use-case-manage-team-sharing-activity",
+      "kind": "design_activity",
+      "label": "Activity Diagram：管理团队共享位置",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-manage-team-sharing-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-manage-team-sharing-activity"
+      },
+      "summary": "Activity Diagram：管理团队共享位置，用于解释 Use Case「管理团队共享位置」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "解释 Use Case「管理团队共享位置」的业务流程、分支、失败路径和决策点。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「管理团队共享位置」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "需要用 Activity Diagram 检查「管理团队共享位置」是否覆盖主路径、分支和失败路径。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L524"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「管理团队共享位置」的业务流程、分支、失败路径和决策点。",
+        "coverageBoundary": "覆盖「管理团队共享位置」可观察业务流程的候选路径，不覆盖底层函数调用细节。",
+        "coverageRationale": "需要用 Activity Diagram 检查「管理团队共享位置」是否覆盖主路径、分支和失败路径。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L524"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Activity Diagram 说明「管理团队共享位置」在业务上如何从触发进入流程、经过关键决策点并到达可验证结果；当前候选覆盖 解释 Use Case「管理团队共享位置」的业务流程、分支、失败路径和决策点。",
+          "uml": "读图时先看开始节点和结束节点，再看菱形决策、分支、失败或补偿节点。节点应表达业务动作，而不是代码调用；如果只有一条直线，说明该图仍缺少分支或失败路径证据。",
+          "design": "设计上，这张图用于验证「管理团队共享位置」的业务流程边界是否清楚，哪些路径需要拆成独立图，哪些缺口需要继续向用户确认。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L524。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-team-sharing/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-team-sharing/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:use-case-manage-team-sharing-sequence",
+      "kind": "design_sequence",
+      "label": "Sequence Diagram：管理团队共享位置主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-manage-team-sharing-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-manage-team-sharing-sequence"
+      },
+      "summary": "Sequence Diagram：管理团队共享位置主成功场景，用于解释 Use Case「管理团队共享位置」的第一层设计。",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery:drilldown-default"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [
+          "该下钻图由 runtime 根据 Use Case 基础字段补出；它只表达当前可恢复的业务流程或交互骨架，不伪造代码结构证据。"
+        ],
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "解释 Use Case「管理团队共享位置」的主成功交互场景。",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]",
+            "mainSuccessScenario[4]"
+          ],
+          "boundary": "覆盖「管理团队共享位置」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "需要用 Sequence Diagram 检查「管理团队共享位置」的关键参与者、系统入口和外部交互顺序。",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L524"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "解释 Use Case「管理团队共享位置」的主成功交互场景。",
+        "coverageBoundary": "覆盖「管理团队共享位置」一个明确交互场景中的消息顺序，不等价于完整调用图。",
+        "coverageRationale": "需要用 Sequence Diagram 检查「管理团队共享位置」的关键参与者、系统入口和外部交互顺序。",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]",
+          "mainSuccessScenario[4]"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L524"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "这张 Sequence Diagram 说明「管理团队共享位置」中一个具体交互场景的参与方如何协作完成业务结果；当前候选覆盖 解释 Use Case「管理团队共享位置」的主成功交互场景。",
+          "uml": "读图时从左到右识别 actor、系统入口、应用服务、领域对象、端口/适配器和外部系统，再按时间轴向下读取消息、返回、异常和可验证结果。",
+          "design": "设计上，这张图用于验证「管理团队共享位置」的协作顺序、外部交互、回调/补偿/重试边界是否可解释，不把完整调用链误当成业务设计。",
+          "implementation": "实现定位以范围锚点为准：模块 待恢复模块，关键文件 待恢复关键文件，代码锚点 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L524。这些锚点用于后续人或 AI 定位实现，不表示当前 Use Case 覆盖了全部相关代码。"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-use-case-manage-team-sharing-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-use-case-manage-team-sharing-sequence.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:manage-team-sharing",
+      "kind": "design_activity",
+      "label": "业务流程：管理团队共享",
+      "source": {
+        "type": "model",
+        "id": "activity:manage-team-sharing"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:manage-team-sharing"
+      },
+      "summary": "创建或加入团队",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "从团队管理到位置共享",
+          "notCovered": [
+            "完整代码调用链",
+            "仓库级全局流程",
+            "未被证据支持的业务分支"
+          ],
+          "rationale": "说明团队流程",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "boards"
+            ],
+            "entryPoints": [
+              "team page"
+            ],
+            "keyFiles": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp"
+            ],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "从团队管理到位置共享",
+        "coverageRationale": "说明团队流程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "完整代码调用链",
+          "仓库级全局流程",
+          "未被证据支持的业务分支"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "boards"
+          ],
+          "entryPoints": [
+            "team page"
+          ],
+          "keyFiles": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp"
+          ],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "团队位置共享",
+          "uml": "顺序",
+          "design": "发布-订阅",
+          "implementation": "team logic"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-team-sharing/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-team-sharing/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:manage-team-sharing",
+      "kind": "design_sequence",
+      "label": "对象交互：管理团队共享",
+      "source": {
+        "type": "model",
+        "id": "sequence:manage-team-sharing"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:manage-team-sharing"
+      },
+      "summary": "团队位置交换",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "medium",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "主成功场景",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario"
+          ],
+          "boundary": "UI 到网络",
+          "notCovered": [
+            "所有相关函数调用",
+            "所有失败补偿场景",
+            "未被证据支持的异步或回调流程"
+          ],
+          "rationale": "说明交互",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "boards"
+            ],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [
+              "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp#L1"
+            ],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "主成功场景",
+        "coverageBoundary": "UI 到网络",
+        "coverageRationale": "说明交互",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario"
+        ],
+        "notCovered": [
+          "所有相关函数调用",
+          "所有失败补偿场景",
+          "未被证据支持的异步或回调流程"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "boards"
+          ],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [
+            "apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp#L1"
+          ],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "团队协作",
+          "uml": "交互",
+          "design": "网络同步",
+          "implementation": "team logic"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing.html"
+      }
+    },
+    {
+      "id": "projection-node:design-activity:activity:manage-team-sharing-activity",
+      "kind": "design_activity",
+      "label": "业务流程：管理团队共享位置",
+      "source": {
+        "type": "model",
+        "id": "activity:manage-team-sharing-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:manage-team-sharing-activity"
+      },
+      "summary": "用户创建团队并开始共享位置",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "low",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "activity",
+        "coverage": {
+          "scenario": "团队创建和共享启动",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从用户创建团队到位置在团队内广播",
+          "notCovered": [
+            "加入已有团队流程",
+            "权限管理"
+          ],
+          "rationale": "解释团队功能的初步业务流程",
+          "implementationScope": {
+            "modules": [
+              "apps/linux_uconsole_gtk",
+              "boards"
+            ],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [],
+            "outOfScopeCode": [
+              "底层函数调用链",
+              "DTO/Mapper/Repository 细节"
+            ]
+          }
+        },
+        "coverageScenario": "团队创建和共享启动",
+        "coverageBoundary": "从用户创建团队到位置在团队内广播",
+        "coverageRationale": "解释团队功能的初步业务流程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "加入已有团队流程",
+          "权限管理"
+        ],
+        "implementationScope": {
+          "modules": [
+            "apps/linux_uconsole_gtk",
+            "boards"
+          ],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [],
+          "outOfScopeCode": [
+            "底层函数调用链",
+            "DTO/Mapper/Repository 细节"
+          ]
+        },
+        "explanation": {
+          "business": "用户跟队友组建团队，互相看到位置",
+          "uml": "流程图，从创建到广播",
+          "design": "依赖现有的消息通道发送团队信息，尚未独立模块",
+          "implementation": "功能可能集成在聊天或设置中"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-team-sharing/activity.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-team-sharing/activity.html"
+      }
+    },
+    {
+      "id": "projection-node:design-sequence:sequence:manage-team-sharing-sequence",
+      "kind": "design_sequence",
+      "label": "对象交互：管理团队共享位置主成功场景",
+      "source": {
+        "type": "model",
+        "id": "sequence:manage-team-sharing-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:manage-team-sharing-sequence"
+      },
+      "summary": "用户创建团队，消息在网络上广播",
+      "status": "candidate",
+      "metadata": {
+        "confidence": "low",
+        "sourceMemoryIds": [],
+        "sourceModelIds": [
+          "design-discovery"
+        ],
+        "sourceSpecPaths": [],
+        "sourceCodeFactIds": [],
+        "evidenceCount": 0,
+        "questions": [],
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "sequence",
+        "coverage": {
+          "scenario": "团队创建时的消息交互",
+          "coveredUseCaseFlows": [
+            "mainSuccessScenario[1]",
+            "mainSuccessScenario[2]",
+            "mainSuccessScenario[3]"
+          ],
+          "boundary": "从用户创建到网络广播",
+          "notCovered": [
+            "成员列表同步",
+            "加密"
+          ],
+          "rationale": "展示基于消息的团队创建流程",
+          "implementationScope": {
+            "modules": [],
+            "entryPoints": [],
+            "keyFiles": [],
+            "codeAnchors": [],
+            "outOfScopeCode": [
+              "非当前场景的全部调用链",
+              "未被证据支持的异步/补偿路径"
+            ]
+          }
+        },
+        "coverageScenario": "团队创建时的消息交互",
+        "coverageBoundary": "从用户创建到网络广播",
+        "coverageRationale": "展示基于消息的团队创建流程",
+        "coveredUseCaseFlows": [
+          "mainSuccessScenario[1]",
+          "mainSuccessScenario[2]",
+          "mainSuccessScenario[3]"
+        ],
+        "notCovered": [
+          "成员列表同步",
+          "加密"
+        ],
+        "implementationScope": {
+          "modules": [],
+          "entryPoints": [],
+          "keyFiles": [],
+          "codeAnchors": [],
+          "outOfScopeCode": [
+            "非当前场景的全部调用链",
+            "未被证据支持的异步/补偿路径"
+          ]
+        },
+        "explanation": {
+          "business": "发起团队并立即开始位置共享",
+          "uml": "用户 UI 触发团队创建命令，通过发送消息实现",
+          "design": "功能利用消息通道，尚无专门的团队服务",
+          "implementation": "可能通过 ChatLogic 发送特殊消息格式"
+        },
+        "markdownPath": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing-sequence.md",
+        "htmlPath": "docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing-sequence.html"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "projection-edge:design-context-contains:system:trail-mate:business_module:team-collaboration",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:system:trail-mate",
+      "targetId": "projection-node:design-context:business_module:team-collaboration",
+      "source": {
+        "type": "model",
+        "id": "business_module:team-collaboration"
+      },
+      "anchor": {
+        "kind": "design_context",
+        "id": "business_module:team-collaboration"
+      },
+      "confidence": "low",
+      "summary": "system:trail-mate contains 团队协作",
+      "metadata": {
+        "contextKind": "business_module"
+      }
+    },
+    {
+      "id": "projection-edge:design-context-contains:business_module:team-collaboration:use-case:manage-team-sharing",
+      "kind": "contains",
+      "sourceId": "projection-node:design-context:business_module:team-collaboration",
+      "targetId": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-team-sharing"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-team-sharing"
+      },
+      "confidence": "low",
+      "summary": "business_module:team-collaboration contains 管理团队共享位置"
+    },
+    {
+      "id": "projection-edge:design-actor-participates:actor:user:use-case:manage-team-sharing:primary_actor",
+      "kind": "actor_participates",
+      "sourceId": "projection-node:design-actor:actor:user",
+      "targetId": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-team-sharing"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-team-sharing"
+      },
+      "confidence": "low",
+      "summary": "actor:user participates in 管理团队共享位置",
+      "metadata": {
+        "participation": "primary_actor"
+      }
+    },
+    {
+      "id": "projection-edge:design-external-system-participates:external_system:meshtastic-network:use-case:manage-team-sharing",
+      "kind": "external_system_participates",
+      "sourceId": "projection-node:design-external-system:external_system:meshtastic-network",
+      "targetId": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "source": {
+        "type": "model",
+        "id": "use-case:manage-team-sharing"
+      },
+      "anchor": {
+        "kind": "design_use_case",
+        "id": "use-case:manage-team-sharing"
+      },
+      "confidence": "low",
+      "summary": "external_system:meshtastic-network participates in 管理团队共享位置",
+      "metadata": {
+        "participation": "external_system"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-team-sharing:activity:use-case-manage-team-sharing-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "targetId": "projection-node:design-activity:activity:use-case-manage-team-sharing-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:use-case-manage-team-sharing-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:use-case-manage-team-sharing-activity"
+      },
+      "confidence": "medium",
+      "summary": "Activity Diagram：管理团队共享位置，用于解释 Use Case「管理团队共享位置」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-team-sharing:sequence:use-case-manage-team-sharing-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "targetId": "projection-node:design-sequence:sequence:use-case-manage-team-sharing-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:use-case-manage-team-sharing-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:use-case-manage-team-sharing-sequence"
+      },
+      "confidence": "medium",
+      "summary": "Sequence Diagram：管理团队共享位置主成功场景，用于解释 Use Case「管理团队共享位置」的第一层设计。",
+      "metadata": {
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-team-sharing:activity:manage-team-sharing",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "targetId": "projection-node:design-activity:activity:manage-team-sharing",
+      "source": {
+        "type": "model",
+        "id": "activity:manage-team-sharing"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:manage-team-sharing"
+      },
+      "confidence": "medium",
+      "summary": "创建或加入团队",
+      "metadata": {
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-team-sharing:sequence:manage-team-sharing",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "targetId": "projection-node:design-sequence:sequence:manage-team-sharing",
+      "source": {
+        "type": "model",
+        "id": "sequence:manage-team-sharing"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:manage-team-sharing"
+      },
+      "confidence": "medium",
+      "summary": "团队位置交换",
+      "metadata": {
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "sequence"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-team-sharing:activity:manage-team-sharing-activity",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "targetId": "projection-node:design-activity:activity:manage-team-sharing-activity",
+      "source": {
+        "type": "model",
+        "id": "activity:manage-team-sharing-activity"
+      },
+      "anchor": {
+        "kind": "design_activity",
+        "id": "activity:manage-team-sharing-activity"
+      },
+      "confidence": "low",
+      "summary": "用户创建团队并开始共享位置",
+      "metadata": {
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "activity"
+      }
+    },
+    {
+      "id": "projection-edge:design-use-case-drilldown:use-case:manage-team-sharing:sequence:manage-team-sharing-sequence",
+      "kind": "drilldown",
+      "sourceId": "projection-node:design-use-case:use-case:manage-team-sharing",
+      "targetId": "projection-node:design-sequence:sequence:manage-team-sharing-sequence",
+      "source": {
+        "type": "model",
+        "id": "sequence:manage-team-sharing-sequence"
+      },
+      "anchor": {
+        "kind": "design_sequence",
+        "id": "sequence:manage-team-sharing-sequence"
+      },
+      "confidence": "low",
+      "summary": "用户创建团队，消息在网络上广播",
+      "metadata": {
+        "useCaseId": "use-case:manage-team-sharing",
+        "diagramKind": "sequence"
+      }
+    }
+  ],
+  "annotations": [],
+  "sourceCachePaths": [
+    ".distinction/cache/design/interaction-model-candidate.json"
+  ],
+  "sourceMemoryIds": [],
+  "sourceModelIds": [
+    "cache:design-interaction-model",
+    "design-discovery",
+    "design-discovery:drilldown-default"
+  ],
+  "sourceFindingIds": [],
+  "sourceTaskIds": [],
+  "sourceTraceIds": [],
+  "sourceSpecPaths": [
+    "docs/design/use-case-diagrams-maps.md",
+    "docs/design/use-case-diagrams-maps.html"
+  ],
+  "status": "fresh"
+}

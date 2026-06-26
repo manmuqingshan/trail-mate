@@ -97,6 +97,12 @@ struct AppConfig
     bool primary_downlink_enabled;
     bool secondary_uplink_enabled;
     bool secondary_downlink_enabled;
+    bool primary_channel_has_module_settings;
+    uint32_t primary_channel_position_precision;
+    bool primary_channel_is_muted;
+    bool secondary_channel_has_module_settings;
+    uint32_t secondary_channel_position_precision;
+    bool secondary_channel_is_muted;
     uint8_t secondary_key[chat::kMeshtasticChannelKeyMaxLen]; // Legacy mirror of Meshtastic secondary PSK.
 
     // GPS settings
@@ -174,6 +180,12 @@ struct AppConfig
         primary_downlink_enabled = false;
         secondary_uplink_enabled = false;
         secondary_downlink_enabled = false;
+        primary_channel_has_module_settings = false;
+        primary_channel_position_precision = 0;
+        primary_channel_is_muted = false;
+        secondary_channel_has_module_settings = false;
+        secondary_channel_position_precision = 0;
+        secondary_channel_is_muted = false;
         memset(secondary_key, 0, sizeof(secondary_key));
         gps_enabled = true;
         gps_init_baud = 0;

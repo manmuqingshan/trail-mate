@@ -1,0 +1,53 @@
+flowchart LR
+  actor_actor_user["&laquo;Actor&raquo;<br/>用户"]
+  external_external_system_meshtastic_network["&laquo;External System&raquo;<br/>Meshtastic 网络"]
+  subgraph system_system_trail_mate["Trail Mate 系统"]
+    subgraph system_business_module_device_management["设备管理"]
+      useCase_use_case_view_device_overview(["查看设备概览"])
+      useCase_use_case_view_data_details(["查看数据详情"])
+      useCase_use_case_view_hardware_status(["查看硬件状态"])
+      useCase_use_case_view_system_logs(["查看系统日志"])
+      useCase_use_case_manage_device_settings(["管理设备设置"])
+      useCase_use_case_sync_gps_time(["同步 GPS 时间"])
+      useCase_use_case_control_device_notifications(["控制设备通知"])
+      useCase_use_case_power_off_device(["关闭设备电源"])
+      useCase_use_case_manage_sd_card(["管理 SD 卡"])
+    end
+    subgraph system_business_module_chat_communication["聊天通信"]
+      useCase_use_case_send_text_message(["发送文本消息"])
+      useCase_use_case_receive_text_message(["接收文本消息"])
+      useCase_use_case_configure_radio_parameters(["配置无线电参数"])
+    end
+    subgraph system_business_module_map_navigation["地图导航"]
+      useCase_use_case_view_map_navigate(["查看地图并导航"])
+    end
+    subgraph system_business_module_team_collaboration["团队协作"]
+      useCase_use_case_manage_team_sharing(["管理团队共享位置"])
+    end
+    subgraph system_business_module_diagnostics_tools["诊断工具"]
+      useCase_use_case_capture_screenshot(["捕获屏幕截图"])
+    end
+  end
+  actor_actor_user --- useCase_use_case_view_device_overview
+  actor_actor_user --- useCase_use_case_send_text_message
+  external_external_system_meshtastic_network --- useCase_use_case_send_text_message
+  actor_actor_user --- useCase_use_case_view_map_navigate
+  actor_actor_user --- useCase_use_case_manage_team_sharing
+  external_external_system_meshtastic_network --- useCase_use_case_manage_team_sharing
+  actor_actor_user --- useCase_use_case_view_data_details
+  actor_actor_user --- useCase_use_case_view_hardware_status
+  actor_actor_user --- useCase_use_case_view_system_logs
+  actor_actor_user --- useCase_use_case_manage_device_settings
+  actor_actor_user --- useCase_use_case_sync_gps_time
+  actor_actor_user --- useCase_use_case_control_device_notifications
+  actor_actor_user --- useCase_use_case_power_off_device
+  actor_actor_user --- useCase_use_case_manage_sd_card
+  actor_actor_user --- useCase_use_case_receive_text_message
+  external_external_system_meshtastic_network --- useCase_use_case_receive_text_message
+  actor_actor_user --- useCase_use_case_configure_radio_parameters
+  external_external_system_meshtastic_network --- useCase_use_case_configure_radio_parameters
+  actor_actor_user --- useCase_use_case_capture_screenshot
+  useCase_use_case_view_hardware_status -.->|&laquo;include&raquo;| useCase_use_case_view_device_overview
+  useCase_use_case_view_data_details -.->|&laquo;include&raquo;| useCase_use_case_view_hardware_status
+  useCase_use_case_view_hardware_status -.->|&laquo;include&raquo;| useCase_use_case_view_device_overview
+  useCase_use_case_view_data_details -.->|&laquo;include&raquo;| useCase_use_case_view_hardware_status

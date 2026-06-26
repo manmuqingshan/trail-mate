@@ -1,0 +1,8 @@
+flowchart LR
+  actor_user["&laquo;Actor&raquo;<br/>户外用户"]
+  subgraph system_trail_mate_system["Trail Mate 系统"]
+    subgraph system_logs_module["日志模块"]
+      useCase_use_case_view_logs(["查看系统日志"])
+    end
+  end
+  actor_user --- useCase_use_case_view_logs

@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>组件职责：apps/esp32_lvgl</title></head>
+<body>
+<main class="praxis-architecture-map" data-praxis-anchor="architecture:c4:component:apps-esp32_lvgl" data-praxis-kind="architecture_c4_component" data-praxis-status="candidate" data-praxis-confidence="high" data-praxis-document-path="docs/architecture/c4/components/apps-esp32_lvgl/component.html" data-praxis-drilldowns="[{&quot;id&quot;:&quot;architecture:c4:code:apps-esp32_lvgl&quot;,&quot;level&quot;:&quot;code&quot;,&quot;title&quot;:&quot;代码锚点：apps/esp32_lvgl&quot;,&quot;summary&quot;:&quot;从 C4 Code 层解释 apps/esp32_lvgl 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/code/apps-esp32_lvgl/code.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/code/apps-esp32_lvgl/code.html&quot;,&quot;anchor&quot;:&quot;architecture:c4:code:apps-esp32_lvgl&quot;,&quot;relation&quot;:&quot;details&quot;,&quot;reason&quot;:&quot;进入 代码锚点：apps/esp32_lvgl 是为了把 组件职责：apps/esp32_lvgl 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。&quot;}]">
+  <header class="praxis-design-map-header">
+    <p>Praxis Architecture View</p>
+    <h1>组件职责：apps/esp32_lvgl</h1>
+    <p>从 C4 Component 层解释 apps/esp32_lvgl 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。</p>
+    <div class="meta-row">
+      <span>Component</span>
+      <span>candidate / high</span>
+      <span>0.1.30-alpha · 34aad0bffa2f / main</span>
+    </div>
+  </header>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:layer-path" data-praxis-kind="architecture_c4_list">
+    <h2>C4 层级路径</h2>
+    <ul>
+      <li>当前层：Component，解释某个 Container 内部的关键职责单元。</li>
+      <li>上层：Container，限定这些组件所属的架构边界。</li>
+      <li>下层：Code View，只在需要追溯实现入口或变更影响面时进入少量关键代码锚点。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:responsibility" data-praxis-kind="architecture_c4_text">
+    <h2>责任</h2>
+    <p>解释 apps/esp32_lvgl 这个 Container 内部由哪些关键组件承担架构职责。Component 层不是全量类/函数列表，只保留对理解系统边界、协作或变更影响有帮助的对象。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:boundary" data-praxis-kind="architecture_c4_text">
+    <h2>边界</h2>
+    <p>Component View 的边界被限制在 apps/esp32_lvgl Container 内；跨容器关系应该回到 Container 或 Engineering Sequence 视角解释。</p>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:relationships" data-praxis-kind="architecture_c4_list">
+    <h2>关系</h2>
+    <ul>
+      <li>IdfNullMeshAdapter: IdfNullMeshAdapter 是 apps/esp32_lvgl 内的外部系统适配组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L282。</li>
+      <li>IdfAppFacadeRuntime: IdfAppFacadeRuntime 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L415。</li>
+      <li>IdfSdNodeBlobStore: IdfSdNodeBlobStore 是 apps/esp32_lvgl 内的持久化访问组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L171。</li>
+      <li>IdfSdContactBlobStore: IdfSdContactBlobStore 是 apps/esp32_lvgl 内的持久化访问组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L254。</li>
+      <li>cstdint: cstdint 是 apps/esp32_lvgl 内的运行配置组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.h。</li>
+      <li>string: string 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp。</li>
+      <li>algorithm: algorithm 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp。</li>
+      <li>cstdio: cstdio 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp。</li>
+      <li>esp32_lvgl_idf_app_facade_runtime: esp32_lvgl_idf_app_facade_runtime 是 apps/esp32_lvgl 内的运行配置组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.h。</li>
+      <li>vector: vector 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp。</li>
+      <li>esp32_lvgl_runtime_config: esp32_lvgl_runtime_config 是 apps/esp32_lvgl 内的运行配置组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.cpp。</li>
+      <li>esp32_lvgl_arduino_app_registry: esp32_lvgl_arduino_app_registry 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:business-relation" data-praxis-kind="architecture_c4_list">
+    <h2>与业务复杂度的关联</h2>
+    <ul>
+      <li>组件层帮助把业务故事连接到实际入口、编排、适配或基础设施对象。</li>
+      <li>如果某个组件直接承载 Use Case，应在组织/过程模型的下钻文档中出现对应证据。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:engineering-relation" data-praxis-kind="architecture_c4_list">
+    <h2>与技术复杂度的关联</h2>
+    <ul>
+      <li>对应 Engineering Class / Structural Diagram：docs/engineering/class-structural-diagrams/apps-esp32_lvgl/class-structural-diagram.html。</li>
+      <li>组件级复用迹象、外部协作迹象和复杂度候选点仍由软件结构模型负责解释。</li>
+    </ul>
+  </section>
+  <section class="semantic-layer diagram-section" data-praxis-anchor="architecture:c4:diagram" data-praxis-kind="architecture_c4_diagram">
+    <h2>C4 Component 图</h2>
+    <pre class="mermaid" data-praxis-anchor="architecture:c4:component:apps-esp32_lvgl:c4" data-praxis-c4-current-level="component" data-praxis-c4-layer-views="[{&quot;level&quot;:&quot;system_context&quot;,&quot;label&quot;:&quot;System Context&quot;,&quot;title&quot;:&quot;系统上下文：trail-mate&quot;,&quot;diagramTitle&quot;:&quot;C4 System Context 图&quot;,&quot;summary&quot;:&quot;System Context 只展示目标软件系统与外部人/系统的关系，不直接展开内部 Component；这里高亮的是“apps/esp32_lvgl”所属的软件系统边界。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/system-context/system-context.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/system-context/system-context.html&quot;,&quot;mermaid&quot;:&quot;flowchart LR\n  actor[\&quot;未命名外部参与者\&quot;]\n  system[\&quot;trail-mate\&quot;]\n  external[\&quot;未命名外部系统\&quot;]\n  actor --&gt;|使用 / 调用| system\n  system -.-&gt;|候选集成| external&quot;,&quot;highlightLabels&quot;:[&quot;apps/esp32_lvgl&quot;,&quot;apps/esp32_lvgl Container&quot;,&quot;apps/esp32_lvgl（系统内部 Container）&quot;,&quot;esp32_lvgl&quot;,&quot;trail-mate&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;container&quot;,&quot;label&quot;:&quot;Container&quot;,&quot;title&quot;:&quot;容器边界：apps/esp32_lvgl&quot;,&quot;diagramTitle&quot;:&quot;C4 Container 图&quot;,&quot;summary&quot;:&quot;切到 Container 层时，高亮会标出“apps/esp32_lvgl”在该层正式文档中的对应位置。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/containers/apps-esp32_lvgl/container.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/containers/apps-esp32_lvgl/container.html&quot;,&quot;mermaid&quot;:&quot;flowchart LR\n  container[\&quot;apps/esp32_lvgl\&quot;]\n  dependency_1[\&quot;apps/linux_uconsole_gtk\&quot;]\n  container --&gt; dependency_1&quot;,&quot;highlightLabels&quot;:[&quot;apps/esp32_lvgl&quot;,&quot;apps/esp32_lvgl Container&quot;,&quot;apps/esp32_lvgl（系统内部 Container）&quot;,&quot;esp32_lvgl&quot;],&quot;current&quot;:false,&quot;missing&quot;:false},{&quot;level&quot;:&quot;component&quot;,&quot;label&quot;:&quot;Component&quot;,&quot;title&quot;:&quot;组件职责：apps/esp32_lvgl&quot;,&quot;diagramTitle&quot;:&quot;C4 Component 图&quot;,&quot;summary&quot;:&quot;当前正在阅读 Component 层；下方正式图就是这一层的架构投影。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/components/apps-esp32_lvgl/component.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/components/apps-esp32_lvgl/component.html&quot;,&quot;mermaid&quot;:&quot;flowchart TB\n  container[\&quot;apps/esp32_lvgl Container\&quot;]\n  component_1[\&quot;IdfNullMeshAdapter\&quot;]\n  container --&gt; component_1\n  component_2[\&quot;IdfAppFacadeRuntime\&quot;]\n  container --&gt; component_2\n  component_3[\&quot;IdfSdNodeBlobStore\&quot;]\n  container --&gt; component_3\n  component_4[\&quot;IdfSdContactBlobStore\&quot;]\n  container --&gt; component_4\n  component_5[\&quot;cstdint\&quot;]\n  container --&gt; component_5\n  component_6[\&quot;string\&quot;]\n  container --&gt; component_6\n  component_7[\&quot;algorithm\&quot;]\n  container --&gt; component_7\n  component_8[\&quot;cstdio\&quot;]\n  container --&gt; component_8\n  component_9[\&quot;esp32_lvgl_idf_app_facade_runtime\&quot;]\n  container --&gt; component_9\n  component_10[\&quot;vector\&quot;]\n  container --&gt; component_10&quot;,&quot;highlightLabels&quot;:[&quot;apps/esp32_lvgl&quot;,&quot;apps/esp32_lvgl Container&quot;,&quot;apps/esp32_lvgl（系统内部 Container）&quot;,&quot;esp32_lvgl&quot;],&quot;current&quot;:true,&quot;missing&quot;:false},{&quot;level&quot;:&quot;code&quot;,&quot;label&quot;:&quot;Code&quot;,&quot;title&quot;:&quot;代码锚点：apps/esp32_lvgl&quot;,&quot;diagramTitle&quot;:&quot;C4 Code View 图&quot;,&quot;summary&quot;:&quot;切到 Code 层时，高亮会标出“apps/esp32_lvgl”在该层正式文档中的对应位置。&quot;,&quot;docPath&quot;:&quot;docs/architecture/c4/code/apps-esp32_lvgl/code.md&quot;,&quot;htmlPath&quot;:&quot;docs/architecture/c4/code/apps-esp32_lvgl/code.html&quot;,&quot;mermaid&quot;:&quot;flowchart TB\n  package[\&quot;apps/esp32_lvgl\&quot;]\n  file_1[\&quot;apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp\&quot;]\n  code_1[\&quot;IdfNullMeshAdapter\&quot;]\n  package --&gt; file_1\n  file_1 --&gt; code_1\n  file_2[\&quot;apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp\&quot;]\n  code_2[\&quot;IdfNullMeshAdapter::copyString\&quot;]\n  package --&gt; file_2\n  file_2 --&gt; code_2\n  file_3[\&quot;apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp\&quot;]\n  code_3[\&quot;IdfAppFacadeRuntime::&amp; getChatService() override\&quot;]\n  package --&gt; file_3\n  file_3 --&gt; code_3\n  file_4[\&quot;apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp\&quot;]\n  code_4[\&quot;IdfAppFacadeRuntime::&amp; getContactService() override\&quot;]\n  package --&gt; file_4\n  file_4 --&gt; code_4\n  file_5[\&quot;apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp\&quot;]\n  code_5[\&quot;IdfNullMeshAdapter::applyConfig\&quot;]\n  package --&gt; file_5\n  file_5 --&gt; code_5\n  file_6[\&quot;apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp\&quot;]\n  code_6[\&quot;IdfNullMeshAdapter::pollIncomingData\&quot;]\n  package --&gt; file_6\n  file_6 --&gt; code_6\n  file_7[\&quot;apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp\&quot;]\n  code_7[\&quot;IdfNullMeshAdapter::pollIncomingRawPacket\&quot;]\n  package --&gt; file_7\n  file_7 --&gt; code_7\n  file_8[\&quot;apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp\&quot;]\n  code_8[\&quot;IdfNullMeshAdapter::pollIncomingText\&quot;]\n  package --&gt; file_8\n  file_8 --&gt; code_8&quot;,&quot;highlightLabels&quot;:[&quot;apps/esp32_lvgl&quot;,&quot;apps/esp32_lvgl Container&quot;,&quot;apps/esp32_lvgl（系统内部 Container）&quot;,&quot;esp32_lvgl&quot;],&quot;current&quot;:false,&quot;missing&quot;:false}]">flowchart TB
+  container[&quot;apps/esp32_lvgl Container&quot;]
+  component_1[&quot;IdfNullMeshAdapter&quot;]
+  container --&gt; component_1
+  component_2[&quot;IdfAppFacadeRuntime&quot;]
+  container --&gt; component_2
+  component_3[&quot;IdfSdNodeBlobStore&quot;]
+  container --&gt; component_3
+  component_4[&quot;IdfSdContactBlobStore&quot;]
+  container --&gt; component_4
+  component_5[&quot;cstdint&quot;]
+  container --&gt; component_5
+  component_6[&quot;string&quot;]
+  container --&gt; component_6
+  component_7[&quot;algorithm&quot;]
+  container --&gt; component_7
+  component_8[&quot;cstdio&quot;]
+  container --&gt; component_8
+  component_9[&quot;esp32_lvgl_idf_app_facade_runtime&quot;]
+  container --&gt; component_9
+  component_10[&quot;vector&quot;]
+  container --&gt; component_10</pre>
+  </section>
+  <section class="semantic-layer architecture-c4-elements" data-praxis-anchor="architecture:c4:component:apps-esp32_lvgl:elements" data-praxis-kind="architecture_c4_elements">
+    <h2>图内元素解释</h2>
+    <div class="layer-grid">
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:class:idfnullmeshadapter:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:282" data-praxis-kind="architecture_c4_element" data-praxis-confidence="high" data-praxis-drilldowns="[]">
+        <h3>IdfNullMeshAdapter</h3>
+        <p>Component · high</p>
+        <p>IdfNullMeshAdapter 是 apps/esp32_lvgl 内的 class 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L282；当前仓库证据显示它有 较强的外部协作/编排迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>IdfNullMeshAdapter 在当前 C4 Component View 中被视为外部能力适配组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L282、class 类型和 较强的外部协作/编排迹象 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>IdfNullMeshAdapter 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IdfNullMeshAdapter 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:class:idfappfacaderuntime:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:415" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>IdfAppFacadeRuntime</h3>
+        <p>Component · medium</p>
+        <p>IdfAppFacadeRuntime 是 apps/esp32_lvgl 内的 class 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L415；当前仓库证据显示它有 较强的外部协作/编排迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>IdfAppFacadeRuntime 在当前 C4 Component View 中被视为编排/聚合组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L415、class 类型和 较强的外部协作/编排迹象 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>IdfAppFacadeRuntime 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IdfAppFacadeRuntime 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:class:idfsdnodeblobstore:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:171" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>IdfSdNodeBlobStore</h3>
+        <p>Component · medium</p>
+        <p>IdfSdNodeBlobStore 是 apps/esp32_lvgl 内的 class 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L171；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>IdfSdNodeBlobStore 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L171、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>IdfSdNodeBlobStore 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IdfSdNodeBlobStore 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:class:idfsdcontactblobstore:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:254" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>IdfSdContactBlobStore</h3>
+        <p>Component · medium</p>
+        <p>IdfSdContactBlobStore 是 apps/esp32_lvgl 内的 class 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L254；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>IdfSdContactBlobStore 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L254、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>IdfSdContactBlobStore 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IdfSdContactBlobStore 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:import:cstdint:apps-esp32_lvgl-src-esp32_lvgl_runtime_config.h:" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>cstdint</h3>
+        <p>Component · medium</p>
+        <p>cstdint 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.h；当前仓库证据显示它有 较强的被复用/被依赖迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>cstdint 在当前 C4 Component View 中被视为共享核心或被依赖组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.h、import 类型和 较强的被复用/被依赖迹象 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>cstdint 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 cstdint 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:import:string:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>string</h3>
+        <p>Component · medium</p>
+        <p>string 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp；当前仓库证据显示它有 较强的被复用/被依赖迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>string 在当前 C4 Component View 中被视为共享核心或被依赖组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp、import 类型和 较强的被复用/被依赖迹象 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>string 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 string 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:import:algorithm:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>algorithm</h3>
+        <p>Component · medium</p>
+        <p>algorithm 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp；当前仓库证据显示它有 较强的被复用/被依赖迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>algorithm 在当前 C4 Component View 中被视为共享核心或被依赖组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp、import 类型和 较强的被复用/被依赖迹象 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>algorithm 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 algorithm 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:import:cstdio:apps-esp32_lvgl-src-esp32_lvgl_arduino_app_registry.cpp:" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>cstdio</h3>
+        <p>Component · medium</p>
+        <p>cstdio 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp；当前仓库证据显示它有 较强的被复用/被依赖迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>cstdio 在当前 C4 Component View 中被视为共享核心或被依赖组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp、import 类型和 较强的被复用/被依赖迹象 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>cstdio 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 cstdio 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:import:esp32_lvgl_idf_app_facade_runtime:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.h:" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>esp32_lvgl_idf_app_facade_runtime</h3>
+        <p>Component · medium</p>
+        <p>esp32_lvgl_idf_app_facade_runtime 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.h；当前仓库证据显示它有 较强的被复用/被依赖迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>esp32_lvgl_idf_app_facade_runtime 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.h、import 类型和 较强的被复用/被依赖迹象 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>esp32_lvgl_idf_app_facade_runtime 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 esp32_lvgl_idf_app_facade_runtime 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:import:vector:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>vector</h3>
+        <p>Component · medium</p>
+        <p>vector 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp；当前仓库证据显示它有 较强的被复用/被依赖迹象。</p>
+        <dl>
+          <div><dt>责任</dt><dd>vector 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp、import 类型和 较强的被复用/被依赖迹象 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>vector 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 vector 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:import:esp32_lvgl_runtime_config:apps-esp32_lvgl-src-esp32_lvgl_runtime_config.cpp:" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>esp32_lvgl_runtime_config</h3>
+        <p>Component · medium</p>
+        <p>esp32_lvgl_runtime_config 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.cpp；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>esp32_lvgl_runtime_config 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.cpp、import 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>esp32_lvgl_runtime_config 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 esp32_lvgl_runtime_config 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+      <article class="layer-card" data-praxis-anchor="architecture:c4:code-anchor:import:esp32_lvgl_arduino_app_registry:apps-esp32_lvgl-src-esp32_lvgl_arduino_app_registry.cpp:" data-praxis-kind="architecture_c4_element" data-praxis-confidence="medium" data-praxis-drilldowns="[]">
+        <h3>esp32_lvgl_arduino_app_registry</h3>
+        <p>Component · medium</p>
+        <p>esp32_lvgl_arduino_app_registry 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。</p>
+        <dl>
+          <div><dt>责任</dt><dd>esp32_lvgl_arduino_app_registry 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp、import 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。</dd></div>
+          <div><dt>边界</dt><dd>它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。</dd></div>
+          <div><dt>关系意义</dt><dd>esp32_lvgl_arduino_app_registry 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。</dd></div>
+          <div><dt>为什么属于该层</dt><dd>它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。</dd></div>
+          <div><dt>下钻意图</dt><dd>下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 esp32_lvgl_arduino_app_registry 的文件锚点、直接协作和是否存在变更扩散风险。</dd></div>
+        </dl>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer architecture-c4-links" data-praxis-anchor="architecture:c4:drilldowns" data-praxis-kind="architecture_c4_links">
+    <h2>可下钻 C4</h2>
+    <div class="layer-grid">
+      <article class="layer-card document-entry-card" role="link" tabindex="0" data-praxis-anchor="architecture:c4:code:apps-esp32_lvgl" data-praxis-kind="architecture_c4_link" data-praxis-document-title="代码锚点：apps/esp32_lvgl" data-praxis-document-summary="进入 代码锚点：apps/esp32_lvgl 是为了把 组件职责：apps/esp32_lvgl 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。" data-praxis-document-md="docs/architecture/c4/code/apps-esp32_lvgl/code.md" data-praxis-document-html="docs/architecture/c4/code/apps-esp32_lvgl/code.html">
+        <strong>代码锚点：apps/esp32_lvgl</strong>
+        <span>details</span>
+        <p>进入 代码锚点：apps/esp32_lvgl 是为了把 组件职责：apps/esp32_lvgl 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。</p>
+        <small>从 C4 Code 层解释 apps/esp32_lvgl 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。</small>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer architecture-c4-links" data-praxis-anchor="architecture:c4:engineering-links" data-praxis-kind="architecture_c4_links">
+    <h2>关联软件结构模型</h2>
+    <div class="layer-grid">
+      <article class="layer-card document-entry-card" role="link" tabindex="0" data-praxis-anchor="architecture:c4:engineering-link:docs-engineering-class-structural-diagrams-apps-esp32_lvgl-class-structural-diagram" data-praxis-kind="architecture_c4_link" data-praxis-document-title="apps/esp32_lvgl Class / Structural Diagram" data-praxis-document-summary="查看该 Container 内部结构协作和关键技术对象。" data-praxis-document-md="docs/engineering/class-structural-diagrams/apps-esp32_lvgl/class-structural-diagram.md" data-praxis-document-html="docs/engineering/class-structural-diagrams/apps-esp32_lvgl/class-structural-diagram.html">
+        <strong>apps/esp32_lvgl Class / Structural Diagram</strong>
+        <span>related_engineering</span>
+        <p>查看该 Container 内部结构协作和关键技术对象。</p>
+        <small>查看该 Container 内部结构协作和关键技术对象。</small>
+      </article>
+    </div>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:evidence" data-praxis-kind="architecture_c4_list">
+    <h2>证据</h2>
+    <ul>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L282</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L415</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L171</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L254</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_runtime_config.h</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.h</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_runtime_config.cpp</li>
+      <li>apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp</li>
+    </ul>
+  </section>
+  <section class="semantic-layer" data-praxis-anchor="architecture:c4:questions" data-praxis-kind="architecture_c4_list">
+    <h2>判定依据</h2>
+    <ul>
+      <li>Component 候选只保留入口、编排、接口、适配器、配置、任务、消费者或生产者等组件级职责对象；方法、路由和局部函数下沉到 Code View。</li>
+    </ul>
+  </section>
+  <script type="application/json" id="praxis-architecture-c4-document">{"id":"architecture:c4:component:apps-esp32_lvgl","level":"component","title":"组件职责：apps/esp32_lvgl","summary":"从 C4 Component 层解释 apps/esp32_lvgl 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。","docPath":"docs/architecture/c4/components/apps-esp32_lvgl/component.md","htmlPath":"docs/architecture/c4/components/apps-esp32_lvgl/component.html","anchor":"architecture:c4:component:apps-esp32_lvgl","status":"candidate","confidence":"high","mermaid":"flowchart TB\n  container[\"apps/esp32_lvgl Container\"]\n  component_1[\"IdfNullMeshAdapter\"]\n  container --\u003e component_1\n  component_2[\"IdfAppFacadeRuntime\"]\n  container --\u003e component_2\n  component_3[\"IdfSdNodeBlobStore\"]\n  container --\u003e component_3\n  component_4[\"IdfSdContactBlobStore\"]\n  container --\u003e component_4\n  component_5[\"cstdint\"]\n  container --\u003e component_5\n  component_6[\"string\"]\n  container --\u003e component_6\n  component_7[\"algorithm\"]\n  container --\u003e component_7\n  component_8[\"cstdio\"]\n  container --\u003e component_8\n  component_9[\"esp32_lvgl_idf_app_facade_runtime\"]\n  container --\u003e component_9\n  component_10[\"vector\"]\n  container --\u003e component_10","responsibility":"解释 apps/esp32_lvgl 这个 Container 内部由哪些关键组件承担架构职责。Component 层不是全量类/函数列表，只保留对理解系统边界、协作或变更影响有帮助的对象。","boundary":"Component View 的边界被限制在 apps/esp32_lvgl Container 内；跨容器关系应该回到 Container 或 Engineering Sequence 视角解释。","relationships":["IdfNullMeshAdapter: IdfNullMeshAdapter 是 apps/esp32_lvgl 内的外部系统适配组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L282。","IdfAppFacadeRuntime: IdfAppFacadeRuntime 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L415。","IdfSdNodeBlobStore: IdfSdNodeBlobStore 是 apps/esp32_lvgl 内的持久化访问组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L171。","IdfSdContactBlobStore: IdfSdContactBlobStore 是 apps/esp32_lvgl 内的持久化访问组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L254。","cstdint: cstdint 是 apps/esp32_lvgl 内的运行配置组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.h。","string: string 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp。","algorithm: algorithm 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp。","cstdio: cstdio 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp。","esp32_lvgl_idf_app_facade_runtime: esp32_lvgl_idf_app_facade_runtime 是 apps/esp32_lvgl 内的运行配置组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.h。","vector: vector 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp。","esp32_lvgl_runtime_config: esp32_lvgl_runtime_config 是 apps/esp32_lvgl 内的运行配置组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.cpp。","esp32_lvgl_arduino_app_registry: esp32_lvgl_arduino_app_registry 是 apps/esp32_lvgl 内的主要架构组件，证据来自 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp。"],"businessRelation":["组件层帮助把业务故事连接到实际入口、编排、适配或基础设施对象。","如果某个组件直接承载 Use Case，应在组织/过程模型的下钻文档中出现对应证据。"],"engineeringRelation":["对应 Engineering Class / Structural Diagram：docs/engineering/class-structural-diagrams/apps-esp32_lvgl/class-structural-diagram.html。","组件级复用迹象、外部协作迹象和复杂度候选点仍由软件结构模型负责解释。"],"evidencePaths":["apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L282","apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L415","apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L171","apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L254","apps/esp32_lvgl/src/esp32_lvgl_runtime_config.h","apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp","apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp","apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp","apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.h","apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp","apps/esp32_lvgl/src/esp32_lvgl_runtime_config.cpp","apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp"],"questions":["Component 候选只保留入口、编排、接口、适配器、配置、任务、消费者或生产者等组件级职责对象；方法、路由和局部函数下沉到 Code View。"],"scope":{"packageId":"apps/esp32_lvgl","filePath":"apps/esp32_lvgl"},"elements":[{"id":"architecture:c4:code-anchor:class:idfnullmeshadapter:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:282","label":"IdfNullMeshAdapter","level":"component","anchor":"architecture:c4:code-anchor:class:idfnullmeshadapter:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:282","summary":"IdfNullMeshAdapter 是 apps/esp32_lvgl 内的 class 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L282；当前仓库证据显示它有 较强的外部协作/编排迹象。","responsibility":"IdfNullMeshAdapter 在当前 C4 Component View 中被视为外部能力适配组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L282、class 类型和 较强的外部协作/编排迹象 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"IdfNullMeshAdapter 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IdfNullMeshAdapter 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L282","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"high","drilldowns":[]},{"id":"architecture:c4:code-anchor:class:idfappfacaderuntime:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:415","label":"IdfAppFacadeRuntime","level":"component","anchor":"architecture:c4:code-anchor:class:idfappfacaderuntime:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:415","summary":"IdfAppFacadeRuntime 是 apps/esp32_lvgl 内的 class 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L415；当前仓库证据显示它有 较强的外部协作/编排迹象。","responsibility":"IdfAppFacadeRuntime 在当前 C4 Component View 中被视为编排/聚合组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L415、class 类型和 较强的外部协作/编排迹象 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"IdfAppFacadeRuntime 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IdfAppFacadeRuntime 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L415","复用迹象：存在局部复用或依赖线索","外部协作迹象：协调多个外部对象或能力"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:class:idfsdnodeblobstore:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:171","label":"IdfSdNodeBlobStore","level":"component","anchor":"architecture:c4:code-anchor:class:idfsdnodeblobstore:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:171","summary":"IdfSdNodeBlobStore 是 apps/esp32_lvgl 内的 class 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L171；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"IdfSdNodeBlobStore 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L171、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"IdfSdNodeBlobStore 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IdfSdNodeBlobStore 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L171","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:class:idfsdcontactblobstore:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:254","label":"IdfSdContactBlobStore","level":"component","anchor":"architecture:c4:code-anchor:class:idfsdcontactblobstore:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:254","summary":"IdfSdContactBlobStore 是 apps/esp32_lvgl 内的 class 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L254；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"IdfSdContactBlobStore 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L254、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"IdfSdContactBlobStore 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IdfSdContactBlobStore 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp#L254","复用迹象：存在局部复用或依赖线索","外部协作迹象：存在局部外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:import:cstdint:apps-esp32_lvgl-src-esp32_lvgl_runtime_config.h:","label":"cstdint","level":"component","anchor":"architecture:c4:code-anchor:import:cstdint:apps-esp32_lvgl-src-esp32_lvgl_runtime_config.h:","summary":"cstdint 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.h；当前仓库证据显示它有 较强的被复用/被依赖迹象。","responsibility":"cstdint 在当前 C4 Component View 中被视为共享核心或被依赖组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.h、import 类型和 较强的被复用/被依赖迹象 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"cstdint 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 cstdint 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_runtime_config.h","复用迹象：被多个对象复用或依赖","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:import:string:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:","label":"string","level":"component","anchor":"architecture:c4:code-anchor:import:string:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:","summary":"string 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp；当前仓库证据显示它有 较强的被复用/被依赖迹象。","responsibility":"string 在当前 C4 Component View 中被视为共享核心或被依赖组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp、import 类型和 较强的被复用/被依赖迹象 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"string 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 string 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:import:algorithm:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:","label":"algorithm","level":"component","anchor":"architecture:c4:code-anchor:import:algorithm:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:","summary":"algorithm 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp；当前仓库证据显示它有 较强的被复用/被依赖迹象。","responsibility":"algorithm 在当前 C4 Component View 中被视为共享核心或被依赖组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp、import 类型和 较强的被复用/被依赖迹象 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"algorithm 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 algorithm 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:import:cstdio:apps-esp32_lvgl-src-esp32_lvgl_arduino_app_registry.cpp:","label":"cstdio","level":"component","anchor":"architecture:c4:code-anchor:import:cstdio:apps-esp32_lvgl-src-esp32_lvgl_arduino_app_registry.cpp:","summary":"cstdio 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp；当前仓库证据显示它有 较强的被复用/被依赖迹象。","responsibility":"cstdio 在当前 C4 Component View 中被视为共享核心或被依赖组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp、import 类型和 较强的被复用/被依赖迹象 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"cstdio 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 cstdio 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:import:esp32_lvgl_idf_app_facade_runtime:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.h:","label":"esp32_lvgl_idf_app_facade_runtime","level":"component","anchor":"architecture:c4:code-anchor:import:esp32_lvgl_idf_app_facade_runtime:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.h:","summary":"esp32_lvgl_idf_app_facade_runtime 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.h；当前仓库证据显示它有 较强的被复用/被依赖迹象。","responsibility":"esp32_lvgl_idf_app_facade_runtime 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.h、import 类型和 较强的被复用/被依赖迹象 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"esp32_lvgl_idf_app_facade_runtime 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 esp32_lvgl_idf_app_facade_runtime 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.h","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:import:vector:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:","label":"vector","level":"component","anchor":"architecture:c4:code-anchor:import:vector:apps-esp32_lvgl-src-esp32_lvgl_idf_app_facade_runtime.cpp:","summary":"vector 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp；当前仓库证据显示它有 较强的被复用/被依赖迹象。","responsibility":"vector 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp、import 类型和 较强的被复用/被依赖迹象 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"vector 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 vector 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:import:esp32_lvgl_runtime_config:apps-esp32_lvgl-src-esp32_lvgl_runtime_config.cpp:","label":"esp32_lvgl_runtime_config","level":"component","anchor":"architecture:c4:code-anchor:import:esp32_lvgl_runtime_config:apps-esp32_lvgl-src-esp32_lvgl_runtime_config.cpp:","summary":"esp32_lvgl_runtime_config 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.cpp；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"esp32_lvgl_runtime_config 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_runtime_config.cpp、import 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"esp32_lvgl_runtime_config 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 esp32_lvgl_runtime_config 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_runtime_config.cpp","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]},{"id":"architecture:c4:code-anchor:import:esp32_lvgl_arduino_app_registry:apps-esp32_lvgl-src-esp32_lvgl_arduino_app_registry.cpp:","label":"esp32_lvgl_arduino_app_registry","level":"component","anchor":"architecture:c4:code-anchor:import:esp32_lvgl_arduino_app_registry:apps-esp32_lvgl-src-esp32_lvgl_arduino_app_registry.cpp:","summary":"esp32_lvgl_arduino_app_registry 是 apps/esp32_lvgl 内的 import 候选组件，证据锚点是 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。","responsibility":"esp32_lvgl_arduino_app_registry 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp、import 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。","boundary":"它属于 apps/esp32_lvgl Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。","relationshipMeaning":"esp32_lvgl_arduino_app_registry 被放入 Component View，是因为它能把 apps/esp32_lvgl 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。","whyThisLevel":"它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/esp32_lvgl 内部职责如何拆分，所以属于 C4 Component 层。","drilldownIntent":"下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 esp32_lvgl_arduino_app_registry 的文件锚点、直接协作和是否存在变更扩散风险。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp","复用迹象：存在局部复用或依赖线索","外部协作迹象：当前未观察到明显外部协作线索"],"confidence":"medium","drilldowns":[]}],"drilldowns":[{"id":"architecture:c4:code:apps-esp32_lvgl","level":"code","title":"代码锚点：apps/esp32_lvgl","summary":"从 C4 Code 层解释 apps/esp32_lvgl 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。","docPath":"docs/architecture/c4/code/apps-esp32_lvgl/code.md","htmlPath":"docs/architecture/c4/code/apps-esp32_lvgl/code.html","anchor":"architecture:c4:code:apps-esp32_lvgl","relation":"details","reason":"进入 代码锚点：apps/esp32_lvgl 是为了把 组件职责：apps/esp32_lvgl 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。"}],"relatedEngineeringDocs":[{"id":"architecture:c4:engineering-link:docs-engineering-class-structural-diagrams-apps-esp32_lvgl-class-structural-diagram","level":"code","title":"apps/esp32_lvgl Class / Structural Diagram","summary":"查看该 Container 内部结构协作和关键技术对象。","docPath":"docs/engineering/class-structural-diagrams/apps-esp32_lvgl/class-structural-diagram.md","htmlPath":"docs/engineering/class-structural-diagrams/apps-esp32_lvgl/class-structural-diagram.html","anchor":"architecture:c4:engineering-link:docs-engineering-class-structural-diagrams-apps-esp32_lvgl-class-structural-diagram","relation":"related_engineering","reason":"查看该 Container 内部结构协作和关键技术对象。"}]}</script>
+</main>
+</body>
+</html>

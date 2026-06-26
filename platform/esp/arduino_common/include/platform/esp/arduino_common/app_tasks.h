@@ -21,8 +21,9 @@ namespace app
 class AppTasks
 {
   public:
-    static constexpr size_t RADIO_QUEUE_SIZE = 10;
-    static constexpr size_t MESH_QUEUE_SIZE = 10;
+    // Keep always-on radio queues shallow so BLE/NimBLE retains internal RAM.
+    static constexpr size_t RADIO_QUEUE_SIZE = 6;
+    static constexpr size_t MESH_QUEUE_SIZE = 6;
 
     struct RadioPacket
     {
