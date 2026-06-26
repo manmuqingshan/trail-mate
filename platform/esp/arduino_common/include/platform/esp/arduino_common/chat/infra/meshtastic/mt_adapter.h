@@ -198,6 +198,15 @@ class MtAdapter : public chat::IMeshAdapter
     std::queue<MeshIncomingData> app_receive_queue_;
     std::queue<meshtastic_MqttClientProxyMessage> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_;
+
+    struct MqttScratchBuffers
+    {
+        std::array<uint8_t, 256> payload{};
+        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
+        meshtastic_MqttClientProxyMessage proxy = meshtastic_MqttClientProxyMessage_init_zero;
+    };
+
+    MqttScratchBuffers mqtt_scratch_;
     std::map<uint32_t, PendingAckState> pending_ack_states_;
     std::unique_ptr<::platform::esp::arduino_common::mesh::EspMeshtasticAdapterBridge> core_bridge_;
 

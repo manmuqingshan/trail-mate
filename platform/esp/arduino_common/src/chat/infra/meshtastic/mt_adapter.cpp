@@ -1206,15 +1206,17 @@ bool MtAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
         return false;
     }
 
-    uint8_t env_buf[435];
-    meshtastic_MeshPacket packet_copy = packet;
+    auto& scratch = mqtt_scratch_;
+    std::memset(&scratch.proxy, 0, sizeof(scratch.proxy));
     std::string node_id = mqttNodeIdString();
     meshtastic_ServiceEnvelope env = meshtastic_ServiceEnvelope_init_zero;
-    env.packet = &packet_copy;
+    env.packet = const_cast<meshtastic_MeshPacket*>(&packet);
     env.channel_id = const_cast<char*>(channel_id);
     env.gateway_id = const_cast<char*>(node_id.c_str());
 
-    pb_ostream_t estream = pb_ostream_from_buffer(env_buf, sizeof(env_buf));
+    meshtastic_MqttClientProxyMessage& proxy = scratch.proxy;
+    pb_ostream_t estream = pb_ostream_from_buffer(proxy.payload_variant.data.bytes,
+                                                  sizeof(proxy.payload_variant.data.bytes));
     if (!pb_encode(&estream, meshtastic_ServiceEnvelope_fields, &env))
     {
         LORA_LOG("[MQTT] uplink encode fail ch='%s' err=%s\n",
@@ -1223,14 +1225,12 @@ bool MtAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
         return false;
     }
 
-    meshtastic_MqttClientProxyMessage proxy = meshtastic_MqttClientProxyMessage_init_zero;
     proxy.which_payload_variant = meshtastic_MqttClientProxyMessage_data_tag;
     std::string root = mqtt_proxy_settings_.root.empty() ? std::string("msh") : mqtt_proxy_settings_.root;
     std::string topic = root + "/2/e/" + channel_id + "/" + node_id;
     strncpy(proxy.topic, topic.c_str(), sizeof(proxy.topic) - 1);
     proxy.topic[sizeof(proxy.topic) - 1] = '\0';
     proxy.payload_variant.data.size = static_cast<pb_size_t>(estream.bytes_written);
-    memcpy(proxy.payload_variant.data.bytes, env_buf, estream.bytes_written);
     proxy.retained = false;
 
     while (mqtt_proxy_queue_.size() >= kMaxMqttProxyQueue)
@@ -1256,9 +1256,10 @@ bool MtAdapter::queueMqttProxyPublishFromWire(const uint8_t* wire_data,
     }
 
     PacketHeaderWire header{};
-    uint8_t payload[256];
-    size_t payload_size = sizeof(payload);
-    if (!parseWirePacket(wire_data, wire_size, &header, payload, &payload_size))
+    auto& scratch = mqtt_scratch_;
+    std::fill(scratch.payload.begin(), scratch.payload.end(), 0);
+    size_t payload_size = scratch.payload.size();
+    if (!parseWirePacket(wire_data, wire_size, &header, scratch.payload.data(), &payload_size))
     {
         return false;
     }
@@ -1278,12 +1279,12 @@ bool MtAdapter::queueMqttProxyPublishFromWire(const uint8_t* wire_data,
 
     if (mqtt_proxy_settings_.encryption_enabled)
     {
-        meshtastic_MeshPacket encrypted_packet = meshtastic_MeshPacket_init_zero;
-        if (!makeEncryptedPacketFromWire(wire_data, wire_size, &encrypted_packet))
+        std::memset(&scratch.packet, 0, sizeof(scratch.packet));
+        if (!makeEncryptedPacketFromWire(wire_data, wire_size, &scratch.packet))
         {
             return false;
         }
-        return queueMqttProxyPublish(encrypted_packet, channel_id);
+        return queueMqttProxyPublish(scratch.packet, channel_id);
     }
 
     if (!decoded)
@@ -1291,9 +1292,9 @@ bool MtAdapter::queueMqttProxyPublishFromWire(const uint8_t* wire_data,
         return false;
     }
 
-    meshtastic_MeshPacket decoded_packet = meshtastic_MeshPacket_init_zero;
-    fillDecodedPacketCommon(&decoded_packet, *decoded, header, channel_index);
-    return queueMqttProxyPublish(decoded_packet, channel_id);
+    std::memset(&scratch.packet, 0, sizeof(scratch.packet));
+    fillDecodedPacketCommon(&scratch.packet, *decoded, header, channel_index);
+    return queueMqttProxyPublish(scratch.packet, channel_id);
 }
 
 void MtAdapter::applyConfig(const MeshConfig& config)
