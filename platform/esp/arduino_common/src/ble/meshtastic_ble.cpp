@@ -928,10 +928,24 @@ void MeshtasticBleService::notifyFromNum(uint32_t value)
     }
     if (!from_num_subscribed_)
     {
-        ble_log("fromNum skip notify value=%lu (not subscribed)", static_cast<unsigned long>(value));
+        ble_log("fromNum skip notify source=%lu (not subscribed)", static_cast<unsigned long>(value));
         return;
     }
-    const uint32_t notify_value = value;
+    bool has_connection = connected_;
+    if (server_)
+    {
+        has_connection = (server_->getConnectedCount() > 0);
+    }
+    if (!has_connection)
+    {
+        ble_log("fromNum skip notify source=%lu (no connection)", static_cast<unsigned long>(value));
+        return;
+    }
+    uint32_t notify_value = ++from_num_notify_counter_;
+    if (notify_value == 0)
+    {
+        notify_value = ++from_num_notify_counter_;
+    }
     uint8_t val[4] = {
         static_cast<uint8_t>(notify_value & 0xFFU),
         static_cast<uint8_t>((notify_value >> 8) & 0xFFU),
@@ -939,20 +953,10 @@ void MeshtasticBleService::notifyFromNum(uint32_t value)
         static_cast<uint8_t>((notify_value >> 24) & 0xFFU),
     };
     from_num_->setValue(val, sizeof(val));
-    bool has_connection = connected_;
-    if (server_)
-    {
-        has_connection = (server_->getConnectedCount() > 0);
-    }
-    if (has_connection)
-    {
-        ble_log("fromNum notify value=%lu", static_cast<unsigned long>(notify_value));
-        from_num_->notify();
-    }
-    else
-    {
-        ble_log("fromNum skip notify value=%lu (no connection)", static_cast<unsigned long>(notify_value));
-    }
+    ble_log("fromNum notify value=%lu source=%lu",
+            static_cast<unsigned long>(notify_value),
+            static_cast<unsigned long>(value));
+    from_num_->notify();
 }
 
 void MeshtasticBleService::clearQueues()
@@ -960,6 +964,7 @@ void MeshtasticBleService::clearQueues()
     read_waiting_.store(false);
     pending_to_phone_valid_ = false;
     pending_to_phone_from_num_ = 0;
+    from_num_notify_counter_ = 0;
 
     if (from_phone_mutex_)
     {

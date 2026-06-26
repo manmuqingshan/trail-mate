@@ -305,16 +305,17 @@ int main()
     meshtastic_FromRadio first_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(first_frame, first_from));
     assert(first_frame.from_num == kSetChannelPacketId);
-    assert(first_from.id == kSetChannelPacketId);
+    assert(first_from.id != 0);
     assert(first_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
     assert(first_from.queueStatus.mesh_packet_id == kSetChannelPacketId);
     assert(first_from.queueStatus.res == 0);
+    const uint32_t first_from_radio_id = first_from.id;
 
     phone::meshtastic::MeshtasticBleFrame second_frame{};
     assert(admin_session.popToPhone(&second_frame));
     meshtastic_FromRadio second_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(second_frame, second_from));
-    assert(second_from.id == second_frame.from_num);
+    assert(second_from.id > first_from_radio_id);
     assert(second_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
     assert(second_from.packet.decoded.portnum == meshtastic_PortNum_ADMIN_APP);
     assert(second_from.packet.decoded.request_id == kSetChannelPacketId);
@@ -616,6 +617,53 @@ int main()
     assert(custom_runtime.restart_device_count == 1);
 
     phone::tests::FakePhoneRuntimeContext config_runtime;
+    phone::PhoneNodeView peer_node{};
+    peer_node.node_id = 0x12345679;
+    copyBounded(peer_node.long_name, sizeof(peer_node.long_name), "Peer Node");
+    copyBounded(peer_node.short_name, sizeof(peer_node.short_name), "PN");
+    config_runtime.nodes.push_back(peer_node);
+
+    FakeMeshtasticTransport config_stage1_transport;
+    phone::meshtastic::MeshtasticPhoneSession config_stage1_session(
+        config_runtime, config_stage1_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    constexpr uint32_t kConfigOnlyNonce = 0x00010F2C;
+    uint8_t want_config_only_to_radio[meshtastic_ToRadio_size] = {};
+    size_t want_config_only_to_radio_len = 0;
+    assert(encodeWantConfigToRadio(want_config_only_to_radio,
+                                   sizeof(want_config_only_to_radio),
+                                   want_config_only_to_radio_len,
+                                   kConfigOnlyNonce));
+    assert(config_stage1_session.handleToRadio(want_config_only_to_radio, want_config_only_to_radio_len));
+
+    phone::meshtastic::MeshtasticBleFrame config_only_frame{};
+    bool saw_config_only_complete = false;
+    bool saw_config_only_my_info = false;
+    bool saw_config_only_deviceui = false;
+    while (config_stage1_session.popToPhone(&config_only_frame))
+    {
+        meshtastic_FromRadio config_only_from = meshtastic_FromRadio_init_zero;
+        assert(decodeFromRadio(config_only_frame, config_only_from));
+        assert(config_only_from.which_payload_variant != meshtastic_FromRadio_node_info_tag);
+        if (config_only_from.which_payload_variant == meshtastic_FromRadio_my_info_tag)
+        {
+            saw_config_only_my_info = true;
+        }
+        if (config_only_from.which_payload_variant == meshtastic_FromRadio_deviceuiConfig_tag)
+        {
+            saw_config_only_deviceui = true;
+        }
+        if (config_only_from.which_payload_variant == meshtastic_FromRadio_config_complete_id_tag)
+        {
+            assert(config_only_frame.from_num == kConfigOnlyNonce);
+            assert(config_only_from.config_complete_id == kConfigOnlyNonce);
+            saw_config_only_complete = true;
+            break;
+        }
+    }
+    assert(saw_config_only_my_info);
+    assert(saw_config_only_deviceui);
+    assert(saw_config_only_complete);
+
     FakeMeshtasticTransport config_transport;
     phone::meshtastic::MeshtasticPhoneSession config_session(
         config_runtime, config_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
@@ -633,23 +681,42 @@ int main()
     meshtastic_FromRadio config_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(config_frame, config_from));
     assert(config_frame.from_num == kConfigNonce);
-    assert(config_from.id == 0);
-    assert(config_from.which_payload_variant == meshtastic_FromRadio_my_info_tag);
+    assert(config_from.id != 0);
+    assert(config_from.which_payload_variant == meshtastic_FromRadio_node_info_tag);
+    assert(config_from.node_info.num == config_runtime.self_node_id);
+    assert(std::strcmp(config_from.node_info.user.id, "!12345678") == 0);
+    assert(config_from.node_info.user.hw_model != meshtastic_HardwareModel_UNSET);
 
     bool saw_config_complete = false;
+    bool saw_peer_node = false;
+    uint32_t last_config_from_radio_id = config_from.id;
     while (config_session.popToPhone(&config_frame))
     {
         config_from = meshtastic_FromRadio_init_zero;
         assert(decodeFromRadio(config_frame, config_from));
+        assert(config_from.id > last_config_from_radio_id);
+        last_config_from_radio_id = config_from.id;
+        assert(config_from.which_payload_variant != meshtastic_FromRadio_metadata_tag);
+        assert(config_from.which_payload_variant != meshtastic_FromRadio_channel_tag);
+        assert(config_from.which_payload_variant != meshtastic_FromRadio_config_tag);
+        assert(config_from.which_payload_variant != meshtastic_FromRadio_moduleConfig_tag);
+        assert(config_from.which_payload_variant != meshtastic_FromRadio_my_info_tag);
+        assert(config_from.which_payload_variant != meshtastic_FromRadio_deviceuiConfig_tag);
+        if (config_from.which_payload_variant == meshtastic_FromRadio_node_info_tag &&
+            config_from.node_info.num == peer_node.node_id)
+        {
+            assert(config_frame.from_num == peer_node.node_id);
+            saw_peer_node = true;
+        }
         if (config_from.which_payload_variant == meshtastic_FromRadio_config_complete_id_tag)
         {
             assert(config_frame.from_num == kConfigNonce);
-            assert(config_from.id == 0);
             assert(config_from.config_complete_id == kConfigNonce);
             saw_config_complete = true;
             break;
         }
     }
+    assert(saw_peer_node);
     assert(saw_config_complete);
 
     phone::meshcore::MeshCorePhoneCore meshcore_core(runtime, "Trail Mate");

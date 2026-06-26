@@ -75,6 +75,7 @@ class MeshtasticBleService : public BleService,
     uint16_t conn_handle_ = 0;
     bool conn_handle_valid_ = false;
     bool from_num_subscribed_ = false;
+    uint32_t from_num_notify_counter_ = 0;
     bool from_radio_sync_subscribed_ = false;
     uint16_t from_radio_sync_sub_value_ = 0;
     std::atomic<uint32_t> pending_passkey_{0};
