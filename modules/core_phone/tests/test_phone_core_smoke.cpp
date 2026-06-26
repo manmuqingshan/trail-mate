@@ -149,6 +149,9 @@ bool encodeAdminSetPrimaryCustomChannelToRadio(uint8_t* out,
     admin.set_channel.settings.psk.bytes[0] = 1;
     admin.set_channel.settings.uplink_enabled = true;
     admin.set_channel.settings.downlink_enabled = true;
+    admin.set_channel.settings.has_module_settings = true;
+    admin.set_channel.settings.module_settings.position_precision = 32;
+    admin.set_channel.settings.module_settings.is_muted = true;
     copyBounded(admin.set_channel.settings.name, sizeof(admin.set_channel.settings.name), "Custom");
 
     return encodeAdminToRadio(admin, out, out_len, written, packet_id);
@@ -355,6 +358,9 @@ int main()
     assert(std::strcmp(saved_custom_config.mesh.primary_channel_name, "Custom") == 0);
     assert(saved_custom_config.mesh.primary_channel_id == 0x10203040);
     assert(saved_custom_config.mesh.primary_key_len == 16);
+    assert(saved_custom_config.primary_channel_has_module_settings);
+    assert(saved_custom_config.primary_channel_position_precision == 32);
+    assert(saved_custom_config.primary_channel_is_muted);
     uint8_t expected_short_psk[16] = {};
     size_t expected_short_psk_len = 0;
     chat::meshtastic::expandShortPsk(1, expected_short_psk, &expected_short_psk_len);
@@ -386,6 +392,9 @@ int main()
     assert(custom_response.get_channel_response.settings.id == 0x10203040);
     assert(custom_response.get_channel_response.settings.psk.size == 1);
     assert(custom_response.get_channel_response.settings.psk.bytes[0] == 1);
+    assert(custom_response.get_channel_response.settings.has_module_settings);
+    assert(custom_response.get_channel_response.settings.module_settings.position_precision == 32);
+    assert(custom_response.get_channel_response.settings.module_settings.is_muted);
     assert(!custom_session.popToPhone(&custom_response_frame));
     assert(custom_runtime.save_config_count == 1);
 

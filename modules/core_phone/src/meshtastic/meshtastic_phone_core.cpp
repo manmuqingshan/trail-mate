@@ -144,7 +144,10 @@ void logChannelSummary(const char* prefix, const meshtastic_Channel& channel)
     const unsigned id = channel.has_settings ? static_cast<unsigned>(channel.settings.id) : 0U;
     const unsigned uplink = channel.has_settings && channel.settings.uplink_enabled ? 1U : 0U;
     const unsigned downlink = channel.has_settings && channel.settings.downlink_enabled ? 1U : 0U;
-    logDual("[BLE][mtcore][channel] %s idx=%d role=%u has_settings=%u ch_num=%u name=%s id=%u psk_size=%u uplink=%u downlink=%u\n",
+    const bool has_module_settings = channel.has_settings && channel.settings.has_module_settings;
+    const uint32_t position_precision = has_module_settings ? channel.settings.module_settings.position_precision : 0U;
+    const unsigned is_muted = has_module_settings && channel.settings.module_settings.is_muted ? 1U : 0U;
+    logDual("[BLE][mtcore][channel] %s idx=%d role=%u has_settings=%u ch_num=%u name=%s id=%u psk_size=%u uplink=%u downlink=%u module=%u pos_prec=%lu muted=%u\n",
             prefix ? prefix : "channel",
             static_cast<int>(channel.index),
             static_cast<unsigned>(channel.role),
@@ -154,7 +157,10 @@ void logChannelSummary(const char* prefix, const meshtastic_Channel& channel)
             id,
             psk_size,
             uplink,
-            downlink);
+            downlink,
+            has_module_settings ? 1U : 0U,
+            static_cast<unsigned long>(position_precision),
+            is_muted);
 }
 
 bool parsePosixTzOffsetMinutes(const char* tzdef, int* out_offset_min)
@@ -751,7 +757,27 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         has_resp = true;
         break;
     case meshtastic_AdminMessage_set_channel_tag:
+    {
         logChannelSummary("set_req", req.set_channel);
+        const bool has_module_settings =
+            req.set_channel.has_settings && req.set_channel.settings.has_module_settings;
+        auto apply_module_settings = [&](bool& dst_has_module_settings,
+                                         uint32_t& dst_position_precision,
+                                         bool& dst_is_muted)
+        {
+            dst_has_module_settings = has_module_settings;
+            if (has_module_settings)
+            {
+                dst_position_precision = req.set_channel.settings.module_settings.position_precision;
+                dst_is_muted = req.set_channel.settings.module_settings.is_muted;
+            }
+            else
+            {
+                dst_position_precision = 0;
+                dst_is_muted = false;
+            }
+        };
+
         if (req.set_channel.index == 0)
         {
             cfg.primary_enabled = (req.set_channel.role != meshtastic_Channel_Role_DISABLED);
@@ -765,6 +791,9 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
                             sizeof(cfg.mesh.primary_key),
                             &cfg.mesh.primary_key_len,
                             req.set_channel.settings.psk);
+            apply_module_settings(cfg.primary_channel_has_module_settings,
+                                  cfg.primary_channel_position_precision,
+                                  cfg.primary_channel_is_muted);
         }
         else if (req.set_channel.index == 1)
         {
@@ -779,6 +808,9 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
                             sizeof(cfg.mesh.secondary_key),
                             &cfg.mesh.secondary_key_len,
                             req.set_channel.settings.psk);
+            apply_module_settings(cfg.secondary_channel_has_module_settings,
+                                  cfg.secondary_channel_position_precision,
+                                  cfg.secondary_channel_is_muted);
         }
         app_.setMeshtasticPhoneConfig(cfg);
         app_.applyMeshConfig();
@@ -796,6 +828,7 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         logChannelSummary("set_resp", resp.get_channel_response);
         has_resp = true;
         break;
+    }
     case meshtastic_AdminMessage_set_config_tag:
         switch (req.set_config.which_payload_variant)
         {
@@ -1920,7 +1953,15 @@ void MeshtasticPhoneCore::fillChannel(uint8_t idx, meshtastic_Channel* out) cons
     channel.settings.channel_num = idx;
     channel.settings.uplink_enabled = (idx == 0) ? cfg.primary_uplink_enabled : cfg.secondary_uplink_enabled;
     channel.settings.downlink_enabled = (idx == 0) ? cfg.primary_downlink_enabled : cfg.secondary_downlink_enabled;
-    channel.settings.has_module_settings = false;
+    channel.settings.has_module_settings =
+        (idx == 0) ? cfg.primary_channel_has_module_settings : cfg.secondary_channel_has_module_settings;
+    if (channel.settings.has_module_settings)
+    {
+        channel.settings.module_settings.position_precision =
+            (idx == 0) ? cfg.primary_channel_position_precision : cfg.secondary_channel_position_precision;
+        channel.settings.module_settings.is_muted =
+            (idx == 0) ? cfg.primary_channel_is_muted : cfg.secondary_channel_is_muted;
+    }
 
     if (idx == 0)
     {

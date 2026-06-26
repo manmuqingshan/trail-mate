@@ -591,6 +591,58 @@ Forbidden in GATT callback:
 - walk node store;
 - mutate UI directly.
 
+## ChannelSettings Contract
+
+`meshtastic_ChannelSettings` is the protocol object. Local app config and phone snapshots are projections of it, not definitions of it.
+
+Current required round-trip fields:
+
+| Protocol field | Local projection | Notes |
+| --- | --- | --- |
+| `settings.name` | `MeshConfig.primary_channel_name` / `secondary_channel_name` | Keep bounded string semantics. |
+| `settings.id` | `MeshConfig.primary_channel_id` / `secondary_channel_id` | Preserve numeric channel identity. |
+| `settings.psk` | `MeshConfig.primary_key` / `secondary_key` plus key length | Shorthand PSK may expand internally but must be preserved in Admin response where applicable. |
+| `settings.uplink_enabled` | `primary_uplink_enabled` / `secondary_uplink_enabled` | MQTT gateway direction flag. |
+| `settings.downlink_enabled` | `primary_downlink_enabled` / `secondary_downlink_enabled` | MQTT gateway direction flag. |
+| `settings.has_module_settings` | `primary_channel_has_module_settings` / `secondary_channel_has_module_settings` | Presence is part of protocol state and must not be inferred away. |
+| `settings.module_settings.position_precision` | `primary_channel_position_precision` / `secondary_channel_position_precision` | Android location/precise-location channel setting. |
+| `settings.module_settings.is_muted` | `primary_channel_is_muted` / `secondary_channel_is_muted` | Per-channel muted state. |
+
+```mermaid
+classDiagram
+    class ChannelSettings {
+        name
+        id
+        psk
+        uplink_enabled
+        downlink_enabled
+        has_module_settings
+        module_settings.position_precision
+        module_settings.is_muted
+    }
+    class MeshtasticPhoneConfigSnapshot {
+        mesh channel fields
+        per-channel uplink/downlink
+        per-channel module settings presence
+        per-channel module settings values
+    }
+    class AppConfig {
+        persistent mesh channel fields
+        persistent per-channel module settings
+    }
+    ChannelSettings --> MeshtasticPhoneConfigSnapshot : set_channel / get_channel_response
+    MeshtasticPhoneConfigSnapshot --> AppConfig : bridge
+```
+
+Rules:
+
+- Do not treat `ChannelSettings` as only name/id/psk/uplink/downlink.
+- Do not collapse `has_module_settings=false` and `has_module_settings=true` with default values; protobuf presence must round-trip.
+- `set_channel` must write the complete supported `ChannelSettings` projection before `applyMeshConfig()`.
+- `get_channel_response` and config snapshots must return the same supported `ChannelSettings` projection Android just saved.
+- Durable storage must persist the supported `ChannelSettings` projection across restart.
+- New generated `ChannelSettings` fields must be classified here before they are ignored, persisted, or intentionally rejected.
+
 ## Bypass Cleanup Rules
 
 Any future change touching this area must remove or reject these bypasses:
@@ -617,6 +669,7 @@ Useful logs and what they mean:
 | `[BLE] fromPhone write len=...` | Android wrote `ToRadio`; callback queued it. |
 | `[BLE][mtcore] to_radio variant=...` | Phone core decoded `ToRadio`. |
 | `[BLE][mtcore][flow] want_config ...` | Android requested config snapshot. |
+| `[BLE][mtcore][channel] ... module=... pos_prec=... muted=...` | Admin channel request/response/snapshot includes the supported module-settings projection. |
 | `[BLE][mtcore][cfg#...] start ...` | Config flow became active. |
 | `[BLE] toPhone enqueue from_num=... len=...` | A `FromRadio` frame was queued for Android read. |
 | `[BLE] fromRadio read len=...` | Android read a non-empty `FromRadio` frame. |
@@ -643,6 +696,7 @@ Shared phone core tests must continue to assert:
 
 - invalid Meshtastic bytes are rejected;
 - `set_channel` updates in-memory config, applies mesh runtime, sends queue status, sends Admin response, and saves only after response drain;
+- `set_channel.settings.module_settings` presence, `position_precision`, and `is_muted` are preserved in config, response, and storage projection;
 - primary channel shorthand PSK is preserved in response while expanded in internal config;
 - manual LoRa config updates all expected fields and saves only after response drain;
 - Bluetooth config disables runtime only after response drain;
@@ -691,4 +745,3 @@ Before modifying this path, answer these questions:
 10. Are smoke tests updated when behavior changes?
 
 If any answer indicates a bypass, fix the main path first. Do not add another branch around Android.
-

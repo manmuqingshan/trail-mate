@@ -30,6 +30,12 @@ constexpr const char* kChatKeySecondaryEnabled = "sec_enabled";
 constexpr const char* kChatKeyPrimaryDownlink = "pri_downlink";
 constexpr const char* kChatKeySecondaryUplink = "sec_uplink";
 constexpr const char* kChatKeySecondaryDownlink = "sec_downlink";
+constexpr const char* kChatKeyPrimaryHasModuleSettings = "pri_ch_mod";
+constexpr const char* kChatKeySecondaryHasModuleSettings = "sec_ch_mod";
+constexpr const char* kChatKeyPrimaryPositionPrecision = "pri_pos_prec";
+constexpr const char* kChatKeySecondaryPositionPrecision = "sec_pos_prec";
+constexpr const char* kChatKeyPrimaryChannelMuted = "pri_ch_muted";
+constexpr const char* kChatKeySecondaryChannelMuted = "sec_ch_muted";
 constexpr const char* kChatKeyPrimaryChannelName = "pri_ch_name";
 constexpr const char* kChatKeySecondaryChannelName = "sec_ch_name";
 constexpr const char* kChatKeyPrimaryChannelId = "pri_ch_id";
@@ -660,6 +666,30 @@ void log_config_delta(const AppConfig& before, const AppConfig& after)
     log_change_bool("primary_downlink", before.primary_downlink_enabled, after.primary_downlink_enabled, any_change);
     log_change_bool("secondary_uplink", before.secondary_uplink_enabled, after.secondary_uplink_enabled, any_change);
     log_change_bool("secondary_downlink", before.secondary_downlink_enabled, after.secondary_downlink_enabled, any_change);
+    log_change_bool("primary_channel.has_module_settings",
+                    before.primary_channel_has_module_settings,
+                    after.primary_channel_has_module_settings,
+                    any_change);
+    log_change_u32("primary_channel.position_precision",
+                   before.primary_channel_position_precision,
+                   after.primary_channel_position_precision,
+                   any_change);
+    log_change_bool("primary_channel.is_muted",
+                    before.primary_channel_is_muted,
+                    after.primary_channel_is_muted,
+                    any_change);
+    log_change_bool("secondary_channel.has_module_settings",
+                    before.secondary_channel_has_module_settings,
+                    after.secondary_channel_has_module_settings,
+                    any_change);
+    log_change_u32("secondary_channel.position_precision",
+                   before.secondary_channel_position_precision,
+                   after.secondary_channel_position_precision,
+                   any_change);
+    log_change_bool("secondary_channel.is_muted",
+                    before.secondary_channel_is_muted,
+                    after.secondary_channel_is_muted,
+                    any_change);
 
     log_change_bool("gps_enabled", before.gps_enabled, after.gps_enabled, any_change);
     log_change_u32("gps_interval_ms", before.gps_interval_ms, after.gps_interval_ms, any_change);
@@ -735,6 +765,20 @@ void log_config_summary(const char* phase, const AppConfig& config)
                   static_cast<unsigned long>(config.meshtastic_config.secondary_channel_id),
                   static_cast<unsigned>(config.meshtastic_config.primary_key_len),
                   static_cast<unsigned>(config.meshtastic_config.secondary_key_len));
+    Serial.printf("[AppCfg][%s][channel] primary=%s primary_uplink=%s primary_downlink=%s primary_module=%s primary_pos_prec=%lu primary_muted=%s secondary=%s secondary_uplink=%s secondary_downlink=%s secondary_module=%s secondary_pos_prec=%lu secondary_muted=%s\n",
+                  safe_label(phase),
+                  bool_label(config.primary_enabled),
+                  bool_label(config.primary_uplink_enabled),
+                  bool_label(config.primary_downlink_enabled),
+                  bool_label(config.primary_channel_has_module_settings),
+                  static_cast<unsigned long>(config.primary_channel_position_precision),
+                  bool_label(config.primary_channel_is_muted),
+                  bool_label(config.secondary_enabled),
+                  bool_label(config.secondary_uplink_enabled),
+                  bool_label(config.secondary_downlink_enabled),
+                  bool_label(config.secondary_channel_has_module_settings),
+                  static_cast<unsigned long>(config.secondary_channel_position_precision),
+                  bool_label(config.secondary_channel_is_muted));
     Serial.printf("[AppCfg][%s][gps_init] baud=%lu probe_ms=%lu profile=%u rxm=%u gnss=%u nmea=%u\n",
                   safe_label(phase),
                   static_cast<unsigned long>(config.gps_init_baud),
@@ -803,6 +847,12 @@ bool loadAppConfigFromPreferences(AppConfig& config,
     auto& primary_downlink_enabled = config.primary_downlink_enabled;
     auto& secondary_uplink_enabled = config.secondary_uplink_enabled;
     auto& secondary_downlink_enabled = config.secondary_downlink_enabled;
+    auto& primary_channel_has_module_settings = config.primary_channel_has_module_settings;
+    auto& primary_channel_position_precision = config.primary_channel_position_precision;
+    auto& primary_channel_is_muted = config.primary_channel_is_muted;
+    auto& secondary_channel_has_module_settings = config.secondary_channel_has_module_settings;
+    auto& secondary_channel_position_precision = config.secondary_channel_position_precision;
+    auto& secondary_channel_is_muted = config.secondary_channel_is_muted;
     auto& secondary_key = config.secondary_key;
     auto& gps_enabled = config.gps_enabled;
     auto& gps_init_baud = config.gps_init_baud;
@@ -989,6 +1039,12 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         primary_downlink_enabled = get_bool(kChatKeyPrimaryDownlink, false);
         secondary_uplink_enabled = get_bool(kChatKeySecondaryUplink, false);
         secondary_downlink_enabled = get_bool(kChatKeySecondaryDownlink, false);
+        primary_channel_has_module_settings = get_bool(kChatKeyPrimaryHasModuleSettings, false);
+        primary_channel_position_precision = get_uint(kChatKeyPrimaryPositionPrecision, 0);
+        primary_channel_is_muted = get_bool(kChatKeyPrimaryChannelMuted, false);
+        secondary_channel_has_module_settings = get_bool(kChatKeySecondaryHasModuleSettings, false);
+        secondary_channel_position_precision = get_uint(kChatKeySecondaryPositionPrecision, 0);
+        secondary_channel_is_muted = get_bool(kChatKeySecondaryChannelMuted, false);
         const size_t primary_key_read =
             get_bytes("primary_key", meshtastic_config.primary_key, sizeof(meshtastic_config.primary_key));
         meshtastic_config.primary_key_len =
@@ -1170,6 +1226,12 @@ bool saveAppConfigToPreferences(const AppConfig& config,
     const auto& primary_downlink_enabled = config.primary_downlink_enabled;
     const auto& secondary_uplink_enabled = config.secondary_uplink_enabled;
     const auto& secondary_downlink_enabled = config.secondary_downlink_enabled;
+    const auto& primary_channel_has_module_settings = config.primary_channel_has_module_settings;
+    const auto& primary_channel_position_precision = config.primary_channel_position_precision;
+    const auto& primary_channel_is_muted = config.primary_channel_is_muted;
+    const auto& secondary_channel_has_module_settings = config.secondary_channel_has_module_settings;
+    const auto& secondary_channel_position_precision = config.secondary_channel_position_precision;
+    const auto& secondary_channel_is_muted = config.secondary_channel_is_muted;
     const auto& gps_enabled = config.gps_enabled;
     const auto& gps_init_baud = config.gps_init_baud;
     const auto& gps_init_probe_ms = config.gps_init_probe_ms;
@@ -1316,6 +1378,12 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_bool(kChatKeyPrimaryDownlink, primary_downlink_enabled);
         put_bool(kChatKeySecondaryUplink, secondary_uplink_enabled);
         put_bool(kChatKeySecondaryDownlink, secondary_downlink_enabled);
+        put_bool(kChatKeyPrimaryHasModuleSettings, primary_channel_has_module_settings);
+        put_uint(kChatKeyPrimaryPositionPrecision, primary_channel_position_precision);
+        put_bool(kChatKeyPrimaryChannelMuted, primary_channel_is_muted);
+        put_bool(kChatKeySecondaryHasModuleSettings, secondary_channel_has_module_settings);
+        put_uint(kChatKeySecondaryPositionPrecision, secondary_channel_position_precision);
+        put_bool(kChatKeySecondaryChannelMuted, secondary_channel_is_muted);
         const uint8_t primary_key_len =
             chat::normalizeMeshtasticChannelKeyLen(meshtastic_config.primary_key,
                                                    sizeof(meshtastic_config.primary_key),
