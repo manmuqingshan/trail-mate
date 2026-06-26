@@ -302,6 +302,7 @@ int main()
     assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
     assert(text_from.packet.from == incoming_text.from);
     assert(text_from.packet.to == incoming_text.to);
+    assert(!text_from.packet.via_mqtt);
     assert(text_from.packet.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP);
     assert(text_from.packet.decoded.source == 0);
     assert(text_from.packet.decoded.dest == 0);
@@ -310,6 +311,41 @@ int main()
     assert(std::memcmp(text_from.packet.decoded.payload.bytes,
                        incoming_text.text.data(),
                        incoming_text.text.size()) == 0);
+    assert(!text_session.popToPhone(&text_frame));
+
+    incoming_text.msg_id = 0x9DD4E0E8;
+    incoming_text.rx_meta.from_is = true;
+    incoming_text.rx_meta.relay_node = 7;
+    text_session.onIncomingText(incoming_text);
+    assert(text_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.packet.id == incoming_text.msg_id);
+    assert(text_from.packet.via_mqtt);
+    assert(text_from.packet.relay_node == incoming_text.rx_meta.relay_node);
+    assert(text_from.packet.decoded.source == 0);
+    assert(text_from.packet.decoded.dest == 0);
+    assert(!text_from.packet.decoded.has_bitfield);
+    assert(!text_session.popToPhone(&text_frame));
+
+    chat::MeshIncomingData incoming_data{};
+    incoming_data.portnum = meshtastic_PortNum_POSITION_APP;
+    incoming_data.from = incoming_text.from;
+    incoming_data.to = incoming_text.to;
+    incoming_data.packet_id = 0x9DD4E0E9;
+    incoming_data.channel = chat::ChannelId::PRIMARY;
+    incoming_data.hop_limit = 4;
+    incoming_data.rx_meta.from_is = true;
+    incoming_data.payload = {0x01, 0x02};
+    text_session.onIncomingData(incoming_data);
+    assert(text_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.packet.id == incoming_data.packet_id);
+    assert(text_from.packet.via_mqtt);
+    assert(text_from.packet.decoded.source == incoming_data.from);
+    assert(text_from.packet.decoded.dest == incoming_data.to);
+    assert(text_from.packet.decoded.has_bitfield);
     assert(!text_session.popToPhone(&text_frame));
 
     phone::tests::FakePhoneRuntimeContext admin_runtime;

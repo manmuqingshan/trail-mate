@@ -34,6 +34,129 @@ inline MeshtasticAppDataSendPolicy resolveMeshtasticAppDataSendPolicy(NodeId des
     return policy;
 }
 
+enum class MeshtasticMqttDownlinkReason : uint8_t
+{
+    TransmitToMesh,
+    OwnGatewayEcho,
+    OwnPacket,
+    TxDisabled,
+    LocalDestination,
+};
+
+struct MeshtasticMqttDownlinkPolicy
+{
+    bool accept_locally = true;
+    bool transmit_to_mesh = false;
+    MeshtasticMqttDownlinkReason reason =
+        MeshtasticMqttDownlinkReason::TransmitToMesh;
+};
+
+inline uint8_t meshtasticHexValue(char c)
+{
+    if (c >= '0' && c <= '9')
+    {
+        return static_cast<uint8_t>(c - '0');
+    }
+    if (c >= 'a' && c <= 'f')
+    {
+        return static_cast<uint8_t>(c - 'a' + 10);
+    }
+    if (c >= 'A' && c <= 'F')
+    {
+        return static_cast<uint8_t>(c - 'A' + 10);
+    }
+    return 0xFF;
+}
+
+inline bool mqttGatewayIdMatchesNode(const char* gateway_id, NodeId node_id)
+{
+    if (!gateway_id || gateway_id[0] != '!' || node_id == 0)
+    {
+        return false;
+    }
+    for (uint8_t i = 1; i <= 8; ++i)
+    {
+        if (gateway_id[i] == '\0')
+        {
+            return false;
+        }
+    }
+    if (gateway_id[9] != '\0')
+    {
+        return false;
+    }
+
+    NodeId parsed = 0;
+    for (uint8_t i = 0; i < 8; ++i)
+    {
+        const uint8_t value = meshtasticHexValue(gateway_id[i + 1]);
+        if (value > 0x0F)
+        {
+            return false;
+        }
+        parsed = static_cast<NodeId>((parsed << 4) | value);
+    }
+    return parsed == node_id;
+}
+
+inline MeshtasticMqttDownlinkPolicy resolveMeshtasticMqttDownlinkPolicy(
+    const char* gateway_id,
+    NodeId self_node,
+    NodeId packet_from,
+    NodeId packet_to,
+    bool tx_enabled)
+{
+    MeshtasticMqttDownlinkPolicy policy{};
+    if (mqttGatewayIdMatchesNode(gateway_id, self_node))
+    {
+        policy.accept_locally = false;
+        policy.reason = MeshtasticMqttDownlinkReason::OwnGatewayEcho;
+        return policy;
+    }
+    if (self_node != 0 && packet_from == self_node)
+    {
+        policy.accept_locally = false;
+        policy.reason = MeshtasticMqttDownlinkReason::OwnPacket;
+        return policy;
+    }
+    if (!tx_enabled)
+    {
+        policy.reason = MeshtasticMqttDownlinkReason::TxDisabled;
+        return policy;
+    }
+    if (self_node != 0 && packet_to == self_node)
+    {
+        policy.reason = MeshtasticMqttDownlinkReason::LocalDestination;
+        return policy;
+    }
+
+    // Zero-hop packets are still transmitted by the gateway; direct neighbors
+    // receive them, but should not relay them further. Therefore hop_limit is
+    // not a transmit gate here.
+    policy.transmit_to_mesh = true;
+    policy.reason = MeshtasticMqttDownlinkReason::TransmitToMesh;
+    return policy;
+}
+
+inline const char* meshtasticMqttDownlinkReasonName(MeshtasticMqttDownlinkReason reason)
+{
+    switch (reason)
+    {
+    case MeshtasticMqttDownlinkReason::TransmitToMesh:
+        return "transmit_to_mesh";
+    case MeshtasticMqttDownlinkReason::OwnGatewayEcho:
+        return "own_gateway_echo";
+    case MeshtasticMqttDownlinkReason::OwnPacket:
+        return "own_packet";
+    case MeshtasticMqttDownlinkReason::TxDisabled:
+        return "tx_disabled";
+    case MeshtasticMqttDownlinkReason::LocalDestination:
+        return "local_destination";
+    default:
+        return "unknown";
+    }
+}
+
 enum class MeshtasticNodeInfoReannounceReason : uint8_t
 {
     Announce,

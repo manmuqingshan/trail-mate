@@ -2287,6 +2287,8 @@ void MeshtasticPhoneCore::fillPacketFromText(const chat::MeshIncomingText& msg, 
     packet.rx_snr = msg.rx_meta.snr_db_x10 / 10.0f;
     packet.rx_rssi = msg.rx_meta.rssi_dbm_x10 / 10;
     packet.hop_limit = msg.hop_limit;
+    packet.via_mqtt = msg.rx_meta.from_is;
+    packet.relay_node = msg.rx_meta.relay_node;
     packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
     packet.decoded.want_response = false;
@@ -2327,6 +2329,7 @@ void MeshtasticPhoneCore::fillPacketFromData(const chat::MeshIncomingData& msg, 
     packet.rx_snr = msg.rx_meta.snr_db_x10 / 10.0f;
     packet.rx_rssi = msg.rx_meta.rssi_dbm_x10 / 10;
     packet.hop_limit = msg.hop_limit;
+    packet.via_mqtt = msg.rx_meta.from_is;
     packet.relay_node = msg.rx_meta.relay_node;
     packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     packet.decoded.portnum = static_cast<meshtastic_PortNum>(msg.portnum);

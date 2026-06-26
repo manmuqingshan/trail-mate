@@ -50,6 +50,15 @@ REAL_IME_LAYOUTS = {
     "ru-cyrillic-keyboard": "ru-cyrillic",
 }
 
+CJK_REQUIRED_PUNCTUATION_PATH = Path("common/cjk-punctuation.txt")
+CJK_REQUIRED_PUNCTUATION_BUILD_REF = "packs/common/cjk-punctuation.txt"
+CJK_PRIMARY_FONT_PACKS = (
+    ("zh-Hans/fonts/zh-hans-core", False),
+    ("zh-Hant/fonts/zh-hant-cjk", True),
+    ("ja/fonts/ja-cjk", True),
+    ("ko/fonts/ko-cjk", True),
+)
+
 
 def parse_key_value_file(path: Path) -> dict[str, str]:
     data: dict[str, str] = {}
@@ -60,6 +69,12 @@ def parse_key_value_file(path: Path) -> dict[str, str]:
         key, value = line.split("=", 1)
         data[key.strip().lower()] = value.strip()
     return data
+
+
+def split_csv(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def parse_tsv(path: Path) -> tuple[dict[str, str], list[str], list[str]]:
@@ -149,6 +164,95 @@ def validate_strings(pack_root: Path) -> list[str]:
     return errors
 
 
+def read_font_chars(path: Path) -> set[str]:
+    return {
+        ch
+        for ch in path.read_text(encoding="utf-8")
+        if not ch.isspace() and ord(ch) >= 0x80
+    }
+
+
+def read_range_spans(path: Path) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    for token in path.read_text(encoding="utf-8").replace("\n", ",").split(","):
+        item = token.strip()
+        if not item:
+            continue
+        if "-" in item:
+            start_text, end_text = item.split("-", 1)
+            start = int(start_text, 16)
+            end = int(end_text, 16)
+        else:
+            start = end = int(item, 16)
+        spans.append((start, end))
+    return spans
+
+
+def range_spans_include(spans: list[tuple[int, int]], ch: str) -> bool:
+    code = ord(ch)
+    return any(start <= code <= end for start, end in spans)
+
+
+def validate_cjk_required_punctuation(pack_root: Path) -> list[str]:
+    errors: list[str] = []
+    required_path = pack_root / CJK_REQUIRED_PUNCTUATION_PATH
+    if not required_path.is_file():
+        return [f"{required_path}: missing shared CJK punctuation source"]
+
+    required_chars = read_font_chars(required_path)
+    if not required_chars:
+        errors.append(f"{required_path}: empty shared CJK punctuation source")
+
+    for font_pack, requires_seed in CJK_PRIMARY_FONT_PACKS:
+        font_dir = pack_root / font_pack
+        build_path = font_dir / "build.ini"
+        charset_path = font_dir / "charset.txt"
+        ranges_path = font_dir / "ranges.txt"
+
+        if not build_path.is_file():
+            errors.append(f"{build_path}: missing build.ini")
+            continue
+
+        build = parse_key_value_file(build_path)
+        extra_refs = {
+            item.replace("\\", "/") for item in split_csv(build.get("extra_chars_file"))
+        }
+        if CJK_REQUIRED_PUNCTUATION_BUILD_REF not in extra_refs:
+            errors.append(
+                f"{build_path}: missing extra_chars_file={CJK_REQUIRED_PUNCTUATION_BUILD_REF}"
+            )
+
+        seed_refs = {
+            item.replace("\\", "/") for item in split_csv(build.get("seed_charset_file"))
+        }
+        if requires_seed and "charset.txt" not in seed_refs:
+            errors.append(f"{build_path}: missing seed_charset_file=charset.txt")
+
+        if not charset_path.is_file():
+            errors.append(f"{charset_path}: missing charset.txt")
+            continue
+        charset_chars = read_font_chars(charset_path)
+        missing_charset = sorted(required_chars - charset_chars, key=ord)
+        if missing_charset:
+            errors.append(
+                f"{charset_path}: missing shared CJK punctuation: {''.join(missing_charset)}"
+            )
+
+        if not ranges_path.is_file():
+            errors.append(f"{ranges_path}: missing ranges.txt")
+            continue
+        range_spans = read_range_spans(ranges_path)
+        missing_ranges = [
+            ch for ch in sorted(required_chars, key=ord) if not range_spans_include(range_spans, ch)
+        ]
+        if missing_ranges:
+            errors.append(
+                f"{ranges_path}: missing shared CJK punctuation: {''.join(missing_ranges)}"
+            )
+
+    return errors
+
+
 def validate_manifests(pack_root: Path) -> list[str]:
     errors: list[str] = []
 
@@ -206,7 +310,11 @@ def main() -> int:
     args = parser.parse_args()
 
     pack_root = Path(args.pack_root)
-    errors = validate_strings(pack_root) + validate_manifests(pack_root)
+    errors = (
+        validate_strings(pack_root)
+        + validate_manifests(pack_root)
+        + validate_cjk_required_punctuation(pack_root)
+    )
     if errors:
         for error in errors:
             print(error, file=sys.stderr)

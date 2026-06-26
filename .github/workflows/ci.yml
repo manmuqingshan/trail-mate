@@ -24,6 +24,9 @@ jobs:
       - name: Verify repository root has no build artifacts
         run: python3 scripts/check_root_build_artifacts.py
 
+      - name: Verify locale packs
+        run: python3 tools/validate_locale_packs.py --pack-root packs
+
   format:
     name: Format Check
     runs-on: ubuntu-latest

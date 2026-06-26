@@ -72,6 +72,20 @@ Git 中 `packs/<bundle-id>/` 下的内容。
 - 包含仅构建期使用的文件，例如 `charset.txt` 与 `build.ini`
 - 可能不跟踪 `font.bin`，因为 Pages 构建可以重新生成它
 
+### CJK 标点基线
+
+CJK 字体 pack 必须把常用中文/全角标点当作 pack 资源处理，而不是在固件、渲染器或消息协议层补旁路。
+
+规则如下：
+
+- 共享标点源只有一处：`packs/common/cjk-punctuation.txt`。
+- CJK 主字体 pack 的 `build.ini` 必须通过 `extra_chars_file=packs/common/cjk-punctuation.txt` 合入这份资源。
+- 已有完整 `charset.txt` 的 CJK 主字体 pack 必须同时设置 `seed_charset_file=charset.txt`，防止只因增加 extra chars 而把原字体集缩小成“翻译文本 + 标点”。
+- `charset.txt` 与 `ranges.txt` 必须同时覆盖共享标点源里的所有 codepoint。
+- `tools/validate_locale_packs.py` 是这条规则的发布前护栏，CI 与 Pages 构建都会运行它。
+
+这条规则只定义字体资源覆盖范围，不改变文本内容、消息协议、BLE/MQTT 行为，也不允许 UI 层用字符替换来掩盖 pack 缺字。
+
 ### 已安装运行时布局
 
 固件真正扫描的已安装运行时布局：

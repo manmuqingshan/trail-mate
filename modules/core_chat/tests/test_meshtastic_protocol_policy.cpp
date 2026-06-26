@@ -5,10 +5,13 @@
 int main()
 {
     using chat::runtime::kMeshtasticBroadcastNode;
+    using chat::runtime::MeshtasticMqttDownlinkReason;
     using chat::runtime::MeshtasticNodeInfoReannounceReason;
     using chat::runtime::MeshtasticReplyReason;
     using chat::runtime::MeshtasticTraceRouteReplyReason;
+    using chat::runtime::mqttGatewayIdMatchesNode;
     using chat::runtime::resolveMeshtasticAppDataSendPolicy;
+    using chat::runtime::resolveMeshtasticMqttDownlinkPolicy;
     using chat::runtime::resolveMeshtasticNodeInfoReannouncePolicy;
     using chat::runtime::resolveMeshtasticNodeInfoReplyPolicy;
     using chat::runtime::resolveMeshtasticPositionReplyPolicy;
@@ -37,6 +40,70 @@ int main()
         assert(!policy.wire_want_ack);
         assert(!policy.track_ack);
         assert(policy.effective_want_response);
+    }
+
+    {
+        assert(mqttGatewayIdMatchesNode("!A1B3B57C", 0xA1B3B57CUL));
+        assert(mqttGatewayIdMatchesNode("!a1b3b57c", 0xA1B3B57CUL));
+        assert(!mqttGatewayIdMatchesNode("A1B3B57C", 0xA1B3B57CUL));
+        assert(!mqttGatewayIdMatchesNode("!A1B3", 0xA1B3B57CUL));
+        assert(!mqttGatewayIdMatchesNode("!A1B3B57G", 0xA1B3B57CUL));
+        assert(!mqttGatewayIdMatchesNode("!A1B3B57D", 0xA1B3B57CUL));
+        assert(!mqttGatewayIdMatchesNode("!A1B3B57C00", 0xA1B3B57CUL));
+    }
+
+    {
+        const auto policy = resolveMeshtasticMqttDownlinkPolicy(
+            nullptr, 0xA1B3B57CUL, 0x4A59CD8CUL,
+            kMeshtasticBroadcastNode, true);
+        assert(policy.accept_locally);
+        assert(policy.transmit_to_mesh);
+        assert(policy.reason == MeshtasticMqttDownlinkReason::TransmitToMesh);
+    }
+
+    {
+        const auto policy = resolveMeshtasticMqttDownlinkPolicy(
+            "!A1B3B57C", 0xA1B3B57CUL, 0x4A59CD8CUL,
+            kMeshtasticBroadcastNode, true);
+        assert(!policy.accept_locally);
+        assert(!policy.transmit_to_mesh);
+        assert(policy.reason == MeshtasticMqttDownlinkReason::OwnGatewayEcho);
+    }
+
+    {
+        const auto policy = resolveMeshtasticMqttDownlinkPolicy(
+            "!00000000", 0xA1B3B57CUL, 0xA1B3B57CUL,
+            kMeshtasticBroadcastNode, true);
+        assert(!policy.accept_locally);
+        assert(!policy.transmit_to_mesh);
+        assert(policy.reason == MeshtasticMqttDownlinkReason::OwnPacket);
+    }
+
+    {
+        const auto policy = resolveMeshtasticMqttDownlinkPolicy(
+            "!00000000", 0xA1B3B57CUL, 0x4A59CD8CUL,
+            0xA1B3B57CUL, true);
+        assert(policy.accept_locally);
+        assert(!policy.transmit_to_mesh);
+        assert(policy.reason == MeshtasticMqttDownlinkReason::LocalDestination);
+    }
+
+    {
+        const auto policy = resolveMeshtasticMqttDownlinkPolicy(
+            "!00000000", 0xA1B3B57CUL, 0x4A59CD8CUL,
+            kMeshtasticBroadcastNode, true);
+        assert(policy.accept_locally);
+        assert(policy.transmit_to_mesh);
+        assert(policy.reason == MeshtasticMqttDownlinkReason::TransmitToMesh);
+    }
+
+    {
+        const auto policy = resolveMeshtasticMqttDownlinkPolicy(
+            "!00000000", 0xA1B3B57CUL, 0x4A59CD8CUL,
+            kMeshtasticBroadcastNode, false);
+        assert(policy.accept_locally);
+        assert(!policy.transmit_to_mesh);
+        assert(policy.reason == MeshtasticMqttDownlinkReason::TxDisabled);
     }
 
     {

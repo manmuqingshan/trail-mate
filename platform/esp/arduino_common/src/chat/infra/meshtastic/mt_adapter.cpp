@@ -1059,6 +1059,22 @@ bool MtAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
         return false;
     }
 
+    const auto accept_policy = chat::runtime::resolveMeshtasticMqttDownlinkPolicy(
+        gateway_id,
+        node_id_,
+        packet.from,
+        packet.to,
+        config_.tx_enabled);
+    if (!accept_policy.accept_locally)
+    {
+        LORA_LOG("[MQTT] downlink ignore reason=%s gateway='%s' from=%08lX id=%08lX\n",
+                 chat::runtime::meshtasticMqttDownlinkReasonName(accept_policy.reason),
+                 gateway_id ? gateway_id : "",
+                 (unsigned long)packet.from,
+                 (unsigned long)packet.id);
+        return false;
+    }
+
     if (packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag)
     {
         if (mqtt_proxy_settings_.encryption_enabled)
@@ -1160,6 +1176,29 @@ bool MtAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
              (unsigned long)packet.from,
              (unsigned long)packet.to,
              (unsigned long)packet.id);
+    PacketHeaderWire* tx_header = reinterpret_cast<PacketHeaderWire*>(wire_buffer);
+    const auto tx_policy = chat::runtime::resolveMeshtasticMqttDownlinkPolicy(
+        gateway_id,
+        node_id_,
+        tx_header->from,
+        tx_header->to,
+        config_.tx_enabled);
+    if (!tx_policy.transmit_to_mesh)
+    {
+        LORA_LOG("[MQTT] downlink mesh tx skipped reason=%s id=%08lX\n",
+                 chat::runtime::meshtasticMqttDownlinkReasonName(tx_policy.reason),
+                 (unsigned long)tx_header->id);
+    }
+    else
+    {
+        const bool tx_ok = transmitWirePacket(wire_buffer, wire_size);
+        LORA_LOG("[MQTT] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
+                 (unsigned long)tx_header->id,
+                 (unsigned)tx_header->channel,
+                 (unsigned)wire_size,
+                 tx_ok ? 1U : 0U);
+    }
+
     processReceivedPacket(wire_buffer, wire_size);
     return true;
 }
