@@ -79,6 +79,8 @@ constexpr lv_coord_t kMapSideRailWidth = 72;
 constexpr std::uint32_t kLvglFunctionKeyF1 = 0x110001U;
 constexpr std::uint32_t kInvalidMemberId = 0xFFFFFFFFU;
 constexpr std::size_t kMaxTrackOverlayPoints = 48;
+constexpr std::size_t kTrackFileReadBufferBytes = 256;
+constexpr std::size_t kMaxTrackFileLineBytes = 2048;
 constexpr int kDefaultTrackerZoom = 16;
 
 struct TrackOverlayPoint
@@ -966,6 +968,83 @@ bool parse_attr_double(const std::string& line, const char* key, double& out)
     return parse_double_token(line.substr(value_start, value_end - value_start), out);
 }
 
+template <typename LineHandler>
+bool read_track_file_lines(const char* path, LineHandler on_line)
+{
+    const std::string normalized = ::ui::fs::normalize_path(path);
+    if (normalized.empty())
+    {
+        return false;
+    }
+
+    lv_fs_file_t file;
+    if (lv_fs_open(&file, normalized.c_str(), LV_FS_MODE_RD) != LV_FS_RES_OK)
+    {
+        return false;
+    }
+
+    char buffer[kTrackFileReadBufferBytes];
+    std::string line;
+    bool ok = true;
+    bool discard_line = false;
+    while (true)
+    {
+        uint32_t bytes_read = 0;
+        if (lv_fs_read(&file, buffer, sizeof(buffer), &bytes_read) != LV_FS_RES_OK)
+        {
+            ok = false;
+            break;
+        }
+        if (bytes_read == 0)
+        {
+            break;
+        }
+
+        for (uint32_t index = 0; index < bytes_read; ++index)
+        {
+            const char ch = buffer[index];
+            if (ch == '\n')
+            {
+                if (!discard_line)
+                {
+                    if (!line.empty() && line.back() == '\r')
+                    {
+                        line.pop_back();
+                    }
+                    on_line(line);
+                }
+                line.clear();
+                discard_line = false;
+                continue;
+            }
+
+            if (discard_line)
+            {
+                continue;
+            }
+            if (line.size() >= kMaxTrackFileLineBytes)
+            {
+                line.clear();
+                discard_line = true;
+                continue;
+            }
+            line.push_back(ch);
+        }
+    }
+
+    if (ok && !discard_line && !line.empty())
+    {
+        if (line.back() == '\r')
+        {
+            line.pop_back();
+        }
+        on_line(line);
+    }
+
+    lv_fs_close(&file);
+    return ok;
+}
+
 void downsample_track_points(std::vector<TrackOverlayPoint>& points)
 {
     if (points.size() <= kMaxTrackOverlayPoints)
@@ -973,15 +1052,13 @@ void downsample_track_points(std::vector<TrackOverlayPoint>& points)
         return;
     }
 
-    std::vector<TrackOverlayPoint> reduced;
-    reduced.reserve(kMaxTrackOverlayPoints);
     const std::size_t total = points.size();
     for (std::size_t index = 0; index < kMaxTrackOverlayPoints; ++index)
     {
         const std::size_t src = (index * (total - 1)) / (kMaxTrackOverlayPoints - 1);
-        reduced.push_back(points[src]);
+        points[index] = points[src];
     }
-    points.swap(reduced);
+    points.resize(kMaxTrackOverlayPoints);
 }
 
 void append_track_point(std::vector<TrackOverlayPoint>& out,
@@ -1003,24 +1080,8 @@ bool load_gpx_track_points(const char* path, std::vector<TrackOverlayPoint>& out
         return false;
     }
 
-    std::string text;
-    if (!::ui::fs::read_text_file(path, text))
-    {
-        return false;
-    }
-
-    std::size_t line_start = 0;
-    while (line_start <= text.size())
-    {
-        const std::size_t line_end = text.find('\n', line_start);
-        std::string line = line_end == std::string::npos
-                               ? text.substr(line_start)
-                               : text.substr(line_start, line_end - line_start);
-        if (!line.empty() && line.back() == '\r')
-        {
-            line.pop_back();
-        }
-
+    out.reserve(kMaxTrackOverlayPoints);
+    const bool read_ok = read_track_file_lines(path, [&out](const std::string& line) {
         if (line.find("<trkpt") != std::string::npos)
         {
             double lat = 0.0;
@@ -1030,14 +1091,8 @@ bool load_gpx_track_points(const char* path, std::vector<TrackOverlayPoint>& out
                 append_track_point(out, lat, lon);
             }
         }
-
-        if (line_end == std::string::npos)
-        {
-            break;
-        }
-        line_start = line_end + 1;
-    }
-    return !out.empty();
+    });
+    return read_ok && !out.empty();
 }
 
 bool load_csv_track_points(const char* path, std::vector<TrackOverlayPoint>& out)
@@ -1048,24 +1103,8 @@ bool load_csv_track_points(const char* path, std::vector<TrackOverlayPoint>& out
         return false;
     }
 
-    std::string text;
-    if (!::ui::fs::read_text_file(path, text))
-    {
-        return false;
-    }
-
-    std::size_t line_start = 0;
-    while (line_start <= text.size())
-    {
-        const std::size_t line_end = text.find('\n', line_start);
-        std::string line = line_end == std::string::npos
-                               ? text.substr(line_start)
-                               : text.substr(line_start, line_end - line_start);
-        if (!line.empty() && line.back() == '\r')
-        {
-            line.pop_back();
-        }
-
+    out.reserve(kMaxTrackOverlayPoints);
+    const bool read_ok = read_track_file_lines(path, [&out](std::string line) {
         line = trim_copy(std::move(line));
         if (!line.empty())
         {
@@ -1090,14 +1129,8 @@ bool load_csv_track_points(const char* path, std::vector<TrackOverlayPoint>& out
                 }
             }
         }
-
-        if (line_end == std::string::npos)
-        {
-            break;
-        }
-        line_start = line_end + 1;
-    }
-    return !out.empty();
+    });
+    return read_ok && !out.empty();
 }
 
 void append_track_overlay(::ui::map::MapOverlaySnapshot& snapshot)
