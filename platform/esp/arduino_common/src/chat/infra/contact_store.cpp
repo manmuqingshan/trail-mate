@@ -162,7 +162,9 @@ ContactStore::LoadResult ContactStore::loadFromSD(std::vector<uint8_t>& out) con
         out.clear();
         return LoadResult::Busy;
     }
-    return chat::infra::loadRawBlobFromSd(kSdPath, out)
+    constexpr size_t kMaxContactBlobBytes =
+        ContactStoreCore::kMaxContacts * ContactStoreCore::kSerializedEntrySize;
+    return chat::infra::loadRawBlobFromSd(kSdPath, out, kMaxContactBlobBytes)
                ? LoadResult::Loaded
                : LoadResult::MissingOrInvalid;
 }

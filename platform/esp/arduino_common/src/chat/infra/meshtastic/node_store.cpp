@@ -10,6 +10,7 @@
 #include "platform/esp/common/shared_spi_lock.h"
 
 #include <Arduino.h>
+#include <algorithm>
 #include <cstdio>
 #include <esp_err.h>
 #include <nvs.h>
@@ -39,6 +40,7 @@ constexpr TickType_t kSdLoadWait = pdMS_TO_TICKS(250);
 constexpr TickType_t kSdPersistWait = pdMS_TO_TICKS(100);
 constexpr uint32_t kAsyncSaveTaskStackBytes = 5 * 1024;
 constexpr UBaseType_t kAsyncSaveTaskPriority = 2;
+constexpr size_t kSdReadChunkBytes = 256;
 
 void logNvsStats(const char* tag, const char* ns)
 {
@@ -396,32 +398,50 @@ NodeStore::LoadResult NodeStore::loadFromSd(std::vector<uint8_t>& out) const
         return LoadResult::MissingOrInvalid;
     }
 
-    out.resize(payload_len);
-    const size_t read_bytes = file.read(out.data(), payload_len);
-    file.close();
-
-    if (read_bytes != payload_len)
-    {
-        NODE_STORE_LOG("[NodeStore] load SD payload read mismatch path=%s want=%u got=%u\n",
-                       kPersistNodesFile,
-                       static_cast<unsigned>(payload_len),
-                       static_cast<unsigned>(read_bytes));
-        out.clear();
-        return LoadResult::MissingOrInvalid;
-    }
-
     const size_t entry_size = contacts::nodeBlobEntrySizeForVersion(header.ver);
     if (entry_size == 0)
     {
         NODE_STORE_LOG("[NodeStore] load SD unsupported version path=%s ver=%u\n",
                        kPersistNodesFile,
                        static_cast<unsigned>(header.ver));
-        out.clear();
+        file.close();
         return LoadResult::MissingOrInvalid;
     }
 
     const size_t expected_len = static_cast<size_t>(header.count) * entry_size;
-    if (expected_len != out.size())
+    if (expected_len != payload_len)
+    {
+        NODE_STORE_LOG("[NodeStore] load SD blob size mismatch path=%s len=%u ver=%u count=%u expected=%u\n",
+                       kPersistNodesFile,
+                       static_cast<unsigned>(payload_len),
+                       static_cast<unsigned>(header.ver),
+                       static_cast<unsigned>(header.count),
+                       static_cast<unsigned>(expected_len));
+        file.close();
+        return LoadResult::MissingOrInvalid;
+    }
+
+    out.resize(expected_len);
+    size_t total_read = 0;
+    while (total_read < expected_len)
+    {
+        const size_t chunk = std::min(kSdReadChunkBytes, expected_len - total_read);
+        const size_t read_bytes = file.read(out.data() + total_read, chunk);
+        if (read_bytes != chunk)
+        {
+            NODE_STORE_LOG("[NodeStore] load SD payload read mismatch path=%s want=%u got=%u\n",
+                           kPersistNodesFile,
+                           static_cast<unsigned>(chunk),
+                           static_cast<unsigned>(read_bytes));
+            file.close();
+            out.clear();
+            return LoadResult::MissingOrInvalid;
+        }
+        total_read += read_bytes;
+    }
+    file.close();
+
+    if (out.size() != expected_len)
     {
         NODE_STORE_LOG("[NodeStore] load SD blob size mismatch path=%s len=%u ver=%u count=%u expected=%u\n",
                        kPersistNodesFile,

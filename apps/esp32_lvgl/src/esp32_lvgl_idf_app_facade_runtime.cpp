@@ -36,6 +36,14 @@ namespace
 constexpr const char* kIdfStoreTag = "idf-app-store";
 constexpr const char* kIdfContactsFile = "/contacts.dat";
 constexpr const char* kIdfNodesFile = "/nodes.bin";
+constexpr size_t kIdfReadChunkBytes = 256;
+constexpr size_t kIdfMaxContactBlobBytes =
+    chat::contacts::ContactStoreCore::kMaxContacts *
+    chat::contacts::ContactStoreCore::kSerializedEntrySize;
+constexpr size_t kIdfMaxNodeFileBytes =
+    sizeof(chat::contacts::NodeStoreSdHeader) +
+    chat::contacts::NodeStoreCore::kMaxNodes *
+        chat::contacts::NodeStoreCore::kSerializedEntrySizeV8;
 
 std::string makeSdPath(const char* relative)
 {
@@ -57,7 +65,7 @@ std::string makeSdPath(const char* relative)
     return path;
 }
 
-bool readSdFile(const char* relative, std::vector<uint8_t>& out)
+bool readSdFile(const char* relative, std::vector<uint8_t>& out, size_t max_len)
 {
     out.clear();
     if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
@@ -79,7 +87,7 @@ bool readSdFile(const char* relative, std::vector<uint8_t>& out)
         return false;
     }
     const long size = std::ftell(file);
-    if (size <= 0)
+    if (size <= 0 || static_cast<size_t>(size) > max_len)
     {
         std::fclose(file);
         return false;
@@ -90,14 +98,23 @@ bool readSdFile(const char* relative, std::vector<uint8_t>& out)
         return false;
     }
 
-    out.resize(static_cast<size_t>(size));
-    const size_t read = std::fread(out.data(), 1, out.size(), file);
-    std::fclose(file);
-    if (read != out.size())
+    out.reserve(static_cast<size_t>(size));
+    uint8_t buffer[kIdfReadChunkBytes];
+    size_t total_read = 0;
+    while (total_read < static_cast<size_t>(size))
     {
-        out.clear();
-        return false;
+        const size_t chunk = std::min(kIdfReadChunkBytes, static_cast<size_t>(size) - total_read);
+        const size_t read = std::fread(buffer, 1, chunk, file);
+        if (read != chunk)
+        {
+            std::fclose(file);
+            out.clear();
+            return false;
+        }
+        out.insert(out.end(), buffer, buffer + read);
+        total_read += read;
     }
+    std::fclose(file);
     return true;
 }
 
@@ -174,7 +191,7 @@ class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
     bool loadBlob(std::vector<uint8_t>& out) override
     {
         std::vector<uint8_t> file;
-        if (!readSdFile(kIdfNodesFile, file) ||
+        if (!readSdFile(kIdfNodesFile, file, kIdfMaxNodeFileBytes) ||
             file.size() <= sizeof(chat::contacts::NodeStoreSdHeader))
         {
             out.clear();
@@ -256,7 +273,7 @@ class IdfSdContactBlobStore final : public chat::IContactBlobStore
   public:
     bool loadBlob(std::vector<uint8_t>& out) override
     {
-        const bool ok = readSdFile(kIdfContactsFile, out);
+        const bool ok = readSdFile(kIdfContactsFile, out, kIdfMaxContactBlobBytes);
         if (ok)
         {
             ESP_LOGI(kIdfStoreTag,
