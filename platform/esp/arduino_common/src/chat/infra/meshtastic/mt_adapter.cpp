@@ -145,7 +145,7 @@ int8_t coreRadioSnr(float snr)
 
 void mt_diag_log(const char* fmt, ...)
 {
-    char buf[192] = {};
+    char buf[160] = {};
     va_list args;
     va_start(args, fmt);
     vsnprintf(buf, sizeof(buf), fmt, args);
@@ -1209,8 +1209,9 @@ bool MtAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
 
     auto& scratch = mqtt_scratch_;
     std::memset(&scratch.proxy, 0, sizeof(scratch.proxy));
+    std::memset(&scratch.envelope, 0, sizeof(scratch.envelope));
     std::string node_id = mqttNodeIdString();
-    meshtastic_ServiceEnvelope env = meshtastic_ServiceEnvelope_init_zero;
+    auto& env = scratch.envelope;
     env.packet = const_cast<meshtastic_MeshPacket*>(&packet);
     env.channel_id = const_cast<char*>(channel_id);
     env.gateway_id = const_cast<char*>(node_id.c_str());

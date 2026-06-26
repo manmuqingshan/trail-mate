@@ -204,6 +204,7 @@ class MtAdapter : public chat::IMeshAdapter
         std::array<uint8_t, 256> payload{};
         meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
         meshtastic_MqttClientProxyMessage proxy = meshtastic_MqttClientProxyMessage_init_zero;
+        meshtastic_ServiceEnvelope envelope = meshtastic_ServiceEnvelope_init_zero;
     };
 
     struct TxScratchBuffers
