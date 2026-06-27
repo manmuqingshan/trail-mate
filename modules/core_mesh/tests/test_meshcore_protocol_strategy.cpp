@@ -95,6 +95,55 @@ int main()
                        v2_src_hash,
                        sizeof(v2_src_hash)) == 0);
 
+    {
+        constexpr uint8_t route_type_direct = 0x02;
+        const uint8_t v2_path[] = {0x44, 0x33, 0x55, 0x66};
+        const uint8_t payload[] = {0xA5, 0x5A};
+        uint8_t frame[16] = {};
+        size_t frame_len = 0;
+        assert(chat::meshcore::buildFrameNoTransport(chat::meshcore::PayloadProfile::V2,
+                                                     route_type_direct,
+                                                     chat::meshcore::kMeshCorePayloadTypeControl,
+                                                     v2_path,
+                                                     sizeof(v2_path),
+                                                     payload,
+                                                     sizeof(payload),
+                                                     frame,
+                                                     sizeof(frame),
+                                                     &frame_len));
+        assert(frame_len == 2 + sizeof(v2_path) + sizeof(payload));
+        assert(frame[1] == 0x42);
+
+        chat::meshcore::ParsedPacket parsed_path{};
+        assert(chat::meshcore::parsePacket(frame, frame_len, &parsed_path));
+        assert(parsed_path.payload_ver == chat::meshcore::kMeshCorePayloadVer2);
+        assert(parsed_path.path_descriptor == 0x42);
+        assert(parsed_path.path_hash_bytes == 2);
+        assert(parsed_path.path_hop_count == 2);
+        assert(parsed_path.path_len == sizeof(v2_path));
+
+        uint8_t wrong_profile_path[] = {
+            chat::meshcore::buildHeader(route_type_direct,
+                                        chat::meshcore::kMeshCorePayloadTypeControl,
+                                        chat::meshcore::kMeshCorePayloadVer2),
+            0x02,
+            0x44,
+            0x33,
+            0xA5};
+        assert(!chat::meshcore::parsePacket(wrong_profile_path,
+                                            sizeof(wrong_profile_path),
+                                            &parsed_path));
+
+        uint8_t reserved_path[] = {
+            chat::meshcore::buildHeader(route_type_direct,
+                                        chat::meshcore::kMeshCorePayloadTypeControl,
+                                        chat::meshcore::kMeshCorePayloadVer2),
+            0xC1,
+            0x44,
+            0xA5};
+        assert(!chat::meshcore::parsePacket(reserved_path, sizeof(reserved_path), &parsed_path));
+    }
+
     packet = mesh::RadioRxPacket{};
     std::memcpy(packet.bytes, encoded.bytes, encoded.size);
     packet.size = encoded.size;

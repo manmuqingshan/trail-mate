@@ -92,12 +92,6 @@ class MeshCoreBleService : public BleService,
     uint32_t last_write_ms_ = 0;
 
     uint8_t app_target_ver_ = 0;
-    bool contacts_iter_active_ = false;
-    size_t contacts_iter_index_ = 0;
-    uint32_t contacts_filter_since_ = 0;
-    uint32_t contacts_most_recent_ = 0;
-    std::vector<Frame> contacts_frames_;
-
     uint8_t cmd_frame_[173] = {};
 
     bool manual_add_contacts_ = false;
@@ -167,7 +161,6 @@ class MeshCoreBleService : public BleService,
                                 const ContactRecord** out_manual) const;
     void upsertManualContact(const ContactRecord& record);
     bool removeManualContact(const uint8_t* pubkey);
-    void buildContactsSnapshot(uint32_t filter_since);
     static bool decodeContactPayload(const uint8_t* frame, size_t len,
                                      ContactRecord* out, uint32_t* out_lastmod);
 
@@ -175,8 +168,6 @@ class MeshCoreBleService : public BleService,
 
     bool buildContactFrame(const chat::meshcore::MeshCoreAdapter::PeerInfo& peer,
                            uint8_t code, Frame& out);
-    bool buildContactFromNode(const chat::contacts::NodeEntry& entry,
-                              uint8_t code, Frame& out);
     bool lookupPeerByPrefix(const uint8_t* prefix, size_t len,
                             chat::meshcore::MeshCoreAdapter::PeerInfo* out) const;
     chat::meshcore::MeshCoreAdapter* meshCoreAdapter();
@@ -218,6 +209,12 @@ class MeshCoreBleService : public BleService,
     bool setDevicePin(uint32_t pin) override;
     bool getCustomVars(std::string* out) const override;
     bool setCustomVar(const char* key, const char* value) override;
+    std::size_t meshCoreContactCount() const override;
+    bool getMeshCoreContactByIndex(std::size_t index,
+                                   phone::meshcore::MeshCorePhoneContactView* out) const override;
+    bool resolveMeshCoreContactNodeId(const uint8_t* prefix,
+                                      std::size_t len,
+                                      uint32_t* out_node_id) const override;
     void onFactoryReset() override;
 };
 

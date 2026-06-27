@@ -6,6 +6,7 @@
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 #include "mesh/protocol/meshcore/mc_identity_flow.h"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 
@@ -418,7 +419,7 @@ ProtocolResult MeshCoreProtocolStrategy::parseRadioPacket(const RadioRxPacket& p
         out.advert.longitude_i6 = advert.longitude_i6;
         out.advert.node_type = advert.node_type;
         out.advert.timestamp = advert_ts;
-        out.advert.hops = static_cast<uint8_t>(parsed.path_len);
+        out.advert.hops = static_cast<uint8_t>(std::min<size_t>(parsed.path_hop_count, 0xFFU));
         return ProtocolResult::success();
     }
 

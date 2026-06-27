@@ -79,6 +79,22 @@ struct MeshCorePhoneAdvertPath
     MeshCorePhonePathMetadata meta{};
 };
 
+struct MeshCorePhoneContactView
+{
+    uint32_t node_id = 0;
+    uint8_t pubkey[32] = {};
+    uint8_t type = 0;
+    uint8_t flags = 0;
+    uint8_t out_path_len = 0;
+    uint8_t out_path[64] = {};
+    char name[32] = {};
+    uint32_t last_advert = 0;
+    int32_t lat_i6 = 0;
+    int32_t lon_i6 = 0;
+    uint32_t lastmod = 0;
+    MeshCorePhonePathMetadata path_meta{};
+};
+
 class MeshCorePhoneHooks
 {
   public:
@@ -149,6 +165,9 @@ class MeshCorePhoneHooks
     virtual bool setDevicePin(uint32_t) { return false; }
     virtual bool getCustomVars(std::string*) const { return false; }
     virtual bool setCustomVar(const char*, const char*) { return false; }
+    virtual std::size_t meshCoreContactCount() const { return 0; }
+    virtual bool getMeshCoreContactByIndex(std::size_t, MeshCorePhoneContactView*) const { return false; }
+    virtual bool resolveMeshCoreContactNodeId(const uint8_t*, std::size_t, uint32_t*) const { return false; }
     virtual void onFactoryReset() {}
 };
 
@@ -178,6 +197,9 @@ class MeshCorePhoneCore
     void enqueueErr(uint8_t err);
     void enqueueRawDataPush(const chat::MeshIncomingData& msg);
     uint32_t resolveNodeIdFromPrefix(const uint8_t* prefix, size_t len) const;
+    bool buildContactFrame(const MeshCorePhoneContactView& contact,
+                           uint8_t code,
+                           MeshCoreBleFrame& out) const;
     bool buildContactFromNode(const PhoneNodeView& entry, uint8_t code, MeshCoreBleFrame& out) const;
 
     IPhoneAppFacade& app_;
@@ -185,6 +207,8 @@ class MeshCorePhoneCore
     MeshCorePhoneHooks* hooks_ = nullptr;
     std::deque<MeshCoreBleFrame> tx_queue_;
     std::vector<uint8_t> sign_data_;
+    MeshCoreBleFrame frame_scratch_{};
+    MeshCorePhoneContactView contact_scratch_{};
     bool sign_active_ = false;
     uint32_t stats_rx_packets_ = 0;
     uint32_t stats_tx_packets_ = 0;

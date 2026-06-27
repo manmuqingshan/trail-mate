@@ -4,13 +4,25 @@
 |-----------------|----------------------------------|-----------------------------------------------------------|
 | header          | 1                                | Contains routing type, payload type, and payload version. |
 | transport_codes | 4 (optional)                     | 2x 16-bit transport codes (if ROUTE_TYPE_TRANSPORT_*)     |
-| path_len        | 1                                | Length of the path field in bytes.                        |
+| path_len        | 1                                | Packed path descriptor: upper bits encode hash width, lower 6 bits encode hop count. |
 | path            | up to 64 (`MAX_PATH_SIZE`)       | Stores the routing path if applicable.                    |
 | payload         | up to 184 (`MAX_PACKET_PAYLOAD`) | The actual data being transmitted.                        |
 
 Note: see the [payloads doc](./payloads.md) for more information about the content of payload.
 Trail Mate's complete V2 multibyte path/profile rules are defined in
 [V2 multibyte paths](./v2_multibyte_paths.md).
+
+The wire `path_len` byte follows upstream MeshCore's packed descriptor:
+
+```text
+bits 7-6: path hash size minus one
+bits 5-0: path hop count
+path byte length = (hash_size) * (hop_count)
+```
+
+Trail Mate helper APIs expose `ParsedPacket::path_len` as the decoded path byte
+length. Code that writes the wire envelope must use the shared path descriptor
+helpers rather than storing the decoded byte length directly.
 
 ## Header Breakdown
 

@@ -75,9 +75,6 @@ constexpr uint8_t CMD_GET_STATS = 56;
 
 constexpr uint8_t RESP_CODE_OK = 0;
 constexpr uint8_t RESP_CODE_ERR = 1;
-constexpr uint8_t RESP_CODE_CONTACTS_START = 2;
-constexpr uint8_t RESP_CODE_CONTACT = 3;
-constexpr uint8_t RESP_CODE_END_OF_CONTACTS = 4;
 constexpr uint8_t RESP_CODE_SELF_INFO = 5;
 constexpr uint8_t RESP_CODE_SENT = 6;
 constexpr uint8_t RESP_CODE_CONTACT_MSG_RECV = 7;
@@ -1292,7 +1289,7 @@ void MeshCoreBleService::update()
                     known_peer_hashes_.push_back(ev.peer_hash);
                 }
                 const bool is_new = ev.advert_is_new || !known;
-                if (manual_add_contacts_ && is_new)
+                if (is_new)
                 {
                     chat::meshcore::MeshCoreAdapter::PeerInfo peer{};
                     if (adapter->lookupPeerByHash(ev.peer_hash, &peer))
@@ -1820,99 +1817,6 @@ void MeshCoreBleService::clearPendingRequests()
     pending_discovery_ = 0;
 }
 
-void MeshCoreBleService::buildContactsSnapshot(uint32_t filter_since)
-{
-    contacts_frames_.clear();
-    contacts_most_recent_ = 0;
-
-    auto add_contact_frame = [&](const ContactRecord& record, uint8_t code)
-    {
-        Frame frame;
-        int i = 0;
-        frame.buf[i++] = code;
-        memcpy(&frame.buf[i], record.pubkey, kPubKeySize);
-        i += kPubKeySize;
-        frame.buf[i++] = record.type;
-        frame.buf[i++] = record.flags;
-        frame.buf[i++] = record.out_path_len;
-        memset(&frame.buf[i], 0, kMaxPathSize);
-        if (record.out_path_len > 0)
-        {
-            size_t copy_len = std::min<size_t>(record.out_path_len, kMaxPathSize);
-            memcpy(&frame.buf[i], record.out_path, copy_len);
-        }
-        i += kMaxPathSize;
-        copyBounded(reinterpret_cast<char*>(&frame.buf[i]), 32, record.name);
-        i += 32;
-        memcpy(&frame.buf[i], &record.last_advert, 4);
-        i += 4;
-        memcpy(&frame.buf[i], &record.lat, 4);
-        i += 4;
-        memcpy(&frame.buf[i], &record.lon, 4);
-        i += 4;
-        memcpy(&frame.buf[i], &record.lastmod, 4);
-        i += 4;
-        const uint8_t hash_bytes = record.out_path_hash_bytes == 0 ? 1 : record.out_path_hash_bytes;
-        const uint8_t hop_count = (record.out_path_len > 0 && hash_bytes > 0)
-                                      ? static_cast<uint8_t>(record.out_path_len / hash_bytes)
-                                      : 0;
-        size_t index = static_cast<size_t>(i);
-        appendPathMetadataExt(frame.buf.data(), frame.buf.size(),
-                              index, record.out_path_profile, hash_bytes, hop_count);
-        i = static_cast<int>(index);
-        frame.len = static_cast<uint8_t>(i);
-        contacts_frames_.push_back(frame);
-        contacts_most_recent_ = std::max(contacts_most_recent_, record.lastmod);
-    };
-
-    for (const auto& record : manual_contacts_)
-    {
-        if (filter_since != 0 && record.lastmod <= filter_since)
-        {
-            continue;
-        }
-        add_contact_frame(record, RESP_CODE_CONTACT);
-    }
-
-    if (auto* adapter = meshCoreAdapter())
-    {
-        std::vector<chat::meshcore::MeshCoreAdapter::PeerInfo> peers;
-        adapter->getPeerInfos(peers);
-        for (const auto& peer : peers)
-        {
-            uint32_t lastmod = peer.last_seen_ms / 1000;
-            if (filter_since != 0 && lastmod <= filter_since)
-            {
-                continue;
-            }
-            Frame frame;
-            if (buildContactFrame(peer, RESP_CODE_CONTACT, frame))
-            {
-                contacts_frames_.push_back(frame);
-                contacts_most_recent_ = std::max(contacts_most_recent_, lastmod);
-            }
-        }
-    }
-
-    if (auto* store = ctx_.getNodeStore())
-    {
-        for (const auto& entry : store->getEntries())
-        {
-            uint32_t lastmod = entry.last_seen;
-            if (filter_since != 0 && lastmod <= filter_since)
-            {
-                continue;
-            }
-            Frame frame;
-            if (buildContactFromNode(entry, RESP_CODE_CONTACT, frame))
-            {
-                contacts_frames_.push_back(frame);
-                contacts_most_recent_ = std::max(contacts_most_recent_, lastmod);
-            }
-        }
-    }
-}
-
 bool MeshCoreBleService::decodeContactPayload(const uint8_t* frame, size_t len,
                                               ContactRecord* out, uint32_t* out_lastmod)
 {
@@ -2036,51 +1940,6 @@ bool MeshCoreBleService::buildContactFrame(const chat::meshcore::MeshCoreAdapter
                                       : 0;
         appendPathMetadataExt(out.buf.data(), out.buf.size(), index,
                               profile, hash_bytes, hop_count);
-        i = static_cast<int>(index);
-    }
-
-    out.len = static_cast<uint8_t>(i);
-    return true;
-}
-
-bool MeshCoreBleService::buildContactFromNode(const chat::contacts::NodeEntry& entry,
-                                              uint8_t code, Frame& out)
-{
-    int i = 0;
-    out.buf[i++] = code;
-    uint8_t pubkey[kPubKeySize] = {};
-    memcpy(pubkey, &entry.node_id, std::min(sizeof(entry.node_id), sizeof(pubkey)));
-    memcpy(&out.buf[i], pubkey, kPubKeySize);
-    i += kPubKeySize;
-    out.buf[i++] = ADV_TYPE_CHAT;
-    out.buf[i++] = 0;
-    out.buf[i++] = 0;
-    memset(&out.buf[i], 0, kMaxPathSize);
-    i += kMaxPathSize;
-
-    char name[32] = {};
-    copyBounded(name, sizeof(name), entry.long_name[0] != '\0' ? entry.long_name : entry.short_name);
-    if (name[0] == '\0')
-    {
-        snprintf(name, sizeof(name), "%08lX", static_cast<unsigned long>(entry.node_id));
-    }
-    copyBounded(reinterpret_cast<char*>(&out.buf[i]), 32, name);
-    i += 32;
-
-    uint32_t last_adv = entry.last_seen;
-    memcpy(&out.buf[i], &last_adv, 4);
-    i += 4;
-    int32_t lat = 0;
-    int32_t lon = 0;
-    memcpy(&out.buf[i], &lat, 4);
-    i += 4;
-    memcpy(&out.buf[i], &lon, 4);
-    i += 4;
-    memcpy(&out.buf[i], &last_adv, 4);
-    i += 4;
-    {
-        size_t index = static_cast<size_t>(i);
-        appendPathMetadataExt(out.buf.data(), out.buf.size(), index, 0, 1, 0);
         i = static_cast<int>(index);
     }
 
