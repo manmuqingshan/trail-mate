@@ -723,48 +723,129 @@ int main()
     bool saw_config_only_complete = false;
     bool saw_config_only_my_info = false;
     bool saw_config_only_deviceui = false;
+    bool saw_config_only_self_node = false;
+    bool saw_config_only_metadata = false;
+    uint8_t config_only_channel_count = 0;
+    uint8_t config_only_config_count = 0;
+    uint8_t config_only_module_count = 0;
+    constexpr pb_size_t kExpectedConfigOnlyConfigTags[] = {
+        meshtastic_Config_device_tag,
+        meshtastic_Config_position_tag,
+        meshtastic_Config_power_tag,
+        meshtastic_Config_network_tag,
+        meshtastic_Config_display_tag,
+        meshtastic_Config_lora_tag,
+        meshtastic_Config_bluetooth_tag,
+        meshtastic_Config_security_tag,
+        meshtastic_Config_sessionkey_tag,
+        meshtastic_Config_device_ui_tag,
+    };
+    constexpr pb_size_t kExpectedConfigOnlyModuleTags[] = {
+        meshtastic_ModuleConfig_mqtt_tag,
+        meshtastic_ModuleConfig_serial_tag,
+        meshtastic_ModuleConfig_external_notification_tag,
+        meshtastic_ModuleConfig_store_forward_tag,
+        meshtastic_ModuleConfig_range_test_tag,
+        meshtastic_ModuleConfig_telemetry_tag,
+        meshtastic_ModuleConfig_canned_message_tag,
+        meshtastic_ModuleConfig_audio_tag,
+        meshtastic_ModuleConfig_remote_hardware_tag,
+        meshtastic_ModuleConfig_neighbor_info_tag,
+        meshtastic_ModuleConfig_detection_sensor_tag,
+        meshtastic_ModuleConfig_ambient_lighting_tag,
+        meshtastic_ModuleConfig_paxcounter_tag,
+    };
     while (config_stage1_session.popToPhone(&config_only_frame))
     {
         meshtastic_FromRadio config_only_from = meshtastic_FromRadio_init_zero;
         assert(decodeFromRadio(config_only_frame, config_only_from));
-        assert(config_only_from.which_payload_variant != meshtastic_FromRadio_node_info_tag);
+        assert(config_only_frame.from_num == kConfigOnlyNonce);
         if (config_only_from.which_payload_variant == meshtastic_FromRadio_my_info_tag)
         {
+            assert(!saw_config_only_deviceui);
+            assert(!saw_config_only_self_node);
             saw_config_only_my_info = true;
         }
         if (config_only_from.which_payload_variant == meshtastic_FromRadio_deviceuiConfig_tag)
         {
+            assert(saw_config_only_my_info);
+            assert(!saw_config_only_self_node);
             saw_config_only_deviceui = true;
+        }
+        if (config_only_from.which_payload_variant == meshtastic_FromRadio_node_info_tag)
+        {
+            assert(saw_config_only_deviceui);
+            assert(!saw_config_only_metadata);
+            assert(config_only_from.node_info.num == config_runtime.self_node_id);
+            saw_config_only_self_node = true;
+        }
+        if (config_only_from.which_payload_variant == meshtastic_FromRadio_metadata_tag)
+        {
+            assert(saw_config_only_self_node);
+            assert(config_only_channel_count == 0);
+            saw_config_only_metadata = true;
+        }
+        if (config_only_from.which_payload_variant == meshtastic_FromRadio_channel_tag)
+        {
+            assert(saw_config_only_metadata);
+            assert(config_only_config_count == 0);
+            assert(config_only_from.channel.index == config_only_channel_count);
+            ++config_only_channel_count;
+        }
+        if (config_only_from.which_payload_variant == meshtastic_FromRadio_config_tag)
+        {
+            assert(config_only_channel_count == 8);
+            assert(config_only_config_count < sizeof(kExpectedConfigOnlyConfigTags) /
+                                                sizeof(kExpectedConfigOnlyConfigTags[0]));
+            assert(config_only_from.config.which_payload_variant ==
+                   kExpectedConfigOnlyConfigTags[config_only_config_count]);
+            ++config_only_config_count;
+        }
+        if (config_only_from.which_payload_variant == meshtastic_FromRadio_moduleConfig_tag)
+        {
+            assert(config_only_config_count == sizeof(kExpectedConfigOnlyConfigTags) /
+                                                sizeof(kExpectedConfigOnlyConfigTags[0]));
+            assert(config_only_module_count < sizeof(kExpectedConfigOnlyModuleTags) /
+                                                sizeof(kExpectedConfigOnlyModuleTags[0]));
+            assert(config_only_from.moduleConfig.which_payload_variant ==
+                   kExpectedConfigOnlyModuleTags[config_only_module_count]);
+            ++config_only_module_count;
         }
         if (config_only_from.which_payload_variant == meshtastic_FromRadio_config_complete_id_tag)
         {
-            assert(config_only_frame.from_num == kConfigOnlyNonce);
             assert(config_only_from.config_complete_id == kConfigOnlyNonce);
+            assert(config_only_channel_count == 8);
+            assert(config_only_config_count == sizeof(kExpectedConfigOnlyConfigTags) /
+                                                sizeof(kExpectedConfigOnlyConfigTags[0]));
+            assert(config_only_module_count == sizeof(kExpectedConfigOnlyModuleTags) /
+                                                sizeof(kExpectedConfigOnlyModuleTags[0]));
             saw_config_only_complete = true;
             break;
         }
     }
     assert(saw_config_only_my_info);
     assert(saw_config_only_deviceui);
+    assert(saw_config_only_self_node);
+    assert(saw_config_only_metadata);
     assert(saw_config_only_complete);
 
     FakeMeshtasticTransport config_transport;
     phone::meshtastic::MeshtasticPhoneSession config_session(
         config_runtime, config_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
-    constexpr uint32_t kConfigNonce = 0x00010F2D;
+    constexpr uint32_t kNodesOnlyNonce = 0x00010F2D;
     uint8_t want_config_to_radio[meshtastic_ToRadio_size] = {};
     size_t want_config_to_radio_len = 0;
     assert(encodeWantConfigToRadio(want_config_to_radio,
                                    sizeof(want_config_to_radio),
                                    want_config_to_radio_len,
-                                   kConfigNonce));
+                                   kNodesOnlyNonce));
     assert(config_session.handleToRadio(want_config_to_radio, want_config_to_radio_len));
 
     phone::meshtastic::MeshtasticBleFrame config_frame{};
     assert(config_session.popToPhone(&config_frame));
     meshtastic_FromRadio config_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(config_frame, config_from));
-    assert(config_frame.from_num == kConfigNonce);
+    assert(config_frame.from_num == kNodesOnlyNonce);
     assert(config_from.id != 0);
     assert(config_from.which_payload_variant == meshtastic_FromRadio_node_info_tag);
     assert(config_from.node_info.num == config_runtime.self_node_id);
@@ -803,8 +884,8 @@ int main()
         }
         if (config_from.which_payload_variant == meshtastic_FromRadio_config_complete_id_tag)
         {
-            assert(config_frame.from_num == kConfigNonce);
-            assert(config_from.config_complete_id == kConfigNonce);
+            assert(config_frame.from_num == kNodesOnlyNonce);
+            assert(config_from.config_complete_id == kNodesOnlyNonce);
             saw_config_complete = true;
             break;
         }
