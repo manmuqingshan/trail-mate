@@ -3,28 +3,14 @@
 #include "app/app_config.h"
 #include "meshtastic/config.pb.h"
 #include "meshtastic/localonly.pb.h"
+#include "platform/nrf52/arduino_common/settings_file_store.h"
 
 #include <cstdint>
 
 namespace boards::gat562_mesh_evb_pro::settings_store
 {
 
-enum class StoreStatus : uint8_t
-{
-    Ok = 0,
-    NotFound,
-    FsInitFailed,
-    OpenFailed,
-    ReadFailed,
-    WriteFailed,
-    FlushFailed,
-    HeaderInvalid,
-    VersionMismatch,
-    PayloadSizeMismatch,
-    CrcMismatch,
-    RenameFailed,
-    BackupFailed,
-};
+using StoreStatus = ::platform::nrf52::arduino_common::settings_file::StoreStatus;
 
 void normalizeConfig(app::AppConfig& config);
 bool loadAppConfig(app::AppConfig& config);

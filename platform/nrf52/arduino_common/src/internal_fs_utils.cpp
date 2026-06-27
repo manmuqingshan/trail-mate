@@ -96,6 +96,17 @@ bool openForOverwrite(const char* path,
         return false;
     }
 
+    // nRF52 LittleFS can report a valid FILE_O_WRITE handle for an existing
+    // file and still reject the following writes. Keep this compatibility
+    // helper on fresh-file semantics; crash-safe stores should use a temp-file
+    // replace transaction instead.
+    removeIfExists(path);
+    if (InternalFS.exists(path))
+    {
+        logPath(log_tag, "remove before overwrite failed", path);
+        return false;
+    }
+
     *out = InternalFS.open(path, Adafruit_LittleFS_Namespace::FILE_O_WRITE);
     if (*out)
     {

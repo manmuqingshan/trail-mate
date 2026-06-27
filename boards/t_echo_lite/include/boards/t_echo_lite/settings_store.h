@@ -1,28 +1,14 @@
 #pragma once
 
 #include "app/app_config.h"
+#include "platform/nrf52/arduino_common/settings_file_store.h"
 
 #include <cstdint>
 
 namespace boards::t_echo_lite::settings_store
 {
 
-enum class StoreStatus : uint8_t
-{
-    Ok = 0,
-    NotFound,
-    FsInitFailed,
-    OpenFailed,
-    ReadFailed,
-    WriteFailed,
-    FlushFailed,
-    HeaderInvalid,
-    VersionMismatch,
-    PayloadSizeMismatch,
-    CrcMismatch,
-    RenameFailed,
-    BackupFailed,
-};
+using StoreStatus = ::platform::nrf52::arduino_common::settings_file::StoreStatus;
 
 void normalizeConfig(app::AppConfig& config);
 bool loadAppConfig(app::AppConfig& config);
