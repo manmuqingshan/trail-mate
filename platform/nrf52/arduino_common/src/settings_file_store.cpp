@@ -52,6 +52,68 @@ void setStatus(ReplaceResult* result, StoreStatus status)
     }
 }
 
+StoreStatus writeWholeFile(const ReplaceRequest& request,
+                           const SettingsFileHeader& header,
+                           const char* path,
+                           const char* label,
+                           bool truncate_first,
+                           ReplaceResult* result)
+{
+    const char* prefix = logPrefix(request.log_prefix);
+    Adafruit_LittleFS_Namespace::File file(InternalFS);
+    file = InternalFS.open(path, FILE_O_WRITE);
+    if (!file)
+    {
+        Serial.printf("%s %s open failed path=%s\n", prefix, label, path);
+        return StoreStatus::OpenFailed;
+    }
+
+    if (truncate_first && !file.truncate(0))
+    {
+        file.close();
+        Serial.printf("%s %s truncate failed path=%s\n", prefix, label, path);
+        return StoreStatus::WriteFailed;
+    }
+    if (!file.seek(0))
+    {
+        file.close();
+        Serial.printf("%s %s seek failed path=%s\n", prefix, label, path);
+        return StoreStatus::WriteFailed;
+    }
+
+    const std::size_t header_written =
+        file.write(reinterpret_cast<const uint8_t*>(&header), sizeof(SettingsFileHeader));
+    const std::size_t payload_written =
+        (header_written == sizeof(SettingsFileHeader))
+            ? file.write(reinterpret_cast<const uint8_t*>(request.payload), request.payload_size)
+            : 0U;
+
+    if (result)
+    {
+        result->header_written = header_written;
+        result->payload_written = payload_written;
+    }
+
+    file.flush();
+    file.close();
+
+    if (header_written != sizeof(SettingsFileHeader) || payload_written != request.payload_size)
+    {
+        Serial.printf("%s %s write failed header=%lu payload=%lu expected_header=%lu expected_payload=%lu crc=0x%08lX exists=%u\n",
+                      prefix,
+                      label,
+                      static_cast<unsigned long>(header_written),
+                      static_cast<unsigned long>(payload_written),
+                      static_cast<unsigned long>(sizeof(SettingsFileHeader)),
+                      static_cast<unsigned long>(request.payload_size),
+                      static_cast<unsigned long>(header.crc32),
+                      InternalFS.exists(path) ? 1U : 0U);
+        return StoreStatus::WriteFailed;
+    }
+
+    return StoreStatus::Ok;
+}
+
 } // namespace
 
 const char* statusText(StoreStatus status)
@@ -274,44 +336,45 @@ StoreStatus replaceSettingsFile(const ReplaceRequest& request, ReplaceResult* re
         result->final_size = static_cast<uint32_t>(sizeof(SettingsFileHeader) + request.payload_size);
     }
 
-    Adafruit_LittleFS_Namespace::File file(InternalFS);
-    file = InternalFS.open(request.temp_path, FILE_O_WRITE);
-    if (!file)
+    StoreStatus status = writeWholeFile(request, header, request.temp_path, "temp", false, result);
+    if (status != StoreStatus::Ok)
     {
-        Serial.printf("%s temp open failed path=%s\n", prefix, request.temp_path);
-        setStatus(result, StoreStatus::OpenFailed);
-        return StoreStatus::OpenFailed;
-    }
-
-    const std::size_t header_written =
-        file.write(reinterpret_cast<const uint8_t*>(&header), sizeof(SettingsFileHeader));
-    const std::size_t payload_written =
-        (header_written == sizeof(SettingsFileHeader))
-            ? file.write(reinterpret_cast<const uint8_t*>(request.payload), request.payload_size)
-            : 0U;
-
-    if (result)
-    {
-        result->header_written = header_written;
-        result->payload_written = payload_written;
-    }
-
-    file.flush();
-    file.close();
-
-    if (header_written != sizeof(SettingsFileHeader) || payload_written != request.payload_size)
-    {
-        Serial.printf("%s temp write failed header=%lu payload=%lu expected_header=%lu expected_payload=%lu crc=0x%08lX exists=%u\n",
-                      prefix,
-                      static_cast<unsigned long>(header_written),
-                      static_cast<unsigned long>(payload_written),
-                      static_cast<unsigned long>(sizeof(SettingsFileHeader)),
-                      static_cast<unsigned long>(request.payload_size),
-                      static_cast<unsigned long>(header.crc32),
-                      InternalFS.exists(request.temp_path) ? 1U : 0U);
         internal_fs::removeIfExists(request.temp_path);
-        setStatus(result, StoreStatus::WriteFailed);
-        return StoreStatus::WriteFailed;
+        Serial.printf("%s direct rewrite start reason=%s path=%s\n",
+                      prefix,
+                      statusText(status),
+                      request.path);
+        if (result)
+        {
+            result->used_destructive_rewrite = true;
+        }
+
+        status = writeWholeFile(request, header, request.path, "direct", true, result);
+        if (status != StoreStatus::Ok)
+        {
+            setStatus(result, status);
+            return status;
+        }
+
+        VerifyRequest verify_direct{};
+        verify_direct.path = request.path;
+        verify_direct.log_prefix = prefix;
+        verify_direct.magic = request.magic;
+        verify_direct.version = request.version;
+        verify_direct.payload_size = request.payload_size;
+        verify_direct.header_scratch = request.header_scratch;
+        verify_direct.payload_scratch = request.verify_payload_scratch;
+        VerifyResult verify_result{};
+        status = verifySettingsFile(verify_direct, &verify_result);
+        if (status != StoreStatus::Ok)
+        {
+            Serial.printf("%s direct verify failed status=%s\n", prefix, statusText(status));
+            setStatus(result, status);
+            return status;
+        }
+
+        setStatus(result, StoreStatus::Ok);
+        return StoreStatus::Ok;
     }
 
     VerifyRequest verify_temp{};
@@ -323,7 +386,7 @@ StoreStatus replaceSettingsFile(const ReplaceRequest& request, ReplaceResult* re
     verify_temp.header_scratch = request.header_scratch;
     verify_temp.payload_scratch = request.verify_payload_scratch;
     VerifyResult verify_result{};
-    StoreStatus status = verifySettingsFile(verify_temp, &verify_result);
+    status = verifySettingsFile(verify_temp, &verify_result);
     if (status != StoreStatus::Ok)
     {
         Serial.printf("%s temp verify failed status=%s\n", prefix, statusText(status));

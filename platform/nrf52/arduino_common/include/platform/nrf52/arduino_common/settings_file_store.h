@@ -71,6 +71,7 @@ struct ReplaceResult
 {
     StoreStatus status = StoreStatus::NotFound;
     bool had_old_size = false;
+    bool used_destructive_rewrite = false;
     uint32_t old_size = 0;
     std::size_t header_written = 0;
     std::size_t payload_written = 0;
