@@ -146,6 +146,7 @@ class MeshtasticBleService final : public BleService,
 
     bool pending_from_num_valid_ = false;
     uint32_t pending_from_num_ = 0;
+    uint32_t from_num_notify_counter_ = 0;
 
     volatile bool pending_connect_log_ = false;
     volatile bool pending_disconnect_log_ = false;
