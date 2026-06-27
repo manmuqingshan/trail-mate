@@ -1,11 +1,18 @@
 #include "chat/infra/node_store_core.h"
+#include "sys/clock.h"
 
 #include <cassert>
+#include <cstdio>
 #include <cstdint>
 #include <vector>
 
 namespace
 {
+
+uint32_t test_millis_now()
+{
+    return 0;
+}
 
 class CountingBlobStore final : public chat::contacts::INodeBlobStore
 {
@@ -119,11 +126,57 @@ void persistent_node_updates_still_flush()
     assert(blob.save_count == 3);
 }
 
+void node_store_capacity_is_limited_to_24_entries()
+{
+    static_assert(chat::contacts::NodeStoreCore::kMaxNodes == 24,
+                  "nRF node persistence budget is sized for 24 nodes");
+
+    CountingBlobStore blob;
+    chat::contacts::NodeStoreCore store(blob);
+    store.setAutoSaveEnabled(false);
+    store.begin();
+
+    for (uint32_t index = 0; index < chat::contacts::NodeStoreCore::kMaxNodes + 1; ++index)
+    {
+        const uint32_t node_id = 0x1000U + index;
+        char short_name[10] = {};
+        char long_name[32] = {};
+        std::snprintf(short_name, sizeof(short_name), "%04lX", static_cast<unsigned long>(node_id & 0xFFFFU));
+        std::snprintf(long_name, sizeof(long_name), "node-%02lu", static_cast<unsigned long>(index));
+
+        store.upsert(node_id,
+                     short_name,
+                     long_name,
+                     index + 1,
+                     1.0f,
+                     -80.0f,
+                     static_cast<uint8_t>(chat::contacts::NodeProtocolType::Meshtastic),
+                     static_cast<uint8_t>(chat::contacts::NodeRoleType::Client),
+                     1,
+                     42,
+                     0);
+    }
+
+    assert(store.getEntries().size() == chat::contacts::NodeStoreCore::kMaxNodes);
+
+    bool oldest_evicted = true;
+    for (const auto& entry : store.getEntries())
+    {
+        if (entry.node_id == 0x1000U)
+        {
+            oldest_evicted = false;
+        }
+    }
+    assert(oldest_evicted);
+}
+
 } // namespace
 
 int main()
 {
+    sys::set_millis_provider(test_millis_now);
     volatile_node_updates_do_not_force_persist();
     persistent_node_updates_still_flush();
+    node_store_capacity_is_limited_to_24_entries();
     return 0;
 }
