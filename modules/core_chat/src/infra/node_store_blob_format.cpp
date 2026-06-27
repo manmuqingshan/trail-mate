@@ -18,14 +18,6 @@ size_t nodeBlobEntrySizeForVersion(uint8_t version)
     {
         return NodeStoreCore::kSerializedEntrySizeV8;
     }
-    if (version == (NodeStoreCore::kPersistVersion - 1))
-    {
-        return NodeStoreCore::kSerializedEntrySize;
-    }
-    if (version == (NodeStoreCore::kPersistVersion - 2))
-    {
-        return NodeStoreCore::kLegacySerializedEntrySize;
-    }
     return 0;
 }
 

@@ -1712,6 +1712,31 @@ static void modal_close()
     modal_restore_group();
 }
 
+static void on_modal_key(lv_event_t* e)
+{
+    if (!e || lv_event_get_code(e) != LV_EVENT_KEY)
+    {
+        return;
+    }
+    const uint32_t key = lv_event_get_key(e);
+    if (key == LV_KEY_ESC)
+    {
+        modal_close();
+        lv_event_stop_processing(e);
+    }
+}
+
+static void modal_add_focus_obj(lv_obj_t* obj)
+{
+    if (!obj || !g_state.modal_group)
+    {
+        return;
+    }
+    lv_group_add_obj(g_state.modal_group, obj);
+    lv_obj_remove_event_cb(obj, on_modal_key);
+    lv_obj_add_event_cb(obj, on_modal_key, LV_EVENT_KEY, nullptr);
+}
+
 static void on_text_modal_key(lv_event_t* e)
 {
     if (s_text_modal_ime && s_text_modal_ime->handle_key(e))
@@ -2161,13 +2186,13 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     g_state.editing_item = &item;
     g_state.editing_widget = &widget;
 
-    lv_group_add_obj(g_state.modal_group, g_state.modal_textarea);
+    modal_add_focus_obj(g_state.modal_textarea);
     if (s_text_modal_ime && s_text_modal_ime->focus_obj())
     {
-        lv_group_add_obj(g_state.modal_group, s_text_modal_ime->focus_obj());
+        modal_add_focus_obj(s_text_modal_ime->focus_obj());
     }
-    lv_group_add_obj(g_state.modal_group, save_btn);
-    lv_group_add_obj(g_state.modal_group, cancel_btn);
+    modal_add_focus_obj(save_btn);
+    modal_add_focus_obj(cancel_btn);
     lv_group_focus_obj(g_state.modal_textarea);
 }
 
@@ -2357,11 +2382,11 @@ static void open_manual_datetime_modal(settings::ui::ItemWidget& widget)
     {
         if (textarea)
         {
-            lv_group_add_obj(g_state.modal_group, textarea);
+            modal_add_focus_obj(textarea);
         }
     }
-    lv_group_add_obj(g_state.modal_group, ok_btn);
-    lv_group_add_obj(g_state.modal_group, cancel_btn);
+    modal_add_focus_obj(ok_btn);
+    modal_add_focus_obj(cancel_btn);
     if (s_manual_time_textareas[0])
     {
         lv_group_focus_obj(s_manual_time_textareas[0]);
@@ -2956,8 +2981,8 @@ static void open_settings_restore_modal()
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm_btn, on_settings_restore_confirm_clicked, LV_EVENT_CLICKED, nullptr);
 
-    lv_group_add_obj(g_state.modal_group, cancel_btn);
-    lv_group_add_obj(g_state.modal_group, confirm_btn);
+    modal_add_focus_obj(cancel_btn);
+    modal_add_focus_obj(confirm_btn);
     lv_group_focus_obj(cancel_btn);
 }
 
@@ -3015,8 +3040,8 @@ static void open_factory_reset_modal()
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm_btn, on_factory_reset_confirm_clicked, LV_EVENT_CLICKED, nullptr);
 
-    lv_group_add_obj(g_state.modal_group, cancel_btn);
-    lv_group_add_obj(g_state.modal_group, confirm_btn);
+    modal_add_focus_obj(cancel_btn);
+    modal_add_focus_obj(confirm_btn);
     lv_group_focus_obj(cancel_btn);
 }
 
@@ -3155,8 +3180,8 @@ static void open_gps_diagnostics_modal()
     lv_obj_center(close_label);
     lv_obj_add_event_cb(close_btn, on_gps_diagnostics_close_clicked, LV_EVENT_CLICKED, nullptr);
 
-    lv_group_add_obj(g_state.modal_group, refresh_btn);
-    lv_group_add_obj(g_state.modal_group, close_btn);
+    modal_add_focus_obj(refresh_btn);
+    modal_add_focus_obj(close_btn);
     lv_group_focus_obj(refresh_btn);
 }
 
@@ -3304,7 +3329,7 @@ static void open_enabled_imes_modal(settings::ui::ItemWidget& widget)
         {
             lv_obj_add_state(btn, LV_STATE_CHECKED);
         }
-        lv_group_add_obj(g_state.modal_group, btn);
+        modal_add_focus_obj(btn);
         ++s_ime_toggle_count;
     }
 
@@ -3317,7 +3342,7 @@ static void open_enabled_imes_modal(settings::ui::ItemWidget& widget)
     lv_obj_center(back_label);
     lv_obj_add_event_cb(back_btn, on_enabled_imes_back_clicked, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(back_btn, option_modal_focused_cb, LV_EVENT_FOCUSED, nullptr);
-    lv_group_add_obj(g_state.modal_group, back_btn);
+    modal_add_focus_obj(back_btn);
 
     if (s_ime_toggle_count > 0)
     {
@@ -3405,7 +3430,7 @@ static void open_option_modal(const settings::ui::SettingItem& item, settings::u
             lv_obj_add_state(btn, LV_STATE_CHECKED);
         }
         lv_obj_add_event_cb(btn, option_modal_focused_cb, LV_EVENT_FOCUSED, nullptr);
-        lv_group_add_obj(g_state.modal_group, btn);
+        modal_add_focus_obj(btn);
         s_option_click_count++;
     }
 
@@ -3419,7 +3444,7 @@ static void open_option_modal(const settings::ui::SettingItem& item, settings::u
     lv_obj_center(back_label);
     lv_obj_add_event_cb(back_btn, on_option_modal_back_clicked, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(back_btn, option_modal_focused_cb, LV_EVENT_FOCUSED, nullptr);
-    lv_group_add_obj(g_state.modal_group, back_btn);
+    modal_add_focus_obj(back_btn);
 
     if (s_option_click_count > 0)
     {

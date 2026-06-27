@@ -27,7 +27,7 @@ static void on_msg_list_key(lv_event_t* e)
     if (!screen || !screen->isAlive()) return;
 
     uint32_t key = lv_event_get_key(e);
-    if (key == LV_KEY_BACKSPACE)
+    if (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC)
     {
         if (lv_obj_t* back_btn = screen->getBackBtn())
         {
@@ -76,7 +76,7 @@ static void on_backspace_key(lv_event_t* e)
     auto* screen = static_cast<ChatConversationScreen*>(lv_event_get_user_data(e));
     if (!screen || !screen->isAlive()) return;
     uint32_t key = lv_event_get_key(e);
-    if (key != LV_KEY_BACKSPACE) return;
+    if (key != LV_KEY_BACKSPACE && key != LV_KEY_ESC) return;
     if (lv_obj_t* back_btn = screen->getBackBtn())
     {
         lv_obj_send_event(back_btn, LV_EVENT_CLICKED, nullptr);

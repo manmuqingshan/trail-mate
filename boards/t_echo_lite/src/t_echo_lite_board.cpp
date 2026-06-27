@@ -108,16 +108,26 @@ constexpr uint8_t kAw21009ChannelCount = 9;
 
 constexpr uint32_t kMessageToneSampleRateHz = 44100;
 constexpr uint16_t kMessageToneMaxI2sWords = 14336;
-constexpr uint32_t kEpaperPresentMinIntervalMs = 250UL;
+constexpr uint32_t kEpaperPresentMinIntervalMs = 50UL;
 constexpr int kEpaperMirrorPixels = ::boards::t_echo_lite::kBoardProfile.epaper.width *
                                     ::boards::t_echo_lite::kBoardProfile.epaper.height;
 constexpr size_t kEpaperMirrorBytes = static_cast<size_t>((kEpaperMirrorPixels + 7) / 8);
 uint32_t s_message_tone_i2s_buffer[kMessageToneMaxI2sWords] = {};
 
-void writeLedColor(uint8_t color_index, bool on)
+void writeLedColor(uint8_t color_index, bool on, const char* reason = nullptr, uint32_t pulse_ms = 0)
 {
     const auto& leds = kBoardProfile.leds;
     const LedColor& color = kLedColors[color_index % arrayCount(kLedColors)];
+    if (reason)
+    {
+        Serial.printf("[t-echo-lite][led] reason=%s on=%u color=%u label=%s pulse_ms=%lu uptime_ms=%lu\n",
+                      reason,
+                      on ? 1U : 0U,
+                      static_cast<unsigned>(color_index),
+                      color.label,
+                      static_cast<unsigned long>(pulse_ms),
+                      static_cast<unsigned long>(millis()));
+    }
     writeLed(leds.red, leds.active_high, on && color.red);
     writeLed(leds.green, leds.active_high, on && color.green);
     writeLed(leds.blue, leds.active_high, on && color.blue);
@@ -593,7 +603,7 @@ bool TEchoLiteBoard::isGPSReady() const
 
 void TEchoLiteBoard::vibrator()
 {
-    pulseNotificationLed(20);
+    pulseNotificationLed(20, "vibrator");
 }
 
 void TEchoLiteBoard::stopVibrator()
@@ -732,14 +742,14 @@ uint8_t TEchoLiteBoard::getMessageToneVolume() const
 
 void TEchoLiteBoard::setStatusLed(bool on)
 {
-    writeLedColor(status_led_color_index_, on);
+    writeLedColor(status_led_color_index_, on, "set_status_led");
 }
 
 void TEchoLiteBoard::setStatusLedColor(uint8_t color_index)
 {
     status_led_color_index_ = static_cast<uint8_t>(color_index % statusLedColorCount());
     ::boards::t_echo_lite::settings_store::queueSaveStatusLedColor(status_led_color_index_);
-    writeLedColor(status_led_color_index_, true);
+    writeLedColor(status_led_color_index_, true, "set_status_led_color");
 }
 
 uint8_t TEchoLiteBoard::statusLedColor() const
@@ -757,11 +767,12 @@ const char* TEchoLiteBoard::statusLedColorLabel(uint8_t color_index)
     return kLedColors[color_index % arrayCount(kLedColors)].label;
 }
 
-void TEchoLiteBoard::pulseNotificationLed(uint32_t pulse_ms)
+void TEchoLiteBoard::pulseNotificationLed(uint32_t pulse_ms, const char* source)
 {
-    writeLedColor(status_led_color_index_, true);
+    const char* reason = source ? source : "pulse_notification";
+    writeLedColor(status_led_color_index_, true, reason, pulse_ms);
     delay(pulse_ms);
-    writeLedColor(status_led_color_index_, false);
+    writeLedColor(status_led_color_index_, false, reason, pulse_ms);
 }
 
 bool TEchoLiteBoard::pollInputSnapshot(BoardInputSnapshot* out_snapshot) const

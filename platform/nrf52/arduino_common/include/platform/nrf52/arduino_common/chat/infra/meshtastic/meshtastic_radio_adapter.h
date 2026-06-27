@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <queue>
 #include <string>
@@ -249,8 +250,8 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     const ::chat::runtime::SelfIdentityProvider* identity_provider_ = nullptr;
     NodeStore* node_store_ = nullptr;
     ::chat::contacts::ContactService* contact_service_ = nullptr;
-    float last_rx_rssi_ = 0.0f;
-    float last_rx_snr_ = 0.0f;
+    float last_rx_rssi_ = std::numeric_limits<float>::quiet_NaN();
+    float last_rx_snr_ = std::numeric_limits<float>::quiet_NaN();
     std::queue<::chat::MeshIncomingText> text_queue_;
     std::queue<::chat::MeshIncomingData> data_queue_;
     std::queue<meshtastic_MqttClientProxyMessage> mqtt_proxy_queue_;

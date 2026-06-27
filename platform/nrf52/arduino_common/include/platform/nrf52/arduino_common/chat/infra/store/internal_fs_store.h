@@ -50,13 +50,6 @@ class InternalFsStore final : public ::chat::IChatStore
         uint32_t next_sequence = 1;
     } __attribute__((packed));
 
-    struct LegacyFileHeader
-    {
-        uint32_t magic = 0;
-        uint16_t version = 0;
-        uint16_t conversation_count = 0;
-    } __attribute__((packed));
-
     struct ConversationRecord
     {
         uint8_t protocol = 0;
@@ -79,23 +72,6 @@ class InternalFsStore final : public ::chat::IChatStore
         uint32_t msg_id = 0;
         uint32_t timestamp = 0;
         uint32_t sequence = 0;
-        uint8_t team_location_icon = 0;
-        int32_t geo_lat_e7 = 0;
-        int32_t geo_lon_e7 = 0;
-        uint16_t text_len = 0;
-        char text[220] = {};
-    } __attribute__((packed));
-
-    struct LegacyMessageRecord
-    {
-        uint8_t protocol = 0;
-        uint8_t channel = 0;
-        uint8_t status = 0;
-        uint8_t flags = 0;
-        uint32_t from = 0;
-        uint32_t peer = 0;
-        uint32_t msg_id = 0;
-        uint32_t timestamp = 0;
         uint8_t team_location_icon = 0;
         int32_t geo_lat_e7 = 0;
         int32_t geo_lon_e7 = 0;

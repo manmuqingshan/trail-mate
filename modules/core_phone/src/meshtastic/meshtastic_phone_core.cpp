@@ -26,10 +26,13 @@ namespace
 constexpr meshtastic_AdminMessage_ConfigType kConfigSnapshotTypes[] = {
     meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG,
     meshtastic_AdminMessage_ConfigType_POSITION_CONFIG,
+    meshtastic_AdminMessage_ConfigType_POWER_CONFIG,
+    meshtastic_AdminMessage_ConfigType_NETWORK_CONFIG,
     meshtastic_AdminMessage_ConfigType_DISPLAY_CONFIG,
     meshtastic_AdminMessage_ConfigType_LORA_CONFIG,
     meshtastic_AdminMessage_ConfigType_BLUETOOTH_CONFIG,
     meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG,
+    meshtastic_AdminMessage_ConfigType_SESSIONKEY_CONFIG,
     meshtastic_AdminMessage_ConfigType_DEVICEUI_CONFIG,
 };
 constexpr meshtastic_AdminMessage_ModuleConfigType kModuleSnapshotTypes[] = {
@@ -43,8 +46,8 @@ constexpr meshtastic_AdminMessage_ModuleConfigType kModuleSnapshotTypes[] = {
     meshtastic_AdminMessage_ModuleConfigType_AUDIO_CONFIG,
     meshtastic_AdminMessage_ModuleConfigType_REMOTEHARDWARE_CONFIG,
     meshtastic_AdminMessage_ModuleConfigType_NEIGHBORINFO_CONFIG,
-    meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG,
     meshtastic_AdminMessage_ModuleConfigType_DETECTIONSENSOR_CONFIG,
+    meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG,
     meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG,
 };
 
@@ -1523,12 +1526,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         return encodeFromRadio(from, from_num, out);
     }
 
-    if (only_config && config_node_index_ == 2)
-    {
-        config_node_index_ = 3;
-    }
-
-    if (!only_config && config_node_index_ == 2)
+    if (config_node_index_ == 2)
     {
         from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
         fillSelfNodeInfo(&from.node_info);
@@ -2117,6 +2115,26 @@ void MeshtasticPhoneCore::fillConfig(meshtastic_AdminMessage_ConfigType type, me
                                                         ? meshtastic_Config_PositionConfig_GpsMode_ENABLED
                                                         : meshtastic_Config_PositionConfig_GpsMode_DISABLED;
         break;
+    case meshtastic_AdminMessage_ConfigType_POWER_CONFIG:
+        cfg_out.which_payload_variant = meshtastic_Config_power_tag;
+        {
+            meshtastic_Config_PowerConfig power = meshtastic_Config_PowerConfig_init_zero;
+            cfg_out.payload_variant.power = power;
+        }
+        cfg_out.payload_variant.power.wait_bluetooth_secs = 0;
+        cfg_out.payload_variant.power.ls_secs = 0;
+        cfg_out.payload_variant.power.min_wake_secs = 0;
+        break;
+    case meshtastic_AdminMessage_ConfigType_NETWORK_CONFIG:
+        cfg_out.which_payload_variant = meshtastic_Config_network_tag;
+        {
+            meshtastic_Config_NetworkConfig network = meshtastic_Config_NetworkConfig_init_zero;
+            cfg_out.payload_variant.network = network;
+        }
+        cfg_out.payload_variant.network.wifi_enabled = false;
+        cfg_out.payload_variant.network.eth_enabled = false;
+        cfg_out.payload_variant.network.address_mode = meshtastic_Config_NetworkConfig_AddressMode_DHCP;
+        break;
     case meshtastic_AdminMessage_ConfigType_DISPLAY_CONFIG:
         cfg_out.which_payload_variant = meshtastic_Config_display_tag;
         {
@@ -2175,6 +2193,13 @@ void MeshtasticPhoneCore::fillConfig(meshtastic_AdminMessage_ConfigType type, me
         cfg_out.payload_variant.security.serial_enabled = false;
         cfg_out.payload_variant.security.debug_log_api_enabled = false;
         cfg_out.payload_variant.security.admin_channel_enabled = false;
+        break;
+    case meshtastic_AdminMessage_ConfigType_SESSIONKEY_CONFIG:
+        cfg_out.which_payload_variant = meshtastic_Config_sessionkey_tag;
+        {
+            meshtastic_Config_SessionkeyConfig sessionkey = meshtastic_Config_SessionkeyConfig_init_zero;
+            cfg_out.payload_variant.sessionkey = sessionkey;
+        }
         break;
     case meshtastic_AdminMessage_ConfigType_DEVICEUI_CONFIG:
         cfg_out.which_payload_variant = meshtastic_Config_device_ui_tag;

@@ -137,7 +137,7 @@ class TEchoLiteBoard final : public BoardBase
     uint8_t statusLedColor() const;
     static uint8_t statusLedColorCount();
     static const char* statusLedColorLabel(uint8_t color_index);
-    void pulseNotificationLed(uint32_t pulse_ms = 25);
+    void pulseNotificationLed(uint32_t pulse_ms = 25, const char* source = nullptr);
     bool pollInputSnapshot(BoardInputSnapshot* out_snapshot) const;
     bool pollInputEvent(BoardInputEvent* out_event);
     bool formatLoraFrequencyMHz(uint32_t freq_hz, char* out, std::size_t out_len) const;

@@ -5,6 +5,7 @@
 #include "chat/infra/meshcore/mc_region_presets.h"
 #include "chat/infra/meshtastic/mt_region.h"
 #include "platform/nrf52/arduino_common/internal_fs_utils.h"
+#include "platform/nrf52/arduino_common/settings_file_store.h"
 
 #include <Arduino.h>
 #include <InternalFileSystem.h>
@@ -17,36 +18,21 @@ namespace boards::t_echo_lite::settings_store
 namespace
 {
 using Adafruit_LittleFS_Namespace::FILE_O_READ;
+namespace settings_file = ::platform::nrf52::arduino_common::settings_file;
+using FileHeader = settings_file::SettingsFileHeader;
+using settings_file::crc32;
 
 constexpr const char* kSettingsPath = "/t_echo_lite_settings.bin";
-constexpr const char* kSettingsCorruptPath = "/t_echo_lite_settings.bin.corrupt";
+constexpr const char* kSettingsTempPath = "/t_echo_lite_settings.bin.tmp";
 constexpr const char* kLogTag = "[t-echo-lite][settings]";
 constexpr uint32_t kSettingsMagic = 0x54454C54UL; // TLET
-constexpr uint16_t kSettingsVersion = 5;
-constexpr uint16_t kSettingsVersionMessageLightDefaultWasOn = 4;
-constexpr uint16_t kSettingsVersionStatusLedDefaultWasBlue = 3;
+constexpr uint16_t kSettingsVersion = 6;
 constexpr uint8_t kDefaultToneVolume = 45;
 constexpr uint8_t kDefaultStatusLedColor = 0;
 constexpr uint8_t kDefaultKeyboardLightEnabled = 0;
 constexpr uint8_t kDefaultMessageKeyboardLightEnabled = 1;
 constexpr uint32_t kDeferredSaveDebounceMs = 1500UL;
 constexpr uint32_t kImmediateSaveRetryDelayMs = 20UL;
-
-struct PersistedPayloadV1
-{
-    app::AppConfig config;
-    uint8_t tone_volume = kDefaultToneVolume;
-    uint8_t reserved[3] = {};
-};
-
-struct PersistedPayloadV4
-{
-    app::AppConfig config;
-    uint8_t tone_volume = kDefaultToneVolume;
-    uint8_t status_led_color = kDefaultStatusLedColor;
-    uint8_t keyboard_light_enabled = kDefaultKeyboardLightEnabled;
-    uint8_t reserved[2] = {};
-};
 
 struct PersistedPayload
 {
@@ -55,17 +41,8 @@ struct PersistedPayload
     uint8_t status_led_color = kDefaultStatusLedColor;
     uint8_t keyboard_light_enabled = kDefaultKeyboardLightEnabled;
     uint8_t message_keyboard_light_enabled = kDefaultMessageKeyboardLightEnabled;
-    uint8_t reserved[1] = {};
+    uint8_t reserved[5] = {};
 };
-
-struct FileHeader
-{
-    uint32_t magic = 0;
-    uint16_t version = 0;
-    uint16_t reserved = 0;
-    uint32_t payload_size = 0;
-    uint32_t crc32 = 0;
-} __attribute__((packed));
 
 struct CachedSettings
 {
@@ -89,8 +66,6 @@ uint32_t s_last_save_attempt_ms = 0;
 // are large enough to make the stack path fragile.
 FileHeader s_file_header_scratch{};
 PersistedPayload s_payload_scratch{};
-PersistedPayloadV4 s_payload_v4_scratch{};
-PersistedPayloadV1 s_payload_v1_scratch{};
 
 class ScopedGpsSuspend
 {
@@ -139,74 +114,33 @@ uint8_t clampToneVolume(uint8_t volume)
     return static_cast<uint8_t>(std::min<unsigned>(volume, 100U));
 }
 
-const char* statusText(StoreStatus status)
+const char* statusToText(StoreStatus status)
 {
-    switch (status)
-    {
-    case StoreStatus::Ok:
-        return "ok";
-    case StoreStatus::NotFound:
-        return "not_found";
-    case StoreStatus::FsInitFailed:
-        return "fs_init_failed";
-    case StoreStatus::OpenFailed:
-        return "open_failed";
-    case StoreStatus::ReadFailed:
-        return "read_failed";
-    case StoreStatus::WriteFailed:
-        return "write_failed";
-    case StoreStatus::FlushFailed:
-        return "flush_failed";
-    case StoreStatus::HeaderInvalid:
-        return "header_invalid";
-    case StoreStatus::VersionMismatch:
-        return "version_mismatch";
-    case StoreStatus::PayloadSizeMismatch:
-        return "payload_size_mismatch";
-    case StoreStatus::CrcMismatch:
-        return "crc_mismatch";
-    case StoreStatus::RenameFailed:
-        return "rename_failed";
-    case StoreStatus::BackupFailed:
-        return "backup_failed";
-    default:
-        return "unknown";
-    }
+    return settings_file::statusText(status);
 }
 
-uint32_t crc32(const uint8_t* data, size_t len)
-{
-    uint32_t crc = 0xFFFFFFFFU;
-    for (size_t i = 0; i < len; ++i)
-    {
-        crc ^= data[i];
-        for (int bit = 0; bit < 8; ++bit)
-        {
-            crc = (crc & 1U) ? ((crc >> 1) ^ 0xEDB88320U) : (crc >> 1);
-        }
-    }
-    return ~crc;
-}
-
-bool quarantineCorruptFile(StoreStatus status)
+bool removeInvalidSettingsFile(StoreStatus status)
 {
     if (!InternalFS.exists(kSettingsPath))
     {
         return true;
     }
 
-    ::platform::nrf52::arduino_common::internal_fs::removeIfExists(kSettingsCorruptPath);
-    if (InternalFS.rename(kSettingsPath, kSettingsCorruptPath))
+    if (InternalFS.remove(kSettingsPath))
     {
-        Serial.printf("[T-Echo Lite][settings] quarantined corrupt store status=%s path=%s\n",
-                      statusText(status),
-                      kSettingsCorruptPath);
+        Serial.printf("[T-Echo Lite][settings] removed corrupt store status=%s\n",
+                      statusToText(status));
         return true;
     }
 
-    Serial.printf("[T-Echo Lite][settings] failed to quarantine corrupt store status=%s\n",
-                  statusText(status));
+    Serial.printf("[T-Echo Lite][settings] failed to remove corrupt store status=%s\n",
+                  statusToText(status));
     return false;
+}
+
+uint32_t currentSettingsFileSize()
+{
+    return static_cast<uint32_t>(sizeof(FileHeader) + sizeof(PersistedPayload));
 }
 
 void resetCacheToDefaults()
@@ -217,92 +151,6 @@ void resetCacheToDefaults()
     s_cache.keyboard_light_enabled = (kDefaultKeyboardLightEnabled != 0);
     s_cache.message_keyboard_light_enabled = (kDefaultMessageKeyboardLightEnabled != 0);
     normalizeConfig(s_cache.config);
-}
-
-bool verifySavedFile()
-{
-    auto file = InternalFS.open(kSettingsPath, FILE_O_READ);
-    if (!file)
-    {
-        Serial.printf("[T-Echo Lite][settings] verify open failed path=%s\n", kSettingsPath);
-        return false;
-    }
-
-    const uint32_t actual_size = file.size();
-    const uint32_t expected_size =
-        static_cast<uint32_t>(sizeof(FileHeader) + sizeof(PersistedPayload));
-
-    if (actual_size != expected_size)
-    {
-        file.close();
-        Serial.printf("[T-Echo Lite][settings] verify size mismatch actual=%lu expected=%lu\n",
-                      static_cast<unsigned long>(actual_size),
-                      static_cast<unsigned long>(expected_size));
-        return false;
-    }
-
-    auto& header = s_file_header_scratch;
-    std::memset(&header, 0, sizeof(header));
-    if (file.read(&header, sizeof(header)) != sizeof(header))
-    {
-        file.close();
-        Serial.printf("[T-Echo Lite][settings] verify header read failed\n");
-        return false;
-    }
-
-    if (header.magic != kSettingsMagic)
-    {
-        file.close();
-        Serial.printf("[T-Echo Lite][settings] verify magic mismatch got=0x%08lX expected=0x%08lX\n",
-                      static_cast<unsigned long>(header.magic),
-                      static_cast<unsigned long>(kSettingsMagic));
-        return false;
-    }
-
-    if (header.version != kSettingsVersion)
-    {
-        file.close();
-        Serial.printf("[T-Echo Lite][settings] verify version mismatch got=%u expected=%u\n",
-                      static_cast<unsigned>(header.version),
-                      static_cast<unsigned>(kSettingsVersion));
-        return false;
-    }
-
-    if (header.payload_size != sizeof(PersistedPayload))
-    {
-        file.close();
-        Serial.printf("[T-Echo Lite][settings] verify payload size mismatch got=%lu expected=%lu\n",
-                      static_cast<unsigned long>(header.payload_size),
-                      static_cast<unsigned long>(sizeof(PersistedPayload)));
-        return false;
-    }
-
-    auto& payload = s_payload_scratch;
-    std::memset(&payload, 0, sizeof(payload));
-    if (file.read(&payload, sizeof(payload)) != sizeof(payload))
-    {
-        file.close();
-        Serial.printf("[T-Echo Lite][settings] verify payload read failed\n");
-        return false;
-    }
-
-    file.close();
-
-    const uint32_t actual_crc =
-        crc32(reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));
-
-    if (actual_crc != header.crc32)
-    {
-        Serial.printf("[T-Echo Lite][settings] verify crc mismatch got=0x%08lX expected=0x%08lX\n",
-                      static_cast<unsigned long>(actual_crc),
-                      static_cast<unsigned long>(header.crc32));
-        return false;
-    }
-
-    Serial.printf("[T-Echo Lite][settings] verify ok size=%lu crc=0x%08lX\n",
-                  static_cast<unsigned long>(actual_size),
-                  static_cast<unsigned long>(actual_crc));
-    return true;
 }
 
 bool loadFromFs()
@@ -328,11 +176,24 @@ bool loadFromFs()
     }
 
     const uint32_t actual_size = file.size();
+    const uint32_t expected_current_size = currentSettingsFileSize();
+    if (actual_size != expected_current_size)
+    {
+        file.close();
+        s_last_load_status = StoreStatus::PayloadSizeMismatch;
+        (void)removeInvalidSettingsFile(s_last_load_status);
+        Serial.printf("[T-Echo Lite][settings] removed non-current store actual=%lu expected=%lu version=%u\n",
+                      static_cast<unsigned long>(actual_size),
+                      static_cast<unsigned long>(expected_current_size),
+                      static_cast<unsigned>(kSettingsVersion));
+        return false;
+    }
+
     if (actual_size < sizeof(FileHeader))
     {
         file.close();
         s_last_load_status = StoreStatus::PayloadSizeMismatch;
-        (void)quarantineCorruptFile(s_last_load_status);
+        (void)removeInvalidSettingsFile(s_last_load_status);
         Serial.printf("[T-Echo Lite][settings] size mismatch actual=%lu expected_at_least=%lu\n",
                       static_cast<unsigned long>(actual_size),
                       static_cast<unsigned long>(sizeof(FileHeader)));
@@ -352,7 +213,7 @@ bool loadFromFs()
     {
         file.close();
         s_last_load_status = StoreStatus::HeaderInvalid;
-        (void)quarantineCorruptFile(s_last_load_status);
+        (void)removeInvalidSettingsFile(s_last_load_status);
         Serial.printf("[T-Echo Lite][settings] magic mismatch got=0x%08lX expected=0x%08lX\n",
                       static_cast<unsigned long>(header.magic),
                       static_cast<unsigned long>(kSettingsMagic));
@@ -361,126 +222,10 @@ bool loadFromFs()
 
     if (header.version != kSettingsVersion)
     {
-        if (header.version == 1)
-        {
-            const uint32_t expected_size_v1 =
-                static_cast<uint32_t>(sizeof(FileHeader) + sizeof(PersistedPayloadV1));
-            if (header.payload_size != sizeof(PersistedPayloadV1) || actual_size != expected_size_v1)
-            {
-                file.close();
-                s_last_load_status = StoreStatus::PayloadSizeMismatch;
-                (void)quarantineCorruptFile(s_last_load_status);
-                Serial.printf("[T-Echo Lite][settings] v1 payload size mismatch got=%lu expected=%lu actual=%lu\n",
-                              static_cast<unsigned long>(header.payload_size),
-                              static_cast<unsigned long>(sizeof(PersistedPayloadV1)),
-                              static_cast<unsigned long>(actual_size));
-                return false;
-            }
-
-            auto& payload_v1 = s_payload_v1_scratch;
-            std::memset(&payload_v1, 0, sizeof(payload_v1));
-            if (file.read(&payload_v1, sizeof(payload_v1)) != sizeof(payload_v1))
-            {
-                file.close();
-                s_last_load_status = StoreStatus::ReadFailed;
-                Serial.printf("[T-Echo Lite][settings] v1 payload read failed\n");
-                return false;
-            }
-            file.close();
-
-            const uint32_t actual_crc = crc32(reinterpret_cast<const uint8_t*>(&payload_v1), sizeof(payload_v1));
-            if (actual_crc != header.crc32)
-            {
-                s_last_load_status = StoreStatus::CrcMismatch;
-                (void)quarantineCorruptFile(s_last_load_status);
-                Serial.printf("[T-Echo Lite][settings] v1 crc mismatch got=0x%08lX expected=0x%08lX\n",
-                              static_cast<unsigned long>(actual_crc),
-                              static_cast<unsigned long>(header.crc32));
-                return false;
-            }
-
-            s_cache.config = payload_v1.config;
-            normalizeConfig(s_cache.config);
-            s_cache.tone_volume = clampToneVolume(payload_v1.tone_volume);
-            s_cache.status_led_color = kDefaultStatusLedColor;
-            s_cache.keyboard_light_enabled = (kDefaultKeyboardLightEnabled != 0);
-            s_cache.message_keyboard_light_enabled = (kDefaultMessageKeyboardLightEnabled != 0);
-            s_last_load_status = StoreStatus::Ok;
-            Serial.printf("[T-Echo Lite][settings] load ok tone=%u ble=%u proto=%u version=1\n",
-                          static_cast<unsigned>(s_cache.tone_volume),
-                          static_cast<unsigned>(s_cache.config.ble_enabled ? 1 : 0),
-                          static_cast<unsigned>(s_cache.config.mesh_protocol));
-            return true;
-        }
-
-        if (header.version == kSettingsVersionStatusLedDefaultWasBlue ||
-            header.version == kSettingsVersionMessageLightDefaultWasOn)
-        {
-            if (header.payload_size != sizeof(PersistedPayloadV4) ||
-                actual_size != static_cast<uint32_t>(sizeof(FileHeader) + sizeof(PersistedPayloadV4)))
-            {
-                file.close();
-                s_last_load_status = StoreStatus::PayloadSizeMismatch;
-                (void)quarantineCorruptFile(s_last_load_status);
-                Serial.printf("[T-Echo Lite][settings] legacy payload size mismatch version=%u got=%lu expected=%lu actual=%lu\n",
-                              static_cast<unsigned>(header.version),
-                              static_cast<unsigned long>(header.payload_size),
-                              static_cast<unsigned long>(sizeof(PersistedPayloadV4)),
-                              static_cast<unsigned long>(actual_size));
-                return false;
-            }
-
-            auto& payload = s_payload_v4_scratch;
-            std::memset(&payload, 0, sizeof(payload));
-            if (file.read(&payload, sizeof(payload)) != sizeof(payload))
-            {
-                file.close();
-                s_last_load_status = StoreStatus::ReadFailed;
-                Serial.printf("[T-Echo Lite][settings] legacy payload read failed version=%u\n",
-                              static_cast<unsigned>(header.version));
-                return false;
-            }
-            file.close();
-
-            const uint32_t actual_crc = crc32(reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));
-            if (actual_crc != header.crc32)
-            {
-                s_last_load_status = StoreStatus::CrcMismatch;
-                (void)quarantineCorruptFile(s_last_load_status);
-                Serial.printf("[T-Echo Lite][settings] legacy crc mismatch version=%u got=0x%08lX expected=0x%08lX\n",
-                              static_cast<unsigned>(header.version),
-                              static_cast<unsigned long>(actual_crc),
-                              static_cast<unsigned long>(header.crc32));
-                return false;
-            }
-
-            s_cache.config = payload.config;
-            normalizeConfig(s_cache.config);
-            s_cache.tone_volume = clampToneVolume(payload.tone_volume);
-            s_cache.status_led_color =
-                header.version == kSettingsVersionStatusLedDefaultWasBlue
-                    ? kDefaultStatusLedColor
-                    : static_cast<uint8_t>(
-                          payload.status_led_color %
-                          ::boards::t_echo_lite::TEchoLiteBoard::statusLedColorCount());
-            s_cache.keyboard_light_enabled = payload.keyboard_light_enabled != 0;
-            s_cache.message_keyboard_light_enabled = (kDefaultMessageKeyboardLightEnabled != 0);
-            s_deferred_save_pending = true;
-            s_last_dirty_ms = millis();
-            s_last_load_status = StoreStatus::Ok;
-            Serial.printf("[T-Echo Lite][settings] load migrated tone=%u ble=%u proto=%u version=%u->%u msg_light=on\n",
-                          static_cast<unsigned>(s_cache.tone_volume),
-                          static_cast<unsigned>(s_cache.config.ble_enabled ? 1 : 0),
-                          static_cast<unsigned>(s_cache.config.mesh_protocol),
-                          static_cast<unsigned>(header.version),
-                          static_cast<unsigned>(kSettingsVersion));
-            return true;
-        }
-
         file.close();
         s_last_load_status = StoreStatus::VersionMismatch;
-        (void)quarantineCorruptFile(s_last_load_status);
-        Serial.printf("[T-Echo Lite][settings] version mismatch got=%u expected=%u\n",
+        (void)removeInvalidSettingsFile(s_last_load_status);
+        Serial.printf("[T-Echo Lite][settings] removed old-version store got=%u expected=%u\n",
                       static_cast<unsigned>(header.version),
                       static_cast<unsigned>(kSettingsVersion));
         return false;
@@ -491,7 +236,7 @@ bool loadFromFs()
     {
         file.close();
         s_last_load_status = StoreStatus::PayloadSizeMismatch;
-        (void)quarantineCorruptFile(s_last_load_status);
+        (void)removeInvalidSettingsFile(s_last_load_status);
         Serial.printf("[T-Echo Lite][settings] payload size mismatch got=%lu expected=%lu actual=%lu\n",
                       static_cast<unsigned long>(header.payload_size),
                       static_cast<unsigned long>(sizeof(PersistedPayload)),
@@ -514,7 +259,7 @@ bool loadFromFs()
     if (actual_crc != header.crc32)
     {
         s_last_load_status = StoreStatus::CrcMismatch;
-        (void)quarantineCorruptFile(s_last_load_status);
+        (void)removeInvalidSettingsFile(s_last_load_status);
         Serial.printf("[T-Echo Lite][settings] crc mismatch got=0x%08lX expected=0x%08lX\n",
                       static_cast<unsigned long>(actual_crc),
                       static_cast<unsigned long>(header.crc32));
@@ -557,97 +302,30 @@ bool saveToFsOnce()
     payload.keyboard_light_enabled = s_cache.keyboard_light_enabled ? 1U : 0U;
     payload.message_keyboard_light_enabled = s_cache.message_keyboard_light_enabled ? 1U : 0U;
 
-    auto& header = s_file_header_scratch;
-    std::memset(&header, 0, sizeof(header));
-    header.magic = kSettingsMagic;
-    header.version = kSettingsVersion;
-    header.reserved = 0;
-    header.payload_size = sizeof(PersistedPayload);
-    header.crc32 = crc32(reinterpret_cast<const uint8_t*>(&payload), sizeof(PersistedPayload));
+    settings_file::ReplaceRequest request{};
+    request.path = kSettingsPath;
+    request.temp_path = kSettingsTempPath;
+    request.fs_log_tag = kLogTag;
+    request.log_prefix = "[T-Echo Lite][settings]";
+    request.magic = kSettingsMagic;
+    request.version = kSettingsVersion;
+    request.payload = &payload;
+    request.payload_size = sizeof(PersistedPayload);
+    request.header_scratch = &s_file_header_scratch;
+    request.verify_payload_scratch = &s_payload_scratch;
+    request.allow_format_recovery = true;
 
-    // 先尝试正常打开已有文件
-    Adafruit_LittleFS_Namespace::File file(InternalFS);
-    if (!::platform::nrf52::arduino_common::internal_fs::openForOverwrite(kSettingsPath, &file, true, kLogTag))
+    settings_file::ReplaceResult result{};
+    s_last_save_status = settings_file::replaceSettingsFile(request, &result);
+    if (s_last_save_status != StoreStatus::Ok)
     {
-        s_last_save_status = StoreStatus::OpenFailed;
-        Serial.printf("%s open failed path=%s\n", kLogTag, kSettingsPath);
-        return false;
-    }
-
-    {
-        auto oldf = InternalFS.open(kSettingsPath, FILE_O_READ);
-        if (oldf)
-        {
-            Serial.printf("[T-Echo Lite][settings] old size before overwrite=%lu\n",
-                          static_cast<unsigned long>(oldf.size()));
-            oldf.close();
-        }
-    }
-
-    const bool seek_ok = ::platform::nrf52::arduino_common::internal_fs::rewindForOverwrite(file);
-    Serial.printf("[T-Echo Lite][settings] seek0 ok=%u\n", seek_ok ? 1U : 0U);
-    if (!seek_ok)
-    {
-        file.close();
-        s_last_save_status = StoreStatus::WriteFailed;
-        Serial.printf("[T-Echo Lite][settings] seek failed path=%s\n", kSettingsPath);
-        return false;
-    }
-
-    const size_t header_written =
-        file.write(reinterpret_cast<const uint8_t*>(&header), sizeof(FileHeader));
-
-    const size_t payload_written =
-        (header_written == sizeof(FileHeader))
-            ? file.write(reinterpret_cast<const uint8_t*>(&payload), sizeof(PersistedPayload))
-            : 0U;
-
-    const uint32_t final_size =
-        static_cast<uint32_t>(sizeof(FileHeader) + sizeof(PersistedPayload));
-
-    bool trunc_ok = false;
-    if (header_written == sizeof(FileHeader) &&
-        payload_written == sizeof(PersistedPayload))
-    {
-        trunc_ok = ::platform::nrf52::arduino_common::internal_fs::truncateAfterWrite(file, final_size);
-    }
-
-    file.flush();
-    file.close();
-
-    if (header_written != sizeof(FileHeader) ||
-        payload_written != sizeof(PersistedPayload))
-    {
-        s_last_save_status = StoreStatus::WriteFailed;
-        Serial.printf("[T-Echo Lite][settings] write failed header=%lu payload=%lu expected_header=%lu expected_payload=%lu crc=0x%08lx exists=%u\n",
-                      static_cast<unsigned long>(header_written),
-                      static_cast<unsigned long>(payload_written),
-                      static_cast<unsigned long>(sizeof(FileHeader)),
-                      static_cast<unsigned long>(sizeof(PersistedPayload)),
-                      static_cast<unsigned long>(header.crc32),
-                      InternalFS.exists(kSettingsPath) ? 1U : 0U);
-        return false;
-    }
-
-    if (!trunc_ok)
-    {
-        s_last_save_status = StoreStatus::WriteFailed;
-        Serial.printf("[T-Echo Lite][settings] truncate failed target=%lu\n",
-                      static_cast<unsigned long>(final_size));
-        return false;
-    }
-
-    if (!verifySavedFile())
-    {
-        s_last_save_status = StoreStatus::WriteFailed;
-        Serial.printf("[T-Echo Lite][settings] verify after save failed\n");
         return false;
     }
 
     s_last_save_status = StoreStatus::Ok;
     Serial.printf("[T-Echo Lite][settings] save ok size=%lu crc=0x%08lx tone=%u\n",
                   static_cast<unsigned long>(sizeof(PersistedPayload)),
-                  static_cast<unsigned long>(header.crc32),
+                  static_cast<unsigned long>(result.crc32),
                   static_cast<unsigned>(payload.tone_volume));
     return true;
 }
@@ -668,7 +346,7 @@ bool saveToFs()
     if (!ok)
     {
         Serial.printf("[T-Echo Lite][settings] save first attempt failed status=%s retry_delay_ms=%lu\n",
-                      statusText(s_last_save_status),
+                      statusToText(s_last_save_status),
                       static_cast<unsigned long>(kImmediateSaveRetryDelayMs));
 
         delay(kImmediateSaveRetryDelayMs);
@@ -677,7 +355,7 @@ bool saveToFs()
         if (!ok)
         {
             Serial.printf("[T-Echo Lite][settings] save retry failed status=%s\n",
-                          statusText(s_last_save_status));
+                          statusToText(s_last_save_status));
         }
     }
 
@@ -909,7 +587,7 @@ StoreStatus lastSaveStatus()
 
 const char* statusLabel(StoreStatus status)
 {
-    return statusText(status);
+    return statusToText(status);
 }
 
 } // namespace boards::t_echo_lite::settings_store

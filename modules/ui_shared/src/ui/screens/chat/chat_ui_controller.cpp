@@ -1158,7 +1158,7 @@ void UiController::key_verify_close_event_cb(lv_event_t* e)
     if (code == LV_EVENT_KEY)
     {
         lv_key_t key = static_cast<lv_key_t>(lv_event_get_key(e));
-        if (key != LV_KEY_ENTER)
+        if (key != LV_KEY_ENTER && key != LV_KEY_ESC && key != LV_KEY_BACKSPACE)
         {
             return;
         }

@@ -17,7 +17,9 @@ namespace
 using Adafruit_LittleFS_Namespace::FILE_O_READ;
 
 constexpr const char* kSettingsPath = "/ui_settings.bin";
+constexpr const char* kSettingsTempPath = "/ui_settings.bin.tmp";
 constexpr const char* kLogTag = "[nrf52][ui_settings]";
+constexpr const char* kRecoveryTempOpenStage = "temp_open";
 constexpr uint32_t kMagic = 0x55535447UL; // USTG
 constexpr uint16_t kVersion = 1;
 
@@ -167,24 +169,139 @@ bool writeRecordHeader(Adafruit_LittleFS_Namespace::File& file,
            (key.empty() || writeBytes(file, reinterpret_cast<const uint8_t*>(key.data()), key.size()));
 }
 
+bool abortTempSave(Adafruit_LittleFS_Namespace::File& file)
+{
+    if (file)
+    {
+        file.close();
+    }
+    ::platform::nrf52::arduino_common::internal_fs::removeIfExists(kSettingsTempPath);
+    return false;
+}
+
+void removeSettingsFiles()
+{
+    ::platform::nrf52::arduino_common::internal_fs::removeIfExists(kSettingsTempPath);
+    ::platform::nrf52::arduino_common::internal_fs::removeIfExists(kSettingsPath);
+}
+
+void removeRecoveryArtifact(const char* path)
+{
+    if (!path)
+    {
+        return;
+    }
+
+    const bool existed = InternalFS.exists(path);
+    ::platform::nrf52::arduino_common::internal_fs::removeIfExists(path);
+    if (existed)
+    {
+        Serial.printf("%s recovery removed path=%s\n", kLogTag, path);
+    }
+}
+
+bool formatForRecovery(const char* stage)
+{
+    Serial.printf("%s recovery format start stage=%s\n", kLogTag, stage ? stage : "?");
+    if (!InternalFS.format())
+    {
+        Serial.printf("%s recovery format failed stage=%s\n", kLogTag, stage ? stage : "?");
+        return false;
+    }
+    if (!InternalFS.begin())
+    {
+        Serial.printf("%s recovery remount failed stage=%s\n", kLogTag, stage ? stage : "?");
+        return false;
+    }
+    Serial.printf("%s recovery format ok stage=%s\n", kLogTag, stage ? stage : "?");
+    return true;
+}
+
+bool recoverForTempOpenFailure()
+{
+    Serial.printf("%s recovery start stage=%s\n", kLogTag, kRecoveryTempOpenStage);
+
+    if (!::platform::nrf52::arduino_common::internal_fs::removeVolatileArtifactsPreserveSettings(kLogTag))
+    {
+        return false;
+    }
+    if (InternalFS.exists(kSettingsTempPath))
+    {
+        Serial.printf("%s recovery temp still exists path=%s\n", kLogTag, kSettingsTempPath);
+        return false;
+    }
+
+    return true;
+}
+
+bool openSettingsTempForSave(Adafruit_LittleFS_Namespace::File* file)
+{
+    if (!file)
+    {
+        return false;
+    }
+
+    if (::platform::nrf52::arduino_common::internal_fs::openTempForReplace(kSettingsTempPath, file, false, kLogTag))
+    {
+        return true;
+    }
+
+    if (recoverForTempOpenFailure() &&
+        ::platform::nrf52::arduino_common::internal_fs::openTempForReplace(kSettingsTempPath, file, false, kLogTag))
+    {
+        Serial.printf("%s recovery save temp opened after cache cleanup\n", kLogTag);
+        return true;
+    }
+
+    removeRecoveryArtifact(kSettingsPath);
+    if (::platform::nrf52::arduino_common::internal_fs::openTempForReplace(kSettingsTempPath, file, false, kLogTag))
+    {
+        Serial.printf("%s recovery save temp opened after settings rewrite\n", kLogTag);
+        return true;
+    }
+
+    if (!formatForRecovery(kRecoveryTempOpenStage))
+    {
+        return false;
+    }
+
+    if (::platform::nrf52::arduino_common::internal_fs::openTempForReplace(kSettingsTempPath, file, false, kLogTag))
+    {
+        Serial.printf("%s recovery save temp opened after format\n", kLogTag);
+        return true;
+    }
+
+    Serial.printf("%s recovery temp open failed after format path=%s\n", kLogTag, kSettingsTempPath);
+    return false;
+}
+
+void abortLoadAndRemove(Adafruit_LittleFS_Namespace::File& file)
+{
+    if (file)
+    {
+        file.close();
+    }
+    removeSettingsFiles();
+    clearAllStores();
+}
+
 bool saveToFs()
 {
-    if (!::platform::nrf52::arduino_common::internal_fs::ensureMounted(false, kLogTag))
+    if (!::platform::nrf52::arduino_common::internal_fs::ensureMounted(false, kLogTag) &&
+        !formatForRecovery("mount"))
     {
         return false;
     }
 
     Adafruit_LittleFS_Namespace::File file(InternalFS);
-    if (!::platform::nrf52::arduino_common::internal_fs::openForOverwrite(kSettingsPath, &file, false, kLogTag))
+    if (!openSettingsTempForSave(&file))
     {
-        Serial.printf("%s open failed path=%s\n", kLogTag, kSettingsPath);
         return false;
     }
     if (!::platform::nrf52::arduino_common::internal_fs::rewindForOverwrite(file))
     {
-        file.close();
-        Serial.printf("%s seek failed path=%s\n", kLogTag, kSettingsPath);
-        return false;
+        Serial.printf("%s seek failed path=%s\n", kLogTag, kSettingsTempPath);
+        return abortTempSave(file);
     }
 
     const uint32_t record_count = static_cast<uint32_t>(
@@ -194,11 +311,10 @@ bool saveToFs()
     header.record_count = record_count;
     if (!writePod(file, header))
     {
-        file.close();
         Serial.printf("%s header write failed records=%lu\n",
                       kLogTag,
                       static_cast<unsigned long>(record_count));
-        return false;
+        return abortTempSave(file);
     }
 
     for (const auto& entry : intStore())
@@ -207,9 +323,8 @@ bool saveToFs()
         if (!writeRecordHeader(file, ValueType::Int, entry.first, sizeof(value)) ||
             !writeBytes(file, reinterpret_cast<const uint8_t*>(&value), sizeof(value)))
         {
-            file.close();
             Serial.printf("%s int write failed key=%s\n", kLogTag, entry.first.c_str());
-            return false;
+            return abortTempSave(file);
         }
         final_size += static_cast<uint32_t>(sizeof(RecordHeader) + entry.first.size() + sizeof(value));
     }
@@ -220,9 +335,8 @@ bool saveToFs()
         if (!writeRecordHeader(file, ValueType::Bool, entry.first, sizeof(value)) ||
             !writeBytes(file, &value, sizeof(value)))
         {
-            file.close();
             Serial.printf("%s bool write failed key=%s\n", kLogTag, entry.first.c_str());
-            return false;
+            return abortTempSave(file);
         }
         final_size += static_cast<uint32_t>(sizeof(RecordHeader) + entry.first.size() + sizeof(value));
     }
@@ -233,9 +347,8 @@ bool saveToFs()
         if (!writeRecordHeader(file, ValueType::Uint, entry.first, sizeof(value)) ||
             !writeBytes(file, reinterpret_cast<const uint8_t*>(&value), sizeof(value)))
         {
-            file.close();
             Serial.printf("%s uint write failed key=%s\n", kLogTag, entry.first.c_str());
-            return false;
+            return abortTempSave(file);
         }
         final_size += static_cast<uint32_t>(sizeof(RecordHeader) + entry.first.size() + sizeof(value));
     }
@@ -245,12 +358,11 @@ bool saveToFs()
         if (!writeRecordHeader(file, ValueType::Blob, entry.first, static_cast<uint32_t>(entry.second.size())) ||
             (!entry.second.empty() && !writeBytes(file, entry.second.data(), entry.second.size())))
         {
-            file.close();
             Serial.printf("%s blob write failed key=%s len=%lu\n",
                           kLogTag,
                           entry.first.c_str(),
                           static_cast<unsigned long>(entry.second.size()));
-            return false;
+            return abortTempSave(file);
         }
         final_size += static_cast<uint32_t>(sizeof(RecordHeader) + entry.first.size() + entry.second.size());
     }
@@ -263,12 +375,11 @@ bool saveToFs()
                          reinterpret_cast<const uint8_t*>(entry.second.data()),
                          entry.second.size())))
         {
-            file.close();
             Serial.printf("%s string write failed key=%s len=%lu\n",
                           kLogTag,
                           entry.first.c_str(),
                           static_cast<unsigned long>(entry.second.size()));
-            return false;
+            return abortTempSave(file);
         }
         final_size += static_cast<uint32_t>(sizeof(RecordHeader) + entry.first.size() + entry.second.size());
     }
@@ -281,10 +392,16 @@ bool saveToFs()
     {
         Serial.printf("%s truncate failed path=%s size=%lu\n",
                       kLogTag,
-                      kSettingsPath,
+                      kSettingsTempPath,
                       static_cast<unsigned long>(final_size));
+        ::platform::nrf52::arduino_common::internal_fs::removeIfExists(kSettingsTempPath);
+        return false;
     }
-    return trunc_ok;
+    return ::platform::nrf52::arduino_common::internal_fs::commitTempReplace(
+        kSettingsPath,
+        kSettingsTempPath,
+        false,
+        kLogTag);
 }
 
 void ensureLoaded()
@@ -300,6 +417,7 @@ void ensureLoaded()
         return;
     }
     loadedFlag() = true;
+    ::platform::nrf52::arduino_common::internal_fs::removeIfExists(kSettingsTempPath);
 
     if (!InternalFS.exists(kSettingsPath))
     {
@@ -309,13 +427,14 @@ void ensureLoaded()
     auto file = InternalFS.open(kSettingsPath, FILE_O_READ);
     if (!file)
     {
+        removeSettingsFiles();
         return;
     }
 
     FileHeader header{};
     if (!readPod(file, &header) || header.magic != kMagic || header.version != kVersion)
     {
-        file.close();
+        abortLoadAndRemove(file);
         return;
     }
 
@@ -330,7 +449,7 @@ void ensureLoaded()
         RecordHeader rec{};
         if (!readPod(file, &rec))
         {
-            file.close();
+            abortLoadAndRemove(file);
             return;
         }
 
@@ -338,7 +457,7 @@ void ensureLoaded()
         if (rec.key_len > 0 &&
             !readBytes(file, reinterpret_cast<uint8_t*>(&key[0]), rec.key_len))
         {
-            file.close();
+            abortLoadAndRemove(file);
             return;
         }
 
@@ -349,7 +468,7 @@ void ensureLoaded()
             int32_t value = 0;
             if (rec.value_len != sizeof(value) || !readPod(file, &value))
             {
-                file.close();
+                abortLoadAndRemove(file);
                 return;
             }
             loaded_ints[key] = value;
@@ -360,7 +479,7 @@ void ensureLoaded()
             uint8_t value = 0;
             if (rec.value_len != sizeof(value) || !readPod(file, &value))
             {
-                file.close();
+                abortLoadAndRemove(file);
                 return;
             }
             loaded_bools[key] = (value != 0);
@@ -371,7 +490,7 @@ void ensureLoaded()
             uint32_t value = 0;
             if (rec.value_len != sizeof(value) || !readPod(file, &value))
             {
-                file.close();
+                abortLoadAndRemove(file);
                 return;
             }
             loaded_uints[key] = value;
@@ -382,7 +501,7 @@ void ensureLoaded()
             std::vector<uint8_t> value(rec.value_len, 0);
             if (rec.value_len > 0 && !readBytes(file, value.data(), rec.value_len))
             {
-                file.close();
+                abortLoadAndRemove(file);
                 return;
             }
             loaded_blobs[key] = std::move(value);
@@ -394,7 +513,7 @@ void ensureLoaded()
             if (rec.value_len > 0 &&
                 !readBytes(file, reinterpret_cast<uint8_t*>(&value[0]), rec.value_len))
             {
-                file.close();
+                abortLoadAndRemove(file);
                 return;
             }
             loaded_strings[key] = std::move(value);
@@ -405,7 +524,7 @@ void ensureLoaded()
             std::vector<uint8_t> skip(rec.value_len, 0);
             if (rec.value_len > 0 && !readBytes(file, skip.data(), rec.value_len))
             {
-                file.close();
+                abortLoadAndRemove(file);
                 return;
             }
             break;

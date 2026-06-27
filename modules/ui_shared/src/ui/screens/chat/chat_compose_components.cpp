@@ -558,6 +558,16 @@ void ChatComposeScreen::on_key(lv_event_t* e)
     }
 
     uint32_t key = lv_event_get_key(e);
+    if (key == LV_KEY_ESC)
+    {
+        if (screen->back_cb_)
+        {
+            screen->schedule_back_async();
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+
     if (key == LV_KEY_ENTER && screen->impl_->w.send_btn)
     {
         lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));

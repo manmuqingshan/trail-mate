@@ -14,7 +14,6 @@
 #include "meshtastic/telemetry.pb.h"
 #include "phone/meshtastic/meshtastic_phone_session.h"
 #include "platform/shared/ble/phone_ble_runtime.h"
-#include <array>
 #include <atomic>
 #include <bluefruit.h>
 #include <memory>
@@ -30,13 +29,6 @@ class MeshtasticBleService final : public BleService,
                                    public platform::shared::ble_bridge::IPhoneBleRuntime
 {
   public:
-    struct Frame
-    {
-        size_t len = 0;
-        uint32_t from_num = 0;
-        std::array<uint8_t, meshtastic_FromRadio_size> buf{};
-    };
-
     MeshtasticBleService(app::IAppBleFacade& ctx, const std::string& device_name);
     ~MeshtasticBleService() override;
 
@@ -52,16 +44,8 @@ class MeshtasticBleService final : public BleService,
 
     bool handleToRadio(const uint8_t* data, size_t len);
     bool enqueueToRadio(const uint8_t* data, size_t len);
-    void handleToPhone();
     void flushPendingFromNumNotify();
-    bool shouldBlockOnRead() const;
-    bool hasReadableFromRadio() const;
-    void markReadableFromRadioConsumed();
-    bool popQueuedToPhoneFrame(Frame* out);
-    void beginReadWait();
-    bool isReadWaiting() const;
-    void endReadWait();
-    bool waitForReadableFromRadio(uint8_t max_tries, uint8_t delay_ms);
+    bool writeNextFromRadioForRead();
     void handleConnectEvent(uint16_t conn_handle);
     void handleDisconnectEvent(uint16_t conn_handle);
     void handleFromNumCccdWrite(uint16_t conn_handle, uint16_t value);
@@ -88,9 +72,7 @@ class MeshtasticBleService final : public BleService,
 
     void processPendingToRadio();
     void processPendingPairingRequest();
-    bool enqueueToPhoneFrame(const Frame& frame);
     void clearToPhoneQueue();
-    void prepareReadableFromRadio();
     void syncMqttProxySettings();
     void markConfigSavePending(bool bluetooth_changed, bool module_changed);
     void flushPendingConfigSaves(bool force = false);
@@ -128,24 +110,11 @@ class MeshtasticBleService final : public BleService,
     volatile bool pairing_request_pending_ = false;
     volatile uint16_t pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
 
-    std::atomic<bool> read_waiting_{false};
-
-    bool pending_to_phone_valid_ = false;
-    Frame pending_to_phone_{};
     phone::meshtastic::MeshtasticBleFrame session_frame_scratch_{};
-
-    static constexpr uint8_t kToPhoneQueueDepth = 3;
-    Frame to_phone_queue_[kToPhoneQueueDepth]{};
-    volatile uint8_t to_phone_head_ = 0;
-    volatile uint8_t to_phone_tail_ = 0;
-    volatile uint8_t to_phone_count_ = 0;
-
-    bool from_radio_preloaded_valid_ = false;
-    Frame from_radio_preloaded_{};
-    bool from_radio_consume_pending_ = false;
 
     bool pending_from_num_valid_ = false;
     uint32_t pending_from_num_ = 0;
+    uint32_t from_num_notify_counter_ = 0;
 
     volatile bool pending_connect_log_ = false;
     volatile bool pending_disconnect_log_ = false;

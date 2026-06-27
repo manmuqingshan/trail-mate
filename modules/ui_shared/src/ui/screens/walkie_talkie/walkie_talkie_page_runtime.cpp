@@ -139,7 +139,7 @@ void on_back(void*)
 void root_key_event_cb(lv_event_t* e)
 {
     uint32_t key = lv_event_get_key(e);
-    if (key != LV_KEY_BACKSPACE)
+    if (key != LV_KEY_BACKSPACE && key != LV_KEY_ESC)
     {
         return;
     }
@@ -172,7 +172,7 @@ void monitor_row_event_cb(lv_event_t* e)
         lv_event_stop_processing(e);
         return;
     }
-    if (key == LV_KEY_BACKSPACE)
+    if (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC)
     {
         on_back(nullptr);
         lv_event_stop_processing(e);

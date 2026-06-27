@@ -2264,7 +2264,7 @@ void root_key_event_cb(lv_event_t* e)
     {
         return;
     }
-    if (key == LV_KEY_BACKSPACE)
+    if (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC)
     {
         consume_key_event(e);
         request_exit();

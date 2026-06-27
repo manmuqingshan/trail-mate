@@ -23,9 +23,21 @@ builds/pio_nrf52
   -> invokes apps/nrf52_node app shell
 ```
 
-This directory is a Phase 8.2 migration stub. It does not yet contain
-`platformio.ini`, environment definitions, library path rewrites, or generated
-build state.
+This directory is the active nRF52 wrapper used for `t-echo-lite`, and it also
+keeps a wrapper build for `gat562_mesh_evb_pro` while the root PlatformIO
+environment remains available.
+
+Current release-build commands:
+
+```bash
+platformio run -d builds/pio_nrf52 -e t-echo-lite
+platformio run -d builds/pio_nrf52 -e gat562_mesh_evb_pro
+```
+
+Release artifacts for the nRF52840 manual-flash targets prefer generated
+`firmware.uf2` files. CI verifies that these UF2 files use the nRF52840 family
+ID `0xADA52840`. The `.hex` and `.zip` outputs remain useful for diagnostics
+and toolchain-specific fallback paths.
 
 Rules:
 

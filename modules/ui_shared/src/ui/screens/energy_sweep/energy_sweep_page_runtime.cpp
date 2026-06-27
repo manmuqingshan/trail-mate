@@ -1228,7 +1228,7 @@ void move_cursor_manual(int delta)
 
 void handle_key_common(uint32_t key)
 {
-    if (key == LV_KEY_BACKSPACE)
+    if (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC)
     {
         on_back_requested(nullptr);
         return;

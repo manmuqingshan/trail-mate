@@ -52,8 +52,10 @@ Bundle-level package metadata lives in:
   glyphs from the built-in Pinyin dictionary.
 - `zh-hans-ext` contains the remaining glyphs from the Pinyin dictionary that are not
   already present in `zh-hans-core`.
-- On Chinese UI locale, the runtime loads `zh-hans-core` immediately and only brings in
-  `zh-hans-ext` when displayed content requires additional coverage.
+- On Chinese UI locale, ESP targets load `zh-hans-core` immediately and may preload
+  `zh-hans-ext` during locale activation when the current memory profile allows the
+  preferred content supplement. This keeps common chat/content glyphs available before
+  the render hot path asks for them.
 - On non-Chinese UI locales, the runtime can load one or both packs as content
   supplements when Chinese text appears.
 

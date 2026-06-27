@@ -131,6 +131,11 @@ ui::mono::HostCallbacks::ResourceUsage flash_usage()
     return usage;
 }
 
+bool clear_volatile_storage()
+{
+    return AppFacadeRuntime::instance().clearVolatileStoragePreserveSettings();
+}
+
 uint8_t message_tone_volume()
 {
     return platform::ui::device::default_message_tone_volume();
@@ -325,6 +330,7 @@ bool initialize()
     callbacks.gps_powered_fn = platform::ui::gps::is_powered;
     callbacks.ram_usage_fn = ram_usage;
     callbacks.flash_usage_fn = flash_usage;
+    callbacks.clear_volatile_storage_fn = clear_volatile_storage;
     callbacks.message_tone_volume_fn = message_tone_volume;
     callbacks.set_message_tone_volume_fn = set_message_tone_volume;
     callbacks.play_message_tone_fn = play_message_tone;

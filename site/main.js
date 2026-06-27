@@ -525,14 +525,43 @@ const DEVICES = [
     },
     interactions: {
       en: [
-        "Use the downloaded firmware file instead of the browser flasher.",
+        "Use the GAT562 nRF52840 UF2 release file instead of the browser flasher.",
         "This board follows a different flashing model than the ESP32-S3 devices above.",
         "Screenshots will be added when this target has its own captured UI set.",
       ],
       zh: [
-        "请使用 GitHub Release 中的发布包，不要使用网页刷机。",
+        "请优先使用 GitHub Release 中的 GAT562 nRF52840 UF2 发布文件，不要使用网页刷机。",
         "这个设备的刷写方式和上面的 ESP32-S3 设备不同。",
         "后续有独立截图后，会补充该目标自己的界面展示。",
+      ],
+    },
+    screenshots: [],
+  },
+  {
+    id: "t-echo-lite",
+    chip: "nRF52",
+    title: {
+      en: "LILYGO T-Echo-Lite-KeyShield",
+      zh: "LILYGO T-Echo-Lite-KeyShield",
+    },
+    status: {
+      en: "Manual flashing",
+      zh: "手动刷写",
+    },
+    summary: {
+      en: "nRF52 e-paper keyboard target with 192x176 mono UI, physical keypad input, and local radio/device settings.",
+      zh: "nRF52 电子纸键盘目标，带 192x176 mono UI、实体键盘输入，以及本地无线和设备设置。",
+    },
+    interactions: {
+      en: [
+        "Use the t-echo-lite nRF52840 UF2 release file from GitHub Releases.",
+        "Browser flashing is not available for this nRF52 target yet.",
+        "Choose this firmware only for the T-Echo-Lite-KeyShield hardware.",
+      ],
+      zh: [
+        "请优先使用 GitHub Release 中的 t-echo-lite nRF52840 UF2 发布文件。",
+        "这个 nRF52 目标暂不支持网页刷机。",
+        "这个固件只用于 T-Echo-Lite-KeyShield 硬件。",
       ],
     },
     screenshots: [],

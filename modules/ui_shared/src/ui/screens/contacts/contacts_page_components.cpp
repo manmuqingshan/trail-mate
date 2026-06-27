@@ -143,6 +143,7 @@ static void on_del_cancel_clicked(lv_event_t* e);
 static void on_discovery_scan_done(lv_timer_t* timer);
 static void execute_discovery_command(uint8_t command_index);
 static void on_node_info_back_clicked(lv_event_t* e);
+static void on_node_info_key(lv_event_t* e);
 static void open_chat_compose();
 static void close_chat_compose();
 static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, void* user_data);
@@ -1264,11 +1265,13 @@ static void open_node_info_screen_for_node(uint32_t node_id)
         lv_group_add_obj(g_contacts_state.node_info_group, widgets.back_btn);
         lv_group_focus_obj(widgets.back_btn);
         lv_obj_add_event_cb(widgets.back_btn, on_node_info_back_clicked, LV_EVENT_CLICKED, nullptr);
+        lv_obj_add_event_cb(widgets.back_btn, on_node_info_key, LV_EVENT_KEY, nullptr);
         CONTACTS_NODE_INFO_LOG("back button wired and focused back_btn=%p\n", widgets.back_btn);
     }
     if (widgets.layer_btn)
     {
         lv_group_add_obj(g_contacts_state.node_info_group, widgets.layer_btn);
+        lv_obj_add_event_cb(widgets.layer_btn, on_node_info_key, LV_EVENT_KEY, nullptr);
         CONTACTS_NODE_INFO_LOG("layer button added layer_btn=%p\n", widgets.layer_btn);
     }
 
@@ -2001,6 +2004,21 @@ static void on_node_info_back_clicked(lv_event_t* /*e*/)
 {
     CONTACTS_NODE_INFO_LOG("back button clicked\n");
     close_node_info_screen();
+}
+
+static void on_node_info_key(lv_event_t* e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_KEY)
+    {
+        return;
+    }
+
+    const uint32_t key = lv_event_get_key(e);
+    if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE)
+    {
+        CONTACTS_NODE_INFO_LOG("back key received key=%lu\n", static_cast<unsigned long>(key));
+        close_node_info_screen();
+    }
 }
 
 static const char* discovery_failure_message(chat::MeshOperationFailure failure,

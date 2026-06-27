@@ -123,10 +123,11 @@ CJK 字体 pack 必须把常用中文/全角标点当作 pack 资源处理，而
 1. 从 `settings/display_locale` 解析当前活动 locale。
 2. 当该 locale 被激活时，立即加载活动 UI font pack。
 3. 活动 content font pack 采用惰性加载，只在 content-scope 文本真正需要时才加载。
-4. 如果当前文本包含活动 content chain 尚未覆盖的 codepoint，则惰性加载额外的 content supplement pack。
-5. 切换 locale 时，会卸载所有运行时已加载的外部字体，并从头重建整条链。
+4. ESP 上，如果活动 locale 显式声明 `preferred_content_supplement_packs`，registry 可以在 locale 激活阶段按 supplement 预算预加载这些已编目的 content supplement。
+5. 如果当前文本包含活动 content chain 尚未覆盖的 codepoint，则惰性加载额外的 content supplement pack。
+6. 切换 locale 时，会卸载所有运行时已加载的外部字体，并从头重建整条链。
 
-这意味着，一个设备可以安装很多 pack，但任意时刻真正驻留在 RAM 中的只会有一到两个。
+这意味着，一个设备可以安装很多 pack，但任意时刻真正驻留在 RAM 中的只会是 active locale 需要的 UI/content 字体，以及当前 memory profile 允许的少量 content supplement。
 
 ## UI Scope 与 Content Scope
 
@@ -165,7 +166,7 @@ screen-selected Latin base font -> active UI font pack
 screen-selected Latin base font
 -> active content font pack
 -> active UI font pack
--> lazily loaded content supplement packs
+-> registry-preloaded or lazily loaded content supplement packs
 ```
 
 这就是为什么在非中文 UI 下，只要安装了相应 pack，系统仍然能正确显示中文内容。

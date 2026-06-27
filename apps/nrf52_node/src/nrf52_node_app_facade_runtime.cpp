@@ -14,6 +14,7 @@
 #include "platform/nrf52/arduino_common/chat/infra/radio_packet_io.h"
 #include "platform/nrf52/arduino_common/chat/infra/store/internal_fs_store.h"
 #include "platform/nrf52/arduino_common/device_identity.h"
+#include "platform/nrf52/arduino_common/internal_fs_utils.h"
 #include "platform/nrf52/arduino_common/self_identity_bridge.h"
 #include "platform/nrf52/arduino_common/sys/event_bus.h"
 #include "platform/nrf52/debug/nrf52_debug_console.h"
@@ -596,6 +597,28 @@ void AppFacadeRuntime::clearMessageDb()
     {
         chat_service_->clearAllMessages();
     }
+}
+
+bool AppFacadeRuntime::clearVolatileStoragePreserveSettings()
+{
+    clearNodeDb();
+
+    bool contact_ok = true;
+    if (contact_store_)
+    {
+        auto* nrf_contact_store =
+            static_cast<platform::nrf52::arduino_common::chat::infra::ContactStore*>(contact_store_.get());
+        contact_ok = nrf_contact_store->clear();
+    }
+    if (contact_service_)
+    {
+        contact_service_->clearCache();
+    }
+
+    clearMessageDb();
+    const bool fs_ok = platform::nrf52::arduino_common::internal_fs::removeVolatileArtifactsPreserveSettings(
+        "[nrf52][storage]");
+    return contact_ok && fs_ok;
 }
 
 ble::BleManager* AppFacadeRuntime::getBleManager()

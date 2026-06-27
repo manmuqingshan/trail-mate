@@ -129,7 +129,7 @@ constexpr const char* kDiscoverItems[] = {
 };
 
 constexpr const char* kSettingsMenuItems[] = {
-    "LORA",
+    "PROTO",
     "DEVICE",
     "ACTIONS",
 };
@@ -168,27 +168,6 @@ struct RadioSettingDef
 
 constexpr RadioSettingDef kRadioItems[] = {
     {RadioSettingItem::Protocol, "PROTO"},
-    {RadioSettingItem::MtRegion, "MT REGION"},
-    {RadioSettingItem::MtMode, "MT MODE"},
-    {RadioSettingItem::MtPreset, "MT PRESET"},
-    {RadioSettingItem::MtBandwidth, "MT BW"},
-    {RadioSettingItem::MtSpreadFactor, "MT SF"},
-    {RadioSettingItem::MtCodingRate, "MT CR"},
-    {RadioSettingItem::MtTxPower, "MT TX"},
-    {RadioSettingItem::MtChannelSlot, "MT SLOT"},
-    {RadioSettingItem::MtPrimaryKey, "MT PSK"},
-    {RadioSettingItem::MtOverrideFrequency, "MT FREQ"},
-    {RadioSettingItem::MtFrequencyOffset, "MT OFFSET"},
-    {RadioSettingItem::McRegion, "MC REGION"},
-    {RadioSettingItem::McFrequency, "MC FREQ"},
-    {RadioSettingItem::McBandwidth, "MC BW"},
-    {RadioSettingItem::McSpreadFactor, "MC SF"},
-    {RadioSettingItem::McCodingRate, "MC CR"},
-    {RadioSettingItem::McTxPower, "MC TX"},
-    {RadioSettingItem::McChannelSlot, "MC SLOT"},
-    {RadioSettingItem::McChannelName, "MC NAME"},
-    {RadioSettingItem::McChannelKey, "MC KEY"},
-    {RadioSettingItem::Encrypt, "ENCRYPT"},
 };
 
 constexpr uint16_t kMeshtasticChannelNumMax = 16;
@@ -291,8 +270,13 @@ constexpr const char* kActionItems[] = {
     "BROADCAST ID",
     "CLEAR NODES",
     "CLEAR MSGS",
-    "RESET RADIO",
+    "CLEAR CACHE",
 };
+
+bool actionNeedsConfirm(size_t index)
+{
+    return index == 1 || index == 2 || index == 3;
+}
 
 constexpr const char* kMessageMenuItems[] = {
     "INFO",
@@ -3168,7 +3152,7 @@ void Runtime::handleInput(InputAction action)
         }
         else if (action == InputAction::Right || action == InputAction::Select || action == InputAction::Primary)
         {
-            if (action_index_ == 1 || action_index_ == 2)
+            if (actionNeedsConfirm(action_index_))
             {
                 beginSettingPopup(Page::ActionPage, action_index_);
             }
@@ -4493,7 +4477,7 @@ void Runtime::renderRadioSettings()
         radio_index_ = item_count - 1;
     }
 
-    drawTitleBar("LORA", protocolShortLabel(protocol));
+    drawTitleBar("PROTO", protocolShortLabel(protocol));
     char value[40] = {};
     auto& cfg = app()->getConfig();
     const int row_y = 12;
@@ -7472,10 +7456,15 @@ void Runtime::executeActionPageItem(size_t index)
         appendBootLog("messages cleared");
         break;
     case 3:
-        if (auto* ble_app = static_cast<app::IAppBleFacade*>(app()))
+        if (host_.clear_volatile_storage_fn && host_.clear_volatile_storage_fn())
         {
-            ble_app->resetMeshConfig();
-            appendBootLog("radio reset");
+            appendBootLog("cache cleared");
+            showTransientPopup("STORAGE", "CACHE CLEARED", 2000U);
+        }
+        else
+        {
+            appendBootLog("cache clear fail");
+            showTransientPopup("STORAGE", "CLEAR FAILED", 2500U);
         }
         break;
     default:
