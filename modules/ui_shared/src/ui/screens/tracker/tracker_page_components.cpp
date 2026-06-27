@@ -152,7 +152,7 @@ void on_backspace_key(lv_event_t* e)
         return;
     }
     uint32_t key = lv_event_get_key(e);
-    if (key != LV_KEY_BACKSPACE)
+    if (key != LV_KEY_BACKSPACE && key != LV_KEY_ESC)
     {
         return;
     }

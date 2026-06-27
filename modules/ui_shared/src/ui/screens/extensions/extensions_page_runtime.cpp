@@ -114,6 +114,35 @@ void on_back(void*)
     request_exit();
 }
 
+void show_list_view();
+
+bool is_back_key(uint32_t key)
+{
+    return key == LV_KEY_ESC || key == LV_KEY_BACKSPACE;
+}
+
+void on_key(lv_event_t* event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_KEY)
+    {
+        return;
+    }
+    const uint32_t key = lv_event_get_key(event);
+    if (!is_back_key(key))
+    {
+        return;
+    }
+    if (s_runtime.view == MainView::Detail)
+    {
+        show_list_view();
+    }
+    else
+    {
+        request_exit();
+    }
+    lv_event_stop_processing(event);
+}
+
 void on_focus_scroll(lv_event_t* event)
 {
     if (lv_event_get_code(event) != LV_EVENT_FOCUSED)
@@ -126,6 +155,17 @@ void on_focus_scroll(lv_event_t* event)
     {
         lv_obj_scroll_to_view(target, LV_ANIM_ON);
     }
+}
+
+void add_focusable(lv_obj_t* obj)
+{
+    if (obj == nullptr || app_g == nullptr)
+    {
+        return;
+    }
+    lv_group_add_obj(app_g, obj);
+    lv_obj_remove_event_cb(obj, on_key);
+    lv_obj_add_event_cb(obj, on_key, LV_EVENT_KEY, nullptr);
 }
 
 std::string format_size(std::size_t bytes)
@@ -429,38 +469,38 @@ void sync_focus_group(lv_obj_t* preferred_focus = nullptr)
 
     if (s_runtime.top_bar.back_btn != nullptr)
     {
-        lv_group_add_obj(app_g, s_runtime.top_bar.back_btn);
+        add_focusable(s_runtime.top_bar.back_btn);
     }
     if (s_runtime.installed_filter_btn != nullptr)
     {
-        lv_group_add_obj(app_g, s_runtime.installed_filter_btn);
+        add_focusable(s_runtime.installed_filter_btn);
     }
     if (s_runtime.uninstalled_filter_btn != nullptr)
     {
-        lv_group_add_obj(app_g, s_runtime.uninstalled_filter_btn);
+        add_focusable(s_runtime.uninstalled_filter_btn);
     }
     if (s_runtime.detail_back_btn != nullptr)
     {
-        lv_group_add_obj(app_g, s_runtime.detail_back_btn);
+        add_focusable(s_runtime.detail_back_btn);
     }
     for (lv_obj_t* btn : s_runtime.list_buttons)
     {
         if (btn != nullptr)
         {
-            lv_group_add_obj(app_g, btn);
+            add_focusable(btn);
         }
     }
     if (s_runtime.primary_action_btn != nullptr)
     {
-        lv_group_add_obj(app_g, s_runtime.primary_action_btn);
+        add_focusable(s_runtime.primary_action_btn);
     }
     if (s_runtime.uninstall_btn != nullptr)
     {
-        lv_group_add_obj(app_g, s_runtime.uninstall_btn);
+        add_focusable(s_runtime.uninstall_btn);
     }
     if (s_runtime.connect_btn != nullptr)
     {
-        lv_group_add_obj(app_g, s_runtime.connect_btn);
+        add_focusable(s_runtime.connect_btn);
     }
 
     if (preferred_focus != nullptr && lv_obj_is_valid(preferred_focus))

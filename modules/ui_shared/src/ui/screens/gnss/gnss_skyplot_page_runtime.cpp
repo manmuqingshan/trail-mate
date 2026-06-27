@@ -1025,7 +1025,7 @@ void on_status_toggle_clicked(lv_event_t* e)
 void root_key_event_cb(lv_event_t* e)
 {
     uint32_t key = lv_event_get_key(e);
-    if (key != LV_KEY_BACKSPACE)
+    if (key != LV_KEY_BACKSPACE && key != LV_KEY_ESC)
     {
         return;
     }
@@ -1047,7 +1047,7 @@ void root_key_event_cb(lv_event_t* e)
 void back_btn_key_event_cb(lv_event_t* e)
 {
     uint32_t key = lv_event_get_key(e);
-    if (key != LV_KEY_BACKSPACE)
+    if (key != LV_KEY_BACKSPACE && key != LV_KEY_ESC)
     {
         return;
     }

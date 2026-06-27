@@ -971,6 +971,20 @@ void close_leave_confirm_modal()
     modal_restore_group();
 }
 
+void leave_confirm_modal_key_cb(lv_event_t* e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_KEY)
+    {
+        return;
+    }
+    const uint32_t key = lv_event_get_key(e);
+    if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE)
+    {
+        close_leave_confirm_modal();
+        lv_event_stop_processing(e);
+    }
+}
+
 uint32_t now_secs()
 {
     return sys::millis_now() / 1000U;
@@ -984,6 +998,7 @@ lv_obj_t* create_modal_button(lv_obj_t* parent, const char* text, lv_event_cb_t 
     lv_obj_set_style_pad_hor(btn, kActionBtnPadH, LV_PART_MAIN);
     lv_obj_t* label = lv_label_create(btn);
     ::ui::i18n::set_label_text(label, text);
+    lv_obj_add_event_cb(btn, leave_confirm_modal_key_cb, LV_EVENT_KEY, nullptr);
     lv_obj_update_layout(label);
     lv_coord_t width = lv_obj_get_width(label) + (kActionBtnPadH * 2);
     if (width < ::ui::page_profile::resolve_compact_button_min_width())

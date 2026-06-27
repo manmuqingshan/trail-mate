@@ -22,7 +22,16 @@ void request_exit(const ui::placeholder_page::State* state)
 
 void back_event_cb(lv_event_t* event)
 {
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED)
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_KEY)
+    {
+        const uint32_t key = lv_event_get_key(event);
+        if (key != LV_KEY_ESC && key != LV_KEY_BACKSPACE)
+        {
+            return;
+        }
+    }
+    else if (code != LV_EVENT_CLICKED)
     {
         return;
     }
@@ -65,6 +74,14 @@ void show(State& state, lv_obj_t* parent)
                     profile.large_touch_hitbox ? 40 : 32);
     lv_obj_align(back_btn, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_add_event_cb(back_btn, back_event_cb, LV_EVENT_CLICKED, &state);
+    lv_obj_add_event_cb(back_btn, back_event_cb, LV_EVENT_KEY, &state);
+    lv_obj_add_event_cb(state.root, back_event_cb, LV_EVENT_KEY, &state);
+    if (app_g)
+    {
+        lv_group_add_obj(app_g, back_btn);
+        lv_group_focus_obj(back_btn);
+        set_default_group(app_g);
+    }
 
     lv_obj_t* back_label = lv_label_create(back_btn);
     const std::string back_text = std::string(LV_SYMBOL_LEFT " ") + ::ui::i18n::tr("Back");
