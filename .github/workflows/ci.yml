@@ -54,12 +54,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env:
-          - tlora_pager_sx1262
-          - tlora_pager_lr1121
-          - tdeck
-          - lilygo_twatch_s3
-          - gat562_mesh_evb_pro
+        include:
+          - env: tlora_pager_sx1262
+            project_dir: .
+            build_root: .pio/build
+          - env: tlora_pager_lr1121
+            project_dir: .
+            build_root: .pio/build
+          - env: tdeck
+            project_dir: .
+            build_root: .pio/build
+          - env: lilygo_twatch_s3
+            project_dir: .
+            build_root: .pio/build
+          - env: gat562_mesh_evb_pro
+            project_dir: .
+            build_root: .pio/build
+          - env: t-echo-lite
+            project_dir: builds/pio_nrf52
+            build_root: builds/pio_nrf52/.pio/build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,18 +100,19 @@ jobs:
         with:
           path: |
             ~/.platformio
-          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini') }}
+          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini', 'builds/pio_nrf52/platformio.ini') }}
 
       - name: Install PlatformIO
         run: python -m pip install --upgrade platformio
 
       - name: Build (${{ matrix.env }})
-        run: pio run -e ${{ matrix.env }}
+        run: pio run -d ${{ matrix.project_dir }} -e ${{ matrix.env }}
 
       - name: Validate OTA slot size
         run: |
-          if [ -f ".pio/build/${{ matrix.env }}/firmware.bin" ]; then
-            SIZE=$(stat -c%s ".pio/build/${{ matrix.env }}/firmware.bin")
+          BUILD_DIR="${{ matrix.build_root }}/${{ matrix.env }}"
+          if [ -f "${BUILD_DIR}/firmware.bin" ]; then
+            SIZE=$(stat -c%s "${BUILD_DIR}/firmware.bin")
             MAX_SIZE=$((0x400000))
             echo "firmware.bin size=${SIZE} max=${MAX_SIZE}"
             if [ "${SIZE}" -gt "${MAX_SIZE}" ]; then
@@ -107,14 +121,27 @@ jobs:
             fi
           fi
 
+      - name: Prepare and verify T-Echo-Lite UF2
+        if: matrix.env == 't-echo-lite'
+        run: |
+          python scripts/prepare_nrf52_uf2.py \
+            --env ${{ matrix.env }} \
+            --build-root ${{ matrix.build_root }}
+
       - name: Collect firmware
         run: |
           mkdir -p dist
-          if [ "${{ matrix.env }}" = "gat562_mesh_evb_pro" ]; then
-            cp .pio/build/${{ matrix.env }}/firmware.hex dist/trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}.hex
-            cp .pio/build/${{ matrix.env }}/firmware.zip dist/trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}.zip
-          else
-            cp .pio/build/${{ matrix.env }}/firmware.bin dist/trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}.bin
+          BUILD_DIR="${{ matrix.build_root }}/${{ matrix.env }}"
+          copied=0
+          for ext in bin hex uf2 zip; do
+            if [ -f "${BUILD_DIR}/firmware.${ext}" ]; then
+              cp "${BUILD_DIR}/firmware.${ext}" "dist/trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}.${ext}"
+              copied=$((copied + 1))
+            fi
+          done
+          if [ "${copied}" -eq 0 ]; then
+            echo "No firmware artifacts found in ${BUILD_DIR}" >&2
+            exit 1
           fi
 
       - name: Prepare web flasher image
@@ -122,7 +149,7 @@ jobs:
         run: |
           python scripts/prepare_webflash_release.py \
             --env ${{ matrix.env }} \
-            --build-root .pio/build \
+            --build-root ${{ matrix.build_root }} \
             --dist dist \
             --boot-app0 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
             --esptool ~/.platformio/packages/tool-esptoolpy/esptool.py
@@ -130,7 +157,7 @@ jobs:
       - name: Collect debug symbols
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          BUILD_DIR=".pio/build/${{ matrix.env }}"
+          BUILD_DIR="${{ matrix.build_root }}/${{ matrix.env }}"
           SYMBOL_DIR="dist/symbols/${{ matrix.env }}"
           mkdir -p "${SYMBOL_DIR}"
 
@@ -195,7 +222,7 @@ jobs:
 
       - name: Verify collected firmware files
         run: |
-          find dist -type f \( -name '*.bin' -o -name '*.hex' -o -name '*.zip' \) -print | sort
+          find dist -type f \( -name '*.bin' -o -name '*.hex' -o -name '*.uf2' -o -name '*.zip' \) -print | sort
 
       - name: Extract changelog entry
         run: |
@@ -228,6 +255,7 @@ jobs:
           files: |
             dist/**/*.bin
             dist/**/*.hex
+            dist/**/*.uf2
             dist/**/*.zip
 
       - name: Refresh Pages metadata
