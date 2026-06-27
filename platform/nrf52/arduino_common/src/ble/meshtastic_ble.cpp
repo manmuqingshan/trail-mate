@@ -1008,17 +1008,19 @@ void MeshtasticBleService::requestPhoneLowerPowerConnection()
 void MeshtasticBleService::onPhoneBluetoothConfigChanged()
 {
     markConfigSavePending(true, false);
-    bleLogBoth("[BLE][nrf52][mt] saveBluetoothConfig queued mode=%u pin=%06lu enabled=%u",
+    bleLogBoth("[BLE][nrf52][mt] saveBluetoothConfig requested mode=%u pin=%06lu enabled=%u",
                static_cast<unsigned>(ble_config_.mode),
                static_cast<unsigned long>(ble_config_.fixed_pin),
                ble_config_.enabled ? 1U : 0U);
+    flushPendingConfigSaves(true);
 }
 
 void MeshtasticBleService::onPhoneModuleConfigChanged()
 {
     markConfigSavePending(false, true);
     syncMqttProxySettings();
-    bleLogBoth("[BLE][nrf52][mt] saveModuleConfig queued");
+    bleLogBoth("[BLE][nrf52][mt] saveModuleConfig requested");
+    flushPendingConfigSaves(true);
 }
 
 void MeshtasticBleService::notifyFromNum(uint32_t from_num)
