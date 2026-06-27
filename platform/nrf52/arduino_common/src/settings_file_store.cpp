@@ -61,6 +61,18 @@ StoreStatus writeWholeFile(const ReplaceRequest& request,
 {
     const char* prefix = logPrefix(request.log_prefix);
     Adafruit_LittleFS_Namespace::File file(InternalFS);
+    if (truncate_first)
+    {
+        // nRF52 LittleFS can assert when an existing file is truncated and
+        // rewritten in place. Remove first so fallback writes use fresh blocks.
+        internal_fs::removeIfExists(path);
+        if (InternalFS.exists(path))
+        {
+            Serial.printf("%s %s remove before rewrite failed path=%s\n", prefix, label, path);
+            return StoreStatus::WriteFailed;
+        }
+    }
+
     file = InternalFS.open(path, FILE_O_WRITE);
     if (!file)
     {
@@ -68,12 +80,6 @@ StoreStatus writeWholeFile(const ReplaceRequest& request,
         return StoreStatus::OpenFailed;
     }
 
-    if (truncate_first && !file.truncate(0))
-    {
-        file.close();
-        Serial.printf("%s %s truncate failed path=%s\n", prefix, label, path);
-        return StoreStatus::WriteFailed;
-    }
     if (!file.seek(0))
     {
         file.close();
