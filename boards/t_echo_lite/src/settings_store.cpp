@@ -24,34 +24,15 @@ using settings_file::crc32;
 
 constexpr const char* kSettingsPath = "/t_echo_lite_settings.bin";
 constexpr const char* kSettingsTempPath = "/t_echo_lite_settings.bin.tmp";
-constexpr const char* kSettingsCorruptPath = "/t_echo_lite_settings.bin.corrupt";
 constexpr const char* kLogTag = "[t-echo-lite][settings]";
 constexpr uint32_t kSettingsMagic = 0x54454C54UL; // TLET
 constexpr uint16_t kSettingsVersion = 6;
-constexpr uint16_t kSettingsVersionMessageLightDefaultWasOn = 4;
-constexpr uint16_t kSettingsVersionStatusLedDefaultWasBlue = 3;
 constexpr uint8_t kDefaultToneVolume = 45;
 constexpr uint8_t kDefaultStatusLedColor = 0;
 constexpr uint8_t kDefaultKeyboardLightEnabled = 0;
 constexpr uint8_t kDefaultMessageKeyboardLightEnabled = 1;
 constexpr uint32_t kDeferredSaveDebounceMs = 1500UL;
 constexpr uint32_t kImmediateSaveRetryDelayMs = 20UL;
-
-struct PersistedPayloadV1
-{
-    app::AppConfig config;
-    uint8_t tone_volume = kDefaultToneVolume;
-    uint8_t reserved[3] = {};
-};
-
-struct PersistedPayloadV4
-{
-    app::AppConfig config;
-    uint8_t tone_volume = kDefaultToneVolume;
-    uint8_t status_led_color = kDefaultStatusLedColor;
-    uint8_t keyboard_light_enabled = kDefaultKeyboardLightEnabled;
-    uint8_t reserved[2] = {};
-};
 
 struct PersistedPayload
 {
@@ -85,8 +66,6 @@ uint32_t s_last_save_attempt_ms = 0;
 // are large enough to make the stack path fragile.
 FileHeader s_file_header_scratch{};
 PersistedPayload s_payload_scratch{};
-PersistedPayloadV4 s_payload_v4_scratch{};
-PersistedPayloadV1 s_payload_v1_scratch{};
 
 class ScopedGpsSuspend
 {
@@ -140,30 +119,21 @@ const char* statusToText(StoreStatus status)
     return settings_file::statusText(status);
 }
 
-bool quarantineCorruptFile(StoreStatus status)
+bool removeInvalidSettingsFile(StoreStatus status)
 {
     if (!InternalFS.exists(kSettingsPath))
     {
         return true;
     }
 
-    ::platform::nrf52::arduino_common::internal_fs::removeIfExists(kSettingsCorruptPath);
-    if (InternalFS.rename(kSettingsPath, kSettingsCorruptPath))
-    {
-        Serial.printf("[T-Echo Lite][settings] quarantined corrupt store status=%s path=%s\n",
-                      statusToText(status),
-                      kSettingsCorruptPath);
-        return true;
-    }
-
     if (InternalFS.remove(kSettingsPath))
     {
-        Serial.printf("[T-Echo Lite][settings] removed corrupt store after quarantine failed status=%s\n",
+        Serial.printf("[T-Echo Lite][settings] removed corrupt store status=%s\n",
                       statusToText(status));
         return true;
     }
 
-    Serial.printf("[T-Echo Lite][settings] failed to quarantine corrupt store status=%s\n",
+    Serial.printf("[T-Echo Lite][settings] failed to remove corrupt store status=%s\n",
                   statusToText(status));
     return false;
 }
@@ -211,8 +181,8 @@ bool loadFromFs()
     {
         file.close();
         s_last_load_status = StoreStatus::PayloadSizeMismatch;
-        (void)quarantineCorruptFile(s_last_load_status);
-        Serial.printf("[T-Echo Lite][settings] quarantined non-current store actual=%lu expected=%lu version=%u\n",
+        (void)removeInvalidSettingsFile(s_last_load_status);
+        Serial.printf("[T-Echo Lite][settings] removed non-current store actual=%lu expected=%lu version=%u\n",
                       static_cast<unsigned long>(actual_size),
                       static_cast<unsigned long>(expected_current_size),
                       static_cast<unsigned>(kSettingsVersion));
@@ -223,7 +193,7 @@ bool loadFromFs()
     {
         file.close();
         s_last_load_status = StoreStatus::PayloadSizeMismatch;
-        (void)quarantineCorruptFile(s_last_load_status);
+        (void)removeInvalidSettingsFile(s_last_load_status);
         Serial.printf("[T-Echo Lite][settings] size mismatch actual=%lu expected_at_least=%lu\n",
                       static_cast<unsigned long>(actual_size),
                       static_cast<unsigned long>(sizeof(FileHeader)));
@@ -243,7 +213,7 @@ bool loadFromFs()
     {
         file.close();
         s_last_load_status = StoreStatus::HeaderInvalid;
-        (void)quarantineCorruptFile(s_last_load_status);
+        (void)removeInvalidSettingsFile(s_last_load_status);
         Serial.printf("[T-Echo Lite][settings] magic mismatch got=0x%08lX expected=0x%08lX\n",
                       static_cast<unsigned long>(header.magic),
                       static_cast<unsigned long>(kSettingsMagic));
@@ -252,126 +222,10 @@ bool loadFromFs()
 
     if (header.version != kSettingsVersion)
     {
-        if (header.version == 1)
-        {
-            const uint32_t expected_size_v1 =
-                static_cast<uint32_t>(sizeof(FileHeader) + sizeof(PersistedPayloadV1));
-            if (header.payload_size != sizeof(PersistedPayloadV1) || actual_size != expected_size_v1)
-            {
-                file.close();
-                s_last_load_status = StoreStatus::PayloadSizeMismatch;
-                (void)quarantineCorruptFile(s_last_load_status);
-                Serial.printf("[T-Echo Lite][settings] v1 payload size mismatch got=%lu expected=%lu actual=%lu\n",
-                              static_cast<unsigned long>(header.payload_size),
-                              static_cast<unsigned long>(sizeof(PersistedPayloadV1)),
-                              static_cast<unsigned long>(actual_size));
-                return false;
-            }
-
-            auto& payload_v1 = s_payload_v1_scratch;
-            std::memset(&payload_v1, 0, sizeof(payload_v1));
-            if (file.read(&payload_v1, sizeof(payload_v1)) != sizeof(payload_v1))
-            {
-                file.close();
-                s_last_load_status = StoreStatus::ReadFailed;
-                Serial.printf("[T-Echo Lite][settings] v1 payload read failed\n");
-                return false;
-            }
-            file.close();
-
-            const uint32_t actual_crc = crc32(reinterpret_cast<const uint8_t*>(&payload_v1), sizeof(payload_v1));
-            if (actual_crc != header.crc32)
-            {
-                s_last_load_status = StoreStatus::CrcMismatch;
-                (void)quarantineCorruptFile(s_last_load_status);
-                Serial.printf("[T-Echo Lite][settings] v1 crc mismatch got=0x%08lX expected=0x%08lX\n",
-                              static_cast<unsigned long>(actual_crc),
-                              static_cast<unsigned long>(header.crc32));
-                return false;
-            }
-
-            s_cache.config = payload_v1.config;
-            normalizeConfig(s_cache.config);
-            s_cache.tone_volume = clampToneVolume(payload_v1.tone_volume);
-            s_cache.status_led_color = kDefaultStatusLedColor;
-            s_cache.keyboard_light_enabled = (kDefaultKeyboardLightEnabled != 0);
-            s_cache.message_keyboard_light_enabled = (kDefaultMessageKeyboardLightEnabled != 0);
-            s_last_load_status = StoreStatus::Ok;
-            Serial.printf("[T-Echo Lite][settings] load ok tone=%u ble=%u proto=%u version=1\n",
-                          static_cast<unsigned>(s_cache.tone_volume),
-                          static_cast<unsigned>(s_cache.config.ble_enabled ? 1 : 0),
-                          static_cast<unsigned>(s_cache.config.mesh_protocol));
-            return true;
-        }
-
-        if (header.version == kSettingsVersionStatusLedDefaultWasBlue ||
-            header.version == kSettingsVersionMessageLightDefaultWasOn)
-        {
-            if (header.payload_size != sizeof(PersistedPayloadV4) ||
-                actual_size != static_cast<uint32_t>(sizeof(FileHeader) + sizeof(PersistedPayloadV4)))
-            {
-                file.close();
-                s_last_load_status = StoreStatus::PayloadSizeMismatch;
-                (void)quarantineCorruptFile(s_last_load_status);
-                Serial.printf("[T-Echo Lite][settings] legacy payload size mismatch version=%u got=%lu expected=%lu actual=%lu\n",
-                              static_cast<unsigned>(header.version),
-                              static_cast<unsigned long>(header.payload_size),
-                              static_cast<unsigned long>(sizeof(PersistedPayloadV4)),
-                              static_cast<unsigned long>(actual_size));
-                return false;
-            }
-
-            auto& payload = s_payload_v4_scratch;
-            std::memset(&payload, 0, sizeof(payload));
-            if (file.read(&payload, sizeof(payload)) != sizeof(payload))
-            {
-                file.close();
-                s_last_load_status = StoreStatus::ReadFailed;
-                Serial.printf("[T-Echo Lite][settings] legacy payload read failed version=%u\n",
-                              static_cast<unsigned>(header.version));
-                return false;
-            }
-            file.close();
-
-            const uint32_t actual_crc = crc32(reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));
-            if (actual_crc != header.crc32)
-            {
-                s_last_load_status = StoreStatus::CrcMismatch;
-                (void)quarantineCorruptFile(s_last_load_status);
-                Serial.printf("[T-Echo Lite][settings] legacy crc mismatch version=%u got=0x%08lX expected=0x%08lX\n",
-                              static_cast<unsigned>(header.version),
-                              static_cast<unsigned long>(actual_crc),
-                              static_cast<unsigned long>(header.crc32));
-                return false;
-            }
-
-            s_cache.config = payload.config;
-            normalizeConfig(s_cache.config);
-            s_cache.tone_volume = clampToneVolume(payload.tone_volume);
-            s_cache.status_led_color =
-                header.version == kSettingsVersionStatusLedDefaultWasBlue
-                    ? kDefaultStatusLedColor
-                    : static_cast<uint8_t>(
-                          payload.status_led_color %
-                          ::boards::t_echo_lite::TEchoLiteBoard::statusLedColorCount());
-            s_cache.keyboard_light_enabled = payload.keyboard_light_enabled != 0;
-            s_cache.message_keyboard_light_enabled = (kDefaultMessageKeyboardLightEnabled != 0);
-            s_deferred_save_pending = true;
-            s_last_dirty_ms = millis();
-            s_last_load_status = StoreStatus::Ok;
-            Serial.printf("[T-Echo Lite][settings] load migrated tone=%u ble=%u proto=%u version=%u->%u msg_light=on\n",
-                          static_cast<unsigned>(s_cache.tone_volume),
-                          static_cast<unsigned>(s_cache.config.ble_enabled ? 1 : 0),
-                          static_cast<unsigned>(s_cache.config.mesh_protocol),
-                          static_cast<unsigned>(header.version),
-                          static_cast<unsigned>(kSettingsVersion));
-            return true;
-        }
-
         file.close();
         s_last_load_status = StoreStatus::VersionMismatch;
-        (void)quarantineCorruptFile(s_last_load_status);
-        Serial.printf("[T-Echo Lite][settings] version mismatch got=%u expected=%u\n",
+        (void)removeInvalidSettingsFile(s_last_load_status);
+        Serial.printf("[T-Echo Lite][settings] removed old-version store got=%u expected=%u\n",
                       static_cast<unsigned>(header.version),
                       static_cast<unsigned>(kSettingsVersion));
         return false;
@@ -382,7 +236,7 @@ bool loadFromFs()
     {
         file.close();
         s_last_load_status = StoreStatus::PayloadSizeMismatch;
-        (void)quarantineCorruptFile(s_last_load_status);
+        (void)removeInvalidSettingsFile(s_last_load_status);
         Serial.printf("[T-Echo Lite][settings] payload size mismatch got=%lu expected=%lu actual=%lu\n",
                       static_cast<unsigned long>(header.payload_size),
                       static_cast<unsigned long>(sizeof(PersistedPayload)),
@@ -405,7 +259,7 @@ bool loadFromFs()
     if (actual_crc != header.crc32)
     {
         s_last_load_status = StoreStatus::CrcMismatch;
-        (void)quarantineCorruptFile(s_last_load_status);
+        (void)removeInvalidSettingsFile(s_last_load_status);
         Serial.printf("[T-Echo Lite][settings] crc mismatch got=0x%08lX expected=0x%08lX\n",
                       static_cast<unsigned long>(actual_crc),
                       static_cast<unsigned long>(header.crc32));

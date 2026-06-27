@@ -1,5 +1,7 @@
 #include "platform/nrf52/arduino_common/chat/infra/store/internal_fs_store.h"
 
+#include "platform/nrf52/arduino_common/internal_fs_utils.h"
+
 #include <InternalFileSystem.h>
 
 #include "sys/clock.h"
@@ -12,7 +14,6 @@ namespace platform::nrf52::arduino_common::chat::infra::store
 namespace
 {
 using Adafruit_LittleFS_Namespace::FILE_O_READ;
-using Adafruit_LittleFS_Namespace::FILE_O_WRITE;
 
 constexpr const char* kTempSuffix = ".tmp";
 } // namespace
@@ -236,33 +237,23 @@ bool InternalFsStore::loadFromFs()
         return false;
     }
 
-    LegacyFileHeader legacy_header{};
-    if (file.read(&legacy_header, sizeof(legacy_header)) != sizeof(legacy_header) || legacy_header.magic != kMagic)
+    FileHeader header{};
+    if (file.read(&header, sizeof(header)) != sizeof(header) || header.magic != kMagic)
     {
         file.close();
+        InternalFS.remove(path_);
         return false;
     }
 
-    const bool legacy_v1 = legacy_header.version == 1;
-    const bool current_v2 = legacy_header.version == kVersion;
-    if (!legacy_v1 && !current_v2)
+    if (header.version != kVersion)
     {
         file.close();
+        InternalFS.remove(path_);
         return false;
     }
 
-    uint16_t conversation_count = legacy_header.conversation_count;
-    if (current_v2)
-    {
-        uint32_t persisted_next_sequence = 1U;
-        if (file.read(&persisted_next_sequence, sizeof(persisted_next_sequence)) != sizeof(persisted_next_sequence))
-        {
-            file.close();
-            return false;
-        }
-        next_sequence_ = std::max<uint32_t>(1U, persisted_next_sequence);
-    }
-    uint32_t recovered_sequence = 1U;
+    const uint16_t conversation_count = header.conversation_count;
+    next_sequence_ = std::max<uint32_t>(1U, header.next_sequence);
 
     for (uint16_t index = 0; index < conversation_count; ++index)
     {
@@ -270,6 +261,7 @@ bool InternalFsStore::loadFromFs()
         if (file.read(&conv_record, sizeof(conv_record)) != sizeof(conv_record))
         {
             file.close();
+            InternalFS.remove(path_);
             conversations_.clear();
             return false;
         }
@@ -283,37 +275,12 @@ bool InternalFsStore::loadFromFs()
         for (uint16_t message_index = 0; message_index < conv_record.message_count; ++message_index)
         {
             MessageRecord rec{};
-            if (current_v2)
+            if (file.read(&rec, sizeof(rec)) != sizeof(rec))
             {
-                if (file.read(&rec, sizeof(rec)) != sizeof(rec))
-                {
-                    file.close();
-                    conversations_.clear();
-                    return false;
-                }
-            }
-            else
-            {
-                LegacyMessageRecord legacy_rec{};
-                if (file.read(&legacy_rec, sizeof(legacy_rec)) != sizeof(legacy_rec))
-                {
-                    file.close();
-                    conversations_.clear();
-                    return false;
-                }
-                rec.protocol = legacy_rec.protocol;
-                rec.channel = legacy_rec.channel;
-                rec.status = legacy_rec.status;
-                rec.flags = legacy_rec.flags;
-                rec.from = legacy_rec.from;
-                rec.peer = legacy_rec.peer;
-                rec.msg_id = legacy_rec.msg_id;
-                rec.timestamp = legacy_rec.timestamp;
-                rec.team_location_icon = legacy_rec.team_location_icon;
-                rec.geo_lat_e7 = legacy_rec.geo_lat_e7;
-                rec.geo_lon_e7 = legacy_rec.geo_lon_e7;
-                rec.text_len = legacy_rec.text_len;
-                std::memcpy(rec.text, legacy_rec.text, sizeof(rec.text));
+                file.close();
+                InternalFS.remove(path_);
+                conversations_.clear();
+                return false;
             }
 
             ::chat::ChatMessage msg;
@@ -329,7 +296,7 @@ bool InternalFsStore::loadFromFs()
             msg.geo_lon_e7 = rec.geo_lon_e7;
             msg.status = static_cast<::chat::MessageStatus>(rec.status);
             msg.text.assign(rec.text, std::min<size_t>(rec.text_len, sizeof(rec.text)));
-            const uint32_t sequence = current_v2 ? rec.sequence : recovered_sequence++;
+            const uint32_t sequence = rec.sequence;
             StoredMessageEntry entry;
             entry.message = msg;
             entry.sequence = sequence;
@@ -362,13 +329,8 @@ bool InternalFsStore::saveToFs() const
     }
 
     std::string temp_path = std::string(path_) + kTempSuffix;
-    if (InternalFS.exists(temp_path.c_str()))
-    {
-        InternalFS.remove(temp_path.c_str());
-    }
-
-    auto file = InternalFS.open(temp_path.c_str(), FILE_O_WRITE);
-    if (!file)
+    Adafruit_LittleFS_Namespace::File file(InternalFS);
+    if (!::platform::nrf52::arduino_common::internal_fs::openTempForReplace(temp_path.c_str(), &file))
     {
         return false;
     }
@@ -381,7 +343,7 @@ bool InternalFsStore::saveToFs() const
     if (file.write(reinterpret_cast<const uint8_t*>(&header), sizeof(header)) != sizeof(header))
     {
         file.close();
-        InternalFS.remove(temp_path.c_str());
+        ::platform::nrf52::arduino_common::internal_fs::removeIfExists(temp_path.c_str());
         return false;
     }
 
@@ -398,7 +360,7 @@ bool InternalFsStore::saveToFs() const
         if (file.write(reinterpret_cast<const uint8_t*>(&conv_record), sizeof(conv_record)) != sizeof(conv_record))
         {
             file.close();
-            InternalFS.remove(temp_path.c_str());
+            ::platform::nrf52::arduino_common::internal_fs::removeIfExists(temp_path.c_str());
             return false;
         }
 
@@ -429,7 +391,7 @@ bool InternalFsStore::saveToFs() const
             if (file.write(reinterpret_cast<const uint8_t*>(&rec), sizeof(rec)) != sizeof(rec))
             {
                 file.close();
-                InternalFS.remove(temp_path.c_str());
+                ::platform::nrf52::arduino_common::internal_fs::removeIfExists(temp_path.c_str());
                 return false;
             }
         }
@@ -438,11 +400,7 @@ bool InternalFsStore::saveToFs() const
     file.flush();
     file.close();
 
-    if (InternalFS.exists(path_))
-    {
-        InternalFS.remove(path_);
-    }
-    const bool renamed = InternalFS.rename(temp_path.c_str(), path_);
+    const bool renamed = ::platform::nrf52::arduino_common::internal_fs::commitTempReplace(path_, temp_path.c_str());
     if (renamed)
     {
         dirty_ = false;

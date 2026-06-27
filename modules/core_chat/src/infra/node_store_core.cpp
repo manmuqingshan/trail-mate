@@ -67,60 +67,6 @@ bool differentMetrics(const NodeDeviceMetrics& lhs, const NodeDeviceMetrics& rhs
 }
 
 TRAILMATE_PACK_PUSH
-struct PersistedNodeEntryV6
-{
-    uint32_t node_id;
-    char short_name[10];
-    char long_name[32];
-    uint32_t last_seen;
-    float snr;
-    float rssi;
-    uint8_t hops_away;
-    uint8_t channel;
-    uint8_t next_hop;
-    uint8_t protocol;
-    uint8_t role;
-    uint8_t hw_model;
-} TRAILMATE_PACKED;
-TRAILMATE_PACK_POP
-
-static_assert(sizeof(PersistedNodeEntryV6) == NodeStoreCore::kLegacySerializedEntrySize,
-              "PersistedNodeEntryV6 size changed");
-
-TRAILMATE_PACK_PUSH
-struct PersistedNodeEntryV7
-{
-    uint32_t node_id;
-    char short_name[10];
-    char long_name[32];
-    uint32_t last_seen;
-    float snr;
-    float rssi;
-    uint8_t hops_away;
-    uint8_t channel;
-    uint8_t next_hop;
-    uint8_t protocol;
-    uint8_t role;
-    uint8_t hw_model;
-    uint8_t position_valid;
-    uint8_t position_has_altitude;
-    uint8_t reserved[2];
-    int32_t position_latitude_i;
-    int32_t position_longitude_i;
-    int32_t position_altitude;
-    uint32_t position_timestamp;
-    uint32_t position_precision_bits;
-    uint32_t position_pdop;
-    uint32_t position_hdop;
-    uint32_t position_vdop;
-    uint32_t position_gps_accuracy_mm;
-} TRAILMATE_PACKED;
-TRAILMATE_PACK_POP
-
-static_assert(sizeof(PersistedNodeEntryV7) == NodeStoreCore::kSerializedEntrySize,
-              "PersistedNodeEntryV7 size changed");
-
-TRAILMATE_PACK_PUSH
 struct PersistedNodeEntryV8
 {
     uint32_t node_id;
@@ -247,51 +193,6 @@ void copyIntoPersisted(PersistedNodeEntryV8& dst, const NodeEntry& src)
     dst.metrics_channel_utilization = src.device_metrics.channel_utilization;
     dst.metrics_air_util_tx = src.device_metrics.air_util_tx;
     dst.metrics_uptime_seconds = src.device_metrics.uptime_seconds;
-}
-
-void copyFromPersisted(NodeEntry& dst, const PersistedNodeEntryV6& src)
-{
-    copyCommonFields(dst,
-                     src.node_id,
-                     src.short_name,
-                     src.long_name,
-                     src.last_seen,
-                     src.snr,
-                     src.rssi,
-                     src.hops_away,
-                     src.channel,
-                     src.next_hop,
-                     src.protocol,
-                     src.role,
-                     src.hw_model);
-}
-
-void copyFromPersisted(NodeEntry& dst, const PersistedNodeEntryV7& src)
-{
-    copyCommonFields(dst,
-                     src.node_id,
-                     src.short_name,
-                     src.long_name,
-                     src.last_seen,
-                     src.snr,
-                     src.rssi,
-                     src.hops_away,
-                     src.channel,
-                     src.next_hop,
-                     src.protocol,
-                     src.role,
-                     src.hw_model);
-    dst.position_valid = src.position_valid != 0;
-    dst.position_has_altitude = src.position_has_altitude != 0;
-    dst.position_latitude_i = src.position_latitude_i;
-    dst.position_longitude_i = src.position_longitude_i;
-    dst.position_altitude = src.position_altitude;
-    dst.position_timestamp = src.position_timestamp;
-    dst.position_precision_bits = src.position_precision_bits;
-    dst.position_pdop = src.position_pdop;
-    dst.position_hdop = src.position_hdop;
-    dst.position_vdop = src.position_vdop;
-    dst.position_gps_accuracy_mm = src.position_gps_accuracy_mm;
 }
 
 void copyFromPersisted(NodeEntry& dst, const PersistedNodeEntryV8& src)
@@ -702,30 +603,6 @@ bool NodeStoreCore::decodeBlob(std::vector<NodeEntry>& out, const uint8_t* data,
     if (persist_version == kPersistVersion)
     {
         auto* persisted = reinterpret_cast<const PersistedNodeEntryV8*>(data);
-        for (size_t index = 0; index < count; ++index)
-        {
-            NodeEntry entry{};
-            copyFromPersisted(entry, persisted[index]);
-            out.push_back(entry);
-        }
-        return true;
-    }
-
-    if (persist_version == (kPersistVersion - 1))
-    {
-        auto* persisted = reinterpret_cast<const PersistedNodeEntryV7*>(data);
-        for (size_t index = 0; index < count; ++index)
-        {
-            NodeEntry entry{};
-            copyFromPersisted(entry, persisted[index]);
-            out.push_back(entry);
-        }
-        return true;
-    }
-
-    if (persist_version == (kPersistVersion - 2))
-    {
-        auto* persisted = reinterpret_cast<const PersistedNodeEntryV6*>(data);
         for (size_t index = 0; index < count; ++index)
         {
             NodeEntry entry{};

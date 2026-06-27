@@ -108,7 +108,7 @@ bool loadMeshtasticBlePersistedState(meshtastic_config_bridge::PersistedState* o
     out->has_module = loadBlobConfigFromUiStore(kModuleConfigKey, &out->module);
     if (out->has_bluetooth || out->has_module)
     {
-        blePersistenceLog("[BLE][nrf52][mt] legacy cfg store fallback bt=%u mod=%u",
+        blePersistenceLog("[BLE][nrf52][mt] ui settings cfg store bt=%u mod=%u",
                           out->has_bluetooth ? 1U : 0U,
                           out->has_module ? 1U : 0U);
     }

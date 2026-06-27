@@ -15,6 +15,14 @@ bool openForOverwrite(const char* path,
                       File* out,
                       bool allow_format_recovery = false,
                       const char* log_tag = nullptr);
+bool openTempForReplace(const char* temp_path,
+                        File* out,
+                        bool allow_format_recovery = false,
+                        const char* log_tag = nullptr);
+bool commitTempReplace(const char* path,
+                       const char* temp_path,
+                       bool allow_format_recovery = false,
+                       const char* log_tag = nullptr);
 bool rewindForOverwrite(File& file);
 bool truncateAfterWrite(File& file, uint32_t final_size);
 uint32_t accumulateBytes(File dir);
