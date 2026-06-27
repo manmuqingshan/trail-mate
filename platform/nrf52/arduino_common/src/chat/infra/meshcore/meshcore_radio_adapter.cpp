@@ -881,11 +881,46 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
 
         ::chat::meshcore::DecodedAdvertAppData advert{};
         if (::chat::meshcore::decodeAdvertAppData(app_data, app_data_len, &advert) &&
-            advert.valid && advert.has_name)
+            advert.valid)
         {
-            ::chat::MeshIncomingText incoming{};
-            incoming.text = advert.name;
-            text_queue_.push(std::move(incoming));
+            const ::chat::NodeId advert_node =
+                ::chat::meshcore::deriveNodeIdFromPubkey(pubkey,
+                                                         ::chat::meshcore::kMeshCorePubKeySize);
+            if (advert_node != 0 && advert_node != node_id_ && contact_service_)
+            {
+                ::chat::contacts::NodeUpdate update{};
+                if (advert.has_name)
+                {
+                    update.short_name = advert.name;
+                    update.long_name = advert.name;
+                }
+                update.has_last_seen = true;
+                update.last_seen = ::chat::now_epoch_seconds();
+                update.has_hops_away = parsed.path_len <= 255U;
+                update.hops_away = static_cast<uint8_t>(parsed.path_len);
+                update.has_channel = true;
+                update.channel = static_cast<uint8_t>(::chat::ChannelId::PRIMARY);
+                update.has_protocol = true;
+                update.protocol =
+                    static_cast<uint8_t>(::chat::contacts::NodeProtocolType::MeshCore);
+                update.has_role = true;
+                update.role = ::chat::meshcore::mapAdvertTypeToRole(advert.node_type);
+                update.has_public_key = true;
+                update.public_key_present = true;
+                if (advert.has_location)
+                {
+                    update.has_position = true;
+                    update.position.valid = true;
+                    update.position.latitude_i = advert.latitude_i6 * 10;
+                    update.position.longitude_i = advert.longitude_i6 * 10;
+                    update.position.timestamp = update.last_seen;
+                }
+                contact_service_->applyNodeUpdate(advert_node, update);
+                Serial.printf("[MESHCORE] RX advert node=%08lX name='%s' type=%u\n",
+                              static_cast<unsigned long>(advert_node),
+                              advert.has_name ? advert.name : "",
+                              static_cast<unsigned>(advert.node_type));
+            }
         }
         return;
     }

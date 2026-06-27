@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdarg>
 #include <cstring>
 #include <ctime>
@@ -1070,8 +1071,14 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
     rx_meta.hop_limit = hop_limit;
     rx_meta.channel_hash = header.channel;
     rx_meta.wire_flags = header.flags;
-    rx_meta.rssi_dbm_x10 = static_cast<int16_t>(last_rx_rssi_ * 10.0f);
-    rx_meta.snr_db_x10 = static_cast<int16_t>(last_rx_snr_ * 10.0f);
+    if (!std::isnan(last_rx_rssi_))
+    {
+        rx_meta.rssi_dbm_x10 = static_cast<int16_t>(last_rx_rssi_ * 10.0f);
+    }
+    if (!std::isnan(last_rx_snr_))
+    {
+        rx_meta.snr_db_x10 = static_cast<int16_t>(last_rx_snr_ * 10.0f);
+    }
     rx_meta.next_hop = header.next_hop;
     rx_meta.relay_node = header.relay_node;
 
@@ -1152,9 +1159,6 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         }
     };
 
-    // ------------------------------------------------------------
-    // NODEINFO / USER: 淇濆畧鐗堬紝鍙洿鏂拌娴嬪瓧娈碉紝鍏堜笉瑕佹妸韬唤瀛楁鍐欒繘 store
-    // ------------------------------------------------------------
     if (decoded_ok &&
         decoded.portnum == meshtastic_PortNum_NODEINFO_APP &&
         decoded.payload.size > 0 &&
@@ -1173,13 +1177,7 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         ::chat::meshtastic::DecodedNodePayload node{};
         if (::chat::meshtastic::decodeNodeInfoPayload(decoded, context, &node))
         {
-            if (node.node_id != 0 && node.node_id != header.from)
-            {
-                logMeshtasticRx("[gat562][mt] reject nodeinfo mismatch from=%08lX claimed=%08lX\n",
-                                static_cast<unsigned long>(header.from),
-                                static_cast<unsigned long>(node.node_id));
-            }
-            else
+            if (node.node_id != 0)
             {
                 const ::chat::contacts::NodeUpdate update = node.toNodeUpdate();
                 if (!duplicate || history.was_fallback)
@@ -2242,15 +2240,35 @@ bool MeshtasticRadioAdapter::maybeRebroadcast(const ::chat::meshtastic::PacketHe
 
 void MeshtasticRadioAdapter::updateNodeLastSeen(::chat::NodeId node_id, uint8_t hops_away, ::chat::ChannelId channel)
 {
-    if (!node_store_ || node_id == 0 || node_id == node_id_)
+    if (node_id == 0 || node_id == node_id_ || (!node_store_ && !contact_service_))
     {
         return;
     }
-    node_store_->upsert(node_id, "", "", nowSeconds(),
-                        last_rx_snr_, last_rx_rssi_,
-                        static_cast<uint8_t>(::chat::contacts::NodeProtocolType::Meshtastic),
-                        ::chat::contacts::kNodeRoleUnknown,
-                        hops_away, 0, static_cast<uint8_t>(channel));
+
+    ::chat::contacts::NodeUpdate update{};
+    update.has_last_seen = true;
+    update.last_seen = nowSeconds();
+    update.has_snr = !std::isnan(last_rx_snr_);
+    update.snr = last_rx_snr_;
+    update.has_rssi = !std::isnan(last_rx_rssi_);
+    update.rssi = last_rx_rssi_;
+    update.has_protocol = true;
+    update.protocol = static_cast<uint8_t>(::chat::contacts::NodeProtocolType::Meshtastic);
+    update.has_role = false;
+    update.role = ::chat::contacts::kNodeRoleUnknown;
+    update.has_hops_away = hops_away != 0xFFU;
+    update.hops_away = hops_away;
+    update.has_hw_model = false;
+    update.hw_model = 0;
+    update.has_channel = true;
+    update.channel = static_cast<uint8_t>(channel);
+
+    if (contact_service_)
+    {
+        contact_service_->applyNodeUpdate(node_id, update);
+        return;
+    }
+    node_store_->applyUpdate(node_id, update);
 }
 
 void MeshtasticRadioAdapter::handleRoutingPacket(const ::chat::meshtastic::PacketHeaderWire& header,
