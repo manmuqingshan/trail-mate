@@ -802,6 +802,8 @@ void MeshtasticBleService::clearToPhoneQueue()
     from_radio_preloaded_ = Frame{};
     from_radio_consume_pending_ = false;
     from_radio_consume_in_progress_ = false;
+    from_radio_prepare_ = Frame{};
+    from_radio_prepare_in_progress_.store(false);
     from_num_notify_counter_ = 0;
     noInterrupts();
     to_phone_head_ = 0;
@@ -816,28 +818,37 @@ void MeshtasticBleService::prepareReadableFromRadio()
     {
         return;
     }
-
-    Frame& frame = from_radio_preloaded_;
-    frame = Frame{};
-    if (!popQueuedToPhoneFrame(&frame))
+    bool expected = false;
+    if (!from_radio_prepare_in_progress_.compare_exchange_strong(expected, true))
     {
         return;
     }
 
+    from_radio_prepare_ = Frame{};
+    if (!popQueuedToPhoneFrame(&from_radio_prepare_))
+    {
+        from_radio_prepare_in_progress_.store(false);
+        return;
+    }
+
+    from_radio_preloaded_ = from_radio_prepare_;
+    from_radio_prepare_ = Frame{};
+    from_radio_preloaded_valid_ = true;
+
     bleLogBoth("[BLE][nrf52][mt][flow] prepare write from_num=%08lX len=%u buf=%p q=%u consume_pending=%u read_waiting=%u",
-               static_cast<unsigned long>(frame.from_num),
-               static_cast<unsigned>(frame.len),
-               static_cast<const void*>(frame.buf.data()),
+               static_cast<unsigned long>(from_radio_preloaded_.from_num),
+               static_cast<unsigned>(from_radio_preloaded_.len),
+               static_cast<const void*>(from_radio_preloaded_.buf.data()),
                static_cast<unsigned>(to_phone_count_),
                from_radio_consume_pending_ ? 1U : 0U,
                isReadWaiting() ? 1U : 0U);
 
-    from_radio_.write(frame.buf.data(), frame.len);
-    from_radio_preloaded_valid_ = true;
+    from_radio_.write(from_radio_preloaded_.buf.data(), from_radio_preloaded_.len);
+    from_radio_prepare_in_progress_.store(false);
 
     bleLogBoth("[BLE][nrf52][mt][flow] preload from_num=%08lX len=%u q=%u",
-               static_cast<unsigned long>(frame.from_num),
-               static_cast<unsigned>(frame.len),
+               static_cast<unsigned long>(from_radio_preloaded_.from_num),
+               static_cast<unsigned>(from_radio_preloaded_.len),
                static_cast<unsigned>(to_phone_count_));
 }
 
@@ -861,6 +872,13 @@ void MeshtasticBleService::markReadableFromRadioConsumed()
 
     if (!from_radio_preloaded_valid_)
     {
+        if (from_radio_prepare_in_progress_.load())
+        {
+            bleLogBoth("[BLE][nrf52][mt][flow] consume defer prepare_in_progress=1");
+            from_radio_consume_in_progress_ = false;
+            return;
+        }
+
         uint8_t empty = 0;
         from_radio_.write(&empty, 0);
         pending_from_radio_empty_log_ = true;
