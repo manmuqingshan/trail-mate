@@ -97,7 +97,7 @@ const I18N = {
     "languages.eyebrow": "Localization",
     "languages.title": "Keep the firmware small, then install the languages you need.",
     "languages.note":
-      "English is always available. Other fonts, translations, and keyboard layouts can be installed from Extensions, including the Cyrillic keyboard pack added for 0.1.30.",
+      "English is always available. Other fonts, translations, and keyboard layouts can be installed from Extensions, including Cyrillic keyboard support.",
     "languages.defaultKicker": "Built-In Default",
     "languages.defaultTitle": "The device can always fall back to English.",
     "languages.defaultText":
@@ -248,7 +248,7 @@ const I18N = {
     "languages.eyebrow": "本地化",
     "languages.title": "固件保持精简，需要什么语言再安装。",
     "languages.note":
-      "英文始终内置可用。其他字体、翻译和键盘布局可以从 Extensions 安装，0.1.30 新增的西里尔键盘包也走这套方式。",
+      "英文始终内置可用。其他字体、翻译和键盘布局可以从 Extensions 安装，包括西里尔键盘支持。",
     "languages.defaultKicker": "内置默认",
     "languages.defaultTitle": "设备始终可以回到英文。",
     "languages.defaultText": "即使没有安装外部语言包，设备也可以启动、恢复并保持可用。",
@@ -336,12 +336,12 @@ const DEVICES = [
       zh: "LilyGo T-LoRa Pager SX1262",
     },
     status: {
-      en: "Recommended 0.1.30 target",
-      zh: "0.1.30 推荐设备",
+      en: "Mature keyboard target",
+      zh: "成熟键盘目标",
     },
     summary: {
-      en: "Keyboard Pager with the most complete screenshots and field testing. The 0.1.30 release focuses on SD stability, offline maps, message retry, keyboard backlight, Walkie monitor, Symbol/Emoji input, and installable Cyrillic input.",
-      zh: "键盘版 Pager，当前截图和实机验证最完整。0.1.30 重点改善 SD 卡稳定性、离线地图、消息重试、键盘背光、对讲机守听、Symbol/Emoji 输入和可安装西里尔输入法。",
+      en: "Keyboard Pager with the most complete screenshots, field testing, and broadest Trail Mate UI coverage. Use this target for SX1262 hardware.",
+      zh: "键盘版 Pager，当前截图、实机验证和 Trail Mate UI 覆盖最完整。SX1262 硬件使用这个目标。",
     },
     interactions: {
       en: [
@@ -413,22 +413,22 @@ const DEVICES = [
       zh: "LilyGo T-LoRa Pager LR1121",
     },
     status: {
-      en: "Separate LR1121 build",
-      zh: "LR1121 独立固件",
+      en: "0.1.32 LR1121 fix",
+      zh: "0.1.32 LR1121 修复",
     },
     summary: {
-      en: "Use this target for the LR1121 Pager. It is not interchangeable with the SX1262 firmware.",
-      zh: "这是 LR1121 Pager 专用目标，不能和 SX1262 Pager 固件混用。",
+      en: "Use this target for the LR1121 Pager. The 0.1.32 release fixes MeshCore discovery and contact handling for Android app pairing.",
+      zh: "这是 LR1121 Pager 专用目标。0.1.32 修复了 Android app 配对时的 MeshCore 发现和联系人处理。",
     },
     interactions: {
       en: [
         "Check the radio chip before flashing; SX1262 and LR1121 builds are different.",
-        "Use the LR1121 install card when matching firmware is available.",
+        "0.1.32 aligns MeshCore path descriptors and Android contact/adverts projection for LR1121 Pager testing.",
         "Some screenshots are shared with the keyboard Pager until dedicated LR1121 photos are added.",
       ],
       zh: [
         "刷机前请确认 radio 芯片；SX1262 和 LR1121 不能混刷。",
-        "对应固件可用时，请使用 LR1121 的安装卡片。",
+        "0.1.32 为 LR1121 Pager 测试对齐 MeshCore path descriptor，以及 Android 联系人/advert 投影。",
         "在补充 LR1121 专属截图前，这里会暂用键盘 Pager 的部分截图。",
       ],
     },
