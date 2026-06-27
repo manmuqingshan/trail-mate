@@ -504,20 +504,27 @@ English、基础特殊字符输入与精选 emoji 输入必须在没有任何外
 
 这条规则的目标是保护 UI 实时域：联系人页、聊天页、地图 overlay、节点详情页等内容页面不得因为遇到中文/日文/韩文/阿拉伯文本而把 UI 线程拖入 SD 阻塞 IO。
 
-#### Small content supplement preload
+#### Registry-time preferred content supplement preload
 
-ESP 上允许一个非常窄的例外：如果 content supplement 的 manifest 中的
-`estimated_ram_bytes` 不超过固件规定的小 supplement 上限，registry 可以在
-`reload_language()` / 安装完成后的重新编目阶段预加载它，并把它加入 content font chain。
+ESP 上允许一个非常窄的例外：如果当前 active locale 的 manifest 明确声明了
+`preferred_content_supplement_packs`，registry 可以在 `reload_language()`、安装完成后的重新编目、
+或 locale 激活阶段预加载这些已编目的 content supplement，并把它们加入 content font chain。
 
-这个例外只用于小型、已编目的 content supplement。当前固件内置的 `builtin-symbol-core` 与 `builtin-emoji-core` 属于 content font baseline，而不是用户安装的 external supplement；它们不读取 SD / Flash 外部 `font.bin`，只覆盖内置文本候选集，并且不占用 `max_content_supplement_packs` 名额。这个例外不适用于：
+这个例外只用于 active locale 显式偏好的、已编目的 content supplement。是否允许加载由当前
+memory profile 的 `max_content_supplement_packs` 与 `max_content_supplement_ram_bytes` 决定，
+不能绕过 supplement 预算。`ranges.txt` / coverage metadata 只用于候选选择与诊断；如果 coverage
+缺失或为空，已加载字体是否覆盖某个 codepoint 仍必须以实际 glyph lookup 为准。
+
+当前固件内置的 `builtin-symbol-core` 与 `builtin-emoji-core` 属于 content font baseline，而不是用户安装的 external supplement；它们不读取 SD / Flash 外部 `font.bin`，只覆盖内置文本候选集，并且不占用 `max_content_supplement_packs` 名额。这个例外不适用于：
 
 1. 大型 locale 字体。
 2. locale 激活之外的 UI 字体替换。
 3. 任何需要反复探测缺失文件的失败路径。
 4. 页面渲染、列表构建、LVGL 事件或 timer 路径中的 SD-backed `font.bin` 同步读取。
 
-因此，已安装到当前运行时 pack root 的小型内容扩展或固件内置的小型内容补充可以在 registry 阶段进入可用字体链；之后聊天内容第一次遇到对应字符时，内容热路径只选择已经 loaded 的字体链，不再为了该字符直接读取 SD。
+因此，已安装到当前运行时 pack root、并被 active locale 显式偏好的内容扩展可以在 registry/locale
+激活阶段进入可用字体链；之后聊天内容第一次遇到对应字符时，内容热路径只选择已经 loaded 的字体链，不再为了该字符直接读取 SD。如果 preferred supplement 没有被 catalog 到，运行时必须记录
+`not_cataloged` 诊断；如果预算不足，必须记录 `content_budget` 诊断；两者都不得改变 active locale。
 
 ### 4.5.2 Text Candidate Built-In Font Boundary
 
