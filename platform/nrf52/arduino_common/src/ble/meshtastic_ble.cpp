@@ -430,8 +430,11 @@ void MeshtasticBleService::update()
         logFromRadioState("update_after_consume");
     }
 
-    handleToPhone();
-    prepareReadableFromRadio();
+    if (!from_radio_preloaded_valid_)
+    {
+        handleToPhone();
+        prepareReadableFromRadio();
+    }
     flushPendingFromNumNotify();
     logDeferredBleEvents();
     flushPendingConfigSaves(false);
@@ -811,11 +814,6 @@ void MeshtasticBleService::prepareReadableFromRadio()
 {
     if (from_radio_preloaded_valid_)
     {
-        bleLogBoth("[BLE][nrf52][mt][flow] prepare skip preloaded_valid=1 consume_pending=%u read_waiting=%u from_num=%08lX len=%u",
-                   from_radio_consume_pending_ ? 1U : 0U,
-                   isReadWaiting() ? 1U : 0U,
-                   static_cast<unsigned long>(from_radio_preloaded_.from_num),
-                   static_cast<unsigned>(from_radio_preloaded_.len));
         return;
     }
 
