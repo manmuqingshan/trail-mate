@@ -352,8 +352,24 @@ StoreStatus replaceSettingsFile(const ReplaceRequest& request, ReplaceResult* re
         status = writeWholeFile(request, header, request.path, "direct", true, result);
         if (status != StoreStatus::Ok)
         {
-            setStatus(result, status);
-            return status;
+            Serial.printf("%s fresh rewrite start reason=%s path=%s\n",
+                          prefix,
+                          statusText(status),
+                          request.path);
+            internal_fs::removeIfExists(request.path);
+            if (InternalFS.exists(request.path))
+            {
+                Serial.printf("%s fresh remove failed path=%s\n", prefix, request.path);
+                setStatus(result, StoreStatus::WriteFailed);
+                return StoreStatus::WriteFailed;
+            }
+
+            status = writeWholeFile(request, header, request.path, "fresh", false, result);
+            if (status != StoreStatus::Ok)
+            {
+                setStatus(result, status);
+                return status;
+            }
         }
 
         VerifyRequest verify_direct{};
