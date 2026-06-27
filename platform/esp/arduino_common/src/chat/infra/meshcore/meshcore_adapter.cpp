@@ -4333,15 +4333,23 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
         {
             return;
         }
-        if (parsed.path_len >= kMeshcoreMaxPathSize || (size + 1) > kMeshcoreMaxFrameSize)
+        if (parsed.path_hash_bytes != chat::meshcore::kMeshCoreV1HashBytes ||
+            parsed.path_len >= kMeshcoreMaxPathSize || (size + 1) > kMeshcoreMaxFrameSize)
         {
             return;
         }
 
         const size_t payload_start = static_cast<size_t>(parsed.payload - data);
+        uint8_t next_path_descriptor = 0;
+        if (!encodePathDescriptor(PayloadProfile::V1,
+                                  parsed.path_len + 1,
+                                  &next_path_descriptor))
+        {
+            return;
+        }
         std::vector<uint8_t> fwd(size + 1);
         memcpy(fwd.data(), data, parsed.path_len_index);
-        fwd[parsed.path_len_index] = static_cast<uint8_t>(parsed.path_len + 1);
+        fwd[parsed.path_len_index] = next_path_descriptor;
         if (parsed.path_len > 0)
         {
             memcpy(&fwd[parsed.path_len_index + 1], parsed.path, parsed.path_len);
@@ -4493,9 +4501,14 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             return;
         }
 
+        uint8_t next_path_descriptor = 0;
+        if (!encodePathDescriptor(profile, new_path_len, &next_path_descriptor))
+        {
+            return;
+        }
         std::vector<uint8_t> fwd(size - hash_bytes);
         memcpy(fwd.data(), data, parsed.path_len_index);
-        fwd[parsed.path_len_index] = static_cast<uint8_t>(new_path_len);
+        fwd[parsed.path_len_index] = next_path_descriptor;
         if (new_path_len > 0)
         {
             memcpy(&fwd[parsed.path_len_index + 1], parsed.path + hash_bytes, new_path_len);
@@ -4574,9 +4587,16 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             const size_t path_start = parsed.path_len_index + 1;
             const size_t payload_start = static_cast<size_t>(parsed.payload - data);
 
+            uint8_t next_path_descriptor = 0;
+            if (!encodePathDescriptor(profile,
+                                      parsed.path_len + hash_bytes,
+                                      &next_path_descriptor))
+            {
+                return;
+            }
             std::vector<uint8_t> fwd(size + hash_bytes);
             memcpy(fwd.data(), data, path_start + parsed.path_len);
-            fwd[parsed.path_len_index] = static_cast<uint8_t>(parsed.path_len + hash_bytes);
+            fwd[parsed.path_len_index] = next_path_descriptor;
             memcpy(&fwd[path_start + parsed.path_len], self_hash_bytes, hash_bytes);
             memcpy(&fwd[path_start + parsed.path_len + hash_bytes],
                    &data[payload_start],

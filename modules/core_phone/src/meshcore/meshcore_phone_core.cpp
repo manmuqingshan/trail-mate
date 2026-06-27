@@ -433,23 +433,47 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
             std::memcpy(&filter_since, &data[1], sizeof(filter_since));
         }
 
+        const size_t meshcore_contact_count = hooks_ ? hooks_->meshCoreContactCount() : 0;
         uint32_t total = 0;
-        PhoneNodeView entry{};
-        for (size_t node_index = 0; node_index < app_.phoneNodeCount(); ++node_index)
+        if (meshcore_contact_count > 0)
         {
-            if (!app_.getPhoneNodeByIndex(node_index, entry))
+            for (size_t contact_index = 0; contact_index < meshcore_contact_count; ++contact_index)
             {
-                continue;
+                contact_scratch_ = {};
+                if (!hooks_->getMeshCoreContactByIndex(contact_index, &contact_scratch_))
+                {
+                    continue;
+                }
+                if (contact_scratch_.lastmod == 0)
+                {
+                    contact_scratch_.lastmod = contact_scratch_.last_advert;
+                }
+                if (filter_since != 0 && contact_scratch_.lastmod <= filter_since)
+                {
+                    continue;
+                }
+                ++total;
             }
-            if (entry.node_id == 0)
+        }
+        else
+        {
+            PhoneNodeView entry{};
+            for (size_t node_index = 0; node_index < app_.phoneNodeCount(); ++node_index)
             {
-                continue;
+                if (!app_.getPhoneNodeByIndex(node_index, entry))
+                {
+                    continue;
+                }
+                if (entry.node_id == 0)
+                {
+                    continue;
+                }
+                if (filter_since != 0 && entry.last_seen <= filter_since)
+                {
+                    continue;
+                }
+                ++total;
             }
-            if (filter_since != 0 && entry.last_seen <= filter_since)
-            {
-                continue;
-            }
-            ++total;
         }
 
         uint8_t start_buf[5] = {RESP_CODE_CONTACTS_START, 0, 0, 0, 0};
@@ -457,25 +481,54 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
         enqueueFrame(start_buf, sizeof(start_buf));
 
         uint32_t most_recent = 0;
-        for (size_t node_index = 0; node_index < app_.phoneNodeCount(); ++node_index)
+        if (meshcore_contact_count > 0)
         {
-            if (!app_.getPhoneNodeByIndex(node_index, entry))
+            for (size_t contact_index = 0; contact_index < meshcore_contact_count; ++contact_index)
             {
-                continue;
+                contact_scratch_ = {};
+                if (!hooks_->getMeshCoreContactByIndex(contact_index, &contact_scratch_))
+                {
+                    continue;
+                }
+                if (contact_scratch_.lastmod == 0)
+                {
+                    contact_scratch_.lastmod = contact_scratch_.last_advert;
+                }
+                if (filter_since != 0 && contact_scratch_.lastmod <= filter_since)
+                {
+                    continue;
+                }
+                frame_scratch_ = {};
+                if (buildContactFrame(contact_scratch_, RESP_CODE_CONTACT, frame_scratch_))
+                {
+                    enqueueFrame(frame_scratch_.buf.data(), frame_scratch_.len);
+                    most_recent = std::max(most_recent, contact_scratch_.lastmod);
+                }
             }
-            if (entry.node_id == 0)
+        }
+        else
+        {
+            PhoneNodeView entry{};
+            for (size_t node_index = 0; node_index < app_.phoneNodeCount(); ++node_index)
             {
-                continue;
-            }
-            if (filter_since != 0 && entry.last_seen <= filter_since)
-            {
-                continue;
-            }
-            MeshCoreBleFrame frame{};
-            if (buildContactFromNode(entry, RESP_CODE_CONTACT, frame))
-            {
-                enqueueFrame(frame.buf.data(), frame.len);
-                most_recent = std::max(most_recent, entry.last_seen);
+                if (!app_.getPhoneNodeByIndex(node_index, entry))
+                {
+                    continue;
+                }
+                if (entry.node_id == 0)
+                {
+                    continue;
+                }
+                if (filter_since != 0 && entry.last_seen <= filter_since)
+                {
+                    continue;
+                }
+                frame_scratch_ = {};
+                if (buildContactFromNode(entry, RESP_CODE_CONTACT, frame_scratch_))
+                {
+                    enqueueFrame(frame_scratch_.buf.data(), frame_scratch_.len);
+                    most_recent = std::max(most_recent, entry.last_seen);
+                }
             }
         }
 
@@ -1336,6 +1389,33 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
     {
         const uint8_t* key = &data[1];
         const size_t key_len = len - 1;
+        const size_t meshcore_contact_count = hooks_ ? hooks_->meshCoreContactCount() : 0;
+        if (meshcore_contact_count > 0)
+        {
+            for (size_t contact_index = 0; contact_index < meshcore_contact_count; ++contact_index)
+            {
+                contact_scratch_ = {};
+                if (!hooks_->getMeshCoreContactByIndex(contact_index, &contact_scratch_))
+                {
+                    continue;
+                }
+                if (std::memcmp(contact_scratch_.pubkey,
+                                key,
+                                std::min(key_len, sizeof(contact_scratch_.pubkey))) != 0)
+                {
+                    continue;
+                }
+                frame_scratch_ = {};
+                if (buildContactFrame(contact_scratch_, RESP_CODE_CONTACT, frame_scratch_))
+                {
+                    enqueueFrame(frame_scratch_.buf.data(), frame_scratch_.len);
+                    return;
+                }
+            }
+            enqueueErr(ERR_CODE_NOT_FOUND);
+            return;
+        }
+
         PhoneNodeView entry{};
         for (size_t node_index = 0; node_index < app_.phoneNodeCount(); ++node_index)
         {
@@ -1349,10 +1429,10 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
             }
             if (std::memcmp(&entry.node_id, key, std::min(key_len, sizeof(entry.node_id))) == 0)
             {
-                MeshCoreBleFrame frame{};
-                if (buildContactFromNode(entry, RESP_CODE_CONTACT, frame))
+                frame_scratch_ = {};
+                if (buildContactFromNode(entry, RESP_CODE_CONTACT, frame_scratch_))
                 {
-                    enqueueFrame(frame.buf.data(), frame.len);
+                    enqueueFrame(frame_scratch_.buf.data(), frame_scratch_.len);
                     return;
                 }
             }
@@ -1745,6 +1825,13 @@ uint32_t MeshCorePhoneCore::resolveNodeIdFromPrefix(const uint8_t* prefix, size_
         return 0;
     }
 
+    uint32_t contact_node_id = 0;
+    if (hooks_ && hooks_->resolveMeshCoreContactNodeId(prefix, len, &contact_node_id) &&
+        contact_node_id != 0)
+    {
+        return contact_node_id;
+    }
+
     if (len >= sizeof(uint32_t))
     {
         uint32_t node_id = 0;
@@ -1772,6 +1859,60 @@ uint32_t MeshCorePhoneCore::resolveNodeIdFromPrefix(const uint8_t* prefix, size_
         }
     }
     return 0;
+}
+
+bool MeshCorePhoneCore::buildContactFrame(const MeshCorePhoneContactView& contact,
+                                          uint8_t code,
+                                          MeshCoreBleFrame& out) const
+{
+    size_t index = 0;
+    out.buf[index++] = code;
+    std::memcpy(&out.buf[index], contact.pubkey, kPubKeySize);
+    index += kPubKeySize;
+    out.buf[index++] = contact.type;
+    out.buf[index++] = contact.flags;
+    out.buf[index++] = contact.out_path_len;
+    std::memset(&out.buf[index], 0, kMaxPathSize);
+    if (contact.out_path_len > 0)
+    {
+        const size_t copy_len = std::min<size_t>(contact.out_path_len, kMaxPathSize);
+        std::memcpy(&out.buf[index], contact.out_path, copy_len);
+    }
+    index += kMaxPathSize;
+
+    char name[32] = {};
+    copyBounded(name, sizeof(name), contact.name);
+    if (name[0] == '\0')
+    {
+        std::snprintf(name, sizeof(name), "%02X%02X", contact.pubkey[0], contact.pubkey[1]);
+    }
+    copyBounded(reinterpret_cast<char*>(&out.buf[index]), 32, name);
+    index += 32;
+
+    const uint32_t last_adv = contact.last_advert;
+    std::memcpy(&out.buf[index], &last_adv, sizeof(last_adv));
+    index += sizeof(last_adv);
+    std::memcpy(&out.buf[index], &contact.lat_i6, sizeof(contact.lat_i6));
+    index += sizeof(contact.lat_i6);
+    std::memcpy(&out.buf[index], &contact.lon_i6, sizeof(contact.lon_i6));
+    index += sizeof(contact.lon_i6);
+    const uint32_t lastmod = contact.lastmod != 0 ? contact.lastmod : last_adv;
+    std::memcpy(&out.buf[index], &lastmod, sizeof(lastmod));
+    index += sizeof(lastmod);
+
+    MeshCorePhonePathMetadata meta = contact.path_meta;
+    if (meta.hash_bytes == 0)
+    {
+        meta.hash_bytes = 1;
+    }
+    if (meta.hop_count == 0 && contact.out_path_len > 0)
+    {
+        meta.hop_count = static_cast<uint8_t>(contact.out_path_len / meta.hash_bytes);
+    }
+    appendPathMetadataExt(out.buf.data(), out.buf.size(), index, meta);
+
+    out.len = index;
+    return true;
 }
 
 bool MeshCorePhoneCore::buildContactFromNode(const PhoneNodeView& entry, uint8_t code, MeshCoreBleFrame& out) const
