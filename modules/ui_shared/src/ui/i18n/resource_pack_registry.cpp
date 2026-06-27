@@ -1706,6 +1706,56 @@ bool can_add_content_supplement(const FontPackRecord& pack)
            profile.max_content_supplement_ram_bytes;
 }
 
+bool preload_active_locale_preferred_content_supplements()
+{
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    if (s_active_locale == nullptr ||
+        s_active_locale->preferred_content_supplement_pack_ids.empty())
+    {
+        return false;
+    }
+
+    bool changed = false;
+    for (const std::string& pack_id : s_active_locale->preferred_content_supplement_pack_ids)
+    {
+        FontPackRecord* pack = find_pack_by_id(s_font_packs, pack_id.c_str());
+        if (pack == nullptr || pack == s_active_content_font_pack || pack == s_active_ui_font_pack)
+        {
+            continue;
+        }
+        if (pack->builtin || content_supplement_contains(pack) ||
+            !font_pack_supports_content(*pack) || pack->coverage.empty())
+        {
+            continue;
+        }
+        if (!can_add_content_supplement(*pack))
+        {
+            std::printf("%s font preload skipped id=%s role=preferred_content_supplement reason=content_budget bytes=%lu profile=%s\n",
+                        kLogTag,
+                        pack->id.c_str(),
+                        static_cast<unsigned long>(pack->estimated_ram_bytes),
+                        ::ui::runtime::current_memory_profile().name);
+            continue;
+        }
+        if (!ensure_font_pack_loaded(pack))
+        {
+            continue;
+        }
+
+        append_unique_pack(s_content_supplement_packs, pack);
+        changed = true;
+        std::printf("%s font preload id=%s role=preferred_content_supplement bytes=%lu source=%s\n",
+                    kLogTag,
+                    pack->id.c_str(),
+                    static_cast<unsigned long>(pack->estimated_ram_bytes),
+                    pack->source_path.empty() ? "<none>" : pack->source_path.c_str());
+    }
+    return changed;
+#else
+    return false;
+#endif
+}
+
 FontPackRecord* choose_content_supplement(const std::vector<uint32_t>& missing)
 {
     auto choose_best_candidate =
@@ -2767,6 +2817,7 @@ bool activate_locale_internal(LocalePackRecord* locale, FontPackRecord* preserve
                     preserved_content_pack->id.c_str());
     }
 
+    (void)preload_active_locale_preferred_content_supplements();
     rebuild_runtime_font_chains();
     ImePackRecord* effective_ime_pack = resolve_enabled_ime_pack();
 
