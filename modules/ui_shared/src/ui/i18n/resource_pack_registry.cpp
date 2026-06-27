@@ -1617,8 +1617,11 @@ bool codepoint_covered_by_loaded_packs(const std::vector<FontPackRecord*>& packs
         {
             continue;
         }
-        if (font_pack_covers_codepoint(*pack, codepoint) &&
-            loaded_font_has_codepoint(*pack, codepoint))
+        if (!pack->coverage.empty() && !font_pack_covers_codepoint(*pack, codepoint))
+        {
+            continue;
+        }
+        if (loaded_font_has_codepoint(*pack, codepoint))
         {
             return true;
         }
@@ -1719,12 +1722,19 @@ bool preload_active_locale_preferred_content_supplements()
     for (const std::string& pack_id : s_active_locale->preferred_content_supplement_pack_ids)
     {
         FontPackRecord* pack = find_pack_by_id(s_font_packs, pack_id.c_str());
-        if (pack == nullptr || pack == s_active_content_font_pack || pack == s_active_ui_font_pack)
+        if (pack == nullptr)
+        {
+            std::printf("%s font preload skipped id=%s role=preferred_content_supplement reason=not_cataloged\n",
+                        kLogTag,
+                        pack_id.c_str());
+            continue;
+        }
+        if (pack == s_active_content_font_pack || pack == s_active_ui_font_pack)
         {
             continue;
         }
         if (pack->builtin || content_supplement_contains(pack) ||
-            !font_pack_supports_content(*pack) || pack->coverage.empty())
+            !font_pack_supports_content(*pack))
         {
             continue;
         }
@@ -1744,10 +1754,11 @@ bool preload_active_locale_preferred_content_supplements()
 
         append_unique_pack(s_content_supplement_packs, pack);
         changed = true;
-        std::printf("%s font preload id=%s role=preferred_content_supplement bytes=%lu source=%s\n",
+        std::printf("%s font preload id=%s role=preferred_content_supplement bytes=%lu coverage=%lu source=%s\n",
                     kLogTag,
                     pack->id.c_str(),
                     static_cast<unsigned long>(pack->estimated_ram_bytes),
+                    static_cast<unsigned long>(pack->coverage.size()),
                     pack->source_path.empty() ? "<none>" : pack->source_path.c_str());
     }
     return changed;
