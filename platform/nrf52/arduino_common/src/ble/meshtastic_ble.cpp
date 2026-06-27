@@ -705,7 +705,7 @@ void MeshtasticBleService::beginReadWait()
                static_cast<unsigned>(from_radio_preloaded_valid_ ? from_radio_preloaded_.len : 0U));
 
     read_waiting_.store(true);
-    if (from_radio_preloaded_valid_)
+    if (from_radio_preloaded_valid_ && !from_radio_consume_in_progress_)
     {
         from_radio_consume_pending_ = true;
     }
@@ -798,6 +798,7 @@ void MeshtasticBleService::clearToPhoneQueue()
     from_radio_preloaded_valid_ = false;
     from_radio_preloaded_ = Frame{};
     from_radio_consume_pending_ = false;
+    from_radio_consume_in_progress_ = false;
     from_num_notify_counter_ = 0;
     noInterrupts();
     to_phone_head_ = 0;
@@ -856,6 +857,7 @@ void MeshtasticBleService::markReadableFromRadioConsumed()
                static_cast<unsigned long>(from_radio_preloaded_valid_ ? from_radio_preloaded_.from_num : 0U),
                static_cast<unsigned>(from_radio_preloaded_valid_ ? from_radio_preloaded_.len : 0U));
 
+    from_radio_consume_in_progress_ = true;
     from_radio_consume_pending_ = false;
     read_waiting_.store(false);
 
@@ -865,6 +867,7 @@ void MeshtasticBleService::markReadableFromRadioConsumed()
         from_radio_.write(&empty, 0);
         pending_from_radio_empty_log_ = true;
         bleLogBoth("[BLE][nrf52][mt][flow] consume empty");
+        from_radio_consume_in_progress_ = false;
         return;
     }
 
@@ -879,6 +882,7 @@ void MeshtasticBleService::markReadableFromRadioConsumed()
 
     from_radio_preloaded_valid_ = false;
     from_radio_preloaded_ = Frame{};
+    from_radio_consume_in_progress_ = false;
 
     bleLogBoth("[BLE][nrf52][mt][flow] consume end preloaded_valid=%u consume_pending=%u read_waiting=%u",
                from_radio_preloaded_valid_ ? 1U : 0U,

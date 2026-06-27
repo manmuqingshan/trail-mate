@@ -143,6 +143,7 @@ class MeshtasticBleService final : public BleService,
     bool from_radio_preloaded_valid_ = false;
     Frame from_radio_preloaded_{};
     bool from_radio_consume_pending_ = false;
+    bool from_radio_consume_in_progress_ = false;
 
     bool pending_from_num_valid_ = false;
     uint32_t pending_from_num_ = 0;
