@@ -2,8 +2,8 @@
 #include "sys/clock.h"
 
 #include <cassert>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 namespace

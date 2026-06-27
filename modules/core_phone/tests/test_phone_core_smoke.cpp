@@ -837,7 +837,7 @@ int main()
         {
             assert(config_only_channel_count == 8);
             assert(config_only_config_count < sizeof(kExpectedConfigOnlyConfigTags) /
-                                                sizeof(kExpectedConfigOnlyConfigTags[0]));
+                                                  sizeof(kExpectedConfigOnlyConfigTags[0]));
             assert(config_only_from.config.which_payload_variant ==
                    kExpectedConfigOnlyConfigTags[config_only_config_count]);
             ++config_only_config_count;
@@ -845,9 +845,9 @@ int main()
         if (config_only_from.which_payload_variant == meshtastic_FromRadio_moduleConfig_tag)
         {
             assert(config_only_config_count == sizeof(kExpectedConfigOnlyConfigTags) /
-                                                sizeof(kExpectedConfigOnlyConfigTags[0]));
+                                                   sizeof(kExpectedConfigOnlyConfigTags[0]));
             assert(config_only_module_count < sizeof(kExpectedConfigOnlyModuleTags) /
-                                                sizeof(kExpectedConfigOnlyModuleTags[0]));
+                                                  sizeof(kExpectedConfigOnlyModuleTags[0]));
             assert(config_only_from.moduleConfig.which_payload_variant ==
                    kExpectedConfigOnlyModuleTags[config_only_module_count]);
             ++config_only_module_count;
@@ -857,9 +857,9 @@ int main()
             assert(config_only_from.config_complete_id == kConfigOnlyNonce);
             assert(config_only_channel_count == 8);
             assert(config_only_config_count == sizeof(kExpectedConfigOnlyConfigTags) /
-                                                sizeof(kExpectedConfigOnlyConfigTags[0]));
+                                                   sizeof(kExpectedConfigOnlyConfigTags[0]));
             assert(config_only_module_count == sizeof(kExpectedConfigOnlyModuleTags) /
-                                                sizeof(kExpectedConfigOnlyModuleTags[0]));
+                                                   sizeof(kExpectedConfigOnlyModuleTags[0]));
             saw_config_only_complete = true;
             break;
         }
