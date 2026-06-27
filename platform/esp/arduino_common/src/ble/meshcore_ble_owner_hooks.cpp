@@ -12,6 +12,7 @@
 namespace
 {
 constexpr size_t kPubKeySize = chat::meshcore::MeshCoreIdentity::kPubKeySize;
+constexpr uint8_t kAdvTypeChat = 1;
 constexpr bool kMeshCoreBleSecurityEnabled = true;
 
 bool isConfiguredBlePin(uint32_t pin)
@@ -111,6 +112,171 @@ uint8_t MeshCoreBleService::getTelemetryModeBits() const
 bool MeshCoreBleService::getManualAddContacts() const
 {
     return manual_add_contacts_;
+}
+
+std::size_t MeshCoreBleService::meshCoreContactCount() const
+{
+    std::size_t total = manual_contacts_.size();
+    if (const auto* adapter = meshCoreAdapter())
+    {
+        std::vector<chat::meshcore::MeshCoreAdapter::PeerInfo> peers;
+        adapter->getPeerInfos(peers);
+        for (const auto& peer : peers)
+        {
+            if (!peer.has_pubkey)
+            {
+                continue;
+            }
+            bool manual_duplicate = false;
+            for (const auto& manual : manual_contacts_)
+            {
+                if (std::memcmp(manual.pubkey, peer.pubkey, kPubKeySize) == 0)
+                {
+                    manual_duplicate = true;
+                    break;
+                }
+            }
+            if (!manual_duplicate)
+            {
+                ++total;
+            }
+        }
+    }
+    return total;
+}
+
+bool MeshCoreBleService::getMeshCoreContactByIndex(std::size_t index,
+                                                   phone::meshcore::MeshCorePhoneContactView* out) const
+{
+    if (!out)
+    {
+        return false;
+    }
+    *out = {};
+    if (index < manual_contacts_.size())
+    {
+        const ContactRecord& record = manual_contacts_[index];
+        std::memcpy(out->pubkey, record.pubkey, kPubKeySize);
+        out->node_id = deriveNodeIdFromPubkey(out->pubkey, kPubKeySize);
+        out->type = record.type;
+        out->flags = record.flags;
+        out->out_path_len = record.out_path_len;
+        std::memcpy(out->out_path, record.out_path, sizeof(out->out_path));
+        copyBounded(out->name, sizeof(out->name), record.name);
+        out->last_advert = record.last_advert;
+        out->lat_i6 = record.lat;
+        out->lon_i6 = record.lon;
+        out->lastmod = record.lastmod != 0 ? record.lastmod : record.last_advert;
+        out->path_meta.profile = record.out_path_profile;
+        out->path_meta.hash_bytes = record.out_path_hash_bytes == 0 ? 1 : record.out_path_hash_bytes;
+        out->path_meta.hop_count = out->out_path_len > 0
+                                       ? static_cast<uint8_t>(out->out_path_len / out->path_meta.hash_bytes)
+                                       : 0;
+        return true;
+    }
+
+    index -= manual_contacts_.size();
+    const auto* adapter = meshCoreAdapter();
+    if (!adapter)
+    {
+        return false;
+    }
+
+    std::vector<chat::meshcore::MeshCoreAdapter::PeerInfo> peers;
+    adapter->getPeerInfos(peers);
+    for (const auto& peer : peers)
+    {
+        if (!peer.has_pubkey)
+        {
+            continue;
+        }
+        bool manual_duplicate = false;
+        for (const auto& manual : manual_contacts_)
+        {
+            if (std::memcmp(manual.pubkey, peer.pubkey, kPubKeySize) == 0)
+            {
+                manual_duplicate = true;
+                break;
+            }
+        }
+        if (manual_duplicate)
+        {
+            continue;
+        }
+        if (index > 0)
+        {
+            --index;
+            continue;
+        }
+
+        out->node_id = peer.node_id;
+        std::memcpy(out->pubkey, peer.pubkey, kPubKeySize);
+        out->type = kAdvTypeChat;
+        out->flags = 0;
+        out->out_path_len = peer.out_path_len;
+        if (out->out_path_len > 0)
+        {
+            const size_t copy_len = std::min(static_cast<size_t>(out->out_path_len), sizeof(out->out_path));
+            std::memcpy(out->out_path, peer.out_path, copy_len);
+        }
+        const auto* store = ctx_.getNodeStore();
+        if (store)
+        {
+            for (const auto& entry : store->getEntries())
+            {
+                if (entry.node_id == peer.node_id)
+                {
+                    copyBounded(out->name,
+                                sizeof(out->name),
+                                entry.long_name[0] != '\0' ? entry.long_name : entry.short_name);
+                    break;
+                }
+            }
+        }
+        if (out->name[0] == '\0')
+        {
+            std::snprintf(out->name, sizeof(out->name), "%02X%02X", out->pubkey[0], out->pubkey[1]);
+        }
+        out->last_advert = peer.last_seen_ms / 1000U;
+        out->lastmod = out->last_advert;
+        out->path_meta.profile = static_cast<uint8_t>(peer.out_path_profile);
+        out->path_meta.hash_bytes = static_cast<uint8_t>(
+            chat::meshcore::payloadHashBytes(peer.out_path_profile));
+        out->path_meta.hop_count = out->out_path_len > 0
+                                       ? static_cast<uint8_t>(out->out_path_len / out->path_meta.hash_bytes)
+                                       : 0;
+        return true;
+    }
+    return false;
+}
+
+bool MeshCoreBleService::resolveMeshCoreContactNodeId(const uint8_t* prefix,
+                                                      std::size_t len,
+                                                      uint32_t* out_node_id) const
+{
+    if (!prefix || len == 0 || !out_node_id)
+    {
+        return false;
+    }
+    *out_node_id = 0;
+
+    chat::meshcore::MeshCoreAdapter::PeerInfo peer{};
+    if (lookupPeerByPrefix(prefix, len, &peer) && peer.node_id != 0)
+    {
+        *out_node_id = peer.node_id;
+        return true;
+    }
+
+    const size_t cmp_len = std::min(len, kPubKeySize);
+    for (const auto& manual : manual_contacts_)
+    {
+        if (std::memcmp(manual.pubkey, prefix, cmp_len) == 0)
+        {
+            *out_node_id = deriveNodeIdFromPubkey(manual.pubkey, kPubKeySize);
+            return *out_node_id != 0;
+        }
+    }
+    return false;
 }
 
 bool MeshCoreBleService::resolvePeerPublicKey(const uint8_t* in_pubkey, size_t in_len,

@@ -44,12 +44,15 @@ Upstream `src/Packet.cpp` writes the packet envelope as:
 
 1. `header`
 2. optional 4 bytes of transport codes
-3. one byte `path_len`
-4. `path_len` bytes of path
+3. one byte `path_len` packed descriptor
+4. decoded path byte length bytes of path
 5. remaining payload bytes
 
-The important point is that `path_len` is already a byte count, not a hop count.
-This lets V2 use two bytes per hop without changing the packet envelope.
+The important point is that upstream `path_len` is not a raw byte count. It is
+packed as `(hash_size - 1) << 6 | hop_count`; the decoded path byte length is
+`hash_size * hop_count`. This lets V2 use two bytes per hop without changing the
+packet envelope, but it requires writers and parsers to keep wire descriptor and
+decoded byte length separate.
 
 ### V1 Hash And MAC Constants
 
@@ -204,7 +207,8 @@ Trail Mate formally defines MeshCore payload version 2 as:
 | Group/channel hash | 1 byte | 2 bytes |
 | Anonymous destination hash | 1 byte | 2 bytes |
 | Cipher MAC size | 2 bytes | 4 bytes |
-| `path_len` meaning | byte count | byte count |
+| wire `path_len` meaning | packed hash-size/hop-count descriptor | packed hash-size/hop-count descriptor |
+| decoded path byte length | `hash_size * hop_count` | `hash_size * hop_count` |
 | Max path bytes | 64 | 64 |
 | Max path hops | 64 | 32 |
 
@@ -260,11 +264,13 @@ The packet envelope is unchanged:
 |-------|------|-------------------|
 | `header` | 1 byte | Version bits are `PAYLOAD_VER_2` |
 | `transport_codes` | optional 4 bytes | unchanged |
-| `path_len` | 1 byte | path byte count |
-| `path` | `path_len` bytes | two bytes per hop |
+| `path_len` | 1 byte | packed descriptor; hash size is 2, hop count is lower 6 bits |
+| `path` | decoded path byte length | two bytes per hop |
 | `payload` | remaining bytes | payload type-specific V2 layout |
 
-The parser must reject malformed V2 paths when `path_len % 2 != 0`.
+The parser must reject malformed non-empty V2 paths whose descriptor does not
+encode a two-byte hash size, descriptors using the reserved four-byte hash size,
+and decoded paths larger than the 64-byte path capacity.
 
 ### Peer Encrypted Payloads
 

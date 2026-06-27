@@ -25,7 +25,6 @@ constexpr uint8_t kPayloadTypeGrpTxt = 0x05;
 constexpr uint8_t kPayloadTypeAnonReq = 0x07;
 constexpr uint8_t kPayloadTypeDirectData = kPayloadTypeAnonReq;
 constexpr uint8_t kPayloadTypePath = 0x08;
-constexpr size_t kMeshcoreMaxPathSize = 64;
 constexpr size_t kMeshcoreMaxFrameSize = 255;
 constexpr size_t kCipherBlockSize = 16;
 constexpr size_t kMeshcorePubKeySize = 32;
@@ -222,10 +221,11 @@ bool buildFrameNoTransport(PayloadProfile profile,
                            const uint8_t* payload, size_t payload_len,
                            uint8_t* out_frame, size_t out_cap, size_t* out_len)
 {
+    uint8_t path_descriptor = 0;
     if (!out_frame || !out_len || !payload || payload_len == 0 ||
-        out_cap == 0 || path_len > kMeshcoreMaxPathSize ||
+        out_cap == 0 || path_len > kMeshCoreMaxPathBytes ||
         (path_len > 0 && !path) ||
-        !pathIsWellFormed(profile, path_len))
+        !encodePathDescriptor(profile, path_len, &path_descriptor))
     {
         return false;
     }
@@ -240,7 +240,7 @@ bool buildFrameNoTransport(PayloadProfile profile,
 
     size_t index = 0;
     out_frame[index++] = buildHeader(route_type, payload_type, payloadVersion(profile));
-    out_frame[index++] = static_cast<uint8_t>(path_len);
+    out_frame[index++] = path_descriptor;
     if (path_len > 0)
     {
         memcpy(&out_frame[index], path, path_len);

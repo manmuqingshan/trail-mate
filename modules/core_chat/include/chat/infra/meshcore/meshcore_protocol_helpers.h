@@ -27,6 +27,7 @@ constexpr size_t kMeshCoreV1HashBytes = 1;
 constexpr size_t kMeshCoreV2HashBytes = 2;
 constexpr size_t kMeshCoreV1CipherMacSize = 2;
 constexpr size_t kMeshCoreV2CipherMacSize = 4;
+constexpr size_t kMeshCoreMaxPathBytes = 64;
 
 struct ParsedPacket
 {
@@ -34,6 +35,9 @@ struct ParsedPacket
     uint8_t payload_type = 0;
     uint8_t payload_ver = 0;
     size_t path_len_index = 0;
+    uint8_t path_descriptor = 0;
+    size_t path_hash_bytes = 1;
+    size_t path_hop_count = 0;
     size_t path_len = 0;
     const uint8_t* path = nullptr;
     const uint8_t* payload = nullptr;
@@ -67,6 +71,11 @@ size_t payloadHashBytes(PayloadProfile profile);
 size_t payloadMacBytes(PayloadProfile profile);
 bool pathIsWellFormed(PayloadProfile profile, size_t path_len);
 size_t pathHopCount(PayloadProfile profile, size_t path_len);
+bool encodePathDescriptor(PayloadProfile profile, size_t path_len, uint8_t* out_descriptor);
+bool decodePathDescriptor(uint8_t descriptor,
+                          size_t* out_hash_bytes,
+                          size_t* out_hop_count,
+                          size_t* out_path_len);
 bool copyPublicHash(PayloadProfile profile,
                     const uint8_t* pubkey,
                     size_t pubkey_len,

@@ -3,6 +3,7 @@
 #include "phone/meshcore/meshcore_phone_core.h"
 #include "phone/meshtastic/meshtastic_phone_session.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +19,10 @@ namespace
 
 constexpr uint8_t kMeshCoreResponseError = 1;
 constexpr uint8_t kMeshCoreErrorIllegalArg = 6;
+constexpr uint8_t kMeshCoreCmdGetContacts = 4;
+constexpr uint8_t kMeshCoreResponseContactsStart = 2;
+constexpr uint8_t kMeshCoreResponseContact = 3;
+constexpr uint8_t kMeshCoreResponseEndOfContacts = 4;
 
 class FakeMeshtasticTransport final : public phone::meshtastic::MeshtasticPhoneTransport
 {
@@ -60,6 +65,42 @@ class FakeModuleConfigHooks final : public phone::meshtastic::MeshtasticPhoneMod
 
     int save_count = 0;
     meshtastic_LocalModuleConfig last_saved = meshtastic_LocalModuleConfig_init_zero;
+};
+
+class FakeMeshCoreContactHooks final : public phone::meshcore::MeshCorePhoneHooks
+{
+  public:
+    std::size_t meshCoreContactCount() const override { return has_contact ? 1 : 0; }
+
+    bool getMeshCoreContactByIndex(std::size_t index,
+                                   phone::meshcore::MeshCorePhoneContactView* out) const override
+    {
+        if (!out || !has_contact || index != 0)
+        {
+            return false;
+        }
+        *out = contact;
+        return true;
+    }
+
+    bool resolveMeshCoreContactNodeId(const uint8_t* prefix,
+                                      std::size_t len,
+                                      uint32_t* out_node_id) const override
+    {
+        if (!prefix || len == 0 || !out_node_id || !has_contact)
+        {
+            return false;
+        }
+        if (std::memcmp(contact.pubkey, prefix, std::min(len, sizeof(contact.pubkey))) != 0)
+        {
+            return false;
+        }
+        *out_node_id = contact.node_id;
+        return true;
+    }
+
+    bool has_contact = false;
+    phone::meshcore::MeshCorePhoneContactView contact{};
 };
 
 void copyBounded(char* dst, size_t dst_len, const char* src)
@@ -905,5 +946,51 @@ int main()
     assert(out_len == 2);
     assert(out[0] == kMeshCoreResponseError);
     assert(out[1] == kMeshCoreErrorIllegalArg);
+
+    FakeMeshCoreContactHooks meshcore_hooks{};
+    meshcore_hooks.has_contact = true;
+    meshcore_hooks.contact.node_id = 0x11223344UL;
+    for (size_t i = 0; i < sizeof(meshcore_hooks.contact.pubkey); ++i)
+    {
+        meshcore_hooks.contact.pubkey[i] = static_cast<uint8_t>(0xA0U + i);
+    }
+    copyBounded(meshcore_hooks.contact.name, sizeof(meshcore_hooks.contact.name), "Peer One");
+    meshcore_hooks.contact.type = 1;
+    meshcore_hooks.contact.last_advert = 1234;
+    meshcore_hooks.contact.lastmod = 1234;
+    meshcore_hooks.contact.path_meta.hash_bytes = 1;
+
+    runtime.nodes.clear();
+    phone::PhoneNodeView fake_node{};
+    fake_node.node_id = 0x55667788UL;
+    copyBounded(fake_node.long_name, sizeof(fake_node.long_name), "NodeStore Fake");
+    fake_node.last_seen = 4321;
+    runtime.nodes.push_back(fake_node);
+
+    phone::meshcore::MeshCorePhoneCore contact_core(runtime, "Trail Mate", &meshcore_hooks);
+    const uint8_t get_contacts[] = {kMeshCoreCmdGetContacts, 0, 0, 0, 0};
+    assert(contact_core.handleRxFrame(get_contacts, sizeof(get_contacts)));
+
+    assert(contact_core.popTxFrame(out, &out_len));
+    assert(out_len == 5);
+    assert(out[0] == kMeshCoreResponseContactsStart);
+    uint32_t contact_total = 0;
+    std::memcpy(&contact_total, &out[1], sizeof(contact_total));
+    assert(contact_total == 1);
+
+    assert(contact_core.popTxFrame(out, &out_len));
+    assert(out[0] == kMeshCoreResponseContact);
+    assert(std::memcmp(&out[1],
+                       meshcore_hooks.contact.pubkey,
+                       sizeof(meshcore_hooks.contact.pubkey)) == 0);
+    assert(out[33] == meshcore_hooks.contact.type);
+    assert(std::strcmp(reinterpret_cast<const char*>(&out[100]), "Peer One") == 0);
+
+    assert(contact_core.popTxFrame(out, &out_len));
+    assert(out_len == 5);
+    assert(out[0] == kMeshCoreResponseEndOfContacts);
+    uint32_t most_recent = 0;
+    std::memcpy(&most_recent, &out[1], sizeof(most_recent));
+    assert(most_recent == meshcore_hooks.contact.lastmod);
     return 0;
 }

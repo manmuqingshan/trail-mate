@@ -353,6 +353,62 @@ size_t pathHopCount(PayloadProfile profile, size_t path_len)
     return path_len / hash_bytes;
 }
 
+bool encodePathDescriptor(PayloadProfile profile, size_t path_len, uint8_t* out_descriptor)
+{
+    if (!out_descriptor || path_len > kMeshCoreMaxPathBytes || !pathIsWellFormed(profile, path_len))
+    {
+        return false;
+    }
+
+    const size_t hash_bytes = payloadHashBytes(profile);
+    if (hash_bytes == 0 || hash_bytes > 3)
+    {
+        return false;
+    }
+
+    const size_t hop_count = path_len / hash_bytes;
+    if (hop_count > 63)
+    {
+        return false;
+    }
+
+    *out_descriptor = static_cast<uint8_t>(((hash_bytes - 1U) << 6U) | (hop_count & 0x3FU));
+    return true;
+}
+
+bool decodePathDescriptor(uint8_t descriptor,
+                          size_t* out_hash_bytes,
+                          size_t* out_hop_count,
+                          size_t* out_path_len)
+{
+    const size_t hash_bytes = static_cast<size_t>((descriptor >> 6U) + 1U);
+    const size_t hop_count = static_cast<size_t>(descriptor & 0x3FU);
+    if (hash_bytes == 4)
+    {
+        return false;
+    }
+
+    const size_t path_len = hash_bytes * hop_count;
+    if (path_len > kMeshCoreMaxPathBytes)
+    {
+        return false;
+    }
+
+    if (out_hash_bytes)
+    {
+        *out_hash_bytes = hash_bytes;
+    }
+    if (out_hop_count)
+    {
+        *out_hop_count = hop_count;
+    }
+    if (out_path_len)
+    {
+        *out_path_len = path_len;
+    }
+    return true;
+}
+
 bool copyPublicHash(PayloadProfile profile,
                     const uint8_t* pubkey,
                     size_t pubkey_len,
@@ -410,7 +466,24 @@ bool parsePacket(const uint8_t* data, size_t len, ParsedPacket* out)
     }
 
     out->path_len_index = index;
-    out->path_len = data[index++];
+    out->path_descriptor = data[index++];
+    if (!decodePathDescriptor(out->path_descriptor,
+                              &out->path_hash_bytes,
+                              &out->path_hop_count,
+                              &out->path_len))
+    {
+        return false;
+    }
+    if (isSupportedPayloadVersion(out->payload_ver) &&
+        out->payload_type != kMeshCorePayloadTypeTrace &&
+        out->path_hop_count > 0)
+    {
+        const PayloadProfile profile = payloadProfileFromVersion(out->payload_ver);
+        if (out->path_hash_bytes != payloadHashBytes(profile))
+        {
+            return false;
+        }
+    }
     if (index + out->path_len > len)
     {
         return false;
