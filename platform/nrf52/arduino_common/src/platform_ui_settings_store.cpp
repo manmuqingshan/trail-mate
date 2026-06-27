@@ -19,6 +19,7 @@ using Adafruit_LittleFS_Namespace::FILE_O_READ;
 constexpr const char* kSettingsPath = "/ui_settings.bin";
 constexpr const char* kSettingsTempPath = "/ui_settings.bin.tmp";
 constexpr const char* kLogTag = "[nrf52][ui_settings]";
+constexpr const char* kRecoveryTempOpenStage = "temp_open";
 constexpr uint32_t kMagic = 0x55535447UL; // USTG
 constexpr uint16_t kVersion = 1;
 
@@ -184,6 +185,115 @@ void removeSettingsFiles()
     ::platform::nrf52::arduino_common::internal_fs::removeIfExists(kSettingsPath);
 }
 
+void removeRecoveryArtifact(const char* path)
+{
+    if (!path)
+    {
+        return;
+    }
+
+    const bool existed = InternalFS.exists(path);
+    ::platform::nrf52::arduino_common::internal_fs::removeIfExists(path);
+    if (existed)
+    {
+        Serial.printf("%s recovery removed path=%s\n", kLogTag, path);
+    }
+}
+
+void removeVolatileRecoveryArtifacts()
+{
+    // These files are projections/caches. They must not block identity, BLE, or
+    // module configuration from being written.
+    static constexpr const char* kPaths[] = {
+        "/chat_nodes.bin",
+        "/chat_nodes.bin.tmp",
+        "/chat_contacts.bin",
+        "/chat_contacts.bin.tmp",
+        "/chat_messages.bin",
+        "/chat_messages.bin.tmp",
+        "/t_echo_lite_settings.bin.tmp",
+        "/gat562_settings.bin.tmp",
+        kSettingsTempPath,
+    };
+
+    for (const char* path : kPaths)
+    {
+        removeRecoveryArtifact(path);
+    }
+}
+
+bool formatForRecovery(const char* stage)
+{
+    Serial.printf("%s recovery format start stage=%s\n", kLogTag, stage ? stage : "?");
+    if (!InternalFS.format())
+    {
+        Serial.printf("%s recovery format failed stage=%s\n", kLogTag, stage ? stage : "?");
+        return false;
+    }
+    if (!InternalFS.begin())
+    {
+        Serial.printf("%s recovery remount failed stage=%s\n", kLogTag, stage ? stage : "?");
+        return false;
+    }
+    Serial.printf("%s recovery format ok stage=%s\n", kLogTag, stage ? stage : "?");
+    return true;
+}
+
+bool recoverForTempOpenFailure()
+{
+    Serial.printf("%s recovery start stage=%s\n", kLogTag, kRecoveryTempOpenStage);
+
+    removeVolatileRecoveryArtifacts();
+    if (InternalFS.exists(kSettingsTempPath))
+    {
+        Serial.printf("%s recovery temp still exists path=%s\n", kLogTag, kSettingsTempPath);
+        return false;
+    }
+
+    return true;
+}
+
+bool openSettingsTempForSave(Adafruit_LittleFS_Namespace::File* file)
+{
+    if (!file)
+    {
+        return false;
+    }
+
+    if (::platform::nrf52::arduino_common::internal_fs::openTempForReplace(kSettingsTempPath, file, false, kLogTag))
+    {
+        return true;
+    }
+
+    if (recoverForTempOpenFailure() &&
+        ::platform::nrf52::arduino_common::internal_fs::openTempForReplace(kSettingsTempPath, file, false, kLogTag))
+    {
+        Serial.printf("%s recovery save temp opened after cache cleanup\n", kLogTag);
+        return true;
+    }
+
+    removeRecoveryArtifact(kSettingsPath);
+    if (::platform::nrf52::arduino_common::internal_fs::openTempForReplace(kSettingsTempPath, file, false, kLogTag))
+    {
+        Serial.printf("%s recovery save temp opened after settings rewrite\n", kLogTag);
+        return true;
+    }
+
+    if (!formatForRecovery(kRecoveryTempOpenStage))
+    {
+        return false;
+    }
+
+    if (::platform::nrf52::arduino_common::internal_fs::openTempForReplace(kSettingsTempPath, file, false, kLogTag))
+    {
+        Serial.printf("%s recovery save temp opened after format\n", kLogTag);
+        return true;
+    }
+
+    Serial.printf("%s recovery temp open failed after format path=%s\n", kLogTag, kSettingsTempPath);
+    return false;
+}
+
 void abortLoadAndRemove(Adafruit_LittleFS_Namespace::File& file)
 {
     if (file)
@@ -196,13 +306,14 @@ void abortLoadAndRemove(Adafruit_LittleFS_Namespace::File& file)
 
 bool saveToFs()
 {
-    if (!::platform::nrf52::arduino_common::internal_fs::ensureMounted(false, kLogTag))
+    if (!::platform::nrf52::arduino_common::internal_fs::ensureMounted(false, kLogTag) &&
+        !formatForRecovery("mount"))
     {
         return false;
     }
 
     Adafruit_LittleFS_Namespace::File file(InternalFS);
-    if (!::platform::nrf52::arduino_common::internal_fs::openTempForReplace(kSettingsTempPath, &file, false, kLogTag))
+    if (!openSettingsTempForSave(&file))
     {
         return false;
     }
