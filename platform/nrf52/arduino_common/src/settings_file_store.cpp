@@ -305,19 +305,7 @@ StoreStatus replaceSettingsFile(const ReplaceRequest& request, ReplaceResult* re
 
     if (InternalFS.exists(request.path))
     {
-        auto oldf = InternalFS.open(request.path, FILE_O_READ);
-        if (oldf)
-        {
-            if (result)
-            {
-                result->had_old_size = true;
-                result->old_size = oldf.size();
-            }
-            Serial.printf("%s old size before replace=%lu\n",
-                          prefix,
-                          static_cast<unsigned long>(oldf.size()));
-            oldf.close();
-        }
+        Serial.printf("%s existing file before replace path=%s\n", prefix, request.path);
     }
 
     internal_fs::removeIfExists(request.temp_path);

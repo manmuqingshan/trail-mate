@@ -27,7 +27,7 @@ constexpr const char* kSettingsTempPath = "/t_echo_lite_settings.bin.tmp";
 constexpr const char* kSettingsCorruptPath = "/t_echo_lite_settings.bin.corrupt";
 constexpr const char* kLogTag = "[t-echo-lite][settings]";
 constexpr uint32_t kSettingsMagic = 0x54454C54UL; // TLET
-constexpr uint16_t kSettingsVersion = 5;
+constexpr uint16_t kSettingsVersion = 6;
 constexpr uint16_t kSettingsVersionMessageLightDefaultWasOn = 4;
 constexpr uint16_t kSettingsVersionStatusLedDefaultWasBlue = 3;
 constexpr uint8_t kDefaultToneVolume = 45;
@@ -60,7 +60,7 @@ struct PersistedPayload
     uint8_t status_led_color = kDefaultStatusLedColor;
     uint8_t keyboard_light_enabled = kDefaultKeyboardLightEnabled;
     uint8_t message_keyboard_light_enabled = kDefaultMessageKeyboardLightEnabled;
-    uint8_t reserved[1] = {};
+    uint8_t reserved[5] = {};
 };
 
 struct CachedSettings
@@ -156,9 +156,21 @@ bool quarantineCorruptFile(StoreStatus status)
         return true;
     }
 
+    if (InternalFS.remove(kSettingsPath))
+    {
+        Serial.printf("[T-Echo Lite][settings] removed corrupt store after quarantine failed status=%s\n",
+                      statusToText(status));
+        return true;
+    }
+
     Serial.printf("[T-Echo Lite][settings] failed to quarantine corrupt store status=%s\n",
                   statusToText(status));
     return false;
+}
+
+uint32_t currentSettingsFileSize()
+{
+    return static_cast<uint32_t>(sizeof(FileHeader) + sizeof(PersistedPayload));
 }
 
 void resetCacheToDefaults()
@@ -194,6 +206,19 @@ bool loadFromFs()
     }
 
     const uint32_t actual_size = file.size();
+    const uint32_t expected_current_size = currentSettingsFileSize();
+    if (actual_size != expected_current_size)
+    {
+        file.close();
+        s_last_load_status = StoreStatus::PayloadSizeMismatch;
+        (void)quarantineCorruptFile(s_last_load_status);
+        Serial.printf("[T-Echo Lite][settings] quarantined non-current store actual=%lu expected=%lu version=%u\n",
+                      static_cast<unsigned long>(actual_size),
+                      static_cast<unsigned long>(expected_current_size),
+                      static_cast<unsigned>(kSettingsVersion));
+        return false;
+    }
+
     if (actual_size < sizeof(FileHeader))
     {
         file.close();
