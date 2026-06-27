@@ -490,15 +490,7 @@ bool saveToFsOnce()
     header.payload_size = sizeof(PersistedPayload);
     header.crc32 = crc32(reinterpret_cast<const uint8_t*>(&payload), sizeof(PersistedPayload));
 
-    // 先尝试正常打开已有文件
-    Adafruit_LittleFS_Namespace::File file(InternalFS);
-    if (!::platform::nrf52::arduino_common::internal_fs::openForOverwrite(kSettingsPath, &file, true, kLogTag))
-    {
-        s_last_save_status = StoreStatus::OpenFailed;
-        Serial.printf("%s open failed path=%s\n", kLogTag, kSettingsPath);
-        return false;
-    }
-
+    // Do not open the same LittleFS path for read while the write handle is open.
     {
         auto oldf = InternalFS.open(kSettingsPath, FILE_O_READ);
         if (oldf)
@@ -507,6 +499,15 @@ bool saveToFsOnce()
                           static_cast<unsigned long>(oldf.size()));
             oldf.close();
         }
+    }
+
+    // 先尝试正常打开已有文件
+    Adafruit_LittleFS_Namespace::File file(InternalFS);
+    if (!::platform::nrf52::arduino_common::internal_fs::openForOverwrite(kSettingsPath, &file, true, kLogTag))
+    {
+        s_last_save_status = StoreStatus::OpenFailed;
+        Serial.printf("%s open failed path=%s\n", kLogTag, kSettingsPath);
+        return false;
     }
 
     const bool seek_ok = ::platform::nrf52::arduino_common::internal_fs::rewindForOverwrite(file);
