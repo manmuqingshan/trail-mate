@@ -34,10 +34,10 @@ platformio run -d builds/pio_nrf52 -e t-echo-lite
 platformio run -d builds/pio_nrf52 -e gat562_mesh_evb_pro
 ```
 
-Release artifacts for `t-echo-lite` prefer the generated `firmware.uf2` for
-manual flashing. CI verifies that this UF2 uses the nRF52840 family ID
-`0xADA52840`. The `.hex` and `.zip` outputs remain useful for diagnostics and
-toolchain-specific fallback paths.
+Release artifacts for the nRF52840 manual-flash targets prefer generated
+`firmware.uf2` files. CI verifies that these UF2 files use the nRF52840 family
+ID `0xADA52840`. The `.hex` and `.zip` outputs remain useful for diagnostics
+and toolchain-specific fallback paths.
 
 Rules:
 

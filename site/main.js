@@ -525,12 +525,12 @@ const DEVICES = [
     },
     interactions: {
       en: [
-        "Use the downloaded firmware file instead of the browser flasher.",
+        "Use the GAT562 nRF52840 UF2 release file instead of the browser flasher.",
         "This board follows a different flashing model than the ESP32-S3 devices above.",
         "Screenshots will be added when this target has its own captured UI set.",
       ],
       zh: [
-        "请使用 GitHub Release 中的发布包，不要使用网页刷机。",
+        "请优先使用 GitHub Release 中的 GAT562 nRF52840 UF2 发布文件，不要使用网页刷机。",
         "这个设备的刷写方式和上面的 ESP32-S3 设备不同。",
         "后续有独立截图后，会补充该目标自己的界面展示。",
       ],

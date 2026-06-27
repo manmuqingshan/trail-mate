@@ -121,8 +121,8 @@ jobs:
             fi
           fi
 
-      - name: Prepare and verify T-Echo-Lite UF2
-        if: matrix.env == 't-echo-lite'
+      - name: Prepare and verify nRF52840 UF2
+        if: matrix.env == 'gat562_mesh_evb_pro' || matrix.env == 't-echo-lite'
         run: |
           python scripts/prepare_nrf52_uf2.py \
             --env ${{ matrix.env }} \

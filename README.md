@@ -231,7 +231,7 @@ The table below describes the **real build targets that exist in the repository 
 - If you are working on the newer large-screen ESP-IDF path, start with **`tab5`**
 - **`tdeck_pro_*`**, **`lilygo_twatch_s3`**, **`t_display_p4_tft`**, and **`t_display_p4_amoled`** are better treated as bring-up, layout, or device-adaptation targets than as the highest-maturity feature-validation path
 - “The repository has a build target” does not mean every page or capability is equally mature on that device; some features are enabled or hidden dynamically based on capabilities, RAM budget, and input hardware
-- GitHub Actions currently keeps building the main path through **`tlora_pager_sx1262`**, **`tlora_pager_lr1121`**, **`tdeck`**, **`lilygo_twatch_s3`**, **`gat562_mesh_evb_pro`**, and the nRF52 wrapper target **`t-echo-lite`**; T-Echo-Lite release artifacts include a UF2 file for manual flashing, verified with the nRF52840 UF2 family ID `0xADA52840`
+- GitHub Actions currently keeps building the main path through **`tlora_pager_sx1262`**, **`tlora_pager_lr1121`**, **`tdeck`**, **`lilygo_twatch_s3`**, **`gat562_mesh_evb_pro`**, and the nRF52 wrapper target **`t-echo-lite`**; GAT562 and T-Echo-Lite release artifacts include UF2 files for manual flashing, verified with the nRF52840 UF2 family ID `0xADA52840`
 
 ---
 
