@@ -85,6 +85,7 @@ class AppFacadeRuntime final : public app::IAppBleFacade
     void broadcastNodeInfo() override;
     void clearNodeDb() override;
     void clearMessageDb() override;
+    bool clearVolatileStoragePreserveSettings();
 
     ble::BleManager* getBleManager() override;
     const ble::BleManager* getBleManager() const override;

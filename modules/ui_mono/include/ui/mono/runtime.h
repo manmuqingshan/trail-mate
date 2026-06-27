@@ -83,6 +83,7 @@ struct HostCallbacks
     bool (*gps_powered_fn)() = nullptr;
     ResourceUsage (*ram_usage_fn)() = nullptr;
     ResourceUsage (*flash_usage_fn)() = nullptr;
+    bool (*clear_volatile_storage_fn)() = nullptr;
     uint8_t (*message_tone_volume_fn)() = nullptr;
     void (*set_message_tone_volume_fn)(uint8_t volume_percent) = nullptr;
     void (*play_message_tone_fn)() = nullptr;

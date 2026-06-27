@@ -34,6 +34,7 @@ class ContactStoreCore : public IContactStore
     bool hasNickname(const char* nickname) const override;
     std::vector<uint32_t> getAllContactIds() const override;
     size_t getCount() const override;
+    bool clear();
 
   private:
     bool loadEntries();

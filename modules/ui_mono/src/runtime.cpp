@@ -270,7 +270,13 @@ constexpr const char* kActionItems[] = {
     "BROADCAST ID",
     "CLEAR NODES",
     "CLEAR MSGS",
+    "CLEAR CACHE",
 };
+
+bool actionNeedsConfirm(size_t index)
+{
+    return index == 1 || index == 2 || index == 3;
+}
 
 constexpr const char* kMessageMenuItems[] = {
     "INFO",
@@ -3146,7 +3152,7 @@ void Runtime::handleInput(InputAction action)
         }
         else if (action == InputAction::Right || action == InputAction::Select || action == InputAction::Primary)
         {
-            if (action_index_ == 1 || action_index_ == 2)
+            if (actionNeedsConfirm(action_index_))
             {
                 beginSettingPopup(Page::ActionPage, action_index_);
             }
@@ -7450,10 +7456,15 @@ void Runtime::executeActionPageItem(size_t index)
         appendBootLog("messages cleared");
         break;
     case 3:
-        if (auto* ble_app = static_cast<app::IAppBleFacade*>(app()))
+        if (host_.clear_volatile_storage_fn && host_.clear_volatile_storage_fn())
         {
-            ble_app->resetMeshConfig();
-            appendBootLog("radio reset");
+            appendBootLog("cache cleared");
+            showTransientPopup("STORAGE", "CACHE CLEARED", 2000U);
+        }
+        else
+        {
+            appendBootLog("cache clear fail");
+            showTransientPopup("STORAGE", "CLEAR FAILED", 2500U);
         }
         break;
     default:

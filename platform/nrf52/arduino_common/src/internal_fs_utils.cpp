@@ -126,6 +126,48 @@ void removeIfExists(const char* path)
     }
 }
 
+bool removeVolatileArtifactsPreserveSettings(const char* log_tag)
+{
+    if (!ensureMounted(false, log_tag))
+    {
+        return false;
+    }
+
+    static constexpr const char* kPaths[] = {
+        "/chat_nodes.bin",
+        "/chat_nodes.bin.tmp",
+        "/chat_contacts.bin",
+        "/chat_contacts.bin.tmp",
+        "/chat_messages.bin",
+        "/chat_messages.bin.tmp",
+        "/t_echo_lite_settings.bin.tmp",
+        "/gat562_settings.bin.tmp",
+        "/ui_settings.bin.tmp",
+    };
+
+    bool ok = true;
+    for (const char* path : kPaths)
+    {
+        if (!path || !InternalFS.exists(path))
+        {
+            continue;
+        }
+
+        InternalFS.remove(path);
+        if (InternalFS.exists(path))
+        {
+            ok = false;
+            logPath(log_tag, "volatile remove failed", path);
+        }
+        else
+        {
+            logPath(log_tag, "volatile removed", path);
+        }
+    }
+
+    return ok;
+}
+
 bool openForOverwrite(const char* path,
                       File* out,
                       bool allow_format_recovery,

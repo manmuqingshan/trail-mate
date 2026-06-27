@@ -131,6 +131,12 @@ size_t ContactStoreCore::getCount() const
     return entries_.size();
 }
 
+bool ContactStoreCore::clear()
+{
+    entries_.clear();
+    return saveEntries();
+}
+
 bool ContactStoreCore::loadEntries()
 {
     std::vector<uint8_t> blob;

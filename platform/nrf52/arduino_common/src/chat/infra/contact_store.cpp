@@ -44,6 +44,11 @@ size_t ContactStore::getCount() const
     return core_.getCount();
 }
 
+bool ContactStore::clear()
+{
+    return core_.clear();
+}
+
 bool ContactStore::hasContactNode(uint32_t node_id) const
 {
     return !core_.getNickname(node_id).empty();

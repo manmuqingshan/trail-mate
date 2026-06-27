@@ -11,6 +11,7 @@ using Adafruit_LittleFS_Namespace::File;
 
 bool ensureMounted(bool allow_format_recovery = false, const char* log_tag = nullptr);
 void removeIfExists(const char* path);
+bool removeVolatileArtifactsPreserveSettings(const char* log_tag = nullptr);
 bool openForOverwrite(const char* path,
                       File* out,
                       bool allow_format_recovery = false,

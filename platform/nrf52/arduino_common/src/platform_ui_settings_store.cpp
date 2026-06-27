@@ -200,28 +200,6 @@ void removeRecoveryArtifact(const char* path)
     }
 }
 
-void removeVolatileRecoveryArtifacts()
-{
-    // These files are projections/caches. They must not block identity, BLE, or
-    // module configuration from being written.
-    static constexpr const char* kPaths[] = {
-        "/chat_nodes.bin",
-        "/chat_nodes.bin.tmp",
-        "/chat_contacts.bin",
-        "/chat_contacts.bin.tmp",
-        "/chat_messages.bin",
-        "/chat_messages.bin.tmp",
-        "/t_echo_lite_settings.bin.tmp",
-        "/gat562_settings.bin.tmp",
-        kSettingsTempPath,
-    };
-
-    for (const char* path : kPaths)
-    {
-        removeRecoveryArtifact(path);
-    }
-}
-
 bool formatForRecovery(const char* stage)
 {
     Serial.printf("%s recovery format start stage=%s\n", kLogTag, stage ? stage : "?");
@@ -243,7 +221,10 @@ bool recoverForTempOpenFailure()
 {
     Serial.printf("%s recovery start stage=%s\n", kLogTag, kRecoveryTempOpenStage);
 
-    removeVolatileRecoveryArtifacts();
+    if (!::platform::nrf52::arduino_common::internal_fs::removeVolatileArtifactsPreserveSettings(kLogTag))
+    {
+        return false;
+    }
     if (InternalFS.exists(kSettingsTempPath))
     {
         Serial.printf("%s recovery temp still exists path=%s\n", kLogTag, kSettingsTempPath);
