@@ -679,7 +679,9 @@ bool MeshtasticPhoneCore::shouldProjectNodeInfo(chat::NodeId node_id, uint32_t s
         }
     }
 
-    node_projection_cache_[node_projection_cache_next_] = {node_id, signature};
+    auto& cache_entry = node_projection_cache_[node_projection_cache_next_];
+    cache_entry.node_id = node_id;
+    cache_entry.signature = signature;
     node_projection_cache_next_ = (node_projection_cache_next_ + 1U) % node_projection_cache_.size();
     return true;
 }
