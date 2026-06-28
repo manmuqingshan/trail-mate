@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 #include "meshtastic/admin.pb.h"
 #include "meshtastic/portnums.pb.h"
@@ -308,6 +309,19 @@ bool decodeFromRadio(const phone::meshtastic::MeshtasticBleFrame& frame, meshtas
     return pb_decode(&stream, meshtastic_FromRadio_fields, &out);
 }
 
+bool encodeNodeInfoPayload(const meshtastic_NodeInfo& node, std::vector<uint8_t>& out)
+{
+    uint8_t buffer[meshtastic_NodeInfo_size] = {};
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+    if (!pb_encode(&stream, meshtastic_NodeInfo_fields, &node))
+    {
+        return false;
+    }
+
+    out.assign(buffer, buffer + stream.bytes_written);
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -388,6 +402,121 @@ int main()
     assert(text_from.packet.decoded.dest == incoming_data.to);
     assert(text_from.packet.decoded.has_bitfield);
     assert(!text_session.popToPhone(&text_frame));
+
+    phone::tests::FakePhoneRuntimeContext known_node_runtime;
+    FakeMeshtasticTransport known_node_transport;
+    phone::PhoneNodeView cd8c_node{};
+    cd8c_node.node_id = incoming_text.from;
+    copyBounded(cd8c_node.short_name, sizeof(cd8c_node.short_name), "cd8c");
+    copyBounded(cd8c_node.long_name, sizeof(cd8c_node.long_name), "Haibara.Ai");
+    cd8c_node.last_seen = incoming_text.timestamp;
+    cd8c_node.role = 0;
+    cd8c_node.hw_model = static_cast<uint8_t>(meshtastic_HardwareModel_PRIVATE_HW);
+    cd8c_node.channel = 0;
+    cd8c_node.via_mqtt = true;
+    known_node_runtime.nodes.push_back(cd8c_node);
+    phone::meshtastic::MeshtasticPhoneSession known_node_session(
+        known_node_runtime, known_node_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+    incoming_text.msg_id = 0x9DD4E0EA;
+    known_node_session.onIncomingText(incoming_text);
+    assert(known_node_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_frame.from_num == cd8c_node.node_id);
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_node_info_tag);
+    assert(text_from.node_info.num == cd8c_node.node_id);
+    assert(text_from.node_info.has_user);
+    assert(std::strcmp(text_from.node_info.user.short_name, cd8c_node.short_name) == 0);
+    assert(std::strcmp(text_from.node_info.user.long_name, cd8c_node.long_name) == 0);
+    assert(text_from.node_info.via_mqtt);
+    assert(known_node_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_frame.from_num == incoming_text.msg_id);
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+
+    incoming_text.msg_id = 0x9DD4E0EB;
+    known_node_session.onIncomingText(incoming_text);
+    assert(known_node_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(!known_node_session.popToPhone(&text_frame));
+
+    copyBounded(known_node_runtime.nodes[0].long_name,
+                sizeof(known_node_runtime.nodes[0].long_name),
+                "Haibara.Ai (MQTT)");
+    incoming_text.msg_id = 0x9DD4E0EC;
+    known_node_session.onIncomingText(incoming_text);
+    assert(known_node_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_node_info_tag);
+    assert(std::strcmp(text_from.node_info.user.long_name, "Haibara.Ai (MQTT)") == 0);
+    assert(known_node_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(!known_node_session.popToPhone(&text_frame));
+
+    phone::tests::FakePhoneRuntimeContext metadata_runtime;
+    FakeMeshtasticTransport metadata_transport;
+    phone::meshtastic::MeshtasticPhoneSession metadata_session(
+        metadata_runtime, metadata_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+    meshtastic_NodeInfo metadata_node = meshtastic_NodeInfo_init_zero;
+    metadata_node.num = 0x0C16AAEC;
+    metadata_node.has_user = true;
+    copyBounded(metadata_node.user.id, sizeof(metadata_node.user.id), "!0C16AAEC");
+    copyBounded(metadata_node.user.short_name, sizeof(metadata_node.user.short_name), "AAEC");
+    copyBounded(metadata_node.user.long_name, sizeof(metadata_node.user.long_name), "lilygo-AAEC");
+    metadata_node.user.hw_model = meshtastic_HardwareModel_T_LORA_PAGER;
+    metadata_node.user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
+    metadata_node.user.public_key.size = 32;
+    for (uint8_t index = 0; index < metadata_node.user.public_key.size; ++index)
+    {
+        metadata_node.user.public_key.bytes[index] = static_cast<uint8_t>(index + 1U);
+    }
+    metadata_node.snr = 5.2F;
+    metadata_node.last_heard = 123456790;
+    metadata_node.via_mqtt = true;
+    metadata_node.has_hops_away = true;
+    metadata_node.hops_away = 2;
+
+    chat::MeshIncomingData metadata_data{};
+    metadata_data.portnum = meshtastic_PortNum_NODEINFO_APP;
+    metadata_data.from = metadata_node.num;
+    metadata_data.to = 0xFFFFFFFF;
+    metadata_data.packet_id = 0x30FF92E3;
+    metadata_data.channel = chat::ChannelId::PRIMARY;
+    metadata_data.rx_meta.from_is = true;
+    metadata_data.rx_meta.snr_db_x10 = 52;
+    metadata_data.rx_meta.rssi_dbm_x10 = -590;
+    metadata_data.rx_meta.rx_timestamp_s = metadata_node.last_heard;
+    metadata_data.rx_meta.hop_count = metadata_node.hops_away;
+    assert(encodeNodeInfoPayload(metadata_node, metadata_data.payload));
+
+    metadata_session.onIncomingData(metadata_data);
+    assert(metadata_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_frame.from_num == metadata_node.num);
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_node_info_tag);
+    assert(text_from.node_info.num == metadata_node.num);
+    assert(text_from.node_info.has_user);
+    assert(std::strcmp(text_from.node_info.user.short_name, "AAEC") == 0);
+    assert(std::strcmp(text_from.node_info.user.long_name, "lilygo-AAEC") == 0);
+    assert(text_from.node_info.user.public_key.size == 32);
+    assert(text_from.node_info.via_mqtt);
+    assert(text_from.node_info.has_hops_away);
+    assert(text_from.node_info.hops_away == 2);
+    assert(metadata_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_frame.from_num == metadata_data.packet_id);
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(!metadata_session.popToPhone(&text_frame));
 
     phone::tests::FakePhoneRuntimeContext admin_runtime;
     FakeMeshtasticTransport admin_transport;

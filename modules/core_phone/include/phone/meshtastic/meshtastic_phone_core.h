@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "chat/domain/chat_types.h"
+#include "chat/infra/meshtastic/mt_node_payload.h"
 #include "meshtastic/admin.pb.h"
 #include "meshtastic/channel.pb.h"
 #include "meshtastic/config.pb.h"
@@ -256,18 +257,30 @@ class MeshtasticPhoneCore
     };
 
     static constexpr size_t kPhoneQueueDepth = 4;
+    static constexpr size_t kNodeProjectionCacheDepth = 8;
+
+    struct NodeProjectionCacheEntry
+    {
+        uint32_t node_id = 0;
+        uint32_t signature = 0;
+    };
 
     bool handleToRadioPacket(meshtastic_MeshPacket& packet);
     bool handleAdmin(meshtastic_MeshPacket& packet);
     bool handleLocalSelfPacket(meshtastic_MeshPacket& packet);
     bool encodeFromRadio(meshtastic_FromRadio& from, uint32_t from_num, MeshtasticBleFrame* out);
     bool popConfigSnapshotFrame(MeshtasticBleFrame* out);
+    void enqueueKnownNodeInfoProjection(chat::NodeId node_id);
+    bool enqueueMetadataNodeInfoProjection(const chat::MeshIncomingData& msg);
+    bool shouldProjectNodeInfo(chat::NodeId node_id, uint32_t signature);
     void enqueueQueueStatus(uint32_t packet_id, bool ok);
     void enqueueConfigSnapshot(uint32_t config_nonce);
     void notifyFromNum(uint32_t from_num);
     void fillMyInfo(meshtastic_MyNodeInfo* out) const;
     void fillSelfNodeInfo(meshtastic_NodeInfo* out) const;
     void fillNodeInfoFromEntry(const PhoneNodeView& entry, meshtastic_NodeInfo* out) const;
+    void fillNodeInfoFromDecodedPayload(const chat::meshtastic::DecodedNodePayload& node,
+                                        meshtastic_NodeInfo* out) const;
     void fillMetadata(meshtastic_DeviceMetadata* out) const;
     void fillDeviceUi(meshtastic_DeviceUIConfig* out) const;
     void fillChannel(uint8_t idx, meshtastic_Channel* out) const;
@@ -315,7 +328,10 @@ class MeshtasticPhoneCore
     bool admin_edit_transaction_restart_pending_ = false;
     bool restart_pending_ = false;
     FixedRingQueue<meshtastic_QueueStatus, kPhoneQueueDepth> queue_status_queue_;
+    FixedRingQueue<meshtastic_NodeInfo, kPhoneQueueDepth> node_info_queue_;
     FixedRingQueue<meshtastic_MeshPacket, kPhoneQueueDepth> packet_queue_;
+    std::array<NodeProjectionCacheEntry, kNodeProjectionCacheDepth> node_projection_cache_{};
+    size_t node_projection_cache_next_ = 0;
     meshtastic_Config_BluetoothConfig bluetooth_config_ = meshtastic_Config_BluetoothConfig_init_zero;
     meshtastic_LocalModuleConfig module_config_ = meshtastic_LocalModuleConfig_init_zero;
     char admin_canned_messages_[160] = {};
@@ -325,6 +341,7 @@ class MeshtasticPhoneCore
     meshtastic_AdminMessage admin_resp_scratch_ = meshtastic_AdminMessage_init_zero;
     meshtastic_MeshPacket reply_packet_scratch_ = meshtastic_MeshPacket_init_zero;
     meshtastic_MqttClientProxyMessage mqtt_proxy_scratch_ = meshtastic_MqttClientProxyMessage_init_zero;
+    meshtastic_Data node_metadata_decode_scratch_ = meshtastic_Data_init_zero;
     meshtastic_FromRadio from_radio_scratch_ = meshtastic_FromRadio_init_zero;
 };
 

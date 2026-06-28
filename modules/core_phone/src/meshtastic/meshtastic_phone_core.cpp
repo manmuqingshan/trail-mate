@@ -92,6 +92,89 @@ bool hasAndroidVisibleNodeName(const PhoneNodeView& entry)
            hasBoundedText(entry.long_name, sizeof(entry.long_name));
 }
 
+void mixProjectionByte(uint32_t& hash, uint8_t value)
+{
+    hash ^= value;
+    hash *= 16777619UL;
+}
+
+void mixProjectionString(uint32_t& hash, const char* text, size_t max_len)
+{
+    if (!text)
+    {
+        mixProjectionByte(hash, 0);
+        return;
+    }
+    size_t index = 0;
+    while (index < max_len && text[index] != '\0')
+    {
+        mixProjectionByte(hash, static_cast<uint8_t>(text[index]));
+        ++index;
+    }
+    mixProjectionByte(hash, 0);
+}
+
+void mixProjectionU32(uint32_t& hash, uint32_t value)
+{
+    mixProjectionByte(hash, static_cast<uint8_t>(value & 0xFFU));
+    mixProjectionByte(hash, static_cast<uint8_t>((value >> 8U) & 0xFFU));
+    mixProjectionByte(hash, static_cast<uint8_t>((value >> 16U) & 0xFFU));
+    mixProjectionByte(hash, static_cast<uint8_t>((value >> 24U) & 0xFFU));
+}
+
+void mixProjectionBytes(uint32_t& hash, const uint8_t* data, size_t len)
+{
+    if (!data)
+    {
+        mixProjectionByte(hash, 0);
+        return;
+    }
+    for (size_t index = 0; index < len; ++index)
+    {
+        mixProjectionByte(hash, data[index]);
+    }
+    mixProjectionByte(hash, 0);
+}
+
+uint32_t nodeProjectionSignature(const PhoneNodeView& entry)
+{
+    uint32_t hash = 2166136261UL;
+    mixProjectionU32(hash, entry.node_id);
+    mixProjectionString(hash, entry.short_name, sizeof(entry.short_name));
+    mixProjectionString(hash, entry.long_name, sizeof(entry.long_name));
+    mixProjectionByte(hash, entry.protocol);
+    mixProjectionByte(hash, entry.role);
+    mixProjectionByte(hash, entry.hw_model);
+    mixProjectionByte(hash, entry.channel);
+    mixProjectionByte(hash, entry.via_mqtt ? 1U : 0U);
+    mixProjectionByte(hash, entry.is_ignored ? 1U : 0U);
+    mixProjectionByte(hash, entry.has_public_key ? 1U : 0U);
+    mixProjectionByte(hash, entry.key_manually_verified ? 1U : 0U);
+    return hash == 0 ? 1U : hash;
+}
+
+uint32_t nodeProjectionSignature(const chat::meshtastic::DecodedNodePayload& node)
+{
+    uint32_t hash = 2166136261UL;
+    mixProjectionU32(hash, node.node_id);
+    mixProjectionString(hash, node.short_name.c_str(), node.short_name.size() + 1U);
+    mixProjectionString(hash, node.long_name.c_str(), node.long_name.size() + 1U);
+    mixProjectionByte(hash, node.protocol);
+    mixProjectionByte(hash, node.role);
+    mixProjectionByte(hash, node.hw_model);
+    mixProjectionByte(hash, node.channel);
+    mixProjectionByte(hash, node.via_mqtt ? 1U : 0U);
+    mixProjectionByte(hash, node.is_ignored ? 1U : 0U);
+    mixProjectionByte(hash, node.has_public_key_state ? 1U : 0U);
+    mixProjectionByte(hash, node.has_public_key ? 1U : 0U);
+    if (node.has_public_key)
+    {
+        mixProjectionBytes(hash, node.public_key.data(), node.public_key.size());
+    }
+    mixProjectionByte(hash, node.key_manually_verified ? 1U : 0U);
+    return hash == 0 ? 1U : hash;
+}
+
 void applyChannelPsk(uint8_t* dst,
                      size_t dst_len,
                      uint8_t* dst_key_len,
@@ -522,11 +605,16 @@ void MeshtasticPhoneCore::reset()
     admin_edit_transaction_restart_pending_ = false;
     restart_pending_ = false;
     queue_status_queue_.clear();
+    node_info_queue_.clear();
     packet_queue_.clear();
+    node_projection_cache_ = {};
+    node_projection_cache_next_ = 0;
 }
 
 void MeshtasticPhoneCore::onIncomingText(const chat::MeshIncomingText& msg)
 {
+    enqueueKnownNodeInfoProjection(msg.from);
+
     bool dropped = false;
     auto& packet = packet_queue_.pushSlotDropOldest(&dropped);
     fillPacketFromText(msg, &packet);
@@ -544,6 +632,11 @@ void MeshtasticPhoneCore::onIncomingText(const chat::MeshIncomingText& msg)
 
 void MeshtasticPhoneCore::onIncomingData(const chat::MeshIncomingData& msg)
 {
+    if (!enqueueMetadataNodeInfoProjection(msg))
+    {
+        enqueueKnownNodeInfoProjection(msg.from);
+    }
+
     bool dropped = false;
     auto& packet = packet_queue_.pushSlotDropOldest(&dropped);
     fillPacketFromData(msg, &packet);
@@ -569,6 +662,128 @@ bool MeshtasticPhoneCore::isSendingPackets() const
 bool MeshtasticPhoneCore::isConfigFlowActive() const
 {
     return config_flow_active_;
+}
+
+bool MeshtasticPhoneCore::shouldProjectNodeInfo(chat::NodeId node_id, uint32_t signature)
+{
+    if (node_id == 0 || signature == 0)
+    {
+        return false;
+    }
+
+    for (const auto& cached : node_projection_cache_)
+    {
+        if (cached.node_id == node_id && cached.signature == signature)
+        {
+            return false;
+        }
+    }
+
+    node_projection_cache_[node_projection_cache_next_] = {node_id, signature};
+    node_projection_cache_next_ = (node_projection_cache_next_ + 1U) % node_projection_cache_.size();
+    return true;
+}
+
+void MeshtasticPhoneCore::enqueueKnownNodeInfoProjection(chat::NodeId node_id)
+{
+    if (node_id == 0 || node_id == app_.getSelfNodeId())
+    {
+        return;
+    }
+
+    PhoneNodeView entry{};
+    if (!app_.findPhoneNode(node_id, entry) || !hasAndroidVisibleNodeName(entry))
+    {
+        return;
+    }
+
+    const uint32_t signature = nodeProjectionSignature(entry);
+    if (!shouldProjectNodeInfo(entry.node_id, signature))
+    {
+        return;
+    }
+
+    bool dropped = false;
+    auto& info = node_info_queue_.pushSlotDropOldest(&dropped);
+    fillNodeInfoFromEntry(entry, &info);
+    if (dropped)
+    {
+        logDual("[BLE][mtcore] node_info queue dropped oldest before realtime projection\n");
+    }
+    logDual("[BLE][mtcore] enqueue node_info projection node=%08lX short=%s long=%s via_mqtt=%u\n",
+            static_cast<unsigned long>(entry.node_id),
+            entry.short_name,
+            entry.long_name,
+            entry.via_mqtt ? 1U : 0U);
+    notifyFromNum(entry.node_id);
+}
+
+bool MeshtasticPhoneCore::enqueueMetadataNodeInfoProjection(const chat::MeshIncomingData& msg)
+{
+    if (msg.from == 0 || msg.from == app_.getSelfNodeId() ||
+        !chat::meshtastic::isNodeMetadataPayload(static_cast<meshtastic_PortNum>(msg.portnum)) ||
+        msg.payload.empty())
+    {
+        return false;
+    }
+
+    auto& data = node_metadata_decode_scratch_;
+    data = meshtastic_Data_init_zero;
+    if (msg.payload.size() > sizeof(data.payload.bytes))
+    {
+        return false;
+    }
+    data.portnum = static_cast<meshtastic_PortNum>(msg.portnum);
+    data.dest = msg.to;
+    data.source = msg.from;
+    data.request_id = msg.request_id;
+    data.want_response = msg.want_response;
+    data.has_bitfield = true;
+    data.bitfield = 0;
+    data.payload.size = static_cast<pb_size_t>(msg.payload.size());
+    if (data.payload.size > 0)
+    {
+        std::memcpy(data.payload.bytes, msg.payload.data(), data.payload.size);
+    }
+
+    chat::meshtastic::NodePayloadDecodeContext context{};
+    context.fallback_node_id = msg.from;
+    context.snr = msg.rx_meta.snr_db_x10 / 10.0f;
+    context.rssi = msg.rx_meta.rssi_dbm_x10 / 10.0f;
+    context.timestamp = msg.rx_meta.rx_timestamp_s;
+    context.hops_away = msg.rx_meta.hop_count;
+    context.channel = channelIndexFromId(msg.channel);
+    context.via_mqtt = msg.rx_meta.from_is;
+
+    chat::meshtastic::DecodedNodePayload node{};
+    if (!chat::meshtastic::decodeNodeMetadataPayload(data, context, &node) ||
+        node.node_id == 0 || node.node_id == app_.getSelfNodeId() ||
+        (node.short_name.empty() && node.long_name.empty()))
+    {
+        return false;
+    }
+
+    const uint32_t signature = nodeProjectionSignature(node);
+    if (!shouldProjectNodeInfo(node.node_id, signature))
+    {
+        return false;
+    }
+
+    bool dropped = false;
+    auto& info = node_info_queue_.pushSlotDropOldest(&dropped);
+    fillNodeInfoFromDecodedPayload(node, &info);
+    if (dropped)
+    {
+        logDual("[BLE][mtcore] node_info queue dropped oldest before metadata projection\n");
+    }
+    logDual("[BLE][mtcore] enqueue metadata node_info node=%08lX short=%s long=%s via_mqtt=%u port=%u\n",
+            static_cast<unsigned long>(node.node_id),
+            node.short_name.c_str(),
+            node.long_name.c_str(),
+            node.via_mqtt ? 1U : 0U,
+            static_cast<unsigned>(msg.portnum));
+    notifyFromNum(node.node_id);
+    return true;
 }
 
 bool MeshtasticPhoneCore::handleToRadio(const uint8_t* data, size_t len)
@@ -1435,6 +1650,15 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         return encodeFromRadio(from, mesh_packet_id, out);
     }
 
+    if (const meshtastic_NodeInfo* node_info = node_info_queue_.front())
+    {
+        from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+        from.node_info = *node_info;
+        const uint32_t node_id = node_info->num;
+        node_info_queue_.pop();
+        return encodeFromRadio(from, node_id, out);
+    }
+
     if (const meshtastic_MeshPacket* packet = packet_queue_.front())
     {
         from.which_payload_variant = meshtastic_FromRadio_packet_tag;
@@ -1849,6 +2073,82 @@ void MeshtasticPhoneCore::fillNodeInfoFromEntry(const PhoneNodeView& entry, mesh
         info.position.HDOP = entry.position.hdop;
         info.position.VDOP = entry.position.vdop;
         info.position.gps_accuracy = entry.position.gps_accuracy_mm;
+    }
+}
+
+void MeshtasticPhoneCore::fillNodeInfoFromDecodedPayload(
+    const chat::meshtastic::DecodedNodePayload& node, meshtastic_NodeInfo* out) const
+{
+    if (!out)
+    {
+        return;
+    }
+
+    meshtastic_NodeInfo& info = *out;
+    std::memset(&info, 0, sizeof(info));
+    info.num = node.node_id;
+    info.has_user = node.has_user || !node.short_name.empty() || !node.long_name.empty();
+
+    if (info.has_user)
+    {
+        char user_id[16] = {};
+        std::snprintf(user_id, sizeof(user_id), "!%08lX", static_cast<unsigned long>(node.node_id));
+        copyBounded(info.user.id, sizeof(info.user.id), user_id);
+        copyBounded(info.user.long_name, sizeof(info.user.long_name), node.long_name.c_str());
+        copyBounded(info.user.short_name, sizeof(info.user.short_name), node.short_name.c_str());
+        if (node.has_macaddr)
+        {
+            std::memcpy(info.user.macaddr, node.macaddr.data(), sizeof(info.user.macaddr));
+        }
+        info.user.hw_model = static_cast<meshtastic_HardwareModel>(node.hw_model);
+        info.user.role = roleFromEntry(node.role);
+        if (node.has_public_key)
+        {
+            const size_t copy_len = std::min(node.public_key.size(), sizeof(info.user.public_key.bytes));
+            std::memcpy(info.user.public_key.bytes, node.public_key.data(), copy_len);
+            info.user.public_key.size = static_cast<pb_size_t>(copy_len);
+        }
+    }
+
+    info.channel = node.channel;
+    info.last_heard = node.timestamp;
+    info.snr = node.snr;
+    info.has_hops_away = node.hops_away != 0xFFU;
+    info.hops_away = node.hops_away;
+    info.via_mqtt = node.via_mqtt;
+    info.is_ignored = node.is_ignored;
+    info.is_key_manually_verified = node.key_manually_verified;
+    if (node.has_device_metrics)
+    {
+        info.has_device_metrics = true;
+        info.device_metrics.has_battery_level = node.device_metrics.has_battery_level;
+        info.device_metrics.battery_level = node.device_metrics.battery_level;
+        info.device_metrics.has_voltage = node.device_metrics.has_voltage;
+        info.device_metrics.voltage = node.device_metrics.voltage;
+        info.device_metrics.has_channel_utilization = node.device_metrics.has_channel_utilization;
+        info.device_metrics.channel_utilization = node.device_metrics.channel_utilization;
+        info.device_metrics.has_air_util_tx = node.device_metrics.has_air_util_tx;
+        info.device_metrics.air_util_tx = node.device_metrics.air_util_tx;
+        info.device_metrics.has_uptime_seconds = node.device_metrics.has_uptime_seconds;
+        info.device_metrics.uptime_seconds = node.device_metrics.uptime_seconds;
+    }
+
+    if (node.has_position && node.position.valid)
+    {
+        info.has_position = true;
+        info.position = meshtastic_Position_init_zero;
+        info.position.has_latitude_i = true;
+        info.position.latitude_i = node.position.latitude_i;
+        info.position.has_longitude_i = true;
+        info.position.longitude_i = node.position.longitude_i;
+        info.position.timestamp = node.position.timestamp;
+        info.position.has_altitude = node.position.has_altitude;
+        info.position.altitude = node.position.altitude;
+        info.position.precision_bits = node.position.precision_bits;
+        info.position.PDOP = node.position.pdop;
+        info.position.HDOP = node.position.hdop;
+        info.position.VDOP = node.position.vdop;
+        info.position.gps_accuracy = node.position.gps_accuracy_mm;
     }
 }
 
