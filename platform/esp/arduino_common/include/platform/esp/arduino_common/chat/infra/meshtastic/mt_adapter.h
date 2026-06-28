@@ -9,6 +9,7 @@
 #include "chat/domain/chat_types.h"
 #include "chat/infra/meshtastic/mt_codec_pb.h" // Use protobuf-based codec
 #include "chat/infra/meshtastic/mt_dedup.h"
+#include "chat/infra/meshtastic/mt_mqtt_proxy_runtime.h"
 #include "chat/infra/meshtastic/mt_packet_wire.h" // Wire packet format
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/meshtastic_runtime.h"
@@ -35,19 +36,7 @@ namespace meshtastic
 class MtAdapter : public chat::IMeshAdapter
 {
   public:
-    struct MqttProxySettings
-    {
-        bool enabled = false;
-        bool proxy_to_client_enabled = false;
-        bool encryption_enabled = true;
-        bool primary_uplink_enabled = false;
-        bool primary_downlink_enabled = false;
-        bool secondary_uplink_enabled = false;
-        bool secondary_downlink_enabled = false;
-        std::string root;
-        std::string primary_channel_id;
-        std::string secondary_channel_id;
-    };
+    using MqttProxySettings = ::chat::meshtastic::MqttProxyRuntimeSettings;
 
     MtAdapter(LoraBoard& board);
     virtual ~MtAdapter();

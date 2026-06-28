@@ -817,21 +817,22 @@ bool MeshtasticRadioAdapter::pollMqttProxyMessage(meshtastic_MqttClientProxyMess
 
 bool MeshtasticRadioAdapter::handleMqttProxyMessage(const meshtastic_MqttClientProxyMessage& msg)
 {
-    if (!mqtt_proxy_settings_.enabled || !mqtt_proxy_settings_.proxy_to_client_enabled)
+    const bool is_data = msg.which_payload_variant == meshtastic_MqttClientProxyMessage_data_tag;
+    const size_t data_size = is_data ? static_cast<size_t>(msg.payload_variant.data.size) : 0U;
+    const auto inbound_reason = ::chat::meshtastic::validateMqttProxyInbound(
+        mqtt_proxy_settings_, is_data, data_size > 0);
+    if (inbound_reason != ::chat::meshtastic::MqttProxyRejectReason::None)
     {
-        return false;
-    }
-    if (msg.which_payload_variant != meshtastic_MqttClientProxyMessage_data_tag)
-    {
+        logMeshtasticRx("[nrf52][mt][mqtt] proxy reject reason=%s variant=%u len=%u enabled=%u proxy=%u\n",
+                        ::chat::meshtastic::mqttProxyRejectReasonName(inbound_reason),
+                        static_cast<unsigned>(msg.which_payload_variant),
+                        static_cast<unsigned>(data_size),
+                        mqtt_proxy_settings_.enabled ? 1U : 0U,
+                        mqtt_proxy_settings_.proxy_to_client_enabled ? 1U : 0U);
         return false;
     }
 
     const auto* data_field = &msg.payload_variant.data;
-    if (!data_field || data_field->size == 0)
-    {
-        return false;
-    }
-
     auto& scratch = mqtt_scratch_;
     std::memset(&scratch.packet, 0, sizeof(scratch.packet));
     std::memset(scratch.channel_id, 0, sizeof(scratch.channel_id));
@@ -841,6 +842,11 @@ bool MeshtasticRadioAdapter::handleMqttProxyMessage(const meshtastic_MqttClientP
                                    scratch.channel_id, sizeof(scratch.channel_id),
                                    scratch.gateway_id, sizeof(scratch.gateway_id)))
     {
+        logMeshtasticRx("[nrf52][mt][mqtt] proxy reject reason=%s topic='%s' len=%u\n",
+                        ::chat::meshtastic::mqttProxyRejectReasonName(
+                            ::chat::meshtastic::MqttProxyRejectReason::DecodeFailed),
+                        msg.topic,
+                        static_cast<unsigned>(data_field->size));
         return false;
     }
 
@@ -2936,69 +2942,45 @@ std::string MeshtasticRadioAdapter::mqttNodeIdString() const
 
 const char* MeshtasticRadioAdapter::mqttChannelIdFor(::chat::ChannelId channel) const
 {
-    if (channel == ::chat::ChannelId::SECONDARY && !mqtt_proxy_settings_.secondary_channel_id.empty())
-    {
-        return mqtt_proxy_settings_.secondary_channel_id.c_str();
-    }
-    if (!mqtt_proxy_settings_.primary_channel_id.empty())
-    {
-        return mqtt_proxy_settings_.primary_channel_id.c_str();
-    }
-    return nullptr;
+    return ::chat::meshtastic::mqttChannelIdFor(mqtt_proxy_settings_, channel);
 }
 
 bool MeshtasticRadioAdapter::hasAnyMqttDownlinkEnabled() const
 {
-    return mqtt_proxy_settings_.primary_downlink_enabled ||
-           mqtt_proxy_settings_.secondary_downlink_enabled;
+    return ::chat::meshtastic::hasAnyMqttDownlinkEnabled(mqtt_proxy_settings_);
 }
 
 bool MeshtasticRadioAdapter::shouldPublishToMqtt(::chat::ChannelId channel, bool from_mqtt, bool is_pki) const
 {
-    if (!mqtt_proxy_settings_.enabled || !mqtt_proxy_settings_.proxy_to_client_enabled || from_mqtt)
-    {
-        return false;
-    }
-    if (is_pki)
-    {
-        return true;
-    }
-    if (channel == ::chat::ChannelId::SECONDARY)
-    {
-        return mqtt_proxy_settings_.secondary_uplink_enabled;
-    }
-    return mqtt_proxy_settings_.primary_uplink_enabled;
+    return ::chat::meshtastic::shouldPublishToMqtt(
+        mqtt_proxy_settings_, channel, from_mqtt, is_pki);
 }
 
 uint8_t MeshtasticRadioAdapter::mqttChannelHashForId(const char* channel_id, bool* out_known,
                                                      ::chat::ChannelId* out_channel) const
 {
-    bool known = false;
-    ::chat::ChannelId channel = ::chat::ChannelId::PRIMARY;
+    const auto match =
+        ::chat::meshtastic::resolveMqttProxyDownlinkChannel(mqtt_proxy_settings_, channel_id);
+    bool known = match.known;
+    ::chat::ChannelId channel = match.channel;
     size_t key_len = 0;
     const uint8_t* key = nullptr;
     uint8_t hash = 0;
 
-    if (channel_id && std::strcmp(channel_id, "PKI") == 0)
+    if (match.pki)
     {
-        known = hasAnyMqttDownlinkEnabled();
         hash = 0;
     }
-    else if (channel_id && !mqtt_proxy_settings_.primary_channel_id.empty() &&
-             std::strcmp(channel_id, mqtt_proxy_settings_.primary_channel_id.c_str()) == 0)
+    else if (match.known && match.channel == ::chat::ChannelId::PRIMARY)
     {
-        known = mqtt_proxy_settings_.primary_downlink_enabled;
         key = selectKey(config_, ::chat::ChannelId::PRIMARY, &key_len);
         hash = ::chat::meshtastic::computeChannelHash(
             channelNameFor(config_, ::chat::ChannelId::PRIMARY),
             key,
             key_len);
     }
-    else if (channel_id && !mqtt_proxy_settings_.secondary_channel_id.empty() &&
-             std::strcmp(channel_id, mqtt_proxy_settings_.secondary_channel_id.c_str()) == 0)
+    else if (match.known && match.channel == ::chat::ChannelId::SECONDARY)
     {
-        known = mqtt_proxy_settings_.secondary_downlink_enabled;
-        channel = ::chat::ChannelId::SECONDARY;
         key = selectKey(config_, ::chat::ChannelId::SECONDARY, &key_len);
         hash = ::chat::meshtastic::computeChannelHash(
             channelNameFor(config_, ::chat::ChannelId::SECONDARY),
@@ -3115,16 +3097,29 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
                                                 const char* channel_id,
                                                 const char* gateway_id)
 {
-    if (!mqtt_proxy_settings_.enabled || !mqtt_proxy_settings_.proxy_to_client_enabled)
+    if (!::chat::meshtastic::mqttProxyRuntimeEnabled(mqtt_proxy_settings_))
     {
+        logMeshtasticRx("[nrf52][mt][mqtt] downlink reject reason=%s enabled=%u proxy=%u\n",
+                        ::chat::meshtastic::mqttProxyRejectReasonName(
+                            ::chat::meshtastic::MqttProxyRejectReason::ProxyDisabled),
+                        mqtt_proxy_settings_.enabled ? 1U : 0U,
+                        mqtt_proxy_settings_.proxy_to_client_enabled ? 1U : 0U);
         return false;
     }
 
     bool known_channel = false;
     ::chat::ChannelId channel_index = ::chat::ChannelId::PRIMARY;
     const uint8_t channel_hash = mqttChannelHashForId(channel_id, &known_channel, &channel_index);
-    if (!known_channel)
+    const auto channel_reason = ::chat::meshtastic::validateMqttDownlinkChannel(known_channel);
+    if (channel_reason != ::chat::meshtastic::MqttProxyRejectReason::None)
     {
+        logMeshtasticRx("[nrf52][mt][mqtt] downlink reject reason=%s channel='%s' primary='%s' p_down=%u secondary='%s' s_down=%u\n",
+                        ::chat::meshtastic::mqttProxyRejectReasonName(channel_reason),
+                        channel_id ? channel_id : "",
+                        mqtt_proxy_settings_.primary_channel_id.c_str(),
+                        mqtt_proxy_settings_.primary_downlink_enabled ? 1U : 0U,
+                        mqtt_proxy_settings_.secondary_channel_id.c_str(),
+                        mqtt_proxy_settings_.secondary_downlink_enabled ? 1U : 0U);
         return false;
     }
 
@@ -3136,7 +3131,7 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
         config_.tx_enabled);
     if (!accept_policy.accept_locally)
     {
-        logMeshtasticRx("[gat562][mt][mqtt] downlink ignore reason=%s gateway=%s from=%08lX id=%08lX\n",
+        logMeshtasticRx("[nrf52][mt][mqtt] downlink ignore reason=%s gateway='%s' from=%08lX id=%08lX\n",
                         ::chat::runtime::meshtasticMqttDownlinkReasonName(accept_policy.reason),
                         gateway_id ? gateway_id : "",
                         static_cast<unsigned long>(packet.from),
@@ -3144,16 +3139,18 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
         return false;
     }
 
-    if (packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag)
+    const bool is_decoded_payload = packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag;
+    const bool is_admin_payload =
+        is_decoded_payload && packet.decoded.portnum == meshtastic_PortNum_ADMIN_APP;
+    const auto decoded_reason = ::chat::meshtastic::validateMqttDecodedDownlinkPayload(
+        mqtt_proxy_settings_, is_decoded_payload, is_admin_payload);
+    if (decoded_reason != ::chat::meshtastic::MqttProxyRejectReason::None)
     {
-        if (mqtt_proxy_settings_.encryption_enabled)
-        {
-            return false;
-        }
-        if (packet.decoded.portnum == meshtastic_PortNum_ADMIN_APP)
-        {
-            return false;
-        }
+        logMeshtasticRx("[nrf52][mt][mqtt] downlink reject reason=%s port=%u enc=%u\n",
+                        ::chat::meshtastic::mqttProxyRejectReasonName(decoded_reason),
+                        is_decoded_payload ? static_cast<unsigned>(packet.decoded.portnum) : 0U,
+                        mqtt_proxy_settings_.encryption_enabled ? 1U : 0U);
+        return false;
     }
 
     auto& scratch = mqtt_scratch_;
@@ -3184,6 +3181,11 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
             std::min(static_cast<size_t>(packet.encrypted.size), sizeof(packet.encrypted.bytes));
         if (wire_size + enc_size > scratch.wire.size())
         {
+            logMeshtasticRx("[nrf52][mt][mqtt] downlink reject reason=%s encrypted=%u wire_cap=%u\n",
+                            ::chat::meshtastic::mqttProxyRejectReasonName(
+                                ::chat::meshtastic::MqttProxyRejectReason::PayloadTooLarge),
+                            static_cast<unsigned>(enc_size),
+                            static_cast<unsigned>(scratch.wire.size()));
             return false;
         }
         std::memcpy(wire_buffer + wire_size, packet.encrypted.bytes, enc_size);
@@ -3202,6 +3204,10 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
         pb_ostream_t dstream = pb_ostream_from_buffer(scratch.buffer.data(), scratch.buffer.size());
         if (!pb_encode(&dstream, meshtastic_Data_fields, &decoded))
         {
+            logMeshtasticRx("[nrf52][mt][mqtt] downlink reject reason=%s port=%u\n",
+                            ::chat::meshtastic::mqttProxyRejectReasonName(
+                                ::chat::meshtastic::MqttProxyRejectReason::DataEncodeFailed),
+                            static_cast<unsigned>(decoded.portnum));
             return false;
         }
 
@@ -3213,6 +3219,12 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
                                                  packet.to, channel_hash, packet.hop_limit, packet.want_ack,
                                                  psk, psk_len, wire_buffer, &rebuilt_size))
         {
+            logMeshtasticRx("[nrf52][mt][mqtt] downlink reject reason=%s id=%08lX ch=0x%02X data=%u\n",
+                            ::chat::meshtastic::mqttProxyRejectReasonName(
+                                ::chat::meshtastic::MqttProxyRejectReason::WireBuildFailed),
+                            static_cast<unsigned long>(packet.id),
+                            static_cast<unsigned>(channel_hash),
+                            static_cast<unsigned>(dstream.bytes_written));
             return false;
         }
         wire_size = rebuilt_size;
@@ -3229,6 +3241,12 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
     }
 
     auto* tx_header = reinterpret_cast<::chat::meshtastic::PacketHeaderWire*>(wire_buffer);
+    logMeshtasticRx("[nrf52][mt][mqtt] downlink inject topic_ch='%s' gateway='%s' from=%08lX to=%08lX id=%08lX\n",
+                    channel_id ? channel_id : "",
+                    gateway_id ? gateway_id : "",
+                    static_cast<unsigned long>(tx_header->from),
+                    static_cast<unsigned long>(tx_header->to),
+                    static_cast<unsigned long>(tx_header->id));
     const auto tx_policy = ::chat::runtime::resolveMeshtasticMqttDownlinkPolicy(
         gateway_id,
         node_id_,
@@ -3237,14 +3255,14 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
         config_.tx_enabled);
     if (!tx_policy.transmit_to_mesh)
     {
-        logMeshtasticRx("[gat562][mt][mqtt] downlink mesh tx skipped reason=%s id=%08lX\n",
+        logMeshtasticRx("[nrf52][mt][mqtt] downlink mesh tx skipped reason=%s id=%08lX\n",
                         ::chat::runtime::meshtasticMqttDownlinkReasonName(tx_policy.reason),
                         static_cast<unsigned long>(tx_header->id));
     }
     else
     {
         const bool tx_ok = transmitWire(wire_buffer, wire_size);
-        logMeshtasticRx("[gat562][mt][mqtt] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
+        logMeshtasticRx("[nrf52][mt][mqtt] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
                         static_cast<unsigned long>(tx_header->id),
                         static_cast<unsigned>(tx_header->channel),
                         static_cast<unsigned>(wire_size),
@@ -3258,7 +3276,7 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
 bool MeshtasticRadioAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
                                                    const char* channel_id)
 {
-    if (!mqtt_proxy_settings_.enabled || !mqtt_proxy_settings_.proxy_to_client_enabled ||
+    if (!::chat::meshtastic::mqttProxyRuntimeEnabled(mqtt_proxy_settings_) ||
         !channel_id || *channel_id == '\0')
     {
         return false;

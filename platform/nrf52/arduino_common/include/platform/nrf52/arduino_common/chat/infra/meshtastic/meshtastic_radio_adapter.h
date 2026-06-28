@@ -1,5 +1,6 @@
 #pragma once
 
+#include "chat/infra/meshtastic/mt_mqtt_proxy_runtime.h"
 #include "chat/infra/meshtastic/mt_packet_wire.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/meshtastic_runtime.h"
@@ -23,19 +24,7 @@ namespace platform::nrf52::arduino_common::chat::meshtastic
 class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
 {
   public:
-    struct MqttProxySettings
-    {
-        bool enabled = false;
-        bool proxy_to_client_enabled = false;
-        bool encryption_enabled = true;
-        bool primary_uplink_enabled = false;
-        bool primary_downlink_enabled = false;
-        bool secondary_uplink_enabled = false;
-        bool secondary_downlink_enabled = false;
-        std::string root;
-        std::string primary_channel_id;
-        std::string secondary_channel_id;
-    };
+    using MqttProxySettings = ::chat::meshtastic::MqttProxyRuntimeSettings;
 
     explicit MeshtasticRadioAdapter(const ::chat::runtime::SelfIdentityProvider* identity_provider = nullptr,
                                     NodeStore* node_store = nullptr,

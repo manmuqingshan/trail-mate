@@ -1,9 +1,22 @@
+#include "chat/infra/meshtastic/mt_mqtt_proxy_runtime.h"
 #include "chat/runtime/meshtastic_protocol_policy.h"
 
 #include <cassert>
+#include <cstring>
 
 int main()
 {
+    using chat::meshtastic::hasAnyMqttDownlinkEnabled;
+    using chat::meshtastic::mqttChannelIdFor;
+    using chat::meshtastic::MqttProxyRejectReason;
+    using chat::meshtastic::mqttProxyRejectReasonName;
+    using chat::meshtastic::mqttProxyRuntimeEnabled;
+    using chat::meshtastic::MqttProxyRuntimeSettings;
+    using chat::meshtastic::resolveMqttProxyDownlinkChannel;
+    using chat::meshtastic::shouldPublishToMqtt;
+    using chat::meshtastic::validateMqttDecodedDownlinkPayload;
+    using chat::meshtastic::validateMqttDownlinkChannel;
+    using chat::meshtastic::validateMqttProxyInbound;
     using chat::runtime::kMeshtasticBroadcastNode;
     using chat::runtime::MeshtasticMqttDownlinkReason;
     using chat::runtime::MeshtasticNodeInfoReannounceReason;
@@ -104,6 +117,49 @@ int main()
         assert(policy.accept_locally);
         assert(!policy.transmit_to_mesh);
         assert(policy.reason == MeshtasticMqttDownlinkReason::TxDisabled);
+    }
+
+    {
+        MqttProxyRuntimeSettings settings{};
+        assert(!mqttProxyRuntimeEnabled(settings));
+        assert(validateMqttProxyInbound(settings, true, true) == MqttProxyRejectReason::ProxyDisabled);
+
+        settings.enabled = true;
+        settings.proxy_to_client_enabled = true;
+        settings.primary_uplink_enabled = true;
+        settings.primary_downlink_enabled = true;
+        settings.primary_channel_id = "LongFast";
+        settings.secondary_channel_id = "Secondary";
+
+        assert(mqttProxyRuntimeEnabled(settings));
+        assert(validateMqttProxyInbound(settings, false, true) == MqttProxyRejectReason::NonDataMessage);
+        assert(validateMqttProxyInbound(settings, true, false) == MqttProxyRejectReason::EmptyPayload);
+        assert(validateMqttProxyInbound(settings, true, true) == MqttProxyRejectReason::None);
+        assert(hasAnyMqttDownlinkEnabled(settings));
+        assert(shouldPublishToMqtt(settings, chat::ChannelId::PRIMARY, false, false));
+        assert(!shouldPublishToMqtt(settings, chat::ChannelId::PRIMARY, true, false));
+        assert(std::strcmp(mqttChannelIdFor(settings, chat::ChannelId::PRIMARY),
+                           settings.primary_channel_id.c_str()) == 0);
+        const auto primary_downlink = resolveMqttProxyDownlinkChannel(settings, "LongFast");
+        assert(primary_downlink.known);
+        assert(!primary_downlink.pki);
+        assert(primary_downlink.channel == chat::ChannelId::PRIMARY);
+        const auto secondary_downlink = resolveMqttProxyDownlinkChannel(settings, "Secondary");
+        assert(!secondary_downlink.known);
+        assert(!secondary_downlink.pki);
+        assert(secondary_downlink.channel == chat::ChannelId::SECONDARY);
+        const auto pki_downlink = resolveMqttProxyDownlinkChannel(settings, "PKI");
+        assert(pki_downlink.known);
+        assert(pki_downlink.pki);
+        assert(validateMqttDownlinkChannel(false) == MqttProxyRejectReason::UnknownOrDisabledChannel);
+        assert(validateMqttDownlinkChannel(true) == MqttProxyRejectReason::None);
+        assert(validateMqttDecodedDownlinkPayload(settings, true, false) ==
+               MqttProxyRejectReason::DecodedPayloadWhileEncrypted);
+
+        settings.encryption_enabled = false;
+        assert(validateMqttDecodedDownlinkPayload(settings, true, true) == MqttProxyRejectReason::AdminPayload);
+        assert(validateMqttDecodedDownlinkPayload(settings, true, false) == MqttProxyRejectReason::None);
+        assert(mqttProxyRejectReasonName(MqttProxyRejectReason::UnknownOrDisabledChannel)[0] != '\0');
     }
 
     {
