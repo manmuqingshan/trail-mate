@@ -2399,13 +2399,15 @@ void Runtime::handleInput(InputAction action)
 
         char line[160] = {};
         std::snprintf(line, sizeof(line),
-                      "[gat562][ui] compose action=%s focus=%u mode=%u group=%u tap=%u preedit=\"%s\" cand=%u body_len=%u\n",
+                      "[gat562][ui] compose action=%s focus=%u mode=%u group=%u tap=%u preedit=\"%s\" t9=\"%s\" t9_py=\"%s\" cand=%u body_len=%u\n",
                       inputActionName(action),
                       static_cast<unsigned>(compose_focus_),
                       static_cast<unsigned>(compose_mode_),
                       static_cast<unsigned>(compose_abc_group_index_),
                       static_cast<unsigned>(compose_abc_tap_index_),
                       preedit,
+                      compose_t9_digits_,
+                      compose_t9_selected_pinyin_,
                       static_cast<unsigned>(compose_candidate_count_),
                       static_cast<unsigned>(compose_len_));
         host_.debug_log_fn(line);
@@ -2706,17 +2708,31 @@ void Runtime::handleInput(InputAction action)
     case Page::Compose:
         if (usesPhysicalTextInput())
         {
-            if (action == InputAction::Up && compose_mode_ == ComposeMode::Cn && compose_candidate_count_ > 0)
+            if (action == InputAction::Up && compose_mode_ == ComposeMode::Cn && hasPhysicalChinesePreedit())
             {
-                adjustComposeCandidate(-1);
+                if (compose_t9_selected_pinyin_[0] != '\0')
+                {
+                    adjustComposeCandidate(-1);
+                }
+                else
+                {
+                    adjustComposeT9PinyinCandidate(-1);
+                }
             }
-            else if (action == InputAction::Down && compose_mode_ == ComposeMode::Cn && compose_candidate_count_ > 0)
+            else if (action == InputAction::Down && compose_mode_ == ComposeMode::Cn && hasPhysicalChinesePreedit())
             {
-                adjustComposeCandidate(1);
+                if (compose_t9_selected_pinyin_[0] != '\0')
+                {
+                    adjustComposeCandidate(1);
+                }
+                else
+                {
+                    adjustComposeT9PinyinCandidate(1);
+                }
             }
             else if (action == InputAction::Back || action == InputAction::Left)
             {
-                if (compose_preedit_len_ > 0 || compose_len_ > 0)
+                if (hasPhysicalChinesePreedit() || compose_preedit_len_ > 0 || compose_len_ > 0)
                 {
                     removeComposeChar();
                 }
@@ -2727,7 +2743,7 @@ void Runtime::handleInput(InputAction action)
             }
             else if (action == InputAction::Secondary)
             {
-                (void)commitPhysicalComposePreedit(true);
+                (void)commitPhysicalComposeToText(true);
                 appendComposeChar(' ');
             }
             else if (action == InputAction::Select || action == InputAction::Primary)
@@ -4090,8 +4106,10 @@ void Runtime::renderCompose()
 
         const int line_h = std::max(1, text_renderer_.lineHeight());
         const int body_y = edit_target_ == EditTarget::Message ? 22 : 10;
-        const bool show_cn_candidates = compose_mode_ == ComposeMode::Cn && compose_preedit_len_ > 0;
-        const int cn_candidate_rows = (show_cn_candidates && compose_candidate_count_ > 3U && display_.height() >= 96) ? 2 : 1;
+        const bool show_cn_candidates = compose_mode_ == ComposeMode::Cn && hasPhysicalChinesePreedit();
+        const size_t cn_visible_candidate_count =
+            compose_t9_selected_pinyin_[0] != '\0' ? compose_candidate_count_ : compose_t9_pinyin_candidate_count_;
+        const int cn_candidate_rows = (show_cn_candidates && cn_visible_candidate_count > 3U && display_.height() >= 96) ? 2 : 1;
         const int ime_rows = show_cn_candidates ? (1 + cn_candidate_rows) : 1;
         const int ime_y = std::max(body_y + line_h, display_.height() - (ime_rows * line_h));
         const size_t body_line_count = std::max<size_t>(1U, static_cast<size_t>(std::max(line_h, ime_y - body_y) / line_h));
@@ -4125,33 +4143,38 @@ void Runtime::renderCompose()
         char ime_lines[3][96] = {};
         if (show_cn_candidates)
         {
-            char hint[32] = {};
-            formatPhoneCycleHint(hint, sizeof(hint), compose_mode_, compose_physical_last_key_, compose_abc_tap_index_);
-            if (hint[0] != '\0')
+            if (compose_t9_selected_pinyin_[0] != '\0')
             {
-                std::snprintf(ime_lines[0], sizeof(ime_lines[0]), "%s_  %s", compose_preedit_, hint);
+                std::snprintf(ime_lines[0],
+                              sizeof(ime_lines[0]),
+                              "%s %s_",
+                              compose_t9_digits_,
+                              compose_t9_selected_pinyin_);
             }
             else
             {
-                std::snprintf(ime_lines[0], sizeof(ime_lines[0]), "%s_", compose_preedit_);
+                std::snprintf(ime_lines[0], sizeof(ime_lines[0]), "%s_", compose_t9_digits_);
             }
 
             size_t row = 1;
             size_t pos = 0;
-            if (compose_candidate_count_ > 0 && pos + 1 < sizeof(ime_lines[row]))
+            if (cn_visible_candidate_count > 0 && pos + 1 < sizeof(ime_lines[row]))
             {
                 ime_lines[row][0] = '\0';
             }
-            else if (compose_candidate_count_ == 0)
+            else
             {
                 std::snprintf(ime_lines[row], sizeof(ime_lines[row]), "-");
             }
-            for (size_t i = 0; i < compose_candidate_count_ && row < static_cast<size_t>(ime_rows); ++i)
+            for (size_t i = 0; i < cn_visible_candidate_count && row < static_cast<size_t>(ime_rows); ++i)
             {
+                const bool selecting_hanzi = compose_t9_selected_pinyin_[0] != '\0';
+                const char* candidate = selecting_hanzi ? compose_candidates_[i] : compose_t9_pinyin_candidates_[i];
+                const bool selected = selecting_hanzi ? (i == compose_candidate_index_) : (i == compose_t9_pinyin_candidate_index_);
                 char token[32] = {};
                 std::snprintf(token, sizeof(token),
-                              i == compose_candidate_index_ ? "[%s]" : "%s",
-                              compose_candidates_[i]);
+                              selected ? "[%s]" : "%s",
+                              candidate);
                 const int current_w = text_renderer_.measureTextWidth(ime_lines[row]);
                 const int token_w = text_renderer_.measureTextWidth(token);
                 if (row + 1U < static_cast<size_t>(ime_rows) &&
@@ -4163,7 +4186,7 @@ void Runtime::renderCompose()
                 }
                 pos += static_cast<size_t>(std::snprintf(ime_lines[row] + pos, sizeof(ime_lines[row]) - pos,
                                                          "%s", token));
-                if (i + 1 < compose_candidate_count_ && pos + 1 < sizeof(ime_lines[row]))
+                if (i + 1 < cn_visible_candidate_count && pos + 1 < sizeof(ime_lines[row]))
                 {
                     ime_lines[row][pos++] = ' ';
                     ime_lines[row][pos] = '\0';
@@ -5136,6 +5159,7 @@ void Runtime::openCompose(EditTarget target, const char* seed_text)
     compose_physical_last_key_ = '\0';
     compose_preedit_[0] = '\0';
     compose_preedit_len_ = 0;
+    clearComposeT9State();
     compose_candidate_count_ = 0;
     compose_candidate_index_ = 0;
     for (size_t i = 0; i < kComposeCandidateMax; ++i)
@@ -6340,6 +6364,25 @@ void Runtime::adjustComposeCandidate(int delta)
     }
 }
 
+void Runtime::adjustComposeT9PinyinCandidate(int delta)
+{
+    if (compose_t9_pinyin_candidate_count_ == 0)
+    {
+        compose_t9_pinyin_candidate_index_ = 0;
+        return;
+    }
+    const int next = static_cast<int>(compose_t9_pinyin_candidate_index_) + delta;
+    if (next < 0)
+    {
+        compose_t9_pinyin_candidate_index_ = compose_t9_pinyin_candidate_count_ - 1;
+    }
+    else
+    {
+        compose_t9_pinyin_candidate_index_ =
+            static_cast<size_t>(next) % compose_t9_pinyin_candidate_count_;
+    }
+}
+
 void Runtime::adjustComposeAction(int delta)
 {
     constexpr size_t kActionCount = 5;
@@ -6384,7 +6427,20 @@ void Runtime::removeComposeChar()
         compose_physical_last_key_ = '\0';
         compose_abc_last_tap_ms_ = 0;
         compose_abc_tap_index_ = 0;
-        if (compose_preedit_len_ > 0)
+        if (compose_mode_ == ComposeMode::Cn && hasPhysicalChinesePreedit())
+        {
+            if (compose_t9_selected_pinyin_[0] != '\0')
+            {
+                compose_t9_selected_pinyin_[0] = '\0';
+                rebuildComposeCandidates();
+            }
+            else if (compose_t9_digit_len_ > 0)
+            {
+                popChar(compose_t9_digits_, compose_t9_digit_len_);
+                rebuildComposeCandidates();
+            }
+        }
+        else if (compose_preedit_len_ > 0)
         {
             popChar(compose_preedit_, compose_preedit_len_);
             rebuildComposeCandidates();
@@ -6420,7 +6476,7 @@ void Runtime::cycleComposeMode()
 {
     if (usesPhysicalTextInput())
     {
-        (void)commitPhysicalComposePreedit(true);
+        (void)commitPhysicalComposeToText(true);
     }
 
     if (compose_mode_ == ComposeMode::Num)
@@ -6466,7 +6522,7 @@ bool Runtime::handlePhysicalComposeText(char ch)
 
     if (ch == '#')
     {
-        (void)commitPhysicalComposePreedit(true);
+        (void)commitPhysicalComposeToText(true);
         appendComposeChar(' ');
         return true;
     }
@@ -6512,7 +6568,7 @@ bool Runtime::handlePhysicalComposeText(char ch)
     {
         if (ch == '0')
         {
-            (void)commitPhysicalComposePreedit(true);
+            (void)commitPhysicalComposeToText(true);
             appendComposeChar(' ');
             compose_physical_last_key_ = '\0';
             compose_abc_last_tap_ms_ = 0;
@@ -6521,7 +6577,7 @@ bool Runtime::handlePhysicalComposeText(char ch)
         }
         if (ch == '1')
         {
-            (void)commitPhysicalComposePreedit(true);
+            (void)commitPhysicalComposeToText(true);
             appendComposeRawText(u8"，");
             compose_physical_last_key_ = '\0';
             compose_abc_last_tap_ms_ = 0;
@@ -6529,32 +6585,20 @@ bool Runtime::handlePhysicalComposeText(char ch)
             return true;
         }
 
-        const char* chars = phoneCycleCharsForKey(ch);
-        const size_t char_count = std::strlen(chars);
-        if (char_count == 0)
+        if (ch < '2' || ch > '9')
         {
             return true;
         }
 
-        const uint32_t now = nowMs();
-        const bool can_cycle = compose_physical_last_key_ == ch &&
-                               compose_preedit_len_ > 0 &&
-                               (now - compose_abc_last_tap_ms_) <= kComposeMultiTapWindowMs;
-        if (can_cycle)
+        if (compose_t9_selected_pinyin_[0] != '\0')
         {
-            compose_abc_tap_index_ = (compose_abc_tap_index_ + 1U) % char_count;
-            compose_preedit_[compose_preedit_len_ - 1U] =
-                applyPhoneCycleCase(ComposeMode::Cn, chars[compose_abc_tap_index_]);
+            (void)commitPhysicalComposeToText(true);
         }
-        else
-        {
-            compose_abc_tap_index_ = 0;
-            appendChar(compose_preedit_, sizeof(compose_preedit_), compose_preedit_len_,
-                       applyPhoneCycleCase(ComposeMode::Cn, chars[0]));
-        }
-
+        appendChar(compose_t9_digits_, sizeof(compose_t9_digits_), compose_t9_digit_len_, ch);
+        compose_t9_selected_pinyin_[0] = '\0';
         compose_physical_last_key_ = ch;
-        compose_abc_last_tap_ms_ = now;
+        compose_abc_last_tap_ms_ = 0;
+        compose_abc_tap_index_ = 0;
         compose_abc_last_group_index_ = -1;
         rebuildComposeCandidates();
         return true;
@@ -6607,13 +6651,104 @@ bool Runtime::handlePhysicalComposeText(char ch)
     return true;
 }
 
+bool Runtime::hasPhysicalChinesePreedit() const
+{
+    return usesPhysicalTextInput() && compose_mode_ == ComposeMode::Cn &&
+           (compose_t9_digit_len_ > 0 || compose_t9_selected_pinyin_[0] != '\0');
+}
+
+void Runtime::clearComposeT9State()
+{
+    compose_t9_digits_[0] = '\0';
+    compose_t9_digit_len_ = 0;
+    compose_t9_selected_pinyin_[0] = '\0';
+    compose_t9_pinyin_candidate_count_ = 0;
+    compose_t9_pinyin_candidate_index_ = 0;
+    for (size_t i = 0; i < kComposeCandidateMax; ++i)
+    {
+        compose_t9_pinyin_candidates_[i][0] = '\0';
+    }
+}
+
+bool Runtime::selectComposeT9PinyinCandidate()
+{
+    if (!hasPhysicalChinesePreedit() ||
+        compose_t9_selected_pinyin_[0] != '\0' ||
+        compose_t9_pinyin_candidate_count_ == 0 ||
+        compose_t9_pinyin_candidate_index_ >= compose_t9_pinyin_candidate_count_)
+    {
+        return false;
+    }
+
+    copyText(compose_t9_selected_pinyin_,
+             compose_t9_pinyin_candidates_[compose_t9_pinyin_candidate_index_]);
+    compose_preedit_[0] = '\0';
+    compose_preedit_len_ = 0;
+    compose_candidate_index_ = 0;
+    rebuildComposeCandidates();
+    return true;
+}
+
 bool Runtime::commitPhysicalComposePreedit(bool prefer_candidate)
 {
-    if (!usesPhysicalTextInput() || compose_preedit_len_ == 0)
+    if (!usesPhysicalTextInput())
+    {
+        return false;
+    }
+    if (compose_mode_ == ComposeMode::Cn && hasPhysicalChinesePreedit())
+    {
+        if (compose_t9_selected_pinyin_[0] == '\0')
+        {
+            if (prefer_candidate)
+            {
+                (void)selectComposeT9PinyinCandidate();
+            }
+            return true;
+        }
+        if (prefer_candidate && commitComposeCandidate())
+        {
+            return true;
+        }
+        appendComposeRawText(compose_t9_selected_pinyin_);
+        clearComposeT9State();
+        rebuildComposeCandidates();
+        return true;
+    }
+    if (compose_preedit_len_ == 0)
     {
         return false;
     }
     return commitComposePreedit(prefer_candidate);
+}
+
+bool Runtime::commitPhysicalComposeToText(bool prefer_candidate)
+{
+    if (!usesPhysicalTextInput())
+    {
+        return false;
+    }
+    if (compose_mode_ == ComposeMode::Cn && hasPhysicalChinesePreedit())
+    {
+        if (compose_t9_selected_pinyin_[0] == '\0')
+        {
+            if (!selectComposeT9PinyinCandidate())
+            {
+                appendComposeRawText(compose_t9_digits_);
+                clearComposeT9State();
+                rebuildComposeCandidates();
+                return true;
+            }
+        }
+        if (prefer_candidate && commitComposeCandidate())
+        {
+            return true;
+        }
+        appendComposeRawText(compose_t9_selected_pinyin_);
+        clearComposeT9State();
+        rebuildComposeCandidates();
+        return true;
+    }
+    return commitPhysicalComposePreedit(prefer_candidate);
 }
 
 void Runtime::rebuildComposeCandidates()
@@ -6623,6 +6758,69 @@ void Runtime::rebuildComposeCandidates()
     for (size_t i = 0; i < kComposeCandidateMax; ++i)
     {
         compose_candidates_[i][0] = '\0';
+    }
+
+    if (usesPhysicalTextInput() && compose_mode_ == ComposeMode::Cn)
+    {
+        if (compose_t9_selected_pinyin_[0] != '\0')
+        {
+            auto add_hanzi = [this](const char* word) -> bool
+            {
+                if (!word || word[0] == '\0')
+                {
+                    return false;
+                }
+                for (size_t i = 0; i < compose_candidate_count_; ++i)
+                {
+                    if (std::strcmp(compose_candidates_[i], word) == 0)
+                    {
+                        return compose_candidate_count_ >= kComposeCandidateMax;
+                    }
+                }
+                copyText(compose_candidates_[compose_candidate_count_], word);
+                ++compose_candidate_count_;
+                return compose_candidate_count_ >= kComposeCandidateMax;
+            };
+
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
+            ::ui::widgets::ime::collectPinyinCandidates(compose_t9_selected_pinyin_, add_hanzi);
+#endif
+            return;
+        }
+
+        compose_t9_pinyin_candidate_count_ = 0;
+        compose_t9_pinyin_candidate_index_ = 0;
+        for (size_t i = 0; i < kComposeCandidateMax; ++i)
+        {
+            compose_t9_pinyin_candidates_[i][0] = '\0';
+        }
+        if (compose_t9_digit_len_ == 0)
+        {
+            return;
+        }
+
+        auto add_pinyin = [this](const char* pinyin) -> bool
+        {
+            if (!pinyin || pinyin[0] == '\0')
+            {
+                return false;
+            }
+            for (size_t i = 0; i < compose_t9_pinyin_candidate_count_; ++i)
+            {
+                if (std::strcmp(compose_t9_pinyin_candidates_[i], pinyin) == 0)
+                {
+                    return compose_t9_pinyin_candidate_count_ >= kComposeCandidateMax;
+                }
+            }
+            copyText(compose_t9_pinyin_candidates_[compose_t9_pinyin_candidate_count_], pinyin);
+            ++compose_t9_pinyin_candidate_count_;
+            return compose_t9_pinyin_candidate_count_ >= kComposeCandidateMax;
+        };
+
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
+        ::ui::widgets::ime::collectPinyinSpellingsForDigits(compose_t9_digits_, add_pinyin);
+#endif
+        return;
     }
 
     if (compose_preedit_len_ == 0)
@@ -6696,6 +6894,10 @@ bool Runtime::commitComposeCandidate()
     compose_abc_last_tap_ms_ = 0;
     compose_abc_tap_index_ = 0;
     compose_physical_last_key_ = '\0';
+    if (usesPhysicalTextInput() && compose_mode_ == ComposeMode::Cn)
+    {
+        clearComposeT9State();
+    }
     rebuildComposeCandidates();
     return true;
 }
