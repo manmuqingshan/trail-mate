@@ -141,6 +141,36 @@ runtime/source boundary. Exit condition:
 measurement state is projected as `MeasurementPoint` items and renderers consume
 the same overlay snapshot path.
 
+## Route / Track File Streaming Rule
+
+GPX, KML, and CSV route or track files are untrusted external files and may be
+larger than the available embedded RAM budget. Runtime code must never load a
+complete GPX/KML route or track file into a `String`, `std::string`, `std::vector`,
+or equivalent heap buffer before parsing it.
+
+Required behavior:
+
+- read route/track files in bounded chunks from the platform filesystem;
+- for GPX and CSV, line parsing may be layered on top of chunk reads, but line
+  buffers must have a fixed maximum and overlong lines must be discarded or
+  bounded;
+- for KML, `<coordinates>` contents must be tokenized while streaming, because a
+  single coordinates element may contain a large route;
+- parsed overlay points must be downsampled into the fixed presentation budget
+  before reaching `MapOverlaySnapshot`;
+- the same streaming loader must be used by explicit track loading and by active
+  route loading from `AppConfig::route_path`.
+
+Forbidden behavior:
+
+- `readString()` / `String(file.read...)` style reads for GPX/KML;
+- `istreambuf_iterator` or `rdbuf()` slurping for GPX/KML;
+- `file.size()` followed by allocating a file-sized buffer for GPX/KML;
+- separate ESP/Linux/nRF parsers with different route/track memory rules.
+
+`scripts/check_track_file_streaming.py` is the CI guard for this rule. If a new
+route/track format is added, extend the streaming loader and the guard together.
+
 ## Non-goals
 
 - No map overlay visual redesign.

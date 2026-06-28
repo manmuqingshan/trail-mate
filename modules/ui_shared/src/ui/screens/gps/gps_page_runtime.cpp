@@ -88,12 +88,20 @@ constexpr std::uint32_t kInvalidMemberId = 0xFFFFFFFFU;
 constexpr std::size_t kMaxTrackOverlayPoints = 48;
 constexpr std::size_t kTrackFileReadBufferBytes = 256;
 constexpr std::size_t kMaxTrackFileLineBytes = 2048;
+constexpr std::size_t kMaxKmlTagBytes = 80;
+constexpr std::size_t kMaxKmlCoordinateTokenBytes = 96;
 constexpr int kDefaultTrackerZoom = 16;
 
 struct TrackOverlayPoint
 {
     double lat = 0.0;
     double lon = 0.0;
+};
+
+enum class TrackOverlayFileKind : uint8_t
+{
+    Track,
+    Route,
 };
 
 enum class MapControlAction : uint8_t
@@ -154,6 +162,7 @@ std::vector<TrackOverlayPoint> s_track_points;
 std::vector<std::string> s_track_modal_names;
 std::string s_track_file;
 bool s_track_overlay_active = false;
+TrackOverlayFileKind s_track_overlay_kind = TrackOverlayFileKind::Track;
 std::vector<lv_obj_t*> s_member_buttons;
 std::vector<uint32_t> s_member_button_ids;
 uint32_t s_member_list_hash = 0;
@@ -168,6 +177,9 @@ void add_map_controls_to_group(lv_group_t* group);
 void request_refresh_view();
 void consume_key_event(lv_event_t* e);
 bool load_map_track_file_impl(const char* path, bool show_fail_toast);
+void append_track_point(std::vector<TrackOverlayPoint>& out,
+                        double lat,
+                        double lon);
 ::ui::presentation_sources::TeamMapOverlaySource& team_map_overlay_source();
 void apply_map_drag_preview();
 lv_obj_t* create_map_control_button(lv_obj_t* parent,
@@ -494,6 +506,22 @@ bool route_context_available()
 {
     const auto& config = app::configFacade().getConfig();
     return config.route_enabled && config.route_path[0] != '\0';
+}
+
+bool load_configured_route_overlay(bool show_fail_toast)
+{
+    const auto& config = app::configFacade().getConfig();
+    if (!config.route_enabled || config.route_path[0] == '\0')
+    {
+        return false;
+    }
+    if (s_track_overlay_active &&
+        s_track_overlay_kind == TrackOverlayFileKind::Route &&
+        s_track_file == config.route_path)
+    {
+        return true;
+    }
+    return load_map_track_file_impl(config.route_path, show_fail_toast);
 }
 
 bool load_team_snapshot(::team::ui::TeamUiSnapshot& out)
@@ -975,8 +1003,96 @@ bool parse_attr_double(const std::string& line, const char* key, double& out)
     return parse_double_token(line.substr(value_start, value_end - value_start), out);
 }
 
-template <typename LineHandler>
-bool read_track_file_lines(const char* path, LineHandler on_line)
+bool ascii_equal_ignore_case(const std::string& value, const char* expected)
+{
+    if (!expected)
+    {
+        return false;
+    }
+    const std::size_t expected_len = std::strlen(expected);
+    if (value.size() != expected_len)
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < expected_len; ++index)
+    {
+        const unsigned char lhs = static_cast<unsigned char>(value[index]);
+        const unsigned char rhs = static_cast<unsigned char>(expected[index]);
+        if (std::tolower(lhs) != std::tolower(rhs))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool kml_tag_name_matches(const std::string& tag, const char* expected, bool& closing)
+{
+    closing = false;
+    std::size_t index = 0;
+    while (index < tag.size() &&
+           std::isspace(static_cast<unsigned char>(tag[index])))
+    {
+        ++index;
+    }
+    if (index < tag.size() && tag[index] == '/')
+    {
+        closing = true;
+        ++index;
+    }
+    while (index < tag.size() &&
+           std::isspace(static_cast<unsigned char>(tag[index])))
+    {
+        ++index;
+    }
+
+    const std::size_t name_start = index;
+    while (index < tag.size())
+    {
+        const char ch = tag[index];
+        if (std::isspace(static_cast<unsigned char>(ch)) || ch == '/' || ch == '>')
+        {
+            break;
+        }
+        ++index;
+    }
+    if (index <= name_start)
+    {
+        return false;
+    }
+
+    std::string name = tag.substr(name_start, index - name_start);
+    const std::size_t colon = name.find(':');
+    if (colon != std::string::npos && colon + 1 < name.size())
+    {
+        name.erase(0, colon + 1);
+    }
+    return ascii_equal_ignore_case(name, expected);
+}
+
+bool parse_kml_coordinate_token(const std::string& token, double& lat, double& lon)
+{
+    const std::size_t comma1 = token.find(',');
+    if (comma1 == std::string::npos || comma1 == 0)
+    {
+        return false;
+    }
+
+    const std::size_t comma2 = token.find(',', comma1 + 1);
+    const std::string lon_token = token.substr(0, comma1);
+    const std::string lat_token = comma2 == std::string::npos
+                                      ? token.substr(comma1 + 1)
+                                      : token.substr(comma1 + 1, comma2 - comma1 - 1);
+    if (lat_token.empty())
+    {
+        return false;
+    }
+    return parse_double_token(lon_token, lon) &&
+           parse_double_token(lat_token, lat);
+}
+
+template <typename ChunkHandler>
+bool read_track_file_chunks(const char* path, ChunkHandler on_chunk)
 {
     const std::string normalized = ::ui::fs::normalize_path(path);
     if (normalized.empty())
@@ -991,9 +1107,7 @@ bool read_track_file_lines(const char* path, LineHandler on_line)
     }
 
     char buffer[kTrackFileReadBufferBytes];
-    std::string line;
     bool ok = true;
-    bool discard_line = false;
     while (true)
     {
         uint32_t bytes_read = 0;
@@ -1007,6 +1121,20 @@ bool read_track_file_lines(const char* path, LineHandler on_line)
             break;
         }
 
+        on_chunk(buffer, bytes_read);
+    }
+
+    lv_fs_close(&file);
+    return ok;
+}
+
+template <typename LineHandler>
+bool read_track_file_lines(const char* path, LineHandler on_line)
+{
+    std::string line;
+    bool discard_line = false;
+    const bool ok = read_track_file_chunks(path, [&](const char* buffer, uint32_t bytes_read)
+                                           {
         for (uint32_t index = 0; index < bytes_read; ++index)
         {
             const char ch = buffer[index];
@@ -1036,8 +1164,7 @@ bool read_track_file_lines(const char* path, LineHandler on_line)
                 continue;
             }
             line.push_back(ch);
-        }
-    }
+        } });
 
     if (ok && !discard_line && !line.empty())
     {
@@ -1047,10 +1174,150 @@ bool read_track_file_lines(const char* path, LineHandler on_line)
         }
         on_line(line);
     }
-
-    lv_fs_close(&file);
     return ok;
 }
+
+struct KmlCoordinateStreamParser
+{
+    std::vector<TrackOverlayPoint>& points;
+    bool in_tag = false;
+    bool tag_truncated = false;
+    bool in_coordinates = false;
+    bool discard_token = false;
+    std::string tag;
+    std::string token;
+
+    explicit KmlCoordinateStreamParser(std::vector<TrackOverlayPoint>& out)
+        : points(out)
+    {
+        tag.reserve(kMaxKmlTagBytes);
+        token.reserve(kMaxKmlCoordinateTokenBytes);
+    }
+
+    void flush_token()
+    {
+        if (discard_token)
+        {
+            token.clear();
+            discard_token = false;
+            return;
+        }
+        if (token.empty())
+        {
+            return;
+        }
+
+        double lat = 0.0;
+        double lon = 0.0;
+        if (parse_kml_coordinate_token(token, lat, lon))
+        {
+            append_track_point(points, lat, lon);
+        }
+        token.clear();
+    }
+
+    void handle_tag()
+    {
+        if (tag_truncated)
+        {
+            tag.clear();
+            tag_truncated = false;
+            return;
+        }
+
+        bool closing = false;
+        if (kml_tag_name_matches(tag, "coordinates", closing))
+        {
+            if (closing)
+            {
+                flush_token();
+                in_coordinates = false;
+            }
+            else
+            {
+                in_coordinates = true;
+                token.clear();
+                discard_token = false;
+            }
+        }
+        tag.clear();
+    }
+
+    void consume_char(char ch)
+    {
+        if (in_tag)
+        {
+            if (ch == '>')
+            {
+                in_tag = false;
+                handle_tag();
+                return;
+            }
+            if (tag.size() < kMaxKmlTagBytes)
+            {
+                tag.push_back(ch);
+            }
+            else
+            {
+                tag_truncated = true;
+            }
+            return;
+        }
+
+        if (ch == '<')
+        {
+            if (in_coordinates)
+            {
+                flush_token();
+            }
+            in_tag = true;
+            tag.clear();
+            tag_truncated = false;
+            return;
+        }
+
+        if (!in_coordinates)
+        {
+            return;
+        }
+        if (std::isspace(static_cast<unsigned char>(ch)))
+        {
+            flush_token();
+            return;
+        }
+        if (discard_token)
+        {
+            return;
+        }
+        if (token.size() >= kMaxKmlCoordinateTokenBytes)
+        {
+            token.clear();
+            discard_token = true;
+            return;
+        }
+        token.push_back(ch);
+    }
+
+    void consume(const char* data, uint32_t size)
+    {
+        if (!data)
+        {
+            return;
+        }
+        for (uint32_t index = 0; index < size; ++index)
+        {
+            consume_char(data[index]);
+        }
+    }
+
+    void finish()
+    {
+        if (in_coordinates)
+        {
+            flush_token();
+        }
+    }
+};
 
 void downsample_track_points(std::vector<TrackOverlayPoint>& points)
 {
@@ -1140,6 +1407,22 @@ bool load_csv_track_points(const char* path, std::vector<TrackOverlayPoint>& out
     return read_ok && !out.empty();
 }
 
+bool load_kml_track_points(const char* path, std::vector<TrackOverlayPoint>& out)
+{
+    out.clear();
+    if (!platform::ui::device::sd_ready())
+    {
+        return false;
+    }
+
+    out.reserve(kMaxTrackOverlayPoints);
+    KmlCoordinateStreamParser parser(out);
+    const bool read_ok = read_track_file_chunks(path, [&](const char* data, uint32_t size)
+                                                { parser.consume(data, size); });
+    parser.finish();
+    return read_ok && !out.empty();
+}
+
 void append_track_overlay(::ui::map::MapOverlaySnapshot& snapshot)
 {
     if (!s_track_overlay_active || s_track_points.empty())
@@ -1166,12 +1449,15 @@ void append_track_overlay(::ui::map::MapOverlaySnapshot& snapshot)
                                     : (index * (total - 1)) / (count - 1 == 0 ? 1 : count - 1);
         const auto& point = s_track_points[src];
         auto& item = snapshot.items[snapshot.item_count++];
-        item.kind = ::ui::map::MapOverlayKind::TrackPoint;
-        item.style = ::ui::map::MapOverlayStyle::Track;
+        const bool is_route = s_track_overlay_kind == TrackOverlayFileKind::Route;
+        item.kind = is_route ? ::ui::map::MapOverlayKind::RoutePoint
+                             : ::ui::map::MapOverlayKind::TrackPoint;
+        item.style = is_route ? ::ui::map::MapOverlayStyle::Route
+                              : ::ui::map::MapOverlayStyle::Track;
         item.point.valid = true;
         item.point.lat = point.lat;
         item.point.lon = point.lon;
-        item.stable_id = static_cast<uint32_t>(0x54520000U + index);
+        item.stable_id = static_cast<uint32_t>((is_route ? 0x52540000U : 0x54520000U) + index);
         item.visible = true;
     }
 
@@ -1190,9 +1476,21 @@ bool load_map_track_file_impl(const char* path, bool show_fail_toast)
 
     std::vector<TrackOverlayPoint> points;
     const std::string normalized = ::ui::fs::normalize_path(path);
-    const bool loaded = ends_with_ignore_case(normalized, ".csv")
-                            ? load_csv_track_points(path, points)
-                            : load_gpx_track_points(path, points);
+    TrackOverlayFileKind file_kind = TrackOverlayFileKind::Track;
+    bool loaded = false;
+    if (ends_with_ignore_case(normalized, ".csv"))
+    {
+        loaded = load_csv_track_points(path, points);
+    }
+    else if (ends_with_ignore_case(normalized, ".kml"))
+    {
+        loaded = load_kml_track_points(path, points);
+        file_kind = TrackOverlayFileKind::Route;
+    }
+    else
+    {
+        loaded = load_gpx_track_points(path, points);
+    }
     if (!loaded)
     {
         if (show_fail_toast)
@@ -1203,12 +1501,14 @@ bool load_map_track_file_impl(const char* path, bool show_fail_toast)
         s_track_overlay_active = false;
         s_track_points.clear();
         s_track_file.clear();
+        s_track_overlay_kind = TrackOverlayFileKind::Track;
         return false;
     }
 
     s_track_file = path;
     s_track_points = std::move(points);
     s_track_overlay_active = true;
+    s_track_overlay_kind = file_kind;
     if (!s_track_points.empty())
     {
         const auto& last = s_track_points.back();
@@ -1223,7 +1523,7 @@ bool load_map_track_file_impl(const char* path, bool show_fail_toast)
         s_map_pan_y = 0;
     }
 
-    set_map_notice("Track loaded", 1200);
+    set_map_notice(file_kind == TrackOverlayFileKind::Route ? "Route loaded" : "Track loaded", 1200);
     request_refresh_view();
     return true;
 }
@@ -1923,6 +2223,12 @@ void show_route_context_notice()
         return;
     }
 
+    if (!load_configured_route_overlay(true))
+    {
+        set_map_notice("Route load failed", 1500);
+        request_refresh_view();
+        return;
+    }
     set_map_notice("Route active", 1200);
     request_refresh_view();
 }
@@ -2335,6 +2641,10 @@ void create_map_content(lv_obj_t* content)
     create_map_notice_overlay(viewport);
     create_map_context_rail(viewport);
 
+    if (route_context_available())
+    {
+        (void)load_configured_route_overlay(false);
+    }
     refresh_view();
 }
 
