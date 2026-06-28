@@ -432,6 +432,16 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_ime_input_mode_descriptor_smoke
              COMMAND trailmate_ime_input_mode_descriptor_smoke)
 
+    add_executable(trailmate_pinyin_lookup_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_pinyin_lookup.cpp")
+    target_include_directories(trailmate_pinyin_lookup_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/include")
+    target_compile_features(trailmate_pinyin_lookup_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_pinyin_lookup_smoke
+             COMMAND trailmate_pinyin_lookup_smoke)
+
     add_executable(trailmate_timezone_profile_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_timezone_profile.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/platform/ui/timezone_profile.cpp")

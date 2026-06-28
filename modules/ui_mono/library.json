@@ -12,6 +12,7 @@
       "-I../core_chat/third_party/nanopb",
       "-I../core_sys/include",
       "-I../core_gps/include",
+      "-I../ui_shared/include",
       "-I../../platform/shared/include"
     ]
   },

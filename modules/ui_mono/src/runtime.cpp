@@ -16,6 +16,19 @@
 #include "platform/ui/screen_runtime.h"
 #include "ui/mono/assets/trailmate_sleep_logo.h"
 #include "ui/mono/screens/screensaver_layout.h"
+
+#ifndef TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
+#if (defined(GAT562_NO_PINYIN_IME) && GAT562_NO_PINYIN_IME) || (defined(GAT562_NO_CJK) && GAT562_NO_CJK)
+#define TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED 0
+#else
+#define TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED 1
+#endif
+#endif
+
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
+#include "ui/widgets/ime/pinyin_lookup.h"
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -308,11 +321,6 @@ constexpr const char* kFullAlphaRows[] = {"QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"};
 constexpr const char* kFullNumRows[] = {"1234567890"};
 constexpr const char* kFullSymRows[] = {".,!?/-:@#", "()[]{}+=", "_*%&$~\\|"};
 
-struct PinyinCandidateEntry
-{
-    const char* pinyin;
-    const char* words[7];
-};
 constexpr uint32_t kConversationScrollStartPauseMs = 500;
 constexpr uint32_t kConversationScrollStepMs = 250;
 constexpr uint32_t kConversationScrollEndPauseMs = 800;
@@ -416,64 +424,6 @@ constexpr const char* kHamTerms[] = {
     "YANKEE",
     "YL",
     "ZULU",
-};
-
-constexpr PinyinCandidateEntry kPinyinCandidates[] = {
-    {"ai", {u8"爱", u8"哎", u8"矮", u8"挨", u8"碍", u8"艾", u8"唉"}},
-    {"an", {u8"安", u8"按", u8"俺", u8"案", u8"暗", u8"岸", u8"鞍"}},
-    {"ba", {u8"吧", u8"把", u8"八"}},
-    {"bei", {u8"北", u8"被", u8"备"}},
-    {"bu", {u8"不", u8"步", u8"部"}},
-    {"chi", {u8"吃", u8"迟", u8"持"}},
-    {"dao", {u8"到", u8"道", u8"导", u8"倒", u8"岛", u8"刀", u8"盗"}},
-    {"de", {u8"的", u8"得", u8"德", u8"地", u8"底", u8"等", u8"点"}},
-    {"deng", {u8"等", u8"灯", u8"登"}},
-    {"di", {u8"地", u8"第", u8"低"}},
-    {"dong", {u8"东", u8"动", u8"懂"}},
-    {"dui", {u8"对", u8"队", u8"兑"}},
-    {"en", {u8"嗯", u8"恩", u8"摁"}},
-    {"fa", {u8"发", u8"法", u8"罚", u8"乏", u8"伐", u8"阀", u8"烦"}},
-    {"hao", {u8"好", u8"号", u8"浩", u8"耗", u8"豪", u8"郝", u8"毫"}},
-    {"he", {u8"和", u8"河", u8"合", u8"喝", u8"何", u8"核", u8"盒"}},
-    {"hui", {u8"会", u8"回", u8"灰", u8"汇", u8"惠", u8"挥", u8"毁"}},
-    {"ji", {u8"机", u8"几", u8"急", u8"记", u8"即", u8"级", u8"集"}},
-    {"jia", {u8"家", u8"加", u8"甲"}},
-    {"kan", {u8"看", u8"砍", u8"刊", u8"堪", u8"坎", u8"侃", u8"勘"}},
-    {"ke", {u8"可", u8"客", u8"科", u8"课", u8"克", u8"刻", u8"颗"}},
-    {"lai", {u8"来", u8"赖", u8"莱", u8"唻", u8"徕", u8"睐", u8"癞"}},
-    {"le", {u8"了", u8"乐", u8"勒", u8"嘞", u8"肋", u8"仂", u8"叻"}},
-    {"li", {u8"里", u8"离", u8"力", u8"理", u8"立", u8"利", u8"李"}},
-    {"ma", {u8"吗", u8"妈", u8"马", u8"嘛", u8"码", u8"麻", u8"骂"}},
-    {"mei", {u8"没", u8"美", u8"每"}},
-    {"men", {u8"们", u8"门", u8"闷"}},
-    {"mi", {u8"米", u8"密", u8"迷", u8"咪", u8"秘", u8"蜜", u8"弥"}},
-    {"ming", {u8"明", u8"名", u8"命"}},
-    {"mo", {u8"么", u8"末", u8"摸", u8"没", u8"墨", u8"默", u8"磨"}},
-    {"mu", {u8"木", u8"目", u8"母", u8"亩", u8"幕", u8"牧", u8"穆"}},
-    {"na", {u8"那", u8"拿", u8"哪"}},
-    {"neng", {u8"能", u8"冷", u8"楞", u8"棱", u8"嗯", u8"内", u8"嫩"}},
-    {"ni", {u8"你", u8"尼", u8"呢", u8"拟", u8"泥", u8"逆", u8"腻"}},
-    {"nihao", {u8"你好", u8"你号", u8"拟好", u8"泥好", u8"你好啊", u8"你们", u8"你呢"}},
-    {"ok", {u8"好", u8"行", u8"OK", u8"可以", u8"收到", u8"没问题", u8"确认"}},
-    {"qing", {u8"请", u8"清", u8"情", u8"青", u8"轻", u8"庆", u8"晴"}},
-    {"qu", {u8"去", u8"取", u8"区", u8"曲", u8"趣", u8"渠", u8"驱"}},
-    {"rang", {u8"让", u8"嚷", u8"壤"}},
-    {"ren", {u8"人", u8"认", u8"任"}},
-    {"shou", {u8"收", u8"手", u8"守", u8"受", u8"首", u8"售", u8"瘦"}},
-    {"shi", {u8"是", u8"时", u8"事", u8"十", u8"使", u8"试", u8"市"}},
-    {"shoudao", {u8"收到", u8"手到", u8"守到", u8"收到了", u8"已收到", u8"收到啦", u8"确认收到"}},
-    {"tian", {u8"天", u8"填", u8"田"}},
-    {"ting", {u8"听", u8"停", u8"挺"}},
-    {"wo", {u8"我", u8"窝", u8"握", u8"喔", u8"沃", u8"卧", u8"斡"}},
-    {"xie", {u8"谢", u8"写", u8"些", u8"鞋", u8"斜", u8"协", u8"卸"}},
-    {"xing", {u8"行", u8"星", u8"型", u8"醒", u8"姓", u8"性", u8"幸"}},
-    {"yao", {u8"要", u8"药", u8"摇", u8"腰", u8"遥", u8"咬", u8"钥"}},
-    {"yi", {u8"一", u8"已", u8"以", u8"也", u8"有", u8"要", u8"用"}},
-    {"you", {u8"有", u8"又", u8"由", u8"右", u8"友", u8"油", u8"优"}},
-    {"zai", {u8"在", u8"再", u8"载", u8"哉", u8"栽", u8"仔", u8"灾"}},
-    {"zhe", {u8"这", u8"者", u8"着", u8"折", u8"哲", u8"遮", u8"浙"}},
-    {"zhidao", {u8"知道", u8"直到", u8"制导", u8"只到", u8"指到", u8"知道了", u8"我知道"}},
-    {"zou", {u8"走", u8"奏", u8"揍"}},
 };
 
 template <typename T, size_t N>
@@ -6700,20 +6650,9 @@ void Runtime::rebuildComposeCandidates()
             return compose_candidate_count_ >= kComposeCandidateMax;
         };
 
-        for (const auto& entry : kPinyinCandidates)
-        {
-            if (!hasPrefixIgnoreCase(entry.pinyin, compose_preedit_))
-            {
-                continue;
-            }
-            for (const char* word : entry.words)
-            {
-                if (add_candidate(word))
-                {
-                    return;
-                }
-            }
-        }
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
+        ::ui::widgets::ime::collectPinyinCandidates(compose_preedit_, add_candidate);
+#endif
         return;
     }
 
@@ -7515,7 +7454,11 @@ bool Runtime::editUsesDirectTextEntry() const
 
 bool Runtime::editAllowsChineseInput() const
 {
+#if !TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
+    return false;
+#else
     return edit_target_ == EditTarget::Message;
+#endif
 }
 
 bool Runtime::editAcceptsTextInput() const
