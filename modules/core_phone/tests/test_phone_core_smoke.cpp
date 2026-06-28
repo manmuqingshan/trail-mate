@@ -764,7 +764,6 @@ int main()
     bool saw_config_only_complete = false;
     bool saw_config_only_my_info = false;
     bool saw_config_only_deviceui = false;
-    bool saw_config_only_self_node = false;
     bool saw_config_only_metadata = false;
     uint8_t config_only_channel_count = 0;
     uint8_t config_only_config_count = 0;
@@ -804,25 +803,17 @@ int main()
         if (config_only_from.which_payload_variant == meshtastic_FromRadio_my_info_tag)
         {
             assert(!saw_config_only_deviceui);
-            assert(!saw_config_only_self_node);
             saw_config_only_my_info = true;
         }
         if (config_only_from.which_payload_variant == meshtastic_FromRadio_deviceuiConfig_tag)
         {
             assert(saw_config_only_my_info);
-            assert(!saw_config_only_self_node);
             saw_config_only_deviceui = true;
         }
-        if (config_only_from.which_payload_variant == meshtastic_FromRadio_node_info_tag)
-        {
-            assert(saw_config_only_deviceui);
-            assert(!saw_config_only_metadata);
-            assert(config_only_from.node_info.num == config_runtime.self_node_id);
-            saw_config_only_self_node = true;
-        }
+        assert(config_only_from.which_payload_variant != meshtastic_FromRadio_node_info_tag);
         if (config_only_from.which_payload_variant == meshtastic_FromRadio_metadata_tag)
         {
-            assert(saw_config_only_self_node);
+            assert(saw_config_only_deviceui);
             assert(config_only_channel_count == 0);
             saw_config_only_metadata = true;
         }
@@ -866,7 +857,6 @@ int main()
     }
     assert(saw_config_only_my_info);
     assert(saw_config_only_deviceui);
-    assert(saw_config_only_self_node);
     assert(saw_config_only_metadata);
     assert(saw_config_only_complete);
 

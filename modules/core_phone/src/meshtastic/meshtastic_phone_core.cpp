@@ -1526,7 +1526,12 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         return encodeFromRadio(from, from_num, out);
     }
 
-    if (config_node_index_ == 2)
+    if (only_config && config_node_index_ == 2)
+    {
+        config_node_index_ = 3;
+    }
+
+    if (!only_config && config_node_index_ == 2)
     {
         from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
         fillSelfNodeInfo(&from.node_info);
