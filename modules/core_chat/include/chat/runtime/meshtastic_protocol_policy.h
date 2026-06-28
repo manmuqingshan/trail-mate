@@ -34,6 +34,32 @@ inline MeshtasticAppDataSendPolicy resolveMeshtasticAppDataSendPolicy(NodeId des
     return policy;
 }
 
+enum class MeshtasticBleVisibleNameReason : uint8_t
+{
+    StableNodeId,
+    NodeIdChanged,
+};
+
+struct MeshtasticBleVisibleNamePolicy
+{
+    bool visible_name_changed = false;
+    MeshtasticBleVisibleNameReason reason =
+        MeshtasticBleVisibleNameReason::StableNodeId;
+};
+
+inline MeshtasticBleVisibleNamePolicy resolveMeshtasticBleVisibleNamePolicy(
+    NodeId previous_node,
+    NodeId current_node)
+{
+    MeshtasticBleVisibleNamePolicy policy{};
+    if (previous_node != current_node)
+    {
+        policy.visible_name_changed = true;
+        policy.reason = MeshtasticBleVisibleNameReason::NodeIdChanged;
+    }
+    return policy;
+}
+
 enum class MeshtasticMqttDownlinkReason : uint8_t
 {
     TransmitToMesh,

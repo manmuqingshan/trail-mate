@@ -25,5 +25,8 @@ void buildBleVisibleName(const EffectiveSelfIdentity& identity,
                          MeshProtocol protocol,
                          char* out,
                          size_t out_len);
+bool bleVisibleNameChanged(const EffectiveSelfIdentity& previous_identity,
+                           const EffectiveSelfIdentity& current_identity,
+                           MeshProtocol protocol);
 
 } // namespace chat::runtime

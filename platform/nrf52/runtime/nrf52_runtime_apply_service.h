@@ -34,6 +34,7 @@ class RuntimeApplyService
 
     void applyUserInfo(const chat::runtime::EffectiveSelfIdentity& previous_identity,
                        const chat::runtime::EffectiveSelfIdentity& current_identity,
+                       chat::MeshProtocol protocol,
                        chat::IMeshAdapter* mesh_router,
                        ble::BleManager* ble_manager) const;
 

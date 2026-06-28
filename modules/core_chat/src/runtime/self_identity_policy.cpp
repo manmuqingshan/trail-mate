@@ -1,5 +1,7 @@
 #include "chat/runtime/self_identity_policy.h"
 
+#include "chat/runtime/meshtastic_protocol_policy.h"
+
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -168,6 +170,24 @@ void buildBleVisibleName(const EffectiveSelfIdentity& identity,
                            ? identity.short_name
                            : (identity.long_name[0] != '\0' ? identity.long_name : compact);
     std::snprintf(out, out_len, "MeshCore-%s", base);
+}
+
+bool bleVisibleNameChanged(const EffectiveSelfIdentity& previous_identity,
+                           const EffectiveSelfIdentity& current_identity,
+                           MeshProtocol protocol)
+{
+    if (protocol == MeshProtocol::Meshtastic)
+    {
+        const auto policy = resolveMeshtasticBleVisibleNamePolicy(previous_identity.node_id,
+                                                                  current_identity.node_id);
+        return policy.visible_name_changed;
+    }
+
+    char previous_name[32] = {};
+    char current_name[32] = {};
+    buildBleVisibleName(previous_identity, protocol, previous_name, sizeof(previous_name));
+    buildBleVisibleName(current_identity, protocol, current_name, sizeof(current_name));
+    return std::strcmp(previous_name, current_name) != 0;
 }
 
 } // namespace chat::runtime

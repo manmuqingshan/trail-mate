@@ -9,8 +9,6 @@
 #include "chat/usecase/chat_service.h"
 #include "platform/nrf52/debug/nrf52_debug_console.h"
 
-#include <cstring>
-
 namespace platform::nrf52::runtime
 {
 namespace
@@ -71,6 +69,7 @@ void RuntimeApplyService::applyMesh(app::AppConfig& config,
 
 void RuntimeApplyService::applyUserInfo(const chat::runtime::EffectiveSelfIdentity& previous_identity,
                                         const chat::runtime::EffectiveSelfIdentity& current_identity,
+                                        chat::MeshProtocol protocol,
                                         chat::IMeshAdapter* mesh_router,
                                         ble::BleManager* ble_manager) const
 {
@@ -79,18 +78,17 @@ void RuntimeApplyService::applyUserInfo(const chat::runtime::EffectiveSelfIdenti
         mesh_router->setUserInfo(current_identity.long_name, current_identity.short_name);
     }
 
-    const bool ble_identity_changed =
-        std::strcmp(previous_identity.long_name, current_identity.long_name) != 0 ||
-        std::strcmp(previous_identity.short_name, current_identity.short_name) != 0;
 #if !TRAILMATE_NRF52_BLE_DISABLED
-    if (ble_identity_changed && ble_manager && ble_manager->isEnabled())
+    const bool ble_name_changed = chat::runtime::bleVisibleNameChanged(previous_identity, current_identity, protocol);
+    if (ble_name_changed && ble_manager && ble_manager->isEnabled())
     {
         ble_manager->setEnabled(false);
         ble_manager->setEnabled(true);
     }
 #else
     (void)ble_manager;
-    (void)ble_identity_changed;
+    (void)previous_identity;
+    (void)protocol;
 #endif
 }
 
