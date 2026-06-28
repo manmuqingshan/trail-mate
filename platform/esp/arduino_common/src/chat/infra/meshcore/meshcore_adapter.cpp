@@ -2561,7 +2561,11 @@ bool MeshCoreAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effec
                             false,
                             false,
                             item.has_public_key,
-                            item.key_manually_verified),
+                            item.key_manually_verified,
+                            false,
+                            nullptr,
+                            true,
+                            true),
                         0);
                     ok = true;
                 }

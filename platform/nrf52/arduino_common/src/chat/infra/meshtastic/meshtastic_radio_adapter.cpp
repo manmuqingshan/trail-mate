@@ -1166,7 +1166,7 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
     };
 
     if (decoded_ok &&
-        decoded.portnum == meshtastic_PortNum_NODEINFO_APP &&
+        ::chat::meshtastic::isNodeMetadataPayload(decoded.portnum) &&
         decoded.payload.size > 0 &&
         (node_store_ || contact_service_))
     {
@@ -1181,7 +1181,7 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
             (header.flags & ::chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0;
 
         ::chat::meshtastic::DecodedNodePayload node{};
-        if (::chat::meshtastic::decodeNodeInfoPayload(decoded, context, &node))
+        if (::chat::meshtastic::decodeNodeMetadataPayload(decoded, context, &node))
         {
             if (node.node_id != 0)
             {
@@ -1204,7 +1204,8 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
 
                 if (!node.short_name.empty() || !node.long_name.empty())
                 {
-                    logMeshtasticRx("[gat562][mt] nodeinfo observed from=%08lX owner=%08lX short=\"%s\" long=\"%s\"\n",
+                    logMeshtasticRx("[gat562][mt] node metadata observed port=%u from=%08lX owner=%08lX short=\"%s\" long=\"%s\"\n",
+                                    static_cast<unsigned>(decoded.portnum),
                                     static_cast<unsigned long>(header.from),
                                     static_cast<unsigned long>(node.node_id),
                                     node.short_name.c_str(),
@@ -1212,7 +1213,8 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                 }
                 else
                 {
-                    logMeshtasticRx("[gat562][mt] nodeinfo observed from=%08lX owner=%08lX\n",
+                    logMeshtasticRx("[gat562][mt] node metadata observed port=%u from=%08lX owner=%08lX\n",
+                                    static_cast<unsigned>(decoded.portnum),
                                     static_cast<unsigned long>(header.from),
                                     static_cast<unsigned long>(node.node_id));
                 }
@@ -1220,7 +1222,8 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         }
         else
         {
-            logMeshtasticRx("[gat562][mt] nodeinfo decode fail from=%08lX payload=%u\n",
+            logMeshtasticRx("[gat562][mt] node metadata decode fail port=%u from=%08lX payload=%u\n",
+                            static_cast<unsigned>(decoded.portnum),
                             static_cast<unsigned long>(header.from),
                             static_cast<unsigned>(decoded.payload.size));
         }
@@ -3140,15 +3143,18 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
     }
 
     const bool is_decoded_payload = packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag;
-    const bool is_admin_payload =
-        is_decoded_payload && packet.decoded.portnum == meshtastic_PortNum_ADMIN_APP;
+    const meshtastic_PortNum decoded_portnum =
+        is_decoded_payload ? packet.decoded.portnum : meshtastic_PortNum_UNKNOWN_APP;
+    const bool is_metadata_only_payload =
+        is_decoded_payload &&
+        ::chat::meshtastic::isMqttMetadataOnlyDownlinkPort(decoded_portnum);
     const auto decoded_reason = ::chat::meshtastic::validateMqttDecodedDownlinkPayload(
-        mqtt_proxy_settings_, is_decoded_payload, is_admin_payload);
+        mqtt_proxy_settings_, is_decoded_payload, decoded_portnum);
     if (decoded_reason != ::chat::meshtastic::MqttProxyRejectReason::None)
     {
         logMeshtasticRx("[nrf52][mt][mqtt] downlink reject reason=%s port=%u enc=%u\n",
                         ::chat::meshtastic::mqttProxyRejectReasonName(decoded_reason),
-                        is_decoded_payload ? static_cast<unsigned>(packet.decoded.portnum) : 0U,
+                        is_decoded_payload ? static_cast<unsigned>(decoded_portnum) : 0U,
                         mqtt_proxy_settings_.encryption_enabled ? 1U : 0U);
         return false;
     }
@@ -3247,26 +3253,35 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
                     static_cast<unsigned long>(tx_header->from),
                     static_cast<unsigned long>(tx_header->to),
                     static_cast<unsigned long>(tx_header->id));
-    const auto tx_policy = ::chat::runtime::resolveMeshtasticMqttDownlinkPolicy(
-        gateway_id,
-        node_id_,
-        tx_header->from,
-        tx_header->to,
-        config_.tx_enabled);
-    if (!tx_policy.transmit_to_mesh)
+    if (is_metadata_only_payload)
     {
-        logMeshtasticRx("[nrf52][mt][mqtt] downlink mesh tx skipped reason=%s id=%08lX\n",
-                        ::chat::runtime::meshtasticMqttDownlinkReasonName(tx_policy.reason),
+        logMeshtasticRx("[nrf52][mt][mqtt] downlink mesh tx skipped reason=metadata_only port=%u id=%08lX\n",
+                        static_cast<unsigned>(decoded_portnum),
                         static_cast<unsigned long>(tx_header->id));
     }
     else
     {
-        const bool tx_ok = transmitWire(wire_buffer, wire_size);
-        logMeshtasticRx("[nrf52][mt][mqtt] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
-                        static_cast<unsigned long>(tx_header->id),
-                        static_cast<unsigned>(tx_header->channel),
-                        static_cast<unsigned>(wire_size),
-                        tx_ok ? 1U : 0U);
+        const auto tx_policy = ::chat::runtime::resolveMeshtasticMqttDownlinkPolicy(
+            gateway_id,
+            node_id_,
+            tx_header->from,
+            tx_header->to,
+            config_.tx_enabled);
+        if (!tx_policy.transmit_to_mesh)
+        {
+            logMeshtasticRx("[nrf52][mt][mqtt] downlink mesh tx skipped reason=%s id=%08lX\n",
+                            ::chat::runtime::meshtasticMqttDownlinkReasonName(tx_policy.reason),
+                            static_cast<unsigned long>(tx_header->id));
+        }
+        else
+        {
+            const bool tx_ok = transmitWire(wire_buffer, wire_size);
+            logMeshtasticRx("[nrf52][mt][mqtt] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
+                            static_cast<unsigned long>(tx_header->id),
+                            static_cast<unsigned>(tx_header->channel),
+                            static_cast<unsigned>(wire_size),
+                            tx_ok ? 1U : 0U);
+        }
     }
 
     handleRawPacket(wire_buffer, wire_size);

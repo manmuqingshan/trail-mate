@@ -1,6 +1,7 @@
 #pragma once
 
 #include "chat/domain/chat_types.h"
+#include "meshtastic/portnums.pb.h"
 
 #include <cstdint>
 #include <cstring>
@@ -172,20 +173,26 @@ inline MqttProxyRejectReason validateMqttDownlinkChannel(bool known_channel)
                          : MqttProxyRejectReason::UnknownOrDisabledChannel;
 }
 
+inline bool isMqttMetadataOnlyDownlinkPort(meshtastic_PortNum portnum)
+{
+    return portnum == meshtastic_PortNum_MAP_REPORT_APP;
+}
+
 inline MqttProxyRejectReason validateMqttDecodedDownlinkPayload(
     const MqttProxyRuntimeSettings& settings,
     bool is_decoded_payload,
-    bool is_admin_payload)
+    meshtastic_PortNum decoded_portnum)
 {
     if (!is_decoded_payload)
     {
         return MqttProxyRejectReason::None;
     }
-    if (settings.encryption_enabled)
+    if (settings.encryption_enabled &&
+        !isMqttMetadataOnlyDownlinkPort(decoded_portnum))
     {
         return MqttProxyRejectReason::DecodedPayloadWhileEncrypted;
     }
-    if (is_admin_payload)
+    if (decoded_portnum == meshtastic_PortNum_ADMIN_APP)
     {
         return MqttProxyRejectReason::AdminPayload;
     }

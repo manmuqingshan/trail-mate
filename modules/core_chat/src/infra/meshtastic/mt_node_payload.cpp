@@ -2,6 +2,7 @@
 
 #include "chat/infra/meshtastic/mt_protocol_helpers.h"
 #include "meshtastic/config.pb.h"
+#include "meshtastic/mqtt.pb.h"
 #include "pb_decode.h"
 
 #include <algorithm>
@@ -99,6 +100,15 @@ bool hasMeaningfulNodeInfoFacts(const meshtastic_NodeInfo& node,
            node.is_key_manually_verified;
 }
 
+bool hasMeaningfulMapReportFacts(const meshtastic_MapReport& report)
+{
+    return hasBoundedText(report.short_name, sizeof(report.short_name)) ||
+           hasBoundedText(report.long_name, sizeof(report.long_name)) ||
+           report.hw_model != meshtastic_HardwareModel_UNSET ||
+           (report.has_opted_report_location &&
+            (report.latitude_i != 0 || report.longitude_i != 0));
+}
+
 std::uint8_t sanitizeRole(meshtastic_Config_DeviceConfig_Role role)
 {
     if (role <= meshtastic_Config_DeviceConfig_Role_CLIENT_BASE)
@@ -123,6 +133,28 @@ contacts::NodeDeviceMetrics deviceMetricsFromProto(
     out.has_uptime_seconds = metrics.has_uptime_seconds;
     out.uptime_seconds = metrics.uptime_seconds;
     return out;
+}
+
+bool positionFromMapReport(const meshtastic_MapReport& report,
+                           std::uint32_t fallback_timestamp,
+                           contacts::NodePosition* out)
+{
+    if (out == nullptr || !report.has_opted_report_location ||
+        (report.latitude_i == 0 && report.longitude_i == 0))
+    {
+        return false;
+    }
+
+    contacts::NodePosition value{};
+    value.valid = true;
+    value.latitude_i = report.latitude_i;
+    value.longitude_i = report.longitude_i;
+    value.has_altitude = report.altitude != 0;
+    value.altitude = report.altitude;
+    value.timestamp = fallback_timestamp;
+    value.precision_bits = report.position_precision;
+    *out = value;
+    return true;
 }
 
 bool positionFromProto(const meshtastic_Position& pos,
@@ -169,6 +201,7 @@ void applyUser(const meshtastic_User& user, DecodedNodePayload& out)
     }
 
     out.has_public_key = user.public_key.size == out.public_key.size();
+    out.has_public_key_state = true;
     if (out.has_public_key)
     {
         std::copy(user.public_key.bytes,
@@ -222,7 +255,7 @@ contacts::NodeUpdate DecodedNodePayload::toNodeUpdate() const
     update.via_mqtt = via_mqtt;
     update.has_is_ignored = true;
     update.is_ignored = is_ignored;
-    update.has_public_key = has_user;
+    update.has_public_key = has_public_key_state;
     update.public_key_present = has_public_key;
     // Trust is a local decision. Do not overwrite local trust state with
     // remote NODEINFO flags.
@@ -238,6 +271,12 @@ contacts::NodeUpdate DecodedNodePayload::toNodeUpdate() const
         update.position = position;
     }
     return update;
+}
+
+bool isNodeMetadataPayload(meshtastic_PortNum portnum)
+{
+    return portnum == meshtastic_PortNum_NODEINFO_APP ||
+           portnum == meshtastic_PortNum_MAP_REPORT_APP;
 }
 
 bool decodeNodeInfoPayload(const meshtastic_Data& data,
@@ -309,6 +348,43 @@ bool decodeNodeInfoPayload(const meshtastic_Data& data,
 
     DecodedNodePayload value = makeBasePayload(context);
     applyUser(user, value);
+    *out = value;
+    return true;
+}
+
+bool decodeNodeMetadataPayload(const meshtastic_Data& data,
+                               const NodePayloadDecodeContext& context,
+                               DecodedNodePayload* out)
+{
+    if (data.portnum == meshtastic_PortNum_NODEINFO_APP)
+    {
+        return decodeNodeInfoPayload(data, context, out);
+    }
+    if (out == nullptr || data.portnum != meshtastic_PortNum_MAP_REPORT_APP ||
+        data.payload.size == 0 ||
+        data.payload.size > sizeof(data.payload.bytes))
+    {
+        return false;
+    }
+
+    meshtastic_MapReport report = meshtastic_MapReport_init_zero;
+    pb_istream_t stream =
+        pb_istream_from_buffer(data.payload.bytes, data.payload.size);
+    if (!pb_decode(&stream, meshtastic_MapReport_fields, &report) ||
+        !hasMeaningfulMapReportFacts(report))
+    {
+        return false;
+    }
+
+    DecodedNodePayload value = makeBasePayload(context);
+    value.short_name = boundedString(report.short_name, sizeof(report.short_name));
+    value.long_name = boundedString(report.long_name, sizeof(report.long_name));
+    value.has_user = !value.short_name.empty() || !value.long_name.empty();
+    value.role = sanitizeRole(report.role);
+    value.hw_model = static_cast<std::uint8_t>(report.hw_model);
+    value.has_position =
+        positionFromMapReport(report, context.timestamp, &value.position);
+
     *out = value;
     return true;
 }

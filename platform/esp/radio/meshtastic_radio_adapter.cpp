@@ -501,7 +501,7 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
         (void)sendRoutingAck(header.from, header.id, channel);
     }
 
-    if (decoded.portnum == meshtastic_PortNum_NODEINFO_APP)
+    if (chat::meshtastic::isNodeMetadataPayload(decoded.portnum))
     {
         if (decoded.payload.size > 0)
         {
@@ -510,7 +510,8 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
                                      header.from,
                                      to_channel_index(channel));
         }
-        if (want_response && (to_us || is_broadcast))
+        if (decoded.portnum == meshtastic_PortNum_NODEINFO_APP &&
+            want_response && (to_us || is_broadcast))
         {
             (void)sendNodeInfoTo(header.from, false, channel);
         }
@@ -734,7 +735,7 @@ bool MeshtasticRadioAdapter::publishNodePayload(const meshtastic_Data& data,
          chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0;
 
     chat::meshtastic::DecodedNodePayload node{};
-    if (!chat::meshtastic::decodeNodeInfoPayload(data, context, &node))
+    if (!chat::meshtastic::decodeNodeMetadataPayload(data, context, &node))
     {
         return false;
     }
@@ -759,7 +760,8 @@ bool MeshtasticRadioAdapter::publishNodePayload(const meshtastic_Data& data,
             node.has_public_key,
             false,
             node.has_device_metrics,
-            node.has_device_metrics ? &node.device_metrics : nullptr),
+            node.has_device_metrics ? &node.device_metrics : nullptr,
+            node.has_public_key_state),
         0);
     if (node.has_position)
     {

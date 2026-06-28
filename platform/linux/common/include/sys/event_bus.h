@@ -114,7 +114,9 @@ struct NodeInfoUpdateEvent : public Event
     uint8_t macaddr[6];
     bool via_mqtt;
     bool is_ignored;
+    bool has_public_key_state;
     bool has_public_key;
+    bool has_key_manually_verified_state;
     bool key_manually_verified;
     bool has_device_metrics;
     chat::contacts::NodeDeviceMetrics device_metrics;
@@ -125,7 +127,9 @@ struct NodeInfoUpdateEvent : public Event
                         bool via_mqtt_value = false, bool is_ignored_value = false,
                         bool has_pubkey = false, bool key_verified = false,
                         bool has_metrics = false,
-                        const chat::contacts::NodeDeviceMetrics* metrics = nullptr)
+                        const chat::contacts::NodeDeviceMetrics* metrics = nullptr,
+                        bool has_pubkey_state = false,
+                        bool has_key_verified_state = false)
         : Event(EventType::NodeInfoUpdate),
           node_id(id),
           short_name{},
@@ -142,7 +146,9 @@ struct NodeInfoUpdateEvent : public Event
           macaddr{},
           via_mqtt(via_mqtt_value),
           is_ignored(is_ignored_value),
+          has_public_key_state(has_pubkey_state),
           has_public_key(has_pubkey),
+          has_key_manually_verified_state(has_key_verified_state),
           key_manually_verified(key_verified),
           has_device_metrics(has_metrics),
           device_metrics{}

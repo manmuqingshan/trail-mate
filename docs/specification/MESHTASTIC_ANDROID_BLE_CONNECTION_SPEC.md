@@ -388,6 +388,37 @@ Invariants:
 - `config_complete_id` must be emitted exactly once per config snapshot flow.
 - After `config_complete_id`, `config_flow_active_` becomes false and `config_drain_empty_pending_` becomes true.
 - The next `popToPhone()` after completion must return false once, allowing `FromRadio` to expose zero-length drain completion.
+- Peer `node_info` frames must only be emitted for nodes with visible identity facts
+  (`short_name` or `long_name`). Observation-only entries must not be projected as
+  empty users because Android/iOS can keep the empty fallback name in their node database.
+- MQTT `MAP_REPORT_APP` is a valid upstream source of peer identity facts. Radio
+  adapters must decode it into the shared node store before the phone node snapshot
+  can project names such as `Haibara.Ai (MQTT)` and emoji short names.
+
+### Peer Identity Sources
+
+```mermaid
+flowchart LR
+    A["LoRa NODEINFO_APP / User"] --> D["core_chat decodeNodeMetadataPayload"]
+    B["MQTT MAP_REPORT_APP"] --> D
+    C["POSITION_APP"] --> E["decodePositionPayload"]
+    D --> F["NodeUpdate / NodeInfoUpdateEvent"]
+    E --> F
+    F --> G["ContactService / NodeStore"]
+    G --> H["AppPhoneFacade PhoneNodeView"]
+    H --> I["FromRadio.node_info"]
+    I --> J["Android/iOS node database"]
+```
+
+Rules:
+
+- Node identity parsing belongs to `modules/core_chat`; platform adapters must
+  not separately decode `NodeInfo`, legacy `User`, or `MapReport`.
+- `MAP_REPORT_APP` is public MQTT metadata. It may update local node identity and
+  may be forwarded to the phone as packet data, but it must not be LoRa-transmitted
+  as a normal MQTT downlink.
+- Public-key state is separate from public-key value. Metadata that lacks a key
+  field must leave the existing key state untouched.
 
 ## Pop Order
 

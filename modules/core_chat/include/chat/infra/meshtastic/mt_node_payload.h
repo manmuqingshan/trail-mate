@@ -43,6 +43,7 @@ struct DecodedNodePayload
     std::array<std::uint8_t, 6> macaddr{};
     bool via_mqtt = false;
     bool is_ignored = false;
+    bool has_public_key_state = false;
     bool has_public_key = false;
     std::array<std::uint8_t, 32> public_key{};
     bool key_manually_verified = false;
@@ -59,6 +60,12 @@ struct DecodedPositionPayload
     NodeId node_id = 0;
     contacts::NodePosition position{};
 };
+
+bool isNodeMetadataPayload(meshtastic_PortNum portnum);
+
+bool decodeNodeMetadataPayload(const meshtastic_Data& data,
+                               const NodePayloadDecodeContext& context,
+                               DecodedNodePayload* out);
 
 bool decodeNodeInfoPayload(const meshtastic_Data& data,
                            const NodePayloadDecodeContext& context,

@@ -1061,15 +1061,18 @@ bool MtAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
     }
 
     const bool is_decoded_payload = packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag;
-    const bool is_admin_payload =
-        is_decoded_payload && packet.decoded.portnum == meshtastic_PortNum_ADMIN_APP;
+    const meshtastic_PortNum decoded_portnum =
+        is_decoded_payload ? packet.decoded.portnum : meshtastic_PortNum_UNKNOWN_APP;
+    const bool is_metadata_only_payload =
+        is_decoded_payload &&
+        ::chat::meshtastic::isMqttMetadataOnlyDownlinkPort(decoded_portnum);
     const auto decoded_reason = ::chat::meshtastic::validateMqttDecodedDownlinkPayload(
-        mqtt_proxy_settings_, is_decoded_payload, is_admin_payload);
+        mqtt_proxy_settings_, is_decoded_payload, decoded_portnum);
     if (decoded_reason != ::chat::meshtastic::MqttProxyRejectReason::None)
     {
         LORA_LOG("[MQTT] downlink reject reason=%s port=%u enc=%u\n",
                  ::chat::meshtastic::mqttProxyRejectReasonName(decoded_reason),
-                 is_decoded_payload ? static_cast<unsigned>(packet.decoded.portnum) : 0U,
+                 is_decoded_payload ? static_cast<unsigned>(decoded_portnum) : 0U,
                  mqtt_proxy_settings_.encryption_enabled ? 1U : 0U);
         return false;
     }
@@ -1177,26 +1180,35 @@ bool MtAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
              (unsigned long)packet.to,
              (unsigned long)packet.id);
     PacketHeaderWire* tx_header = reinterpret_cast<PacketHeaderWire*>(wire_buffer);
-    const auto tx_policy = chat::runtime::resolveMeshtasticMqttDownlinkPolicy(
-        gateway_id,
-        node_id_,
-        tx_header->from,
-        tx_header->to,
-        config_.tx_enabled);
-    if (!tx_policy.transmit_to_mesh)
+    if (is_metadata_only_payload)
     {
-        LORA_LOG("[MQTT] downlink mesh tx skipped reason=%s id=%08lX\n",
-                 chat::runtime::meshtasticMqttDownlinkReasonName(tx_policy.reason),
+        LORA_LOG("[MQTT] downlink mesh tx skipped reason=metadata_only port=%u id=%08lX\n",
+                 static_cast<unsigned>(decoded_portnum),
                  (unsigned long)tx_header->id);
     }
     else
     {
-        const bool tx_ok = transmitWirePacket(wire_buffer, wire_size);
-        LORA_LOG("[MQTT] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
-                 (unsigned long)tx_header->id,
-                 (unsigned)tx_header->channel,
-                 (unsigned)wire_size,
-                 tx_ok ? 1U : 0U);
+        const auto tx_policy = chat::runtime::resolveMeshtasticMqttDownlinkPolicy(
+            gateway_id,
+            node_id_,
+            tx_header->from,
+            tx_header->to,
+            config_.tx_enabled);
+        if (!tx_policy.transmit_to_mesh)
+        {
+            LORA_LOG("[MQTT] downlink mesh tx skipped reason=%s id=%08lX\n",
+                     chat::runtime::meshtasticMqttDownlinkReasonName(tx_policy.reason),
+                     (unsigned long)tx_header->id);
+        }
+        else
+        {
+            const bool tx_ok = transmitWirePacket(wire_buffer, wire_size);
+            LORA_LOG("[MQTT] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
+                     (unsigned long)tx_header->id,
+                     (unsigned)tx_header->channel,
+                     (unsigned)wire_size,
+                     tx_ok ? 1U : 0U);
+        }
     }
 
     processReceivedPacket(wire_buffer, wire_size);
@@ -1879,7 +1891,7 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
             LORA_LOG("[LORA] RX data payload hex: %s\n", payload_hex.c_str());
         }
 
-        bool nodeinfo_decoded = false;
+        bool node_metadata_decoded = false;
         uint8_t channel_index = 0xFF;
         if (header.channel == primary_channel_hash_)
         {
@@ -1906,7 +1918,8 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
             sys::EventBus::publish(event, 0);
         };
 
-        if (decoded.portnum == meshtastic_PortNum_NODEINFO_APP && decoded.payload.size > 0)
+        if (chat::meshtastic::isNodeMetadataPayload(decoded.portnum) &&
+            decoded.payload.size > 0)
         {
             chat::meshtastic::NodePayloadDecodeContext context{};
             context.fallback_node_id = header.from;
@@ -1919,9 +1932,10 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                 (header.flags & chat::meshtastic::PACKET_FLAGS_VIA_MQTT_MASK) != 0;
 
             chat::meshtastic::DecodedNodePayload node{};
-            if (chat::meshtastic::decodeNodeInfoPayload(decoded, context, &node))
+            if (chat::meshtastic::decodeNodeMetadataPayload(decoded, context, &node))
             {
-                LORA_LOG("[LORA] RX NodeInfo from %08lX short='%s' long='%s' snr=%.1f\n",
+                LORA_LOG("[LORA] RX node metadata port=%u from %08lX short='%s' long='%s' snr=%.1f\n",
+                         static_cast<unsigned>(decoded.portnum),
                          (unsigned long)node.node_id,
                          node.short_name.c_str(),
                          node.long_name.c_str(),
@@ -1964,24 +1978,27 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                     node.has_public_key,
                     false,
                     node.has_device_metrics,
-                    node.has_device_metrics ? &node.device_metrics : nullptr);
+                    node.has_device_metrics ? &node.device_metrics : nullptr,
+                    node.has_public_key_state);
                 bool published = sys::EventBus::publish(event, 0);
                 if (published)
                 {
-                    mt_diag_log("[MT][RX_NODEINFO] from=%08lX node=%08lX mode=nodeinfo published=1\n",
+                    mt_diag_log("[MT][RX_NODEMETA] from=%08lX node=%08lX port=%u published=1\n",
                                 static_cast<unsigned long>(header.from),
-                                static_cast<unsigned long>(node.node_id));
-                    LORA_LOG("[LORA] NodeInfo event published node=%08lX\n",
+                                static_cast<unsigned long>(node.node_id),
+                                static_cast<unsigned>(decoded.portnum));
+                    LORA_LOG("[LORA] node metadata event published node=%08lX\n",
                              (unsigned long)node.node_id);
                 }
                 else
                 {
                     mt_diag_dropf(&header,
-                                  "nodeinfo_event_drop",
-                                  "node=%08lX pending=%u",
+                                  "node_metadata_event_drop",
+                                  "node=%08lX port=%u pending=%u",
                                   static_cast<unsigned long>(node.node_id),
+                                  static_cast<unsigned>(decoded.portnum),
                                   static_cast<unsigned>(sys::EventBus::pendingCount()));
-                    LORA_LOG("[LORA] NodeInfo event dropped node=%08lX pending=%u\n",
+                    LORA_LOG("[LORA] node metadata event dropped node=%08lX pending=%u\n",
                              (unsigned long)node.node_id,
                              static_cast<unsigned>(sys::EventBus::pendingCount()));
                 }
@@ -1989,17 +2006,18 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                 {
                     publishPositionEvent(node.node_id, node.position);
                 }
-                nodeinfo_decoded = true;
+                node_metadata_decoded = true;
             }
             else
             {
-                mt_diag_dropf(&header, "nodeinfo_decode_fail");
-                LORA_LOG("[LORA] RX NodeInfo decode fail from=%08lX\n",
+                mt_diag_dropf(&header, "node_metadata_decode_fail");
+                LORA_LOG("[LORA] RX node metadata decode fail port=%u from=%08lX\n",
+                         static_cast<unsigned>(decoded.portnum),
                          (unsigned long)header.from);
             }
         }
 
-        if (!nodeinfo_decoded)
+        if (!node_metadata_decoded)
         {
             publish_link_stats(header.from);
         }
@@ -2156,7 +2174,7 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         {
             node_last_channel_[header.from] = channel_id;
         }
-        if (nodeinfo_decoded)
+        if (node_metadata_decoded)
         {
             maybeBroadcastNodeInfoAfterPeerAnnouncement(
                 header.from,

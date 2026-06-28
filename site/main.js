@@ -413,22 +413,22 @@ const DEVICES = [
       zh: "LilyGo T-LoRa Pager LR1121",
     },
     status: {
-      en: "0.1.32 LR1121 fix",
-      zh: "0.1.32 LR1121 修复",
+      en: "0.1.33 BLE identity fix",
+      zh: "0.1.33 BLE 身份修复",
     },
     summary: {
-      en: "Use this target for the LR1121 Pager. The 0.1.32 release fixes MeshCore discovery and contact handling for Android app pairing.",
-      zh: "这是 LR1121 Pager 专用目标。0.1.32 修复了 Android app 配对时的 MeshCore 发现和联系人处理。",
+      en: "Use this target for the LR1121 Pager. The 0.1.33 release fixes Meshtastic Android/iOS peer names for MQTT map-report nodes.",
+      zh: "这是 LR1121 Pager 专用目标。0.1.33 修复了 Meshtastic Android/iOS 中 MQTT 地图上报节点的对方名称展示。",
     },
     interactions: {
       en: [
         "Check the radio chip before flashing; SX1262 and LR1121 builds are different.",
-        "0.1.32 aligns MeshCore path descriptors and Android contact/adverts projection for LR1121 Pager testing.",
+        "0.1.33 decodes MQTT map reports through the shared node metadata path so phone apps can keep peer names stable.",
         "Some screenshots are shared with the keyboard Pager until dedicated LR1121 photos are added.",
       ],
       zh: [
         "刷机前请确认 radio 芯片；SX1262 和 LR1121 不能混刷。",
-        "0.1.32 为 LR1121 Pager 测试对齐 MeshCore path descriptor，以及 Android 联系人/advert 投影。",
+        "0.1.33 通过共享节点元数据路径解析 MQTT 地图上报，让手机 app 中的对方名称保持稳定。",
         "在补充 LR1121 专属截图前，这里会暂用键盘 Pager 的部分截图。",
       ],
     },

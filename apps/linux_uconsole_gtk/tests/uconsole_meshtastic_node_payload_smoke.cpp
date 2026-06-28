@@ -1,5 +1,6 @@
 #include "chat/infra/meshtastic/mt_node_payload.h"
 #include "meshtastic/config.pb.h"
+#include "meshtastic/mqtt.pb.h"
 #include "pb_encode.h"
 
 #include <array>
@@ -77,6 +78,27 @@ bool encodePositionPayload(const meshtastic_Position& position,
     pb_ostream_t stream =
         pb_ostream_from_buffer(out->payload.bytes, sizeof(out->payload.bytes));
     if (!pb_encode(&stream, meshtastic_Position_fields, &position))
+    {
+        return false;
+    }
+    out->payload.size = stream.bytes_written;
+    return true;
+}
+
+bool encodeMapReportPayload(const meshtastic_MapReport& report,
+                            meshtastic_Data* out)
+{
+    if (out == nullptr)
+    {
+        return false;
+    }
+
+    *out = meshtastic_Data_init_default;
+    out->portnum = meshtastic_PortNum_MAP_REPORT_APP;
+
+    pb_ostream_t stream =
+        pb_ostream_from_buffer(out->payload.bytes, sizeof(out->payload.bytes));
+    if (!pb_encode(&stream, meshtastic_MapReport_fields, &report))
     {
         return false;
     }
@@ -189,6 +211,7 @@ int main()
         return rc;
     }
     if (int rc = expect(decoded_node.has_public_key &&
+                            decoded_node.has_public_key_state &&
                             decoded_node.public_key[0] == 1U &&
                             decoded_node.public_key[31] == 32U,
                         "NodeInfo public key was not decoded"))
@@ -256,6 +279,68 @@ int main()
                             !unknown_update.has_hw_model &&
                             !unknown_update.has_public_key,
                         "NodeUpdate projection marked unknown facts as present"))
+    {
+        return rc;
+    }
+
+    meshtastic_MapReport report = meshtastic_MapReport_init_default;
+    const char kWomanEmoji[] = "\xF0\x9F\x91\xA9";
+    std::strncpy(report.short_name,
+                 kWomanEmoji,
+                 sizeof(report.short_name) - 1);
+    std::strncpy(report.long_name,
+                 "Haibara.Ai (MQTT)",
+                 sizeof(report.long_name) - 1);
+    report.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
+    report.hw_model = meshtastic_HardwareModel_T_ECHO;
+    report.has_opted_report_location = true;
+    report.latitude_i = 223344550;
+    report.longitude_i = 1142233440;
+    report.altitude = 77;
+    report.position_precision = 18;
+
+    meshtastic_Data map_report_data = meshtastic_Data_init_default;
+    if (int rc = expect(encodeMapReportPayload(report, &map_report_data),
+                        "failed to encode MapReport test payload"))
+    {
+        return rc;
+    }
+    context.fallback_node_id = 0x4A59CD8CU;
+    context.via_mqtt = true;
+    ::chat::meshtastic::DecodedNodePayload decoded_report{};
+    if (int rc = expect(::chat::meshtastic::isNodeMetadataPayload(
+                            map_report_data.portnum) &&
+                            ::chat::meshtastic::decodeNodeMetadataPayload(
+                                map_report_data, context, &decoded_report),
+                        "shared decoder rejected MapReport payload"))
+    {
+        return rc;
+    }
+    if (int rc = expect(decoded_report.node_id == 0x4A59CD8CU &&
+                            decoded_report.has_user &&
+                            decoded_report.short_name == kWomanEmoji &&
+                            decoded_report.long_name == "Haibara.Ai (MQTT)" &&
+                            decoded_report.via_mqtt,
+                        "MapReport names were not decoded"))
+    {
+        return rc;
+    }
+    if (int rc = expect(decoded_report.has_position &&
+                            decoded_report.position.latitude_i == report.latitude_i &&
+                            decoded_report.position.longitude_i == report.longitude_i &&
+                            decoded_report.position.has_altitude &&
+                            decoded_report.position.altitude == report.altitude,
+                        "MapReport position was not decoded"))
+    {
+        return rc;
+    }
+    const auto map_update = decoded_report.toNodeUpdate();
+    if (int rc = expect(!map_update.has_public_key &&
+                            map_update.has_role &&
+                            map_update.has_hw_model &&
+                            map_update.has_via_mqtt &&
+                            map_update.via_mqtt,
+                        "MapReport update touched public key state or lost metadata"))
     {
         return rc;
     }

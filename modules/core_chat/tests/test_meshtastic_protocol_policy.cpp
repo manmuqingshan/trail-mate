@@ -153,12 +153,24 @@ int main()
         assert(pki_downlink.pki);
         assert(validateMqttDownlinkChannel(false) == MqttProxyRejectReason::UnknownOrDisabledChannel);
         assert(validateMqttDownlinkChannel(true) == MqttProxyRejectReason::None);
-        assert(validateMqttDecodedDownlinkPayload(settings, true, false) ==
+        assert(validateMqttDecodedDownlinkPayload(settings,
+                                                  true,
+                                                  meshtastic_PortNum_TEXT_MESSAGE_APP) ==
                MqttProxyRejectReason::DecodedPayloadWhileEncrypted);
+        assert(validateMqttDecodedDownlinkPayload(settings,
+                                                  true,
+                                                  meshtastic_PortNum_MAP_REPORT_APP) ==
+               MqttProxyRejectReason::None);
 
         settings.encryption_enabled = false;
-        assert(validateMqttDecodedDownlinkPayload(settings, true, true) == MqttProxyRejectReason::AdminPayload);
-        assert(validateMqttDecodedDownlinkPayload(settings, true, false) == MqttProxyRejectReason::None);
+        assert(validateMqttDecodedDownlinkPayload(settings,
+                                                  true,
+                                                  meshtastic_PortNum_ADMIN_APP) ==
+               MqttProxyRejectReason::AdminPayload);
+        assert(validateMqttDecodedDownlinkPayload(settings,
+                                                  true,
+                                                  meshtastic_PortNum_TEXT_MESSAGE_APP) ==
+               MqttProxyRejectReason::None);
         assert(mqttProxyRejectReasonName(MqttProxyRejectReason::UnknownOrDisabledChannel)[0] != '\0');
     }
 

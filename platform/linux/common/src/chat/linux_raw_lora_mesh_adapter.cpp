@@ -3081,7 +3081,7 @@ bool LinuxRawLoraMeshAdapter::parseMeshtasticPacket(
         return true;
     }
 
-    if (decoded.portnum == meshtastic_PortNum_NODEINFO_APP &&
+    if (::chat::meshtastic::isNodeMetadataPayload(decoded.portnum) &&
         decoded.payload.size > 0)
     {
         ::chat::meshtastic::NodePayloadDecodeContext context{};
@@ -3094,7 +3094,7 @@ bool LinuxRawLoraMeshAdapter::parseMeshtasticPacket(
         context.via_mqtt = via_mqtt_packet;
 
         ::chat::meshtastic::DecodedNodePayload node{};
-        if (::chat::meshtastic::decodeNodeInfoPayload(decoded, context, &node))
+        if (::chat::meshtastic::decodeNodeMetadataPayload(decoded, context, &node))
         {
             if (node.has_public_key)
             {
@@ -3122,7 +3122,8 @@ bool LinuxRawLoraMeshAdapter::parseMeshtasticPacket(
                     node.has_public_key,
                     false,
                     node.has_device_metrics,
-                    node.has_device_metrics ? &node.device_metrics : nullptr),
+                    node.has_device_metrics ? &node.device_metrics : nullptr,
+                    node.has_public_key_state),
                 0);
             if (node.has_position)
             {
@@ -3142,7 +3143,7 @@ bool LinuxRawLoraMeshAdapter::parseMeshtasticPacket(
                     0);
             }
             append_lora_system_log(
-                "Meshtastic nodeinfo RX",
+                "Meshtastic node metadata RX",
                 "From " + node_hex(header.from) + " node " +
                     node_hex(node.node_id) + " / " + node.short_name + " / " +
                     node.long_name,
@@ -3170,7 +3171,7 @@ bool LinuxRawLoraMeshAdapter::parseMeshtasticPacket(
             if (via_mqtt_packet || node.via_mqtt)
             {
                 append_mqtt_system_log(
-                    "Meshtastic MQTT nodeinfo RX",
+                    "Meshtastic MQTT node metadata RX",
                     "From " + node_hex(header.from) + " node " +
                         node_hex(node.node_id) + " / " + node.short_name +
                         " / " + node.long_name,
