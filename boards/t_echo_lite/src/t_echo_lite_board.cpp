@@ -138,16 +138,21 @@ void writeLedColor(uint8_t color_index, bool on, const char* reason = nullptr, u
     writeLed(leds.blue, leds.active_high, on && color.blue);
 }
 
-uint8_t es8311VolumeRegister(uint8_t volume_percent)
+constexpr uint8_t es8311VolumeRegister(uint8_t volume_percent)
 {
     const uint8_t volume = volume_percent > 100U ? 100U : volume_percent;
     if (volume == 0U)
     {
         return 0U;
     }
-    const uint8_t effective_volume = std::max<uint8_t>(volume, 100U);
-    return static_cast<uint8_t>(80U + ((static_cast<uint16_t>(effective_volume) * 111U) / 100U));
+    return static_cast<uint8_t>(80U + ((static_cast<uint16_t>(volume) * 111U) / 100U));
 }
+
+static_assert(es8311VolumeRegister(0) == 0, "Tone volume 0 must stay muted");
+static_assert(es8311VolumeRegister(1) < es8311VolumeRegister(50),
+              "Tone volume must increase below mid scale");
+static_assert(es8311VolumeRegister(50) < es8311VolumeRegister(100),
+              "Tone volume must increase through max scale");
 
 bool writeI2cRegister(TEchoLiteBoard& board, uint8_t address, uint8_t reg, uint8_t value)
 {
