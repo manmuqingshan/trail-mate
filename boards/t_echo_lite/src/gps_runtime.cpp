@@ -1,9 +1,11 @@
 #include "boards/t_echo_lite/gps_runtime.h"
 
 #include "boards/t_echo_lite/board_profile.h"
+#include "boards/t_echo_lite/t_echo_lite_board.h"
 
 #include <Arduino.h>
 #include <TinyGPSPlus.h>
+#include <Wire.h>
 #include <time.h>
 
 #include <algorithm>
@@ -26,6 +28,29 @@ constexpr uint8_t kGpsTailCanaryByte = 0xA5;
 constexpr uint32_t kTimeSyncHeartbeatLogMs = 60000UL;
 constexpr uint32_t kTimeSyncJumpThresholdS = 5UL;
 constexpr bool kGpsFlowDebugLog = false;
+constexpr uint8_t kGpsPowerStrategyOff = 2;
+constexpr uint32_t kMotionProbeRetryMs = 30000UL;
+constexpr uint32_t kMotionStatusLogMs = 10000UL;
+constexpr uint32_t kMotionPollFloorMs = 200UL;
+constexpr uint32_t kMotionPollDefaultMs = 1000UL;
+constexpr uint8_t kIcm20948WhoAmI = 0xEA;
+constexpr uint8_t kIcmBankSelectReg = 0x7F;
+constexpr uint8_t kIcmWhoAmIReg = 0x00;
+constexpr uint8_t kIcmPwrMgmt1Reg = 0x06;
+constexpr uint8_t kIcmPwrMgmt2Reg = 0x07;
+constexpr uint8_t kIcmAccelXoutHReg = 0x2D;
+
+struct AccelSample
+{
+    int16_t x = 0;
+    int16_t y = 0;
+    int16_t z = 0;
+};
+
+int32_t abs32(int32_t value)
+{
+    return value < 0 ? -value : value;
+}
 
 enum class TimeSyncSource : uint8_t
 {
@@ -326,6 +351,116 @@ void endGpsSerial()
     }
 }
 
+bool appendI2cAddress(char* out, std::size_t out_len, uint8_t address)
+{
+    if (!out || out_len == 0)
+    {
+        return false;
+    }
+    const std::size_t used = std::strlen(out);
+    if (used + 6 >= out_len)
+    {
+        return false;
+    }
+    std::snprintf(out + used, out_len - used, "%s0x%02X", used > 0 ? "," : "", static_cast<unsigned>(address));
+    return true;
+}
+
+bool i2cAddressResponds(TwoWire& wire, uint8_t address)
+{
+    wire.beginTransmission(address);
+    return wire.endTransmission() == 0;
+}
+
+void scanI2cBusForLog(TwoWire& wire, char* out, std::size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    for (uint8_t address = 1; address < 0x7F; ++address)
+    {
+        if (i2cAddressResponds(wire, address))
+        {
+            (void)appendI2cAddress(out, out_len, address);
+        }
+    }
+    if (out[0] == '\0')
+    {
+        std::snprintf(out, out_len, "none");
+    }
+}
+
+bool i2cWriteByte(TwoWire& wire, uint8_t address, uint8_t reg, uint8_t value)
+{
+    wire.beginTransmission(address);
+    wire.write(reg);
+    wire.write(value);
+    return wire.endTransmission() == 0;
+}
+
+bool i2cReadBytes(TwoWire& wire, uint8_t address, uint8_t reg, uint8_t* out, std::size_t len)
+{
+    if (!out || len == 0 || len > 32)
+    {
+        return false;
+    }
+
+    wire.beginTransmission(address);
+    wire.write(reg);
+    if (wire.endTransmission(false) != 0)
+    {
+        return false;
+    }
+
+    const uint8_t requested = static_cast<uint8_t>(len);
+    const uint8_t received = wire.requestFrom(address, requested);
+    if (received != requested)
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < len; ++index)
+    {
+        out[index] = static_cast<uint8_t>(wire.read());
+    }
+    return true;
+}
+
+bool icmSelectBank(TwoWire& wire, uint8_t address, uint8_t bank)
+{
+    return i2cWriteByte(wire, address, kIcmBankSelectReg, static_cast<uint8_t>((bank & 0x03) << 4));
+}
+
+bool icmReadByte(TwoWire& wire, uint8_t address, uint8_t bank, uint8_t reg, uint8_t* out)
+{
+    return icmSelectBank(wire, address, bank) && i2cReadBytes(wire, address, reg, out, 1);
+}
+
+bool icmWriteByte(TwoWire& wire, uint8_t address, uint8_t bank, uint8_t reg, uint8_t value)
+{
+    return icmSelectBank(wire, address, bank) && i2cWriteByte(wire, address, reg, value);
+}
+
+bool icmReadAccel(TwoWire& wire, uint8_t address, AccelSample* out)
+{
+    if (!out || !icmSelectBank(wire, address, 0))
+    {
+        return false;
+    }
+
+    uint8_t raw[6] = {};
+    if (!i2cReadBytes(wire, address, kIcmAccelXoutHReg, raw, sizeof(raw)))
+    {
+        return false;
+    }
+
+    out->x = static_cast<int16_t>((static_cast<uint16_t>(raw[0]) << 8) | raw[1]);
+    out->y = static_cast<int16_t>((static_cast<uint16_t>(raw[2]) << 8) | raw[3]);
+    out->z = static_cast<int16_t>((static_cast<uint16_t>(raw[4]) << 8) | raw[5]);
+    return true;
+}
+
 } // namespace
 
 struct GpsRuntime::Impl
@@ -351,6 +486,17 @@ struct GpsRuntime::Impl
     uint8_t external_nmea_output_hz = 0;
     uint8_t external_nmea_sentence_mask = 0;
     uint8_t motion_sensor_id = 0;
+    uint32_t motion_poll_interval_ms = kMotionPollDefaultMs;
+    uint32_t last_motion_poll_ms = 0;
+    uint32_t last_motion_probe_ms = 0;
+    uint32_t last_motion_status_log_ms = 0;
+    uint8_t motion_address = 0;
+    uint8_t motion_read_fail_count = 0;
+    bool motion_probe_done = false;
+    bool motion_i2c_scan_logged = false;
+    bool motion_available = false;
+    bool motion_sample_valid = false;
+    AccelSample last_motion_sample{};
     uint32_t epoch_base_s = 0;
     uint32_t epoch_base_ms = 0;
     uint32_t last_nmea_ms = 0;
@@ -454,6 +600,288 @@ struct GpsRuntime::Impl
         nmea_line_len = 0;
         nmea_line[0] = '\0';
         nmea_seen = false;
+    }
+
+    uint32_t effectiveMotionPollIntervalMs() const
+    {
+        uint32_t interval = motion_poll_interval_ms > 0 ? motion_poll_interval_ms : kMotionPollDefaultMs;
+        if (interval < kMotionPollFloorMs)
+        {
+            interval = kMotionPollFloorMs;
+        }
+        return interval;
+    }
+
+    bool motionGateEnabled() const
+    {
+        return motion_available && motion_idle_timeout_ms > 0 && power_strategy != kGpsPowerStrategyOff;
+    }
+
+    bool shouldPowerGps(uint32_t now_ms) const
+    {
+        if (!enabled)
+        {
+            return false;
+        }
+        if (power_strategy == kGpsPowerStrategyOff)
+        {
+            return false;
+        }
+        if (!motionGateEnabled())
+        {
+            return true;
+        }
+        if (last_motion_ms == 0)
+        {
+            return false;
+        }
+        return (now_ms - last_motion_ms) < motion_idle_timeout_ms;
+    }
+
+    void setGpsPower(bool on, const char* reason)
+    {
+        if (on)
+        {
+            if (powered)
+            {
+                return;
+            }
+            beginGpsSerial();
+            powered = true;
+            Serial.printf("[T-Echo Lite][gps] power on reason=%s motion=%u last_motion_ms=%lu\n",
+                          reason ? reason : "unknown",
+                          static_cast<unsigned>(motion_available ? 1 : 0),
+                          static_cast<unsigned long>(last_motion_ms));
+            return;
+        }
+
+        if (!powered)
+        {
+            return;
+        }
+        endGpsSerial();
+        powered = false;
+        clearObservations();
+        Serial.printf("[T-Echo Lite][gps] power off reason=%s motion=%u last_motion_ms=%lu\n",
+                      reason ? reason : "unknown",
+                      static_cast<unsigned>(motion_available ? 1 : 0),
+                      static_cast<unsigned long>(last_motion_ms));
+    }
+
+    void logMotionStatusIfDue(uint32_t now_ms, const char* reason)
+    {
+        if (last_motion_status_log_ms != 0 && (now_ms - last_motion_status_log_ms) < kMotionStatusLogMs)
+        {
+            return;
+        }
+        last_motion_status_log_ms = now_ms;
+
+        const uint32_t motion_age_ms =
+            last_motion_ms > 0 ? (now_ms - last_motion_ms) : 0xFFFFFFFFUL;
+        Serial.printf(
+            "[T-Echo Lite][motion] status reason=%s available=%u addr=0x%02X powered=%u gate=%u last_motion_age_ms=%lu idle_ms=%lu sample=%u\n",
+            reason ? reason : "tick",
+            static_cast<unsigned>(motion_available ? 1 : 0),
+            static_cast<unsigned>(motion_address),
+            static_cast<unsigned>(powered ? 1 : 0),
+            static_cast<unsigned>(motionGateEnabled() ? 1 : 0),
+            static_cast<unsigned long>(motion_age_ms),
+            static_cast<unsigned long>(motion_idle_timeout_ms),
+            static_cast<unsigned>(motion_sample_valid ? 1 : 0));
+    }
+
+    void updateGpsPowerState(uint32_t now_ms, const char* reason)
+    {
+        const bool should_power = shouldPowerGps(now_ms);
+        if (should_power != powered)
+        {
+            setGpsPower(should_power, reason);
+        }
+        if (!should_power || motionGateEnabled())
+        {
+            logMotionStatusIfDue(now_ms, reason);
+        }
+    }
+
+    bool readMotionSample(AccelSample* out)
+    {
+        if (!out || !motion_available || motion_address == 0)
+        {
+            return false;
+        }
+
+        auto& board = ::boards::t_echo_lite::TEchoLiteBoard::instance();
+        if (!board.ensureI2cReady())
+        {
+            return false;
+        }
+        ::boards::t_echo_lite::TEchoLiteBoard::I2cGuard guard(board, 30);
+        if (!guard)
+        {
+            return false;
+        }
+        return icmReadAccel(board.i2cWire(), motion_address, out);
+    }
+
+    bool probeMotionSensor(uint32_t now_ms, bool force_log)
+    {
+        if (motion_available)
+        {
+            return true;
+        }
+        if (motion_probe_done && !force_log && (now_ms - last_motion_probe_ms) < kMotionProbeRetryMs)
+        {
+            return false;
+        }
+
+        motion_probe_done = true;
+        last_motion_probe_ms = now_ms;
+
+        auto& board = ::boards::t_echo_lite::TEchoLiteBoard::instance();
+        if (!board.ensureI2cReady())
+        {
+            if (force_log)
+            {
+                Serial.printf("[T-Echo Lite][motion] i2c not ready for optional ICM20948 probe\n");
+            }
+            return false;
+        }
+
+        ::boards::t_echo_lite::TEchoLiteBoard::I2cGuard guard(board, 80);
+        if (!guard)
+        {
+            if (force_log)
+            {
+                Serial.printf("[T-Echo Lite][motion] i2c lock failed for optional ICM20948 probe\n");
+            }
+            return false;
+        }
+
+        auto& wire = board.i2cWire();
+        if (!motion_i2c_scan_logged || force_log)
+        {
+            char devices[128] = {};
+            scanI2cBusForLog(wire, devices, sizeof(devices));
+            Serial.printf("[T-Echo Lite][motion] i2c scan devices=%s\n", devices);
+            motion_i2c_scan_logged = true;
+        }
+
+        const auto& motion = kBoardProfile.motion;
+        const uint8_t addresses[2] = {motion.primary_address, motion.secondary_address};
+        for (uint8_t address : addresses)
+        {
+            if (address == 0 || !i2cAddressResponds(wire, address))
+            {
+                continue;
+            }
+
+            uint8_t who = 0;
+            if (!icmReadByte(wire, address, 0, kIcmWhoAmIReg, &who))
+            {
+                Serial.printf("[T-Echo Lite][motion] candidate addr=0x%02X who read failed\n",
+                              static_cast<unsigned>(address));
+                continue;
+            }
+            if (who != kIcm20948WhoAmI)
+            {
+                Serial.printf("[T-Echo Lite][motion] candidate addr=0x%02X unexpected who=0x%02X\n",
+                              static_cast<unsigned>(address),
+                              static_cast<unsigned>(who));
+                continue;
+            }
+
+            (void)icmWriteByte(wire, address, 0, kIcmPwrMgmt1Reg, 0x01);
+            (void)icmWriteByte(wire, address, 0, kIcmPwrMgmt2Reg, 0x00);
+            delay(10);
+
+            motion_address = address;
+            motion_available = true;
+            motion_sample_valid = false;
+            motion_read_fail_count = 0;
+            last_motion_ms = 0;
+            last_motion_poll_ms = 0;
+            Serial.printf(
+                "[T-Echo Lite][motion] ICM20948 detected addr=0x%02X who=0x%02X int_pin=%d threshold=%u\n",
+                static_cast<unsigned>(motion_address),
+                static_cast<unsigned>(who),
+                motion.interrupt_pin,
+                static_cast<unsigned>(motion.accel_delta_threshold));
+            return true;
+        }
+
+        motion_address = 0;
+        motion_available = false;
+        motion_sample_valid = false;
+        if (force_log)
+        {
+            Serial.printf("[T-Echo Lite][motion] optional ICM20948 not detected; GPS keeps normal power behavior\n");
+        }
+        return false;
+    }
+
+    void pollMotionSensor(uint32_t now_ms)
+    {
+        if (!enabled || power_strategy == kGpsPowerStrategyOff || motion_idle_timeout_ms == 0)
+        {
+            return;
+        }
+
+        if (!motion_available && !probeMotionSensor(now_ms, false))
+        {
+            return;
+        }
+
+        if (last_motion_poll_ms != 0 && (now_ms - last_motion_poll_ms) < effectiveMotionPollIntervalMs())
+        {
+            return;
+        }
+        last_motion_poll_ms = now_ms;
+
+        AccelSample sample{};
+        if (!readMotionSample(&sample))
+        {
+            if (motion_read_fail_count < 255)
+            {
+                ++motion_read_fail_count;
+            }
+            if (motion_read_fail_count >= 5)
+            {
+                Serial.printf("[T-Echo Lite][motion] ICM20948 read failed repeatedly; disabling motion gate and using normal GPS power\n");
+                motion_available = false;
+                motion_probe_done = false;
+                motion_address = 0;
+                motion_sample_valid = false;
+                updateGpsPowerState(now_ms, "motion-read-fail");
+            }
+            return;
+        }
+
+        motion_read_fail_count = 0;
+        if (!motion_sample_valid)
+        {
+            last_motion_sample = sample;
+            motion_sample_valid = true;
+            Serial.printf("[T-Echo Lite][motion] baseline x=%d y=%d z=%d\n",
+                          static_cast<int>(sample.x),
+                          static_cast<int>(sample.y),
+                          static_cast<int>(sample.z));
+            return;
+        }
+
+        const int32_t delta = abs32(static_cast<int32_t>(sample.x) - last_motion_sample.x) +
+                              abs32(static_cast<int32_t>(sample.y) - last_motion_sample.y) +
+                              abs32(static_cast<int32_t>(sample.z) - last_motion_sample.z);
+        last_motion_sample = sample;
+
+        if (delta >= kBoardProfile.motion.accel_delta_threshold)
+        {
+            last_motion_ms = now_ms;
+            Serial.printf("[T-Echo Lite][motion] movement delta=%ld x=%d y=%d z=%d\n",
+                          static_cast<long>(delta),
+                          static_cast<int>(sample.x),
+                          static_cast<int>(sample.y),
+                          static_cast<int>(sample.z));
+        }
     }
 
     bool satelliteStateLooksCorrupt() const
@@ -829,7 +1257,26 @@ struct GpsRuntime::Impl
         const uint32_t sat_count_parser = parser.satellites.isValid() ? parser.satellites.value() : 0U;
         const uint32_t nmea_age_ms = last_nmea_ms > 0 ? (now_ms - last_nmea_ms) : 0U;
         const char* state = "idle";
-        if (!nmea_seen)
+        if (!powered)
+        {
+            if (power_strategy == kGpsPowerStrategyOff)
+            {
+                state = "strategy_off";
+            }
+            else if (motionGateEnabled() && last_motion_ms == 0)
+            {
+                state = "motion_wait";
+            }
+            else if (motionGateEnabled())
+            {
+                state = "motion_idle";
+            }
+            else
+            {
+                state = "power_off";
+            }
+        }
+        else if (!nmea_seen)
         {
             state = "no_nmea";
         }
@@ -917,7 +1364,7 @@ struct GpsRuntime::Impl
         status.fix = data.valid ? (data.has_alt ? ::gps::GnssFix::FIX3D : ::gps::GnssFix::FIX2D)
                                 : ::gps::GnssFix::NOFIX;
 
-        if (data.valid)
+        if (data.valid && !motion_available)
         {
             last_motion_ms = millis();
         }
@@ -1010,6 +1457,15 @@ bool GpsRuntime::start(const app::AppConfig& config)
 bool GpsRuntime::begin(const app::AppConfig& config)
 {
     auto& s = *impl();
+    s.collection_interval_ms = config.gps_interval_ms;
+    s.power_strategy = config.gps_strategy;
+    s.gnss_mode = config.gps_mode;
+    s.sat_mask = config.gps_sat_mask;
+    s.external_nmea_output_hz = config.external_nmea_output_hz;
+    s.external_nmea_sentence_mask = config.external_nmea_sentence_mask;
+    s.motion_idle_timeout_ms = config.motion_config.idle_timeout_ms;
+    s.motion_poll_interval_ms = config.motion_config.poll_interval_ms;
+    s.motion_sensor_id = config.motion_config.sensor_id;
     s.user_enabled = config.gps_enabled;
     s.enabled = s.user_enabled;
     if (!s.initialized)
@@ -1017,8 +1473,10 @@ bool GpsRuntime::begin(const app::AppConfig& config)
         s.initialized = true;
         if (s.enabled)
         {
-            beginGpsSerial();
-            s.powered = true;
+            const uint32_t now_ms = millis();
+            (void)s.probeMotionSensor(now_ms, true);
+            s.pollMotionSensor(now_ms);
+            s.updateGpsPowerState(now_ms, "begin");
         }
         s.logMemoryLayout("begin");
     }
@@ -1035,26 +1493,26 @@ void GpsRuntime::applyConfig(const app::AppConfig& config)
     s.external_nmea_output_hz = config.external_nmea_output_hz;
     s.external_nmea_sentence_mask = config.external_nmea_sentence_mask;
     s.motion_idle_timeout_ms = config.motion_config.idle_timeout_ms;
+    s.motion_poll_interval_ms = config.motion_config.poll_interval_ms;
     s.motion_sensor_id = config.motion_config.sensor_id;
     s.user_enabled = config.gps_enabled;
     s.enabled = s.user_enabled;
     if (!s.enabled)
     {
-        if (s.powered)
-        {
-            endGpsSerial();
-            s.powered = false;
-        }
+        s.setGpsPower(false, "config-disabled");
         s.clearObservations();
     }
-    else if (s.initialized && !s.powered)
+    else if (s.initialized)
     {
-        beginGpsSerial();
-        s.powered = true;
+        const uint32_t now_ms = millis();
+        (void)s.probeMotionSensor(now_ms, false);
+        s.pollMotionSensor(now_ms);
+        s.updateGpsPowerState(now_ms, "config");
     }
     Serial.printf(
-        "[T-Echo Lite][gps] config enabled=%u interval_ms=%lu strategy=%u mode=%u sat_mask=0x%02X external_nmea_hz=%u external_nmea_mask=0x%02X motion_idle_ms=%lu motion_sensor=%u\n",
+        "[T-Echo Lite][gps] config enabled=%u powered=%u interval_ms=%lu strategy=%u mode=%u sat_mask=0x%02X external_nmea_hz=%u external_nmea_mask=0x%02X motion_idle_ms=%lu motion_poll_ms=%lu motion_sensor=%u motion_available=%u\n",
         static_cast<unsigned>(s.enabled ? 1 : 0),
+        static_cast<unsigned>(s.powered ? 1 : 0),
         static_cast<unsigned long>(s.collection_interval_ms),
         static_cast<unsigned>(s.power_strategy),
         static_cast<unsigned>(s.gnss_mode),
@@ -1062,14 +1520,29 @@ void GpsRuntime::applyConfig(const app::AppConfig& config)
         static_cast<unsigned>(s.external_nmea_output_hz),
         static_cast<unsigned>(s.external_nmea_sentence_mask),
         static_cast<unsigned long>(s.motion_idle_timeout_ms),
-        static_cast<unsigned>(s.motion_sensor_id));
+        static_cast<unsigned long>(s.effectiveMotionPollIntervalMs()),
+        static_cast<unsigned>(s.motion_sensor_id),
+        static_cast<unsigned>(s.motion_available ? 1 : 0));
 }
 
 void GpsRuntime::tick()
 {
     auto& s = *impl();
-    if (!s.initialized || !s.enabled || !s.powered)
+    if (!s.initialized)
     {
+        return;
+    }
+
+    const uint32_t now_ms = millis();
+    if (s.enabled)
+    {
+        s.pollMotionSensor(now_ms);
+        s.updateGpsPowerState(now_ms, "tick");
+    }
+
+    if (!s.enabled || !s.powered)
+    {
+        s.logStatusIfDue();
         return;
     }
 
@@ -1175,7 +1648,17 @@ bool GpsRuntime::gnssSnapshot(::gps::GnssSatInfo* out,
 }
 
 void GpsRuntime::setCollectionInterval(uint32_t interval_ms) { impl()->collection_interval_ms = interval_ms; }
-void GpsRuntime::setPowerStrategy(uint8_t strategy) { impl()->power_strategy = strategy; }
+
+void GpsRuntime::setPowerStrategy(uint8_t strategy)
+{
+    auto& s = *impl();
+    s.power_strategy = strategy;
+    if (s.initialized)
+    {
+        const uint32_t now_ms = millis();
+        s.updateGpsPowerState(now_ms, "strategy");
+    }
+}
 
 void GpsRuntime::setEnabled(bool enabled)
 {
@@ -1184,18 +1667,16 @@ void GpsRuntime::setEnabled(bool enabled)
     s.enabled = enabled;
     if (!s.enabled)
     {
-        if (s.powered)
-        {
-            endGpsSerial();
-            s.powered = false;
-        }
+        s.setGpsPower(false, "user-disabled");
         s.clearObservations();
         return;
     }
-    if (s.initialized && !s.powered)
+    if (s.initialized)
     {
-        beginGpsSerial();
-        s.powered = true;
+        const uint32_t now_ms = millis();
+        (void)s.probeMotionSensor(now_ms, true);
+        s.pollMotionSensor(now_ms);
+        s.updateGpsPowerState(now_ms, "user-enabled");
     }
 }
 
@@ -1212,17 +1693,33 @@ void GpsRuntime::setExternalNmeaConfig(uint8_t output_hz, uint8_t sentence_mask)
     impl()->external_nmea_sentence_mask = sentence_mask;
 }
 
-void GpsRuntime::setMotionIdleTimeout(uint32_t timeout_ms) { impl()->motion_idle_timeout_ms = timeout_ms; }
-void GpsRuntime::setMotionSensorId(uint8_t sensor_id) { impl()->motion_sensor_id = sensor_id; }
+void GpsRuntime::setMotionIdleTimeout(uint32_t timeout_ms)
+{
+    auto& s = *impl();
+    s.motion_idle_timeout_ms = timeout_ms;
+    if (s.initialized)
+    {
+        const uint32_t now_ms = millis();
+        s.updateGpsPowerState(now_ms, "motion-idle");
+    }
+}
+
+void GpsRuntime::setMotionSensorId(uint8_t sensor_id)
+{
+    auto& s = *impl();
+    s.motion_sensor_id = sensor_id;
+    if (s.initialized)
+    {
+        const uint32_t now_ms = millis();
+        (void)s.probeMotionSensor(now_ms, true);
+        s.updateGpsPowerState(now_ms, "motion-sensor");
+    }
+}
 
 void GpsRuntime::suspend()
 {
     auto& s = *impl();
-    if (s.powered)
-    {
-        endGpsSerial();
-        s.powered = false;
-    }
+    s.setGpsPower(false, "suspend");
     s.enabled = false;
     s.clearObservations();
 }
@@ -1235,10 +1732,11 @@ void GpsRuntime::resume()
     {
         s.clearObservations();
     }
-    else if (s.initialized && !s.powered)
+    else if (s.initialized)
     {
-        beginGpsSerial();
-        s.powered = true;
+        const uint32_t now_ms = millis();
+        s.pollMotionSensor(now_ms);
+        s.updateGpsPowerState(now_ms, "resume");
     }
 }
 
