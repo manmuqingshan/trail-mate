@@ -1564,7 +1564,8 @@ void TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t s
     {
         int first_error = RADIOLIB_ERR_NONE;
         const char* failed_step = nullptr;
-        auto note_error = [&](const char* step, int rc) {
+        auto note_error = [&](const char* step, int rc)
+        {
             if (rc != RADIOLIB_ERR_NONE && first_error == RADIOLIB_ERR_NONE)
             {
                 first_error = rc;
