@@ -3,6 +3,7 @@
 #include "nrf52_node_app_facade_runtime.h"
 #include "platform/nrf52/arduino_common/internal_fs_utils.h"
 #include "platform/nrf52/debug/nrf52_debug_console.h"
+#include "platform/ui/compass_runtime.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
 #include "platform/ui/time_runtime.h"
@@ -27,7 +28,11 @@ using Adafruit_LittleFS_Namespace::File;
 using target_board::BoardInputEvent;
 using target_board::BoardInputKey;
 constexpr uint32_t kProbeHoldMs = 900;
+#if defined(TRAILMATE_TARGET_T_ECHO_LITE)
+constexpr uint32_t kIdleUiTickIntervalMs = 100;
+#else
 constexpr uint32_t kIdleUiTickIntervalMs = 500;
+#endif
 const char kProbeAscii[] = "ABC123";
 const char kProbeCjk[] = "\xE4\xB8\xAD\xE6\x96\x87";
 const char kProbeSymbols[] = "\xE2\x94\x80\xE2\x96\x88\xE2\x96\xA0";
@@ -325,6 +330,9 @@ bool initialize()
     callbacks.active_lora_frequency_hz_fn = active_lora_frequency_hz;
     callbacks.format_frequency_fn = format_freq;
     callbacks.battery_info_fn = platform::ui::device::battery_info;
+#if defined(TRAILMATE_TARGET_T_ECHO_LITE)
+    callbacks.compass_state_fn = platform::ui::compass::get_state;
+#endif
     callbacks.gps_data_fn = platform::ui::gps::get_data;
     callbacks.gps_enabled_fn = platform::ui::gps::is_enabled;
     callbacks.gps_powered_fn = platform::ui::gps::is_powered;
@@ -346,6 +354,7 @@ bool initialize()
     callbacks.keyboard_light_enabled_fn = keyboard_light_enabled;
     callbacks.set_keyboard_light_enabled_fn = set_keyboard_light_enabled;
     callbacks.physical_text_input = true;
+    callbacks.compose_candidate_page_size = 10;
 #endif
 
     static ui::mono::Runtime runtime(target_board::instance().monoDisplay(),

@@ -137,6 +137,14 @@ struct BoardProfile
         uint8_t address = 0x58;
     };
 
+    struct MotionProfile
+    {
+        uint8_t primary_address = 0x68;
+        uint8_t secondary_address = 0x69;
+        int interrupt_pin = -1;
+        uint16_t accel_delta_threshold = 900;
+    };
+
     struct ProductBoundary
     {
         bool supports_meshtastic = true;
@@ -175,6 +183,7 @@ struct BoardProfile
     KeyboardBacklightProfile keyboard_backlight{};
     AudioProfile audio{};
     HapticProfile haptic{};
+    MotionProfile motion{};
     int peripheral_3v3_enable = -1;
     bool has_screen = true;
     bool use_ssd1306 = false;
@@ -216,6 +225,7 @@ constexpr BoardProfile makeBoardProfile()
     p.keyboard_backlight = {0x20, 4095};
     p.audio = {0x18, pinNum(0, 23), pinNum(1, 6), pinNum(0, 10), pinNum(0, 9), pinNum(0, 25)};
     p.haptic = {0x58};
+    p.motion = {0x68, 0x69, pinNum(0, 16), 900};
     p.peripheral_3v3_enable = pinNum(0, 30);
     p.identity = {"T-Echo Lite", "T-Echo Lite", "T-Echo Lite"};
     return p;

@@ -133,6 +133,18 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_mesh_adapter_router_core_smoke
              COMMAND trailmate_mesh_adapter_router_core_smoke)
 
+    add_executable(trailmate_meshtastic_protocol_policy_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_meshtastic_protocol_policy.cpp")
+    target_include_directories(trailmate_meshtastic_protocol_policy_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb")
+    target_compile_features(trailmate_meshtastic_protocol_policy_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_meshtastic_protocol_policy_smoke
+             COMMAND trailmate_meshtastic_protocol_policy_smoke)
+
     add_executable(trailmate_protocol_effect_executor_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_protocol_effect_executor.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_packet_wire.cpp"

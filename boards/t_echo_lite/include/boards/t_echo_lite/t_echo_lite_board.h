@@ -5,6 +5,7 @@
 #include "chat/domain/chat_types.h"
 #include "gps/domain/gnss_satellite.h"
 #include "gps/domain/gps_state.h"
+#include "platform/ui/compass_runtime.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -176,6 +177,7 @@ class TEchoLiteBoard final : public BoardBase
     void setGpsExternalNmeaConfig(uint8_t output_hz, uint8_t sentence_mask);
     void setGpsMotionIdleTimeout(uint32_t timeout_ms);
     void setGpsMotionSensorId(uint8_t sensor_id);
+    platform::ui::compass::CompassState compassState();
     void suspendGps();
     void resumeGps();
     void setCurrentEpochSeconds(uint32_t epoch_s);
@@ -195,7 +197,7 @@ class TEchoLiteBoard final : public BoardBase
     void applyKeyboardBacklight();
     bool ensureKeyboardBacklightReady();
     bool ensureMessageAudioReady();
-    bool playMessageToneStep(unsigned start_frequency_hz, unsigned end_frequency_hz, uint16_t duration_ms);
+    bool playMessageToneChunk(uint16_t word_count);
 
     bool initialized_ = false;
     bool i2c_initialized_ = false;

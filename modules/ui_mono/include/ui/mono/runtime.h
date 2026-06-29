@@ -6,6 +6,7 @@
 #include "chat/runtime/meshtastic_runtime.h"
 #include "chat/runtime/protocol_runtime_factory.h"
 #include "chat/usecase/chat_service.h"
+#include "platform/ui/compass_runtime.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
 #include "ui/mono/text_renderer.h"
@@ -33,6 +34,7 @@ class MonoDisplay
     virtual void present() = 0;
     virtual bool powerSavesOnSleep() const { return false; }
     virtual void setPowerSave(bool enabled) { (void)enabled; }
+    virtual void onWakeFromSleep() {}
 };
 
 enum class InputAction : uint8_t
@@ -78,6 +80,7 @@ struct HostCallbacks
     uint32_t (*active_lora_frequency_hz_fn)() = nullptr;
     bool (*format_frequency_fn)(uint32_t freq_hz, char* out, size_t out_len) = nullptr;
     platform::ui::device::BatteryInfo (*battery_info_fn)() = nullptr;
+    platform::ui::compass::CompassState (*compass_state_fn)() = nullptr;
     platform::ui::gps::GpsState (*gps_data_fn)() = nullptr;
     bool (*gps_enabled_fn)() = nullptr;
     bool (*gps_powered_fn)() = nullptr;
@@ -98,6 +101,7 @@ struct HostCallbacks
     void (*set_keyboard_light_enabled_fn)(bool enabled) = nullptr;
     void (*debug_log_fn)(const char* text) = nullptr;
     bool physical_text_input = false;
+    size_t compose_candidate_page_size = 5;
     VirtualKeyboardLayout virtual_keyboard_layout = VirtualKeyboardLayout::PagedGrid;
 };
 
@@ -164,6 +168,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
         DeviceSettings,
         InfoPage,
         GnssPage,
+        CompassPage,
         ActionPage,
     };
 
@@ -199,6 +204,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     void renderDeviceSettings();
     void renderInfoPage();
     void renderGnssPage();
+    void renderCompassPage();
     void renderActionPage();
     void renderSettingPopup();
     void renderTransientPopup();
@@ -273,6 +279,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     bool shouldRenderForTick(InputAction action);
     void executeActionPageItem(size_t index);
     bool mainMenuShowsDiscover() const;
+    bool mainMenuShowsCompass() const;
     size_t mainMenuItemCount() const;
     const char* const* mainMenuItems() const;
     Page mainMenuPageForIndex(size_t index) const;
@@ -340,6 +347,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     size_t new_chat_index_ = 0;
     size_t message_info_scroll_ = 0;
     size_t gnss_page_index_ = 0;
+    uint32_t last_compass_render_ms_ = 0;
     chat::runtime::MeshtasticRuntime meshtastic_protocol_runtime_{};
     chat::MessageId next_meshtastic_action_request_id_ = 0;
 
@@ -399,7 +407,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     static constexpr size_t kComposePreeditMax = 24;
     char compose_preedit_[kComposePreeditMax] = {};
     size_t compose_preedit_len_ = 0;
-    static constexpr size_t kComposeCandidateMax = 7;
+    static constexpr size_t kComposeCandidateMax = 64;
     static constexpr size_t kComposeCandidateWidth = 24;
     char compose_candidates_[kComposeCandidateMax][kComposeCandidateWidth] = {};
     size_t compose_candidate_count_ = 0;

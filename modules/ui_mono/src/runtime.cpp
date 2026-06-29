@@ -125,10 +125,29 @@ constexpr const char* kMainMenuItems[] = {
     "INFO",
 };
 
+constexpr const char* kMainMenuCompassItems[] = {
+    "CHATS",
+    "NODES",
+    "GPS",
+    "COMPASS",
+    "SETTINGS",
+    "INFO",
+};
+
 constexpr const char* kMeshCoreMainMenuItems[] = {
     "CHATS",
     "NODES",
     "GPS",
+    "DISCOVER",
+    "SETTINGS",
+    "INFO",
+};
+
+constexpr const char* kMeshCoreCompassMainMenuItems[] = {
+    "CHATS",
+    "NODES",
+    "GPS",
+    "COMPASS",
     "DISCOVER",
     "SETTINGS",
     "INFO",
@@ -317,6 +336,7 @@ constexpr const char* kComposeActionLabels[] = {"ABC", "SP", "BACK", "DEL", "SEN
 constexpr size_t kVirtualKeyboardCols = 3;
 constexpr size_t kVirtualKeyboardRows = 3;
 constexpr size_t kVirtualKeyboardPageSize = kVirtualKeyboardCols * kVirtualKeyboardRows;
+constexpr size_t kDefaultComposeCandidatePageSize = 5;
 constexpr const char* kFullAlphaRows[] = {"QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"};
 constexpr const char* kFullNumRows[] = {"1234567890"};
 constexpr const char* kFullSymRows[] = {".,!?/-:@#", "()[]{}+=", "_*%&$~\\|"};
@@ -328,6 +348,7 @@ constexpr uint32_t kBootMinMs = 1800;
 constexpr uint32_t kComposeMultiTapWindowMs = 1500;
 constexpr uint32_t kLargeScreensaverRefreshMs = 60000;
 constexpr uint32_t kGnssSnapshotRefreshMs = 5000;
+constexpr uint32_t kCompassPageRefreshMs = 180;
 constexpr size_t kKeyTextMax = 96;
 constexpr int kTimezoneMin = -12 * 60;
 constexpr int kTimezoneMax = 14 * 60;
@@ -1217,6 +1238,42 @@ void formatElapsedShort(time_t now_s, uint32_t then_s, char* out, size_t out_len
     {
         std::snprintf(out, out_len, "%lud", static_cast<unsigned long>(delta / 86400U));
     }
+}
+
+size_t composeCandidatePageSize(const HostCallbacks& host)
+{
+    return host.compose_candidate_page_size > 0 ? host.compose_candidate_page_size : kDefaultComposeCandidatePageSize;
+}
+
+size_t composeCandidatePageStart(size_t selected_index, size_t candidate_count, size_t page_size)
+{
+    if (candidate_count == 0 || page_size == 0)
+    {
+        return 0;
+    }
+    const size_t clamped_index = std::min(selected_index, candidate_count - 1U);
+    return (clamped_index / page_size) * page_size;
+}
+
+void appendTextBounded(char* out, size_t out_len, size_t& pos, const char* text)
+{
+    if (!out || out_len == 0 || !text || pos >= out_len)
+    {
+        return;
+    }
+
+    const int written = std::snprintf(out + pos, out_len - pos, "%s", text);
+    if (written <= 0)
+    {
+        return;
+    }
+
+    const size_t available = out_len - pos;
+    if (available == 0)
+    {
+        return;
+    }
+    pos += std::min(static_cast<size_t>(written), available - 1U);
 }
 
 void formatDistanceShort(double meters, char* out, size_t out_len)
@@ -3103,6 +3160,13 @@ void Runtime::handleInput(InputAction action)
         }
         break;
 
+    case Page::CompassPage:
+        if (action == InputAction::Left || action == InputAction::Back || action == InputAction::Select)
+        {
+            enterPage(Page::MainMenu);
+        }
+        break;
+
     case Page::ActionPage:
         if (action == InputAction::Up && action_index_ > 0)
         {
@@ -3205,6 +3269,9 @@ void Runtime::render()
         break;
     case Page::GnssPage:
         renderGnssPage();
+        break;
+    case Page::CompassPage:
+        renderCompassPage();
         break;
     case Page::ActionPage:
         renderActionPage();
@@ -3410,22 +3477,55 @@ bool Runtime::mainMenuShowsDiscover() const
     return app() && app()->getConfig().mesh_protocol == chat::MeshProtocol::MeshCore;
 }
 
+bool Runtime::mainMenuShowsCompass() const
+{
+    return host_.compass_state_fn != nullptr;
+}
+
 size_t Runtime::mainMenuItemCount() const
 {
-    return mainMenuShowsDiscover()
-               ? arrayCount(kMeshCoreMainMenuItems)
-               : arrayCount(kMainMenuItems);
+    if (mainMenuShowsDiscover())
+    {
+        return mainMenuShowsCompass() ? arrayCount(kMeshCoreCompassMainMenuItems) : arrayCount(kMeshCoreMainMenuItems);
+    }
+    return mainMenuShowsCompass() ? arrayCount(kMainMenuCompassItems) : arrayCount(kMainMenuItems);
 }
 
 const char* const* Runtime::mainMenuItems() const
 {
-    return mainMenuShowsDiscover() ? kMeshCoreMainMenuItems : kMainMenuItems;
+    if (mainMenuShowsDiscover())
+    {
+        return mainMenuShowsCompass() ? kMeshCoreCompassMainMenuItems : kMeshCoreMainMenuItems;
+    }
+    return mainMenuShowsCompass() ? kMainMenuCompassItems : kMainMenuItems;
 }
 
 Runtime::Page Runtime::mainMenuPageForIndex(size_t index) const
 {
     if (mainMenuShowsDiscover())
     {
+        if (mainMenuShowsCompass())
+        {
+            switch (index)
+            {
+            case 0:
+                return Page::ChatList;
+            case 1:
+                return Page::NodeList;
+            case 2:
+                return Page::GnssPage;
+            case 3:
+                return Page::CompassPage;
+            case 4:
+                return Page::DiscoverPage;
+            case 5:
+                return Page::SettingsMenu;
+            case 6:
+                return Page::InfoPage;
+            default:
+                return Page::MainMenu;
+            }
+        }
         switch (index)
         {
         case 0:
@@ -3436,6 +3536,27 @@ Runtime::Page Runtime::mainMenuPageForIndex(size_t index) const
             return Page::GnssPage;
         case 3:
             return Page::DiscoverPage;
+        case 4:
+            return Page::SettingsMenu;
+        case 5:
+            return Page::InfoPage;
+        default:
+            return Page::MainMenu;
+        }
+    }
+
+    if (mainMenuShowsCompass())
+    {
+        switch (index)
+        {
+        case 0:
+            return Page::ChatList;
+        case 1:
+            return Page::NodeList;
+        case 2:
+            return Page::GnssPage;
+        case 3:
+            return Page::CompassPage;
         case 4:
             return Page::SettingsMenu;
         case 5:
@@ -4107,8 +4228,16 @@ void Runtime::renderCompose()
         const int line_h = std::max(1, text_renderer_.lineHeight());
         const int body_y = edit_target_ == EditTarget::Message ? 22 : 10;
         const bool show_cn_candidates = compose_mode_ == ComposeMode::Cn && hasPhysicalChinesePreedit();
+        const bool selecting_hanzi = compose_t9_selected_pinyin_[0] != '\0';
+        const size_t cn_candidate_count = selecting_hanzi ? compose_candidate_count_ : compose_t9_pinyin_candidate_count_;
+        const size_t cn_selected_index = selecting_hanzi ? compose_candidate_index_ : compose_t9_pinyin_candidate_index_;
+        const size_t cn_candidate_page_size = composeCandidatePageSize(host_);
+        const size_t cn_candidate_page_start =
+            composeCandidatePageStart(cn_selected_index, cn_candidate_count, cn_candidate_page_size);
         const size_t cn_visible_candidate_count =
-            compose_t9_selected_pinyin_[0] != '\0' ? compose_candidate_count_ : compose_t9_pinyin_candidate_count_;
+            cn_candidate_count > cn_candidate_page_start
+                ? std::min(cn_candidate_page_size, cn_candidate_count - cn_candidate_page_start)
+                : 0U;
         const int cn_candidate_rows = (show_cn_candidates && cn_visible_candidate_count > 3U && display_.height() >= 96) ? 2 : 1;
         const int ime_rows = show_cn_candidates ? (1 + cn_candidate_rows) : 1;
         const int ime_y = std::max(body_y + line_h, display_.height() - (ime_rows * line_h));
@@ -4166,9 +4295,9 @@ void Runtime::renderCompose()
             {
                 std::snprintf(ime_lines[row], sizeof(ime_lines[row]), "-");
             }
-            for (size_t i = 0; i < cn_visible_candidate_count && row < static_cast<size_t>(ime_rows); ++i)
+            for (size_t slot = 0; slot < cn_visible_candidate_count && row < static_cast<size_t>(ime_rows); ++slot)
             {
-                const bool selecting_hanzi = compose_t9_selected_pinyin_[0] != '\0';
+                const size_t i = cn_candidate_page_start + slot;
                 const char* candidate = selecting_hanzi ? compose_candidates_[i] : compose_t9_pinyin_candidates_[i];
                 const bool selected = selecting_hanzi ? (i == compose_candidate_index_) : (i == compose_t9_pinyin_candidate_index_);
                 char token[32] = {};
@@ -4184,9 +4313,8 @@ void Runtime::renderCompose()
                     pos = 0;
                     ime_lines[row][0] = '\0';
                 }
-                pos += static_cast<size_t>(std::snprintf(ime_lines[row] + pos, sizeof(ime_lines[row]) - pos,
-                                                         "%s", token));
-                if (i + 1 < cn_visible_candidate_count && pos + 1 < sizeof(ime_lines[row]))
+                appendTextBounded(ime_lines[row], sizeof(ime_lines[row]), pos, token);
+                if (slot + 1 < cn_visible_candidate_count && pos + 1 < sizeof(ime_lines[row]))
                 {
                     ime_lines[row][pos++] = ' ';
                     ime_lines[row][pos] = '\0';
@@ -4325,13 +4453,20 @@ void Runtime::renderCompose()
     }
     else
     {
-        for (size_t i = 0; i < compose_candidate_count_ && pos + 4 < sizeof(candidate_line); ++i)
+        const size_t candidate_page_size = composeCandidatePageSize(host_);
+        const size_t candidate_page_start =
+            composeCandidatePageStart(compose_candidate_index_, compose_candidate_count_, candidate_page_size);
+        const size_t candidate_page_end =
+            std::min(compose_candidate_count_, candidate_page_start + candidate_page_size);
+        for (size_t i = candidate_page_start; i < candidate_page_end && pos + 1 < sizeof(candidate_line); ++i)
         {
             const bool selected = (i == compose_candidate_index_);
-            pos += static_cast<size_t>(std::snprintf(candidate_line + pos, sizeof(candidate_line) - pos,
-                                                     selected ? "[%s]" : "%s",
-                                                     compose_candidates_[i]));
-            if (i + 1 < compose_candidate_count_ && pos + 1 < sizeof(candidate_line))
+            char token[32] = {};
+            std::snprintf(token, sizeof(token),
+                          selected ? "[%s]" : "%s",
+                          compose_candidates_[i]);
+            appendTextBounded(candidate_line, sizeof(candidate_line), pos, token);
+            if (i + 1 < candidate_page_end && pos + 1 < sizeof(candidate_line))
             {
                 candidate_line[pos++] = ' ';
                 candidate_line[pos] = '\0';
@@ -4517,7 +4652,14 @@ void Runtime::renderDeviceSettings()
         case DeviceSettingItem::MessageTone:
         {
             const uint8_t volume = host_.message_tone_volume_fn ? host_.message_tone_volume_fn() : 0;
-            std::snprintf(line, sizeof(line), "MSG SOUND: %s", volume > 0 ? "ON" : "OFF");
+            if (volume == 0)
+            {
+                std::snprintf(line, sizeof(line), "MSG SOUND: OFF");
+            }
+            else
+            {
+                std::snprintf(line, sizeof(line), "MSG SOUND: %u%%", static_cast<unsigned>(volume));
+            }
             break;
         }
 #endif
@@ -5057,6 +5199,95 @@ void Runtime::renderGnssPage()
     }
 }
 
+void Runtime::renderCompassPage()
+{
+    const bool has_compass = host_.compass_state_fn != nullptr;
+    const auto state = has_compass ? host_.compass_state_fn() : platform::ui::compass::CompassState{};
+    char right[12] = {};
+    if (state.available)
+    {
+        std::snprintf(right, sizeof(right), "CAL %u%%", static_cast<unsigned>(state.calibration_percent));
+    }
+    else
+    {
+        std::snprintf(right, sizeof(right), "NO IMU");
+    }
+    drawTitleBar("COMPASS", right);
+
+    auto drawCentered = [this](int y, const char* text)
+    {
+        if (!text)
+        {
+            return;
+        }
+        const int text_w = text_renderer_.measureTextWidth(text);
+        const int x = std::max(0, (display_.width() - text_w) / 2);
+        text_renderer_.drawText(display_, x, y, text);
+    };
+
+    if (!has_compass)
+    {
+        drawCentered(44, "NO COMPASS");
+        drawCentered(60, "ON THIS TARGET");
+        return;
+    }
+    if (!state.supported || !state.available)
+    {
+        drawCentered(48, "NO IMU");
+        drawCentered(64, "ICM20948");
+        drawCentered(display_.height() - text_renderer_.lineHeight() - 3, "OPTIONAL");
+        return;
+    }
+    if (!state.heading_valid)
+    {
+        drawCentered(48, "WAIT");
+        drawCentered(64, "ROTATE DEVICE");
+        drawCentered(display_.height() - text_renderer_.lineHeight() - 3, "MAG --  FLAT --");
+        return;
+    }
+
+    int heading = static_cast<int>(std::lround(state.heading_deg));
+    if (heading >= 360)
+    {
+        heading -= 360;
+    }
+    if (heading < 0)
+    {
+        heading += 360;
+    }
+
+    char heading_text[18] = {};
+    std::snprintf(heading_text, sizeof(heading_text), "%03d %s", heading, bearingCardinal(state.heading_deg));
+    char status_text[32] = {};
+    const bool ready = state.heading_valid && state.magnetic_ok && state.flat && state.calibrated;
+    std::snprintf(status_text,
+                  sizeof(status_text),
+                  "%s  %s  %s",
+                  state.magnetic_ok ? "MAG OK" : "MAG?",
+                  state.flat ? "FLAT" : "TILT",
+                  ready ? "OK" : (state.calibrated ? "READY" : "CAL"));
+
+    if (display_.width() >= 160 && display_.height() >= 160)
+    {
+        const int cx = display_.width() / 2;
+        const int cy = 82;
+        const int radius = 43;
+        drawCircle(display_, cx, cy, radius);
+        display_.drawPixel(cx, cy, true);
+        text_renderer_.drawText(display_, cx - 3, cy - radius - 13, "N");
+        text_renderer_.drawText(display_, cx - 3, cy + radius + 5, "S");
+        text_renderer_.drawText(display_, cx - radius - 13, cy - 4, "W");
+        text_renderer_.drawText(display_, cx + radius + 8, cy - 4, "E");
+        drawCompassArrow(display_, cx, cy, state.heading_deg, radius - 8, true);
+        drawCentered(138, heading_text);
+        drawCentered(display_.height() - text_renderer_.lineHeight() - 5, status_text);
+        return;
+    }
+
+    drawCentered(22, heading_text);
+    drawCentered(42, status_text);
+}
+
 void Runtime::renderActionPage()
 {
     drawMenuList("ACTIONS", kActionItems, arrayCount(kActionItems), action_index_);
@@ -5064,11 +5295,20 @@ void Runtime::renderActionPage()
 
 void Runtime::enterPage(Page page)
 {
+    const bool waking_from_sleep = page_ == Page::Sleep && page != Page::Sleep;
     page_ = page;
     page_entered_ms_ = nowMs();
+    if (waking_from_sleep)
+    {
+        display_.onWakeFromSleep();
+    }
     if (page == Page::Screensaver)
     {
         last_screensaver_render_ms_ = 0;
+    }
+    if (page == Page::CompassPage)
+    {
+        last_compass_render_ms_ = 0;
     }
     if (page == Page::Screensaver || page == Page::GnssPage)
     {
@@ -5968,6 +6208,15 @@ void Runtime::confirmSettingPopup()
     {
         host_.set_message_tone_volume_fn(setting_popup_message_tone_volume_);
     }
+#if TRAILMATE_NRF_MONO_TARGET_MESSAGE_SOUND_SETTING
+    if (setting_popup_owner_ == Page::DeviceSettings &&
+        deviceSettingItem(setting_popup_index_) == DeviceSettingItem::MessageTone &&
+        setting_popup_message_tone_volume_ > 0 &&
+        host_.play_message_tone_fn)
+    {
+        host_.play_message_tone_fn();
+    }
+#endif
     if (host_.set_message_light_enabled_fn)
     {
         host_.set_message_light_enabled_fn(setting_popup_message_light_enabled_);
@@ -6177,8 +6426,12 @@ void Runtime::adjustSettingPopup(int delta)
 #endif
 #if TRAILMATE_NRF_MONO_TARGET_MESSAGE_SOUND_SETTING
         case DeviceSettingItem::MessageTone:
-            setting_popup_message_tone_volume_ = setting_popup_message_tone_volume_ > 0 ? 0U : 45U;
+        {
+            const int next_volume =
+                clampValue(static_cast<int>(setting_popup_message_tone_volume_) + (delta * 5), 0, 100);
+            setting_popup_message_tone_volume_ = static_cast<uint8_t>(next_volume);
             break;
+        }
 #endif
 #if TRAILMATE_NRF_MONO_TARGET_DEVICE_IO_SETTINGS
         case DeviceSettingItem::MessageLight:
@@ -6261,7 +6514,14 @@ void Runtime::formatSettingPopupValue(char* out, size_t out_len) const
 #endif
 #if TRAILMATE_NRF_MONO_TARGET_MESSAGE_SOUND_SETTING
         case DeviceSettingItem::MessageTone:
-            std::snprintf(out, out_len, "%s", setting_popup_message_tone_volume_ > 0 ? "ON" : "OFF");
+            if (setting_popup_message_tone_volume_ == 0)
+            {
+                std::snprintf(out, out_len, "OFF");
+            }
+            else
+            {
+                std::snprintf(out, out_len, "%u%%", static_cast<unsigned>(setting_popup_message_tone_volume_));
+            }
             return;
 #endif
 #if TRAILMATE_NRF_MONO_TARGET_DEVICE_IO_SETTINGS
@@ -6764,6 +7024,7 @@ void Runtime::rebuildComposeCandidates()
     {
         if (compose_t9_selected_pinyin_[0] != '\0')
         {
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
             auto add_hanzi = [this](const char* word) -> bool
             {
                 if (!word || word[0] == '\0')
@@ -6782,7 +7043,6 @@ void Runtime::rebuildComposeCandidates()
                 return compose_candidate_count_ >= kComposeCandidateMax;
             };
 
-#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
             ::ui::widgets::ime::collectPinyinCandidates(compose_t9_selected_pinyin_, add_hanzi);
 #endif
             return;
@@ -6799,6 +7059,7 @@ void Runtime::rebuildComposeCandidates()
             return;
         }
 
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
         auto add_pinyin = [this](const char* pinyin) -> bool
         {
             if (!pinyin || pinyin[0] == '\0')
@@ -6817,7 +7078,6 @@ void Runtime::rebuildComposeCandidates()
             return compose_t9_pinyin_candidate_count_ >= kComposeCandidateMax;
         };
 
-#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
         ::ui::widgets::ime::collectPinyinSpellingsForDigits(compose_t9_digits_, add_pinyin);
 #endif
         return;
@@ -6830,6 +7090,7 @@ void Runtime::rebuildComposeCandidates()
 
     if ((usesPhysicalTextInput() || usesSmartCompose()) && compose_mode_ == ComposeMode::Cn)
     {
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
         auto add_candidate = [this](const char* word) -> bool
         {
             if (!word || word[0] == '\0')
@@ -6848,7 +7109,6 @@ void Runtime::rebuildComposeCandidates()
             return compose_candidate_count_ >= kComposeCandidateMax;
         };
 
-#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
         ::ui::widgets::ime::collectPinyinCandidates(compose_preedit_, add_candidate);
 #endif
         return;
@@ -7693,7 +7953,24 @@ bool Runtime::usesLargeScreensaverLayout() const
 
 bool Runtime::shouldRenderForTick(InputAction action)
 {
-    (void)action;
+    if (page_ == Page::CompassPage)
+    {
+        const uint32_t now = nowMs();
+        if (action != InputAction::None)
+        {
+            last_compass_render_ms_ = now;
+            return true;
+        }
+        if (last_compass_render_ms_ != 0 &&
+            now >= last_compass_render_ms_ &&
+            (now - last_compass_render_ms_) < kCompassPageRefreshMs)
+        {
+            return false;
+        }
+        last_compass_render_ms_ = now;
+        return true;
+    }
+
     if (page_ != Page::Screensaver || !usesLargeScreensaverLayout())
     {
         return true;

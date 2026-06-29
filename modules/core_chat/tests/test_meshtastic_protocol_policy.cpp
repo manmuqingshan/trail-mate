@@ -18,12 +18,14 @@ int main()
     using chat::meshtastic::validateMqttDownlinkChannel;
     using chat::meshtastic::validateMqttProxyInbound;
     using chat::runtime::kMeshtasticBroadcastNode;
+    using chat::runtime::MeshtasticBleVisibleNameReason;
     using chat::runtime::MeshtasticMqttDownlinkReason;
     using chat::runtime::MeshtasticNodeInfoReannounceReason;
     using chat::runtime::MeshtasticReplyReason;
     using chat::runtime::MeshtasticTraceRouteReplyReason;
     using chat::runtime::mqttGatewayIdMatchesNode;
     using chat::runtime::resolveMeshtasticAppDataSendPolicy;
+    using chat::runtime::resolveMeshtasticBleVisibleNamePolicy;
     using chat::runtime::resolveMeshtasticMqttDownlinkPolicy;
     using chat::runtime::resolveMeshtasticNodeInfoReannouncePolicy;
     using chat::runtime::resolveMeshtasticNodeInfoReplyPolicy;
@@ -53,6 +55,20 @@ int main()
         assert(!policy.wire_want_ack);
         assert(!policy.track_ack);
         assert(policy.effective_want_response);
+    }
+
+    {
+        const auto policy = resolveMeshtasticBleVisibleNamePolicy(0x4670B90CUL,
+                                                                  0x4670B90CUL);
+        assert(!policy.visible_name_changed);
+        assert(policy.reason == MeshtasticBleVisibleNameReason::StableNodeId);
+    }
+
+    {
+        const auto policy = resolveMeshtasticBleVisibleNamePolicy(0x4670B90CUL,
+                                                                  0x4670B90DUL);
+        assert(policy.visible_name_changed);
+        assert(policy.reason == MeshtasticBleVisibleNameReason::NodeIdChanged);
     }
 
     {

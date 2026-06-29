@@ -15,6 +15,10 @@ config snapshot、Admin response-drain-before-save、以及 `Nodes(0)`/`Module c
 诊断边界，见 `MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`。该专规是手机 BLE
 连接问题的优先解释基线。
 
+Meshtastic 纯业务规则的共享 owner 见
+`MESHTASTIC_PROTOCOL_POLICY_SPEC.md`。当某个 Meshtastic 判断可以表达为无副作用
+policy，平台 adapter/runtime 必须消费该共享 policy，而不是在 ESP32/nRF52 分支中复制条件。
+
 ## Core Distinctions
 
 ### Protocol Behavior
@@ -143,9 +147,9 @@ Implementation ownership:
 
 - packet encode/decode helpers already live in shared `chat/infra/meshtastic`;
 - self NodeInfo packet building already lives in `MeshtasticSelfAnnouncementCore`;
-- app-data destination/ACK/response intent, NodeInfo peer-reannounce gating,
-  NodeInfo/Position request-reply suppression gating, and TraceRoute reply gating live in
-  `chat/runtime/meshtastic_protocol_policy.h`;
+- app-data destination/ACK/response intent, Meshtastic BLE visible-name change policy,
+  NodeInfo peer-reannounce gating, NodeInfo/Position request-reply suppression gating,
+  and TraceRoute reply gating live in `chat/runtime/meshtastic_protocol_policy.h`;
 - TraceRoute payload mutation lives in shared `chat/infra/meshtastic/mt_protocol_helpers`;
 - TraceRoute and Position Exchange UI/app action lifecycle tracking live in
   `chat/runtime/meshtastic_app_action_runtime.h`;
@@ -229,6 +233,8 @@ Before merging protocol adapter changes:
 
 - `PROTOCOL_RUNTIME_DESIGN_SPEC.md` defines the Strategy / Command / State / Bridge /
   Adapter design used to enforce shared protocol ownership.
+- `MESHTASTIC_PROTOCOL_POLICY_SPEC.md` defines the specific ownership contract for
+  `chat/runtime/meshtastic_protocol_policy.h`.
 - `NODE_ACTION_PROTOCOL_SPEC.md` defines user-facing node action legality for TraceRoute,
   Exchange Position, and Compass.
 - `NRF52_NODE_ID_AND_CHANNEL_KEY_SPEC.md` defines stable nRF identity and key terminology.

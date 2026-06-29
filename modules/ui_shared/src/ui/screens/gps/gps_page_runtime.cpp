@@ -12,6 +12,7 @@ using Projection = gps::ui::shell::Projection;
 #include "platform/ui/tracker_runtime.h"
 #include "sys/clock.h"
 #include "ui/app_runtime.h"
+#include "ui/formatters.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/presentation_sources/runtime_gps_status_source.h"
@@ -363,6 +364,53 @@ void set_compact_label(lv_obj_t* label, const char* text)
         return;
     }
     lv_label_set_text(label, text ? text : "");
+}
+
+bool format_current_gps_map_title(char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return false;
+    }
+    out[0] = '\0';
+
+    const auto gps = ::platform::ui::gps::get_data();
+    if (!gps.valid || !std::isfinite(gps.lat) || !std::isfinite(gps.lng))
+    {
+        return false;
+    }
+
+    char coord_buf[64]{};
+    ui_format_coords(gps.lat,
+                     gps.lng,
+                     app::configFacade().getConfig().gps_coord_format,
+                     coord_buf,
+                     sizeof(coord_buf));
+    if (coord_buf[0] == '\0')
+    {
+        return false;
+    }
+
+    std::snprintf(out, out_len, "%s - %.48s", ::ui::i18n::tr("Map"), coord_buf);
+    return true;
+}
+
+void update_map_top_bar_title()
+{
+    if (s_projection != Projection::Map)
+    {
+        ::ui::widgets::top_bar_set_title(s_top_bar, ::ui::i18n::tr("GPS"));
+        return;
+    }
+
+    char title[64]{};
+    if (format_current_gps_map_title(title, sizeof(title)))
+    {
+        ::ui::widgets::top_bar_set_title(s_top_bar, title);
+        return;
+    }
+
+    ::ui::widgets::top_bar_set_title(s_top_bar, ::ui::i18n::tr("Map"));
 }
 
 void set_map_notice(const char* text, uint32_t duration_ms)
@@ -1588,6 +1636,7 @@ void refresh_view()
     }
 
     ui_update_top_bar_battery(s_top_bar);
+    update_map_top_bar_title();
 
     sync_workspace_layers_from_renderer();
     auto snapshot = map_workspace_model().snapshot();

@@ -379,6 +379,7 @@ void AppFacadeRuntime::applyUserInfo()
     {
         apply_service_->applyUserInfo(previous_identity,
                                       effective_identity_,
+                                      config_.mesh_protocol,
                                       mesh_router_.get(),
 #if TRAILMATE_NRF52_BLE_DISABLED
                                       nullptr);

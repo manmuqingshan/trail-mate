@@ -1,6 +1,8 @@
 #include "boards/t_echo_lite/t_echo_lite_board.h"
 
+#include "boards/t_echo_lite/assets/pager_notification_adpcm.h"
 #include "boards/t_echo_lite/board_profile.h"
+#include "boards/t_echo_lite/compass_runtime.h"
 #include "boards/t_echo_lite/gps_runtime.h"
 #include "boards/t_echo_lite/input_runtime.h"
 #include "boards/t_echo_lite/settings_store.h"
@@ -16,7 +18,6 @@
 #include <hal/nrf_i2s.h>
 
 #include <algorithm>
-#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -108,6 +109,10 @@ constexpr uint8_t kAw21009ChannelCount = 9;
 
 constexpr uint32_t kMessageToneSampleRateHz = 44100;
 constexpr uint16_t kMessageToneMaxI2sWords = 14336;
+static_assert(kMessageToneSampleRateHz % assets::kPagerNotificationSampleRateHz == 0,
+              "Pager notification asset sample rate must divide the I2S sample rate");
+constexpr uint8_t kMessageToneSampleRepeat =
+    static_cast<uint8_t>(kMessageToneSampleRateHz / assets::kPagerNotificationSampleRateHz);
 constexpr uint32_t kEpaperPresentMinIntervalMs = 50UL;
 constexpr int kEpaperMirrorPixels = ::boards::t_echo_lite::kBoardProfile.epaper.width *
                                     ::boards::t_echo_lite::kBoardProfile.epaper.height;
@@ -133,16 +138,21 @@ void writeLedColor(uint8_t color_index, bool on, const char* reason = nullptr, u
     writeLed(leds.blue, leds.active_high, on && color.blue);
 }
 
-uint8_t es8311VolumeRegister(uint8_t volume_percent)
+constexpr uint8_t es8311VolumeRegister(uint8_t volume_percent)
 {
     const uint8_t volume = volume_percent > 100U ? 100U : volume_percent;
     if (volume == 0U)
     {
         return 0U;
     }
-    const uint8_t effective_volume = std::max<uint8_t>(volume, 100U);
-    return static_cast<uint8_t>(80U + ((static_cast<uint16_t>(effective_volume) * 111U) / 100U));
+    return static_cast<uint8_t>(80U + ((static_cast<uint16_t>(volume) * 111U) / 100U));
 }
+
+static_assert(es8311VolumeRegister(0) == 0, "Tone volume 0 must stay muted");
+static_assert(es8311VolumeRegister(1) < es8311VolumeRegister(50),
+              "Tone volume must increase below mid scale");
+static_assert(es8311VolumeRegister(50) < es8311VolumeRegister(100),
+              "Tone volume must increase through max scale");
 
 bool writeI2cRegister(TEchoLiteBoard& board, uint8_t address, uint8_t reg, uint8_t value)
 {
@@ -250,51 +260,197 @@ bool applyAw21009Brightness(TEchoLiteBoard& board, uint16_t brightness)
     return ok;
 }
 
-uint16_t fillCooToneBuffer(unsigned start_frequency_hz,
-                           unsigned end_frequency_hz,
-                           uint8_t volume_percent,
-                           uint16_t duration_ms)
-{
-    const uint8_t volume = volume_percent > 100U ? 100U : volume_percent;
-    const uint8_t effective_volume = volume == 0U ? 0U : std::max<uint8_t>(volume, 100U);
-    const double amplitude = 1700.0 + (static_cast<double>(effective_volume) * 140.0);
-    const uint32_t requested_words =
-        (static_cast<uint32_t>(kMessageToneSampleRateHz) * static_cast<uint32_t>(duration_ms) + 999U) / 1000U;
-    const uint16_t word_count =
-        static_cast<uint16_t>(std::min<uint32_t>(std::max<uint32_t>(requested_words, 1U), kMessageToneMaxI2sWords));
-    constexpr double kPi = 3.14159265358979323846;
-    const unsigned safe_start = start_frequency_hz == 0U ? 1U : start_frequency_hz;
-    const unsigned safe_end = end_frequency_hz == 0U ? safe_start : end_frequency_hz;
-    auto smoothStep = [](double value)
-    {
-        const double x = std::max(0.0, std::min(1.0, value));
-        return x * x * (3.0 - (2.0 * x));
-    };
-    double phase = 0.0;
-    double low_phase = 0.0;
+constexpr int8_t kImaAdpcmIndexTable[16] = {
+    -1,
+    -1,
+    -1,
+    -1,
+    2,
+    4,
+    6,
+    8,
+    -1,
+    -1,
+    -1,
+    -1,
+    2,
+    4,
+    6,
+    8,
+};
 
-    for (uint16_t index = 0; index < word_count; ++index)
+constexpr int16_t kImaAdpcmStepTable[89] = {
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    16,
+    17,
+    19,
+    21,
+    23,
+    25,
+    28,
+    31,
+    34,
+    37,
+    41,
+    45,
+    50,
+    55,
+    60,
+    66,
+    73,
+    80,
+    88,
+    97,
+    107,
+    118,
+    130,
+    143,
+    157,
+    173,
+    190,
+    209,
+    230,
+    253,
+    279,
+    307,
+    337,
+    371,
+    408,
+    449,
+    494,
+    544,
+    598,
+    658,
+    724,
+    796,
+    876,
+    963,
+    1060,
+    1166,
+    1282,
+    1411,
+    1552,
+    1707,
+    1878,
+    2066,
+    2272,
+    2499,
+    2749,
+    3024,
+    3327,
+    3660,
+    4026,
+    4428,
+    4871,
+    5358,
+    5894,
+    6484,
+    7132,
+    7845,
+    8630,
+    9493,
+    10442,
+    11487,
+    12635,
+    13899,
+    15289,
+    16818,
+    18500,
+    20350,
+    22385,
+    24623,
+    27086,
+    29794,
+    32767,
+};
+
+struct AdpcmPlaybackState
+{
+    int16_t predictor = assets::kPagerNotificationInitialSample;
+    int16_t current_sample = assets::kPagerNotificationInitialSample;
+    uint8_t step_index = 0;
+    uint8_t repeat_remaining = 0;
+    uint32_t sample_index = 0;
+};
+
+int16_t clampPcmSample(int32_t sample)
+{
+    if (sample > 32767)
     {
-        const double t = static_cast<double>(index) /
-                         static_cast<double>(word_count > 1U ? word_count - 1U : 1U);
-        const double glide = static_cast<double>(safe_start) +
-                             (static_cast<double>(safe_end) - static_cast<double>(safe_start)) * t;
-        const double vibrato = std::sin(2.0 * kPi * 4.2 * t) * 9.0;
-        const double frequency = std::max(1.0, glide + vibrato);
-        const double attack = smoothStep(t / 0.20);
-        const double release = smoothStep((1.0 - t) / 0.24);
-        const double envelope = std::max(0.0, std::min(attack, release));
-        phase += (2.0 * kPi * frequency) / static_cast<double>(kMessageToneSampleRateHz);
-        low_phase += (2.0 * kPi * frequency * 0.5) / static_cast<double>(kMessageToneSampleRateHz);
-        const double breath = 0.86 + (0.14 * std::sin(2.0 * kPi * 5.0 * t));
-        const double voice = ((0.78 * std::sin(phase)) +
-                              (0.16 * std::sin(low_phase)) +
-                              (0.06 * std::sin(phase * 2.0))) *
-                             breath;
-        const int16_t sample = static_cast<int16_t>(voice * amplitude * envelope);
-        const uint16_t packed_sample = static_cast<uint16_t>(sample);
-        s_message_tone_i2s_buffer[index] =
+        return 32767;
+    }
+    if (sample < -32768)
+    {
+        return -32768;
+    }
+    return static_cast<int16_t>(sample);
+}
+
+int16_t nextPagerNotificationSample(AdpcmPlaybackState& state)
+{
+    if (state.sample_index == 0)
+    {
+        state.sample_index = 1;
+        return state.current_sample;
+    }
+
+    const uint32_t nibble_index = state.sample_index - 1U;
+    const uint8_t encoded = assets::kPagerNotificationAdpcmData[nibble_index / 2U];
+    const uint8_t code = (nibble_index & 1U) == 0U ? (encoded & 0x0FU) : (encoded >> 4);
+    const int16_t step = kImaAdpcmStepTable[state.step_index];
+    int32_t diff = step >> 3;
+    if ((code & 0x01U) != 0)
+    {
+        diff += step >> 2;
+    }
+    if ((code & 0x02U) != 0)
+    {
+        diff += step >> 1;
+    }
+    if ((code & 0x04U) != 0)
+    {
+        diff += step;
+    }
+    const int32_t predictor = (code & 0x08U) != 0
+                                  ? static_cast<int32_t>(state.predictor) - diff
+                                  : static_cast<int32_t>(state.predictor) + diff;
+    state.predictor = clampPcmSample(predictor);
+    state.current_sample = state.predictor;
+
+    const int16_t next_index = static_cast<int16_t>(state.step_index) + kImaAdpcmIndexTable[code & 0x0FU];
+    state.step_index = static_cast<uint8_t>(std::max<int16_t>(0, std::min<int16_t>(88, next_index)));
+    ++state.sample_index;
+    return state.current_sample;
+}
+
+uint16_t fillPagerNotificationBuffer(AdpcmPlaybackState& state)
+{
+    uint16_t word_count = 0;
+    while (word_count < kMessageToneMaxI2sWords &&
+           (state.sample_index < assets::kPagerNotificationSampleCount || state.repeat_remaining > 0U))
+    {
+        if (state.repeat_remaining == 0U)
+        {
+            if (state.sample_index >= assets::kPagerNotificationSampleCount)
+            {
+                break;
+            }
+            state.current_sample = nextPagerNotificationSample(state);
+            state.repeat_remaining = kMessageToneSampleRepeat;
+        }
+
+        const uint16_t packed_sample = static_cast<uint16_t>(state.current_sample);
+        s_message_tone_i2s_buffer[word_count] =
             static_cast<uint32_t>(packed_sample) | (static_cast<uint32_t>(packed_sample) << 16);
+        ++word_count;
+        --state.repeat_remaining;
     }
     return word_count;
 }
@@ -627,20 +783,18 @@ bool TEchoLiteBoard::ensureMessageAudioReady()
     return audio_codec_ready_;
 }
 
-bool TEchoLiteBoard::playMessageToneStep(unsigned start_frequency_hz,
-                                         unsigned end_frequency_hz,
-                                         uint16_t duration_ms)
+bool TEchoLiteBoard::playMessageToneChunk(uint16_t word_count)
 {
+    if (word_count == 0)
+    {
+        return true;
+    }
+
     const auto& audio = kBoardProfile.audio;
     if (audio.dac_data < 0 || audio.bit_clock < 0 || audio.word_select < 0)
     {
         return false;
     }
-
-    const uint16_t word_count = fillCooToneBuffer(start_frequency_hz,
-                                                  end_frequency_hz,
-                                                  message_tone_volume_,
-                                                  duration_ms);
 
     nrf_i2s_disable(NRF_I2S);
     nrf_i2s_event_clear(NRF_I2S, NRF_I2S_EVENT_TXPTRUPD);
@@ -680,7 +834,10 @@ bool TEchoLiteBoard::playMessageToneStep(unsigned start_frequency_hz,
     nrf_i2s_transfer_set(NRF_I2S, word_count, nullptr, s_message_tone_i2s_buffer);
     nrf_i2s_enable(NRF_I2S);
     nrf_i2s_task_trigger(NRF_I2S, NRF_I2S_TASK_START);
-    delay(static_cast<uint32_t>(duration_ms) + 8U);
+    const uint32_t duration_ms =
+        ((static_cast<uint32_t>(word_count) * 1000U) + (kMessageToneSampleRateHz - 1U)) /
+        kMessageToneSampleRateHz;
+    delay(duration_ms + 8U);
     stopI2s();
     return true;
 }
@@ -692,35 +849,26 @@ void TEchoLiteBoard::playMessageTone()
         return;
     }
 
-    struct ToneStep
-    {
-        unsigned start_frequency_hz;
-        unsigned end_frequency_hz;
-        uint16_t duration_ms;
-        uint16_t gap_ms;
-    };
-
     const bool audio_ready = ensureMessageAudioReady();
-    static constexpr ToneStep kMessageTone[] = {
-        {780U, 570U, 205U, 70U},
-        {720U, 520U, 235U, 0U},
-    };
-
-    for (const ToneStep& step : kMessageTone)
+    AdpcmPlaybackState tone_state{};
+    while (true)
     {
+        const uint16_t word_count = fillPagerNotificationBuffer(tone_state);
+        if (word_count == 0)
+        {
+            break;
+        }
+
         if (audio_ready)
         {
-            (void)playMessageToneStep(step.start_frequency_hz,
-                                      step.end_frequency_hz,
-                                      step.duration_ms);
+            (void)playMessageToneChunk(word_count);
         }
         else
         {
-            delay(step.duration_ms);
-        }
-        if (step.gap_ms > 0)
-        {
-            delay(step.gap_ms);
+            const uint32_t duration_ms =
+                ((static_cast<uint32_t>(word_count) * 1000U) + (kMessageToneSampleRateHz - 1U)) /
+                kMessageToneSampleRateHz;
+            delay(duration_ms);
         }
     }
 }
@@ -926,7 +1074,8 @@ class EpaperMonoDisplay final : public ::ui::mono::MonoDisplay
         {
             return;
         }
-        if (std::memcmp(frame_bits_, presented_bits_, sizeof(frame_bits_)) == 0)
+        const bool full_refresh = full_refresh_pending_;
+        if (!full_refresh && std::memcmp(frame_bits_, presented_bits_, sizeof(frame_bits_)) == 0)
         {
             dirty_ = false;
             return;
@@ -937,20 +1086,38 @@ class EpaperMonoDisplay final : public ::ui::mono::MonoDisplay
             delay(kEpaperPresentMinIntervalMs - (now_ms - last_present_ms_));
         }
 
-        if (!partial_refresh_base_map_ready_)
+        if (full_refresh)
         {
-            display_.setRAMValueBaseMap(Adafruit_EPD::Update_Mode::FAST_REFRESH);
-            partial_refresh_base_map_ready_ = true;
+            display_.display(Adafruit_EPD::Update_Mode::FULL_REFRESH, true);
+            full_refresh_pending_ = false;
+            partial_refresh_base_map_ready_ = false;
+            partial_refresh_count_ = 0;
         }
-        display_.display(Adafruit_EPD::Update_Mode::PARTIAL_REFRESH, true);
-        if (partial_refresh_count_ < 0xFFU)
+        else
         {
-            ++partial_refresh_count_;
+            if (!partial_refresh_base_map_ready_)
+            {
+                display_.setRAMValueBaseMap(Adafruit_EPD::Update_Mode::FAST_REFRESH);
+                partial_refresh_base_map_ready_ = true;
+            }
+            display_.display(Adafruit_EPD::Update_Mode::PARTIAL_REFRESH, true);
+            if (partial_refresh_count_ < 0xFFU)
+            {
+                ++partial_refresh_count_;
+            }
         }
 
         std::memcpy(presented_bits_, frame_bits_, sizeof(presented_bits_));
         last_present_ms_ = millis();
         dirty_ = false;
+    }
+    void onWakeFromSleep() override
+    {
+        full_refresh_pending_ = true;
+        if (online_)
+        {
+            dirty_ = true;
+        }
     }
 
   private:
@@ -1008,6 +1175,7 @@ class EpaperMonoDisplay final : public ::ui::mono::MonoDisplay
     bool initialized_ = false;
     bool online_ = false;
     bool dirty_ = false;
+    bool full_refresh_pending_ = false;
     bool partial_refresh_base_map_ready_ = false;
     uint8_t partial_refresh_count_ = 0;
     uint32_t last_present_ms_ = 0;
@@ -1038,6 +1206,7 @@ bool EpaperMonoDisplay::begin()
     display_.clearBuffer();
     std::memset(frame_bits_, 0, sizeof(frame_bits_));
     std::memset(presented_bits_, 0, sizeof(presented_bits_));
+    full_refresh_pending_ = false;
     partial_refresh_base_map_ready_ = false;
     partial_refresh_count_ = 0;
     last_present_ms_ = 0;
@@ -1250,6 +1419,13 @@ void TEchoLiteBoard::setGpsMotionSensorId(uint8_t sensor_id)
         gps_runtime_->setMotionSensorId(sensor_id);
     }
 }
+
+platform::ui::compass::CompassState TEchoLiteBoard::compassState()
+{
+    static CompassRuntime runtime;
+    return runtime.state();
+}
+
 void TEchoLiteBoard::suspendGps()
 {
     if (gps_runtime_)
