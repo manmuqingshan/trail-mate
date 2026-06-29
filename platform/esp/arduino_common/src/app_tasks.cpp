@@ -110,6 +110,22 @@ void append_irq_flag(char* buf, size_t len, const char* name, bool set)
     strncat(buf, name, len - used - 1);
 }
 
+bool radio_read_state_has_payload(int state)
+{
+    if (state == RADIOLIB_ERR_NONE)
+    {
+        return true;
+    }
+#if defined(RADIOLIB_ERR_CRC_MISMATCH)
+    // RadioLib drivers can report CRC mismatch after the FIFO payload has
+    // already been copied. Let protocol-level parsers/signatures decide
+    // whether the bytes are usable instead of dropping them before the adapter.
+    return state == RADIOLIB_ERR_CRC_MISMATCH;
+#else
+    return false;
+#endif
+}
+
 const char* describe_irq_flags(uint32_t flags, char* buf, size_t len)
 {
     if (!buf || len == 0)
@@ -433,7 +449,7 @@ void AppTasks::radioTask(void* pvParameters)
                 if (packet_length > 0 && packet_length <= 255)
                 {
                     int state = board_->readRadioData(rx_buffer, packet_length);
-                    if (state == RADIOLIB_ERR_NONE)
+                    if (radio_read_state_has_payload(state))
                     {
                         RadioPacket rx_packet;
                         rx_packet.data = (uint8_t*)malloc(packet_length);
@@ -445,7 +461,10 @@ void AppTasks::radioTask(void* pvParameters)
                             rx_packet.rssi = board_->getRadioRSSI();
                             rx_packet.snr = board_->getRadioSNR();
 
-                            LORA_LOG("[LORA] RX len=%d\n", packet_length);
+                            LORA_LOG("[LORA] RX len=%d state=%d flags=%s\n",
+                                     packet_length,
+                                     state,
+                                     flags);
                             // Send to mesh queue
                             xQueueSend(mesh_queue_, &rx_packet, portMAX_DELAY);
                         }

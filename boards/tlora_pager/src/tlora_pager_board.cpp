@@ -1562,19 +1562,35 @@ void TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t s
 
     if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100), "radio_cfg"))
     {
-        radio_.setFrequency(freq_mhz);
-        radio_.setBandwidth(bw_khz);
-        radio_.setSpreadingFactor(sf);
-        radio_.setCodingRate(cr_denom);
+        int first_error = RADIOLIB_ERR_NONE;
+        const char* failed_step = nullptr;
+        auto note_error = [&](const char* step, int rc) {
+            if (rc != RADIOLIB_ERR_NONE && first_error == RADIOLIB_ERR_NONE)
+            {
+                first_error = rc;
+                failed_step = step;
+            }
+        };
+
+        note_error("setFrequency", radio_.setFrequency(freq_mhz));
+        note_error("setBandwidth", radio_.setBandwidth(bw_khz));
+        note_error("setSpreadingFactor", radio_.setSpreadingFactor(sf));
+        note_error("setCodingRate", radio_.setCodingRate(cr_denom));
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
         apply_tx_power(radio_, tx_power);
 #else
-        radio_.setOutputPower(tx_power);
+        note_error("setOutputPower", radio_.setOutputPower(tx_power));
 #endif
-        radio_.setPreambleLength(preamble_len);
-        radio_.setSyncWord(sync_word);
-        radio_.setCRC(crc_len);
+        note_error("setPreambleLength", radio_.setPreambleLength(preamble_len));
+        note_error("setSyncWord", radio_.setSyncWord(sync_word));
+        note_error("setCRC", radio_.setCRC(crc_len));
         LilyGoDispArduinoSPI::unlock();
+        if (first_error != RADIOLIB_ERR_NONE)
+        {
+            log_w("LoRa config step %s returned code: %d",
+                  failed_step ? failed_step : "unknown",
+                  first_error);
+        }
     }
 }
 
