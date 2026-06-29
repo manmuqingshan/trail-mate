@@ -195,7 +195,7 @@ class TEchoLiteBoard final : public BoardBase
     void applyKeyboardBacklight();
     bool ensureKeyboardBacklightReady();
     bool ensureMessageAudioReady();
-    bool playMessageToneStep(unsigned start_frequency_hz, unsigned end_frequency_hz, uint16_t duration_ms);
+    bool playMessageToneChunk(uint16_t word_count);
 
     bool initialized_ = false;
     bool i2c_initialized_ = false;
