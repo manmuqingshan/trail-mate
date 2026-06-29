@@ -1068,7 +1068,8 @@ class EpaperMonoDisplay final : public ::ui::mono::MonoDisplay
         {
             return;
         }
-        if (std::memcmp(frame_bits_, presented_bits_, sizeof(frame_bits_)) == 0)
+        const bool full_refresh = full_refresh_pending_;
+        if (!full_refresh && std::memcmp(frame_bits_, presented_bits_, sizeof(frame_bits_)) == 0)
         {
             dirty_ = false;
             return;
@@ -1079,20 +1080,38 @@ class EpaperMonoDisplay final : public ::ui::mono::MonoDisplay
             delay(kEpaperPresentMinIntervalMs - (now_ms - last_present_ms_));
         }
 
-        if (!partial_refresh_base_map_ready_)
+        if (full_refresh)
         {
-            display_.setRAMValueBaseMap(Adafruit_EPD::Update_Mode::FAST_REFRESH);
-            partial_refresh_base_map_ready_ = true;
+            display_.display(Adafruit_EPD::Update_Mode::FULL_REFRESH, true);
+            full_refresh_pending_ = false;
+            partial_refresh_base_map_ready_ = false;
+            partial_refresh_count_ = 0;
         }
-        display_.display(Adafruit_EPD::Update_Mode::PARTIAL_REFRESH, true);
-        if (partial_refresh_count_ < 0xFFU)
+        else
         {
-            ++partial_refresh_count_;
+            if (!partial_refresh_base_map_ready_)
+            {
+                display_.setRAMValueBaseMap(Adafruit_EPD::Update_Mode::FAST_REFRESH);
+                partial_refresh_base_map_ready_ = true;
+            }
+            display_.display(Adafruit_EPD::Update_Mode::PARTIAL_REFRESH, true);
+            if (partial_refresh_count_ < 0xFFU)
+            {
+                ++partial_refresh_count_;
+            }
         }
 
         std::memcpy(presented_bits_, frame_bits_, sizeof(presented_bits_));
         last_present_ms_ = millis();
         dirty_ = false;
+    }
+    void onWakeFromSleep() override
+    {
+        full_refresh_pending_ = true;
+        if (online_)
+        {
+            dirty_ = true;
+        }
     }
 
   private:
@@ -1150,6 +1169,7 @@ class EpaperMonoDisplay final : public ::ui::mono::MonoDisplay
     bool initialized_ = false;
     bool online_ = false;
     bool dirty_ = false;
+    bool full_refresh_pending_ = false;
     bool partial_refresh_base_map_ready_ = false;
     uint8_t partial_refresh_count_ = 0;
     uint32_t last_present_ms_ = 0;
@@ -1180,6 +1200,7 @@ bool EpaperMonoDisplay::begin()
     display_.clearBuffer();
     std::memset(frame_bits_, 0, sizeof(frame_bits_));
     std::memset(presented_bits_, 0, sizeof(presented_bits_));
+    full_refresh_pending_ = false;
     partial_refresh_base_map_ready_ = false;
     partial_refresh_count_ = 0;
     last_present_ms_ = 0;

@@ -33,6 +33,7 @@ class MonoDisplay
     virtual void present() = 0;
     virtual bool powerSavesOnSleep() const { return false; }
     virtual void setPowerSave(bool enabled) { (void)enabled; }
+    virtual void onWakeFromSleep() {}
 };
 
 enum class InputAction : uint8_t

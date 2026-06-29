@@ -5115,8 +5115,13 @@ void Runtime::renderActionPage()
 
 void Runtime::enterPage(Page page)
 {
+    const bool waking_from_sleep = page_ == Page::Sleep && page != Page::Sleep;
     page_ = page;
     page_entered_ms_ = nowMs();
+    if (waking_from_sleep)
+    {
+        display_.onWakeFromSleep();
+    }
     if (page == Page::Screensaver)
     {
         last_screensaver_render_ms_ = 0;
