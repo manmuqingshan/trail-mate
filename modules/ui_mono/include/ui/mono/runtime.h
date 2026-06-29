@@ -98,6 +98,7 @@ struct HostCallbacks
     void (*set_keyboard_light_enabled_fn)(bool enabled) = nullptr;
     void (*debug_log_fn)(const char* text) = nullptr;
     bool physical_text_input = false;
+    size_t compose_candidate_page_size = 5;
     VirtualKeyboardLayout virtual_keyboard_layout = VirtualKeyboardLayout::PagedGrid;
 };
 
@@ -399,7 +400,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     static constexpr size_t kComposePreeditMax = 24;
     char compose_preedit_[kComposePreeditMax] = {};
     size_t compose_preedit_len_ = 0;
-    static constexpr size_t kComposeCandidateMax = 7;
+    static constexpr size_t kComposeCandidateMax = 64;
     static constexpr size_t kComposeCandidateWidth = 24;
     char compose_candidates_[kComposeCandidateMax][kComposeCandidateWidth] = {};
     size_t compose_candidate_count_ = 0;

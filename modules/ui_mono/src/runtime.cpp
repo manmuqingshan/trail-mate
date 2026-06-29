@@ -317,6 +317,7 @@ constexpr const char* kComposeActionLabels[] = {"ABC", "SP", "BACK", "DEL", "SEN
 constexpr size_t kVirtualKeyboardCols = 3;
 constexpr size_t kVirtualKeyboardRows = 3;
 constexpr size_t kVirtualKeyboardPageSize = kVirtualKeyboardCols * kVirtualKeyboardRows;
+constexpr size_t kDefaultComposeCandidatePageSize = 5;
 constexpr const char* kFullAlphaRows[] = {"QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"};
 constexpr const char* kFullNumRows[] = {"1234567890"};
 constexpr const char* kFullSymRows[] = {".,!?/-:@#", "()[]{}+=", "_*%&$~\\|"};
@@ -1217,6 +1218,42 @@ void formatElapsedShort(time_t now_s, uint32_t then_s, char* out, size_t out_len
     {
         std::snprintf(out, out_len, "%lud", static_cast<unsigned long>(delta / 86400U));
     }
+}
+
+size_t composeCandidatePageSize(const HostCallbacks& host)
+{
+    return host.compose_candidate_page_size > 0 ? host.compose_candidate_page_size : kDefaultComposeCandidatePageSize;
+}
+
+size_t composeCandidatePageStart(size_t selected_index, size_t candidate_count, size_t page_size)
+{
+    if (candidate_count == 0 || page_size == 0)
+    {
+        return 0;
+    }
+    const size_t clamped_index = std::min(selected_index, candidate_count - 1U);
+    return (clamped_index / page_size) * page_size;
+}
+
+void appendTextBounded(char* out, size_t out_len, size_t& pos, const char* text)
+{
+    if (!out || out_len == 0 || !text || pos >= out_len)
+    {
+        return;
+    }
+
+    const int written = std::snprintf(out + pos, out_len - pos, "%s", text);
+    if (written <= 0)
+    {
+        return;
+    }
+
+    const size_t available = out_len - pos;
+    if (available == 0)
+    {
+        return;
+    }
+    pos += std::min(static_cast<size_t>(written), available - 1U);
 }
 
 void formatDistanceShort(double meters, char* out, size_t out_len)
@@ -4107,8 +4144,16 @@ void Runtime::renderCompose()
         const int line_h = std::max(1, text_renderer_.lineHeight());
         const int body_y = edit_target_ == EditTarget::Message ? 22 : 10;
         const bool show_cn_candidates = compose_mode_ == ComposeMode::Cn && hasPhysicalChinesePreedit();
+        const bool selecting_hanzi = compose_t9_selected_pinyin_[0] != '\0';
+        const size_t cn_candidate_count = selecting_hanzi ? compose_candidate_count_ : compose_t9_pinyin_candidate_count_;
+        const size_t cn_selected_index = selecting_hanzi ? compose_candidate_index_ : compose_t9_pinyin_candidate_index_;
+        const size_t cn_candidate_page_size = composeCandidatePageSize(host_);
+        const size_t cn_candidate_page_start =
+            composeCandidatePageStart(cn_selected_index, cn_candidate_count, cn_candidate_page_size);
         const size_t cn_visible_candidate_count =
-            compose_t9_selected_pinyin_[0] != '\0' ? compose_candidate_count_ : compose_t9_pinyin_candidate_count_;
+            cn_candidate_count > cn_candidate_page_start
+                ? std::min(cn_candidate_page_size, cn_candidate_count - cn_candidate_page_start)
+                : 0U;
         const int cn_candidate_rows = (show_cn_candidates && cn_visible_candidate_count > 3U && display_.height() >= 96) ? 2 : 1;
         const int ime_rows = show_cn_candidates ? (1 + cn_candidate_rows) : 1;
         const int ime_y = std::max(body_y + line_h, display_.height() - (ime_rows * line_h));
@@ -4166,9 +4211,9 @@ void Runtime::renderCompose()
             {
                 std::snprintf(ime_lines[row], sizeof(ime_lines[row]), "-");
             }
-            for (size_t i = 0; i < cn_visible_candidate_count && row < static_cast<size_t>(ime_rows); ++i)
+            for (size_t slot = 0; slot < cn_visible_candidate_count && row < static_cast<size_t>(ime_rows); ++slot)
             {
-                const bool selecting_hanzi = compose_t9_selected_pinyin_[0] != '\0';
+                const size_t i = cn_candidate_page_start + slot;
                 const char* candidate = selecting_hanzi ? compose_candidates_[i] : compose_t9_pinyin_candidates_[i];
                 const bool selected = selecting_hanzi ? (i == compose_candidate_index_) : (i == compose_t9_pinyin_candidate_index_);
                 char token[32] = {};
@@ -4184,9 +4229,8 @@ void Runtime::renderCompose()
                     pos = 0;
                     ime_lines[row][0] = '\0';
                 }
-                pos += static_cast<size_t>(std::snprintf(ime_lines[row] + pos, sizeof(ime_lines[row]) - pos,
-                                                         "%s", token));
-                if (i + 1 < cn_visible_candidate_count && pos + 1 < sizeof(ime_lines[row]))
+                appendTextBounded(ime_lines[row], sizeof(ime_lines[row]), pos, token);
+                if (slot + 1 < cn_visible_candidate_count && pos + 1 < sizeof(ime_lines[row]))
                 {
                     ime_lines[row][pos++] = ' ';
                     ime_lines[row][pos] = '\0';
@@ -4325,13 +4369,20 @@ void Runtime::renderCompose()
     }
     else
     {
-        for (size_t i = 0; i < compose_candidate_count_ && pos + 4 < sizeof(candidate_line); ++i)
+        const size_t candidate_page_size = composeCandidatePageSize(host_);
+        const size_t candidate_page_start =
+            composeCandidatePageStart(compose_candidate_index_, compose_candidate_count_, candidate_page_size);
+        const size_t candidate_page_end =
+            std::min(compose_candidate_count_, candidate_page_start + candidate_page_size);
+        for (size_t i = candidate_page_start; i < candidate_page_end && pos + 1 < sizeof(candidate_line); ++i)
         {
             const bool selected = (i == compose_candidate_index_);
-            pos += static_cast<size_t>(std::snprintf(candidate_line + pos, sizeof(candidate_line) - pos,
-                                                     selected ? "[%s]" : "%s",
-                                                     compose_candidates_[i]));
-            if (i + 1 < compose_candidate_count_ && pos + 1 < sizeof(candidate_line))
+            char token[32] = {};
+            std::snprintf(token, sizeof(token),
+                          selected ? "[%s]" : "%s",
+                          compose_candidates_[i]);
+            appendTextBounded(candidate_line, sizeof(candidate_line), pos, token);
+            if (i + 1 < candidate_page_end && pos + 1 < sizeof(candidate_line))
             {
                 candidate_line[pos++] = ' ';
                 candidate_line[pos] = '\0';
@@ -6764,6 +6815,7 @@ void Runtime::rebuildComposeCandidates()
     {
         if (compose_t9_selected_pinyin_[0] != '\0')
         {
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
             auto add_hanzi = [this](const char* word) -> bool
             {
                 if (!word || word[0] == '\0')
@@ -6782,7 +6834,6 @@ void Runtime::rebuildComposeCandidates()
                 return compose_candidate_count_ >= kComposeCandidateMax;
             };
 
-#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
             ::ui::widgets::ime::collectPinyinCandidates(compose_t9_selected_pinyin_, add_hanzi);
 #endif
             return;
@@ -6799,6 +6850,7 @@ void Runtime::rebuildComposeCandidates()
             return;
         }
 
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
         auto add_pinyin = [this](const char* pinyin) -> bool
         {
             if (!pinyin || pinyin[0] == '\0')
@@ -6817,7 +6869,6 @@ void Runtime::rebuildComposeCandidates()
             return compose_t9_pinyin_candidate_count_ >= kComposeCandidateMax;
         };
 
-#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
         ::ui::widgets::ime::collectPinyinSpellingsForDigits(compose_t9_digits_, add_pinyin);
 #endif
         return;
@@ -6830,6 +6881,7 @@ void Runtime::rebuildComposeCandidates()
 
     if ((usesPhysicalTextInput() || usesSmartCompose()) && compose_mode_ == ComposeMode::Cn)
     {
+#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
         auto add_candidate = [this](const char* word) -> bool
         {
             if (!word || word[0] == '\0')
@@ -6848,7 +6900,6 @@ void Runtime::rebuildComposeCandidates()
             return compose_candidate_count_ >= kComposeCandidateMax;
         };
 
-#if TRAIL_MATE_MONO_PINYIN_LOOKUP_ENABLED
         ::ui::widgets::ime::collectPinyinCandidates(compose_preedit_, add_candidate);
 #endif
         return;

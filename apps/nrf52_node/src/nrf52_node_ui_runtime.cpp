@@ -346,6 +346,7 @@ bool initialize()
     callbacks.keyboard_light_enabled_fn = keyboard_light_enabled;
     callbacks.set_keyboard_light_enabled_fn = set_keyboard_light_enabled;
     callbacks.physical_text_input = true;
+    callbacks.compose_candidate_page_size = 10;
 #endif
 
     static ui::mono::Runtime runtime(target_board::instance().monoDisplay(),
