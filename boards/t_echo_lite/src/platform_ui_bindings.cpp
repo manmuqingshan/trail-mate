@@ -2,6 +2,7 @@
 
 #include "app/app_facade_access.h"
 #include "chat/usecase/contact_service.h"
+#include "platform/ui/compass_runtime.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
 
@@ -228,6 +229,16 @@ int power_tier()
 }
 
 } // namespace platform::ui::device
+
+namespace platform::ui::compass
+{
+
+CompassState get_state()
+{
+    return ::boards::t_echo_lite::TEchoLiteBoard::instance().compassState();
+}
+
+} // namespace platform::ui::compass
 
 namespace platform::ui::gps
 {

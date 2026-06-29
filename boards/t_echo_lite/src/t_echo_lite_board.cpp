@@ -2,6 +2,7 @@
 
 #include "boards/t_echo_lite/assets/pager_notification_adpcm.h"
 #include "boards/t_echo_lite/board_profile.h"
+#include "boards/t_echo_lite/compass_runtime.h"
 #include "boards/t_echo_lite/gps_runtime.h"
 #include "boards/t_echo_lite/input_runtime.h"
 #include "boards/t_echo_lite/settings_store.h"
@@ -1413,6 +1414,13 @@ void TEchoLiteBoard::setGpsMotionSensorId(uint8_t sensor_id)
         gps_runtime_->setMotionSensorId(sensor_id);
     }
 }
+
+platform::ui::compass::CompassState TEchoLiteBoard::compassState()
+{
+    static CompassRuntime runtime;
+    return runtime.state();
+}
+
 void TEchoLiteBoard::suspendGps()
 {
     if (gps_runtime_)

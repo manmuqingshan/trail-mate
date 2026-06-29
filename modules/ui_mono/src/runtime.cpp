@@ -125,10 +125,29 @@ constexpr const char* kMainMenuItems[] = {
     "INFO",
 };
 
+constexpr const char* kMainMenuCompassItems[] = {
+    "CHATS",
+    "NODES",
+    "GPS",
+    "COMPASS",
+    "SETTINGS",
+    "INFO",
+};
+
 constexpr const char* kMeshCoreMainMenuItems[] = {
     "CHATS",
     "NODES",
     "GPS",
+    "DISCOVER",
+    "SETTINGS",
+    "INFO",
+};
+
+constexpr const char* kMeshCoreCompassMainMenuItems[] = {
+    "CHATS",
+    "NODES",
+    "GPS",
+    "COMPASS",
     "DISCOVER",
     "SETTINGS",
     "INFO",
@@ -329,6 +348,7 @@ constexpr uint32_t kBootMinMs = 1800;
 constexpr uint32_t kComposeMultiTapWindowMs = 1500;
 constexpr uint32_t kLargeScreensaverRefreshMs = 60000;
 constexpr uint32_t kGnssSnapshotRefreshMs = 5000;
+constexpr uint32_t kCompassPageRefreshMs = 180;
 constexpr size_t kKeyTextMax = 96;
 constexpr int kTimezoneMin = -12 * 60;
 constexpr int kTimezoneMax = 14 * 60;
@@ -3140,6 +3160,13 @@ void Runtime::handleInput(InputAction action)
         }
         break;
 
+    case Page::CompassPage:
+        if (action == InputAction::Left || action == InputAction::Back || action == InputAction::Select)
+        {
+            enterPage(Page::MainMenu);
+        }
+        break;
+
     case Page::ActionPage:
         if (action == InputAction::Up && action_index_ > 0)
         {
@@ -3242,6 +3269,9 @@ void Runtime::render()
         break;
     case Page::GnssPage:
         renderGnssPage();
+        break;
+    case Page::CompassPage:
+        renderCompassPage();
         break;
     case Page::ActionPage:
         renderActionPage();
@@ -3447,22 +3477,55 @@ bool Runtime::mainMenuShowsDiscover() const
     return app() && app()->getConfig().mesh_protocol == chat::MeshProtocol::MeshCore;
 }
 
+bool Runtime::mainMenuShowsCompass() const
+{
+    return host_.compass_state_fn != nullptr;
+}
+
 size_t Runtime::mainMenuItemCount() const
 {
-    return mainMenuShowsDiscover()
-               ? arrayCount(kMeshCoreMainMenuItems)
-               : arrayCount(kMainMenuItems);
+    if (mainMenuShowsDiscover())
+    {
+        return mainMenuShowsCompass() ? arrayCount(kMeshCoreCompassMainMenuItems) : arrayCount(kMeshCoreMainMenuItems);
+    }
+    return mainMenuShowsCompass() ? arrayCount(kMainMenuCompassItems) : arrayCount(kMainMenuItems);
 }
 
 const char* const* Runtime::mainMenuItems() const
 {
-    return mainMenuShowsDiscover() ? kMeshCoreMainMenuItems : kMainMenuItems;
+    if (mainMenuShowsDiscover())
+    {
+        return mainMenuShowsCompass() ? kMeshCoreCompassMainMenuItems : kMeshCoreMainMenuItems;
+    }
+    return mainMenuShowsCompass() ? kMainMenuCompassItems : kMainMenuItems;
 }
 
 Runtime::Page Runtime::mainMenuPageForIndex(size_t index) const
 {
     if (mainMenuShowsDiscover())
     {
+        if (mainMenuShowsCompass())
+        {
+            switch (index)
+            {
+            case 0:
+                return Page::ChatList;
+            case 1:
+                return Page::NodeList;
+            case 2:
+                return Page::GnssPage;
+            case 3:
+                return Page::CompassPage;
+            case 4:
+                return Page::DiscoverPage;
+            case 5:
+                return Page::SettingsMenu;
+            case 6:
+                return Page::InfoPage;
+            default:
+                return Page::MainMenu;
+            }
+        }
         switch (index)
         {
         case 0:
@@ -3473,6 +3536,27 @@ Runtime::Page Runtime::mainMenuPageForIndex(size_t index) const
             return Page::GnssPage;
         case 3:
             return Page::DiscoverPage;
+        case 4:
+            return Page::SettingsMenu;
+        case 5:
+            return Page::InfoPage;
+        default:
+            return Page::MainMenu;
+        }
+    }
+
+    if (mainMenuShowsCompass())
+    {
+        switch (index)
+        {
+        case 0:
+            return Page::ChatList;
+        case 1:
+            return Page::NodeList;
+        case 2:
+            return Page::GnssPage;
+        case 3:
+            return Page::CompassPage;
         case 4:
             return Page::SettingsMenu;
         case 5:
@@ -4568,7 +4652,14 @@ void Runtime::renderDeviceSettings()
         case DeviceSettingItem::MessageTone:
         {
             const uint8_t volume = host_.message_tone_volume_fn ? host_.message_tone_volume_fn() : 0;
-            std::snprintf(line, sizeof(line), "MSG SOUND: %s", volume > 0 ? "ON" : "OFF");
+            if (volume == 0)
+            {
+                std::snprintf(line, sizeof(line), "MSG SOUND: OFF");
+            }
+            else
+            {
+                std::snprintf(line, sizeof(line), "MSG SOUND: %u%%", static_cast<unsigned>(volume));
+            }
             break;
         }
 #endif
@@ -5108,6 +5199,95 @@ void Runtime::renderGnssPage()
     }
 }
 
+void Runtime::renderCompassPage()
+{
+    const bool has_compass = host_.compass_state_fn != nullptr;
+    const auto state = has_compass ? host_.compass_state_fn() : platform::ui::compass::CompassState{};
+    char right[12] = {};
+    if (state.available)
+    {
+        std::snprintf(right, sizeof(right), "CAL %u%%", static_cast<unsigned>(state.calibration_percent));
+    }
+    else
+    {
+        std::snprintf(right, sizeof(right), "NO IMU");
+    }
+    drawTitleBar("COMPASS", right);
+
+    auto drawCentered = [this](int y, const char* text)
+    {
+        if (!text)
+        {
+            return;
+        }
+        const int text_w = text_renderer_.measureTextWidth(text);
+        const int x = std::max(0, (display_.width() - text_w) / 2);
+        text_renderer_.drawText(display_, x, y, text);
+    };
+
+    if (!has_compass)
+    {
+        drawCentered(44, "NO COMPASS");
+        drawCentered(60, "ON THIS TARGET");
+        return;
+    }
+    if (!state.supported || !state.available)
+    {
+        drawCentered(48, "NO IMU");
+        drawCentered(64, "ICM20948");
+        drawCentered(display_.height() - text_renderer_.lineHeight() - 3, "OPTIONAL");
+        return;
+    }
+    if (!state.heading_valid)
+    {
+        drawCentered(48, "WAIT");
+        drawCentered(64, "ROTATE DEVICE");
+        drawCentered(display_.height() - text_renderer_.lineHeight() - 3, "MAG --  FLAT --");
+        return;
+    }
+
+    int heading = static_cast<int>(std::lround(state.heading_deg));
+    if (heading >= 360)
+    {
+        heading -= 360;
+    }
+    if (heading < 0)
+    {
+        heading += 360;
+    }
+
+    char heading_text[18] = {};
+    std::snprintf(heading_text, sizeof(heading_text), "%03d %s", heading, bearingCardinal(state.heading_deg));
+    char status_text[32] = {};
+    const bool ready = state.heading_valid && state.magnetic_ok && state.flat && state.calibrated;
+    std::snprintf(status_text,
+                  sizeof(status_text),
+                  "%s  %s  %s",
+                  state.magnetic_ok ? "MAG OK" : "MAG?",
+                  state.flat ? "FLAT" : "TILT",
+                  ready ? "OK" : (state.calibrated ? "READY" : "CAL"));
+
+    if (display_.width() >= 160 && display_.height() >= 160)
+    {
+        const int cx = display_.width() / 2;
+        const int cy = 82;
+        const int radius = 43;
+        drawCircle(display_, cx, cy, radius);
+        display_.drawPixel(cx, cy, true);
+        text_renderer_.drawText(display_, cx - 3, cy - radius - 13, "N");
+        text_renderer_.drawText(display_, cx - 3, cy + radius + 5, "S");
+        text_renderer_.drawText(display_, cx - radius - 13, cy - 4, "W");
+        text_renderer_.drawText(display_, cx + radius + 8, cy - 4, "E");
+        drawCompassArrow(display_, cx, cy, state.heading_deg, radius - 8, true);
+        drawCentered(138, heading_text);
+        drawCentered(display_.height() - text_renderer_.lineHeight() - 5, status_text);
+        return;
+    }
+
+    drawCentered(22, heading_text);
+    drawCentered(42, status_text);
+}
+
 void Runtime::renderActionPage()
 {
     drawMenuList("ACTIONS", kActionItems, arrayCount(kActionItems), action_index_);
@@ -5125,6 +5305,10 @@ void Runtime::enterPage(Page page)
     if (page == Page::Screensaver)
     {
         last_screensaver_render_ms_ = 0;
+    }
+    if (page == Page::CompassPage)
+    {
+        last_compass_render_ms_ = 0;
     }
     if (page == Page::Screensaver || page == Page::GnssPage)
     {
@@ -6024,6 +6208,15 @@ void Runtime::confirmSettingPopup()
     {
         host_.set_message_tone_volume_fn(setting_popup_message_tone_volume_);
     }
+#if TRAILMATE_NRF_MONO_TARGET_MESSAGE_SOUND_SETTING
+    if (setting_popup_owner_ == Page::DeviceSettings &&
+        deviceSettingItem(setting_popup_index_) == DeviceSettingItem::MessageTone &&
+        setting_popup_message_tone_volume_ > 0 &&
+        host_.play_message_tone_fn)
+    {
+        host_.play_message_tone_fn();
+    }
+#endif
     if (host_.set_message_light_enabled_fn)
     {
         host_.set_message_light_enabled_fn(setting_popup_message_light_enabled_);
@@ -6233,8 +6426,12 @@ void Runtime::adjustSettingPopup(int delta)
 #endif
 #if TRAILMATE_NRF_MONO_TARGET_MESSAGE_SOUND_SETTING
         case DeviceSettingItem::MessageTone:
-            setting_popup_message_tone_volume_ = setting_popup_message_tone_volume_ > 0 ? 0U : 45U;
+        {
+            const int next_volume =
+                clampValue(static_cast<int>(setting_popup_message_tone_volume_) + (delta * 5), 0, 100);
+            setting_popup_message_tone_volume_ = static_cast<uint8_t>(next_volume);
             break;
+        }
 #endif
 #if TRAILMATE_NRF_MONO_TARGET_DEVICE_IO_SETTINGS
         case DeviceSettingItem::MessageLight:
@@ -6317,7 +6514,14 @@ void Runtime::formatSettingPopupValue(char* out, size_t out_len) const
 #endif
 #if TRAILMATE_NRF_MONO_TARGET_MESSAGE_SOUND_SETTING
         case DeviceSettingItem::MessageTone:
-            std::snprintf(out, out_len, "%s", setting_popup_message_tone_volume_ > 0 ? "ON" : "OFF");
+            if (setting_popup_message_tone_volume_ == 0)
+            {
+                std::snprintf(out, out_len, "OFF");
+            }
+            else
+            {
+                std::snprintf(out, out_len, "%u%%", static_cast<unsigned>(setting_popup_message_tone_volume_));
+            }
             return;
 #endif
 #if TRAILMATE_NRF_MONO_TARGET_DEVICE_IO_SETTINGS
@@ -7749,7 +7953,24 @@ bool Runtime::usesLargeScreensaverLayout() const
 
 bool Runtime::shouldRenderForTick(InputAction action)
 {
-    (void)action;
+    if (page_ == Page::CompassPage)
+    {
+        const uint32_t now = nowMs();
+        if (action != InputAction::None)
+        {
+            last_compass_render_ms_ = now;
+            return true;
+        }
+        if (last_compass_render_ms_ != 0 &&
+            now >= last_compass_render_ms_ &&
+            (now - last_compass_render_ms_) < kCompassPageRefreshMs)
+        {
+            return false;
+        }
+        last_compass_render_ms_ = now;
+        return true;
+    }
+
     if (page_ != Page::Screensaver || !usesLargeScreensaverLayout())
     {
         return true;
