@@ -182,10 +182,13 @@ Stage 1 完成后：
 
 1. `MeshtasticPhoneCore.notifyFromNum(from_num)` 把真实 `from_num` 交给 nRF52 transport
 2. nRF52 transport 将 `from_num` 放入固定深度 pending 队列
-3. 手机完成 `FROMNUM` 订阅后，transport 用同一个真实 `from_num` 发送通知
-4. App 读取 `FROMRADIO` 时进入 `onFromRadioAuthorize()`
-5. `writeNextFromRadioForRead()` 调用 `PhoneCore.popToPhone()` 产出下一帧并写入 `FROMRADIO`
-6. App 持续读取，直到 `FROMRADIO` 返回空包，表示本轮 drain 完成
+3. 主循环调用 `prepareReadableFromRadio()`，让 `PhoneCore.popToPhone()` 产出下一帧并预装进 `FROMRADIO`
+4. 手机完成 `FROMNUM` 订阅且已有预装帧后，transport 用同一个真实 `from_num` 发送通知
+5. App 读取 `FROMRADIO` 时进入 `onFromRadioAuthorize()`；该回调只记录读取/消费状态，不再产出 protobuf 帧
+6. 主循环调用 `consumeReadableFromRadio()` 清空已读预装帧，再准备下一帧
+7. App 持续读取，直到 `FROMRADIO` 返回空包，表示本轮 drain 完成
+
+这里有一个稳定性边界：Bluefruit 的 read-authorize 回调不能执行 `popToPhone()`、MQTT proxy 轮询、nanopb 编码或串口日志重活。否则在手机高频 drain、空中包入站和 MQTT downlink 混在一起时，nRF52 侧可能出现无 HardFault 日志的 USB 重枚举/断连。
 
 为了排障，目前固件还打印了这些日志：
 

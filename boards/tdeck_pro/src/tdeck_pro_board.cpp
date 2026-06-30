@@ -3,8 +3,6 @@
 #include "boards/tdeck_pro/tdeck_pro_board.h"
 
 #include <Arduino.h>
-#include <AudioFileSourcePROGMEM.h>
-#include <AudioGeneratorRTTTL.h>
 #include <AudioOutputI2S.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -16,6 +14,7 @@
 #include <sys/time.h>
 
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/ui/audio/pager_notification_tone.h"
 
 namespace boards::tdeck_pro
 {
@@ -505,11 +504,16 @@ void TDeckProBoard::playMessageTone()
         return;
     }
 
-    static const char kMessageToneRtttl[] = "Msg:d=4,o=6,b=200:32e,32g,32b,16c7";
+    static constexpr size_t kFramesPerChunk = 128;
+    namespace pager_tone = ::platform::ui::audio::pager_notification;
+
     AudioOutputI2S audio_out(1, AudioOutputI2S::EXTERNAL_I2S);
     audio_out.SetPinout(profile().optional.i2s_bclk,
                         profile().optional.i2s_lrc,
                         profile().optional.i2s_dout);
+    audio_out.SetRate(pager_tone::kPlaybackSampleRateHz);
+    audio_out.SetBitsPerSample(16);
+    audio_out.SetChannels(pager_tone::kChannels);
     float gain = static_cast<float>(message_tone_volume_) / 250.0f;
     if (gain > 0.40f)
     {
@@ -517,20 +521,35 @@ void TDeckProBoard::playMessageTone()
     }
     audio_out.SetGain(gain);
 
-    AudioFileSourcePROGMEM song(kMessageToneRtttl, sizeof(kMessageToneRtttl) - 1);
-    AudioGeneratorRTTTL generator;
-    if (generator.begin(&song, &audio_out))
+    if (audio_out.begin())
     {
-        const uint32_t deadline = millis() + 1600;
-        while (generator.isRunning() && millis() < deadline)
+        const uint32_t deadline = millis() + 1600U;
+        int16_t pcm[kFramesPerChunk * pager_tone::kChannels];
+        pager_tone::AdpcmPlaybackState tone_state{};
+        while (pager_tone::hasMore(tone_state) && millis() < deadline)
         {
-            if (!generator.loop())
+            const uint16_t frames = pager_tone::fillStereoInterleaved(
+                tone_state, pcm, static_cast<uint16_t>(kFramesPerChunk));
+            if (frames == 0U)
             {
                 break;
             }
-            delay(1);
+
+            uint16_t written = 0U;
+            while (written < frames && millis() < deadline)
+            {
+                const uint16_t consumed =
+                    audio_out.ConsumeSamples(&pcm[written * pager_tone::kChannels],
+                                             static_cast<uint16_t>(frames - written));
+                if (consumed == 0U)
+                {
+                    delay(1);
+                    continue;
+                }
+                written = static_cast<uint16_t>(written + consumed);
+            }
         }
-        generator.stop();
+        audio_out.flush();
     }
     audio_out.stop();
 }

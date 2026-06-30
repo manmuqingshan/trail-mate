@@ -565,6 +565,8 @@ Important consequences:
 - if firmware queues `FromRadio` data but does not cause the app to drain, status updates can appear delayed
 - if firmware only wakes the app for some variants and not others, phone-side state may lag
 - if `QueueStatus` or `ROUTING_APP` packets are generated but not drained, UI stays stale
+- on nRF52/Bluefruit, the read-authorize callback must stay a lightweight consume marker; `FromRadio`
+  protobuf encoding, MQTT proxy polling, and characteristic preloading belong in the main runtime loop
 
 ## What Must Not Be Misinterpreted
 
