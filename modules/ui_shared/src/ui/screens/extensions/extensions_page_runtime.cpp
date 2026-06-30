@@ -69,10 +69,13 @@ struct RuntimeState
     lv_obj_t* primary_action_btn = nullptr;
     lv_obj_t* uninstall_btn = nullptr;
     lv_obj_t* connect_btn = nullptr;
+    lv_timer_t* install_timer = nullptr;
     ::ui::widgets::TopBar top_bar;
     MainView view = MainView::List;
     PackageFilter filter = PackageFilter::Installed;
     bool remote_catalog_loaded = false;
+    bool install_overlay_owned = false;
+    bool install_was_busy = false;
     std::string catalog_error;
     std::string selected_package_id;
     std::vector<packs::PackageRecord> packages;
@@ -81,23 +84,6 @@ struct RuntimeState
 };
 
 RuntimeState s_runtime{};
-
-class ScopedBusyOverlay
-{
-  public:
-    ScopedBusyOverlay(const char* title, const char* detail = nullptr)
-    {
-        ::ui::widgets::busy_overlay::show(title, detail);
-    }
-
-    ~ScopedBusyOverlay()
-    {
-        ::ui::widgets::busy_overlay::hide();
-    }
-
-    ScopedBusyOverlay(const ScopedBusyOverlay&) = delete;
-    ScopedBusyOverlay& operator=(const ScopedBusyOverlay&) = delete;
-};
 
 void request_exit()
 {
@@ -623,7 +609,111 @@ bool load_catalog(std::string& out_error)
 }
 
 void show_list_view();
+void render_current_view();
 void refresh_catalog_and_render();
+
+void set_install_action_buttons_disabled(bool disabled)
+{
+    lv_obj_t* buttons[] = {s_runtime.primary_action_btn, s_runtime.uninstall_btn};
+    for (lv_obj_t* button : buttons)
+    {
+        if (button == nullptr)
+        {
+            continue;
+        }
+        if (disabled)
+        {
+            lv_obj_add_state(button, LV_STATE_DISABLED);
+        }
+        else
+        {
+            lv_obj_clear_state(button, LV_STATE_DISABLED);
+        }
+    }
+}
+
+void mark_package_installed(const std::string& package_id)
+{
+    const std::size_t package_index = find_package_index(package_id);
+    if (package_index == kInvalidIndex)
+    {
+        return;
+    }
+
+    packs::PackageRecord& package = s_runtime.packages[package_index];
+    package.installed = true;
+    package.update_available = false;
+    package.installed_record.id = package.id;
+    package.installed_record.version = package.version;
+    package.installed_record.archive_sha256 = package.archive_sha256;
+}
+
+void sync_install_ui(bool notify_completion)
+{
+    const packs::PackageInstallStatus status = packs::install_status();
+    if (status.busy)
+    {
+        const char* title = status.message.empty()
+                                ? ::ui::i18n::tr("Installing package...")
+                                : status.message.c_str();
+        const char* detail = !status.detail.empty()
+                                 ? status.detail.c_str()
+                                 : (status.package_id.empty() ? nullptr : status.package_id.c_str());
+        if (!s_runtime.install_overlay_owned)
+        {
+            ::ui::widgets::busy_overlay::show(title, detail);
+            s_runtime.install_overlay_owned = true;
+        }
+        else
+        {
+            ::ui::widgets::busy_overlay::update(title, detail);
+        }
+        set_status_text(title);
+        set_install_action_buttons_disabled(true);
+    }
+    else
+    {
+        if (s_runtime.install_overlay_owned)
+        {
+            ::ui::widgets::busy_overlay::hide();
+            s_runtime.install_overlay_owned = false;
+        }
+        set_install_action_buttons_disabled(false);
+    }
+
+    if (notify_completion && s_runtime.install_was_busy && !status.busy)
+    {
+        if (status.phase == packs::PackageInstallPhase::Succeeded)
+        {
+            ::ui::i18n::reload_language();
+            ::ui::feedback::show_notice(::ui::i18n::tr("Package installed"), 2000);
+            if (!status.package_id.empty())
+            {
+                mark_package_installed(status.package_id);
+                s_runtime.selected_package_id = status.package_id;
+            }
+            s_runtime.filter = PackageFilter::Installed;
+            s_runtime.view = MainView::Detail;
+            render_current_view();
+            ui_request_rebuild_active_app();
+        }
+        else if (status.phase == packs::PackageInstallPhase::Failed)
+        {
+            const std::string error = status.message.empty()
+                                          ? std::string(::ui::i18n::tr("Install package failed"))
+                                          : status.message;
+            set_status_text(error);
+            ::ui::feedback::show_notice(error.c_str(), 3000);
+        }
+    }
+
+    s_runtime.install_was_busy = status.busy;
+}
+
+void install_timer_cb(lv_timer_t* /*timer*/)
+{
+    sync_install_ui(true);
+}
 
 void update_filter_button_states()
 {
@@ -695,23 +785,17 @@ void on_primary_action_clicked(lv_event_t* event)
     }
 
     const packs::PackageRecord& package = s_runtime.packages[package_index];
-    const std::string package_id = package.id;
     std::string error;
-    const char* installing_text = ::ui::i18n::tr("Installing package...");
-    ScopedBusyOverlay overlay(installing_text, package_id.c_str());
-    set_status_text(installing_text);
-    if (!packs::install_package(package, error))
+    if (!packs::start_install_package(package, error))
     {
         set_status_text(error);
         ::ui::feedback::show_notice(error.c_str(), 3000);
+        sync_install_ui(false);
         return;
     }
 
-    ::ui::feedback::show_notice(::ui::i18n::tr("Package installed"), 2000);
-    s_runtime.selected_package_id = package_id;
-    s_runtime.view = MainView::Detail;
-    refresh_catalog_and_render();
-    ui_request_rebuild_active_app();
+    s_runtime.install_was_busy = true;
+    sync_install_ui(true);
 }
 
 void on_uninstall_clicked(lv_event_t* event)
@@ -1240,6 +1324,12 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     create_filter_panel(s_runtime.content);
     create_main_panel(s_runtime.content);
     refresh_catalog_and_render();
+    sync_install_ui(false);
+    s_runtime.install_timer = lv_timer_create(install_timer_cb, 250, nullptr);
+    if (s_runtime.install_timer != nullptr)
+    {
+        lv_timer_set_repeat_count(s_runtime.install_timer, -1);
+    }
 
     if (app_g == nullptr && s_runtime.previous_group != nullptr)
     {
@@ -1250,6 +1340,16 @@ void enter(const shell::Host* host, lv_obj_t* parent)
 void exit(lv_obj_t* parent)
 {
     (void)parent;
+    if (s_runtime.install_timer != nullptr)
+    {
+        lv_timer_del(s_runtime.install_timer);
+        s_runtime.install_timer = nullptr;
+    }
+    if (s_runtime.install_overlay_owned)
+    {
+        ::ui::widgets::busy_overlay::hide();
+        s_runtime.install_overlay_owned = false;
+    }
     if (s_runtime.root != nullptr)
     {
         lv_obj_del(s_runtime.root);

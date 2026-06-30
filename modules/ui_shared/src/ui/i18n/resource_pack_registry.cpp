@@ -18,6 +18,13 @@
 #include "ui/widgets/busy_overlay.h"
 #include "ui/widgets/text_candidate_data.h"
 
+#if (defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)) && __has_include("ui/LV_Helper.h")
+#include "ui/LV_Helper.h"
+#define UI_I18N_HAVE_EXTERNAL_FONT_LOAD_FS_SCOPE 1
+#else
+#define UI_I18N_HAVE_EXTERNAL_FONT_LOAD_FS_SCOPE 0
+#endif
+
 #if __has_include("lv_binfont_loader.h")
 #include "lv_binfont_loader.h"
 #define UI_I18N_HAVE_BINFONT 1
@@ -278,6 +285,27 @@ class ScopedExternalFontActivation
   private:
     bool previous_allow_ = false;
     bool previous_force_overlay_ = false;
+};
+
+class ScopedExternalFontLoadFs
+{
+  public:
+    ScopedExternalFontLoadFs()
+    {
+#if UI_I18N_HAVE_EXTERNAL_FONT_LOAD_FS_SCOPE
+        lv_begin_external_font_load_fs_scope();
+#endif
+    }
+
+    ~ScopedExternalFontLoadFs()
+    {
+#if UI_I18N_HAVE_EXTERNAL_FONT_LOAD_FS_SCOPE
+        lv_end_external_font_load_fs_scope();
+#endif
+    }
+
+    ScopedExternalFontLoadFs(const ScopedExternalFontLoadFs&) = delete;
+    ScopedExternalFontLoadFs& operator=(const ScopedExternalFontLoadFs&) = delete;
 };
 
 class ScopedForcedFontLoadOverlay
@@ -824,29 +852,101 @@ bool parse_ranges_file(const std::string& path, std::vector<CodepointRange>& out
 {
     out.clear();
 
-    const bool read_ok = ::ui::fs::read_text_file_lines(path.c_str(), [&out](std::string& line)
-                                                        {
-        std::size_t token_start = 0;
-        while (token_start <= line.size())
+    const std::string normalized = ::ui::fs::normalize_path(path.c_str());
+    if (normalized.empty())
+    {
+        return false;
+    }
+
+    lv_fs_file_t file;
+    if (lv_fs_open(&file, normalized.c_str(), LV_FS_MODE_RD) != LV_FS_RES_OK)
+    {
+        return false;
+    }
+
+    constexpr std::size_t kMaxRangeTokenBytes = 96;
+    char buffer[256];
+    std::string token;
+    bool ok = true;
+    bool in_comment = false;
+
+    auto flush_token = [&]() -> bool
+    {
+        if (token.empty())
         {
-            const std::size_t token_end = line.find(',', token_start);
-            std::string token = line.substr(
-                token_start,
-                token_end == std::string::npos ? std::string::npos : (token_end - token_start));
-            if (!parse_range_token(std::move(token), out))
+            return true;
+        }
+        std::string current = std::move(token);
+        token.clear();
+        return parse_range_token(std::move(current), out);
+    };
+
+    while (ok)
+    {
+        uint32_t bytes_read = 0;
+        if (lv_fs_read(&file, buffer, sizeof(buffer), &bytes_read) != LV_FS_RES_OK)
+        {
+            ok = false;
+            break;
+        }
+        if (bytes_read == 0)
+        {
+            break;
+        }
+
+        for (uint32_t index = 0; index < bytes_read; ++index)
+        {
+            const char ch = buffer[index];
+            if (in_comment)
             {
-                return false;
+                if (ch == '\n')
+                {
+                    in_comment = false;
+                    ok = flush_token();
+                    if (!ok)
+                    {
+                        break;
+                    }
+                }
+                continue;
             }
-            if (token_end == std::string::npos)
+
+            if (ch == '#')
             {
+                in_comment = true;
+                continue;
+            }
+            if (ch == ',' || ch == '\n')
+            {
+                ok = flush_token();
+                if (!ok)
+                {
+                    break;
+                }
+                continue;
+            }
+            if (ch == '\r')
+            {
+                continue;
+            }
+
+            if (token.size() >= kMaxRangeTokenBytes)
+            {
+                ok = false;
                 break;
             }
-            token_start = token_end + 1U;
+            token.push_back(ch);
         }
-        return true; });
+    }
 
+    if (ok)
+    {
+        ok = flush_token();
+    }
+
+    lv_fs_close(&file);
     normalize_ranges(out);
-    return read_ok && !out.empty();
+    return ok && !out.empty();
 }
 
 FontPackUsage parse_font_usage(const char* value)
@@ -1337,7 +1437,10 @@ bool load_font_pack(FontPackRecord& pack)
                 static_cast<unsigned long>(pack.estimated_ram_bytes));
 #endif
     ScopedFontLoadOverlay overlay(pack);
-    pack.owned_font = lv_binfont_create(pack.source_path.c_str());
+    {
+        ScopedExternalFontLoadFs fs_scope;
+        pack.owned_font = lv_binfont_create(pack.source_path.c_str());
+    }
     if (pack.owned_font == nullptr)
     {
         record_font_load_failure(pack, now_ms);
@@ -1767,6 +1870,38 @@ bool preload_active_locale_preferred_content_supplements()
 #endif
 }
 
+void append_locale_content_candidates(std::vector<FontPackRecord*>& candidates,
+                                      const LocalePackRecord* locale)
+{
+    if (locale == nullptr)
+    {
+        return;
+    }
+
+    append_unique_pack(
+        candidates, find_pack_by_id(s_font_packs, locale->content_font_pack_id.c_str()));
+    for (const std::string& pack_id : locale->preferred_content_supplement_pack_ids)
+    {
+        append_unique_pack(candidates, find_pack_by_id(s_font_packs, pack_id.c_str()));
+    }
+}
+
+std::vector<FontPackRecord*> locale_content_candidate_sequence()
+{
+    std::vector<FontPackRecord*> candidates;
+    candidates.reserve((s_locale_packs.size() * 2U) + 2U);
+    append_locale_content_candidates(candidates, s_active_locale);
+    for (const LocalePackRecord& locale : s_locale_packs)
+    {
+        if (&locale == s_active_locale)
+        {
+            continue;
+        }
+        append_locale_content_candidates(candidates, &locale);
+    }
+    return candidates;
+}
+
 FontPackRecord* choose_content_supplement(const std::vector<uint32_t>& missing)
 {
     auto choose_best_candidate =
@@ -1821,22 +1956,10 @@ FontPackRecord* choose_content_supplement(const std::vector<uint32_t>& missing)
         return best;
     };
 
-    if (s_active_locale != nullptr && !s_active_locale->preferred_content_supplement_pack_ids.empty())
+    std::vector<FontPackRecord*> locale_candidates = locale_content_candidate_sequence();
+    if (FontPackRecord* best = choose_best_candidate(locale_candidates))
     {
-        std::vector<FontPackRecord*> preferred_candidates;
-        preferred_candidates.reserve(s_active_locale->preferred_content_supplement_pack_ids.size());
-        for (const std::string& pack_id : s_active_locale->preferred_content_supplement_pack_ids)
-        {
-            if (FontPackRecord* pack = find_pack_by_id(s_font_packs, pack_id.c_str()))
-            {
-                append_unique_pack(preferred_candidates, pack);
-            }
-        }
-
-        if (FontPackRecord* best = choose_best_candidate(preferred_candidates))
-        {
-            return best;
-        }
+        return best;
     }
 
     FontPackRecord* best = nullptr;
