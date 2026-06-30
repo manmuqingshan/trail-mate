@@ -422,6 +422,21 @@ const char* configStageName(uint32_t nonce)
     }
 }
 
+const char* phoneApiPhaseName(MeshtasticPhoneCore::PhoneApiPhase phase)
+{
+    switch (phase)
+    {
+    case MeshtasticPhoneCore::PhoneApiPhase::SendNothing:
+        return "SendNothing";
+    case MeshtasticPhoneCore::PhoneApiPhase::ConfigFlow:
+        return "ConfigFlow";
+    case MeshtasticPhoneCore::PhoneApiPhase::SendPackets:
+        return "SendPackets";
+    default:
+        return "Unknown";
+    }
+}
+
 meshtastic_Config_DeviceConfig_Role roleFromEntry(uint8_t role)
 {
     switch (role)
@@ -594,7 +609,7 @@ void MeshtasticPhoneCore::reset()
     from_radio_id_ = 0;
     last_to_radio_len_ = 0;
     std::memset(last_to_radio_, 0, sizeof(last_to_radio_));
-    config_flow_active_ = false;
+    setPhoneApiPhase(PhoneApiPhase::SendNothing, "reset");
     deferred_config_save_pending_ = false;
     deferred_module_config_save_pending_ = false;
     deferred_bluetooth_config_apply_pending_ = false;
@@ -656,12 +671,40 @@ void MeshtasticPhoneCore::onIncomingData(const chat::MeshIncomingData& msg)
 
 bool MeshtasticPhoneCore::isSendingPackets() const
 {
-    return !config_flow_active_;
+    return phone_api_phase_ == PhoneApiPhase::SendPackets;
 }
 
 bool MeshtasticPhoneCore::isConfigFlowActive() const
 {
-    return config_flow_active_;
+    return phone_api_phase_ == PhoneApiPhase::ConfigFlow;
+}
+
+MeshtasticPhoneCore::PhoneApiPhase MeshtasticPhoneCore::phoneApiPhase() const
+{
+    return phone_api_phase_;
+}
+
+bool MeshtasticPhoneCore::canHandleMqttProxy() const
+{
+    return isSendingPackets();
+}
+
+bool MeshtasticPhoneCore::canEmitSteadyStateFrame() const
+{
+    return isSendingPackets();
+}
+
+void MeshtasticPhoneCore::setPhoneApiPhase(PhoneApiPhase phase, const char* reason)
+{
+    if (phone_api_phase_ == phase)
+    {
+        return;
+    }
+
+    phone_api_phase_ = phase;
+    logDual("[BLE][mtcore][phase] %s reason=%s\n",
+            phoneApiPhaseName(phase),
+            reason ? reason : "unknown");
 }
 
 bool MeshtasticPhoneCore::shouldProjectNodeInfo(chat::NodeId node_id, uint32_t signature)
@@ -812,8 +855,20 @@ bool MeshtasticPhoneCore::handleToRadio(const uint8_t* data, size_t len)
     switch (to_radio.which_payload_variant)
     {
     case meshtastic_ToRadio_packet_tag:
+        if (!canEmitSteadyStateFrame())
+        {
+            logDual("[BLE][mtcore][flow] packet ignore reason=not-send-packets phase=%s\n",
+                    phoneApiPhaseName(phone_api_phase_));
+            return false;
+        }
         return handleToRadioPacket(to_radio.packet);
     case meshtastic_ToRadio_mqttClientProxyMessage_tag:
+        if (!canHandleMqttProxy())
+        {
+            logDual("[BLE][mtcore][mqtt] skip reason=not-send-packets dir=to_radio phase=%s\n",
+                    phoneApiPhaseName(phone_api_phase_));
+            return false;
+        }
         return mqtt_hooks_ ? mqtt_hooks_->handleMqttProxyToRadio(to_radio.mqttClientProxyMessage) : false;
     case meshtastic_ToRadio_want_config_id_tag:
         logDual("[BLE][mtcore][flow] want_config nonce=%08lX stage=%s\n",
@@ -1615,29 +1670,13 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         return false;
     }
 
-    if (mqtt_hooks_)
-    {
-        auto& mqtt = mqtt_proxy_scratch_;
-        std::memset(&mqtt, 0, sizeof(mqtt));
-        if (mqtt_hooks_->pollMqttProxyToPhone(&mqtt))
-        {
-            auto& from = from_radio_scratch_;
-            std::memset(&from, 0, sizeof(from));
-            from.which_payload_variant = meshtastic_FromRadio_mqttClientProxyMessage_tag;
-            from.mqttClientProxyMessage = mqtt;
-            return encodeFromRadio(from, 0, out);
-        }
-    }
-
-    if (config_flow_active_ && popConfigSnapshotFrame(out))
+    if (phone_api_phase_ == PhoneApiPhase::ConfigFlow && popConfigSnapshotFrame(out))
     {
         return true;
     }
 
-    if (config_drain_empty_pending_)
+    if (!canEmitSteadyStateFrame())
     {
-        config_drain_empty_pending_ = false;
-        logDual("[BLE][mtcore] config snapshot drain-empty\n");
         return false;
     }
 
@@ -1650,6 +1689,26 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         const uint32_t mesh_packet_id = status->mesh_packet_id;
         queue_status_queue_.pop();
         return encodeFromRadio(from, mesh_packet_id, out);
+    }
+
+    if (mqtt_hooks_)
+    {
+        auto& mqtt = mqtt_proxy_scratch_;
+        std::memset(&mqtt, 0, sizeof(mqtt));
+        if (mqtt_hooks_->pollMqttProxyToPhone(&mqtt))
+        {
+            std::memset(&from, 0, sizeof(from));
+            from.which_payload_variant = meshtastic_FromRadio_mqttClientProxyMessage_tag;
+            from.mqttClientProxyMessage = mqtt;
+            logDual("[BLE][mtcore][mqtt] pop topic=%s retained=%u variant=%u len=%u\n",
+                    mqtt.topic,
+                    mqtt.retained ? 1U : 0U,
+                    static_cast<unsigned>(mqtt.which_payload_variant),
+                    mqtt.which_payload_variant == meshtastic_MqttClientProxyMessage_data_tag
+                        ? static_cast<unsigned>(mqtt.payload_variant.data.size)
+                        : 0U);
+            return encodeFromRadio(from, 0, out);
+        }
     }
 
     if (const meshtastic_NodeInfo* node_info = node_info_queue_.front())
@@ -1712,7 +1771,7 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
 
 bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
 {
-    if (!out || !config_flow_active_)
+    if (!out || phone_api_phase_ != PhoneApiPhase::ConfigFlow)
     {
         return false;
     }
@@ -1830,8 +1889,13 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
     const uint8_t completed_channel_index = config_channel_index_;
     const uint8_t completed_config_index = config_type_index_;
     const uint8_t completed_module_index = config_module_type_index_;
-    config_flow_active_ = false;
-    config_drain_empty_pending_ = true;
+    const PhoneApiPhase next_phase = (from_num == defaults::kConfigNonceOnlyConfig)
+                                         ? PhoneApiPhase::SendNothing
+                                         : PhoneApiPhase::SendPackets;
+    setPhoneApiPhase(next_phase,
+                     next_phase == PhoneApiPhase::SendPackets
+                         ? "config_complete_send_packets"
+                         : "config_complete_wait_next_stage");
     config_nonce_ = 0;
     config_node_index_ = 0;
     config_channel_index_ = 0;
@@ -1914,12 +1978,12 @@ void MeshtasticPhoneCore::enqueueQueueStatus(uint32_t packet_id, bool ok)
 void MeshtasticPhoneCore::enqueueConfigSnapshot(uint32_t config_nonce)
 {
     ++config_request_seq_;
-    config_flow_active_ = true;
     config_nonce_ = config_nonce;
     config_node_index_ = 0;
     config_channel_index_ = 0;
     config_type_index_ = 0;
     config_module_type_index_ = 0;
+    setPhoneApiPhase(PhoneApiPhase::ConfigFlow, "want_config");
     if (config_lifecycle_hooks_)
     {
         config_lifecycle_hooks_->onConfigStart();
@@ -1936,6 +2000,13 @@ void MeshtasticPhoneCore::enqueueConfigSnapshot(uint32_t config_nonce)
 
 void MeshtasticPhoneCore::notifyFromNum(uint32_t from_num)
 {
+    if (phone_api_phase_ == PhoneApiPhase::SendNothing)
+    {
+        logDual("[BLE][mtcore][flow] from_num defer phase=%s source=%08lX\n",
+                phoneApiPhaseName(phone_api_phase_),
+                static_cast<unsigned long>(from_num));
+        return;
+    }
     transport_.notifyFromNum(from_num);
 }
 

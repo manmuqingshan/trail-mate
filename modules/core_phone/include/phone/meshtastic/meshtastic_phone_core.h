@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 namespace phone::meshtastic
 {
@@ -157,6 +158,13 @@ class MeshtasticPhoneDeviceRuntimeHooks
 class MeshtasticPhoneCore
 {
   public:
+    enum class PhoneApiPhase : uint8_t
+    {
+        SendNothing,
+        ConfigFlow,
+        SendPackets,
+    };
+
     MeshtasticPhoneCore(IPhoneAppFacade& app, MeshtasticPhoneTransport& transport,
                         MeshtasticPhoneBluetoothConfigHooks* bluetooth_config_hooks = nullptr,
                         MeshtasticPhoneModuleConfigHooks* module_config_hooks = nullptr,
@@ -173,6 +181,7 @@ class MeshtasticPhoneCore
     bool popToPhone(MeshtasticBleFrame* out);
     bool isSendingPackets() const;
     bool isConfigFlowActive() const;
+    PhoneApiPhase phoneApiPhase() const;
 
   private:
     template <typename T, size_t Capacity>
@@ -275,6 +284,9 @@ class MeshtasticPhoneCore
     bool shouldProjectNodeInfo(chat::NodeId node_id, uint32_t signature);
     void enqueueQueueStatus(uint32_t packet_id, bool ok);
     void enqueueConfigSnapshot(uint32_t config_nonce);
+    void setPhoneApiPhase(PhoneApiPhase phase, const char* reason);
+    bool canHandleMqttProxy() const;
+    bool canEmitSteadyStateFrame() const;
     void notifyFromNum(uint32_t from_num);
     void fillMyInfo(meshtastic_MyNodeInfo* out) const;
     void fillSelfNodeInfo(meshtastic_NodeInfo* out) const;
@@ -316,8 +328,7 @@ class MeshtasticPhoneCore
     uint32_t from_radio_id_ = 0;
     uint8_t last_to_radio_[meshtastic_ToRadio_size] = {};
     size_t last_to_radio_len_ = 0;
-    bool config_flow_active_ = false;
-    bool config_drain_empty_pending_ = false;
+    PhoneApiPhase phone_api_phase_ = PhoneApiPhase::SendNothing;
     bool deferred_config_save_pending_ = false;
     bool deferred_module_config_save_pending_ = false;
     bool deferred_bluetooth_config_apply_pending_ = false;

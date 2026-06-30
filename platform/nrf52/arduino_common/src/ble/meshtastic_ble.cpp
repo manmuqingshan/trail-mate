@@ -9,7 +9,9 @@
 #include "platform/shared/ble/app_config_phone_snapshot_bridge.h"
 #include "platform/shared/ble/meshtastic_phone_runtime_bridge.h"
 
+#include <Adafruit_LittleFS.h>
 #include <Arduino.h>
+#include <InternalFileSystem.h>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -20,6 +22,11 @@ namespace
 {
 constexpr uint32_t kDefaultBleFixedPin = 654321;
 constexpr uint32_t kConfigSaveDebounceMs = 1500UL;
+constexpr uint32_t kBleIdleStateLogIntervalMs = 10000UL;
+constexpr uint32_t kDirectedAdvertisingMs = 3000UL;
+constexpr uint8_t kFromRadioEmptyInactive = 1;
+constexpr uint8_t kFromRadioEmptyNoFrame = 2;
+constexpr uint8_t kFromRadioEmptyInvalidFrame = 3;
 
 bool usbSerialWritable(std::size_t len)
 {
@@ -60,6 +67,158 @@ uint32_t parsePasskeyDigits(const uint8_t passkey[6])
     return static_cast<uint32_t>(std::strtoul(digits, nullptr, 10));
 }
 
+const char* bleAddressTypeName(uint8_t type)
+{
+    switch (type)
+    {
+    case BLE_GAP_ADDR_TYPE_PUBLIC:
+        return "public";
+    case BLE_GAP_ADDR_TYPE_RANDOM_STATIC:
+        return "random_static";
+    case BLE_GAP_ADDR_TYPE_RANDOM_PRIVATE_RESOLVABLE:
+        return "private_resolvable";
+    case BLE_GAP_ADDR_TYPE_RANDOM_PRIVATE_NON_RESOLVABLE:
+        return "private_non_resolvable";
+    default:
+        return "unknown";
+    }
+}
+
+void formatBleAddress(const ble_gap_addr_t& addr, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "%02X:%02X:%02X:%02X:%02X:%02X",
+                  addr.addr[5],
+                  addr.addr[4],
+                  addr.addr[3],
+                  addr.addr[2],
+                  addr.addr[1],
+                  addr.addr[0]);
+}
+
+bool isEmptyBleAddress(const ble_gap_addr_t& addr)
+{
+    for (uint8_t byte : addr.addr)
+    {
+        if (byte != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isIdentityBleAddressType(uint8_t type)
+{
+    return type == BLE_GAP_ADDR_TYPE_PUBLIC || type == BLE_GAP_ADDR_TYPE_RANDOM_STATIC;
+}
+
+bool loadFirstPeripheralBondPeer(ble_gap_addr_t* out)
+{
+    if (!out)
+    {
+        return false;
+    }
+
+    namespace lfs = Adafruit_LittleFS_Namespace;
+    lfs::File dir(BOND_DIR_PRPH, lfs::FILE_O_READ, InternalFS);
+    if (!dir)
+    {
+        return false;
+    }
+
+    lfs::File file(InternalFS);
+    while ((file = dir.openNextFile(lfs::FILE_O_READ)))
+    {
+        if (file.isDirectory())
+        {
+            file.close();
+            continue;
+        }
+
+        const int key_len = file.read();
+        if (key_len == static_cast<int>(sizeof(bond_keys_t)))
+        {
+            bond_keys_t keys{};
+            const int read_len = file.read(reinterpret_cast<uint8_t*>(&keys), sizeof(keys));
+            const ble_gap_addr_t peer = keys.peer_id.id_addr_info;
+            if (read_len == static_cast<int>(sizeof(keys)) && isIdentityBleAddressType(peer.addr_type) &&
+                !isEmptyBleAddress(peer))
+            {
+                *out = peer;
+                char peer_addr_text[24] = {};
+                formatBleAddress(peer, peer_addr_text, sizeof(peer_addr_text));
+                bleLogBoth("[BLE][nrf52][mt] bond peer recovered file=%s peer=%s type=%s(0x%02X)",
+                           file.name(),
+                           peer_addr_text,
+                           bleAddressTypeName(peer.addr_type),
+                           static_cast<unsigned>(peer.addr_type));
+                file.close();
+                dir.close();
+                return true;
+            }
+        }
+
+        file.close();
+    }
+
+    dir.close();
+    return false;
+}
+
+const char* disconnectReasonName(uint8_t reason)
+{
+    switch (reason)
+    {
+    case BLE_HCI_STATUS_CODE_SUCCESS:
+        return "success";
+    case BLE_HCI_STATUS_CODE_UNKNOWN_CONNECTION_IDENTIFIER:
+        return "unknown_connection";
+    case BLE_HCI_AUTHENTICATION_FAILURE:
+        return "auth_failure";
+    case BLE_HCI_STATUS_CODE_PIN_OR_KEY_MISSING:
+        return "pin_or_key_missing";
+    case BLE_HCI_CONNECTION_TIMEOUT:
+        return "connection_timeout";
+    case BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION:
+        return "remote_user";
+    case BLE_HCI_REMOTE_DEV_TERMINATION_DUE_TO_LOW_RESOURCES:
+        return "remote_low_resources";
+    case BLE_HCI_REMOTE_DEV_TERMINATION_DUE_TO_POWER_OFF:
+        return "remote_power_off";
+    case BLE_HCI_LOCAL_HOST_TERMINATED_CONNECTION:
+        return "local_host";
+    case BLE_HCI_CONN_INTERVAL_UNACCEPTABLE:
+        return "interval_unacceptable";
+    case BLE_HCI_CONN_TERMINATED_DUE_TO_MIC_FAILURE:
+        return "mic_failure";
+    case BLE_HCI_CONN_FAILED_TO_BE_ESTABLISHED:
+        return "failed_to_establish";
+    default:
+        return "unknown";
+    }
+}
+
+const char* fromRadioEmptyReasonName(uint8_t reason)
+{
+    switch (reason)
+    {
+    case kFromRadioEmptyInactive:
+        return "inactive";
+    case kFromRadioEmptyNoFrame:
+        return "no_frame";
+    case kFromRadioEmptyInvalidFrame:
+        return "invalid_frame";
+    default:
+        return "unknown";
+    }
+}
+
 MeshtasticBleService* s_active_service = nullptr;
 
 void onBleConnect(uint16_t conn_handle)
@@ -70,13 +229,13 @@ void onBleConnect(uint16_t conn_handle)
     }
 }
 
-void onBleDisconnect(uint16_t conn_handle, uint8_t)
+void onBleDisconnect(uint16_t conn_handle, uint8_t reason)
 {
     if (!s_active_service)
     {
         return;
     }
-    s_active_service->handleDisconnectEvent(conn_handle);
+    s_active_service->handleDisconnectEvent(conn_handle, reason);
 }
 
 bool onPairPasskeyDisplay(uint16_t conn_handle, uint8_t const passkey[6], bool match_request)
@@ -109,29 +268,65 @@ void prepareBluefruit(const std::string& device_name)
     bleLogBoth("[BLE][nrf52][mt] bluefruit begin name=%s", device_name.c_str());
     Bluefruit.autoConnLed(false);
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-    Bluefruit.begin();
+    Bluefruit.begin(1, 0);
+    Bluefruit.setTxPower(4);
     Bluefruit.setName(device_name.c_str());
     Bluefruit.Periph.setConnectCallback(onBleConnect);
     Bluefruit.Periph.setDisconnectCallback(onBleDisconnect);
-    bleLogBoth("[BLE][nrf52][mt] bluefruit ready");
+    const ble_gap_addr_t own_addr = Bluefruit.getAddr();
+    char own_addr_text[24] = {};
+    formatBleAddress(own_addr, own_addr_text, sizeof(own_addr_text));
+    bleLogBoth("[BLE][nrf52][mt] bluefruit ready own=%s type=%s(0x%02X) tx_power=%d name=%s",
+               own_addr_text,
+               bleAddressTypeName(own_addr.addr_type),
+               static_cast<unsigned>(own_addr.addr_type),
+               static_cast<int>(Bluefruit.getTxPower()),
+               device_name.c_str());
 }
 
-void startAdvertising(::BLEService& service)
+bool startAdvertising(::BLEService& service, const ble_gap_addr_t* directed_peer)
 {
     (void)service;
+    const bool directed = directed_peer && isIdentityBleAddressType(directed_peer->addr_type) &&
+                          !isEmptyBleAddress(*directed_peer);
+    char peer_addr_text[24] = {};
+    if (directed)
+    {
+        formatBleAddress(*directed_peer, peer_addr_text, sizeof(peer_addr_text));
+    }
+
     Bluefruit.Advertising.stop();
     Bluefruit.Advertising.clearData();
     Bluefruit.ScanResponse.clearData();
+    Bluefruit.Advertising.setInterval(32, 244);
+    Bluefruit.Advertising.setFastTimeout(30);
+    if (directed)
+    {
+        Bluefruit.Advertising.setType(BLE_GAP_ADV_TYPE_CONNECTABLE_NONSCANNABLE_DIRECTED);
+        Bluefruit.Advertising.setPeerAddress(*directed_peer);
+        Bluefruit.Advertising.restartOnDisconnect(false);
+        const bool ok = Bluefruit.Advertising.start(kDirectedAdvertisingMs / 1000UL);
+        bleLogBoth("[BLE][nrf52][mt] advertising mode=directed peer=%s type=%s(0x%02X) running=%u ok=%u window_ms=%lu",
+                   peer_addr_text,
+                   bleAddressTypeName(directed_peer->addr_type),
+                   static_cast<unsigned>(directed_peer->addr_type),
+                   Bluefruit.Advertising.isRunning() ? 1U : 0U,
+                   ok ? 1U : 0U,
+                   static_cast<unsigned long>(kDirectedAdvertisingMs));
+        return ok;
+    }
+
+    Bluefruit.Advertising.setType(BLE_GAP_ADV_TYPE_CONNECTABLE_SCANNABLE_UNDIRECTED);
     Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+    Bluefruit.Advertising.addTxPower();
     Bluefruit.Advertising.addService(service);
     Bluefruit.ScanResponse.addName();
-    Bluefruit.ScanResponse.addTxPower();
     Bluefruit.Advertising.restartOnDisconnect(true);
-    Bluefruit.Advertising.setInterval(32, 668);
-    Bluefruit.Advertising.setFastTimeout(30);
-    Bluefruit.Advertising.start(0);
-    bleLogBoth("[BLE][nrf52][mt] advertising started running=%u",
-               Bluefruit.Advertising.isRunning() ? 1U : 0U);
+    const bool ok = Bluefruit.Advertising.start(0);
+    bleLogBoth("[BLE][nrf52][mt] advertising mode=undirected running=%u ok=%u restart=1 interval=32..244 fast_timeout_s=30",
+               Bluefruit.Advertising.isRunning() ? 1U : 0U,
+               ok ? 1U : 0U);
+    return ok;
 }
 
 void disconnectAll()
@@ -255,13 +450,14 @@ MeshtasticBleService::~MeshtasticBleService()
 
 void MeshtasticBleService::logFromRadioState(const char* tag) const
 {
-    bleLogBoth("[BLE][nrf52][mt] fromRadio tag=%s pending_from_num=%d "
-               "notify_enabled=%d connected=%d config_active=%d",
+    bleLogBoth("[BLE][nrf52][mt] fromRadio tag=%s pending_from_num=%u "
+               "notify_enabled=%d connected=%d config_active=%d send_packets=%d",
                tag ? tag : "?",
-               pending_from_num_valid_ ? 1 : 0,
+               static_cast<unsigned>(pending_from_num_count_),
                from_num_notify_enabled_ ? 1 : 0,
                connected_ ? 1 : 0,
-               (phone_session_ && phone_session_->isConfigFlowActive()) ? 1 : 0);
+               (phone_session_ && phone_session_->isConfigFlowActive()) ? 1 : 0,
+               (phone_session_ && phone_session_->isSendingPackets()) ? 1 : 0);
 }
 
 void MeshtasticBleService::start()
@@ -273,8 +469,6 @@ void MeshtasticBleService::start()
     pending_to_radio_tail_ = 0;
     pending_to_radio_count_ = 0;
     clearToPhoneQueue();
-    pending_from_num_valid_ = false;
-    pending_from_num_ = 0;
     pending_connect_log_ = false;
     pending_disconnect_log_ = false;
     pending_from_num_cccd_log_ = false;
@@ -282,11 +476,18 @@ void MeshtasticBleService::start()
     pending_secured_log_ = false;
     pending_from_radio_read_log_ = false;
     pending_from_radio_empty_log_ = false;
+    pending_from_radio_empty_reason_ = 0;
+    pending_disconnect_reason_ = 0;
     pairing_request_pending_ = false;
     pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
+    directed_advertising_active_ = false;
+    directed_advertising_attempted_ = false;
+    directed_advertising_until_ms_ = 0;
     last_ble_activity_ms_ = millis();
+    next_ble_idle_log_ms_ = last_ble_activity_ms_ + 3000UL;
 
     prepareBluefruit(device_name_);
+    loadRememberedPhonePeer();
     applyBleSecurity();
 
     service_.begin();
@@ -329,7 +530,7 @@ void MeshtasticBleService::start()
         observer_bridge_->registerObservers();
     }
 
-    startAdvertising(service_);
+    startPhoneAdvertising(true);
     active_ = true;
     pending_passkey_.store(0);
     syncMqttProxySettings();
@@ -360,8 +561,6 @@ void MeshtasticBleService::stop()
     pending_to_radio_tail_ = 0;
     pending_to_radio_count_ = 0;
     clearToPhoneQueue();
-    pending_from_num_valid_ = false;
-    pending_from_num_ = 0;
     pending_connect_log_ = false;
     pending_disconnect_log_ = false;
     pending_from_num_cccd_log_ = false;
@@ -369,8 +568,14 @@ void MeshtasticBleService::stop()
     pending_secured_log_ = false;
     pending_from_radio_read_log_ = false;
     pending_from_radio_empty_log_ = false;
+    pending_from_radio_empty_reason_ = 0;
+    pending_disconnect_reason_ = 0;
     pairing_request_pending_ = false;
     pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
+    directed_advertising_active_ = false;
+    directed_advertising_attempted_ = false;
+    directed_advertising_until_ms_ = 0;
+    next_ble_idle_log_ms_ = 0;
     if (s_active_service == this)
     {
         s_active_service = nullptr;
@@ -397,27 +602,78 @@ void MeshtasticBleService::update()
     logDeferredBleEvents();
     flushPendingConfigSaves(false);
 
+    const uint32_t now_ms = millis();
+    if (!connected_ && remembered_phone_peer_valid_ && !directed_advertising_attempted_)
+    {
+        startPhoneAdvertising(true);
+    }
+
+    if (directed_advertising_active_ && !connected_ &&
+        static_cast<int32_t>(now_ms - directed_advertising_until_ms_) >= 0)
+    {
+        bleLogBoth("[BLE][nrf52][mt] directed advertising window elapsed; fallback to undirected");
+        startPhoneAdvertising(false);
+    }
+
     if (!Bluefruit.connected() && !Bluefruit.Advertising.isRunning())
     {
-        Bluefruit.Advertising.start(0);
-        bleLogBoth("[BLE][nrf52][mt] advertising restarted");
+        startPhoneAdvertising(!directed_advertising_attempted_);
+    }
+
+    if (!connected_ && static_cast<int32_t>(now_ms - next_ble_idle_log_ms_) >= 0)
+    {
+        const ble_gap_addr_t own_addr = Bluefruit.getAddr();
+        char own_addr_text[24] = {};
+        formatBleAddress(own_addr, own_addr_text, sizeof(own_addr_text));
+        char peer_addr_text[24] = {};
+        if (remembered_phone_peer_valid_)
+        {
+            formatBleAddress(remembered_phone_peer_, peer_addr_text, sizeof(peer_addr_text));
+        }
+        bleLogBoth("[BLE][nrf52][mt] idle connected=%u adv=%u directed=%u directed_tried=%u own=%s type=%s peer=%s peer_type=%s peer_bonded=%u notify=%u cfg=%u send=%u name=%s",
+                   connected_ ? 1U : 0U,
+                   Bluefruit.Advertising.isRunning() ? 1U : 0U,
+                   directed_advertising_active_ ? 1U : 0U,
+                   directed_advertising_attempted_ ? 1U : 0U,
+                   own_addr_text,
+                   bleAddressTypeName(own_addr.addr_type),
+                   remembered_phone_peer_valid_ ? peer_addr_text : "-",
+                   remembered_phone_peer_valid_ ? bleAddressTypeName(remembered_phone_peer_.addr_type) : "-",
+                   remembered_phone_peer_bonded_ ? 1U : 0U,
+                   from_num_notify_enabled_ ? 1U : 0U,
+                   phone_session_ && phone_session_->isConfigFlowActive() ? 1U : 0U,
+                   phone_session_ && phone_session_->isSendingPackets() ? 1U : 0U,
+                   device_name_.c_str());
+        next_ble_idle_log_ms_ = now_ms + kBleIdleStateLogIntervalMs;
     }
 }
 
 void MeshtasticBleService::handleIncomingTextFromApp(const chat::MeshIncomingText& msg)
 {
+    if (!phone_session_ || !connected_)
+    {
+        bleLogBoth("[BLE][nrf52][mt] phone projection skip kind=text reason=not-connected from=%08lX id=%08lX",
+                   static_cast<unsigned long>(msg.from),
+                   static_cast<unsigned long>(msg.msg_id));
+        return;
+    }
+
     if (phone_session_)
     {
         phone_session_->onIncomingText(msg);
-        if (phone_session_->isSendingPackets())
-        {
-            notifyFromNum(0);
-        }
     }
 }
 
 void MeshtasticBleService::handleOutgoingTextFromApp(const chat::MeshIncomingText& msg)
 {
+    if (!phone_session_ || !connected_)
+    {
+        bleLogBoth("[BLE][nrf52][mt] phone projection skip kind=local_text reason=not-connected from=%08lX id=%08lX",
+                   static_cast<unsigned long>(msg.from),
+                   static_cast<unsigned long>(msg.msg_id));
+        return;
+    }
+
     if (phone_session_)
     {
         Serial2.printf("[BLE][nrf52][mt] local text mirror id=%08lX from=%08lX to=%08lX len=%u\n",
@@ -426,15 +682,22 @@ void MeshtasticBleService::handleOutgoingTextFromApp(const chat::MeshIncomingTex
                        static_cast<unsigned long>(msg.to),
                        static_cast<unsigned>(msg.text.size()));
         phone_session_->onIncomingText(msg);
-        if (phone_session_->isSendingPackets())
-        {
-            notifyFromNum(0);
-        }
     }
 }
 
 void MeshtasticBleService::handleIncomingDataFromApp(const chat::MeshIncomingData& msg)
 {
+    if (!phone_session_ || !connected_)
+    {
+        bleLogBoth("[BLE][nrf52][mt] phone projection skip kind=data reason=not-connected from=%08lX to=%08lX pkt=%08lX port=%u len=%u",
+                   static_cast<unsigned long>(msg.from),
+                   static_cast<unsigned long>(msg.to),
+                   static_cast<unsigned long>(msg.packet_id),
+                   static_cast<unsigned>(msg.portnum),
+                   static_cast<unsigned>(msg.payload.size()));
+        return;
+    }
+
     if (phone_session_)
     {
         bleLogBoth("[BLE][nrf52][mt] onIncomingData from=%08lX to=%08lX pkt=%08lX port=%u len=%u",
@@ -444,10 +707,6 @@ void MeshtasticBleService::handleIncomingDataFromApp(const chat::MeshIncomingDat
                    static_cast<unsigned>(msg.portnum),
                    static_cast<unsigned>(msg.payload.size()));
         phone_session_->onIncomingData(msg);
-        if (phone_session_->isSendingPackets())
-        {
-            notifyFromNum(0);
-        }
     }
 }
 
@@ -464,10 +723,19 @@ void MeshtasticBleService::setDeviceName(const std::string& name)
 bool MeshtasticBleService::handleToRadio(const uint8_t* data, size_t len)
 {
     last_ble_activity_ms_ = millis();
-    Serial2.printf("[BLE][nrf52][mt] handleToRadio len=%u connected=%u\n",
+    const bool config_before = phone_session_ && phone_session_->isConfigFlowActive();
+    const bool send_before = phone_session_ && phone_session_->isSendingPackets();
+    const bool ok = phone_session_ ? phone_session_->handleToRadio(data, len) : false;
+    Serial2.printf("[BLE][nrf52][mt] handleToRadio len=%u ok=%u connected=%u notify=%u config=%u->%u send=%u->%u\n",
                    static_cast<unsigned>(len),
-                   connected_ ? 1U : 0U);
-    return phone_session_ ? phone_session_->handleToRadio(data, len) : false;
+                   ok ? 1U : 0U,
+                   connected_ ? 1U : 0U,
+                   from_num_notify_enabled_ ? 1U : 0U,
+                   config_before ? 1U : 0U,
+                   (phone_session_ && phone_session_->isConfigFlowActive()) ? 1U : 0U,
+                   send_before ? 1U : 0U,
+                   (phone_session_ && phone_session_->isSendingPackets()) ? 1U : 0U);
+    return ok;
 }
 
 bool MeshtasticBleService::writeNextFromRadioForRead()
@@ -477,6 +745,7 @@ bool MeshtasticBleService::writeNextFromRadioForRead()
     {
         from_radio_.write(&empty, 0);
         pending_from_radio_empty_log_ = true;
+        pending_from_radio_empty_reason_ = kFromRadioEmptyInactive;
         return false;
     }
 
@@ -486,6 +755,7 @@ bool MeshtasticBleService::writeNextFromRadioForRead()
     {
         from_radio_.write(&empty, 0);
         pending_from_radio_empty_log_ = true;
+        pending_from_radio_empty_reason_ = kFromRadioEmptyNoFrame;
         return false;
     }
 
@@ -497,6 +767,7 @@ bool MeshtasticBleService::writeNextFromRadioForRead()
                    static_cast<unsigned>(meshtastic_FromRadio_size));
         from_radio_.write(&empty, 0);
         pending_from_radio_empty_log_ = true;
+        pending_from_radio_empty_reason_ = kFromRadioEmptyInvalidFrame;
         return false;
     }
 
@@ -504,9 +775,12 @@ bool MeshtasticBleService::writeNextFromRadioForRead()
     pending_from_radio_read_len_ = static_cast<uint16_t>(session_frame.len);
     pending_from_radio_read_from_num_ = session_frame.from_num;
     pending_from_radio_read_log_ = true;
-    if (pending_from_num_valid_ && pending_from_num_ == session_frame.from_num)
+    if (pending_from_num_count_ > 0 &&
+        pending_from_num_[pending_from_num_head_] == session_frame.from_num)
     {
-        pending_from_num_valid_ = false;
+        pending_from_num_head_ =
+            static_cast<uint8_t>((pending_from_num_head_ + 1U) % kPendingFromNumCapacity);
+        --pending_from_num_count_;
     }
     bleLogBoth("[BLE][nrf52][mt][flow] from_radio authorize frame from_num=%08lX len=%u",
                static_cast<unsigned long>(session_frame.from_num),
@@ -574,27 +848,194 @@ void MeshtasticBleService::processPendingPairingRequest()
 
 void MeshtasticBleService::clearToPhoneQueue()
 {
-    from_num_notify_counter_ = 0;
+    pending_from_num_head_ = 0;
+    pending_from_num_tail_ = 0;
+    pending_from_num_count_ = 0;
     session_frame_scratch_ = phone::meshtastic::MeshtasticBleFrame{};
+}
+
+void MeshtasticBleService::loadRememberedPhonePeer()
+{
+    MeshtasticBlePeerIdentity stored{};
+    bool from_bond_store = false;
+    if (!loadMeshtasticBlePeerIdentity(&stored))
+    {
+        ble_gap_addr_t bonded_peer{};
+        if (!loadFirstPeripheralBondPeer(&bonded_peer))
+        {
+            bleLogBoth("[BLE][nrf52][mt] remembered peer load none");
+            return;
+        }
+
+        stored.addr_type = bonded_peer.addr_type;
+        stored.bonded = 1;
+        std::memcpy(stored.addr, bonded_peer.addr, sizeof(stored.addr));
+        from_bond_store = true;
+    }
+
+    ble_gap_addr_t peer{};
+    peer.addr_type = stored.addr_type;
+    std::memcpy(peer.addr, stored.addr, sizeof(peer.addr));
+    if (!isIdentityBleAddressType(peer.addr_type) || isEmptyBleAddress(peer))
+    {
+        char peer_addr_text[24] = {};
+        formatBleAddress(peer, peer_addr_text, sizeof(peer_addr_text));
+        bleLogBoth("[BLE][nrf52][mt] remembered peer ignored peer=%s type=%s(0x%02X)",
+                   peer_addr_text,
+                   bleAddressTypeName(peer.addr_type),
+                   static_cast<unsigned>(peer.addr_type));
+        return;
+    }
+
+    remembered_phone_peer_ = peer;
+    remembered_phone_peer_valid_ = true;
+    remembered_phone_peer_bonded_ = stored.bonded != 0;
+    char peer_addr_text[24] = {};
+    formatBleAddress(remembered_phone_peer_, peer_addr_text, sizeof(peer_addr_text));
+    if (from_bond_store)
+    {
+        const bool saved = saveMeshtasticBlePeerIdentity(stored);
+        bleLogBoth("[BLE][nrf52][mt] remembered peer persisted from bond saved=%u",
+                   saved ? 1U : 0U);
+    }
+    bleLogBoth("[BLE][nrf52][mt] remembered peer loaded source=%s peer=%s type=%s(0x%02X) bonded=%u",
+               from_bond_store ? "bond" : "settings",
+               peer_addr_text,
+               bleAddressTypeName(remembered_phone_peer_.addr_type),
+               static_cast<unsigned>(remembered_phone_peer_.addr_type),
+               remembered_phone_peer_bonded_ ? 1U : 0U);
+}
+
+void MeshtasticBleService::rememberPhonePeer(uint16_t conn_handle, const char* reason)
+{
+    BLEConnection* connection = Bluefruit.Connection(conn_handle);
+    if (!connection)
+    {
+        bleLogBoth("[BLE][nrf52][mt] remember peer skipped reason=%s conn=%u unavailable",
+                   reason ? reason : "?",
+                   static_cast<unsigned>(conn_handle));
+        return;
+    }
+
+    const ble_gap_addr_t peer = connection->getPeerAddr();
+    char peer_addr_text[24] = {};
+    formatBleAddress(peer, peer_addr_text, sizeof(peer_addr_text));
+    if (!isIdentityBleAddressType(peer.addr_type) || isEmptyBleAddress(peer))
+    {
+        bleLogBoth("[BLE][nrf52][mt] remember peer skipped reason=%s peer=%s type=%s(0x%02X) bonded=%u secured=%u",
+                   reason ? reason : "?",
+                   peer_addr_text,
+                   bleAddressTypeName(peer.addr_type),
+                   static_cast<unsigned>(peer.addr_type),
+                   connection->bonded() ? 1U : 0U,
+                   connection->secured() ? 1U : 0U);
+        return;
+    }
+
+    const bool bonded = connection->bonded();
+    const bool unchanged = remembered_phone_peer_valid_ &&
+                           remembered_phone_peer_.addr_type == peer.addr_type &&
+                           std::memcmp(remembered_phone_peer_.addr, peer.addr, sizeof(peer.addr)) == 0 &&
+                           remembered_phone_peer_bonded_ == bonded;
+
+    remembered_phone_peer_ = peer;
+    remembered_phone_peer_valid_ = true;
+    remembered_phone_peer_bonded_ = bonded;
+    if (unchanged)
+    {
+        bleLogBoth("[BLE][nrf52][mt] remembered peer unchanged reason=%s peer=%s type=%s(0x%02X) bonded=%u",
+                   reason ? reason : "?",
+                   peer_addr_text,
+                   bleAddressTypeName(peer.addr_type),
+                   static_cast<unsigned>(peer.addr_type),
+                   bonded ? 1U : 0U);
+        return;
+    }
+
+    MeshtasticBlePeerIdentity stored{};
+    stored.addr_type = peer.addr_type;
+    stored.bonded = bonded ? 1U : 0U;
+    std::memcpy(stored.addr, peer.addr, sizeof(stored.addr));
+    const bool saved = saveMeshtasticBlePeerIdentity(stored);
+    bleLogBoth("[BLE][nrf52][mt] remembered peer saved=%u reason=%s peer=%s type=%s(0x%02X) bonded=%u secured=%u",
+               saved ? 1U : 0U,
+               reason ? reason : "?",
+               peer_addr_text,
+               bleAddressTypeName(peer.addr_type),
+               static_cast<unsigned>(peer.addr_type),
+               bonded ? 1U : 0U,
+               connection->secured() ? 1U : 0U);
+}
+
+void MeshtasticBleService::startPhoneAdvertising(bool prefer_directed)
+{
+    const uint32_t now_ms = millis();
+    if (prefer_directed && remembered_phone_peer_valid_ && !directed_advertising_attempted_)
+    {
+        directed_advertising_attempted_ = true;
+        if (startAdvertising(service_, &remembered_phone_peer_))
+        {
+            directed_advertising_active_ = true;
+            directed_advertising_until_ms_ = now_ms + kDirectedAdvertisingMs;
+            return;
+        }
+
+        bleLogBoth("[BLE][nrf52][mt] directed advertising failed; fallback to undirected");
+    }
+
+    directed_advertising_active_ = false;
+    directed_advertising_until_ms_ = 0;
+    (void)startAdvertising(service_, nullptr);
 }
 
 void MeshtasticBleService::handleConnectEvent(uint16_t conn_handle)
 {
     connected_ = true;
     conn_handle_ = conn_handle;
+    directed_advertising_active_ = false;
+    directed_advertising_attempted_ = false;
+    directed_advertising_until_ms_ = 0;
     last_ble_activity_ms_ = millis();
     from_num_notify_enabled_ = false;
+    if (phone_session_)
+    {
+        phone_session_->close();
+    }
     clearToPhoneQueue();
     pairing_request_pending_ = true;
     pending_pairing_conn_handle_ = conn_handle;
     pending_connect_conn_handle_ = conn_handle;
     pending_connect_log_ = true;
-    bleLogBoth("[BLE][nrf52][mt][flow] link-up conn=%u adv=%u",
-               static_cast<unsigned>(conn_handle),
-               Bluefruit.Advertising.isRunning() ? 1U : 0U);
+
+    char peer_addr_text[24] = {};
+    BLEConnection* connection = Bluefruit.Connection(conn_handle);
+    if (connection)
+    {
+        const ble_gap_addr_t peer_addr = connection->getPeerAddr();
+        formatBleAddress(peer_addr, peer_addr_text, sizeof(peer_addr_text));
+        bleLogBoth("[BLE][nrf52][mt][flow] link-up conn=%u adv=%u peer=%s type=%s(0x%02X) bonded=%u secured=%u mtu=%u interval=%u latency=%u timeout=%u",
+                   static_cast<unsigned>(conn_handle),
+                   Bluefruit.Advertising.isRunning() ? 1U : 0U,
+                   peer_addr_text,
+                   bleAddressTypeName(peer_addr.addr_type),
+                   static_cast<unsigned>(peer_addr.addr_type),
+                   connection->bonded() ? 1U : 0U,
+                   connection->secured() ? 1U : 0U,
+                   static_cast<unsigned>(connection->getMtu()),
+                   static_cast<unsigned>(connection->getConnectionInterval()),
+                   static_cast<unsigned>(connection->getSlaveLatency()),
+                   static_cast<unsigned>(connection->getSupervisionTimeout()));
+    }
+    else
+    {
+        bleLogBoth("[BLE][nrf52][mt][flow] link-up conn=%u adv=%u peer=unavailable",
+                   static_cast<unsigned>(conn_handle),
+                   Bluefruit.Advertising.isRunning() ? 1U : 0U);
+    }
+    rememberPhonePeer(conn_handle, "connect");
 }
 
-void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle)
+void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle, uint8_t reason)
 {
     connected_ = false;
     from_num_notify_enabled_ = false;
@@ -612,7 +1053,16 @@ void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle)
     pairing_request_pending_ = false;
     pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     pending_disconnect_conn_handle_ = conn_handle;
+    pending_disconnect_reason_ = reason;
     pending_disconnect_log_ = true;
+    directed_advertising_active_ = false;
+    directed_advertising_attempted_ = false;
+    directed_advertising_until_ms_ = 0;
+    bleLogBoth("[BLE][nrf52][mt][flow] link-down conn=%u reason=0x%02X(%s) adv=%u",
+               static_cast<unsigned>(conn_handle),
+               static_cast<unsigned>(reason),
+               disconnectReasonName(reason),
+               Bluefruit.Advertising.isRunning() ? 1U : 0U);
     flushPendingConfigSaves(true);
 }
 
@@ -644,6 +1094,14 @@ void MeshtasticBleService::handlePairComplete(uint16_t conn_handle, uint8_t auth
     pending_pair_complete_conn_handle_ = conn_handle;
     pending_pair_complete_status_ = auth_status;
     pending_pair_complete_log_ = true;
+    bleLogBoth("[BLE][nrf52][mt][flow] pair-complete conn=%u status=0x%02X(%s)",
+               static_cast<unsigned>(conn_handle),
+               static_cast<unsigned>(auth_status),
+               disconnectReasonName(auth_status));
+    if (auth_status == BLE_GAP_SEC_STATUS_SUCCESS)
+    {
+        rememberPhonePeer(conn_handle, "pair");
+    }
 }
 
 void MeshtasticBleService::handleSecured(uint16_t conn_handle)
@@ -651,6 +1109,13 @@ void MeshtasticBleService::handleSecured(uint16_t conn_handle)
     pending_passkey_.store(0);
     pending_secured_conn_handle_ = conn_handle;
     pending_secured_log_ = true;
+    BLEConnection* connection = Bluefruit.Connection(conn_handle);
+    bleLogBoth("[BLE][nrf52][mt][flow] secured conn=%u bonded=%u secured=%u mtu=%u",
+               static_cast<unsigned>(conn_handle),
+               connection && connection->bonded() ? 1U : 0U,
+               connection && connection->secured() ? 1U : 0U,
+               connection ? static_cast<unsigned>(connection->getMtu()) : 0U);
+    rememberPhonePeer(conn_handle, "secured");
 }
 
 bool MeshtasticBleService::getPairingStatus(BlePairingStatus* out) const
@@ -713,23 +1178,40 @@ void MeshtasticBleService::onPhoneModuleConfigChanged()
 
 void MeshtasticBleService::notifyFromNum(uint32_t from_num)
 {
-    pending_from_num_ = from_num;
-    pending_from_num_valid_ = true;
-    bleLogBoth("[BLE][nrf52][mt][flow] from_num pending source=%08lX", static_cast<unsigned long>(from_num));
+    bool dropped = false;
+    if (pending_from_num_count_ >= kPendingFromNumCapacity)
+    {
+        pending_from_num_head_ =
+            static_cast<uint8_t>((pending_from_num_head_ + 1U) % kPendingFromNumCapacity);
+        --pending_from_num_count_;
+        dropped = true;
+    }
+
+    pending_from_num_[pending_from_num_tail_] = from_num;
+    pending_from_num_tail_ =
+        static_cast<uint8_t>((pending_from_num_tail_ + 1U) % kPendingFromNumCapacity);
+    ++pending_from_num_count_;
+
+    bleLogBoth("[BLE][nrf52][mt][flow] from_num pending source=%08lX depth=%u dropped=%u",
+               static_cast<unsigned long>(from_num),
+               static_cast<unsigned>(pending_from_num_count_),
+               dropped ? 1U : 0U);
 }
 
 void MeshtasticBleService::flushPendingFromNumNotify()
 {
-    if (!pending_from_num_valid_)
+    if (pending_from_num_count_ == 0)
     {
         return;
     }
 
-    const uint32_t from_num = pending_from_num_;
+    const uint32_t from_num = pending_from_num_[pending_from_num_head_];
 
     if (!active_ || !connected_)
     {
-        pending_from_num_valid_ = false;
+        pending_from_num_head_ = 0;
+        pending_from_num_tail_ = 0;
+        pending_from_num_count_ = 0;
         bleLogBoth("[BLE][nrf52][mt][flow] from_num skip=%08lX reason=inactive active=%u connected=%u",
                    static_cast<unsigned long>(from_num),
                    active_ ? 1U : 0U,
@@ -746,24 +1228,31 @@ void MeshtasticBleService::flushPendingFromNumNotify()
         return;
     }
 
-    pending_from_num_valid_ = false;
-    uint32_t notify_value = ++from_num_notify_counter_;
-    if (notify_value == 0)
-    {
-        notify_value = ++from_num_notify_counter_;
-    }
-    from_num_.write32(notify_value);
-    const bool ok = from_num_.notify32(conn_handle_, notify_value);
+    from_num_.write32(from_num);
+    const bool ok = from_num_.notify32(conn_handle_, from_num);
     bleLogBoth("[BLE][nrf52][mt][flow] from_num notify value=%08lX source=%08lX conn=%u ok=%u cccd=0x%04X",
-               static_cast<unsigned long>(notify_value),
+               static_cast<unsigned long>(from_num),
                static_cast<unsigned long>(from_num),
                static_cast<unsigned>(conn_handle_),
                ok ? 1U : 0U,
                static_cast<unsigned>(from_num_.getCccd(conn_handle_)));
+    if (ok)
+    {
+        pending_from_num_head_ =
+            static_cast<uint8_t>((pending_from_num_head_ + 1U) % kPendingFromNumCapacity);
+        --pending_from_num_count_;
+        return;
+    }
     if (!ok && Bluefruit.connected())
     {
-        const bool fallback_ok = from_num_.notify32(notify_value);
+        const bool fallback_ok = from_num_.notify32(from_num);
         bleLogBoth("[BLE][nrf52][mt][flow] from_num notify fallback ok=%u", fallback_ok ? 1U : 0U);
+        if (fallback_ok)
+        {
+            pending_from_num_head_ =
+                static_cast<uint8_t>((pending_from_num_head_ + 1U) % kPendingFromNumCapacity);
+            --pending_from_num_count_;
+        }
     }
 }
 
@@ -915,8 +1404,10 @@ void MeshtasticBleService::logDeferredBleEvents()
     if (pending_disconnect_log_)
     {
         pending_disconnect_log_ = false;
-        bleLogBoth("[BLE][nrf52][mt] disconnected conn=%u",
-                   static_cast<unsigned>(pending_disconnect_conn_handle_));
+        bleLogBoth("[BLE][nrf52][mt] disconnected conn=%u reason=0x%02X(%s)",
+                   static_cast<unsigned>(pending_disconnect_conn_handle_),
+                   static_cast<unsigned>(pending_disconnect_reason_),
+                   disconnectReasonName(pending_disconnect_reason_));
     }
 
     if (pending_from_num_cccd_log_)
@@ -931,8 +1422,9 @@ void MeshtasticBleService::logDeferredBleEvents()
     if (pending_pair_complete_log_)
     {
         pending_pair_complete_log_ = false;
-        bleLogBoth("[BLE][nrf52][mt] pair complete status=%u conn=%u",
+        bleLogBoth("[BLE][nrf52][mt] pair complete status=0x%02X(%s) conn=%u",
                    static_cast<unsigned>(pending_pair_complete_status_),
+                   disconnectReasonName(pending_pair_complete_status_),
                    static_cast<unsigned>(pending_pair_complete_conn_handle_));
     }
 
@@ -954,7 +1446,11 @@ void MeshtasticBleService::logDeferredBleEvents()
     if (pending_from_radio_empty_log_)
     {
         pending_from_radio_empty_log_ = false;
-        bleLogBoth("[BLE][nrf52][mt] from_radio read empty");
+        bleLogBoth("[BLE][nrf52][mt] from_radio read empty reason=%s config_active=%u send_packets=%u connected=%u",
+                   fromRadioEmptyReasonName(pending_from_radio_empty_reason_),
+                   (phone_session_ && phone_session_->isConfigFlowActive()) ? 1U : 0U,
+                   (phone_session_ && phone_session_->isSendingPackets()) ? 1U : 0U,
+                   connected_ ? 1U : 0U);
     }
 }
 

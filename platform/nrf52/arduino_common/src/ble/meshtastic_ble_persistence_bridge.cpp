@@ -23,7 +23,23 @@ namespace
 constexpr const char* kBleSettingsNamespace = "ble_meshtastic";
 constexpr const char* kBluetoothConfigKey = "bt_cfg";
 constexpr const char* kModuleConfigKey = "mod_cfg";
+constexpr const char* kPeerIdentityKey = "phone_peer";
 #endif
+constexpr uint32_t kPeerIdentityMagic = 0x544D4250UL;
+constexpr uint8_t kPeerIdentityVersion = 1;
+
+struct StoredPeerIdentity
+{
+    uint32_t magic = kPeerIdentityMagic;
+    uint8_t version = kPeerIdentityVersion;
+    uint8_t addr_type = 0;
+    uint8_t bonded = 0;
+    uint8_t reserved = 0;
+    uint8_t addr[6] = {};
+    uint8_t reserved2[2] = {};
+};
+
+static_assert(sizeof(StoredPeerIdentity) == 16, "Stored peer identity layout changed");
 
 bool usbSerialWritable(std::size_t len)
 {
@@ -125,6 +141,52 @@ bool saveMeshtasticBlePersistedState(const meshtastic_Config_BluetoothConfig& bl
     const bool bluetooth_ok = saveBlobConfigToUiStore(kBluetoothConfigKey, bluetooth);
     const bool module_ok = saveBlobConfigToUiStore(kModuleConfigKey, module);
     return bluetooth_ok && module_ok;
+#endif
+}
+
+bool loadMeshtasticBlePeerIdentity(MeshtasticBlePeerIdentity* out)
+{
+    if (!out)
+    {
+        return false;
+    }
+
+    *out = MeshtasticBlePeerIdentity{};
+
+#if defined(GAT562_MESH_EVB_PRO)
+    return false;
+#else
+    StoredPeerIdentity stored{};
+    if (!loadBlobConfigFromUiStore(kPeerIdentityKey, &stored))
+    {
+        return false;
+    }
+    if (stored.magic != kPeerIdentityMagic || stored.version != kPeerIdentityVersion)
+    {
+        blePersistenceLog("[BLE][nrf52][mt] peer store ignored magic=0x%08lX version=%u",
+                          static_cast<unsigned long>(stored.magic),
+                          static_cast<unsigned>(stored.version));
+        return false;
+    }
+
+    out->addr_type = stored.addr_type;
+    out->bonded = stored.bonded;
+    std::memcpy(out->addr, stored.addr, sizeof(out->addr));
+    return true;
+#endif
+}
+
+bool saveMeshtasticBlePeerIdentity(const MeshtasticBlePeerIdentity& peer)
+{
+#if defined(GAT562_MESH_EVB_PRO)
+    (void)peer;
+    return false;
+#else
+    StoredPeerIdentity stored{};
+    stored.addr_type = peer.addr_type;
+    stored.bonded = peer.bonded ? 1U : 0U;
+    std::memcpy(stored.addr, peer.addr, sizeof(stored.addr));
+    return saveBlobConfigToUiStore(kPeerIdentityKey, stored);
 #endif
 }
 

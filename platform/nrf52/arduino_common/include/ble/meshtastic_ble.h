@@ -47,7 +47,7 @@ class MeshtasticBleService final : public BleService,
     void flushPendingFromNumNotify();
     bool writeNextFromRadioForRead();
     void handleConnectEvent(uint16_t conn_handle);
-    void handleDisconnectEvent(uint16_t conn_handle);
+    void handleDisconnectEvent(uint16_t conn_handle, uint8_t reason);
     void handleFromNumCccdWrite(uint16_t conn_handle, uint16_t value);
     void handlePairPasskeyDisplay(uint16_t conn_handle, const uint8_t passkey[6], bool match_request);
     void handlePairComplete(uint16_t conn_handle, uint8_t auth_status);
@@ -81,6 +81,9 @@ class MeshtasticBleService final : public BleService,
     void requestPairingIfNeeded(uint16_t conn_handle);
     uint32_t effectivePasskey() const;
     void logDeferredBleEvents();
+    void loadRememberedPhonePeer();
+    void rememberPhonePeer(uint16_t conn_handle, const char* reason);
+    void startPhoneAdvertising(bool prefer_directed);
 
     meshtastic_Config_BluetoothConfig ble_config_ = meshtastic_Config_BluetoothConfig_init_zero;
     meshtastic_LocalModuleConfig module_config_ = meshtastic_LocalModuleConfig_init_zero;
@@ -107,14 +110,16 @@ class MeshtasticBleService final : public BleService,
     volatile uint8_t pending_to_radio_tail_ = 0;
     volatile uint8_t pending_to_radio_count_ = 0;
 
+    static constexpr uint8_t kPendingFromNumCapacity = 4;
+    uint32_t pending_from_num_[kPendingFromNumCapacity] = {};
+    uint8_t pending_from_num_head_ = 0;
+    uint8_t pending_from_num_tail_ = 0;
+    uint8_t pending_from_num_count_ = 0;
+
     volatile bool pairing_request_pending_ = false;
     volatile uint16_t pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
 
     phone::meshtastic::MeshtasticBleFrame session_frame_scratch_{};
-
-    bool pending_from_num_valid_ = false;
-    uint32_t pending_from_num_ = 0;
-    uint32_t from_num_notify_counter_ = 0;
 
     volatile bool pending_connect_log_ = false;
     volatile bool pending_disconnect_log_ = false;
@@ -124,6 +129,7 @@ class MeshtasticBleService final : public BleService,
 
     volatile uint16_t pending_connect_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     volatile uint16_t pending_disconnect_conn_handle_ = BLE_CONN_HANDLE_INVALID;
+    volatile uint8_t pending_disconnect_reason_ = 0;
     volatile uint16_t pending_from_num_cccd_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     volatile uint16_t pending_from_num_cccd_value_ = 0;
     volatile uint16_t pending_pair_complete_conn_handle_ = BLE_CONN_HANDLE_INVALID;
@@ -132,6 +138,7 @@ class MeshtasticBleService final : public BleService,
 
     volatile bool pending_from_radio_read_log_ = false;
     volatile bool pending_from_radio_empty_log_ = false;
+    volatile uint8_t pending_from_radio_empty_reason_ = 0;
     volatile uint32_t pending_from_radio_read_from_num_ = 0;
     volatile uint16_t pending_from_radio_read_len_ = 0;
 
@@ -139,6 +146,13 @@ class MeshtasticBleService final : public BleService,
     bool module_config_save_pending_ = false;
     uint32_t config_save_due_ms_ = 0;
     uint32_t last_ble_activity_ms_ = 0;
+    uint32_t next_ble_idle_log_ms_ = 0;
+    ble_gap_addr_t remembered_phone_peer_ = {};
+    bool remembered_phone_peer_valid_ = false;
+    bool remembered_phone_peer_bonded_ = false;
+    bool directed_advertising_active_ = false;
+    bool directed_advertising_attempted_ = false;
+    uint32_t directed_advertising_until_ms_ = 0;
 };
 
 } // namespace ble

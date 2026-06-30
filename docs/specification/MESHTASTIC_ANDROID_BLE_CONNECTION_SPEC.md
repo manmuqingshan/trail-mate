@@ -9,12 +9,24 @@ NodeDB 同步、Admin 配置写入、MQTT module config 保存、以及故障诊
 
 ## Current Baseline
 
-本规格基于当前 ESP32 Arduino Meshtastic BLE 实现：
+本规格基于两组事实：
+
+1. 官方 Meshtastic Android App / firmware 的 PhoneAPI 交互规则。
+2. Trail Mate 当前共享 `MeshtasticPhoneCore`、ESP32 BLE transport、nRF52 BLE transport 的实现。
+
+当前官方源码锚点：
+
+- Android App: `.tmp/official/Meshtastic-Android` commit `e634e71`
+- Firmware: `.tmp/official/firmware` commit `0488a46`
+
+当前 Trail Mate 源码锚点：
 
 - `platform/esp/arduino_common/src/ble/ble_manager.cpp`
 - `platform/esp/arduino_common/src/ble/meshtastic_ble.cpp`
 - `platform/esp/arduino_common/src/ble/meshtastic_ble_owner_hooks.cpp`
 - `platform/esp/arduino_common/src/ble/app_phone_facade.cpp`
+- `platform/nrf52/arduino_common/src/ble/meshtastic_ble.cpp`
+- `platform/nrf52/arduino_common/src/ble/app_phone_facade.cpp`
 - `modules/core_phone/src/meshtastic/meshtastic_phone_session.cpp`
 - `modules/core_phone/src/meshtastic/meshtastic_phone_core.cpp`
 - `modules/core_phone/include/phone/meshtastic/meshtastic_phone_core.h`
@@ -30,8 +42,10 @@ GitNexus 索引可能落后当前 HEAD。本文档以当前工作区源码为准
 | --- | --- | --- |
 | Meshtastic Android App | 外部 BLE client，按官方 Meshtastic BLE GATT 约定写 `ToRadio`、读 `FromRadio`、订阅 `FromNum`。 | 外部系统 |
 | Meshtastic BLE Transport | NimBLE GAP/GATT、advertising、pairing、characteristic callbacks、notify/read/write 队列。 | `MeshtasticBleService` |
-| Phone Protocol Session | 一次手机连接内的协议状态：配置流、队列状态、packet 队列、deferred save 标志。 | `MeshtasticPhoneSession` / `MeshtasticPhoneCore` |
+| Phone Protocol Session | 一次手机连接内的协议状态：PhoneAPI phase、配置流、队列状态、packet 队列、deferred save 标志。 | `MeshtasticPhoneSession` / `MeshtasticPhoneCore` |
+| PhoneAPI Phase | 官方 `PhoneAPI` 的语义状态：`SEND_NOTHING`、config snapshot 阶段、`SEND_PACKETS`。它决定哪些 `ToRadio`/`FromRadio` variant 合法。 | `MeshtasticPhoneCore` |
 | Meshtastic Phone Protocol Core | `ToRadio`/`FromRadio` protobuf 语义、Admin 处理、config snapshot 帧序列、NodeInfo/Channel/Config/ModuleConfig 投影。 | `MeshtasticPhoneCore` |
+| MQTT Client Proxy Queue | device->phone->MQTT 的待交付消息队列。它是 PhoneAPI steady-state 数据，不是 config 数据。 | shared phone core / app facade / radio adapter |
 | App Facade | Phone core 和 Trail Mate App 状态之间的端口。 | `AppPhoneFacade` |
 | App State | 实际 Mesh config、node store、contact store、message send、radio adapter、BLE enabled state。 | `AppContext` / app services |
 
@@ -43,6 +57,7 @@ GitNexus 索引可能落后当前 HEAD。本文档以当前工作区源码为准
 | Android UI text such as `Nodes(0)` | 只是 App 当前 NodeDB 视图，不能作为 firmware node store 或 BLE queue 的事实来源。 |
 | `fromNum` characteristic value | 是唤醒 Android 继续读取 `FromRadio` 的单调 notify token，不是业务 packet id。日志里的 `source` 才是 firmware 侧语义来源。 |
 | BLE connected flag | 只证明 GAP 连接存在，不证明 Meshtastic config snapshot 完成。 |
+| Android MQTT connected status | 只是 Android MQTT client 的网络状态，不证明 firmware 已经进入 `SEND_PACKETS`，也不证明 `FromRadio.mqttClientProxyMessage` 可被安全交付。 |
 | `fromRadio` zero-length read | 是 drain 结束信号，不是错误；但在配置流完成前过早出现会导致 App 停在未完成状态。 |
 | `fromRadioSync` | 当前 `kEnableFromRadioSync=false`，不是 Android 主路径。 |
 
@@ -58,6 +73,10 @@ GitNexus 索引可能落后当前 HEAD。本文档以当前工作区源码为准
 - 在 `set_config` / `set_module_config` 时立即执行阻塞保存，绕过 response drain。
 - 用 `fromRadioSync`、额外 notify、强制空读、强制重启 BLE 等旁路修 `Nodes(0)`。
 - 让 MeshCore BLE 服务复用 Meshtastic Android App 的 protobuf / GATT 语义。
+- 把 `config_flow_active_ == false` 直接等同于官方 `STATE_SEND_PACKETS`。
+- 在 Android 仍处于 `Connecting` / config handshake 时交付或消费 `FromRadio.mqttClientProxyMessage`。
+- 在 PhoneAPI 未进入 `SEND_PACKETS` 时处理 `ToRadio.mqttClientProxyMessage` 并注入 mesh。
+- 把 radio adapter 内部 MQTT queue 当成 Android 端可靠投递状态；可交付性的真相属于 PhoneAPI phase。
 
 ## GATT Contract
 
@@ -114,12 +133,28 @@ classDiagram
     class MeshtasticPhoneCore {
         +handleToRadio(data,len)
         +popToPhone(out)
+        +phoneApiPhase()
         -handleToRadioPacket(packet)
         -handleAdmin(packet)
         -enqueueConfigSnapshot(nonce)
         -popConfigSnapshotFrame(out)
+        -canHandleMqttProxy()
+        -canEmitSteadyStateFrame()
         -enqueueQueueStatus(packet_id,ok)
         -encodeFromRadio(from,from_num,out)
+    }
+
+    class PhoneApiPhase {
+        <<enum>>
+        SEND_NOTHING
+        SEND_CONFIG
+        SEND_PACKETS
+    }
+
+    class MqttProxyQueue {
+        +queueFromDevice(packet)
+        +peekOrPopWhenSendPackets()
+        +dropOldestWhenFull()
     }
 
     class AppPhoneFacade {
@@ -165,7 +200,9 @@ classDiagram
     BleManager --> MeshtasticBleService : creates for Meshtastic
     MeshtasticBleService --> MeshtasticPhoneSession : owns
     MeshtasticPhoneSession --> MeshtasticPhoneCore : owns core
+    MeshtasticPhoneCore --> PhoneApiPhase : owns
     MeshtasticPhoneCore --> AppPhoneFacade : app port
+    MeshtasticPhoneCore --> MqttProxyQueue : gates delivery
     AppPhoneFacade --> IAppBleFacade : delegates
     MeshtasticBleService ..|> MeshtasticPhoneTransport
     MeshtasticBleService ..|> IPhoneBleRuntime
@@ -196,29 +233,34 @@ stateDiagram-v2
     Starting --> Advertising: NimBLE init + service start ok
     Starting --> Disabled: init/service/start advertising failed
     Advertising --> Connected: Android GAP connect
-    Connected --> Pairing: security mode requires auth
-    Pairing --> Connected: auth complete
-    Connected --> ConfigFlow: ToRadio.want_config_id
-    ConfigFlow --> ConfigDrainEmpty: config_complete_id emitted
-    ConfigDrainEmpty --> SteadyState: next FromRadio read returns zero length
-    Connected --> SteadyState: no config flow active
-    SteadyState --> AdminEdit: Admin.begin_edit_settings
-    AdminEdit --> SteadyState: Admin.commit_edit_settings response drained
-    SteadyState --> DeferredSave: admin response queues drained
-    DeferredSave --> SteadyState: save/apply/restart hooks executed
+    Connected --> Pairing: security requires auth
+    Pairing --> SendNothing: auth complete
+    Connected --> SendNothing: no auth required
+    SendNothing --> ConfigFlow: ToRadio.want_config_id
+    ConfigFlow --> SendNothing: CONFIG_NONCE config_complete_id emitted
+    ConfigFlow --> SendPackets: NODE_INFO_NONCE/full-config config_complete_id emitted
+    SendPackets --> AdminEdit: Admin.begin_edit_settings
+    AdminEdit --> SendPackets: Admin.commit_edit_settings response drained
+    SendPackets --> DeferredSave: admin response queues drained
+    DeferredSave --> SendPackets: save/apply/restart hooks executed
+    SendPackets --> ConfigFlow: new ToRadio.want_config_id
     Connected --> Advertising: disconnect + advertising restart
     Pairing --> Advertising: disconnect
+    SendNothing --> Advertising: disconnect
     ConfigFlow --> Advertising: disconnect
-    SteadyState --> Advertising: disconnect
+    SendPackets --> Advertising: disconnect
 ```
 
 State invariants:
 
 - `Advertising` means Meshtastic service UUID is visible, not that Android has completed setup.
-- `Connected` means GAP connection exists; queues and `phone_session_` must be reset for this connection.
-- `ConfigFlow` owns `config_nonce_`, snapshot indexes, and `config_flow_active_`.
-- `ConfigDrainEmpty` is a deliberate one-shot zero-length read after `config_complete_id`.
+- `Connected` means GAP connection exists; it is not a PhoneAPI steady-state.
+- `SendNothing` means GATT is connected but the PhoneAPI session has not entered config or packet delivery. Steady-state frames, including MQTT proxy, are forbidden.
+- `ConfigFlow` owns `config_nonce_` and snapshot indexes while config frames are being emitted.
+- `config_complete_id` is the phase boundary. Stage 1 (`CONFIG_NONCE=69420`) returns immediately to `SendNothing`; Stage 2 (`NODE_INFO_NONCE=69421`) enters `SendPackets` immediately.
+- `SendPackets` is the only state where `FromRadio.packet`, `FromRadio.queueStatus`, `FromRadio.mqttClientProxyMessage`, client notifications, and normal Admin traffic may be emitted.
 - `DeferredSave` must happen after queue status and Admin response frames have been offered to the phone.
+- Any implementation that derives `SendPackets` from `!config_flow_active_` alone is wrong because it collapses `SendNothing` and steady-state into one bool.
 
 ## Startup And Connect Sequence
 
@@ -244,6 +286,7 @@ sequenceDiagram
     Phone->>Svc: GAP connect
     Svc->>Svc: reset connection flags, queues, duplicate detector
     Svc->>Core: close/reset previous session state
+    Core->>Core: phase = SendNothing
     Svc->>Phone: connection params, battery characteristic ready
     Phone->>Svc: subscribe FromNum
 ```
@@ -269,7 +312,9 @@ flowchart TD
     G --> H{"ToRadio variant"}
     H -->|packet| I["handleToRadioPacket()"]
     H -->|want_config_id| J["enqueueConfigSnapshot(nonce)"]
-    H -->|mqttClientProxyMessage| K["Mqtt hook -> MtAdapter"]
+    H -->|mqttClientProxyMessage| K{"phase == SendPackets?"}
+    K -- yes --> K1["Mqtt hook -> radio adapter"]
+    K -- no --> K2["ignore and log: not ready"]
     H -->|heartbeat| L["enqueueQueueStatus(nonce, ok)"]
     H -->|disconnect| M["reset session"]
 ```
@@ -280,6 +325,8 @@ Rules:
 - Protobuf decode and semantic handling happen in `MeshtasticPhoneCore`.
 - Queue overflow may drop writes and must be diagnosed through `[BLE] fromPhone drop ...` logs.
 - Duplicate suppression belongs to the transport queue only and must not be used to hide semantic retries in core.
+- `ToRadio.mqttClientProxyMessage` is a steady-state packet. It must be ignored before `SendPackets`, matching official `PhoneAPI.cpp`.
+- Ignoring pre-steady-state MQTT proxy input is not message-loss by firmware; it means Android attempted broker->phone->device delivery before the device had completed PhoneAPI setup.
 
 ## FromRadio Egress Activity
 
@@ -287,7 +334,12 @@ Rules:
 flowchart TD
     A["Android reads FromRadio"] --> B{"to_phone_queue has frame?"}
     B -- yes --> C["set characteristic value to frame bytes"]
-    B -- no --> D{"shouldBlockOnRead()?"}
+    B -- no --> P{"PhoneAPI phase"}
+    P -->|ConfigFlow| P1["try produce next config frame only"]
+    P -->|SendPackets| P2["try produce steady-state frame"]
+    P -->|SendNothing| D{"shouldBlockOnRead()?"}
+    P1 --> F{"frame produced?"}
+    P2 --> F
     D -- yes --> E["mark read_waiting and wait briefly for update() to produce frame"]
     D -- no --> H["return zero-length value"]
     E --> F{"frame produced?"}
@@ -305,6 +357,115 @@ flowchart TD
 This is not optional. During config/setup, returning zero-length before `config_complete_id`
 can make the Android App stop draining `FromRadio`, causing symptoms such as `Nodes(0)` or
 stuck setup screens.
+
+MQTT proxy egress rule:
+
+- `FromRadio.mqttClientProxyMessage` belongs only to `SendPackets`.
+- `popToPhone()` must not poll or pop the MQTT proxy queue while phase is `SendNothing` or `ConfigFlow`.
+- A pre-handshake read may return config data or no frame, but it must not consume MQTT proxy data.
+- This rule is stronger than queue priority. The first decision is phase, then variant priority within that phase.
+
+## Android App And Firmware Interaction Contract
+
+This section is normative. It describes the official Android App / firmware behavior that Trail Mate must mirror unless
+we intentionally document a product-level divergence.
+
+### App-Level Connection Is Not GATT Connection
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Android as Meshtastic Android App
+    participant BLE as BLE Transport
+    participant Core as PhoneAPI/Core
+    participant MQTT as Android MQTT Proxy
+
+    Android->>BLE: GATT connect + service discovery
+    Android->>BLE: subscribe FROMNUM / LOGRADIO
+    BLE->>Core: onConnect()
+    Core->>Core: phase = SendNothing
+    Android->>Core: ToRadio.heartbeat
+    Android->>Core: ToRadio.want_config_id(CONFIG_NONCE)
+    Core->>Core: phase = ConfigFlow
+    Android->>Core: drain FROMRADIO until config_complete(CONFIG_NONCE)
+    Core->>Core: phase = SendNothing after Stage 1 config_complete_id
+    Android->>Core: ToRadio.want_config_id(NODE_INFO_NONCE)
+    Core->>Core: phase = ConfigFlow
+    Android->>Core: drain FROMRADIO until config_complete(NODE_INFO_NONCE)
+    Core->>Core: phase = SendPackets after Stage 2 config_complete_id
+    Android->>Android: app connection state = Connected
+    Android->>MQTT: startProxy(enabled, proxy_to_client_enabled)
+```
+
+Rules:
+
+- Android may show `Connecting` while GATT is already connected. Firmware must treat this as pre-steady-state.
+- Android starts MQTT proxy from synchronized module config after node DB readiness. Firmware must not assume Android MQTT is ready during `SendNothing` or `ConfigFlow`.
+- `FromNum` can wake reads, but Android also proactively drains after writes. Early `FromRadio` contents are therefore observable even without a notify.
+
+### MQTT Proxy Reliability Window
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Mesh as Mesh / Radio Adapter
+    participant Queue as MQTT Proxy Queue
+    participant Core as PhoneAPI/Core
+    participant Android as Android App
+    participant Broker as MQTT Broker
+
+    Mesh->>Queue: queue device->phone MQTT proxy message
+    Android--xCore: BLE disconnect / Android background
+    Core->>Core: close session, phase = SendNothing
+    Note over Queue: queued MQTT proxy messages are retained within bounded queue
+    Android->>Core: reconnect + want_config
+    Core->>Android: config / node info frames only
+    Android->>Core: drain completes both stages
+    Core->>Core: phase = SendPackets
+    Android->>Broker: start or resume MQTT proxy
+    Android->>Core: read FROMRADIO after FromNum / active drain
+    Core->>Queue: pop next MQTT proxy message
+    Core->>Android: FromRadio.mqttClientProxyMessage
+    Android->>Broker: publish
+```
+
+Rules:
+
+- Firmware only guarantees a bounded in-memory window, not infinite offline MQTT history.
+- The bounded queue should use drop-oldest behavior when full, matching official firmware's MQTT proxy queue semantics.
+- Session close may release the current in-flight `mqttClientProxyMessage`, but it must not clear the queue of messages not yet handed to the phone.
+- The queue is consumed only after `SendPackets`. This prevents Android from dropping device->broker proxy messages while MQTT proxy is not active.
+- Broker->phone->device messages received by Android before firmware reaches `SendPackets` must be ignored by firmware, matching official `PhoneAPI`.
+
+### Phase-Gated Variant Matrix
+
+| Variant | SendNothing | ConfigFlow | SendPackets |
+| --- | --- | --- | --- |
+| `ToRadio.want_config_id` | Start config snapshot. | Restart config snapshot only if official behavior allows same-session request; otherwise prefer transport restart recovery. | Start requested config snapshot. |
+| `ToRadio.heartbeat` | May enqueue queue status for liveness if transport requires it. | Must not interrupt config snapshot ordering. | May enqueue queue status. |
+| `ToRadio.packet` | Reject or ignore except explicitly supported local setup traffic. | Reject or ignore except official passphrase/admin exceptions. | Handle packet / Admin / app data. |
+| `ToRadio.mqttClientProxyMessage` | Ignore and log. | Ignore and log. | Validate and inject MQTT downlink. |
+| `FromRadio.config*` variants | Not emitted until `want_config_id`. | Allowed, ordered by config snapshot rules. | Only emitted for explicit config snapshot request. |
+| `FromRadio.node_info` | Not emitted until `want_config_id`. | Allowed in node snapshot. | Allowed only for explicit steady-state projection events. |
+| `FromRadio.queueStatus` | Avoid unless required for heartbeat liveness. | Must not overtake config frames. | Allowed before MQTT proxy. |
+| `FromRadio.mqttClientProxyMessage` | Forbidden and must not consume queue. | Forbidden and must not consume queue. | Allowed after queue status. |
+| `FromRadio.packet` | Forbidden. | Forbidden except explicitly allowed setup/admin responses. | Allowed. |
+
+Implementation consequence:
+
+```mermaid
+flowchart TD
+    A["popToPhone()"] --> B{"phase"}
+    B -->|SendNothing| C["return no frame; do not poll MQTT queue"]
+    B -->|ConfigFlow| D["emit next config snapshot frame"]
+    B -->|SendPackets| F["emit steady-state queues"]
+    F --> G{"priority"}
+    G -->|1| H["queueStatus"]
+    G -->|2| I["mqttClientProxyMessage"]
+    G -->|3| J["clientNotification / xmodem if supported"]
+    G -->|4| K["node_info / packet queues"]
+    G -->|5| L["deferred save/apply/restart"]
+```
 
 ## Config Snapshot Flow
 
@@ -386,8 +547,8 @@ Invariants:
 - `MeshtasticBleFrame.from_num` for config snapshot frames is the config nonce, except peer `node_info`
   frames may use the peer node id as `from_num`.
 - `config_complete_id` must be emitted exactly once per config snapshot flow.
-- After `config_complete_id`, `config_flow_active_` becomes false and `config_drain_empty_pending_` becomes true.
-- The next `popToPhone()` after completion must return false once, allowing `FromRadio` to expose zero-length drain completion.
+- After `config_complete_id`, the PhoneAPI phase changes immediately: `CONFIG_NONCE=69420` returns to `SendNothing`; `NODE_INFO_NONCE=69421` and normal full config enter `SendPackets`.
+- The next `popToPhone()` after completion may return false only because no steady-state frame is available. It must not be used as a deliberate phase-transition sentinel.
 - Peer `node_info` frames must only be emitted for nodes with visible identity facts
   (`short_name` or `long_name`). Observation-only entries must not be projected as
   empty users because Android/iOS can keep the empty fallback name in their node database.
@@ -422,21 +583,56 @@ Rules:
 
 ## Pop Order
 
-`MeshtasticPhoneCore::popToPhone()` must preserve this priority:
+`MeshtasticPhoneCore::popToPhone()` must follow this rule:
 
-1. MQTT proxy message from radio/backend to phone.
-2. Explicit pre-encoded frame queue.
-3. Active config snapshot frame.
-4. One-shot config drain-empty signal.
-5. Queue status frames.
-6. Packet frames.
-7. Deferred app config save.
-8. Deferred module config save.
-9. Deferred Bluetooth config save and enabled-state apply.
-10. Deferred restart after module config change.
-11. No frame.
+```text
+Phase first. Priority second. Never consume a queue that is not legal in the current phase.
+```
 
-Do not reorder this casually.
+### Phase 1: SendNothing
+
+Allowed output:
+
+1. No frame.
+
+Forbidden:
+
+- `FromRadio.mqttClientProxyMessage`
+- `FromRadio.packet`
+- normal `FromRadio.queueStatus`
+- deferred save/apply/restart side effects
+
+### Phase 2: ConfigFlow
+
+Allowed output:
+
+1. Active config snapshot frame.
+2. No frame only when no config frame is currently available.
+
+Forbidden:
+
+- MQTT proxy egress.
+- Steady-state packet egress.
+- Popping MQTT proxy data from the queue.
+- Deferred save/apply/restart side effects before config flow is done.
+
+### Phase 3: SendPackets
+
+Within `SendPackets`, preserve this priority:
+
+1. Queue status frames.
+2. MQTT proxy message from radio/backend to phone.
+3. Client notification / xmodem frames if supported.
+4. Node info projection frames queued outside config flow.
+5. Mesh packet frames.
+6. Deferred app config save.
+7. Deferred module config save.
+8. Deferred Bluetooth config save and enabled-state apply.
+9. Deferred restart after module config change.
+10. No frame.
+
+Do not reorder this casually. In particular, MQTT proxy must not overtake active config frames, and deferred save must not
+overtake phone-visible Admin responses.
 
 The response-drain-before-save rule exists because Android expects queue status and Admin response frames promptly.
 Blocking flash/NVS writes or restart before those frames are observable can make the App appear connected but stuck.
@@ -593,6 +789,35 @@ When App sends:
 - self telemetry/position/nodeinfo request: may be answered locally by `handleLocalSelfPacket()`.
 - unsupported self loopback ports without response: suppress and report queue success.
 
+### MQTT Proxy In Steady State
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Broker as MQTT Broker
+    participant Android as Android MQTT Proxy
+    participant Core as PhoneAPI/Core
+    participant Radio as Mesh Adapter
+
+    Broker->>Android: subscribed MQTT message
+    Android->>Core: ToRadio.mqttClientProxyMessage
+    Core->>Core: require phase == SendPackets
+    Core->>Radio: handleMqttProxyToRadio()
+    Radio->>Radio: validate channel, decode envelope, mark via_mqtt
+    Radio->>Radio: inject packet / update node store
+
+    Radio->>Core: queueMqttProxyPublish(packet)
+    Core->>Core: require phase == SendPackets before pop
+    Core->>Android: FromRadio.mqttClientProxyMessage
+    Android->>Broker: publish
+```
+
+Rules:
+
+- MQTT downlink into the device is legal only after `SendPackets`.
+- MQTT uplink out of the device may be queued before Android reconnects, but may be consumed only after `SendPackets`.
+- The bounded MQTT proxy queue is a loss boundary. If it fills, drop-oldest is acceptable and must be logged; silent early consumption is not acceptable.
+
 ## Runtime Concurrency Rules
 
 This BLE path must satisfy `RUNTIME_CONCURRENCY_SPEC.md`:
@@ -687,6 +912,8 @@ Any future change touching this area must remove or reject these bypasses:
 | Creating Pager/TDeck-specific phone core variants | Board resource issues are real, but phone protocol semantics are not board facts. | Keep protocol in shared phone core; board/platform only adapt IO, memory placement, and capabilities. |
 | Using MeshCore BLE code for Meshtastic App compatibility | MeshCore NUS and Meshtastic BLE protobuf are different protocols. | Keep `MeshCoreBleService` separate from `MeshtasticBleService`. |
 | Enabling `FromRadioSync` without spec/test coverage | Android currently follows legacy `FromRadio` read drain. | Add explicit spec and tests before enabling sync path. |
+| Emitting MQTT proxy before `SendPackets` | Android starts MQTT proxy only after config/node readiness; early proxy frames can be consumed and dropped during `Connecting`. | Gate MQTT proxy egress behind PhoneAPI phase and do not poll the queue before `SendPackets`. |
+| Treating `!config_flow_active_` as steady-state | Collapses `SendNothing` and `SendPackets`, allowing data before Android handshake completion. | Add/maintain explicit PhoneAPI phase and make all variant gates use it. |
 
 ## Diagnostic Log Contract
 
@@ -700,13 +927,16 @@ Useful logs and what they mean:
 | `[BLE] fromPhone write len=...` | Android wrote `ToRadio`; callback queued it. |
 | `[BLE][mtcore] to_radio variant=...` | Phone core decoded `ToRadio`. |
 | `[BLE][mtcore][flow] want_config ...` | Android requested config snapshot. |
+| `[BLE][mtcore][phase] ...` | PhoneAPI phase changed. This is the authority for whether steady-state data can flow. |
+| `[BLE][mtcore][mqtt] skip reason=not-send-packets ...` | MQTT proxy was intentionally not consumed or not injected because Android/firmware handshake is not complete. |
+| `[BLE][mtcore][mqtt] pop ...` | MQTT proxy message was consumed for Android delivery; this must only appear in `SendPackets`. |
 | `[BLE][mtcore][channel] ... module=... pos_prec=... muted=...` | Admin channel request/response/snapshot includes the supported module-settings projection. |
 | `[BLE][mtcore][cfg#...] start ...` | Config flow became active. |
 | `[BLE] toPhone enqueue from_num=... len=...` | A `FromRadio` frame was queued for Android read. |
 | `[BLE] fromRadio read len=...` | Android read a non-empty `FromRadio` frame. |
 | `[BLE][mtcore][flow] cfg_complete ...` | `config_complete_id` was encoded. |
-| `[BLE][mtcore] config snapshot drain-empty` | Next read may observe zero-length drain completion. |
-| `[BLE] fromRadio read empty` | Current drain round is complete. During active config flow this is suspicious. |
+| `[BLE][mtcore][phase] SendPackets reason=config_complete_send_packets` | Stage 2/full config completed and steady-state is active. |
+| `[BLE] fromRadio read empty` | Current drain round is complete. Before `config_complete_id` this is suspicious. |
 | `[BLE][mtcore] admin handled variant=...` | Admin request produced a response or was accepted. |
 | `[BLE][mtcore] queue status mesh_packet_id=... ok=...` | QueueStatus frame queued and `FromNum` notified. |
 | `[BLE][mtcore] deferred config save after response drain` | Durable config save starts only after phone-visible responses are drained. |
@@ -718,6 +948,7 @@ Symptom mapping:
 | Android stuck at `Module config received` | Admin response or module config response did not drain; save/restart happened too early; `FromRadio` empty arrived before expected response. |
 | Android stuck at `Nodes(0)` | Stage 2 nodes snapshot missing self/peer `node_info`; premature empty read; `config_complete_id` missing; `fromNum` notify/read loop broken. |
 | App connects but never finishes setup | `want_config_id` not handled; config flow inactive; `shouldBlockOnRead()` false during config; queue full/drop. |
+| MQTT messages are lost throughout Android `Connecting` | `FromRadio.mqttClientProxyMessage` was emitted before `SendPackets`, or `ToRadio.mqttClientProxyMessage` was accepted before config/node handshake completed. |
 | Save config causes reboot | Save path stack/heap/storage bug after response drain; not a BLE protocol success/failure by itself. |
 | BLE setting says enabled but not visible until reboot | BLE manager/runtime lifecycle failed to start or restart advertising at runtime; do not hide with Admin response bypass. |
 
@@ -735,6 +966,12 @@ Shared phone core tests must continue to assert:
 - MQTT module config responds before module save and restart;
 - `want_config_id=69420` sends config-only frames and complete, without node_info;
 - `want_config_id=69421` sends self/peer node_info and complete, without config/module frames.
+- `config_complete_id=69421` enters `SendPackets` immediately, without a one-shot drain-empty transition state.
+- `ToRadio.heartbeat` in `SendPackets` emits a non-empty `QueueStatus` and notifies the same nonce through `FROMNUM`.
+- `popToPhone()` does not poll or consume MQTT proxy messages in `SendNothing` or `ConfigFlow`.
+- queued MQTT proxy messages survive a phone session close unless already handed to the phone.
+- `ToRadio.mqttClientProxyMessage` is ignored before `SendPackets`.
+- after the stage 2 node handshake completes and the phase enters `SendPackets`, queued MQTT proxy messages become drainable.
 
 Device-level verification should capture:
 
@@ -745,8 +982,20 @@ Device-level verification should capture:
 [BLE][mtcore][flow] cfg_complete stage=stage1_config nonce=00010F2C
 [BLE][mtcore][flow] want_config nonce=00010F2D stage=stage2_nodes
 [BLE][mtcore][flow] cfg_complete stage=stage2_nodes nonce=00010F2D
+[BLE][mtcore][phase] SendPackets
 [BLE] fromRadio read empty
 ```
+
+For MQTT reconnect-window verification:
+
+```text
+[BLE][mtcore][mqtt] skip reason=not-send-packets ...
+[BLE][mtcore][flow] cfg_complete stage=stage2_nodes ...
+[BLE][mtcore][phase] SendPackets
+[BLE][mtcore][mqtt] pop ...
+```
+
+The `pop` log must not appear before `SendPackets`.
 
 For Admin save verification:
 
@@ -771,8 +1020,10 @@ Before modifying this path, answer these questions:
 5. Does any BLE callback directly save config, apply mesh config, restart, or send radio data?
 6. Does the change treat `Nodes(0)` or `Module config received` as truth instead of symptoms?
 7. Does the change preserve response-drain-before-save?
-8. Does the change accidentally route MeshCore through Meshtastic BLE semantics?
-9. Are Pager/TDeck differences limited to resource, memory placement, board capability, or BLE manager lifecycle?
-10. Are smoke tests updated when behavior changes?
+8. Does MQTT proxy delivery happen only in `SendPackets`?
+9. Does any queue get consumed before its variant is legal for the current PhoneAPI phase?
+10. Does the change accidentally route MeshCore through Meshtastic BLE semantics?
+11. Are Pager/TDeck differences limited to resource, memory placement, board capability, or BLE manager lifecycle?
+12. Are smoke tests updated when behavior changes?
 
 If any answer indicates a bypass, fix the main path first. Do not add another branch around Android.
