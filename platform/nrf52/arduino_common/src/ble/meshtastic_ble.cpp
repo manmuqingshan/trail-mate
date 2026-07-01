@@ -542,11 +542,10 @@ MeshtasticBleService::~MeshtasticBleService()
 
 void MeshtasticBleService::logFromRadioState(const char* tag) const
 {
-    bleLogBoth("[BLE][nrf52][mt] fromRadio tag=%s read_pending=%u "
-               "notify_pending=%u notify_value=%08lX notify_enabled=%d connected=%d "
+    bleLogBoth("[BLE][nrf52][mt] fromRadio tag=%s notify_pending=%u "
+               "notify_value=%08lX notify_enabled=%d connected=%d "
                "config_active=%d send_packets=%d",
                tag ? tag : "?",
-               from_radio_read_pending_ ? 1U : 0U,
                from_num_notify_pending_ ? 1U : 0U,
                static_cast<unsigned long>(from_num_notify_value_),
                from_num_notify_enabled_ ? 1 : 0,
@@ -708,7 +707,6 @@ void MeshtasticBleService::update()
 
     processPendingPairingRequest();
     processPendingToRadio();
-    processPendingFromRadioRead();
     flushPendingFromNumNotify();
     logDeferredBleEvents();
     flushPendingConfigSaves(false);
@@ -866,8 +864,8 @@ void MeshtasticBleService::handleFromRadioReadRequest(uint16_t conn_handle,
     }
 
     last_ble_activity_ms_ = millis();
-    pending_from_radio_read_conn_handle_ = conn_handle;
-    from_radio_read_pending_ = true;
+    writeNextFromRadioForRead(conn_handle);
+    authorizeRead(conn_handle);
 }
 
 void MeshtasticBleService::writeNextFromRadioForRead(uint16_t conn_handle)
@@ -910,24 +908,6 @@ void MeshtasticBleService::writeNextFromRadioForRead(uint16_t conn_handle)
     pending_from_radio_read_from_num_ = session_frame.from_num;
     pending_from_radio_read_log_ = true;
     (void)conn_handle;
-}
-
-void MeshtasticBleService::processPendingFromRadioRead()
-{
-    if (!from_radio_read_pending_)
-    {
-        return;
-    }
-
-    const uint16_t conn_handle = pending_from_radio_read_conn_handle_;
-    pending_from_radio_read_conn_handle_ = BLE_CONN_HANDLE_INVALID;
-    from_radio_read_pending_ = false;
-    if (conn_handle == BLE_CONN_HANDLE_INVALID || !connected_)
-    {
-        return;
-    }
-    writeNextFromRadioForRead(conn_handle);
-    authorizeRead(conn_handle);
 }
 
 bool MeshtasticBleService::enqueueToRadio(const uint8_t* data, size_t len)
@@ -991,8 +971,6 @@ void MeshtasticBleService::processPendingPairingRequest()
 void MeshtasticBleService::clearToPhoneQueue()
 {
     session_frame_scratch_ = phone::meshtastic::MeshtasticBleFrame{};
-    from_radio_read_pending_ = false;
-    pending_from_radio_read_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     from_num_notify_pending_ = false;
     from_num_notify_value_ = 0;
 }
@@ -1616,28 +1594,19 @@ uint32_t MeshtasticBleService::effectivePasskey() const
     {
         return pending;
     }
+
+    if (isBleConnected())
+    {
+        return 0;
+    }
+
     if (ble_config_.mode == meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN)
     {
         return ble_config_.fixed_pin;
     }
     if (ble_config_.mode == meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN)
     {
-        const uint32_t configured = configured_passkey_.load();
-        if (configured == 0)
-        {
-            return 0;
-        }
-
-        if (!connected_)
-        {
-            return configured;
-        }
-
-        BLEConnection* connection = conn_handle_ != BLE_CONN_HANDLE_INVALID ? Bluefruit.Connection(conn_handle_) : nullptr;
-        if (!connection || !connection->secured())
-        {
-            return configured;
-        }
+        return configured_passkey_.load();
     }
     return 0;
 }

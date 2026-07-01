@@ -45,7 +45,6 @@ class MeshtasticBleService final : public BleService,
 
     bool handleToRadio(const uint8_t* data, size_t len);
     bool enqueueToRadio(const uint8_t* data, size_t len);
-    void processPendingFromRadioRead();
     void flushPendingFromNumNotify();
     void handleFromRadioReadRequest(uint16_t conn_handle, uint16_t offset, uintptr_t chr_ptr);
     void handleConnectEvent(uint16_t conn_handle);
@@ -118,8 +117,6 @@ class MeshtasticBleService final : public BleService,
     volatile uint16_t pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
 
     phone::meshtastic::MeshtasticBleFrame session_frame_scratch_{};
-    volatile bool from_radio_read_pending_ = false;
-    volatile uint16_t pending_from_radio_read_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     volatile bool from_num_notify_pending_ = false;
     volatile uint32_t from_num_notify_value_ = 0;
 

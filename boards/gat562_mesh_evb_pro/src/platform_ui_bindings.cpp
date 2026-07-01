@@ -336,8 +336,7 @@ GpsDiagnosticsSnapshot diagnostics()
 
     GnssStatus status{};
     std::size_t sat_count = 0;
-    ::gps::GnssSatInfo sats[::gps::kMaxGnssSats]{};
-    if (get_gnss_snapshot(sats, ::gps::kMaxGnssSats, &sat_count, &status))
+    if (get_gnss_snapshot(nullptr, 0, &sat_count, &status))
     {
         snapshot.sats_in_view = status.sats_in_view;
         snapshot.sats_in_use = status.sats_in_use;
