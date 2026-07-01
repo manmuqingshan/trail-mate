@@ -35,7 +35,7 @@ int main()
     expect_binding(factory, ui::menu::MenuScreenId::PcLink, "pc_link");
     expect_binding(factory, ui::menu::MenuScreenId::EnergySweep, "energy_sweep");
     expect_binding(factory, ui::menu::MenuScreenId::Settings, "settings");
-    expect_binding(factory, ui::menu::MenuScreenId::WalkieTalkie, "walkie");
+    expect_binding(factory, ui::menu::MenuScreenId::WalkieTalkie, "walkie_talkie");
     expect_binding(factory, ui::menu::MenuScreenId::Sstv, "sstv");
     expect_binding(factory, ui::menu::MenuScreenId::Extensions, "extensions");
 

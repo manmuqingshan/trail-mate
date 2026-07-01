@@ -598,6 +598,7 @@ struct SkyPlotUi
     lv_obj_t* table_header = nullptr;
     lv_obj_t* table_header_cells[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
     TableRow table_rows[kTableRows];
+    lv_obj_t* empty_state_label = nullptr;
 
     SatDot sats[kMaxSats];
     lv_point_precise_t ns_points[2]{};
@@ -949,6 +950,26 @@ void apply_cached_sats()
     update_table_rows();
 }
 
+void set_empty_state_message(const char* message)
+{
+    if (!s_ui.empty_state_label)
+    {
+        return;
+    }
+
+    if (message == nullptr || message[0] == '\0')
+    {
+        lv_obj_add_flag(s_ui.empty_state_label, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    ::ui::i18n::set_label_text(s_ui.empty_state_label, message);
+    ::ui::fonts::apply_localized_font(
+        s_ui.empty_state_label, lv_label_get_text(s_ui.empty_state_label), s_layout.table_row_font);
+    lv_obj_clear_flag(s_ui.empty_state_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_ui.empty_state_label);
+}
+
 void apply_topbar_summary(const GnssStatus& st)
 {
     if (!s_ui.top_bar.title_label)
@@ -1078,56 +1099,135 @@ SatInfo::SNRState map_snr_state(int snr, bool used)
     return SatInfo::WEAK;
 }
 
+const char* empty_state_message(const gps::GpsDiagnosticsSnapshot& diagnostics,
+                                const gps::GpsState& state,
+                                bool has_satellite_snapshot,
+                                int ui_count)
+{
+    if (has_satellite_snapshot && ui_count > 0)
+    {
+        return nullptr;
+    }
+    if (!diagnostics.supported)
+    {
+        return "GNSS unsupported";
+    }
+    if (!diagnostics.enabled)
+    {
+        return "GPS disabled";
+    }
+    if (!diagnostics.powered)
+    {
+        return "Powering GNSS";
+    }
+    if (!diagnostics.ready)
+    {
+        return "GNSS receiver starting";
+    }
+    if (diagnostics.code == gps::GpsDiagnosticCode::NoTraffic)
+    {
+        return "Waiting for NMEA";
+    }
+    if (diagnostics.code == gps::GpsDiagnosticCode::TrafficStalled)
+    {
+        return "NMEA stalled";
+    }
+    if (!state.valid && !diagnostics.has_fix)
+    {
+        return "No fix yet";
+    }
+    return "Waiting for satellite details";
+}
+
+GnssStatus::Fix map_fix_status(gps::GnssFix fix,
+                               const gps::GpsState& state,
+                               const gps::GpsDiagnosticsSnapshot& diagnostics)
+{
+    switch (fix)
+    {
+    case gps::GnssFix::FIX2D:
+        return GnssStatus::FIX2D;
+    case gps::GnssFix::FIX3D:
+        return GnssStatus::FIX3D;
+    case gps::GnssFix::NOFIX:
+    default:
+        break;
+    }
+
+    if (state.valid || diagnostics.has_fix)
+    {
+        return state.has_alt ? GnssStatus::FIX3D : GnssStatus::FIX2D;
+    }
+    return GnssStatus::NOFIX;
+}
+
+GnssStatus make_ui_status(const gps::GnssStatus& status,
+                          const gps::GpsState& state,
+                          const gps::GpsDiagnosticsSnapshot& diagnostics,
+                          int ui_count,
+                          int used_count)
+{
+    GnssStatus ui_status{};
+    const int snapshot_in_view = status.sats_in_view > 0
+                                     ? static_cast<int>(status.sats_in_view)
+                                     : ui_count;
+    const int diagnostic_in_view = diagnostics.sats_in_view > 0
+                                       ? static_cast<int>(diagnostics.sats_in_view)
+                                       : static_cast<int>(state.satellites);
+    const int snapshot_in_use = status.sats_in_use > 0
+                                    ? static_cast<int>(status.sats_in_use)
+                                    : used_count;
+    const int diagnostic_in_use = diagnostics.sats_in_use > 0
+                                      ? static_cast<int>(diagnostics.sats_in_use)
+                                      : static_cast<int>(state.satellites);
+
+    ui_status.sats_in_view = snapshot_in_view > 0 ? snapshot_in_view : diagnostic_in_view;
+    ui_status.sats_in_use = snapshot_in_use > 0 ? snapshot_in_use : diagnostic_in_use;
+    ui_status.hdop = status.hdop;
+    ui_status.fix = map_fix_status(status.fix, state, diagnostics);
+    return ui_status;
+}
+
 void refresh_gnss_data()
 {
     gps::GnssSatInfo sats[gps::kMaxGnssSats]{};
     size_t count = 0;
     gps::GnssStatus status{};
-    if (!platform::ui::gps::get_gnss_snapshot(sats, gps::kMaxGnssSats, &count, &status))
-    {
-        return;
-    }
+    const bool has_satellite_snapshot =
+        platform::ui::gps::get_gnss_snapshot(sats, gps::kMaxGnssSats, &count, &status);
+    const auto diagnostics = platform::ui::gps::diagnostics();
+    const auto state = platform::ui::gps::get_data();
 
     SatInfo ui_sats[kMaxSats]{};
     int ui_count = 0;
     int used_count = 0;
-    for (size_t i = 0; i < count && ui_count < kMaxSats; ++i)
+    if (has_satellite_snapshot)
     {
-        SatInfo sat{};
-        sat.id = static_cast<int>(sats[i].id);
-        sat.sys = map_sys(sats[i].sys);
-        sat.azimuth = static_cast<float>(sats[i].azimuth);
-        sat.elevation = static_cast<float>(sats[i].elevation);
-        sat.snr = static_cast<int>(sats[i].snr);
-        sat.used = sats[i].used;
-        if (sat.used)
+        for (size_t i = 0; i < count && ui_count < kMaxSats; ++i)
         {
-            used_count++;
+            SatInfo sat{};
+            sat.id = static_cast<int>(sats[i].id);
+            sat.sys = map_sys(sats[i].sys);
+            sat.azimuth = static_cast<float>(sats[i].azimuth);
+            sat.elevation = static_cast<float>(sats[i].elevation);
+            sat.snr = static_cast<int>(sats[i].snr);
+            sat.used = sats[i].used;
+            if (sat.used)
+            {
+                used_count++;
+            }
+            sat.snr_state = map_snr_state(sat.snr, sat.used);
+            ui_sats[ui_count++] = sat;
         }
-        sat.snr_state = map_snr_state(sat.snr, sat.used);
-        ui_sats[ui_count++] = sat;
+        ui_gnss_skyplot_set_sats(ui_sats, ui_count);
     }
-
-    ui_gnss_skyplot_set_sats(ui_sats, ui_count);
-
-    GnssStatus ui_status{};
-    ui_status.sats_in_view = status.sats_in_view > 0 ? status.sats_in_view : static_cast<int>(ui_count);
-    ui_status.sats_in_use = status.sats_in_use > 0 ? status.sats_in_use : used_count;
-    ui_status.hdop = status.hdop;
-    switch (status.fix)
+    else
     {
-    case gps::GnssFix::FIX2D:
-        ui_status.fix = GnssStatus::FIX2D;
-        break;
-    case gps::GnssFix::FIX3D:
-        ui_status.fix = GnssStatus::FIX3D;
-        break;
-    case gps::GnssFix::NOFIX:
-    default:
-        ui_status.fix = GnssStatus::NOFIX;
-        break;
+        ui_gnss_skyplot_set_sats(nullptr, 0);
     }
-    ui_gnss_skyplot_set_status(ui_status);
+
+    set_empty_state_message(empty_state_message(diagnostics, state, has_satellite_snapshot, ui_count));
+    ui_gnss_skyplot_set_status(make_ui_status(status, state, diagnostics, ui_count, used_count));
 }
 
 void refresh_timer_cb(lv_timer_t* timer)
@@ -1453,6 +1553,19 @@ lv_obj_t* ui_gnss_skyplot_create(lv_obj_t* parent)
             col_x += col_w[i];
         }
     }
+
+    s_ui.empty_state_label = lv_label_create(s_ui.panel_status);
+    lv_obj_set_size(s_ui.empty_state_label,
+                    s_layout.status_panel_w - 20,
+                    std::max<lv_coord_t>(s_layout.table_row_h * 2, 24));
+    lv_obj_set_pos(s_ui.empty_state_label,
+                   10,
+                   s_layout.table_row_start_y + s_layout.table_row_step);
+    lv_label_set_long_mode(s_ui.empty_state_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(s_ui.empty_state_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(s_ui.empty_state_label, lv_color_hex(kColorTextDim), 0);
+    lv_obj_set_style_text_font(s_ui.empty_state_label, s_layout.table_row_font, 0);
+    lv_obj_add_flag(s_ui.empty_state_label, LV_OBJ_FLAG_HIDDEN);
 
     apply_cached_sats();
     if (s_cached_status_valid)

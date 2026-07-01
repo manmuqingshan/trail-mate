@@ -32,7 +32,7 @@ const char* bindingIdForScreen(ui::menu::MenuScreenId screen_id)
     case ui::menu::MenuScreenId::Settings:
         return "settings";
     case ui::menu::MenuScreenId::WalkieTalkie:
-        return "walkie";
+        return "walkie_talkie";
     case ui::menu::MenuScreenId::Sstv:
         return "sstv";
     case ui::menu::MenuScreenId::Extensions:

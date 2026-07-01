@@ -1,6 +1,7 @@
 #include "platform/ui/timezone_profile.h"
 
 #include <cassert>
+#include <cstdint>
 #include <ctime>
 #include <string>
 
@@ -9,18 +10,16 @@ namespace
 
 std::time_t utc_epoch(int year, int month, int day, int hour, int minute, int second)
 {
-    std::tm tm{};
-    tm.tm_year = year - 1900;
-    tm.tm_mon = month - 1;
-    tm.tm_mday = day;
-    tm.tm_hour = hour;
-    tm.tm_min = minute;
-    tm.tm_sec = second;
-#if defined(_WIN32)
-    return _mkgmtime(&tm);
-#else
-    return timegm(&tm);
-#endif
+    year -= month <= 2;
+    const int era = (year >= 0 ? year : year - 399) / 400;
+    const unsigned yoe = static_cast<unsigned>(year - era * 400);
+    const unsigned shifted_month = static_cast<unsigned>(month + (month > 2 ? -3 : 9));
+    const unsigned doy = (153 * shifted_month + 2) / 5 + static_cast<unsigned>(day) - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    const int64_t days = static_cast<int64_t>(era) * 146097 + static_cast<int64_t>(doe) - 719468;
+    const int64_t seconds_of_day =
+        static_cast<int64_t>(hour) * 3600 + static_cast<int64_t>(minute) * 60 + second;
+    return static_cast<std::time_t>(days * 86400 + seconds_of_day);
 }
 
 } // namespace

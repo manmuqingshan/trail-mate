@@ -668,6 +668,10 @@ if(BUILD_TESTING)
             "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
     target_compile_features(trailmate_team_page_deferred_dispatch_smoke
         PRIVATE cxx_std_17)
+    if(WIN32)
+        set_target_properties(trailmate_team_page_deferred_dispatch_smoke
+            PROPERTIES OUTPUT_NAME trailmate_team_page_deferred_queue_smoke)
+    endif()
     add_test(NAME trailmate_team_page_deferred_dispatch_smoke
              COMMAND trailmate_team_page_deferred_dispatch_smoke)
 

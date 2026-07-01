@@ -75,6 +75,7 @@ set(TRAILMATE_ESP_IDF_CORE_CHAT_SOURCES
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshcore/crypto/ed25519/verify.c"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/compression/unishox2.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_codec_pb.cpp"
+    "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_dedup.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_node_payload.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_packet_wire.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_pki_crypto.cpp"
@@ -98,6 +99,7 @@ set(TRAILMATE_ESP_IDF_CORE_CHAT_SOURCES
     "${TRAILMATE_ROOT}/modules/core_chat/generated/meshtastic/device_ui.pb.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/generated/meshtastic/mesh.pb.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/generated/meshtastic/module_config.pb.cpp"
+    "${TRAILMATE_ROOT}/modules/core_chat/generated/meshtastic/mqtt.pb.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/generated/meshtastic/portnums.pb.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/generated/meshtastic/telemetry.pb.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/generated/meshtastic/xmodem.pb.cpp")
