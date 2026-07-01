@@ -74,7 +74,7 @@ class MeshtasticBleService final : public BleService,
     void processPendingToRadio();
     void processPendingPairingRequest();
     void clearToPhoneQueue();
-    void prepareReadableFromRadio();
+    bool prepareReadableFromRadio();
     void consumeReadableFromRadio();
     void syncMqttProxySettings();
     void markConfigSavePending(bool bluetooth_changed, bool module_changed);

@@ -185,8 +185,12 @@ Stage 1 完成后：
 3. 主循环调用 `prepareReadableFromRadio()`，让 `PhoneCore.popToPhone()` 产出下一帧并预装进 `FROMRADIO`
 4. 手机完成 `FROMNUM` 订阅且已有预装帧后，transport 用同一个真实 `from_num` 发送通知
 5. App 读取 `FROMRADIO` 时进入 `onFromRadioAuthorize()`；该回调只记录读取/消费状态，不再产出 protobuf 帧
-6. 主循环调用 `consumeReadableFromRadio()` 清空已读预装帧，再准备下一帧
+6. 主循环调用 `consumeReadableFromRadio()` 消费已读预装帧，并立刻尝试换装下一帧
 7. App 持续读取，直到 `FROMRADIO` 返回空包，表示本轮 drain 完成
+
+关键约束是：两帧之间不能先发布一个人为的空 `FROMRADIO` 值。`consumeReadableFromRadio()` 只有在确认
+`PhoneCore.popToPhone()` 没有下一帧之后，才允许把 characteristic 写成 0 长度；否则 Android 的
+`read-until-empty` 可能把配置流提前判定为 drain 完成，错过后续 `config_complete_id`。
 
 这里有一个稳定性边界：Bluefruit 的 read-authorize 回调不能执行 `popToPhone()`、MQTT proxy 轮询、nanopb 编码或串口日志重活。否则在手机高频 drain、空中包入站和 MQTT downlink 混在一起时，nRF52 侧可能出现无 HardFault 日志的 USB 重枚举/断连。
 

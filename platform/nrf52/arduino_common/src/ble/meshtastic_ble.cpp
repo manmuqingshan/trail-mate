@@ -778,18 +778,23 @@ void MeshtasticBleService::handleFromRadioReadRequest(uint16_t conn_handle,
     from_radio_consume_pending_ = true;
 }
 
-void MeshtasticBleService::prepareReadableFromRadio()
+bool MeshtasticBleService::prepareReadableFromRadio()
 {
-    if (from_radio_preloaded_valid_ || !active_ || !connected_ || !phone_session_)
+    if (from_radio_preloaded_valid_)
     {
-        return;
+        return true;
+    }
+
+    if (!active_ || !connected_ || !phone_session_)
+    {
+        return false;
     }
 
     auto& session_frame = session_frame_scratch_;
     std::memset(&session_frame, 0, sizeof(session_frame));
     if (!phone_session_->popToPhone(&session_frame))
     {
-        return;
+        return false;
     }
 
     if (session_frame.len == 0 || session_frame.len > meshtastic_FromRadio_size)
@@ -802,7 +807,7 @@ void MeshtasticBleService::prepareReadableFromRadio()
         from_radio_.write(&empty, 0);
         pending_from_radio_empty_log_ = true;
         pending_from_radio_empty_reason_ = kFromRadioEmptyInvalidFrame;
-        return;
+        return false;
     }
 
     from_radio_preloaded_ = session_frame;
@@ -813,6 +818,7 @@ void MeshtasticBleService::prepareReadableFromRadio()
                static_cast<unsigned long>(from_radio_preloaded_.from_num),
                static_cast<unsigned>(from_radio_preloaded_.len),
                static_cast<unsigned>(pending_from_num_count_));
+    return true;
 }
 
 void MeshtasticBleService::consumeReadableFromRadio()
@@ -832,8 +838,11 @@ void MeshtasticBleService::consumeReadableFromRadio()
     from_radio_preloaded_ = phone::meshtastic::MeshtasticBleFrame{};
     from_radio_preloaded_valid_ = false;
 
-    uint8_t empty = 0;
-    from_radio_.write(&empty, 0);
+    if (!prepareReadableFromRadio())
+    {
+        uint8_t empty = 0;
+        from_radio_.write(&empty, 0);
+    }
 }
 
 bool MeshtasticBleService::enqueueToRadio(const uint8_t* data, size_t len)

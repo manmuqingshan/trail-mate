@@ -358,6 +358,16 @@ This is not optional. During config/setup, returning zero-length before `config_
 can make the Android App stop draining `FromRadio`, causing symptoms such as `Nodes(0)` or
 stuck setup screens.
 
+On transports that preload `FROMRADIO` outside the GATT read callback, consuming a read frame must atomically
+prefer the next available frame over a temporary empty characteristic value. In practice this means:
+
+- after a non-empty read, mark that preloaded frame consumed;
+- immediately ask `PhoneAPI`/`MeshtasticPhoneCore` for the next frame in the same main-loop turn;
+- write a 0-length `FROMRADIO` value only if there is truly no next frame.
+
+Publishing an empty value between two real config frames is a protocol-visible empty read, even if the gap lasts only
+one scheduler slice.
+
 MQTT proxy egress rule:
 
 - `FromRadio.mqttClientProxyMessage` belongs only to `SendPackets`.
