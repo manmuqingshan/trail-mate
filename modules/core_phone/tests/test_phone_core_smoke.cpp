@@ -664,6 +664,44 @@ int main()
     assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
     assert(!known_node_session.popToPhone(&text_frame));
 
+    phone::tests::FakePhoneRuntimeContext mqtt_priority_runtime;
+    mqtt_priority_runtime.nodes.push_back(cd8c_node);
+    FakeMeshtasticTransport mqtt_priority_transport;
+    FakeMqttHooks mqtt_priority_hooks;
+    mqtt_priority_hooks.to_phone.push_back(mqtt_proxy_msg);
+    phone::meshtastic::MeshtasticPhoneSession mqtt_priority_session(mqtt_priority_runtime,
+                                                                    mqtt_priority_transport,
+                                                                    nullptr,
+                                                                    nullptr,
+                                                                    nullptr,
+                                                                    nullptr,
+                                                                    &mqtt_priority_hooks,
+                                                                    nullptr);
+    enterMeshtasticSendPackets(mqtt_priority_session);
+
+    incoming_text.msg_id = 0x9DD4E0ED;
+    mqtt_priority_session.onIncomingText(incoming_text);
+    assert(mqtt_priority_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_node_info_tag);
+    assert(text_frame.from_num == cd8c_node.node_id);
+    assert(mqtt_priority_hooks.poll_count == 0);
+
+    assert(mqtt_priority_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(text_frame.from_num == incoming_text.msg_id);
+    assert(mqtt_priority_hooks.poll_count == 0);
+
+    assert(mqtt_priority_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_mqttClientProxyMessage_tag);
+    assert(mqtt_priority_hooks.poll_count == 1);
+    assert(!mqtt_priority_session.popToPhone(&text_frame));
+
     phone::tests::FakePhoneRuntimeContext metadata_runtime;
     FakeMeshtasticTransport metadata_transport;
     phone::meshtastic::MeshtasticPhoneSession metadata_session(

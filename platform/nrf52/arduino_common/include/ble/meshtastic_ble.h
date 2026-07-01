@@ -106,6 +106,7 @@ class MeshtasticBleService final : public BleService,
     uint16_t conn_handle_ = BLE_CONN_HANDLE_INVALID;
     std::unique_ptr<phone::meshtastic::MeshtasticPhoneSession> phone_session_;
     std::atomic<uint32_t> pending_passkey_{0};
+    std::atomic<uint32_t> configured_passkey_{0};
 
     static constexpr uint8_t kPendingToRadioCapacity = 6;
     PendingToRadioFrame pending_to_radio_[kPendingToRadioCapacity]{};
@@ -113,18 +114,15 @@ class MeshtasticBleService final : public BleService,
     volatile uint8_t pending_to_radio_tail_ = 0;
     volatile uint8_t pending_to_radio_count_ = 0;
 
-    static constexpr uint8_t kPendingFromNumCapacity = 4;
-    uint32_t pending_from_num_[kPendingFromNumCapacity] = {};
-    uint8_t pending_from_num_head_ = 0;
-    uint8_t pending_from_num_tail_ = 0;
-    uint8_t pending_from_num_count_ = 0;
-
     volatile bool pairing_request_pending_ = false;
     volatile uint16_t pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
 
     phone::meshtastic::MeshtasticBleFrame session_frame_scratch_{};
     phone::meshtastic::MeshtasticBleFrame from_radio_preloaded_{};
     volatile bool from_radio_preloaded_valid_ = false;
+    volatile bool from_radio_preloaded_notified_ = false;
+    volatile bool from_num_notify_pending_ = false;
+    volatile uint32_t from_num_notify_value_ = 0;
     volatile bool from_radio_consume_pending_ = false;
 
     volatile bool pending_connect_log_ = false;

@@ -55,7 +55,7 @@ GitNexus 索引可能落后当前 HEAD。本文档以当前工作区源码为准
 | --- | --- |
 | Android UI text such as `Module config received` | 只是 App 侧阶段显示，不能证明 firmware 已完成 config flow 或保存成功。 |
 | Android UI text such as `Nodes(0)` | 只是 App 当前 NodeDB 视图，不能作为 firmware node store 或 BLE queue 的事实来源。 |
-| `fromNum` characteristic value | 是唤醒 Android 继续读取 `FromRadio` 的单调 notify token，不是业务 packet id。日志里的 `source` 才是 firmware 侧语义来源。 |
+| `fromNum` characteristic value | 是唤醒 Android 继续读取 `FromRadio` 的信号；transport 可发送单调 token 或当前预装帧的 `from_num`，但它不是独立业务队列。 |
 | BLE connected flag | 只证明 GAP 连接存在，不证明 Meshtastic config snapshot 完成。 |
 | Android MQTT connected status | 只是 Android MQTT client 的网络状态，不证明 firmware 已经进入 `SEND_PACKETS`，也不证明 `FromRadio.mqttClientProxyMessage` 可被安全交付。 |
 | `fromRadio` zero-length read | 是 drain 结束信号，不是错误；但在配置流完成前过早出现会导致 App 停在未完成状态。 |
@@ -374,6 +374,16 @@ MQTT proxy egress rule:
 - `popToPhone()` must not poll or pop the MQTT proxy queue while phase is `SendNothing` or `ConfigFlow`.
 - A pre-handshake read may return config data or no frame, but it must not consume MQTT proxy data.
 - This rule is stronger than queue priority. The first decision is phase, then variant priority within that phase.
+- Within `SendPackets`, local identity/message projections have priority over MQTT proxy frames:
+  `queueStatus -> node_info -> packet -> deferred save/apply/restart -> mqttClientProxyMessage -> empty`.
+
+FromNum/FromRadio binding rule:
+
+- `FromNum` notification must describe a frame that is already queued or preloaded for `FromRadio`.
+- A transport must not keep an independent pending `from_num` ring that can drift ahead of the readable frame.
+- If a transport uses a monotonic notify token, it must log the semantic `source` separately.
+- If a transport uses the frame `from_num` as the notify value, that value must be read from the same preloaded frame.
+- After Android reads a frame, the next frame may be preloaded and notified; unread frames must not be overtaken by later notifications.
 
 ## Android App And Firmware Interaction Contract
 
@@ -458,7 +468,7 @@ Rules:
 | `FromRadio.config*` variants | Not emitted until `want_config_id`. | Allowed, ordered by config snapshot rules. | Only emitted for explicit config snapshot request. |
 | `FromRadio.node_info` | Not emitted until `want_config_id`. | Allowed in node snapshot. | Allowed only for explicit steady-state projection events. |
 | `FromRadio.queueStatus` | Avoid unless required for heartbeat liveness. | Must not overtake config frames. | Allowed before MQTT proxy. |
-| `FromRadio.mqttClientProxyMessage` | Forbidden and must not consume queue. | Forbidden and must not consume queue. | Allowed after queue status. |
+| `FromRadio.mqttClientProxyMessage` | Forbidden and must not consume queue. | Forbidden and must not consume queue. | Allowed after local status, identity, packet, and deferred-save drain. |
 | `FromRadio.packet` | Forbidden. | Forbidden except explicitly allowed setup/admin responses. | Allowed. |
 
 Implementation consequence:
@@ -471,10 +481,10 @@ flowchart TD
     B -->|SendPackets| F["emit steady-state queues"]
     F --> G{"priority"}
     G -->|1| H["queueStatus"]
-    G -->|2| I["mqttClientProxyMessage"]
-    G -->|3| J["clientNotification / xmodem if supported"]
-    G -->|4| K["node_info / packet queues"]
-    G -->|5| L["deferred save/apply/restart"]
+    G -->|2| I["node_info"]
+    G -->|3| J["packet"]
+    G -->|4| K["deferred save/apply/restart"]
+    G -->|5| L["mqttClientProxyMessage"]
 ```
 
 ## Config Snapshot Flow
@@ -631,18 +641,17 @@ Forbidden:
 Within `SendPackets`, preserve this priority:
 
 1. Queue status frames.
-2. MQTT proxy message from radio/backend to phone.
-3. Client notification / xmodem frames if supported.
-4. Node info projection frames queued outside config flow.
-5. Mesh packet frames.
-6. Deferred app config save.
-7. Deferred module config save.
-8. Deferred Bluetooth config save and enabled-state apply.
-9. Deferred restart after module config change.
-10. No frame.
+2. Node info projection frames queued outside config flow.
+3. Mesh packet frames.
+4. Deferred app config save.
+5. Deferred module config save.
+6. Deferred Bluetooth config save and enabled-state apply.
+7. Deferred restart after module config change.
+8. MQTT proxy message from radio/backend to phone.
+9. No frame.
 
-Do not reorder this casually. In particular, MQTT proxy must not overtake active config frames, and deferred save must not
-overtake phone-visible Admin responses.
+Do not reorder this casually. In particular, MQTT proxy must not overtake active config frames, node identity projection,
+mesh packet projection, or deferred saves. Deferred save must not overtake phone-visible Admin responses.
 
 The response-drain-before-save rule exists because Android expects queue status and Admin response frames promptly.
 Blocking flash/NVS writes or restart before those frames are observable can make the App appear connected but stuck.
@@ -783,12 +792,12 @@ sequenceDiagram
 
     Radio->>Svc: incoming text/app-data event
     Svc->>Core: onIncomingText/onIncomingData
+    Core->>Core: project NodeInfo if identity changed
     Core->>Core: build MeshPacket and queue
-    Core->>Svc: notifyFromNum(source=packet.id)
-    Svc-->>Phone: FromNum notify(token)
+    Svc->>Core: pop/preload next FromRadio frame
+    Svc-->>Phone: FromNum notify(bound to preloaded frame)
     Phone->>Svc: Read FromRadio
-    Svc->>Core: popToPhone()
-    Core-->>Phone: FromRadio.packet
+    Core-->>Phone: FromRadio.node_info or FromRadio.packet
     Phone->>Svc: Read FromRadio until empty
 ```
 
@@ -827,6 +836,7 @@ Rules:
 - MQTT downlink into the device is legal only after `SendPackets`.
 - MQTT uplink out of the device may be queued before Android reconnects, but may be consumed only after `SendPackets`.
 - The bounded MQTT proxy queue is a loss boundary. If it fills, drop-oldest is acceptable and must be logged; silent early consumption is not acceptable.
+- MQTT proxy egress is lower priority than local `NodeInfo`/`MeshPacket` projection. A broker burst must not delay the identity frames Android needs to render sender name, emoji, `(MQTT)`, and cloud state.
 
 ## Runtime Concurrency Rules
 

@@ -1691,26 +1691,6 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         return encodeFromRadio(from, mesh_packet_id, out);
     }
 
-    if (mqtt_hooks_)
-    {
-        auto& mqtt = mqtt_proxy_scratch_;
-        std::memset(&mqtt, 0, sizeof(mqtt));
-        if (mqtt_hooks_->pollMqttProxyToPhone(&mqtt))
-        {
-            std::memset(&from, 0, sizeof(from));
-            from.which_payload_variant = meshtastic_FromRadio_mqttClientProxyMessage_tag;
-            from.mqttClientProxyMessage = mqtt;
-            logDual("[BLE][mtcore][mqtt] pop topic=%s retained=%u variant=%u len=%u\n",
-                    mqtt.topic,
-                    mqtt.retained ? 1U : 0U,
-                    static_cast<unsigned>(mqtt.which_payload_variant),
-                    mqtt.which_payload_variant == meshtastic_MqttClientProxyMessage_data_tag
-                        ? static_cast<unsigned>(mqtt.payload_variant.data.size)
-                        : 0U);
-            return encodeFromRadio(from, 0, out);
-        }
-    }
-
     if (const meshtastic_NodeInfo* node_info = node_info_queue_.front())
     {
         from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
@@ -1764,6 +1744,27 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         restart_pending_ = false;
         logDual("[BLE][mtcore] restart after module config save\n");
         app_.restartDevice();
+        return false;
+    }
+
+    if (mqtt_hooks_)
+    {
+        auto& mqtt = mqtt_proxy_scratch_;
+        std::memset(&mqtt, 0, sizeof(mqtt));
+        if (mqtt_hooks_->pollMqttProxyToPhone(&mqtt))
+        {
+            std::memset(&from, 0, sizeof(from));
+            from.which_payload_variant = meshtastic_FromRadio_mqttClientProxyMessage_tag;
+            from.mqttClientProxyMessage = mqtt;
+            logDual("[BLE][mtcore][mqtt] pop topic=%s retained=%u variant=%u len=%u\n",
+                    mqtt.topic,
+                    mqtt.retained ? 1U : 0U,
+                    static_cast<unsigned>(mqtt.which_payload_variant),
+                    mqtt.which_payload_variant == meshtastic_MqttClientProxyMessage_data_tag
+                        ? static_cast<unsigned>(mqtt.payload_variant.data.size)
+                        : 0U);
+            return encodeFromRadio(from, 0, out);
+        }
     }
 
     return false;
