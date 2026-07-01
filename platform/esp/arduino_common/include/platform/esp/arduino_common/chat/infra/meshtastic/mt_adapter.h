@@ -183,6 +183,31 @@ class MtAdapter : public chat::IMeshAdapter
         uint32_t last_attempt;
     };
 
+    enum class PendingProtocolActionType : uint8_t
+    {
+        None,
+        SendNodeInfo,
+        SendRoutingAck,
+        SendRoutingError,
+        SendPacket
+    };
+
+    struct PendingProtocolAction
+    {
+        PendingProtocolActionType type = PendingProtocolActionType::None;
+        NodeId peer = 0;
+        MessageId request_id = 0;
+        ChannelId channel = ChannelId::PRIMARY;
+        uint8_t channel_hash = 0;
+        bool want_response = false;
+        meshtastic_Routing_Error routing_error = meshtastic_Routing_Error_NONE;
+        runtime::SendPacketEffect packet{};
+        bool mark_nodeinfo_reply = false;
+        uint32_t nodeinfo_reply_ms = 0;
+        uint8_t retry_count = 0;
+        uint32_t last_attempt = 0;
+    };
+
     std::queue<PendingSend> send_queue_;
     std::queue<MeshIncomingText> receive_queue_;
     std::queue<MeshIncomingData> app_receive_queue_;
@@ -230,6 +255,7 @@ class MtAdapter : public chat::IMeshAdapter
     static constexpr uint32_t ACK_TIMEOUT_MS = 15000;
     static constexpr uint8_t MAX_ACK_RETRIES = 3;
     static constexpr size_t kMaxPkiNodes = 16;
+    static constexpr size_t kProtocolActionQueueSize = 8;
     static constexpr const char* kPkiPrefsNs = "chat_pki";
     static constexpr const char* kPkiPrefsKey = "pki_nodes";
     static constexpr const char* kPkiPrefsKeyVer = "pki_nodes_ver";
@@ -240,9 +266,11 @@ class MtAdapter : public chat::IMeshAdapter
     uint8_t encrypt_mode_ = 1;
     meshtastic_Routing_Error last_send_error_ = meshtastic_Routing_Error_NONE;
     runtime::MeshtasticRuntime protocol_runtime_{};
+    std::array<PendingProtocolAction, kProtocolActionQueueSize> protocol_action_queue_{};
+    size_t protocol_action_head_ = 0;
+    size_t protocol_action_count_ = 0;
 
     bool sendPacket(const PendingSend& pending);
-    bool sendNodeInfo();
     bool sendNodeInfoTo(uint32_t dest, bool want_response,
                         ChannelId channel = ChannelId::PRIMARY);
     void maybeBroadcastNodeInfo(uint32_t now_ms);
@@ -254,6 +282,19 @@ class MtAdapter : public chat::IMeshAdapter
     void initNodeIdentity();
     void updateChannelKeys();
     bool transmitWirePacket(const uint8_t* wire_data, size_t wire_size);
+    bool enqueueProtocolAction(const PendingProtocolAction& action);
+    bool enqueueNodeInfoAction(NodeId peer, bool want_response, ChannelId channel,
+                               bool mark_reply = false, uint32_t reply_ms = 0);
+    bool enqueueRoutingAckAction(NodeId peer, MessageId request_id, uint8_t channel_hash);
+    bool enqueueRoutingErrorAction(NodeId peer, MessageId request_id, ChannelId channel,
+                                   meshtastic_Routing_Error reason);
+    bool enqueueSendPacketAction(const runtime::SendPacketEffect& packet);
+    bool popProtocolAction();
+    void processProtocolActionQueue(uint32_t now_ms);
+    bool executeProtocolAction(const PendingProtocolAction& action);
+    bool resolvePskForChannelHash(uint8_t channel_hash,
+                                  const uint8_t** out_psk,
+                                  size_t* out_psk_len) const;
     bool sendChannelAppDataViaCore(uint32_t portnum,
                                    const uint8_t* payload,
                                    size_t len,

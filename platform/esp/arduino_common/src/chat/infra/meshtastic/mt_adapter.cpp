@@ -783,7 +783,7 @@ bool MtAdapter::requestNodeInfo(NodeId dest, bool want_response)
             channel = it->second;
         }
     }
-    return sendNodeInfoTo(target, want_response, channel);
+    return enqueueNodeInfoAction(target, want_response, channel);
 }
 
 bool MtAdapter::isPkiReady() const
@@ -1490,12 +1490,14 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 
     if (!parseWirePacket(data, size, &header, payload, &payload_size))
     {
-        std::string raw_hex = toHex(data, size);
         mt_diag_log("[MT][RX_DROP] reason=parse_fail len=%u\n",
                     static_cast<unsigned>(size));
+#if LORA_LOG_ENABLE
+        std::string raw_hex = toHex(data, size);
         LORA_LOG("[LORA] RX parse fail len=%u hex=%s\n",
                  (unsigned)size,
                  raw_hex.c_str());
+#endif
         return;
     }
 
@@ -1503,7 +1505,6 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
     const bool matches_secondary_channel =
         (secondary_psk_len_ > 0 && header.channel == secondary_channel_hash_);
 
-    std::string full_hex = toHex(data, size, size);
     LORA_LOG("[LORA] RX wire from=%08lX to=%08lX id=%08lX ch=0x%02X flags=0x%02X len=%u\n",
              (unsigned long)header.from,
              (unsigned long)header.to,
@@ -1525,7 +1526,10 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         channel_kind = "ZERO_UNMATCHED";
     }
     LORA_LOG("[LORA] RX channel kind=%s hash=0x%02X\n", channel_kind, header.channel);
+#if LORA_LOG_ENABLE
+    std::string full_hex = toHex(data, size, size);
     LORA_LOG("[LORA] RX full packet hex: %s\n", full_hex.c_str());
+#endif
 
     // Check for duplicates
     if (dedup_.isDuplicate(header.from, header.id))
@@ -1788,15 +1792,13 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
             mt_diag_dropf(&header, "decode_failed");
         }
 
-        std::string cipher_hex = toHex(payload, payload_size, payload_size);
         if (!(matches_primary_channel || matches_secondary_channel) && !can_try_pki)
         {
-            LORA_LOG("[LORA] RX unknown channel hash=0x%02X from=%08lX id=%08lX len=%u hex=%s (skip decode)\n",
+            LORA_LOG("[LORA] RX unknown channel hash=0x%02X from=%08lX id=%08lX len=%u (skip decode)\n",
                      header.channel,
                      (unsigned long)header.from,
                      (unsigned long)header.id,
-                     (unsigned)payload_size,
-                     cipher_hex.c_str());
+                     (unsigned)payload_size);
         }
         else if (last_drop_reason && std::strcmp(last_drop_reason, "pki_not_ready") == 0)
         {
@@ -1820,27 +1822,24 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                 mt_diag_log("[MT][PKI_RESYNC] node=%08lX action=forget_key+request_nodeinfo\n",
                             static_cast<unsigned long>(header.from));
             }
-            LORA_LOG("[LORA] RX PKI decrypt fail from=%08lX id=%08lX len=%u hex=%s\n",
+            LORA_LOG("[LORA] RX PKI decrypt fail from=%08lX id=%08lX len=%u\n",
                      (unsigned long)header.from,
                      (unsigned long)header.id,
-                     (unsigned)payload_size,
-                     cipher_hex.c_str());
+                     (unsigned)payload_size);
         }
         else if (last_drop_reason && std::strcmp(last_drop_reason, "channel_decrypt_fail") == 0)
         {
-            LORA_LOG("[LORA] RX decrypt fail id=%08lX ch=0x%02X psk=%u len=%u hex=%s\n",
+            LORA_LOG("[LORA] RX decrypt fail id=%08lX ch=0x%02X psk=%u len=%u\n",
                      (unsigned long)header.id,
                      header.channel,
                      (unsigned)psk_len,
-                     (unsigned)payload_size,
-                     cipher_hex.c_str());
+                     (unsigned)payload_size);
         }
         else
         {
-            LORA_LOG("[LORA] RX data decode fail id=%08lX len=%u hex=%s\n",
+            LORA_LOG("[LORA] RX data decode fail id=%08lX len=%u\n",
                      (unsigned long)header.id,
-                     (unsigned)payload_size,
-                     cipher_hex.c_str());
+                     (unsigned)payload_size);
         }
         return;
     }
@@ -1851,8 +1850,10 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 
     if (plaintext_len > 0)
     {
+#if LORA_LOG_ENABLE
         std::string protobuf_hex = toHex(plaintext, plaintext_len, plaintext_len);
         LORA_LOG("[LORA] RX protobuf hex: %s\n", protobuf_hex.c_str());
+#endif
     }
 
     {
@@ -1887,8 +1888,10 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                  (unsigned)decoded.payload.size);
         if (decoded.payload.size > 0)
         {
+#if LORA_LOG_ENABLE
             std::string payload_hex = toHex(decoded.payload.bytes, decoded.payload.size, decoded.payload.size);
             LORA_LOG("[LORA] RX data payload hex: %s\n", payload_hex.c_str());
+#endif
         }
 
         bool node_metadata_decoded = false;
@@ -2184,16 +2187,18 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         }
         if (want_ack_flag && to_us)
         {
-            if (sendRoutingAck(header.from, header.id, header.channel, psk, psk_len))
+            (void)psk;
+            (void)psk_len;
+            if (enqueueRoutingAckAction(header.from, header.id, header.channel))
             {
-                LORA_LOG("[LORA] TX ack to=%08lX req=%08lX port=%u\n",
+                LORA_LOG("[LORA] TX ack queued to=%08lX req=%08lX port=%u\n",
                          (unsigned long)header.from,
                          (unsigned long)header.id,
                          static_cast<unsigned>(decoded.portnum));
             }
             else
             {
-                LORA_LOG("[LORA] TX ack fail to=%08lX req=%08lX port=%u\n",
+                LORA_LOG("[LORA] TX ack queue fail to=%08lX req=%08lX port=%u\n",
                          (unsigned long)header.from,
                          (unsigned long)header.id,
                          static_cast<unsigned>(decoded.portnum));
@@ -2229,15 +2234,14 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                 want_response, to_us_or_broadcast, now_ms, last_reply_ms);
             if (reply_policy.should_reply)
             {
-                if (sendNodeInfoTo(header.from, false, channel_id))
+                if (enqueueNodeInfoAction(header.from, false, channel_id, true, now_ms))
                 {
-                    nodeinfo_reply_ms_[header.from] = now_ms;
-                    LORA_LOG("[LORA] TX nodeinfo reply to=%08lX\n",
+                    LORA_LOG("[LORA] TX nodeinfo reply queued to=%08lX\n",
                              (unsigned long)header.from);
                 }
                 else
                 {
-                    LORA_LOG("[LORA] TX nodeinfo reply fail to=%08lX\n",
+                    LORA_LOG("[LORA] TX nodeinfo reply queue fail to=%08lX\n",
                              (unsigned long)header.from);
                 }
             }
@@ -2339,6 +2343,7 @@ void MtAdapter::processSendQueue()
     uint32_t now = millis();
 
     maybeBroadcastNodeInfo(now);
+    processProtocolActionQueue(now);
 
     for (auto it = pending_ack_states_.begin(); it != pending_ack_states_.end();)
     {
@@ -2476,9 +2481,6 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
             LORA_LOG("[LORA] TX data plain decode fail err=%s\n", PB_GET_ERROR(&stream));
         }
     }
-    std::string data_hex = toHex(data_buffer.data(), data_size, data_size);
-    LORA_LOG("[LORA] TX data protobuf hex: %s\n", data_hex.c_str());
-
     // Build a full Meshtastic-compatible wire packet
     size_t wire_size = wire_buffer.size();
 
@@ -2576,9 +2578,6 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
              (unsigned)psk_len,
              (unsigned)wire_size,
              (unsigned long)dest);
-    std::string tx_full_hex = toHex(wire_buffer.data(), wire_size, wire_size);
-    LORA_LOG("[LORA] TX full packet hex: %s\n", tx_full_hex.c_str());
-
     if (!board_.isRadioOnline())
     {
         return false;
@@ -2601,16 +2600,6 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
                                       channel);
     }
     return ok;
-}
-
-bool MtAdapter::sendNodeInfo()
-{
-    if (!ready_)
-    {
-        return false;
-    }
-
-    return sendNodeInfoTo(0xFFFFFFFF, false, ChannelId::PRIMARY);
 }
 
 bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId channel)
@@ -2681,9 +2670,6 @@ bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId chan
              (unsigned)(channel == ChannelId::SECONDARY ? 1 : 0),
              request.hop_limit,
              (unsigned)packet.wire_size);
-    std::string nodeinfo_full_hex = toHex(packet.wire, packet.wire_size, packet.wire_size);
-    LORA_LOG("[LORA] TX nodeinfo full packet hex: %s\n", nodeinfo_full_hex.c_str());
-
     if (!board_.isRadioOnline())
     {
         return false;
@@ -2710,9 +2696,9 @@ void MtAdapter::maybeBroadcastNodeInfo(uint32_t now_ms)
 
     if (last_nodeinfo_ms_ == 0 || (now_ms - last_nodeinfo_ms_) >= NODEINFO_INTERVAL_MS)
     {
-        if (sendNodeInfo())
+        if (enqueueNodeInfoAction(kBroadcastNodeId, false, ChannelId::PRIMARY))
         {
-            last_nodeinfo_ms_ = now_ms;
+            LORA_LOG("[LORA] TX nodeinfo periodic queued\n");
         }
     }
 }
@@ -2741,15 +2727,15 @@ void MtAdapter::maybeBroadcastNodeInfoAfterPeerAnnouncement(uint32_t from_node,
         return;
     }
 
-    if (sendNodeInfoTo(0xFFFFFFFF, false, channel))
+    if (enqueueNodeInfoAction(kBroadcastNodeId, false, channel))
     {
-        LORA_LOG("[LORA] TX nodeinfo announce after peer from=%08lX ch=%u\n",
+        LORA_LOG("[LORA] TX nodeinfo announce queued after peer from=%08lX ch=%u\n",
                  (unsigned long)from_node,
                  static_cast<unsigned>(channel));
     }
     else
     {
-        LORA_LOG("[LORA] TX nodeinfo announce fail after peer from=%08lX ch=%u\n",
+        LORA_LOG("[LORA] TX nodeinfo announce queue fail after peer from=%08lX ch=%u\n",
                  (unsigned long)from_node,
                  static_cast<unsigned>(channel));
     }
@@ -2920,31 +2906,229 @@ void MtAdapter::startRadioReceive()
 
 bool MtAdapter::transmitWirePacket(const uint8_t* wire_data, size_t wire_size)
 {
+    if (!wire_data || wire_size == 0 || wire_size > MAX_PACKET_SIZE)
+    {
+        return false;
+    }
     if (!board_.isRadioOnline())
     {
         return false;
     }
+    const bool queued = app::AppTasks::enqueueRadioTransmit(wire_data, wire_size);
+    LORA_LOG("[LORA] TX enqueue len=%u ok=%u\n",
+             static_cast<unsigned>(wire_size),
+             queued ? 1U : 0U);
+    return queued;
+}
 
-    app::AppTasks::requestRadioReceiveRestart();
+bool MtAdapter::enqueueProtocolAction(const PendingProtocolAction& action)
+{
+    if (action.type == PendingProtocolActionType::None)
+    {
+        return false;
+    }
+    if (protocol_action_count_ >= protocol_action_queue_.size())
+    {
+        LORA_LOG("[LORA] protocol action queue full type=%u peer=%08lX req=%08lX\n",
+                 static_cast<unsigned>(action.type),
+                 static_cast<unsigned long>(action.peer),
+                 static_cast<unsigned long>(action.request_id));
+        return false;
+    }
+    const size_t index =
+        (protocol_action_head_ + protocol_action_count_) % protocol_action_queue_.size();
+    protocol_action_queue_[index] = action;
+    ++protocol_action_count_;
+    return true;
+}
 
-    int state = RADIOLIB_ERR_UNSUPPORTED;
-#if defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_SX1280) || \
-    defined(ARDUINO_LILYGO_LORA_LR1121)
+bool MtAdapter::enqueueNodeInfoAction(NodeId peer, bool want_response, ChannelId channel,
+                                      bool mark_reply, uint32_t reply_ms)
+{
+    for (size_t i = 0; i < protocol_action_count_; ++i)
     {
-        app::AppTasks::ScopedRadioTransmitActivity tx_activity;
-        state = board_.transmitRadio(wire_data, wire_size);
+        const size_t index = (protocol_action_head_ + i) % protocol_action_queue_.size();
+        PendingProtocolAction& action = protocol_action_queue_[index];
+        if (action.type == PendingProtocolActionType::SendNodeInfo &&
+            action.peer == peer &&
+            action.channel == channel)
+        {
+            action.want_response = action.want_response || want_response;
+            if (mark_reply)
+            {
+                action.mark_nodeinfo_reply = true;
+                action.nodeinfo_reply_ms = reply_ms;
+            }
+            return true;
+        }
     }
-#endif
-    const bool ok = (state == RADIOLIB_ERR_NONE);
-    if (ok)
+    PendingProtocolAction action{};
+    action.type = PendingProtocolActionType::SendNodeInfo;
+    action.peer = peer;
+    action.want_response = want_response;
+    action.channel = channel;
+    action.mark_nodeinfo_reply = mark_reply;
+    action.nodeinfo_reply_ms = reply_ms;
+    return enqueueProtocolAction(action);
+}
+
+bool MtAdapter::enqueueRoutingAckAction(NodeId peer, MessageId request_id, uint8_t channel_hash)
+{
+    PendingProtocolAction action{};
+    action.type = PendingProtocolActionType::SendRoutingAck;
+    action.peer = peer;
+    action.request_id = request_id;
+    action.channel_hash = channel_hash;
+    return enqueueProtocolAction(action);
+}
+
+bool MtAdapter::enqueueRoutingErrorAction(NodeId peer, MessageId request_id, ChannelId channel,
+                                          meshtastic_Routing_Error reason)
+{
+    PendingProtocolAction action{};
+    action.type = PendingProtocolActionType::SendRoutingError;
+    action.peer = peer;
+    action.request_id = request_id;
+    action.channel = channel;
+    action.routing_error = reason;
+    return enqueueProtocolAction(action);
+}
+
+bool MtAdapter::enqueueSendPacketAction(const runtime::SendPacketEffect& packet)
+{
+    PendingProtocolAction action{};
+    action.type = PendingProtocolActionType::SendPacket;
+    action.packet = packet;
+    action.peer = packet.dest;
+    action.request_id = packet.request_id;
+    action.channel = packet.channel;
+    return enqueueProtocolAction(action);
+}
+
+bool MtAdapter::popProtocolAction()
+{
+    if (protocol_action_count_ == 0)
     {
-        startRadioReceive();
+        return false;
     }
-    else
+    protocol_action_queue_[protocol_action_head_] = PendingProtocolAction{};
+    protocol_action_head_ = (protocol_action_head_ + 1) % protocol_action_queue_.size();
+    --protocol_action_count_;
+    return true;
+}
+
+bool MtAdapter::resolvePskForChannelHash(uint8_t channel_hash,
+                                         const uint8_t** out_psk,
+                                         size_t* out_psk_len) const
+{
+    if (!out_psk || !out_psk_len)
     {
-        app::AppTasks::requestRadioReceiveRestart();
+        return false;
     }
-    return ok;
+    *out_psk = nullptr;
+    *out_psk_len = 0;
+    if (channel_hash == 0)
+    {
+        return true;
+    }
+    if (channel_hash == primary_channel_hash_)
+    {
+        *out_psk = primary_psk_;
+        *out_psk_len = primary_psk_len_;
+        return true;
+    }
+    if (channel_hash == secondary_channel_hash_)
+    {
+        *out_psk = secondary_psk_;
+        *out_psk_len = secondary_psk_len_;
+        return true;
+    }
+    return false;
+}
+
+bool MtAdapter::executeProtocolAction(const PendingProtocolAction& action)
+{
+    switch (action.type)
+    {
+    case PendingProtocolActionType::SendNodeInfo:
+        return sendNodeInfoTo(static_cast<uint32_t>(action.peer),
+                              action.want_response,
+                              action.channel);
+    case PendingProtocolActionType::SendRoutingAck:
+    {
+        const uint8_t* psk = nullptr;
+        size_t psk_len = 0;
+        if (!resolvePskForChannelHash(action.channel_hash, &psk, &psk_len))
+        {
+            return false;
+        }
+        return sendRoutingAck(static_cast<uint32_t>(action.peer),
+                              action.request_id,
+                              action.channel_hash,
+                              psk,
+                              psk_len);
+    }
+    case PendingProtocolActionType::SendRoutingError:
+    {
+        const bool use_secondary = action.channel == ChannelId::SECONDARY;
+        const uint8_t channel_hash = use_secondary ? secondary_channel_hash_ : primary_channel_hash_;
+        const uint8_t* psk = use_secondary ? secondary_psk_ : primary_psk_;
+        const size_t psk_len = use_secondary ? secondary_psk_len_ : primary_psk_len_;
+        return sendRoutingError(static_cast<uint32_t>(action.peer),
+                                action.request_id,
+                                channel_hash,
+                                psk,
+                                psk_len,
+                                action.routing_error);
+    }
+    case PendingProtocolActionType::SendPacket:
+        return sendProtocolPacketEffect(action.packet);
+    case PendingProtocolActionType::None:
+    default:
+        return true;
+    }
+}
+
+void MtAdapter::processProtocolActionQueue(uint32_t now_ms)
+{
+    size_t processed = 0;
+    while (protocol_action_count_ > 0 && processed < protocol_action_queue_.size())
+    {
+        PendingProtocolAction& action = protocol_action_queue_[protocol_action_head_];
+        if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
+            (now_ms - last_tx_ms_) < min_tx_interval_ms_)
+        {
+            break;
+        }
+        if (action.retry_count > 0 && (now_ms - action.last_attempt) < RETRY_DELAY_MS)
+        {
+            break;
+        }
+        if (executeProtocolAction(action))
+        {
+            if (action.mark_nodeinfo_reply)
+            {
+                nodeinfo_reply_ms_[action.peer] = action.nodeinfo_reply_ms;
+            }
+            last_tx_ms_ = now_ms;
+            popProtocolAction();
+        }
+        else
+        {
+            ++action.retry_count;
+            action.last_attempt = now_ms;
+            if (action.retry_count > MAX_RETRIES)
+            {
+                LORA_LOG("[LORA] protocol action drop type=%u peer=%08lX req=%08lX\n",
+                         static_cast<unsigned>(action.type),
+                         static_cast<unsigned long>(action.peer),
+                         static_cast<unsigned long>(action.request_id));
+                popProtocolAction();
+            }
+            break;
+        }
+        ++processed;
+    }
 }
 
 bool MtAdapter::sendChannelAppDataViaCore(uint32_t portnum,
@@ -3735,9 +3919,6 @@ bool MtAdapter::sendRoutingAck(uint32_t dest, uint32_t request_id, uint8_t chann
             return false;
         }
 
-        std::string ack_full_hex = toHex(wire_buffer.data(), wire_size, wire_size);
-        LORA_LOG("[LORA] TX ack full packet hex: %s\n", ack_full_hex.c_str());
-
         if (transmitWirePacket(wire_buffer.data(), wire_size))
         {
             return true;
@@ -3754,9 +3935,6 @@ bool MtAdapter::sendRoutingAck(uint32_t dest, uint32_t request_id, uint8_t chann
     {
         return false;
     }
-
-    std::string ack_full_hex = toHex(wire_buffer.data(), wire_size, wire_size);
-    LORA_LOG("[LORA] TX ack full packet hex: %s\n", ack_full_hex.c_str());
 
     if (transmitWirePacket(wire_buffer.data(), wire_size))
     {
@@ -3835,9 +4013,6 @@ bool MtAdapter::sendRoutingError(uint32_t dest, uint32_t request_id, uint8_t cha
             return false;
         }
 
-        std::string err_full_hex = toHex(wire_buffer.data(), wire_size, wire_size);
-        LORA_LOG("[LORA] TX routing error full packet hex: %s\n", err_full_hex.c_str());
-
         if (transmitWirePacket(wire_buffer.data(), wire_size))
         {
             return true;
@@ -3854,9 +4029,6 @@ bool MtAdapter::sendRoutingError(uint32_t dest, uint32_t request_id, uint8_t cha
     {
         return false;
     }
-
-    std::string err_full_hex = toHex(wire_buffer.data(), wire_size, wire_size);
-    LORA_LOG("[LORA] TX routing error full packet hex: %s\n", err_full_hex.c_str());
 
     if (transmitWirePacket(wire_buffer.data(), wire_size))
     {
@@ -3948,22 +4120,15 @@ bool MtAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effect)
             using Effect = std::decay_t<decltype(item)>;
             if constexpr (std::is_same_v<Effect, runtime::SendNodeInfoEffect>)
             {
-                ok = sendNodeInfoTo(static_cast<uint32_t>(item.peer),
-                                    item.want_response,
-                                    item.channel);
+                ok = enqueueNodeInfoAction(item.peer, item.want_response, item.channel);
             }
             else if constexpr (std::is_same_v<Effect, runtime::SendRoutingErrorEffect>)
             {
-                const bool use_secondary = item.channel == ChannelId::SECONDARY;
-                const uint8_t channel_hash = use_secondary ? secondary_channel_hash_ : primary_channel_hash_;
-                const uint8_t* psk = use_secondary ? secondary_psk_ : primary_psk_;
-                const size_t psk_len = use_secondary ? secondary_psk_len_ : primary_psk_len_;
-                ok = sendRoutingError(static_cast<uint32_t>(item.peer),
-                                      item.request_id,
-                                      channel_hash,
-                                      psk,
-                                      psk_len,
-                                      static_cast<meshtastic_Routing_Error>(item.error_code));
+                ok = enqueueRoutingErrorAction(
+                    item.peer,
+                    item.request_id,
+                    item.channel,
+                    static_cast<meshtastic_Routing_Error>(item.error_code));
             }
             else if constexpr (std::is_same_v<Effect, runtime::ForgetPeerKeyEffect>)
             {
@@ -3972,7 +4137,7 @@ bool MtAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effect)
             }
             else if constexpr (std::is_same_v<Effect, runtime::SendPacketEffect>)
             {
-                ok = sendProtocolPacketEffect(item);
+                ok = enqueueSendPacketAction(item);
             }
             else if constexpr (std::is_same_v<Effect, runtime::PublishIncomingDataEffect>)
             {

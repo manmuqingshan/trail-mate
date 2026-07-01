@@ -7,6 +7,8 @@
 #include "platform/esp/common/shared_spi_lock.h"
 #include <Arduino.h>
 #include <RadioLib.h>
+#include <cstring>
+#include <esp_heap_caps.h>
 
 #ifndef LORA_LOG_ENABLE
 #define LORA_LOG_ENABLE 0
@@ -334,6 +336,36 @@ void AppTasks::setRadioTransmitActive(bool active)
 bool AppTasks::isRadioTransmitActive()
 {
     return radio_transmit_active_;
+}
+
+bool AppTasks::enqueueRadioTransmit(const uint8_t* data, size_t size)
+{
+    if (!data || size == 0 || size > 255 || !radio_tx_queue_)
+    {
+        return false;
+    }
+
+    uint8_t* copy = static_cast<uint8_t*>(
+        heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (!copy)
+    {
+        return false;
+    }
+    std::memcpy(copy, data, size);
+
+    RadioPacket packet{};
+    packet.data = copy;
+    packet.size = size;
+    packet.is_tx = true;
+    if (xQueueSend(radio_tx_queue_, &packet, 0) != pdPASS)
+    {
+        heap_caps_free(copy);
+        LORA_LOG("[LORA] TX queue full len=%u\n", static_cast<unsigned>(size));
+        return false;
+    }
+
+    requestRadioReceiveRestart();
+    return true;
 }
 
 AppTasks::ScopedRadioTransmitActivity::ScopedRadioTransmitActivity()
