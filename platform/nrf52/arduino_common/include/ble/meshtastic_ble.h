@@ -71,10 +71,18 @@ class MeshtasticBleService final : public BleService,
         uint8_t buf[meshtastic_ToRadio_size] = {};
     };
 
+    struct PublishedFromRadioSlot
+    {
+        phone::meshtastic::MeshtasticBleFrame frame{};
+        bool notified = false;
+    };
+
     void processPendingToRadio();
     void processPendingPairingRequest();
     void clearToPhoneQueue();
-    void writeNextFromRadioForRead(uint16_t conn_handle);
+    void fillPublishedFromRadioSlots();
+    bool writePublishedFromRadioForRead(uint16_t conn_handle);
+    void releasePublishedFromRadioHead();
     void syncMqttProxySettings();
     void markConfigSavePending(bool bluetooth_changed, bool module_changed);
     void flushPendingConfigSaves(bool force = false);
@@ -114,12 +122,16 @@ class MeshtasticBleService final : public BleService,
     volatile uint8_t pending_to_radio_tail_ = 0;
     volatile uint8_t pending_to_radio_count_ = 0;
 
+    static constexpr uint8_t kPublishedFromRadioCapacity = 3;
+    PublishedFromRadioSlot published_from_radio_[kPublishedFromRadioCapacity]{};
+    phone::meshtastic::MeshtasticBleFrame session_frame_scratch_{};
+    volatile uint8_t published_from_radio_head_ = 0;
+    volatile uint8_t published_from_radio_tail_ = 0;
+    volatile uint8_t published_from_radio_count_ = 0;
+    volatile bool from_radio_publish_requested_ = false;
+
     volatile bool pairing_request_pending_ = false;
     volatile uint16_t pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
-
-    phone::meshtastic::MeshtasticBleFrame session_frame_scratch_{};
-    volatile bool from_num_notify_pending_ = false;
-    volatile uint32_t from_num_notify_value_ = 0;
 
     volatile bool pending_connect_log_ = false;
     volatile bool pending_disconnect_log_ = false;
