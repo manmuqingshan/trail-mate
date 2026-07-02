@@ -6,8 +6,8 @@
  */
 
 #include "chat/infra/meshtastic/mt_codec_pb.h"
+#include "chat/infra/mesh_incoming_queue.h"
 #include "chat/infra/meshtastic/compression/unishox2.h"
-#include "chat/infra/meshtastic/mt_incoming_queue.h"
 #include "chat/time_utils.h"
 #include <algorithm>
 #include <cstring>
@@ -21,10 +21,25 @@ bool encodeTextMessage(ChannelId channel, const std::string& text,
                        NodeId from_node, uint32_t packet_id, NodeId dest_node,
                        uint8_t* out_buffer, size_t* out_size)
 {
-    if (!out_buffer || !out_size || text.empty())
+    return encodeTextMessageBytes(channel,
+                                  text.data(),
+                                  text.size(),
+                                  from_node,
+                                  packet_id,
+                                  dest_node,
+                                  out_buffer,
+                                  out_size);
+}
+
+bool encodeTextMessageBytes(ChannelId channel, const char* text, size_t text_len,
+                            NodeId from_node, uint32_t packet_id, NodeId dest_node,
+                            uint8_t* out_buffer, size_t* out_size)
+{
+    if (!out_buffer || !out_size || !text || text_len == 0)
     {
         return false;
     }
+    (void)channel;
 
     // Create a Meshtastic Data message payload
     meshtastic_Data data = meshtastic_Data_init_default;
@@ -36,33 +51,19 @@ bool encodeTextMessage(ChannelId channel, const std::string& text,
     data.source = from_node;
 
     // Set text payload
-    size_t text_len = text.length();
     if (text_len > sizeof(data.payload.bytes))
     {
         return false; // Text too long
     }
     data.payload.size = text_len;
-    memcpy(data.payload.bytes, text.c_str(), text_len);
+    memcpy(data.payload.bytes, text, text_len);
 
-    // Encode Data message
-    uint8_t data_buf[256];
-    pb_ostream_t data_stream = pb_ostream_from_buffer(data_buf, sizeof(data_buf));
+    pb_ostream_t data_stream = pb_ostream_from_buffer(out_buffer, *out_size);
     if (!pb_encode(&data_stream, meshtastic_Data_fields, &data))
     {
         return false;
     }
-    size_t data_len = data_stream.bytes_written;
-
-    // Return encoded Data payload
-    // The full packet with wire header will be constructed in mt_adapter
-    if (*out_size < data_len)
-    {
-        *out_size = data_len;
-        return false;
-    }
-
-    memcpy(out_buffer, data_buf, data_len);
-    *out_size = data_len;
+    *out_size = data_stream.bytes_written;
     return true;
 }
 
@@ -125,7 +126,7 @@ bool decodeTextPayload(const meshtastic_Data& data, MeshIncomingText* out)
         return false;
     }
 
-    char text[kIncomingTextMaxLen + 1] = {};
+    char text[::chat::infra::kIncomingTextMaxLen + 1] = {};
     size_t text_len = 0;
     if (!decodeTextPayloadToBuffer(data, text, sizeof(text), &text_len))
     {

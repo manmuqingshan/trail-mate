@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 #if defined(ESP_PLATFORM)
 #include "esp_heap_caps.h"
 #include <new>
@@ -199,7 +200,7 @@ MeshCorePhoneCore::MeshCorePhoneCore(IPhoneAppFacade& app, const std::string& de
 void MeshCorePhoneCore::reset()
 {
     tx_queue_.clear();
-    sign_data_.clear();
+    sign_data_len_ = 0;
     sign_active_ = false;
     stats_rx_packets_ = 0;
     stats_tx_packets_ = 0;
@@ -248,7 +249,7 @@ void MeshCorePhoneCore::onIncomingText(const chat::MeshIncomingText& msg)
         index += text_len;
     }
     frame.len = index;
-    tx_queue_.push_back(frame);
+    tx_queue_.pushDropOldest(frame.buf.data(), frame.len);
 }
 
 bool MeshCorePhoneCore::handleRxFrame(const uint8_t* data, size_t len)
@@ -267,10 +268,14 @@ bool MeshCorePhoneCore::popTxFrame(uint8_t* out, size_t* out_len)
     {
         return false;
     }
-    const MeshCoreBleFrame frame = tx_queue_.front();
+    const MeshCoreBleFrame* frame = tx_queue_.front();
+    if (!frame)
+    {
+        return false;
+    }
+    std::memcpy(out, frame->buf.data(), frame->len);
+    *out_len = frame->len;
     tx_queue_.pop_front();
-    std::memcpy(out, frame.buf.data(), frame.len);
-    *out_len = frame.len;
     return true;
 }
 
@@ -1451,12 +1456,11 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
     if (cmd == CMD_SIGN_START)
     {
         sign_active_ = true;
-        sign_data_.clear();
-        sign_data_.reserve(8 * 1024);
+        sign_data_len_ = 0;
         uint8_t out[6] = {};
         out[0] = RESP_CODE_SIGN_START;
         out[1] = 0;
-        const uint32_t max_len = 8 * 1024;
+        const uint32_t max_len = static_cast<uint32_t>(kSignDataMaxLen);
         std::memcpy(&out[2], &max_len, sizeof(max_len));
         enqueueFrame(out, sizeof(out));
         return;
@@ -1469,12 +1473,14 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
             enqueueErr(ERR_CODE_BAD_STATE);
             return;
         }
-        if (sign_data_.size() + (len - 1) > (8 * 1024))
+        const size_t data_len = len - 1;
+        if (data_len > (kSignDataMaxLen - sign_data_len_))
         {
             enqueueErr(ERR_CODE_ILLEGAL_ARG);
             return;
         }
-        sign_data_.insert(sign_data_.end(), &data[1], &data[len]);
+        std::memcpy(sign_data_.data() + sign_data_len_, &data[1], data_len);
+        sign_data_len_ += data_len;
         enqueueSentOk();
         return;
     }
@@ -1488,17 +1494,17 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
         }
         sign_active_ = false;
         uint8_t sig[chat::meshcore::kMeshCoreSignatureSize] = {};
-        if (!app_.meshCoreSignPayload(sign_data_.data(), sign_data_.size(), sig, sizeof(sig)))
+        if (!app_.meshCoreSignPayload(sign_data_.data(), sign_data_len_, sig, sizeof(sig)))
         {
             enqueueErr(ERR_CODE_BAD_STATE);
-            sign_data_.clear();
+            sign_data_len_ = 0;
             return;
         }
         uint8_t out[1 + chat::meshcore::kMeshCoreSignatureSize] = {};
         out[0] = RESP_CODE_SIGNATURE;
         std::memcpy(&out[1], sig, sizeof(sig));
         enqueueFrame(out, sizeof(out));
-        sign_data_.clear();
+        sign_data_len_ = 0;
         return;
     }
 
@@ -1758,7 +1764,7 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
             hooks_->onFactoryReset();
         }
         tx_queue_.clear();
-        sign_data_.clear();
+        sign_data_len_ = 0;
         sign_active_ = false;
         enqueueSentOk();
         sys::sleep_ms(100);
@@ -1775,10 +1781,7 @@ void MeshCorePhoneCore::enqueueFrame(const uint8_t* data, size_t len)
     {
         return;
     }
-    MeshCoreBleFrame frame{};
-    frame.len = std::min(len, frame.buf.size());
-    std::memcpy(frame.buf.data(), data, frame.len);
-    tx_queue_.push_back(frame);
+    tx_queue_.pushDropOldest(data, std::min(len, MeshCoreBleFrame::kMaxLen));
 }
 
 void MeshCorePhoneCore::enqueueSentOk()
@@ -1815,7 +1818,7 @@ void MeshCorePhoneCore::enqueueRawDataPush(const chat::MeshIncomingData& msg)
         index += payload_len;
     }
     frame.len = index;
-    tx_queue_.push_back(frame);
+    tx_queue_.pushDropOldest(frame.buf.data(), frame.len);
 }
 
 uint32_t MeshCorePhoneCore::resolveNodeIdFromPrefix(const uint8_t* prefix, size_t len) const

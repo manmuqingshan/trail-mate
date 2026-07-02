@@ -180,5 +180,34 @@ int main()
         return rc;
     }
 
+    for (std::uint32_t i = 0; i < 256U; ++i)
+    {
+        adapter.pushIncoming(0x1234ABCDU, 0x1000U + i, "window fill");
+    }
+    service.processIncoming();
+
+    messages = store.loadRecent(broadcast, 300);
+    if (int rc = expect(messages.size() == 259U,
+                        "recent incoming fixed window dropped unique messages early"))
+    {
+        return rc;
+    }
+
+    adapter.pushIncoming(0x1234ABCDU, 0x10FFU, "recent duplicate");
+    adapter.pushIncoming(0x1234ABCDU, 0x42U, "evicted original id");
+    service.processIncoming();
+
+    messages = store.loadRecent(broadcast, 300);
+    if (int rc = expect(messages.size() == 260U,
+                        "recent incoming fixed window did not preserve eviction semantics"))
+    {
+        return rc;
+    }
+    if (int rc = expect(messages.back().msg_id == 0x42U,
+                        "evicted original incoming id was not accepted again"))
+    {
+        return rc;
+    }
+
     return 0;
 }

@@ -2408,7 +2408,10 @@ void Runtime::onIncomingData(const chat::MeshIncomingData& msg)
     packet.request_id = msg.request_id;
     packet.portnum = msg.portnum;
     packet.want_response = msg.want_response;
-    packet.payload = msg.payload;
+    if (!packet.payload.assign(msg.payload))
+    {
+        return;
+    }
     packet.rx_meta = msg.rx_meta;
 
     const chat::runtime::RuntimeContext protocol_context = buildMeshtasticProtocolContext();

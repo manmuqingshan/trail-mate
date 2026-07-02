@@ -252,6 +252,9 @@ namespace chat
 namespace meshtastic
 {
 
+using ::chat::infra::IncomingQueuePriority;
+using ::chat::infra::IncomingQueuePushReport;
+
 MeshCapabilities MtAdapter::getCapabilities() const
 {
     MeshCapabilities caps;
@@ -349,6 +352,22 @@ bool MtAdapter::sendTextWithId(ChannelId channel, const std::string& text,
     {
         return false;
     }
+    if (text.size() > ::chat::infra::kIncomingTextMaxLen)
+    {
+        mt_diag_log("[MT][TX] reject text len=%u cap=%u reason=too_long\n",
+                    static_cast<unsigned>(text.size()),
+                    static_cast<unsigned>(::chat::infra::kIncomingTextMaxLen));
+        return false;
+    }
+    if (send_queue_.isFull())
+    {
+        mt_diag_log("[MT][TX] reject text len=%u reason=send_queue_full depth=%u\n",
+                    static_cast<unsigned>(text.size()),
+                    static_cast<unsigned>(send_queue_.size()));
+        LORA_LOG("[LORA] TX queue full drop new text len=%u\n",
+                 static_cast<unsigned>(text.size()));
+        return false;
+    }
 
     ChannelId out_channel = channel;
     if (encrypt_mode_ == 0 || encrypt_mode_ == 2)
@@ -359,7 +378,9 @@ bool MtAdapter::sendTextWithId(ChannelId channel, const std::string& text,
     PendingSend pending;
     pending.channel = out_channel;
     pending.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-    pending.text = text;
+    pending.text_len = text.size();
+    memcpy(pending.text.data(), text.data(), pending.text_len);
+    pending.text[pending.text_len] = '\0';
     pending.msg_id = (forced_msg_id != 0) ? forced_msg_id : next_packet_id_++;
     if (forced_msg_id != 0 && forced_msg_id >= next_packet_id_)
     {
@@ -373,7 +394,7 @@ bool MtAdapter::sendTextWithId(ChannelId channel, const std::string& text,
     pending.retry_count = 0;
     pending.last_attempt = 0;
 
-    send_queue_.push(pending);
+    send_queue_.append(pending);
     mt_diag_log("[MT][TX] queue text id=%08lX dest=%08lX logical_ch=%u len=%u\n",
                 static_cast<unsigned long>(pending.msg_id),
                 static_cast<unsigned long>(pending.dest),
@@ -460,7 +481,7 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
     bool use_pki = false;
     if (shouldRequireDirectPki(encrypt_mode_, dest_node, portnum))
     {
-        const bool have_dest_key = node_public_keys_.find(dest_node) != node_public_keys_.end();
+        const bool have_dest_key = findPkiNodeKey(dest_node) != nullptr;
         if (!pki_ready_ || !have_dest_key)
         {
             const char* reason = !pki_ready_ ? "pki_not_ready" : "pki_key_missing";
@@ -685,7 +706,7 @@ bool MtAdapter::sendMeshPacket(const meshtastic_MeshPacket& packet)
             last_send_error_ = meshtastic_Routing_Error_PKI_FAILED;
             return false;
         }
-        if (node_public_keys_.find(dest) == node_public_keys_.end())
+        if (!findPkiNodeKey(dest))
         {
             last_send_error_ = meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY;
             return false;
@@ -762,11 +783,7 @@ bool MtAdapter::requestNodeInfo(NodeId dest, bool want_response)
     ChannelId channel = ChannelId::PRIMARY;
     if (target != 0xFFFFFFFF)
     {
-        auto it = node_last_channel_.find(target);
-        if (it != node_last_channel_.end())
-        {
-            channel = it->second;
-        }
+        (void)getNodeLastChannel(target, &channel);
     }
     return enqueueNodeInfoAction(target, want_response, channel);
 }
@@ -778,7 +795,7 @@ bool MtAdapter::isPkiReady() const
 
 bool MtAdapter::hasPkiKey(NodeId dest) const
 {
-    return node_public_keys_.find(dest) != node_public_keys_.end();
+    return findPkiNodeKey(dest) != nullptr;
 }
 
 bool MtAdapter::getNodePublicKey(NodeId node_id, uint8_t out_key[32]) const
@@ -787,12 +804,12 @@ bool MtAdapter::getNodePublicKey(NodeId node_id, uint8_t out_key[32]) const
     {
         return false;
     }
-    auto it = node_public_keys_.find(node_id);
-    if (it == node_public_keys_.end())
+    auto* entry = findPkiNodeKey(node_id);
+    if (!entry)
     {
         return false;
     }
-    memcpy(out_key, it->second.data(), 32);
+    memcpy(out_key, entry->key.data(), 32);
     return true;
 }
 
@@ -821,11 +838,8 @@ void MtAdapter::forgetNodePublicKey(NodeId node_id)
     {
         return;
     }
-    node_public_keys_.erase(node_id);
-    node_key_last_seen_.erase(node_id);
-    node_last_channel_.erase(node_id);
-    nodeinfo_reply_ms_.erase(node_id);
-    node_long_names_.erase(node_id);
+    (void)erasePkiNodeKey(node_id);
+    eraseNodeRuntime(node_id);
     savePkiKeysToPrefs();
 }
 
@@ -1795,7 +1809,7 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         }
         else if (last_drop_reason && std::strcmp(last_drop_reason, "pki_decrypt_fail") == 0)
         {
-            if (node_public_keys_.find(header.from) != node_public_keys_.end())
+            if (findPkiNodeKey(header.from))
             {
                 executePkiResync(runtime::MeshtasticPkiResyncCause::PeerKeyStale,
                                  header.from,
@@ -1926,13 +1940,8 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                          node.long_name.c_str(),
                          node.snr);
 
-                if (!node.long_name.empty())
-                {
-                    node_long_names_[node.node_id] = node.long_name;
-                }
                 if (node.has_public_key)
                 {
-                    node_public_keys_[node.node_id] = node.public_key;
                     savePkiNodeKey(node.node_id,
                                    node.public_key.data(),
                                    node.public_key.size());
@@ -2157,7 +2166,7 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         ChannelId channel_id = decoded_channel_id;
         if (header.channel != 0 && header.from != node_id_)
         {
-            node_last_channel_[header.from] = channel_id;
+            rememberNodeLastChannel(header.from, channel_id, millis());
         }
         if (node_metadata_decoded)
         {
@@ -2197,21 +2206,27 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         runtime_packet.portnum = decoded.portnum;
         runtime_packet.want_response = want_response;
         runtime_packet.encrypted = used_pki_transport || (psk != nullptr && psk_len > 0);
-        runtime_packet.payload.assign(decoded.payload.bytes,
-                                      decoded.payload.bytes + decoded.payload.size);
-        runtime_packet.rx_meta = rx_meta;
-        (void)executeProtocolEffects(
-            protocol_runtime_.handleIncomingPacket(
-                                 runtime_packet,
-                                 buildProtocolRuntimeContext())
-                .effects);
+        if (runtime_packet.payload.assign(decoded.payload.bytes, decoded.payload.size))
+        {
+            runtime_packet.rx_meta = rx_meta;
+            (void)executeProtocolEffects(
+                protocol_runtime_.handleIncomingPacket(
+                                     runtime_packet,
+                                     buildProtocolRuntimeContext())
+                    .effects);
+        }
+        else
+        {
+            LORA_LOG("[LORA] runtime payload drop port=%u len=%u cap=%u\n",
+                     static_cast<unsigned>(decoded.portnum),
+                     static_cast<unsigned>(decoded.payload.size),
+                     static_cast<unsigned>(runtime_packet.payload.capacity()));
+        }
 
         if (is_nodeinfo_port)
         {
             uint32_t now_ms = millis();
-            const auto it = nodeinfo_reply_ms_.find(header.from);
-            const uint32_t last_reply_ms =
-                (it != nodeinfo_reply_ms_.end()) ? it->second : 0;
+            const uint32_t last_reply_ms = getNodeInfoReplyMs(header.from);
             const auto reply_policy = chat::runtime::resolveMeshtasticNodeInfoReplyPolicy(
                 want_response, to_us_or_broadcast, now_ms, last_reply_ms);
             if (reply_policy.should_reply)
@@ -2416,7 +2431,11 @@ void MtAdapter::processSendQueue()
 
     while (!send_queue_.empty())
     {
-        PendingSend& pending = send_queue_.front();
+        PendingSend* pending = send_queue_.get(0);
+        if (!pending)
+        {
+            break;
+        }
 
         if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
             (now - last_tx_ms_) < min_tx_interval_ms_)
@@ -2425,38 +2444,40 @@ void MtAdapter::processSendQueue()
         }
 
         // Check if ready to send
-        if (now - pending.last_attempt < RETRY_DELAY_MS && pending.retry_count > 0)
+        if (now - pending->last_attempt < RETRY_DELAY_MS && pending->retry_count > 0)
         {
             break; // Wait before retry
         }
 
         // Try to send
-        if (sendPacket(pending))
+        if (sendPacket(*pending))
         {
             // Success, remove from queue
             last_tx_ms_ = now;
-            send_queue_.pop();
+            PendingSend discarded{};
+            send_queue_.popOldest(&discarded);
         }
         else
         {
             // Failed, retry or drop
-            pending.retry_count++;
-            pending.last_attempt = now;
+            pending->retry_count++;
+            pending->last_attempt = now;
 
-            if (pending.retry_count > MAX_RETRIES)
+            if (pending->retry_count > MAX_RETRIES)
             {
                 // Max retries reached, drop
                 const uint8_t channel_hash =
-                    (pending.channel == ChannelId::SECONDARY) ? secondary_channel_hash_ : primary_channel_hash_;
+                    (pending->channel == ChannelId::SECONDARY) ? secondary_channel_hash_ : primary_channel_hash_;
                 last_send_error_ = meshtastic_Routing_Error_NO_INTERFACE;
-                emitRoutingResultToPhone(pending.msg_id,
+                emitRoutingResultToPhone(pending->msg_id,
                                          meshtastic_Routing_Error_NO_INTERFACE,
                                          node_id_,
-                                         pending.dest,
-                                         pending.channel,
+                                         pending->dest,
+                                         pending->channel,
                                          channel_hash,
                                          nullptr);
-                send_queue_.pop();
+                PendingSend discarded{};
+                send_queue_.popOldest(&discarded);
             }
             else
             {
@@ -2482,8 +2503,14 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
     size_t data_size = data_buffer.size();
 
     NodeId from_node = node_id_;
-    if (!encodeTextMessage(pending.channel, pending.text, from_node,
-                           pending.msg_id, pending.dest, data_buffer.data(), &data_size))
+    if (!encodeTextMessageBytes(pending.channel,
+                                pending.text.data(),
+                                pending.text_len,
+                                from_node,
+                                pending.msg_id,
+                                pending.dest,
+                                data_buffer.data(),
+                                &data_size))
     {
         return false;
     }
@@ -2530,7 +2557,7 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
     bool use_pki = false;
     if (shouldRequireDirectPki(encrypt_mode_, dest, pending.portnum))
     {
-        const bool have_dest_key = node_public_keys_.find(dest) != node_public_keys_.end();
+        const bool have_dest_key = findPkiNodeKey(dest) != nullptr;
         if (!pki_ready_ || !have_dest_key)
         {
             const char* reason = !pki_ready_ ? "pki_not_ready" : "pki_key_missing";
@@ -3137,7 +3164,7 @@ void MtAdapter::processProtocolActionQueue(uint32_t now_ms)
         {
             if (action.mark_nodeinfo_reply)
             {
-                nodeinfo_reply_ms_[action.peer] = action.nodeinfo_reply_ms;
+                setNodeInfoReplyMs(action.peer, action.nodeinfo_reply_ms);
             }
             last_tx_ms_ = now_ms;
             popProtocolAction();
@@ -3353,6 +3380,244 @@ bool MtAdapter::initPkiKeys()
     return pki_ready_;
 }
 
+MtAdapter::PkiNodeKeyEntry* MtAdapter::findPkiNodeKey(uint32_t node_id)
+{
+    for (auto& entry : pki_node_keys_)
+    {
+        if (entry.used && entry.node_id == node_id)
+        {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+const MtAdapter::PkiNodeKeyEntry* MtAdapter::findPkiNodeKey(uint32_t node_id) const
+{
+    for (const auto& entry : pki_node_keys_)
+    {
+        if (entry.used && entry.node_id == node_id)
+        {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+MtAdapter::PkiNodeKeyEntry* MtAdapter::upsertPkiNodeKey(uint32_t node_id,
+                                                        const uint8_t* key,
+                                                        uint32_t last_seen_s,
+                                                        bool* out_changed,
+                                                        bool* out_evicted)
+{
+    if (out_changed)
+    {
+        *out_changed = false;
+    }
+    if (out_evicted)
+    {
+        *out_evicted = false;
+    }
+    if (node_id == 0 || !key)
+    {
+        return nullptr;
+    }
+
+    const uint32_t seen = last_seen_s != 0
+                              ? last_seen_s
+                              : static_cast<uint32_t>(time(nullptr));
+    if (auto* existing = findPkiNodeKey(node_id))
+    {
+        const bool changed = memcmp(existing->key.data(), key, existing->key.size()) != 0;
+        if (changed)
+        {
+            memcpy(existing->key.data(), key, existing->key.size());
+        }
+        existing->last_seen_s = seen;
+        if (out_changed)
+        {
+            *out_changed = changed;
+        }
+        return existing;
+    }
+
+    PkiNodeKeyEntry* slot = nullptr;
+    for (auto& entry : pki_node_keys_)
+    {
+        if (!entry.used)
+        {
+            slot = &entry;
+            break;
+        }
+    }
+    if (!slot)
+    {
+        slot = &pki_node_keys_[0];
+        for (auto& entry : pki_node_keys_)
+        {
+            if (entry.last_seen_s < slot->last_seen_s)
+            {
+                slot = &entry;
+            }
+        }
+        if (out_evicted)
+        {
+            *out_evicted = true;
+        }
+    }
+
+    *slot = PkiNodeKeyEntry{};
+    slot->used = true;
+    slot->node_id = node_id;
+    slot->last_seen_s = seen;
+    memcpy(slot->key.data(), key, slot->key.size());
+    if (out_changed)
+    {
+        *out_changed = true;
+    }
+    return slot;
+}
+
+void MtAdapter::clearPkiNodeKeys()
+{
+    for (auto& entry : pki_node_keys_)
+    {
+        entry = PkiNodeKeyEntry{};
+    }
+}
+
+bool MtAdapter::erasePkiNodeKey(uint32_t node_id)
+{
+    if (auto* entry = findPkiNodeKey(node_id))
+    {
+        *entry = PkiNodeKeyEntry{};
+        return true;
+    }
+    return false;
+}
+
+size_t MtAdapter::pkiNodeKeyCount() const
+{
+    size_t count = 0;
+    for (const auto& entry : pki_node_keys_)
+    {
+        if (entry.used)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+MtAdapter::NodeRuntimeEntry* MtAdapter::findNodeRuntime(uint32_t node_id)
+{
+    for (auto& entry : node_runtime_)
+    {
+        if (entry.used && entry.node_id == node_id)
+        {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+const MtAdapter::NodeRuntimeEntry* MtAdapter::findNodeRuntime(uint32_t node_id) const
+{
+    for (const auto& entry : node_runtime_)
+    {
+        if (entry.used && entry.node_id == node_id)
+        {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+MtAdapter::NodeRuntimeEntry* MtAdapter::upsertNodeRuntime(uint32_t node_id, uint32_t now_ms)
+{
+    if (node_id == 0)
+    {
+        return nullptr;
+    }
+    if (auto* existing = findNodeRuntime(node_id))
+    {
+        existing->last_touch_ms = now_ms;
+        return existing;
+    }
+
+    NodeRuntimeEntry* slot = nullptr;
+    for (auto& entry : node_runtime_)
+    {
+        if (!entry.used)
+        {
+            slot = &entry;
+            break;
+        }
+    }
+    if (!slot)
+    {
+        slot = &node_runtime_[0];
+        for (auto& entry : node_runtime_)
+        {
+            if (entry.last_touch_ms < slot->last_touch_ms)
+            {
+                slot = &entry;
+            }
+        }
+    }
+
+    *slot = NodeRuntimeEntry{};
+    slot->used = true;
+    slot->node_id = node_id;
+    slot->last_touch_ms = now_ms;
+    return slot;
+}
+
+void MtAdapter::eraseNodeRuntime(uint32_t node_id)
+{
+    if (auto* entry = findNodeRuntime(node_id))
+    {
+        *entry = NodeRuntimeEntry{};
+    }
+}
+
+bool MtAdapter::getNodeLastChannel(uint32_t node_id, ChannelId* out) const
+{
+    const auto* entry = findNodeRuntime(node_id);
+    if (!entry || !entry->has_last_channel)
+    {
+        return false;
+    }
+    if (out)
+    {
+        *out = entry->last_channel;
+    }
+    return true;
+}
+
+void MtAdapter::rememberNodeLastChannel(uint32_t node_id, ChannelId channel, uint32_t now_ms)
+{
+    if (auto* entry = upsertNodeRuntime(node_id, now_ms))
+    {
+        entry->last_channel = channel;
+        entry->has_last_channel = true;
+    }
+}
+
+uint32_t MtAdapter::getNodeInfoReplyMs(uint32_t node_id) const
+{
+    const auto* entry = findNodeRuntime(node_id);
+    return entry ? entry->nodeinfo_reply_ms : 0;
+}
+
+void MtAdapter::setNodeInfoReplyMs(uint32_t node_id, uint32_t now_ms)
+{
+    if (auto* entry = upsertNodeRuntime(node_id, now_ms))
+    {
+        entry->nodeinfo_reply_ms = now_ms;
+    }
+}
+
 void MtAdapter::loadPkiNodeKeys()
 {
     ::platform::esp::arduino_common::mesh::EspPreferencesPeerKeyStore store;
@@ -3369,16 +3634,22 @@ void MtAdapter::loadPkiNodeKeys()
         return;
     }
 
-    node_public_keys_.clear();
-    node_key_last_seen_.clear();
+    clearPkiNodeKeys();
     for (const auto& peer_key : keys)
     {
-        std::array<uint8_t, 32> key{};
-        memcpy(key.data(), peer_key.public_key, key.size());
-        node_public_keys_[peer_key.node_id.value] = key;
-        node_key_last_seen_[peer_key.node_id.value] = peer_key.updated_at_ms;
+        bool evicted = false;
+        (void)upsertPkiNodeKey(peer_key.node_id.value,
+                               peer_key.public_key,
+                               peer_key.updated_at_ms,
+                               nullptr,
+                               &evicted);
         LORA_LOG("[LORA] PKI key loaded for %08lX\n",
                  static_cast<unsigned long>(peer_key.node_id.value));
+        if (evicted)
+        {
+            LORA_LOG("[LORA] PKI key load evicted oldest cap=%u\n",
+                     static_cast<unsigned>(pki_node_keys_.size()));
+        }
     }
     LORA_LOG("[LORA] PKI keys loaded=%u ns=%s\n",
              static_cast<unsigned>(keys.size()),
@@ -3391,45 +3662,42 @@ void MtAdapter::savePkiNodeKey(uint32_t node_id, const uint8_t* key, size_t key_
     {
         return;
     }
-    std::array<uint8_t, 32> key_copy{};
-    memcpy(key_copy.data(), key, 32);
-    node_public_keys_[node_id] = key_copy;
+    bool changed = false;
+    bool evicted = false;
+    if (!upsertPkiNodeKey(node_id, key, static_cast<uint32_t>(time(nullptr)), &changed, &evicted))
+    {
+        return;
+    }
     touchPkiNodeKey(node_id);
-    savePkiKeysToPrefs();
+    if (changed || evicted)
+    {
+        savePkiKeysToPrefs();
+    }
 }
 
 void MtAdapter::savePkiKeysToPrefs()
 {
-    std::vector<::mesh::PeerPublicKey> entries;
-    entries.reserve(node_public_keys_.size());
-    for (const auto& kv : node_public_keys_)
+    size_t count = 0;
+    for (const auto& item : pki_node_keys_)
     {
-        ::mesh::PeerPublicKey entry{};
-        entry.node_id = ::mesh::NodeId{kv.first};
-        auto seen_it = node_key_last_seen_.find(kv.first);
-        entry.updated_at_ms = (seen_it != node_key_last_seen_.end()) ? seen_it->second : 0;
-        entry.verified = false;
-        memcpy(entry.public_key, kv.second.data(), sizeof(entry.public_key));
-        entries.push_back(entry);
-    }
-    if (entries.size() > kMaxPkiNodes)
-    {
-        std::sort(entries.begin(), entries.end(),
-                  [](const ::mesh::PeerPublicKey& a, const ::mesh::PeerPublicKey& b)
-                  {
-                      return a.updated_at_ms < b.updated_at_ms;
-                  });
-        size_t drop = entries.size() - kMaxPkiNodes;
-        for (size_t i = 0; i < drop; ++i)
+        if (!item.used)
         {
-            node_public_keys_.erase(entries[i].node_id.value);
-            node_key_last_seen_.erase(entries[i].node_id.value);
+            continue;
         }
-        entries.erase(entries.begin(), entries.begin() + static_cast<long>(drop));
+        if (count >= pki_save_entries_.size())
+        {
+            break;
+        }
+        ::mesh::PeerPublicKey entry{};
+        entry.node_id = ::mesh::NodeId{item.node_id};
+        entry.updated_at_ms = item.last_seen_s;
+        entry.verified = false;
+        memcpy(entry.public_key, item.key.data(), sizeof(entry.public_key));
+        pki_save_entries_[count++] = entry;
     }
 
     ::platform::esp::arduino_common::mesh::EspPreferencesPeerKeyStore store;
-    auto saved = store.replaceAll(entries.empty() ? nullptr : entries.data(), entries.size());
+    auto saved = store.replaceAll(count == 0 ? nullptr : pki_save_entries_.data(), count);
     if (!saved.ok)
     {
         LORA_LOG("[LORA] PKI key save failed ns=%s status=%u\n",
@@ -3437,18 +3705,20 @@ void MtAdapter::savePkiKeysToPrefs()
                  static_cast<unsigned>(saved.failure));
         return;
     }
-    if (!entries.empty())
+    if (count > 0)
     {
         LORA_LOG("[LORA] PKI key saved (total=%u ns=%s)\n",
-                 static_cast<unsigned>(entries.size()),
+                 static_cast<unsigned>(count),
                  kPkiPrefsNs);
     }
 }
 
 void MtAdapter::touchPkiNodeKey(uint32_t node_id)
 {
-    uint32_t now_secs = static_cast<uint32_t>(time(nullptr));
-    node_key_last_seen_[node_id] = now_secs;
+    if (auto* entry = findPkiNodeKey(node_id))
+    {
+        entry->last_seen_s = static_cast<uint32_t>(time(nullptr));
+    }
 }
 
 bool MtAdapter::decryptPkiPayload(uint32_t from, uint32_t packet_id,
@@ -3471,8 +3741,8 @@ bool MtAdapter::decryptPkiPayload(uint32_t from, uint32_t packet_id,
                     static_cast<unsigned>(cipher_len));
         return false;
     }
-    auto it = node_public_keys_.find(from);
-    if (it == node_public_keys_.end())
+    auto* key_entry = findPkiNodeKey(from);
+    if (!key_entry)
     {
         mt_diag_log("[MT][PKI] decrypt_skip from=%08lX id=%08lX reason=key_missing\n",
                     static_cast<unsigned long>(from),
@@ -3490,7 +3760,7 @@ bool MtAdapter::decryptPkiPayload(uint32_t from, uint32_t packet_id,
 
     uint8_t shared[32];
     uint8_t local_priv[32];
-    memcpy(shared, it->second.data(), sizeof(shared));
+    memcpy(shared, key_entry->key.data(), sizeof(shared));
     memcpy(local_priv, pki_private_key_.data(), sizeof(local_priv));
     if (!Curve25519::dh2(shared, local_priv))
     {
@@ -3505,7 +3775,7 @@ bool MtAdapter::decryptPkiPayload(uint32_t from, uint32_t packet_id,
     const uint8_t* auth = cipher + (cipher_len - 12);
     uint32_t extra_nonce = 0;
     memcpy(&extra_nonce, auth + 8, sizeof(extra_nonce));
-    std::string key_fp = toHex(it->second.data(), it->second.size(), 8);
+    std::string key_fp = toHex(key_entry->key.data(), key_entry->key.size(), 8);
 
     uint8_t nonce[16];
     uint64_t packet_id64 = static_cast<uint64_t>(packet_id);
@@ -3544,20 +3814,20 @@ bool MtAdapter::encryptPkiPayload(uint32_t dest, uint32_t packet_id,
 {
     if (!plain || !out_cipher || !out_cipher_len) return false;
     if (!pki_ready_) return false;
-    auto it = node_public_keys_.find(dest);
-    if (it == node_public_keys_.end())
+    auto* key_entry = findPkiNodeKey(dest);
+    if (!key_entry)
     {
         LORA_LOG("[LORA] PKI key missing for %08lX\n", (unsigned long)dest);
         return false;
     }
-    std::string key_fp = toHex(it->second.data(), it->second.size(), 8);
+    std::string key_fp = toHex(key_entry->key.data(), key_entry->key.size(), 8);
     LORA_LOG("[LORA] PKI encrypt dest=%08lX key_fp=%s\n",
              (unsigned long)dest, key_fp.c_str());
     touchPkiNodeKey(dest);
 
     uint8_t shared[32];
     uint8_t local_priv[32];
-    memcpy(shared, it->second.data(), sizeof(shared));
+    memcpy(shared, key_entry->key.data(), sizeof(shared));
     memcpy(local_priv, pki_private_key_.data(), sizeof(local_priv));
     if (!Curve25519::dh2(shared, local_priv))
     {
@@ -3603,7 +3873,7 @@ bool MtAdapter::startKeyVerification(NodeId node_id)
     {
         return false;
     }
-    if (!pki_ready_ || node_public_keys_.find(node_id) == node_public_keys_.end())
+    if (!pki_ready_ || !findPkiNodeKey(node_id))
     {
         return false;
     }
@@ -3701,8 +3971,8 @@ bool MtAdapter::handleKeyVerificationInit(const PacketHeaderWire& header,
     {
         return false;
     }
-    auto key_it = node_public_keys_.find(header.from);
-    if (key_it == node_public_keys_.end())
+    auto* key_entry = findPkiNodeKey(header.from);
+    if (!key_entry)
     {
         return false;
     }
@@ -3716,8 +3986,8 @@ bool MtAdapter::handleKeyVerificationInit(const PacketHeaderWire& header,
                                       kv_nonce_,
                                       kv_remote_node_,
                                       node_id_,
-                                      key_it->second.data(),
-                                      key_it->second.size(),
+                                      key_entry->key.data(),
+                                      key_entry->key.size(),
                                       pki_public_key_.data(),
                                       pki_public_key_.size(),
                                       kv_hash1_.data(),
@@ -3786,8 +4056,8 @@ bool MtAdapter::processKeyVerificationNumber(uint32_t remote_node, uint64_t nonc
     {
         return false;
     }
-    auto key_it = node_public_keys_.find(remote_node);
-    if (key_it == node_public_keys_.end())
+    auto* key_entry = findPkiNodeKey(remote_node);
+    if (!key_entry)
     {
         resetKeyVerificationState();
         return false;
@@ -3802,8 +4072,8 @@ bool MtAdapter::processKeyVerificationNumber(uint32_t remote_node, uint64_t nonc
                                       kv_remote_node_,
                                       pki_public_key_.data(),
                                       pki_public_key_.size(),
-                                      key_it->second.data(),
-                                      key_it->second.size(),
+                                      key_entry->key.data(),
+                                      key_entry->key.size(),
                                       kv_hash1_.data(),
                                       scratch_hash.data()))
     {
@@ -3874,7 +4144,7 @@ bool MtAdapter::handleKeyVerificationFinal(const PacketHeaderWire& header,
 bool MtAdapter::sendKeyVerificationPacket(uint32_t dest, const meshtastic_KeyVerification& kv,
                                           bool want_response)
 {
-    if (!pki_ready_ || node_public_keys_.find(dest) == node_public_keys_.end())
+    if (!pki_ready_ || !findPkiNodeKey(dest))
     {
         return false;
     }
@@ -3970,7 +4240,7 @@ bool MtAdapter::sendRoutingAck(uint32_t dest, uint32_t request_id, uint8_t chann
 
     if (channel_hash == 0)
     {
-        if (!pki_ready_ || node_public_keys_.find(dest) == node_public_keys_.end())
+        if (!pki_ready_ || !findPkiNodeKey(dest))
         {
             return false;
         }
@@ -4064,7 +4334,7 @@ bool MtAdapter::sendRoutingError(uint32_t dest, uint32_t request_id, uint8_t cha
 
     if (channel_hash == 0)
     {
-        if (!pki_ready_ || node_public_keys_.find(dest) == node_public_keys_.end())
+        if (!pki_ready_ || !findPkiNodeKey(dest))
         {
             return false;
         }

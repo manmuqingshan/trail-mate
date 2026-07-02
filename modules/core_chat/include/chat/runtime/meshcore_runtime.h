@@ -5,9 +5,10 @@
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 #include "chat/runtime/protocol_runtime.h"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <deque>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -250,25 +251,14 @@ class MeshCoreRuntime final : public IProtocolRuntime
         const uint32_t timeout_ms = input.timeout_ms == 0
                                         ? kDefaultAppAckTimeoutMs
                                         : input.timeout_ms;
-        for (PendingAppAck& ack : pending_app_acks_)
+        if (PendingAppAck* ack = pending_app_acks_.find(input.signature))
         {
-            if (ack.signature == input.signature)
-            {
-                ack.peer = input.peer;
-                ack.portnum = input.portnum;
-                ack.message_id = input.message_id;
-                ack.created_ms = context.now_ms;
-                ack.timeout_ms = timeout_ms;
-                return effects;
-            }
-        }
-
-        if (pending_app_acks_.size() >= kMaxPendingAppAcks)
-        {
-            effects.add(buildAppAckResult(pending_app_acks_.front(),
-                                          ProtocolActionState::Failed,
-                                          0));
-            pending_app_acks_.pop_front();
+            ack->peer = input.peer;
+            ack->portnum = input.portnum;
+            ack->message_id = input.message_id;
+            ack->created_ms = context.now_ms;
+            ack->timeout_ms = timeout_ms;
+            return effects;
         }
 
         PendingAppAck ack{};
@@ -278,7 +268,11 @@ class MeshCoreRuntime final : public IProtocolRuntime
         ack.message_id = input.message_id;
         ack.created_ms = context.now_ms;
         ack.timeout_ms = timeout_ms;
-        pending_app_acks_.push_back(ack);
+        PendingAppAck dropped{};
+        if (pending_app_acks_.push(ack, &dropped))
+        {
+            effects.add(buildAppAckResult(dropped, ProtocolActionState::Failed, 0));
+        }
         return effects;
     }
 
@@ -290,13 +284,9 @@ class MeshCoreRuntime final : public IProtocolRuntime
             return effects;
         }
 
-        for (PendingAppAck& ack : pending_app_acks_)
+        if (PendingAppAck* ack = pending_app_acks_.find(signature))
         {
-            if (ack.signature == signature)
-            {
-                ack.message_id = message_id;
-                return effects;
-            }
+            ack->message_id = message_id;
         }
         return effects;
     }
@@ -310,17 +300,11 @@ class MeshCoreRuntime final : public IProtocolRuntime
             return effects;
         }
 
-        for (auto it = pending_app_acks_.begin(); it != pending_app_acks_.end(); ++it)
+        PendingAppAck ack{};
+        if (pending_app_acks_.removeBySignature(signature, &ack))
         {
-            if (it->signature != signature)
-            {
-                continue;
-            }
-
-            const int32_t trip_ms = static_cast<int32_t>(context.now_ms - it->created_ms);
-            effects.add(buildAppAckResult(*it, ProtocolActionState::Completed, trip_ms));
-            pending_app_acks_.erase(it);
-            return effects;
+            const int32_t trip_ms = static_cast<int32_t>(context.now_ms - ack.created_ms);
+            effects.add(buildAppAckResult(ack, ProtocolActionState::Completed, trip_ms));
         }
         return effects;
     }
@@ -405,6 +389,108 @@ class MeshCoreRuntime final : public IProtocolRuntime
         uint32_t timeout_ms = 0;
     };
 
+    static constexpr size_t kMaxPendingAppAcks = 32;
+
+    class PendingAppAckTable
+    {
+      public:
+        bool empty() const
+        {
+            return count_ == 0;
+        }
+
+        PendingAppAck* find(uint32_t signature)
+        {
+            for (size_t index = 0; index < count_; ++index)
+            {
+                if (items_[index].signature == signature)
+                {
+                    return &items_[index];
+                }
+            }
+            return nullptr;
+        }
+
+        const PendingAppAck* oldest() const
+        {
+            return count_ == 0 ? nullptr : &items_[0];
+        }
+
+        bool push(PendingAppAck ack, PendingAppAck* dropped)
+        {
+            bool did_drop = false;
+            if (count_ >= kMaxPendingAppAcks)
+            {
+                did_drop = removeOldest(dropped);
+            }
+            else if (dropped)
+            {
+                *dropped = PendingAppAck{};
+            }
+
+            items_[count_++] = ack;
+            return did_drop;
+        }
+
+        bool removeOldest(PendingAppAck* out)
+        {
+            if (count_ == 0)
+            {
+                if (out)
+                {
+                    *out = PendingAppAck{};
+                }
+                return false;
+            }
+            if (out)
+            {
+                *out = items_[0];
+            }
+            removeAt(0);
+            return true;
+        }
+
+        bool removeBySignature(uint32_t signature, PendingAppAck* out)
+        {
+            for (size_t index = 0; index < count_; ++index)
+            {
+                if (items_[index].signature != signature)
+                {
+                    continue;
+                }
+                if (out)
+                {
+                    *out = items_[index];
+                }
+                removeAt(index);
+                return true;
+            }
+            if (out)
+            {
+                *out = PendingAppAck{};
+            }
+            return false;
+        }
+
+      private:
+        void removeAt(size_t index)
+        {
+            if (index >= count_)
+            {
+                return;
+            }
+            for (size_t move = index + 1; move < count_; ++move)
+            {
+                items_[move - 1] = items_[move];
+            }
+            --count_;
+            items_[count_] = PendingAppAck{};
+        }
+
+        std::array<PendingAppAck, kMaxPendingAppAcks> items_{};
+        size_t count_ = 0;
+    };
+
     struct AutoDiscoverState
     {
         uint8_t last_hash = 0;
@@ -416,7 +502,6 @@ class MeshCoreRuntime final : public IProtocolRuntime
     static constexpr uint32_t kDefaultDiscoverRxGuardMs = kMeshCoreDiscoverRxGuardDefaultMs;
     static constexpr uint32_t kTextMessageSalt = 0x4D435854UL;
     static constexpr uint32_t kMinValidEpochSeconds = 1577836800UL;
-    static constexpr size_t kMaxPendingAppAcks = 32;
 
     static NodeId normalizePeer(NodeId peer)
     {
@@ -761,21 +846,26 @@ class MeshCoreRuntime final : public IProtocolRuntime
     {
         while (!pending_app_acks_.empty())
         {
-            const PendingAppAck& ack = pending_app_acks_.front();
-            const uint32_t elapsed = context.now_ms - ack.created_ms;
-            if (elapsed < ack.timeout_ms)
+            const PendingAppAck* oldest = pending_app_acks_.oldest();
+            if (!oldest)
             {
                 break;
             }
+            const uint32_t elapsed = context.now_ms - oldest->created_ms;
+            if (elapsed < oldest->timeout_ms)
+            {
+                break;
+            }
+            PendingAppAck ack{};
+            pending_app_acks_.removeOldest(&ack);
             effects.add(buildAppAckResult(ack,
                                           ProtocolActionState::TimedOut,
                                           static_cast<int32_t>(elapsed)));
-            pending_app_acks_.pop_front();
         }
     }
 
     PendingTraceRoute pending_trace_{};
-    std::deque<PendingAppAck> pending_app_acks_{};
+    PendingAppAckTable pending_app_acks_{};
     AutoDiscoverState auto_discover_{};
 };
 

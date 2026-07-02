@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chat/infra/meshtastic/mt_incoming_queue.h"
+#include "chat/infra/mesh_incoming_queue.h"
 #include "chat/infra/meshtastic/mt_mqtt_proxy_runtime.h"
 #include "chat/infra/meshtastic/mt_packet_wire.h"
 #include "chat/infra/meshtastic/mt_pending_wire_table.h"
@@ -9,6 +9,7 @@
 #include "chat/runtime/self_identity_policy.h"
 #include "chat/runtime/self_identity_provider.h"
 #include "chat/usecase/contact_service.h"
+#include "mesh/domain/peer_identity.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/mqtt.pb.h"
 #include "platform/nrf52/arduino_common/chat/infra/meshtastic/node_store.h"
@@ -17,9 +18,7 @@
 #include <array>
 #include <cstdint>
 #include <limits>
-#include <map>
 #include <string>
-#include <vector>
 
 namespace platform::nrf52::arduino_common::chat::meshtastic
 {
@@ -84,6 +83,110 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
         bool was_fallback = false;
         bool we_were_next_hop = false;
         bool was_upgraded = false;
+    };
+
+    static constexpr std::size_t kPacketHistoryCapacity = 160;
+
+    class PacketHistoryTable
+    {
+      public:
+        PacketHistoryEntry* find(::chat::NodeId sender, ::chat::MessageId packet_id)
+        {
+            for (std::size_t index = 0; index < count_; ++index)
+            {
+                if (items_[index].sender == sender &&
+                    items_[index].packet_id == packet_id)
+                {
+                    return &items_[index];
+                }
+            }
+            return nullptr;
+        }
+
+        const PacketHistoryEntry* find(::chat::NodeId sender,
+                                       ::chat::MessageId packet_id) const
+        {
+            for (std::size_t index = 0; index < count_; ++index)
+            {
+                if (items_[index].sender == sender &&
+                    items_[index].packet_id == packet_id)
+                {
+                    return &items_[index];
+                }
+            }
+            return nullptr;
+        }
+
+        void pruneExpired(uint32_t now_ms, uint32_t ttl_ms)
+        {
+            for (std::size_t index = 0; index < count_;)
+            {
+                const PacketHistoryEntry& entry = items_[index];
+                if (entry.last_rx_ms != 0 && (now_ms - entry.last_rx_ms) > ttl_ms)
+                {
+                    removeAt(index);
+                    continue;
+                }
+                ++index;
+            }
+        }
+
+        PacketHistoryEntry* allocateDropOldest()
+        {
+            if (count_ >= kPacketHistoryCapacity)
+            {
+                removeOldestByLastRx();
+            }
+            PacketHistoryEntry& entry = items_[count_++];
+            entry = PacketHistoryEntry{};
+            return &entry;
+        }
+
+        PacketHistoryEntry* allocateDropFirst()
+        {
+            if (count_ >= kPacketHistoryCapacity)
+            {
+                removeAt(0);
+            }
+            PacketHistoryEntry& entry = items_[count_++];
+            entry = PacketHistoryEntry{};
+            return &entry;
+        }
+
+      private:
+        void removeOldestByLastRx()
+        {
+            if (count_ == 0)
+            {
+                return;
+            }
+            std::size_t oldest = 0;
+            for (std::size_t index = 1; index < count_; ++index)
+            {
+                if (items_[index].last_rx_ms < items_[oldest].last_rx_ms)
+                {
+                    oldest = index;
+                }
+            }
+            removeAt(oldest);
+        }
+
+        void removeAt(std::size_t index)
+        {
+            if (index >= count_)
+            {
+                return;
+            }
+            for (std::size_t move = index + 1; move < count_; ++move)
+            {
+                items_[move - 1] = items_[move];
+            }
+            --count_;
+            items_[count_] = PacketHistoryEntry{};
+        }
+
+        std::array<PacketHistoryEntry, kPacketHistoryCapacity> items_{};
+        std::size_t count_ = 0;
     };
 
     static constexpr std::size_t kPendingRetransmitSlotCount = 8;
@@ -263,12 +366,32 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     float last_rx_snr_ = std::numeric_limits<float>::quiet_NaN();
     static constexpr std::size_t kIncomingQueueDepth = 12;
     static constexpr std::size_t kMqttProxyQueueDepth = 12;
+    static constexpr std::size_t kPkiNodeTableDepth = 16;
+    static constexpr std::size_t kNodeRuntimeTableDepth = 64;
 
-    ::chat::meshtastic::IncomingTextQueue<kIncomingQueueDepth> text_queue_;
-    ::chat::meshtastic::IncomingDataQueue<kIncomingQueueDepth> data_queue_;
+    struct PkiNodeKeyEntry
+    {
+        bool used = false;
+        ::chat::NodeId node_id = 0;
+        std::array<uint8_t, 32> key{};
+        uint32_t last_seen_s = 0;
+    };
+
+    struct NodeRuntimeEntry
+    {
+        bool used = false;
+        ::chat::NodeId node_id = 0;
+        ::chat::ChannelId last_channel = ::chat::ChannelId::PRIMARY;
+        bool has_last_channel = false;
+        uint32_t nodeinfo_reply_ms = 0;
+        uint32_t last_touch_ms = 0;
+    };
+
+    ::chat::infra::IncomingTextQueue<kIncomingQueueDepth> text_queue_;
+    ::chat::infra::IncomingDataQueue<kIncomingQueueDepth> data_queue_;
     sys::RingBuffer<meshtastic_MqttClientProxyMessage, kMqttProxyQueueDepth> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_{};
-    std::vector<PacketHistoryEntry> packet_history_;
+    PacketHistoryTable packet_history_;
     PendingRetransmitTable pending_retransmits_;
     uint32_t last_nodeinfo_ms_ = 0;
     uint8_t last_raw_packet_[256] = {};
@@ -278,14 +401,12 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     bool pki_ready_ = false;
     std::array<uint8_t, 32> pki_public_key_{};
     std::array<uint8_t, 32> pki_private_key_{};
-    std::map<::chat::NodeId, std::array<uint8_t, 32>> node_public_keys_;
-    std::map<::chat::NodeId, uint32_t> node_key_last_seen_;
+    std::array<PkiNodeKeyEntry, kPkiNodeTableDepth> pki_node_keys_{};
+    std::array<::mesh::PeerPublicKey, kPkiNodeTableDepth> pki_save_entries_{};
     uint32_t pki_node_keys_save_due_ms_ = 0;
     bool pki_node_keys_dirty_ = false;
     ::chat::runtime::MeshtasticRuntime protocol_runtime_{};
-    std::map<::chat::NodeId, ::chat::ChannelId> node_last_channel_;
-    std::map<::chat::NodeId, uint32_t> nodeinfo_last_seen_ms_;
-    std::map<::chat::NodeId, uint32_t> nodeinfo_reply_ms_;
+    std::array<NodeRuntimeEntry, kNodeRuntimeTableDepth> node_runtime_{};
     TxScratchBuffers tx_scratch_{};
     RxScratchBuffers rx_scratch_{};
     MqttDownlinkScratchBuffers mqtt_downlink_scratch_{};
@@ -308,6 +429,22 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     ::chat::NodeId kv_remote_node_ = 0;
     std::array<uint8_t, 32> kv_hash1_{};
     std::array<uint8_t, 32> kv_hash2_{};
+
+    PkiNodeKeyEntry* findPkiNodeKey(::chat::NodeId node_id);
+    const PkiNodeKeyEntry* findPkiNodeKey(::chat::NodeId node_id) const;
+    PkiNodeKeyEntry* upsertPkiNodeKey(::chat::NodeId node_id, const uint8_t* key, uint32_t last_seen_s,
+                                      bool* out_changed = nullptr, bool* out_evicted = nullptr);
+    void clearPkiNodeKeys();
+    bool erasePkiNodeKey(::chat::NodeId node_id);
+    std::size_t pkiNodeKeyCount() const;
+    NodeRuntimeEntry* findNodeRuntime(::chat::NodeId node_id);
+    const NodeRuntimeEntry* findNodeRuntime(::chat::NodeId node_id) const;
+    NodeRuntimeEntry* upsertNodeRuntime(::chat::NodeId node_id, uint32_t now_ms);
+    void eraseNodeRuntime(::chat::NodeId node_id);
+    bool getNodeLastChannel(::chat::NodeId node_id, ::chat::ChannelId* out) const;
+    void rememberNodeLastChannel(::chat::NodeId node_id, ::chat::ChannelId channel, uint32_t now_ms);
+    uint32_t getNodeInfoReplyMs(::chat::NodeId node_id) const;
+    void setNodeInfoReplyMs(::chat::NodeId node_id, uint32_t now_ms);
 };
 
 } // namespace platform::nrf52::arduino_common::chat::meshtastic

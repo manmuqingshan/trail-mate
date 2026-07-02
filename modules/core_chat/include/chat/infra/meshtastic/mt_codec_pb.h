@@ -42,6 +42,10 @@ bool encodeTextMessage(ChannelId channel, const std::string& text,
                        NodeId from_node, uint32_t packet_id, NodeId dest_node,
                        uint8_t* out_buffer, size_t* out_size);
 
+bool encodeTextMessageBytes(ChannelId channel, const char* text, size_t text_len,
+                            NodeId from_node, uint32_t packet_id, NodeId dest_node,
+                            uint8_t* out_buffer, size_t* out_size);
+
 /**
  * @brief Decode an already-parsed Meshtastic Data payload into text
  * @param data Decoded Meshtastic Data message

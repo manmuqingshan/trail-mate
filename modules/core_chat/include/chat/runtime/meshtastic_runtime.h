@@ -319,7 +319,14 @@ class MeshtasticRuntime final : public IProtocolRuntime
         packet.request_id = request_id;
         packet.want_ack = true;
         packet.want_response = true;
-        packet.payload.assign(route_buf, route_buf + stream.bytes_written);
+        if (!packet.payload.assign(route_buf, stream.bytes_written))
+        {
+            effects.add(buildFailedAction(ProtocolActionKind::TraceRoute,
+                                          peer,
+                                          request_id,
+                                          kMeshtasticActionDetailEncodeFailed));
+            return;
+        }
         effects.add(std::move(packet));
         app_actions_.startTraceRoute(request_id,
                                      peer,
@@ -397,7 +404,14 @@ class MeshtasticRuntime final : public IProtocolRuntime
         packet.portnum = meshtastic_PortNum_POSITION_APP;
         packet.want_ack = intent.want_ack && packet.dest != 0;
         packet.want_response = intent.want_response;
-        packet.payload.assign(payload, payload + payload_len);
+        if (!packet.payload.assign(payload, payload_len))
+        {
+            effects.add(buildFailedAction(ProtocolActionKind::SharePosition,
+                                          normalizePeer(intent.peer),
+                                          0,
+                                          kMeshtasticActionDetailEncodeFailed));
+            return;
+        }
         effects.add(std::move(packet));
     }
 
@@ -435,7 +449,14 @@ class MeshtasticRuntime final : public IProtocolRuntime
         packet.portnum = meshtastic_PortNum_WAYPOINT_APP;
         packet.want_ack = intent.want_ack && packet.dest != 0;
         packet.want_response = intent.want_response;
-        packet.payload.assign(payload, payload + payload_len);
+        if (!packet.payload.assign(payload, payload_len))
+        {
+            effects.add(buildFailedAction(ProtocolActionKind::ShareWaypoint,
+                                          normalizePeer(intent.peer),
+                                          0,
+                                          kMeshtasticActionDetailEncodeFailed));
+            return;
+        }
         effects.add(std::move(packet));
     }
 
@@ -449,7 +470,7 @@ class MeshtasticRuntime final : public IProtocolRuntime
         data.request_id = packet.request_id;
         data.channel = packet.channel;
         data.want_response = packet.want_response;
-        data.payload = packet.payload;
+        data.payload.assign(packet.payload.begin(), packet.payload.end());
         data.rx_meta = packet.rx_meta;
         return data;
     }
@@ -516,7 +537,7 @@ class MeshtasticRuntime final : public IProtocolRuntime
             return {};
         }
 
-        std::vector<uint8_t> updated_payload;
+        ProtocolPayloadBytes updated_payload;
         if (!buildUpdatedTraceRoutePayload(packet, context, updated_payload))
         {
             return consumeIncomingAppAction(packet, context);
@@ -567,9 +588,12 @@ class MeshtasticRuntime final : public IProtocolRuntime
     {
         IncomingPacketHandlingResult result{};
         MeshtasticAppActionSnapshot snapshot{};
-        if (app_actions_.consumeIncomingData(toMeshIncomingData(packet),
-                                             context.now_ms,
-                                             &snapshot))
+        if (app_actions_.consumeIncomingPayload(packet.portnum,
+                                                packet.request_id,
+                                                packet.payload.empty() ? nullptr : packet.payload.data(),
+                                                packet.payload.size(),
+                                                context.now_ms,
+                                                &snapshot))
         {
             result.handling = PacketHandling::HandledStop;
             result.effects.add(actionResultFromSnapshot(snapshot));
@@ -716,18 +740,18 @@ class MeshtasticRuntime final : public IProtocolRuntime
 
     static MeshIncomingData incomingDataFromPacket(
         const IncomingPacket& packet,
-        const std::vector<uint8_t>& payload)
+        const ProtocolPayloadBytes& payload)
     {
         MeshIncomingData data = toMeshIncomingData(packet);
         data.channel_hash = packet.rx_meta.channel_hash;
         data.hop_limit = packet.rx_meta.hop_limit;
-        data.payload = payload;
+        data.payload.assign(payload.begin(), payload.end());
         return data;
     }
 
     static void publishIncomingData(IncomingPacketHandlingResult& result,
                                     const IncomingPacket& packet,
-                                    const std::vector<uint8_t>& payload)
+                                    const ProtocolPayloadBytes& payload)
     {
         PublishIncomingDataEffect publish{};
         publish.data = incomingDataFromPacket(packet, payload);
@@ -760,7 +784,10 @@ class MeshtasticRuntime final : public IProtocolRuntime
         reply.response_request_id = packet.packet_id;
         reply.want_ack = false;
         reply.want_response = false;
-        reply.payload.assign(payload, payload + payload_len);
+        if (!reply.payload.assign(payload, payload_len))
+        {
+            return;
+        }
         result.effects.add(std::move(reply));
         if (result.handling == PacketHandling::NotHandled)
         {
@@ -771,7 +798,7 @@ class MeshtasticRuntime final : public IProtocolRuntime
     static bool buildUpdatedTraceRoutePayload(
         const IncomingPacket& packet,
         const RuntimeContext& context,
-        std::vector<uint8_t>& out_payload)
+        ProtocolPayloadBytes& out_payload)
     {
         meshtastic_Data decoded = meshtastic_Data_init_zero;
         decoded.portnum = meshtastic_PortNum_TRACEROUTE_APP;
@@ -797,14 +824,12 @@ class MeshtasticRuntime final : public IProtocolRuntime
             return false;
         }
 
-        out_payload.assign(decoded.payload.bytes,
-                           decoded.payload.bytes + decoded.payload.size);
-        return true;
+        return out_payload.assign(decoded.payload.bytes, decoded.payload.size);
     }
 
     static void appendTraceRouteReplyEffect(IncomingPacketHandlingResult& result,
                                             const IncomingPacket& packet,
-                                            const std::vector<uint8_t>& payload)
+                                            const ProtocolPayloadBytes& payload)
     {
         SendPacketEffect reply{};
         reply.protocol = MeshProtocol::Meshtastic;

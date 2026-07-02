@@ -13,7 +13,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
-#include <deque>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -48,8 +48,87 @@ class MeshCoreBleService : public BleService,
 
     struct Frame
     {
+        static constexpr size_t kMaxLen = 172;
+
         uint8_t len = 0;
-        std::array<uint8_t, 172> buf{};
+        std::array<uint8_t, kMaxLen> buf{};
+
+        bool assign(const uint8_t* data, size_t size)
+        {
+            if (!data || size == 0 || size > buf.size())
+            {
+                return false;
+            }
+            len = static_cast<uint8_t>(size);
+            memcpy(buf.data(), data, size);
+            return true;
+        }
+    };
+
+    template <size_t Capacity>
+    class FrameQueue
+    {
+      public:
+        bool empty() const { return count_ == 0; }
+        size_t size() const { return count_; }
+
+        void clear()
+        {
+            for (size_t index = 0; index < count_; ++index)
+            {
+                frames_[index] = Frame{};
+            }
+            count_ = 0;
+        }
+
+        const Frame* front() const
+        {
+            return count_ == 0 ? nullptr : &frames_[0];
+        }
+
+        void pop_front()
+        {
+            removeAt(0);
+        }
+
+        bool pushDropOldest(const uint8_t* data, size_t len, bool* out_dropped = nullptr)
+        {
+            if (out_dropped)
+            {
+                *out_dropped = false;
+            }
+            if (!data || len == 0 || len > Frame::kMaxLen)
+            {
+                return false;
+            }
+            if (count_ >= Capacity)
+            {
+                removeAt(0);
+                if (out_dropped)
+                {
+                    *out_dropped = true;
+                }
+            }
+            return frames_[count_++].assign(data, len);
+        }
+
+      private:
+        void removeAt(size_t index)
+        {
+            if (index >= count_)
+            {
+                return;
+            }
+            for (size_t move = index + 1; move < count_; ++move)
+            {
+                frames_[move - 1] = frames_[move];
+            }
+            --count_;
+            frames_[count_] = Frame{};
+        }
+
+        std::array<Frame, Capacity> frames_{};
+        size_t count_ = 0;
     };
 
     struct ContactRecord
@@ -83,11 +162,17 @@ class MeshCoreBleService : public BleService,
     bool conn_handle_valid_ = false;
     uint16_t negotiated_mtu_ = 23;
 
-    std::deque<Frame> outbound_;
-    std::deque<Frame> rx_queue_;
-    std::deque<Frame> offline_queue_;
+    static constexpr size_t kOutboundFrameQueueDepth = 24;
+    static constexpr size_t kRxFrameQueueDepth = 8;
+    static constexpr size_t kOfflineFrameQueueDepth = 12;
+    static constexpr size_t kKnownPeerHashDepth = 64;
+    static constexpr size_t kConnectionDepth = 8;
+    FrameQueue<kOutboundFrameQueueDepth> outbound_;
+    FrameQueue<kRxFrameQueueDepth> rx_queue_;
+    FrameQueue<kOfflineFrameQueueDepth> offline_queue_;
     std::vector<ContactRecord> manual_contacts_;
-    std::vector<uint8_t> known_peer_hashes_;
+    std::array<uint8_t, kKnownPeerHashDepth> known_peer_hashes_{};
+    size_t known_peer_hash_count_ = 0;
 
     uint32_t last_write_ms_ = 0;
 
@@ -101,8 +186,6 @@ class MeshCoreBleService : public BleService,
     uint8_t advert_loc_policy_ = 0;
     uint8_t multi_acks_ = 0;
 
-    std::vector<uint8_t> sign_data_;
-    bool sign_active_ = false;
     uint32_t ble_pin_ = 0;
     uint32_t active_ble_pin_ = 0;
     std::atomic<uint32_t> pending_passkey_{0};
@@ -125,11 +208,12 @@ class MeshCoreBleService : public BleService,
 
     struct ConnectionEntry
     {
+        bool used = false;
         uint32_t prefix4 = 0;
         uint32_t expires_ms = 0;
         uint16_t keep_alive_secs = 0;
     };
-    std::vector<ConnectionEntry> connections_;
+    std::array<ConnectionEntry, kConnectionDepth> connections_{};
     std::unique_ptr<phone::meshcore::MeshCorePhoneCore> shared_core_;
 
     void setupService();
@@ -154,6 +238,13 @@ class MeshCoreBleService : public BleService,
     void enqueueRawDataPush(const uint8_t* payload, size_t len, const chat::RxMeta* meta);
     bool handleCustomVarSet(const char* key, const char* value);
     void appendCustomVar(std::string& out, const char* key, const char* value) const;
+    bool rememberKnownPeerHash(uint8_t peer_hash);
+    void clearKnownPeerHashes();
+    void pruneConnections(uint32_t now_ms);
+    void upsertConnection(const ConnectionEntry& entry);
+    bool hasConnectionPrefix(uint32_t prefix4, uint32_t now_ms) const;
+    void removeConnectionPrefix(uint32_t prefix4);
+    void clearConnections();
     ContactRecord* findManualContact(const uint8_t* pubkey);
     const ContactRecord* findManualContactByPrefix(const uint8_t* prefix, size_t len) const;
     bool resolveContactByPubkey(const uint8_t* pubkey,

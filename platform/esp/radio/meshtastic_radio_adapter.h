@@ -3,12 +3,13 @@
 #include "board/LoraBoard.h"
 #include "chat/domain/chat_types.h"
 #include "chat/domain/contact_types.h"
+#include "chat/infra/mesh_incoming_queue.h"
 #include "chat/infra/meshtastic/mt_codec_pb.h"
 #include "chat/infra/meshtastic/mt_dedup.h"
 #include "chat/ports/i_mesh_adapter.h"
 
+#include <array>
 #include <map>
-#include <queue>
 #include <string>
 
 namespace platform::esp::radio
@@ -44,6 +45,9 @@ class MeshtasticRadioAdapter final : public chat::IMeshAdapter
 
   private:
     static constexpr uint32_t kBroadcastNodeId = 0xFFFFFFFFu;
+    static constexpr size_t kDataScratchSize = 256;
+    static constexpr size_t kWireScratchSize = 512;
+    static constexpr size_t kRxScratchSize = 256;
 
     bool sendEncodedPayload(chat::ChannelId channel,
                             const uint8_t* payload,
@@ -72,8 +76,9 @@ class MeshtasticRadioAdapter final : public chat::IMeshAdapter
     LoraBoard& board_;
     chat::MeshConfig config_{};
     chat::meshtastic::MtDedup dedup_{};
-    std::queue<chat::MeshIncomingText> text_queue_{};
-    std::queue<chat::MeshIncomingData> data_queue_{};
+    static constexpr std::size_t kIncomingQueueDepth = 12;
+    ::chat::infra::IncomingTextQueue<kIncomingQueueDepth> text_queue_{};
+    ::chat::infra::IncomingDataQueue<kIncomingQueueDepth> data_queue_{};
     std::map<chat::NodeId, chat::ChannelId> node_last_channel_{};
     std::string user_long_name_{};
     std::string user_short_name_{};
@@ -95,6 +100,11 @@ class MeshtasticRadioAdapter final : public chat::IMeshAdapter
     size_t primary_psk_len_ = 0;
     uint8_t secondary_psk_[chat::kMeshtasticChannelKeyMaxLen] = {};
     size_t secondary_psk_len_ = 0;
+    std::array<uint8_t, kDataScratchSize> data_scratch_{};
+    std::array<uint8_t, kWireScratchSize> wire_scratch_{};
+    std::array<uint8_t, kRxScratchSize> payload_scratch_{};
+    std::array<uint8_t, kRxScratchSize> plaintext_scratch_{};
+    std::array<uint8_t, kRxScratchSize> radio_rx_scratch_{};
 };
 
 } // namespace platform::esp::radio

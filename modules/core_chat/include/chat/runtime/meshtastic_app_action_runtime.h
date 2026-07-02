@@ -5,6 +5,7 @@
 #include "meshtastic/portnums.pb.h"
 #include "pb_decode.h"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace chat::runtime
@@ -91,21 +92,36 @@ class MeshtasticAppActionRuntime
                              uint32_t now_ms,
                              MeshtasticAppActionSnapshot* out_snapshot = nullptr)
     {
+        return consumeIncomingPayload(data.portnum,
+                                      data.request_id,
+                                      data.payload.empty() ? nullptr : data.payload.data(),
+                                      data.payload.size(),
+                                      now_ms,
+                                      out_snapshot);
+    }
+
+    bool consumeIncomingPayload(uint32_t portnum,
+                                MessageId request_id,
+                                const uint8_t* payload,
+                                std::size_t payload_len,
+                                uint32_t now_ms,
+                                MeshtasticAppActionSnapshot* out_snapshot = nullptr)
+    {
         if (!active_ || snapshot_.request_id == 0)
         {
             return false;
         }
 
-        if (data.portnum == meshtastic_PortNum_ROUTING_APP)
+        if (portnum == meshtastic_PortNum_ROUTING_APP)
         {
-            if (data.request_id != snapshot_.request_id)
+            if (request_id != snapshot_.request_id)
             {
                 return false;
             }
-            return consumeRoutingResult(data, now_ms, out_snapshot);
+            return consumeRoutingResult(payload, payload_len, now_ms, out_snapshot);
         }
 
-        if (isExpectedAppResponse(data))
+        if (isExpectedAppResponse(portnum, request_id))
         {
             snapshot_.state = MeshtasticAppActionState::Completed;
             snapshot_.reason = MeshtasticAppActionReason::AppResponse;
@@ -169,17 +185,18 @@ class MeshtasticAppActionRuntime
         active_ = request_id != 0;
     }
 
-    bool consumeRoutingResult(const MeshIncomingData& data,
+    bool consumeRoutingResult(const uint8_t* payload,
+                              std::size_t payload_len,
                               uint32_t now_ms,
                               MeshtasticAppActionSnapshot* out_snapshot)
     {
-        if (data.payload.empty())
+        if (!payload || payload_len == 0)
         {
             return false;
         }
 
         meshtastic_Routing routing = meshtastic_Routing_init_zero;
-        pb_istream_t stream = pb_istream_from_buffer(data.payload.data(), data.payload.size());
+        pb_istream_t stream = pb_istream_from_buffer(payload, payload_len);
         if (!pb_decode(&stream, meshtastic_Routing_fields, &routing) ||
             routing.which_variant != meshtastic_Routing_error_reason_tag)
         {
@@ -207,17 +224,17 @@ class MeshtasticAppActionRuntime
         return true;
     }
 
-    bool isExpectedAppResponse(const MeshIncomingData& data) const
+    bool isExpectedAppResponse(uint32_t portnum, MessageId request_id) const
     {
         if (snapshot_.kind == MeshtasticAppActionKind::TraceRoute)
         {
-            return data.portnum == meshtastic_PortNum_TRACEROUTE_APP &&
-                   data.request_id == snapshot_.request_id;
+            return portnum == meshtastic_PortNum_TRACEROUTE_APP &&
+                   request_id == snapshot_.request_id;
         }
         if (snapshot_.kind == MeshtasticAppActionKind::PositionExchange)
         {
-            return data.portnum == meshtastic_PortNum_POSITION_APP &&
-                   data.request_id == snapshot_.request_id;
+            return portnum == meshtastic_PortNum_POSITION_APP &&
+                   request_id == snapshot_.request_id;
         }
         return false;
     }

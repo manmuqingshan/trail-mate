@@ -406,19 +406,7 @@ bool MeshCoreBleService::hasActiveConnection(const uint8_t* prefix, size_t len) 
     }
     uint32_t prefix4 = 0;
     std::memcpy(&prefix4, prefix, sizeof(prefix4));
-    const uint32_t now_ms = millis();
-    for (const auto& entry : connections_)
-    {
-        if (entry.expires_ms != 0 && static_cast<int32_t>(now_ms - entry.expires_ms) >= 0)
-        {
-            continue;
-        }
-        if (entry.prefix4 == prefix4)
-        {
-            return true;
-        }
-    }
-    return false;
+    return hasConnectionPrefix(prefix4, millis());
 }
 
 void MeshCoreBleService::logoutActiveConnection(const uint8_t* prefix, size_t len)
@@ -429,14 +417,7 @@ void MeshCoreBleService::logoutActiveConnection(const uint8_t* prefix, size_t le
     }
     uint32_t prefix4 = 0;
     std::memcpy(&prefix4, prefix, sizeof(prefix4));
-    for (auto it = connections_.begin(); it != connections_.end(); ++it)
-    {
-        if (it->prefix4 == prefix4)
-        {
-            connections_.erase(it);
-            break;
-        }
-    }
+    removeConnectionPrefix(prefix4);
 }
 
 bool MeshCoreBleService::getRadioStats(phone::meshcore::MeshCorePhoneRadioStats* out) const
@@ -573,10 +554,19 @@ bool MeshCoreBleService::popOfflineMessage(uint8_t* out, size_t* out_len)
     {
         return false;
     }
-    Frame frame = offline_queue_.front();
+    const Frame* frame = offline_queue_.front();
+    if (!frame)
+    {
+        return false;
+    }
+    if (*out_len < frame->len)
+    {
+        *out_len = frame->len;
+        return false;
+    }
+    std::memcpy(out, frame->buf.data(), frame->len);
+    *out_len = frame->len;
     offline_queue_.pop_front();
-    std::memcpy(out, frame.buf.data(), frame.len);
-    *out_len = frame.len;
     return true;
 }
 
@@ -675,8 +665,8 @@ void MeshCoreBleService::onFactoryReset()
         refreshBlePin();
     }
     saveBlePin();
-    connections_.clear();
-    known_peer_hashes_.clear();
+    clearConnections();
+    clearKnownPeerHashes();
     multi_acks_ = 0;
     clearPendingRequests();
     if (auto* adapter = meshCoreAdapter())

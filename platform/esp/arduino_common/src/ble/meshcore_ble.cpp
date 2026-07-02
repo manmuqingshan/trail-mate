@@ -354,10 +354,19 @@ class MeshCoreRxCallbacks : public NimBLECharacteristicCallbacks
                       static_cast<unsigned>(connInfo.getConnHandle()),
                       connInfo.isEncrypted() ? 1U : 0U,
                       connInfo.isAuthenticated() ? 1U : 0U);
-        MeshCoreBleService::Frame frame;
-        frame.len = static_cast<uint8_t>(val.length());
-        memcpy(frame.buf.data(), val.data(), frame.len);
-        owner_.rx_queue_.push_back(frame);
+        bool dropped = false;
+        if (!owner_.rx_queue_.pushDropOldest(val.data(), val.length(), &dropped))
+        {
+            Serial.printf("[BLE][meshcore] rx queue drop len=%u depth=%u\n",
+                          static_cast<unsigned>(val.length()),
+                          static_cast<unsigned>(owner_.rx_queue_.size()));
+            return;
+        }
+        if (dropped)
+        {
+            Serial.printf("[BLE][meshcore] rx queue pressure dropped_oldest depth=%u\n",
+                          static_cast<unsigned>(owner_.rx_queue_.size()));
+        }
     }
 
   private:
@@ -656,6 +665,123 @@ void MeshCoreBleService::noteSentRoute(bool sent_flood)
     else
     {
         ++stats_tx_direct_;
+    }
+}
+
+bool MeshCoreBleService::rememberKnownPeerHash(uint8_t peer_hash)
+{
+    for (size_t index = 0; index < known_peer_hash_count_; ++index)
+    {
+        if (known_peer_hashes_[index] == peer_hash)
+        {
+            return false;
+        }
+    }
+    if (known_peer_hash_count_ < known_peer_hashes_.size())
+    {
+        known_peer_hashes_[known_peer_hash_count_++] = peer_hash;
+        return true;
+    }
+    for (size_t index = 1; index < known_peer_hashes_.size(); ++index)
+    {
+        known_peer_hashes_[index - 1] = known_peer_hashes_[index];
+    }
+    known_peer_hashes_[known_peer_hashes_.size() - 1] = peer_hash;
+    return true;
+}
+
+void MeshCoreBleService::clearKnownPeerHashes()
+{
+    known_peer_hashes_.fill(0);
+    known_peer_hash_count_ = 0;
+}
+
+void MeshCoreBleService::pruneConnections(uint32_t now_ms)
+{
+    for (auto& entry : connections_)
+    {
+        if (entry.used &&
+            entry.expires_ms != 0 &&
+            static_cast<int32_t>(now_ms - entry.expires_ms) >= 0)
+        {
+            entry = ConnectionEntry{};
+        }
+    }
+}
+
+void MeshCoreBleService::upsertConnection(const ConnectionEntry& entry)
+{
+    if (entry.prefix4 == 0)
+    {
+        return;
+    }
+    for (auto& slot : connections_)
+    {
+        if (slot.used && slot.prefix4 == entry.prefix4)
+        {
+            slot = entry;
+            slot.used = true;
+            return;
+        }
+    }
+    for (auto& slot : connections_)
+    {
+        if (!slot.used)
+        {
+            slot = entry;
+            slot.used = true;
+            return;
+        }
+    }
+    auto* oldest = &connections_[0];
+    for (auto& slot : connections_)
+    {
+        if (slot.expires_ms < oldest->expires_ms)
+        {
+            oldest = &slot;
+        }
+    }
+    *oldest = entry;
+    oldest->used = true;
+}
+
+bool MeshCoreBleService::hasConnectionPrefix(uint32_t prefix4, uint32_t now_ms) const
+{
+    for (const auto& entry : connections_)
+    {
+        if (!entry.used)
+        {
+            continue;
+        }
+        if (entry.expires_ms != 0 && static_cast<int32_t>(now_ms - entry.expires_ms) >= 0)
+        {
+            continue;
+        }
+        if (entry.prefix4 == prefix4)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MeshCoreBleService::removeConnectionPrefix(uint32_t prefix4)
+{
+    for (auto& entry : connections_)
+    {
+        if (entry.used && entry.prefix4 == prefix4)
+        {
+            entry = ConnectionEntry{};
+            return;
+        }
+    }
+}
+
+void MeshCoreBleService::clearConnections()
+{
+    for (auto& entry : connections_)
+    {
+        entry = ConnectionEntry{};
     }
 }
 
@@ -961,16 +1087,7 @@ void MeshCoreBleService::update()
     if (adapter)
     {
         const uint32_t now_ms = millis();
-        for (auto it = connections_.begin(); it != connections_.end();)
-        {
-            if (it->expires_ms != 0 &&
-                static_cast<int32_t>(now_ms - it->expires_ms) >= 0)
-            {
-                it = connections_.erase(it);
-                continue;
-            }
-            ++it;
-        }
+        pruneConnections(now_ms);
 
         auto fillPrefix = [&](uint8_t peer_hash, chat::NodeId peer_node,
                               uint8_t out_prefix[kPubKeyPrefixSize])
@@ -1060,20 +1177,8 @@ void MeshCoreBleService::update()
                             entry.prefix4 = prefix4;
                             entry.keep_alive_secs = keep_alive_secs;
                             entry.expires_ms = now_ms + static_cast<uint32_t>(keep_alive_secs) * 2500U;
-                            bool updated = false;
-                            for (auto& conn : connections_)
-                            {
-                                if (conn.prefix4 == entry.prefix4)
-                                {
-                                    conn = entry;
-                                    updated = true;
-                                    break;
-                                }
-                            }
-                            if (!updated)
-                            {
-                                connections_.push_back(entry);
-                            }
+                            entry.used = true;
+                            upsertConnection(entry);
                         }
                         out[i++] = PUSH_CODE_LOGIN_SUCCESS;
                         out[i++] = data[6];
@@ -1275,19 +1380,7 @@ void MeshCoreBleService::update()
                 noteEventRx(ev.rssi_dbm, ev.snr_qdb);
                 uint8_t pubkey[kPubKeySize] = {};
                 fillPubkey(ev.peer_hash, ev.peer_node, pubkey);
-                bool known = false;
-                for (uint8_t hash : known_peer_hashes_)
-                {
-                    if (hash == ev.peer_hash)
-                    {
-                        known = true;
-                        break;
-                    }
-                }
-                if (!known)
-                {
-                    known_peer_hashes_.push_back(ev.peer_hash);
-                }
+                const bool known = !rememberKnownPeerHash(ev.peer_hash);
                 const bool is_new = ev.advert_is_new || !known;
                 if (is_new)
                 {
@@ -1467,14 +1560,22 @@ void MeshCoreBleService::handleIncomingFrames()
 {
     while (!rx_queue_.empty())
     {
-        Frame frame = rx_queue_.front();
+        const Frame* frame = rx_queue_.front();
+        if (!frame)
+        {
+            return;
+        }
+        const uint8_t frame_len = frame->len;
+        if (frame_len > 0)
+        {
+            memcpy(cmd_frame_, frame->buf.data(), frame_len);
+        }
         rx_queue_.pop_front();
-        if (frame.len == 0)
+        if (frame_len == 0)
         {
             continue;
         }
-        memcpy(cmd_frame_, frame.buf.data(), frame.len);
-        handleCmdFrame(frame.len);
+        handleCmdFrame(frame_len);
     }
 }
 
@@ -1500,10 +1601,19 @@ void MeshCoreBleService::enqueueFrame(const uint8_t* data, size_t len)
     {
         return;
     }
-    Frame frame;
-    frame.len = static_cast<uint8_t>(len);
-    memcpy(frame.buf.data(), data, len);
-    outbound_.push_back(frame);
+    bool dropped = false;
+    if (!outbound_.pushDropOldest(data, len, &dropped))
+    {
+        Serial.printf("[BLE][meshcore] tx queue drop len=%u depth=%u\n",
+                      static_cast<unsigned>(len),
+                      static_cast<unsigned>(outbound_.size()));
+        return;
+    }
+    if (dropped)
+    {
+        Serial.printf("[BLE][meshcore] tx queue pressure dropped_oldest depth=%u\n",
+                      static_cast<unsigned>(outbound_.size()));
+    }
 }
 
 void MeshCoreBleService::enqueueOffline(const uint8_t* data, size_t len)
@@ -1512,10 +1622,19 @@ void MeshCoreBleService::enqueueOffline(const uint8_t* data, size_t len)
     {
         return;
     }
-    Frame frame;
-    frame.len = static_cast<uint8_t>(len);
-    memcpy(frame.buf.data(), data, len);
-    offline_queue_.push_back(frame);
+    bool dropped = false;
+    if (!offline_queue_.pushDropOldest(data, len, &dropped))
+    {
+        Serial.printf("[BLE][meshcore] offline queue drop len=%u depth=%u\n",
+                      static_cast<unsigned>(len),
+                      static_cast<unsigned>(offline_queue_.size()));
+        return;
+    }
+    if (dropped)
+    {
+        Serial.printf("[BLE][meshcore] offline queue pressure dropped_oldest depth=%u\n",
+                      static_cast<unsigned>(offline_queue_.size()));
+    }
 }
 
 void MeshCoreBleService::sendPendingFrames()
@@ -1530,10 +1649,14 @@ void MeshCoreBleService::sendPendingFrames()
         return;
     }
 
-    Frame frame = outbound_.front();
+    const Frame* frame = outbound_.front();
+    if (!frame)
+    {
+        return;
+    }
     const uint16_t mtu = negotiated_mtu_;
     const uint16_t att_payload_max = (mtu > 3U) ? static_cast<uint16_t>(mtu - 3U) : 0U;
-    if (frame.len > att_payload_max)
+    if (frame->len > att_payload_max)
     {
         static uint32_t last_mtu_wait_log_ms = 0;
         const uint32_t now_ms = millis();
@@ -1541,18 +1664,18 @@ void MeshCoreBleService::sendPendingFrames()
         {
             Serial.printf("[BLE][meshcore] tx wait mtu=%u need=%u code=%u q=%u\n",
                           static_cast<unsigned>(mtu),
-                          static_cast<unsigned>(frame.len + 3U),
-                          static_cast<unsigned>(frame.buf[0]),
+                          static_cast<unsigned>(frame->len + 3U),
+                          static_cast<unsigned>(frame->buf[0]),
                           static_cast<unsigned>(outbound_.size()));
             last_mtu_wait_log_ms = now_ms;
         }
         return;
     }
-    tx_char_->setValue(frame.buf.data(), frame.len);
+    tx_char_->setValue(frame->buf.data(), frame->len);
     const bool notify_ok = tx_char_->notify(conn_handle_);
     Serial.printf("[BLE][meshcore] tx notify len=%u code=%u ok=%u mtu=%u q=%u\n",
-                  static_cast<unsigned>(frame.len),
-                  static_cast<unsigned>(frame.buf[0]),
+                  static_cast<unsigned>(frame->len),
+                  static_cast<unsigned>(frame->buf[0]),
                   notify_ok ? 1U : 0U,
                   static_cast<unsigned>(mtu),
                   static_cast<unsigned>(outbound_.size()));

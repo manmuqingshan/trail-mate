@@ -729,14 +729,7 @@ bool LxmfAdapter::pollIncomingText(MeshIncomingText* out)
     processRadioPackets();
     maybeAnnounce();
 
-    if (!out || text_receive_queue_.empty())
-    {
-        return false;
-    }
-
-    *out = std::move(text_receive_queue_.front());
-    text_receive_queue_.pop();
-    return true;
+    return text_receive_queue_.pop(out);
 }
 
 bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
@@ -930,14 +923,7 @@ bool LxmfAdapter::pollIncomingData(MeshIncomingData* out)
     processRadioPackets();
     maybeAnnounce();
 
-    if (!out || data_receive_queue_.empty())
-    {
-        return false;
-    }
-
-    *out = std::move(data_receive_queue_.front());
-    data_receive_queue_.pop();
-    return true;
+    return data_receive_queue_.pop(out);
 }
 
 bool LxmfAdapter::requestNodeInfo(NodeId dest, bool want_response)
@@ -5152,9 +5138,26 @@ bool LxmfAdapter::acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaint
         incoming.request_id = app_payload.request_id;
         incoming.channel = ChannelId::PRIMARY;
         incoming.want_response = app_payload.want_response;
-        incoming.payload = std::move(app_payload.payload);
         populateRxMeta(&incoming.rx_meta);
-        data_receive_queue_.push(std::move(incoming));
+        ::chat::infra::IncomingQueuePushReport report{};
+        if (data_receive_queue_.push(incoming,
+                                     app_payload.payload.empty() ? nullptr : app_payload.payload.data(),
+                                     app_payload.payload.size(),
+                                     ::chat::infra::IncomingQueuePriority::P1User,
+                                     &report))
+        {
+            if (report.dropped_existing)
+            {
+                Serial.printf("[LXMF] RX data queue pressure evicted_prio=%u depth=%u\n",
+                              static_cast<unsigned>(report.dropped_priority),
+                              static_cast<unsigned>(data_receive_queue_.size()));
+            }
+            return true;
+        }
+        Serial.printf("[LXMF] RX data queue drop port=%lu len=%u depth=%u\n",
+                      static_cast<unsigned long>(incoming.portnum),
+                      static_cast<unsigned>(app_payload.payload.size()),
+                      static_cast<unsigned>(data_receive_queue_.size()));
         return true;
     }
 
@@ -5170,11 +5173,27 @@ bool LxmfAdapter::acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaint
     incoming.to = identity_.nodeId();
     incoming.msg_id = messageIdFromHash(message_hash);
     incoming.timestamp = currentTimestampSeconds();
-    incoming.text = std::move(text_payload.content);
     incoming.hop_limit = 0xFF;
     incoming.encrypted = true;
     populateRxMeta(&incoming.rx_meta);
-    text_receive_queue_.push(std::move(incoming));
+    ::chat::infra::IncomingQueuePushReport report{};
+    if (text_receive_queue_.push(incoming,
+                                 text_payload.content.data(),
+                                 text_payload.content.size(),
+                                 ::chat::infra::IncomingQueuePriority::P1User,
+                                 &report))
+    {
+        if (report.dropped_existing)
+        {
+            Serial.printf("[LXMF] RX text queue pressure evicted_prio=%u depth=%u\n",
+                          static_cast<unsigned>(report.dropped_priority),
+                          static_cast<unsigned>(text_receive_queue_.size()));
+        }
+        return true;
+    }
+    Serial.printf("[LXMF] RX text queue drop len=%u depth=%u\n",
+                  static_cast<unsigned>(text_payload.content.size()),
+                  static_cast<unsigned>(text_receive_queue_.size()));
     return true;
 }
 

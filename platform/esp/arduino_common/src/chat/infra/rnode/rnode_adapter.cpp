@@ -147,14 +147,7 @@ bool RNodeAdapter::sendAppData(ChannelId channel, uint32_t portnum,
 
 bool RNodeAdapter::pollIncomingData(MeshIncomingData* out)
 {
-    if (!out || app_receive_queue_.empty())
-    {
-        return false;
-    }
-
-    *out = std::move(app_receive_queue_.front());
-    app_receive_queue_.pop();
-    return true;
+    return app_receive_queue_.pop(out);
 }
 
 void RNodeAdapter::applyConfig(const MeshConfig& config)
@@ -257,7 +250,6 @@ void RNodeAdapter::enqueueIncomingData(const uint8_t* payload, size_t len)
     incoming.channel_hash = 0xFF;
     incoming.hop_limit = 0xFF;
     incoming.want_response = false;
-    incoming.payload.assign(payload, payload + len);
 
     incoming.rx_meta.rx_timestamp_ms = millis();
     const uint32_t epoch_s = now_epoch_seconds();
@@ -281,7 +273,25 @@ void RNodeAdapter::enqueueIncomingData(const uint8_t* payload, size_t len)
     incoming.rx_meta.sf = radio_sf_;
     incoming.rx_meta.cr = radio_cr_;
 
-    app_receive_queue_.push(std::move(incoming));
+    ::chat::infra::IncomingQueuePushReport report{};
+    if (app_receive_queue_.push(incoming,
+                                payload,
+                                len,
+                                ::chat::infra::IncomingQueuePriority::P1User,
+                                &report))
+    {
+        if (report.dropped_existing)
+        {
+            Serial.printf("[RNode] RX data queue pressure evicted_prio=%u depth=%u\n",
+                          static_cast<unsigned>(report.dropped_priority),
+                          static_cast<unsigned>(app_receive_queue_.size()));
+        }
+        return;
+    }
+
+    Serial.printf("[RNode] RX data queue drop len=%u depth=%u\n",
+                  static_cast<unsigned>(len),
+                  static_cast<unsigned>(app_receive_queue_.size()));
 }
 
 } // namespace rnode

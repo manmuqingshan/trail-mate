@@ -397,7 +397,8 @@ int main()
         routing.protocol = MeshProtocol::Meshtastic;
         routing.portnum = meshtastic_PortNum_ROUTING_APP;
         routing.request_id = intent.request_id;
-        routing.payload = encodeRouting(meshtastic_Routing_Error_NONE);
+        const auto routing_payload = encodeRouting(meshtastic_Routing_Error_NONE);
+        assert(routing.payload.assign(routing_payload));
         action_context.now_ms = 1200;
 
         const auto delivered_result = action_runtime.handleIncomingPacket(routing, action_context);

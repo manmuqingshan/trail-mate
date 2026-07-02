@@ -507,5 +507,46 @@ int main()
         assert(timed_out->detail == 100);
     }
 
+    {
+        MeshCoreRuntime ack_runtime{};
+        context.now_ms = 4000;
+        for (uint32_t index = 0; index < 32; ++index)
+        {
+            MeshCoreAppAckRegistration ack{};
+            ack.signature = 0xC0000000UL + index;
+            ack.peer = 0x70000000UL + index;
+            ack.message_id = 1000 + index;
+            ack.timeout_ms = 5000;
+            assert(ack_runtime.trackAppAck(ack, context).items.empty());
+        }
+
+        MeshCoreAppAckRegistration overflow{};
+        overflow.signature = 0xC0000020UL;
+        overflow.peer = 0x70000020UL;
+        overflow.message_id = 2000;
+        overflow.timeout_ms = 5000;
+        const auto dropped = ack_runtime.trackAppAck(overflow, context);
+        assert(dropped.items.size() == 1);
+        const auto* failed = effectAt<EmitActionResultEffect>(dropped, 0);
+        assert(failed);
+        assert(failed->action == ProtocolActionKind::SendText);
+        assert(failed->state == ProtocolActionState::Failed);
+        assert(failed->request_id == 0xC0000000UL);
+        assert(failed->message_id == 1000);
+
+        assert(ack_runtime.handleAppAck(0xC0000000UL, context).items.empty());
+
+        context.now_ms = 4075;
+        const auto completed_effects = ack_runtime.handleAppAck(overflow.signature, context);
+        assert(completed_effects.items.size() == 1);
+        const auto* completed = effectAt<EmitActionResultEffect>(completed_effects, 0);
+        assert(completed);
+        assert(completed->state == ProtocolActionState::Completed);
+        assert(completed->peer == overflow.peer);
+        assert(completed->request_id == overflow.signature);
+        assert(completed->message_id == overflow.message_id);
+        assert(completed->detail == 75);
+    }
+
     return 0;
 }

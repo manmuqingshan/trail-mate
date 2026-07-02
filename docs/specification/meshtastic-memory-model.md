@@ -113,6 +113,7 @@ storage/filesystem callback
 | Protocol fact | MeshPacket, User, NodeInfo, config, local message | shared protocol/domain store | 不得借用 callback、stack 或 scratch storage。 |
 | Projection | BLE FromRadio, UI item, MQTT publish envelope | target output queue | 可丢、可合并、可重建；不得反向定义事实层。 |
 | Queue slot | BLE/radio/MQTT/UI fixed ring slot | queue owner | slot 发布后，在消费完成前不可覆盖。 |
+| Runtime payload bytes | `IncomingPacket.payload`, `SendPacketEffect.payload`, route/update payload | protocol runtime caller/effect consumer | 必须是固定上限的 owned bytes；不得用 hot-path `std::vector` 作为协议事实载体。 |
 | Scratch | decode/encode/temp protobuf/log buffer | declaring owner | 不可跨异步边界，不可进入 queue/store，不可嵌套复用。 |
 
 ## Canonical Runtime Shape
@@ -266,6 +267,113 @@ when a slot may be reused
 what happens when full
 which priorities may be dropped
 ```
+
+### R6.1 Runtime Ingress And Effects Use Bounded Owned Bytes
+
+`IProtocolRuntime` 边界上的 payload/path/public-key bytes 是稳定事实与平台投影之间的
+交接面。它们必须使用固定容量的 owned storage：
+
+```text
+IncomingPacket.payload      <= protocol payload cap
+IncomingPacket.path         <= protocol path cap
+SendPacketEffect.payload    <= protocol payload cap
+UpdatePeerRouteEffect.key   <= protocol public-key cap
+UpdatePeerRouteEffect.bytes <= protocol payload cap
+```
+
+平台适配器从 LoRa/MQTT/BLE decode scratch 构造 `IncomingPacket` 时，必须检查 bounded
+copy 是否成功。失败语义是 fail-closed：
+
+```text
+copy ok     -> call runtime
+copy failed -> drop this runtime projection, log/counter, do not call runtime with empty payload
+```
+
+这条规则有意把 “payload 过大” 和 “空 payload” 区分开。空 payload 可以是合法协议事实；
+copy 失败后的空 buffer 不是事实，不能继续流入 runtime handler。
+
+### R6.2 App-Facing Incoming Queues Use Fixed Slots
+
+`MeshIncomingText` / `MeshIncomingData` 是 app/UI/adapter 边界上的投影 DTO。它们可以在
+消费边界恢复成 `std::string` / `std::vector`，但 hot path 入队阶段不得依赖
+`std::queue<MeshIncoming*>`、`std::deque<MeshIncoming*>` 或运行期 heap 扩容。
+
+所有实现 `IMeshAdapter::pollIncomingText()` / `pollIncomingData()` 的协议适配器都必须共用
+同一套 app-facing incoming queue 规则。当前至少包括 Meshtastic、MeshCore、RNode 和 LXMF：
+
+```text
+RX/decode buffer -> fixed incoming queue slot owns copied text/payload bytes
+fixed incoming queue slot -> pollIncoming*() restores MeshIncoming* DTO for consumer
+```
+
+队列满时必须使用统一优先级背压规则。P1 用户消息和 NodeInfo/User 相关投影应尽量保留；
+P2/P3 投影不得挤掉 P0/P1。平台只允许调整 slot 数量和 payload 上限，不允许重新实现一套
+不同语义的旁路队列。
+
+BLE app-facing frame queues 也必须遵守同一规则。MeshCore / Meshtastic BLE service 的
+RX、TX、offline message frame 都是 projection frame：
+
+```text
+BLE callback bytes -> fixed RX frame slot -> command handler -> slot released
+protocol response  -> fixed TX frame slot -> notify ok       -> slot released
+offline message    -> fixed offline slot  -> pop/copy ok     -> slot released
+advert/hash dedup  -> fixed small table, oldest hash evicted when full
+active connection  -> fixed small table, expired/oldest slot reused when full
+```
+
+队列满时可以丢弃最旧的普通 projection frame，并记录日志/counter；不得在 BLE callback 中
+通过 `std::deque` 或 heap 扩容来吸收压力。读取方 buffer 不足时不得释放 offline slot。
+BLE service 内部的 advert 去重和 active connection keepalive 也是运行期投影状态，必须使用
+固定小表；它们不能通过 vector push/erase 在连接或 advert 高频阶段触发 heap 分配。
+
+共享 phone core 内部的 BLE TX frame queue 也属于同一类 projection queue。它可以使用
+平台 profile 定义的固定深度，但不得用 `std::deque<MeshCoreBleFrame>` 在命令处理期间扩容。
+协议上有固定最大长度的命令累积区，例如 MeshCore SIGN_DATA 的 8KiB buffer，必须使用固定
+owned storage 和长度计数；不得在 BLE 命令流中通过 `reserve()` / `insert()` 逐步扩容。
+
+### R6.3 Protocol Runtime Pending State Uses Fixed Tables
+
+协议 runtime 内部的 pending 状态也是 hot path 状态，不允许通过 `std::deque` /
+运行期扩容 `std::vector` 保持未来状态机所需的信息。
+
+当前规则：
+
+```text
+pending app ACK       -> fixed slot table, full table drops oldest with explicit Failed effect
+packet history/dedup  -> fixed slot table, TTL prune + declared oldest/drop-first policy
+pending retransmit    -> fixed slot table, slot owns wire bytes until terminal state
+```
+
+这些状态不是 UI 投影；它们会影响 ACK、去重、fallback retransmit、observed relay 和
+消息是否被再次转发。满表时可以按声明规则丢弃低价值/最旧状态，但不得隐式分配 heap，
+也不得保存指向 scratch 或临时 decoded packet 的引用。
+
+### R6.4 Route / Identity Runtime State Uses Fixed Tables
+
+协议适配器内部的路由、身份、公钥验证状态也是运行期事实缓存。它们不属于 UI 投影，
+也不能用 hot-path `std::vector` 扩容来记录未来发送、解密、显示身份或 key verification
+需要的状态。
+
+当前规则：
+
+```text
+peer route cache          -> fixed slot table, TTL prune + oldest-drop when full
+verified peer state       -> fixed slot table, oldest-drop when full
+persisted public-key save -> fixed member scratch, newest-seen entries retained
+Meshtastic PKI key table  -> fixed slot table, oldest-seen eviction when full
+Meshtastic node runtime   -> fixed slot table, oldest-touch eviction when full
+```
+
+这些表可以按平台 profile 调整容量，但必须保留同一语义：route slot 自己拥有 path、
+pubkey、advert 和候选路径；verified slot 自己拥有 NodeId；持久化保存不得为了排序或筛选
+临时构造无界 vector。满表时只能按已声明的最旧/过期规则释放 slot，不得在 RX/TX 或配置保存
+路径中触发隐式扩容。
+
+Meshtastic `node runtime` 目前只允许承载最近通道和 nodeinfo reply 节流时间这类
+协议运行期索引；只有写入、没有读取的“状态影子”必须删除，不能搬进固定表里伪装成事实。
+PKI key table 的 slot 自己拥有 32B public key 和最近看到时间；保存到持久化层时使用
+成员 staging 数组，而不是在热路径或保存路径临时构造可增长列表。ESP 和 nRF 必须共享
+这套规则，只允许容量因平台 profile 不同而不同。
 
 ### R7 Sensor And UI Streams Are Coalesced
 

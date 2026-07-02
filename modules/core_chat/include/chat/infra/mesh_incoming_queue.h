@@ -1,6 +1,6 @@
 /**
- * @file mt_incoming_queue.h
- * @brief Fixed-slot queues for Meshtastic phone-facing incoming payloads.
+ * @file mesh_incoming_queue.h
+ * @brief Fixed-slot queues for app-facing incoming mesh payloads.
  */
 
 #pragma once
@@ -14,7 +14,7 @@
 
 namespace chat
 {
-namespace meshtastic
+namespace infra
 {
 
 constexpr std::size_t kIncomingTextMaxLen = 255;
@@ -527,5 +527,5 @@ class IncomingDataQueue
     uint32_t next_sequence_ = 1;
 };
 
-} // namespace meshtastic
+} // namespace infra
 } // namespace chat
