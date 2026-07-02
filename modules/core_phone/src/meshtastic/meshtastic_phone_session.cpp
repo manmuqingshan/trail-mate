@@ -67,6 +67,11 @@ bool MeshtasticPhoneSession::isConfigFlowActive() const
     return core_.isConfigFlowActive();
 }
 
+void MeshtasticPhoneSession::debugLogMemoryLayout(const char* stage) const
+{
+    core_.debugLogMemoryLayout(stage);
+}
+
 bool MeshtasticPhoneSession::handleToRadio(const uint8_t* buf, size_t len)
 {
     return core_.handleToRadio(buf, len);

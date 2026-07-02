@@ -181,6 +181,7 @@ class MeshtasticPhoneCore
     bool popToPhone(MeshtasticBleFrame* out);
     bool isSendingPackets() const;
     bool isConfigFlowActive() const;
+    void debugLogMemoryLayout(const char* stage) const;
     PhoneApiPhase phoneApiPhase() const;
 
   private:

@@ -144,6 +144,7 @@ class Gat562Board final : public BoardBase
                          std::size_t max,
                          std::size_t* out_count,
                          ::gps::GnssStatus* status) const;
+    bool debugCheckGpsMemoryGuard(const char* reason);
     void setGpsCollectionInterval(uint32_t interval_ms);
     void setGpsEnabled(bool enabled);
     void setGpsPowerStrategy(uint8_t strategy);

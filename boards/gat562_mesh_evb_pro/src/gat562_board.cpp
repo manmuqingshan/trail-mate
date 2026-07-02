@@ -653,6 +653,11 @@ bool Gat562Board::gpsGnssSnapshot(::gps::GnssSatInfo* out,
     return gps_runtime_ ? gps_runtime_->gnssSnapshot(out, max, out_count, status) : false;
 }
 
+bool Gat562Board::debugCheckGpsMemoryGuard(const char* reason)
+{
+    return gps_runtime_ ? gps_runtime_->debugCheckMemoryGuard(reason) : true;
+}
+
 void Gat562Board::setGpsCollectionInterval(uint32_t interval_ms)
 {
     if (gps_runtime_)

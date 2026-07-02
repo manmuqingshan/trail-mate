@@ -30,6 +30,7 @@ class GpsRuntime
                       std::size_t max,
                       std::size_t* out_count,
                       ::gps::GnssStatus* status) const;
+    bool debugCheckMemoryGuard(const char* reason);
 
     void setCollectionInterval(uint32_t interval_ms);
     void setEnabled(bool enabled);

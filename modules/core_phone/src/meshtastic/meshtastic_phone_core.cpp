@@ -679,6 +679,30 @@ bool MeshtasticPhoneCore::isConfigFlowActive() const
     return phone_api_phase_ == PhoneApiPhase::ConfigFlow;
 }
 
+void MeshtasticPhoneCore::debugLogMemoryLayout(const char* stage) const
+{
+    logDual("[BLE][mtcore][mem] stage=%s core=%p size=%u q_status=%p q_node=%p q_packet=%p\n",
+            stage ? stage : "unknown",
+            static_cast<const void*>(this),
+            static_cast<unsigned>(sizeof(*this)),
+            static_cast<const void*>(&queue_status_queue_),
+            static_cast<const void*>(&node_info_queue_),
+            static_cast<const void*>(&packet_queue_));
+    logDual("[BLE][mtcore][mem] cache=%p last_to=%p to=%p admin_req=%p admin_resp=%p reply=%p\n",
+            static_cast<const void*>(node_projection_cache_.data()),
+            static_cast<const void*>(last_to_radio_),
+            static_cast<const void*>(&to_radio_scratch_),
+            static_cast<const void*>(&admin_req_scratch_),
+            static_cast<const void*>(&admin_resp_scratch_),
+            static_cast<const void*>(&reply_packet_scratch_));
+    logDual("[BLE][mtcore][mem] mqtt=%p metadata=%p from=%p module=%p bluetooth=%p\n",
+            static_cast<const void*>(&mqtt_proxy_scratch_),
+            static_cast<const void*>(&node_metadata_decode_scratch_),
+            static_cast<const void*>(&from_radio_scratch_),
+            static_cast<const void*>(&module_config_),
+            static_cast<const void*>(&bluetooth_config_));
+}
+
 MeshtasticPhoneCore::PhoneApiPhase MeshtasticPhoneCore::phoneApiPhase() const
 {
     return phone_api_phase_;

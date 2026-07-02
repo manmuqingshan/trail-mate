@@ -1370,6 +1370,11 @@ bool TEchoLiteBoard::gpsGnssSnapshot(::gps::GnssSatInfo* out,
     return gps_runtime_ ? gps_runtime_->gnssSnapshot(out, max, out_count, status) : false;
 }
 
+bool TEchoLiteBoard::debugCheckGpsMemoryGuard(const char* reason)
+{
+    return gps_runtime_ ? gps_runtime_->debugCheckMemoryGuard(reason) : true;
+}
+
 void TEchoLiteBoard::setGpsCollectionInterval(uint32_t interval_ms)
 {
     if (gps_runtime_)

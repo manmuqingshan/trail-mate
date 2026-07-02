@@ -1444,6 +1444,23 @@ const GpsRuntime::Impl* GpsRuntime::impl() const
     return impl_;
 }
 
+bool GpsRuntime::debugCheckMemoryGuard(const char* reason)
+{
+    if (!impl_)
+    {
+        return true;
+    }
+
+    auto& s = *impl_;
+    if (!s.satelliteStateLooksCorrupt())
+    {
+        return true;
+    }
+
+    s.repairCorruptSatelliteState(reason ? reason : "debug_probe");
+    return false;
+}
+
 bool GpsRuntime::start(const app::AppConfig& config)
 {
     if (!begin(config))

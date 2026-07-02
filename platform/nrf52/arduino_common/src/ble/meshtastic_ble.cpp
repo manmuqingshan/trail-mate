@@ -17,6 +17,8 @@
 #include <cstring>
 #include <nrf_soc.h>
 
+extern "C" bool trailmate_nrf52_debug_check_gps_guard(const char* tag) __attribute__((weak));
+
 namespace ble
 {
 namespace
@@ -49,6 +51,14 @@ void bleLogBoth(const char* fmt, ...)
         Serial.println(buffer);
     }
     Serial2.println(buffer);
+}
+
+void probeGpsGuard(const char* tag)
+{
+    if (trailmate_nrf52_debug_check_gps_guard)
+    {
+        (void)trailmate_nrf52_debug_check_gps_guard(tag);
+    }
 }
 
 uint32_t parsePasskeyDigits(const uint8_t passkey[6])
@@ -628,6 +638,19 @@ void MeshtasticBleService::start()
     log_radio_.setMaxLen(96);
     log_radio_.begin();
     bleLogBoth("[BLE][nrf52][mt] chars ready");
+    bleLogBoth("[BLE][nrf52][mt][mem] svc=%p session_frame=%p buf=%p to_radio=%p from_radio=%p from_num=%p phone=%p",
+               static_cast<void*>(this),
+               static_cast<void*>(&session_frame_scratch_),
+               static_cast<void*>(session_frame_scratch_.buf),
+               static_cast<void*>(&to_radio_),
+               static_cast<void*>(&from_radio_),
+               static_cast<void*>(&from_num_),
+               static_cast<void*>(phone_session_.get()));
+    if (phone_session_)
+    {
+        phone_session_->debugLogMemoryLayout("ble_start");
+    }
+    probeGpsGuard("ble_start_after_chars");
 
     if (observer_bridge_)
     {
@@ -815,7 +838,9 @@ void MeshtasticBleService::handleIncomingDataFromApp(const chat::MeshIncomingDat
                    static_cast<unsigned long>(msg.packet_id),
                    static_cast<unsigned>(msg.portnum),
                    static_cast<unsigned>(msg.payload.size()));
+        probeGpsGuard("ble_incoming_data_pre_session");
         phone_session_->onIncomingData(msg);
+        probeGpsGuard("ble_incoming_data_post_session");
     }
 }
 
@@ -834,7 +859,9 @@ bool MeshtasticBleService::handleToRadio(const uint8_t* data, size_t len)
     last_ble_activity_ms_ = millis();
     const bool config_before = phone_session_ && phone_session_->isConfigFlowActive();
     const bool send_before = phone_session_ && phone_session_->isSendingPackets();
+    probeGpsGuard("ble_to_radio_pre_handle");
     const bool ok = phone_session_ ? phone_session_->handleToRadio(data, len) : false;
+    probeGpsGuard("ble_to_radio_post_handle");
     Serial2.printf("[BLE][nrf52][mt] handleToRadio len=%u ok=%u connected=%u notify=%u config=%u->%u send=%u->%u\n",
                    static_cast<unsigned>(len),
                    ok ? 1U : 0U,
@@ -873,7 +900,9 @@ void MeshtasticBleService::writeNextFromRadioForRead(uint16_t conn_handle)
     if (!active_ || !connected_ || !phone_session_)
     {
         uint8_t empty = 0;
+        probeGpsGuard("ble_from_radio_pre_write_empty_inactive");
         from_radio_.write(&empty, 0);
+        probeGpsGuard("ble_from_radio_post_write_empty_inactive");
         pending_from_radio_empty_log_ = true;
         pending_from_radio_empty_reason_ = kFromRadioEmptyInactive;
         return;
@@ -881,14 +910,19 @@ void MeshtasticBleService::writeNextFromRadioForRead(uint16_t conn_handle)
 
     auto& session_frame = session_frame_scratch_;
     std::memset(&session_frame, 0, sizeof(session_frame));
+    probeGpsGuard("ble_from_radio_pre_pop");
     if (!phone_session_->popToPhone(&session_frame))
     {
+        probeGpsGuard("ble_from_radio_post_pop_empty");
         uint8_t empty = 0;
+        probeGpsGuard("ble_from_radio_pre_write_empty_no_frame");
         from_radio_.write(&empty, 0);
+        probeGpsGuard("ble_from_radio_post_write_empty_no_frame");
         pending_from_radio_empty_log_ = true;
         pending_from_radio_empty_reason_ = kFromRadioEmptyNoFrame;
         return;
     }
+    probeGpsGuard("ble_from_radio_post_pop_frame");
 
     if (session_frame.len == 0 || session_frame.len > meshtastic_FromRadio_size)
     {
@@ -897,13 +931,17 @@ void MeshtasticBleService::writeNextFromRadioForRead(uint16_t conn_handle)
                    static_cast<unsigned>(session_frame.len),
                    static_cast<unsigned>(meshtastic_FromRadio_size));
         uint8_t empty = 0;
+        probeGpsGuard("ble_from_radio_pre_write_empty_invalid");
         from_radio_.write(&empty, 0);
+        probeGpsGuard("ble_from_radio_post_write_empty_invalid");
         pending_from_radio_empty_log_ = true;
         pending_from_radio_empty_reason_ = kFromRadioEmptyInvalidFrame;
         return;
     }
 
+    probeGpsGuard("ble_from_radio_pre_write_frame");
     from_radio_.write(session_frame.buf, session_frame.len);
+    probeGpsGuard("ble_from_radio_post_write_frame");
     pending_from_radio_read_len_ = static_cast<uint16_t>(session_frame.len);
     pending_from_radio_read_from_num_ = session_frame.from_num;
     pending_from_radio_read_log_ = true;
@@ -1345,8 +1383,12 @@ void MeshtasticBleService::flushPendingFromNumNotify()
     }
 
     const uint32_t from_num = from_num_notify_value_;
+    probeGpsGuard("ble_from_num_pre_write");
     from_num_.write32(from_num);
+    probeGpsGuard("ble_from_num_post_write");
+    probeGpsGuard("ble_from_num_pre_notify");
     const bool ok = from_num_.notify32(conn_handle_, from_num);
+    probeGpsGuard("ble_from_num_post_notify");
     bleLogBoth("[BLE][nrf52][mt][flow] from_num notify value=%08lX source=%08lX conn=%u ok=%u cccd=0x%04X",
                static_cast<unsigned long>(from_num),
                static_cast<unsigned long>(from_num_notify_value_),
@@ -1360,7 +1402,9 @@ void MeshtasticBleService::flushPendingFromNumNotify()
     }
     if (!ok && Bluefruit.connected())
     {
+        probeGpsGuard("ble_from_num_pre_notify_fallback");
         const bool fallback_ok = from_num_.notify32(from_num);
+        probeGpsGuard("ble_from_num_post_notify_fallback");
         bleLogBoth("[BLE][nrf52][mt][flow] from_num notify fallback ok=%u", fallback_ok ? 1U : 0U);
         if (fallback_ok)
         {
