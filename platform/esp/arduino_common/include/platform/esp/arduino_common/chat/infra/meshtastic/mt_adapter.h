@@ -216,7 +216,14 @@ class MtAdapter : public chat::IMeshAdapter
     sys::RingBuffer<meshtastic_MqttClientProxyMessage, kMqttProxyQueueDepth> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_;
 
-    struct MqttScratchBuffers
+    struct MqttDownlinkScratchBuffers
+    {
+        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
+        char channel_id[32] = {};
+        char gateway_id[16] = {};
+    };
+
+    struct MqttPublishScratchBuffers
     {
         std::array<uint8_t, 256> payload{};
         meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
@@ -241,7 +248,8 @@ class MtAdapter : public chat::IMeshAdapter
         meshtastic_Data candidate_decoded = meshtastic_Data_init_default;
     };
 
-    MqttScratchBuffers mqtt_scratch_;
+    MqttDownlinkScratchBuffers mqtt_downlink_scratch_;
+    MqttPublishScratchBuffers mqtt_publish_scratch_;
     TxScratchBuffers tx_scratch_;
     RxScratchBuffers rx_scratch_;
     meshtastic_MeshPacket protocol_effect_packet_scratch_ = meshtastic_MeshPacket_init_zero;

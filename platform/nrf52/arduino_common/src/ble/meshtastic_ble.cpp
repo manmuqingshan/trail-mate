@@ -974,7 +974,6 @@ bool MeshtasticBleService::enqueueToRadio(const uint8_t* data, size_t len)
 
 void MeshtasticBleService::processPendingToRadio()
 {
-    PendingToRadioFrame frame{};
     while (true)
     {
         noInterrupts();
@@ -984,12 +983,14 @@ void MeshtasticBleService::processPendingToRadio()
             return;
         }
 
-        frame = pending_to_radio_[pending_to_radio_head_];
+        PendingToRadioFrame& frame = pending_to_radio_[pending_to_radio_head_];
+        pending_to_radio_work_.len = frame.len;
+        std::memcpy(pending_to_radio_work_.buf, frame.buf, frame.len);
         pending_to_radio_head_ = static_cast<uint8_t>((pending_to_radio_head_ + 1U) % kPendingToRadioCapacity);
         --pending_to_radio_count_;
         interrupts();
 
-        (void)handleToRadio(frame.buf, frame.len);
+        (void)handleToRadio(pending_to_radio_work_.buf, pending_to_radio_work_.len);
     }
 }
 

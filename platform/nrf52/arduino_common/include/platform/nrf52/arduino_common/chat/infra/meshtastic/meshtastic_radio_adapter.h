@@ -8,6 +8,7 @@
 #include "chat/runtime/self_identity_provider.h"
 #include "chat/usecase/contact_service.h"
 #include "meshtastic/mesh.pb.h"
+#include "meshtastic/mqtt.pb.h"
 #include "platform/nrf52/arduino_common/chat/infra/meshtastic/node_store.h"
 #include "sys/ringbuf.h"
 
@@ -104,6 +105,8 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
         std::array<uint8_t, 256> app_data{};
         std::array<uint8_t, 256> aux_data{};
         std::array<uint8_t, 384> wire{};
+        std::array<char, 771> wire_hex{};
+        meshtastic_Data decoded = meshtastic_Data_init_default;
     };
 
     struct RxScratchBuffers
@@ -114,7 +117,7 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
         meshtastic_Data decoded = meshtastic_Data_init_zero;
     };
 
-    struct MqttScratchBuffers
+    struct MqttDownlinkScratchBuffers
     {
         std::array<uint8_t, 256> buffer{};
         std::array<uint8_t, sizeof(::chat::meshtastic::PacketHeaderWire) + 256> wire{};
@@ -122,7 +125,14 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
         char gateway_id[16] = {};
         meshtastic_Data decoded = meshtastic_Data_init_zero;
         meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
+    };
+
+    struct MqttPublishScratchBuffers
+    {
+        std::array<uint8_t, 256> buffer{};
+        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
         meshtastic_MqttClientProxyMessage proxy = meshtastic_MqttClientProxyMessage_init_zero;
+        meshtastic_ServiceEnvelope envelope = meshtastic_ServiceEnvelope_init_zero;
     };
 
     ::chat::runtime::EffectiveSelfIdentity buildEffectiveIdentity() const;
@@ -268,7 +278,8 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     std::map<::chat::NodeId, uint32_t> nodeinfo_reply_ms_;
     TxScratchBuffers tx_scratch_{};
     RxScratchBuffers rx_scratch_{};
-    MqttScratchBuffers mqtt_scratch_{};
+    MqttDownlinkScratchBuffers mqtt_downlink_scratch_{};
+    MqttPublishScratchBuffers mqtt_publish_scratch_{};
 
     enum class KeyVerificationState : uint8_t
     {

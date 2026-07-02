@@ -222,9 +222,14 @@ bool tryDecodeWithChannelKey(const ::chat::MeshConfig& config,
                              uint8_t* out_plain,
                              size_t* inout_plain_len,
                              meshtastic_Data* out_decoded,
-                             const uint8_t** out_key,
-                             size_t* out_key_len)
+                                const uint8_t** out_key,
+                                size_t* out_key_len)
 {
+    if (!out_decoded)
+    {
+        return false;
+    }
+
     if (!payload || !out_plain || !inout_plain_len || !out_decoded)
     {
         return false;
@@ -259,15 +264,14 @@ bool tryDecodeWithChannelKey(const ::chat::MeshConfig& config,
         plain_len = payload_size;
     }
 
-    meshtastic_Data decoded = meshtastic_Data_init_zero;
-    if (!decodeMeshtasticData(out_plain, plain_len, &decoded) ||
-        !isPlausibleDecodedData(decoded))
+    *out_decoded = meshtastic_Data_init_zero;
+    if (!decodeMeshtasticData(out_plain, plain_len, out_decoded) ||
+        !isPlausibleDecodedData(*out_decoded))
     {
         return false;
     }
 
     *inout_plain_len = plain_len;
-    *out_decoded = decoded;
     if (out_key)
     {
         *out_key = key;
@@ -292,6 +296,11 @@ bool resolvePacketWithKnownKeys(const ::chat::MeshConfig& config,
                                 size_t* inout_plain_len,
                                 meshtastic_Data* out_decoded)
 {
+    if (!out_decoded)
+    {
+        return false;
+    }
+
     static constexpr ::chat::ChannelId kCandidates[] = {
         ::chat::ChannelId::PRIMARY,
         ::chat::ChannelId::SECONDARY,
@@ -305,7 +314,6 @@ bool resolvePacketWithKnownKeys(const ::chat::MeshConfig& config,
         }
 
         size_t candidate_plain_len = *inout_plain_len;
-        meshtastic_Data decoded = meshtastic_Data_init_zero;
         const uint8_t* key = nullptr;
         size_t key_len = 0;
         if (!tryDecodeWithChannelKey(config,
@@ -315,7 +323,7 @@ bool resolvePacketWithKnownKeys(const ::chat::MeshConfig& config,
                                      payload_size,
                                      out_plain,
                                      &candidate_plain_len,
-                                     &decoded,
+                                     out_decoded,
                                      &key,
                                      &key_len))
         {
@@ -323,7 +331,6 @@ bool resolvePacketWithKnownKeys(const ::chat::MeshConfig& config,
         }
 
         *inout_plain_len = candidate_plain_len;
-        *out_decoded = decoded;
         if (out_channel)
         {
             *out_channel = candidate;
@@ -543,7 +550,8 @@ bool MeshtasticRadioAdapter::sendTextWithId(::chat::ChannelId channel, const std
         return false;
     }
 
-    meshtastic_Data mqtt_data = meshtastic_Data_init_default;
+    meshtastic_Data& mqtt_data = scratch.decoded;
+    mqtt_data = meshtastic_Data_init_default;
     mqtt_data.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
     mqtt_data.want_response = false;
     mqtt_data.dest = dest;
@@ -670,7 +678,8 @@ bool MeshtasticRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t por
         return false;
     }
 
-    meshtastic_Data mqtt_data = meshtastic_Data_init_default;
+    meshtastic_Data& mqtt_data = scratch.decoded;
+    mqtt_data = meshtastic_Data_init_default;
     mqtt_data.portnum = static_cast<meshtastic_PortNum>(portnum);
     mqtt_data.want_response = effective_want_response;
     mqtt_data.dest = wire_dest;
@@ -813,7 +822,7 @@ bool MeshtasticRadioAdapter::handleMqttProxyMessage(const meshtastic_MqttClientP
     }
 
     const auto* data_field = &msg.payload_variant.data;
-    auto& scratch = mqtt_scratch_;
+    auto& scratch = mqtt_downlink_scratch_;
     std::memset(&scratch.packet, 0, sizeof(scratch.packet));
     std::memset(scratch.channel_id, 0, sizeof(scratch.channel_id));
     std::memset(scratch.gateway_id, 0, sizeof(scratch.gateway_id));
@@ -1571,11 +1580,12 @@ bool MeshtasticRadioAdapter::transmitPreparedWire(uint8_t* data, size_t size, ::
                     static_cast<unsigned>(header->next_hop),
                     static_cast<unsigned>(header->relay_node),
                     static_cast<unsigned>(size));
-    char wire_hex[768] = {};
-    toHexString(data, size, wire_hex, sizeof(wire_hex), size);
+    auto& wire_hex = tx_scratch_.wire_hex;
+    std::fill(wire_hex.begin(), wire_hex.end(), '\0');
+    toHexString(data, size, wire_hex.data(), wire_hex.size(), size);
     if (wire_hex[0] != '\0')
     {
-        logMeshtasticRx("[gat562][mt] tx hex %s\n", wire_hex);
+        logMeshtasticRx("[gat562][mt] tx hex %s\n", wire_hex.data());
     }
     if (!transmitWire(data, size))
     {
@@ -1670,7 +1680,13 @@ bool MeshtasticRadioAdapter::buildAndQueueRoutingPacket(::chat::NodeId dest, uin
         return false;
     }
 
-    meshtastic_Data data = meshtastic_Data_init_default;
+    auto& scratch = tx_scratch_;
+    std::fill(scratch.app_data.begin(), scratch.app_data.end(), 0);
+    std::fill(scratch.aux_data.begin(), scratch.aux_data.end(), 0);
+    std::fill(scratch.wire.begin(), scratch.wire.end(), 0);
+
+    meshtastic_Data& data = scratch.decoded;
+    data = meshtastic_Data_init_default;
     data.portnum = meshtastic_PortNum_ROUTING_APP;
     data.want_response = false;
     data.dest = dest;
@@ -1681,19 +1697,19 @@ bool MeshtasticRadioAdapter::buildAndQueueRoutingPacket(::chat::NodeId dest, uin
     data.payload.size = static_cast<pb_size_t>(rstream.bytes_written);
     std::memcpy(data.payload.bytes, routing_buf, data.payload.size);
 
-    uint8_t data_buf[128] = {};
-    pb_ostream_t dstream = pb_ostream_from_buffer(data_buf, sizeof(data_buf));
+    uint8_t* data_buf = scratch.app_data.data();
+    pb_ostream_t dstream = pb_ostream_from_buffer(data_buf, scratch.app_data.size());
     if (!pb_encode(&dstream, meshtastic_Data_fields, &data))
     {
         return false;
     }
 
-    uint8_t payload_buf[256] = {};
     const uint8_t* wire_payload = data_buf;
     size_t wire_payload_len = dstream.bytes_written;
     if (channel_hash == 0)
     {
-        size_t pki_len = sizeof(payload_buf);
+        uint8_t* payload_buf = scratch.aux_data.data();
+        size_t pki_len = scratch.aux_data.size();
         const ::chat::MessageId packet_id = next_packet_id_;
         if (!encryptPkiPayload(dest, packet_id, data_buf, dstream.bytes_written, payload_buf, &pki_len))
         {
@@ -1705,8 +1721,8 @@ bool MeshtasticRadioAdapter::buildAndQueueRoutingPacket(::chat::NodeId dest, uin
         key_len = 0;
     }
 
-    uint8_t wire[256] = {};
-    size_t wire_size = sizeof(wire);
+    uint8_t* wire = scratch.wire.data();
+    size_t wire_size = scratch.wire.size();
     if (!::chat::meshtastic::buildWirePacket(wire_payload, wire_payload_len,
                                              node_id_, next_packet_id_++,
                                              dest, channel_hash, hop_limit, false,
@@ -1836,7 +1852,12 @@ bool MeshtasticRadioAdapter::sendProtocolPacketEffect(
         out_channel = ::chat::ChannelId::PRIMARY;
     }
 
-    meshtastic_Data data = meshtastic_Data_init_default;
+    auto& scratch = tx_scratch_;
+    std::fill(scratch.app_data.begin(), scratch.app_data.end(), 0);
+    std::fill(scratch.wire.begin(), scratch.wire.end(), 0);
+
+    meshtastic_Data& data = scratch.decoded;
+    data = meshtastic_Data_init_default;
     if (payload_len > sizeof(data.payload.bytes))
     {
         return false;
@@ -1854,8 +1875,8 @@ bool MeshtasticRadioAdapter::sendProtocolPacketEffect(
         std::memcpy(data.payload.bytes, payload, payload_len);
     }
 
-    uint8_t data_buf[256] = {};
-    pb_ostream_t dstream = pb_ostream_from_buffer(data_buf, sizeof(data_buf));
+    uint8_t* data_buf = scratch.app_data.data();
+    pb_ostream_t dstream = pb_ostream_from_buffer(data_buf, scratch.app_data.size());
     if (!pb_encode(&dstream, meshtastic_Data_fields, &data))
     {
         return false;
@@ -1865,8 +1886,8 @@ bool MeshtasticRadioAdapter::sendProtocolPacketEffect(
     const uint8_t* key = selectKey(config_, out_channel, &key_len);
     const uint8_t channel_hash = channelHashFor(config_, out_channel);
 
-    uint8_t wire[384] = {};
-    size_t wire_size = sizeof(wire);
+    uint8_t* wire = scratch.wire.data();
+    size_t wire_size = scratch.wire.size();
     const ::chat::MessageId wire_id =
         packet.request_id != 0 ? packet.request_id : next_packet_id_++;
     if (!::chat::meshtastic::buildWirePacket(data_buf,
@@ -2234,8 +2255,10 @@ bool MeshtasticRadioAdapter::maybeRebroadcast(const ::chat::meshtastic::PacketHe
 
     size_t key_len = 0;
     const uint8_t* key = selectKey(config_, channel, &key_len);
-    uint8_t wire[384] = {};
-    size_t wire_size = sizeof(wire);
+    auto& scratch = tx_scratch_;
+    std::fill(scratch.wire.begin(), scratch.wire.end(), 0);
+    uint8_t* wire = scratch.wire.data();
+    size_t wire_size = scratch.wire.size();
     const bool want_ack = (header.flags & ::chat::meshtastic::PACKET_FLAGS_WANT_ACK_MASK) != 0;
     if (!::chat::meshtastic::buildWirePacket(payload, payload_size,
                                              header.from, header.id, header.to,
@@ -2907,8 +2930,13 @@ bool MeshtasticRadioAdapter::sendKeyVerificationPacket(::chat::NodeId dest, cons
         return false;
     }
 
-    uint8_t data_buf[160] = {};
-    size_t data_size = sizeof(data_buf);
+    auto& scratch = tx_scratch_;
+    std::fill(scratch.app_data.begin(), scratch.app_data.end(), 0);
+    std::fill(scratch.aux_data.begin(), scratch.aux_data.end(), 0);
+    std::fill(scratch.wire.begin(), scratch.wire.end(), 0);
+
+    uint8_t* data_buf = scratch.app_data.data();
+    size_t data_size = scratch.app_data.size();
     if (!::chat::meshtastic::encodeAppData(meshtastic_PortNum_KEY_VERIFICATION_APP,
                                            kv_buf,
                                            kv_stream.bytes_written,
@@ -2919,16 +2947,16 @@ bool MeshtasticRadioAdapter::sendKeyVerificationPacket(::chat::NodeId dest, cons
         return false;
     }
 
-    uint8_t pki_buf[256] = {};
-    size_t pki_len = sizeof(pki_buf);
+    uint8_t* pki_buf = scratch.aux_data.data();
+    size_t pki_len = scratch.aux_data.size();
     const ::chat::MessageId packet_id = next_packet_id_++;
     if (!encryptPkiPayload(dest, packet_id, data_buf, data_size, pki_buf, &pki_len))
     {
         return false;
     }
 
-    uint8_t wire[384] = {};
-    size_t wire_size = sizeof(wire);
+    uint8_t* wire = scratch.wire.data();
+    size_t wire_size = scratch.wire.size();
     if (!::chat::meshtastic::buildWirePacket(pki_buf, pki_len,
                                              node_id_, packet_id,
                                              dest, 0, config_.hop_limit, false,
@@ -3163,7 +3191,7 @@ bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& pac
         return false;
     }
 
-    auto& scratch = mqtt_scratch_;
+    auto& scratch = mqtt_downlink_scratch_;
     std::fill(scratch.wire.begin(), scratch.wire.end(), 0);
     uint8_t* wire_buffer = scratch.wire.data();
     size_t wire_size = sizeof(::chat::meshtastic::PacketHeaderWire);
@@ -3301,10 +3329,11 @@ bool MeshtasticRadioAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& 
         return false;
     }
 
-    auto& scratch = mqtt_scratch_;
+    auto& scratch = mqtt_publish_scratch_;
     std::memset(&scratch.proxy, 0, sizeof(scratch.proxy));
+    std::memset(&scratch.envelope, 0, sizeof(scratch.envelope));
     std::string node_id = mqttNodeIdString();
-    meshtastic_ServiceEnvelope env = meshtastic_ServiceEnvelope_init_zero;
+    meshtastic_ServiceEnvelope& env = scratch.envelope;
     env.packet = const_cast<meshtastic_MeshPacket*>(&packet);
     env.channel_id = const_cast<char*>(channel_id);
     env.gateway_id = const_cast<char*>(node_id.c_str());
@@ -3354,7 +3383,7 @@ bool MeshtasticRadioAdapter::queueMqttProxyPublishFromWire(const uint8_t* wire_d
     }
 
     ::chat::meshtastic::PacketHeaderWire header{};
-    auto& scratch = mqtt_scratch_;
+    auto& scratch = mqtt_publish_scratch_;
     std::fill(scratch.buffer.begin(), scratch.buffer.end(), 0);
     size_t payload_size = scratch.buffer.size();
     if (!::chat::meshtastic::parseWirePacket(wire_data, wire_size, &header, scratch.buffer.data(), &payload_size))

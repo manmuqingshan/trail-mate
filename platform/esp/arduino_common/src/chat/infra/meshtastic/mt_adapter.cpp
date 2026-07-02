@@ -1226,14 +1226,15 @@ bool MtAdapter::handleMqttProxyMessage(const meshtastic_MqttClientProxyMessage& 
     }
 
     const auto* data_field = &msg.payload_variant.data;
-    auto& packet = mqtt_scratch_.packet;
+    auto& scratch = mqtt_downlink_scratch_;
+    auto& packet = scratch.packet;
     std::memset(&packet, 0, sizeof(packet));
-    char channel_id[32] = {0};
-    char gateway_id[16] = {0};
+    std::memset(scratch.channel_id, 0, sizeof(scratch.channel_id));
+    std::memset(scratch.gateway_id, 0, sizeof(scratch.gateway_id));
     if (!decodeMqttServiceEnvelope(data_field->bytes, data_field->size,
                                    &packet,
-                                   channel_id, sizeof(channel_id),
-                                   gateway_id, sizeof(gateway_id)))
+                                   scratch.channel_id, sizeof(scratch.channel_id),
+                                   scratch.gateway_id, sizeof(scratch.gateway_id)))
     {
         LORA_LOG("[MQTT] proxy reject reason=%s topic='%s' len=%u\n",
                  ::chat::meshtastic::mqttProxyRejectReasonName(
@@ -1242,7 +1243,7 @@ bool MtAdapter::handleMqttProxyMessage(const meshtastic_MqttClientProxyMessage& 
                  static_cast<unsigned>(data_field->size));
         return false;
     }
-    return injectMqttEnvelope(packet, channel_id, gateway_id);
+    return injectMqttEnvelope(packet, scratch.channel_id, scratch.gateway_id);
 }
 
 bool MtAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
@@ -1254,7 +1255,7 @@ bool MtAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
         return false;
     }
 
-    auto& scratch = mqtt_scratch_;
+    auto& scratch = mqtt_publish_scratch_;
     std::memset(&scratch.proxy, 0, sizeof(scratch.proxy));
     std::memset(&scratch.envelope, 0, sizeof(scratch.envelope));
     std::string node_id = mqttNodeIdString();
@@ -1307,7 +1308,7 @@ bool MtAdapter::queueMqttProxyPublishFromWire(const uint8_t* wire_data,
     }
 
     PacketHeaderWire header{};
-    auto& scratch = mqtt_scratch_;
+    auto& scratch = mqtt_publish_scratch_;
     std::fill(scratch.payload.begin(), scratch.payload.end(), 0);
     size_t payload_size = scratch.payload.size();
     if (!parseWirePacket(wire_data, wire_size, &header, scratch.payload.data(), &payload_size))

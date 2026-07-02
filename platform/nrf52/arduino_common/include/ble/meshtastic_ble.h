@@ -109,6 +109,7 @@ class MeshtasticBleService final : public BleService,
 
     static constexpr uint8_t kPendingToRadioCapacity = 6;
     PendingToRadioFrame pending_to_radio_[kPendingToRadioCapacity]{};
+    PendingToRadioFrame pending_to_radio_work_{};
     volatile uint8_t pending_to_radio_head_ = 0;
     volatile uint8_t pending_to_radio_tail_ = 0;
     volatile uint8_t pending_to_radio_count_ = 0;
