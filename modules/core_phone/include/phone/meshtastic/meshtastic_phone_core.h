@@ -16,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 namespace phone::meshtastic
 {
@@ -185,14 +186,78 @@ class MeshtasticPhoneCore
     PhoneApiPhase phoneApiPhase() const;
 
   private:
-    template <typename T, size_t Capacity>
-    class FixedRingQueue
+    enum class OutputPriority : uint8_t
+    {
+        P0 = 0,
+        P1 = 1,
+        P2 = 2,
+        P3 = 3,
+    };
+
+    enum class OutputEventKind : uint8_t
+    {
+        None,
+        QueueStatus,
+        NodeInfo,
+        Packet,
+    };
+
+    struct OutputEvent
+    {
+        OutputEventKind kind = OutputEventKind::None;
+        OutputPriority priority = OutputPriority::P3;
+        uint32_t notify_id = 0;
+        uint32_t coalesce_key = 0;
+
+        union Payload
+        {
+            meshtastic_QueueStatus queue_status;
+            meshtastic_NodeInfo node_info;
+            meshtastic_MeshPacket packet;
+
+            Payload() {}
+        } payload;
+
+        OutputEvent()
+        {
+            clear();
+        }
+
+        void clear()
+        {
+            kind = OutputEventKind::None;
+            priority = OutputPriority::P3;
+            notify_id = 0;
+            coalesce_key = 0;
+            std::memset(&payload, 0, sizeof(payload));
+        }
+    };
+
+    struct OutputPushReport
+    {
+        enum class Result : uint8_t
+        {
+            Enqueued,
+            Replaced,
+            DroppedExisting,
+            DroppedNew,
+        };
+
+        Result result = Result::Enqueued;
+        OutputPriority dropped_priority = OutputPriority::P3;
+        OutputEventKind dropped_kind = OutputEventKind::None;
+    };
+
+    template <size_t Capacity>
+    class OutputQueue
     {
       public:
         void clear()
         {
-            head_ = 0;
-            tail_ = 0;
+            for (auto& item : items_)
+            {
+                item.clear();
+            }
             count_ = 0;
         }
 
@@ -211,62 +276,188 @@ class MeshtasticPhoneCore
             return Capacity;
         }
 
-        T* front()
+        bool push(const OutputEvent& event, OutputPushReport* report = nullptr)
         {
-            return empty() ? nullptr : &items_[head_];
+            OutputPushReport local_report{};
+            if (event.kind == OutputEventKind::None)
+            {
+                local_report.result = OutputPushReport::Result::DroppedNew;
+                if (report)
+                {
+                    *report = local_report;
+                }
+                return false;
+            }
+
+            const size_t coalesce_index = findCoalesce(event);
+            if (coalesce_index < count_)
+            {
+                items_[coalesce_index] = event;
+                local_report.result = OutputPushReport::Result::Replaced;
+                if (report)
+                {
+                    *report = local_report;
+                }
+                return true;
+            }
+
+            if (count_ < Capacity)
+            {
+                items_[count_++] = event;
+                local_report.result = OutputPushReport::Result::Enqueued;
+                if (report)
+                {
+                    *report = local_report;
+                }
+                return true;
+            }
+
+            const size_t victim_index = findDropVictim(event.priority);
+            if (victim_index < count_)
+            {
+                local_report.result = OutputPushReport::Result::DroppedExisting;
+                local_report.dropped_priority = items_[victim_index].priority;
+                local_report.dropped_kind = items_[victim_index].kind;
+                removeAt(victim_index);
+                items_[count_++] = event;
+                if (report)
+                {
+                    *report = local_report;
+                }
+                return true;
+            }
+
+            local_report.result = OutputPushReport::Result::DroppedNew;
+            local_report.dropped_priority = event.priority;
+            local_report.dropped_kind = event.kind;
+            if (report)
+            {
+                *report = local_report;
+            }
+            return false;
         }
 
-        const T* front() const
+        bool pop(OutputEvent* out)
         {
-            return empty() ? nullptr : &items_[head_];
+            if (!out || empty())
+            {
+                return false;
+            }
+
+            const size_t index = selectPopIndex();
+            *out = items_[index];
+            removeAt(index);
+            return true;
         }
 
-        void pop()
+        const OutputEvent* peek() const
         {
             if (empty())
             {
-                return;
+                return nullptr;
             }
-            head_ = next(head_);
-            --count_;
-        }
 
-        T& pushSlotDropOldest(bool* dropped = nullptr)
-        {
-            const bool was_full = count_ == Capacity;
-            if (was_full)
-            {
-                head_ = next(head_);
-                --count_;
-            }
-            T& slot = items_[tail_];
-            tail_ = next(tail_);
-            ++count_;
-            if (dropped)
-            {
-                *dropped = was_full;
-            }
-            return slot;
-        }
-
-        void pushDropOldest(const T& item, bool* dropped = nullptr)
-        {
-            pushSlotDropOldest(dropped) = item;
+            return &items_[selectPopIndex()];
         }
 
       private:
-        static constexpr size_t next(size_t index)
+        static uint8_t priorityRank(OutputPriority priority)
         {
-            return (index + 1U) % Capacity;
+            return static_cast<uint8_t>(priority);
         }
 
-        std::array<T, Capacity> items_{};
-        size_t head_ = 0;
-        size_t tail_ = 0;
+        static uint8_t kindPopRank(OutputEventKind kind)
+        {
+            switch (kind)
+            {
+            case OutputEventKind::QueueStatus:
+                return 0;
+            case OutputEventKind::NodeInfo:
+                return 1;
+            case OutputEventKind::Packet:
+                return 2;
+            default:
+                return 3;
+            }
+        }
+
+        size_t findCoalesce(const OutputEvent& event) const
+        {
+            if (event.coalesce_key == 0)
+            {
+                return Capacity;
+            }
+            for (size_t index = 0; index < count_; ++index)
+            {
+                const auto& item = items_[index];
+                if (item.kind == event.kind && item.coalesce_key == event.coalesce_key)
+                {
+                    return index;
+                }
+            }
+            return Capacity;
+        }
+
+        size_t findDropVictim(OutputPriority incoming) const
+        {
+            size_t victim = Capacity;
+            uint8_t victim_priority = priorityRank(incoming);
+            for (size_t index = 0; index < count_; ++index)
+            {
+                const uint8_t candidate_priority = priorityRank(items_[index].priority);
+                if (candidate_priority < priorityRank(incoming))
+                {
+                    continue;
+                }
+                if (victim == Capacity || candidate_priority > victim_priority)
+                {
+                    victim = index;
+                    victim_priority = candidate_priority;
+                }
+            }
+            return victim;
+        }
+
+        size_t selectPopIndex() const
+        {
+            size_t selected = 0;
+            for (size_t index = 1; index < count_; ++index)
+            {
+                const auto& candidate = items_[index];
+                const auto& current = items_[selected];
+                if (priorityRank(candidate.priority) < priorityRank(current.priority))
+                {
+                    selected = index;
+                    continue;
+                }
+                if (candidate.priority == current.priority &&
+                    kindPopRank(candidate.kind) < kindPopRank(current.kind))
+                {
+                    selected = index;
+                }
+            }
+            return selected;
+        }
+
+        void removeAt(size_t index)
+        {
+            if (index >= count_)
+            {
+                return;
+            }
+            for (size_t cursor = index + 1U; cursor < count_; ++cursor)
+            {
+                items_[cursor - 1U] = items_[cursor];
+            }
+            --count_;
+            items_[count_].clear();
+        }
+
+        std::array<OutputEvent, Capacity> items_{};
         size_t count_ = 0;
     };
 
-    static constexpr size_t kPhoneQueueDepth = 4;
+    static constexpr size_t kPhoneOutputQueueDepth = 6;
     static constexpr size_t kNodeProjectionCacheDepth = 8;
 
     struct NodeProjectionCacheEntry
@@ -283,6 +474,9 @@ class MeshtasticPhoneCore
     void enqueueKnownNodeInfoProjection(chat::NodeId node_id);
     bool enqueueMetadataNodeInfoProjection(const chat::MeshIncomingData& msg);
     bool shouldProjectNodeInfo(chat::NodeId node_id, uint32_t signature);
+    bool enqueueOutputEvent(const OutputEvent& event, const char* reason);
+    OutputPriority priorityForPacket(const meshtastic_MeshPacket& packet) const;
+    uint32_t coalesceKeyForPacket(const meshtastic_MeshPacket& packet, OutputPriority priority) const;
     void enqueueQueueStatus(uint32_t packet_id, bool ok);
     void enqueueConfigSnapshot(uint32_t config_nonce);
     void setPhoneApiPhase(PhoneApiPhase phase, const char* reason);
@@ -339,9 +533,8 @@ class MeshtasticPhoneCore
     bool admin_edit_transaction_bluetooth_dirty_ = false;
     bool admin_edit_transaction_restart_pending_ = false;
     bool restart_pending_ = false;
-    FixedRingQueue<meshtastic_QueueStatus, kPhoneQueueDepth> queue_status_queue_;
-    FixedRingQueue<meshtastic_NodeInfo, kPhoneQueueDepth> node_info_queue_;
-    FixedRingQueue<meshtastic_MeshPacket, kPhoneQueueDepth> packet_queue_;
+    OutputQueue<kPhoneOutputQueueDepth> output_queue_;
+    OutputEvent output_event_scratch_{};
     std::array<NodeProjectionCacheEntry, kNodeProjectionCacheDepth> node_projection_cache_{};
     size_t node_projection_cache_next_ = 0;
     meshtastic_Config_BluetoothConfig bluetooth_config_ = meshtastic_Config_BluetoothConfig_init_zero;

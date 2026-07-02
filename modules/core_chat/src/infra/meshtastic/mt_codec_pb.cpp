@@ -7,7 +7,9 @@
 
 #include "chat/infra/meshtastic/mt_codec_pb.h"
 #include "chat/infra/meshtastic/compression/unishox2.h"
+#include "chat/infra/meshtastic/mt_incoming_queue.h"
 #include "chat/time_utils.h"
+#include <algorithm>
 #include <cstring>
 
 namespace chat
@@ -64,12 +66,16 @@ bool encodeTextMessage(ChannelId channel, const std::string& text,
     return true;
 }
 
-bool decodeTextPayload(const meshtastic_Data& data, MeshIncomingText* out)
+bool decodeTextPayloadToBuffer(const meshtastic_Data& data,
+                               char* out_text,
+                               size_t out_text_cap,
+                               size_t* out_text_len)
 {
-    if (!out)
+    if (!out_text || out_text_cap == 0 || !out_text_len)
     {
         return false;
     }
+    *out_text_len = 0;
 
     if (data.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP &&
         data.portnum != meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP)
@@ -84,24 +90,48 @@ bool decodeTextPayload(const meshtastic_Data& data, MeshIncomingText* out)
 
     if (data.portnum == meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP)
     {
-        char decompressed[256] = {};
         const int out_len = unishox2_decompress(
             reinterpret_cast<const char*>(data.payload.bytes),
             static_cast<int>(data.payload.size),
-            decompressed,
-            static_cast<int>(sizeof(decompressed) - 1),
+            out_text,
+            static_cast<int>(out_text_cap - 1),
             USX_PSET_DFLT);
         if (out_len <= 0)
         {
             return false;
         }
-        decompressed[std::min<int>(out_len, static_cast<int>(sizeof(decompressed) - 1))] = '\0';
-        out->text.assign(decompressed, static_cast<size_t>(out_len));
+        const size_t safe_len = std::min<size_t>(static_cast<size_t>(out_len), out_text_cap - 1);
+        out_text[safe_len] = '\0';
+        *out_text_len = safe_len;
     }
     else
     {
-        out->text.assign(reinterpret_cast<const char*>(data.payload.bytes), data.payload.size);
+        if (data.payload.size > out_text_cap - 1)
+        {
+            return false;
+        }
+        std::memcpy(out_text, data.payload.bytes, data.payload.size);
+        out_text[data.payload.size] = '\0';
+        *out_text_len = data.payload.size;
     }
+
+    return true;
+}
+
+bool decodeTextPayload(const meshtastic_Data& data, MeshIncomingText* out)
+{
+    if (!out)
+    {
+        return false;
+    }
+
+    char text[kIncomingTextMaxLen + 1] = {};
+    size_t text_len = 0;
+    if (!decodeTextPayloadToBuffer(data, text, sizeof(text), &text_len))
+    {
+        return false;
+    }
+    out->text.assign(text, text_len);
 
     // Note: from, msg_id, timestamp, channel should be extracted from packet header
     // This will be done in the adapter when decoding the full packet.

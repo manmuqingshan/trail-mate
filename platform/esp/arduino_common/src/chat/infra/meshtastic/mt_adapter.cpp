@@ -394,14 +394,7 @@ bool MtAdapter::sendTextWithId(ChannelId channel, const std::string& text,
 
 bool MtAdapter::pollIncomingText(MeshIncomingText* out)
 {
-    if (receive_queue_.empty())
-    {
-        return false;
-    }
-
-    *out = receive_queue_.front();
-    receive_queue_.pop();
-    return true;
+    return receive_queue_.pop(out);
 }
 
 bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
@@ -756,14 +749,7 @@ bool MtAdapter::sendMeshPacket(const meshtastic_MeshPacket& packet)
 
 bool MtAdapter::pollIncomingData(MeshIncomingData* out)
 {
-    if (app_receive_queue_.empty())
-    {
-        return false;
-    }
-
-    *out = app_receive_queue_.front();
-    app_receive_queue_.pop();
-    return true;
+    return app_receive_queue_.pop(out);
 }
 
 bool MtAdapter::requestNodeInfo(NodeId dest, bool want_response)
@@ -1587,17 +1573,17 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 
     if (header.from == node_id_)
     {
-        auto pending_it = pending_ack_states_.find(header.id);
-        if (header.to == kBroadcastNodeId && pending_it != pending_ack_states_.end())
+        auto* pending_slot = pending_ack_states_.find(header.id);
+        if (header.to == kBroadcastNodeId && pending_slot)
         {
-            const ChannelId channel_id = pending_it->second.channel;
-            const uint8_t channel_hash = pending_it->second.channel_hash;
+            const ChannelId channel_id = pending_slot->meta.channel;
+            const uint8_t channel_hash = pending_slot->meta.channel_hash;
             mt_diag_log("[MT][IMPLICIT_ACK] observed self-broadcast id=%08lX relay=%08lX next=%08lX ch=%u\n",
                         static_cast<unsigned long>(header.id),
                         static_cast<unsigned long>(header.relay_node),
                         static_cast<unsigned long>(header.next_hop),
                         static_cast<unsigned>(header.channel));
-            pending_ack_states_.erase(pending_it);
+            pending_ack_states_.erase(header.id);
             emitRoutingResultToPhone(header.id,
                                      meshtastic_Routing_Error_NONE,
                                      node_id_,
@@ -2263,12 +2249,22 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
             incoming.channel_hash = header.channel;
             incoming.hop_limit = header.flags & PACKET_FLAGS_HOP_LIMIT_MASK;
             incoming.want_response = want_response;
-            incoming.payload.assign(decoded.payload.bytes,
-                                    decoded.payload.bytes + decoded.payload.size);
             incoming.rx_meta = rx_meta;
-            if (app_receive_queue_.size() < MAX_APP_QUEUE)
+            IncomingQueuePushReport report{};
+            if (app_receive_queue_.push(incoming,
+                                        decoded.payload.bytes,
+                                        decoded.payload.size,
+                                        IncomingQueuePriority::P1User,
+                                        &report))
             {
-                app_receive_queue_.push(incoming);
+                if (report.dropped_existing)
+                {
+                    mt_diag_dropf(&header,
+                                  "app_queue_pressure",
+                                  "evicted_prio=%u depth=%u",
+                                  static_cast<unsigned>(report.dropped_priority),
+                                  static_cast<unsigned>(app_receive_queue_.size()));
+                }
                 mt_diag_log("[MT][RX_APP] from=%08lX to=%08lX id=%08lX port=%u(%s) queued=1 depth=%u\n",
                             static_cast<unsigned long>(incoming.from),
                             static_cast<unsigned long>(incoming.to),
@@ -2280,9 +2276,10 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
             else
             {
                 mt_diag_dropf(&header,
-                              "app_queue_full",
-                              "port=%u depth=%u",
+                              "app_queue_drop_new",
+                              "port=%u payload=%u depth=%u",
                               static_cast<unsigned>(incoming.portnum),
+                              static_cast<unsigned>(decoded.payload.size),
                               static_cast<unsigned>(app_receive_queue_.size()));
             }
         }
@@ -2290,31 +2287,59 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         if (is_text_port)
         {
             MeshIncomingText incoming;
-            if (decodeTextPayload(decoded, &incoming))
+            char* text_buf = reinterpret_cast<char*>(rx_scratch_.plaintext.data());
+            size_t text_len = 0;
+            if (decodeTextPayloadToBuffer(decoded, text_buf, rx_scratch_.plaintext.size(), &text_len))
             {
                 incoming.from = header.from;
                 incoming.to = header.to;
                 incoming.msg_id = header.id;
                 incoming.channel = decoded_channel_id;
+                incoming.timestamp = (rx_meta.rx_timestamp_s != 0) ? rx_meta.rx_timestamp_s : (millis() / 1000U);
                 incoming.hop_limit = header.flags & PACKET_FLAGS_HOP_LIMIT_MASK;
                 incoming.encrypted = used_pki_transport || (psk != nullptr && psk_len > 0);
                 incoming.rx_meta = rx_meta;
 
-                receive_queue_.push(incoming);
-                mt_diag_log("[MT][RX_TEXT] from=%08lX to=%08lX id=%08lX ch=%u len=%u\n",
-                            static_cast<unsigned long>(incoming.from),
-                            static_cast<unsigned long>(incoming.to),
-                            static_cast<unsigned long>(incoming.msg_id),
-                            static_cast<unsigned>(incoming.channel),
-                            static_cast<unsigned>(incoming.text.size()));
-                LORA_LOG("[LORA] RX text from=%08lX id=%08lX ch=%u len=%u\n",
-                         (unsigned long)incoming.from,
-                         (unsigned long)incoming.msg_id,
-                         static_cast<unsigned>(incoming.channel),
-                         (unsigned)incoming.text.size());
-                if (!incoming.text.empty())
+                IncomingQueuePushReport report{};
+                if (receive_queue_.push(incoming,
+                                        text_buf,
+                                        text_len,
+                                        IncomingQueuePriority::P1User,
+                                        &report))
                 {
-                    LORA_LOG("[LORA] RX text msg='%s'\n", incoming.text.c_str());
+                    if (report.dropped_existing)
+                    {
+                        mt_diag_dropf(&header,
+                                      "text_queue_pressure",
+                                      "evicted_prio=%u depth=%u",
+                                      static_cast<unsigned>(report.dropped_priority),
+                                      static_cast<unsigned>(receive_queue_.size()));
+                    }
+                    mt_diag_log("[MT][RX_TEXT] from=%08lX to=%08lX id=%08lX ch=%u len=%u\n",
+                                static_cast<unsigned long>(incoming.from),
+                                static_cast<unsigned long>(incoming.to),
+                                static_cast<unsigned long>(incoming.msg_id),
+                                static_cast<unsigned>(incoming.channel),
+                                static_cast<unsigned>(text_len));
+                    LORA_LOG("[LORA] RX text from=%08lX id=%08lX ch=%u len=%u\n",
+                             (unsigned long)incoming.from,
+                             (unsigned long)incoming.msg_id,
+                             static_cast<unsigned>(incoming.channel),
+                             static_cast<unsigned>(text_len));
+                    if (text_len > 0)
+                    {
+                        LORA_LOG("[LORA] RX text msg='%.*s'\n",
+                                 static_cast<int>(text_len),
+                                 text_buf);
+                    }
+                }
+                else
+                {
+                    mt_diag_dropf(&header,
+                                  "text_queue_drop_new",
+                                  "len=%u depth=%u",
+                                  static_cast<unsigned>(text_len),
+                                  static_cast<unsigned>(receive_queue_.size()));
                 }
             }
             else
@@ -2341,39 +2366,47 @@ void MtAdapter::processSendQueue()
     maybeBroadcastNodeInfo(now);
     processProtocolActionQueue(now);
 
-    for (auto it = pending_ack_states_.begin(); it != pending_ack_states_.end();)
+    for (std::size_t index = 0; index < pending_ack_states_.capacity();)
     {
-        PendingAckState& pending = it->second;
+        PendingAckSlot* slot = pending_ack_states_.slotAt(index);
+        if (!slot || !slot->used)
+        {
+            ++index;
+            continue;
+        }
+
+        PendingAckState& pending = slot->meta;
+        const uint32_t msg_id = static_cast<uint32_t>(slot->key);
         if (now - pending.last_attempt_ms >= ACK_TIMEOUT_MS)
         {
             if (pending.retransmit_count < MAX_ACK_RETRIES)
             {
-                retryPendingAck(it->first, pending);
-                ++it;
+                retryPendingAck(msg_id, *slot);
+                ++index;
                 continue;
             }
 
             mt_diag_log("[MT][ACK_TIMEOUT] req=%08lX dest=%08lX age_ms=%lu retries=%u\n",
-                        static_cast<unsigned long>(it->first),
+                        static_cast<unsigned long>(msg_id),
                         static_cast<unsigned long>(pending.dest),
                         static_cast<unsigned long>(now - pending.last_attempt_ms),
                         static_cast<unsigned>(pending.retransmit_count));
             LORA_LOG("[LORA] RX ack timeout req=%08lX dest=%08lX retries=%u\n",
-                     static_cast<unsigned long>(it->first),
+                     static_cast<unsigned long>(msg_id),
                      static_cast<unsigned long>(pending.dest),
                      static_cast<unsigned>(pending.retransmit_count));
             last_send_error_ = meshtastic_Routing_Error_MAX_RETRANSMIT;
-            emitRoutingResultToPhone(it->first,
+            emitRoutingResultToPhone(msg_id,
                                      meshtastic_Routing_Error_MAX_RETRANSMIT,
                                      node_id_,
                                      pending.dest,
                                      pending.channel,
                                      pending.channel_hash,
                                      nullptr);
-            it = pending_ack_states_.erase(it);
+            pending_ack_states_.eraseAt(index);
             continue;
         }
-        ++it;
+        ++index;
     }
 
     if (!send_queue_.empty())
@@ -3178,14 +3211,57 @@ bool MtAdapter::sendChannelAppDataViaCore(uint32_t portnum,
 void MtAdapter::trackPendingAck(uint32_t msg_id, uint32_t dest, ChannelId channel, uint8_t channel_hash,
                                 const uint8_t* wire_data, size_t wire_size)
 {
+    if (!wire_data || wire_size == 0)
+    {
+        return;
+    }
+
     PendingAckState state;
     state.dest = dest;
     state.channel = channel;
     state.channel_hash = channel_hash;
     state.last_attempt_ms = millis();
     state.retransmit_count = 0;
-    state.wire_packet.assign(wire_data, wire_data + wire_size);
-    pending_ack_states_[msg_id] = std::move(state);
+
+    ::chat::meshtastic::PendingWirePushReport report{};
+    auto* slot = pending_ack_states_.upsert(msg_id,
+                                            ::chat::meshtastic::PendingWirePriority::P0,
+                                            wire_data,
+                                            wire_size,
+                                            state,
+                                            &report);
+    if (!slot)
+    {
+        mt_diag_log("[MT][ACK_TRACK_DROP] req=%08lX dest=%08lX wire=%u max=%u depth=%u\n",
+                    static_cast<unsigned long>(msg_id),
+                    static_cast<unsigned long>(dest),
+                    static_cast<unsigned>(wire_size),
+                    static_cast<unsigned>(pending_ack_states_.maxWireLen()),
+                    static_cast<unsigned>(pending_ack_states_.size()));
+        LORA_LOG("[LORA] TX ack track drop req=%08lX dest=%08lX wire=%u depth=%u\n",
+                 static_cast<unsigned long>(msg_id),
+                 static_cast<unsigned long>(dest),
+                 static_cast<unsigned>(wire_size),
+                 static_cast<unsigned>(pending_ack_states_.size()));
+        last_send_error_ = meshtastic_Routing_Error_MAX_RETRANSMIT;
+        emitRoutingResultToPhone(msg_id,
+                                 meshtastic_Routing_Error_MAX_RETRANSMIT,
+                                 node_id_,
+                                 dest,
+                                 channel,
+                                 channel_hash,
+                                 nullptr);
+        return;
+    }
+
+    if (report.result == ::chat::meshtastic::PendingWirePushReport::Result::DroppedExisting)
+    {
+        mt_diag_log("[MT][ACK_TRACK_DROP_OLD] dropped_key=%016llX dropped_priority=%u req=%08lX depth=%u\n",
+                    static_cast<unsigned long long>(report.dropped_key),
+                    static_cast<unsigned>(report.dropped_priority),
+                    static_cast<unsigned long>(msg_id),
+                    static_cast<unsigned>(pending_ack_states_.size()));
+    }
 }
 
 void MtAdapter::clearPendingAck(uint32_t msg_id)
@@ -3193,21 +3269,22 @@ void MtAdapter::clearPendingAck(uint32_t msg_id)
     pending_ack_states_.erase(msg_id);
 }
 
-void MtAdapter::retryPendingAck(uint32_t msg_id, PendingAckState& pending)
+void MtAdapter::retryPendingAck(uint32_t msg_id, PendingAckSlot& slot)
 {
+    PendingAckState& pending = slot.meta;
     pending.last_attempt_ms = millis();
     ++pending.retransmit_count;
     mt_diag_log("[MT][RETX] req=%08lX dest=%08lX try=%u len=%u\n",
                 static_cast<unsigned long>(msg_id),
                 static_cast<unsigned long>(pending.dest),
                 static_cast<unsigned>(pending.retransmit_count),
-                static_cast<unsigned>(pending.wire_packet.size()));
+                static_cast<unsigned>(slot.wire_size));
     LORA_LOG("[LORA] TX retry req=%08lX dest=%08lX try=%u len=%u\n",
              static_cast<unsigned long>(msg_id),
              static_cast<unsigned long>(pending.dest),
              static_cast<unsigned>(pending.retransmit_count),
-             static_cast<unsigned>(pending.wire_packet.size()));
-    if (transmitWirePacket(pending.wire_packet.data(), pending.wire_packet.size()))
+             static_cast<unsigned>(slot.wire_size));
+    if (transmitWirePacket(slot.wire.data(), slot.wire_size))
     {
         last_tx_ms_ = pending.last_attempt_ms;
         return;
@@ -4137,14 +4214,22 @@ bool MtAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effect)
             }
             else if constexpr (std::is_same_v<Effect, runtime::PublishIncomingDataEffect>)
             {
-                if (app_receive_queue_.size() < MAX_APP_QUEUE)
+                IncomingQueuePushReport report{};
+                ok = app_receive_queue_.push(item.data,
+                                             IncomingQueuePriority::P1User,
+                                             &report);
+                if (report.dropped_existing)
                 {
-                    app_receive_queue_.push(item.data);
-                    ok = true;
+                    LORA_LOG("[LORA] protocol data queue evicted prio=%u depth=%u\n",
+                             static_cast<unsigned>(report.dropped_priority),
+                             static_cast<unsigned>(app_receive_queue_.size()));
                 }
-                else
+                else if (report.dropped_new)
                 {
-                    ok = false;
+                    LORA_LOG("[LORA] protocol data queue drop port=%u len=%u depth=%u\n",
+                             static_cast<unsigned>(item.data.portnum),
+                             static_cast<unsigned>(item.data.payload.size()),
+                             static_cast<unsigned>(app_receive_queue_.size()));
                 }
             }
         });
@@ -4206,7 +4291,6 @@ void MtAdapter::emitRoutingResultToPhone(uint32_t request_id,
     incoming.channel_hash = channel_hash;
     incoming.hop_limit = rx_meta ? rx_meta->hop_limit : 0;
     incoming.want_response = false;
-    incoming.payload.assign(routing_buf, routing_buf + rstream.bytes_written);
 
     if (rx_meta)
     {
@@ -4221,14 +4305,23 @@ void MtAdapter::emitRoutingResultToPhone(uint32_t request_id,
         incoming.rx_meta.channel_hash = channel_hash;
     }
 
-    if (app_receive_queue_.size() < MAX_APP_QUEUE)
+    IncomingQueuePushReport report{};
+    if (!app_receive_queue_.push(incoming,
+                                 routing_buf,
+                                 rstream.bytes_written,
+                                 IncomingQueuePriority::P0Critical,
+                                 &report))
     {
-        app_receive_queue_.push(incoming);
+        LORA_LOG("[LORA] synthetic routing drop req=%08lX depth=%u\n",
+                 (unsigned long)request_id,
+                 static_cast<unsigned>(app_receive_queue_.size()));
     }
-    else
+    else if (report.dropped_existing)
     {
-        LORA_LOG("[LORA] synthetic routing drop req=%08lX queue full\n",
-                 (unsigned long)request_id);
+        LORA_LOG("[LORA] synthetic routing evicted prio=%u req=%08lX depth=%u\n",
+                 static_cast<unsigned>(report.dropped_priority),
+                 (unsigned long)request_id,
+                 static_cast<unsigned>(app_receive_queue_.size()));
     }
 
     sys::EventBus::publish(

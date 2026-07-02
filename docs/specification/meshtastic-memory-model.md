@@ -340,6 +340,28 @@ stateDiagram-v2
 5. 拒绝新的低优先级 input，并记录 counter。
 6. 只有在 P0/P1 也无法保留时，进入 explicit failure state；不得 silent corruption。
 
+## Pending TX / ACK Wire Slots
+
+radio retransmit、implicit ACK 观察、pending ACK retry 都属于 pending wire ownership。
+它们保存的不是临时投影，而是未来可能再次发送或完成状态机所需的完整 wire packet。
+
+因此这些对象必须使用 fixed slot table：
+
+```text
+slot.key = packet id / from+packet id
+slot.priority = P0/P1/P3
+slot.wire[] owns copied packet bytes
+slot.metadata owns retry/ack/routing metadata
+```
+
+禁止使用 `map<id, vector<uint8_t>>`、`deque<vector<uint8_t>>` 或运行期扩容容器保存
+pending wire。平台可以选择不同 slot count 和最大 wire 长度，但不能改变以下规则：
+
+- P0 active local ACK/status 不得被普通压力挤掉；若满表且无法保留，必须显式失败并上报状态。
+- P1 retransmit/fallback 可以保留，但不得挤掉 P0。
+- P3 observe-only / duplicate metadata 是最先丢弃的 pending wire。
+- slot 中的 wire bytes 在 pending 状态结束前不可被 scratch 或新包覆盖。
+
 ## MQTT Downlink Ownership Flow
 
 MQTT downlink 是本规格的关键压力路径。正确生命周期如下：

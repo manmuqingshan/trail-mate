@@ -175,6 +175,29 @@ uint32_t nodeProjectionSignature(const chat::meshtastic::DecodedNodePayload& nod
     return hash == 0 ? 1U : hash;
 }
 
+uint32_t outputCoalesceKey(uint32_t category, uint32_t first, uint32_t second)
+{
+    uint32_t hash = 2166136261UL;
+    mixProjectionU32(hash, category);
+    mixProjectionU32(hash, first);
+    mixProjectionU32(hash, second);
+    return hash == 0 ? 1U : hash;
+}
+
+bool isPhoneTextPort(meshtastic_PortNum portnum)
+{
+    return portnum == meshtastic_PortNum_TEXT_MESSAGE_APP ||
+           portnum == meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP ||
+           portnum == meshtastic_PortNum_ALERT_APP;
+}
+
+bool isLowPriorityStatePort(meshtastic_PortNum portnum)
+{
+    return portnum == meshtastic_PortNum_POSITION_APP ||
+           portnum == meshtastic_PortNum_TELEMETRY_APP ||
+           portnum == meshtastic_PortNum_NODEINFO_APP;
+}
+
 void applyChannelPsk(uint8_t* dst,
                      size_t dst_len,
                      uint8_t* dst_key_len,
@@ -619,9 +642,8 @@ void MeshtasticPhoneCore::reset()
     admin_edit_transaction_bluetooth_dirty_ = false;
     admin_edit_transaction_restart_pending_ = false;
     restart_pending_ = false;
-    queue_status_queue_.clear();
-    node_info_queue_.clear();
-    packet_queue_.clear();
+    output_queue_.clear();
+    output_event_scratch_.clear();
     node_projection_cache_ = {};
     node_projection_cache_next_ = 0;
 }
@@ -630,19 +652,19 @@ void MeshtasticPhoneCore::onIncomingText(const chat::MeshIncomingText& msg)
 {
     enqueueKnownNodeInfoProjection(msg.from);
 
-    bool dropped = false;
-    auto& packet = packet_queue_.pushSlotDropOldest(&dropped);
+    output_event_scratch_.clear();
+    auto& packet = output_event_scratch_.payload.packet;
     fillPacketFromText(msg, &packet);
-    if (dropped)
-    {
-        logDual("[BLE][mtcore] packet queue dropped oldest before text enqueue\n");
-    }
     logDual("[BLE][mtcore] enqueue text packet id=%08lX from=%08lX to=%08lX len=%u\n",
             static_cast<unsigned long>(packet.id),
             static_cast<unsigned long>(packet.from),
             static_cast<unsigned long>(packet.to),
             static_cast<unsigned>(packet.decoded.payload.size));
-    notifyFromNum(packet.id);
+    output_event_scratch_.kind = OutputEventKind::Packet;
+    output_event_scratch_.priority = OutputPriority::P1;
+    output_event_scratch_.notify_id = packet.id;
+    output_event_scratch_.coalesce_key = 0;
+    (void)enqueueOutputEvent(output_event_scratch_, "text");
 }
 
 void MeshtasticPhoneCore::onIncomingData(const chat::MeshIncomingData& msg)
@@ -652,13 +674,10 @@ void MeshtasticPhoneCore::onIncomingData(const chat::MeshIncomingData& msg)
         enqueueKnownNodeInfoProjection(msg.from);
     }
 
-    bool dropped = false;
-    auto& packet = packet_queue_.pushSlotDropOldest(&dropped);
+    output_event_scratch_.clear();
+    auto& packet = output_event_scratch_.payload.packet;
     fillPacketFromData(msg, &packet);
-    if (dropped)
-    {
-        logDual("[BLE][mtcore] packet queue dropped oldest before data enqueue\n");
-    }
+    const OutputPriority priority = priorityForPacket(packet);
     logDual("[BLE][mtcore] enqueue data packet id=%08lX port=%u req=%08lX from=%08lX to=%08lX len=%u\n",
             static_cast<unsigned long>(packet.id),
             static_cast<unsigned>(packet.decoded.portnum),
@@ -666,7 +685,11 @@ void MeshtasticPhoneCore::onIncomingData(const chat::MeshIncomingData& msg)
             static_cast<unsigned long>(packet.from),
             static_cast<unsigned long>(packet.to),
             static_cast<unsigned>(packet.decoded.payload.size));
-    notifyFromNum(packet.id);
+    output_event_scratch_.kind = OutputEventKind::Packet;
+    output_event_scratch_.priority = priority;
+    output_event_scratch_.notify_id = packet.id;
+    output_event_scratch_.coalesce_key = coalesceKeyForPacket(packet, priority);
+    (void)enqueueOutputEvent(output_event_scratch_, "data");
 }
 
 bool MeshtasticPhoneCore::isSendingPackets() const
@@ -681,13 +704,12 @@ bool MeshtasticPhoneCore::isConfigFlowActive() const
 
 void MeshtasticPhoneCore::debugLogMemoryLayout(const char* stage) const
 {
-    logDual("[BLE][mtcore][mem] stage=%s core=%p size=%u q_status=%p q_node=%p q_packet=%p\n",
+    logDual("[BLE][mtcore][mem] stage=%s core=%p size=%u output_q=%p output_scratch=%p\n",
             stage ? stage : "unknown",
             static_cast<const void*>(this),
             static_cast<unsigned>(sizeof(*this)),
-            static_cast<const void*>(&queue_status_queue_),
-            static_cast<const void*>(&node_info_queue_),
-            static_cast<const void*>(&packet_queue_));
+            static_cast<const void*>(&output_queue_),
+            static_cast<const void*>(&output_event_scratch_));
     logDual("[BLE][mtcore][mem] cache=%p last_to=%p to=%p admin_req=%p admin_resp=%p reply=%p\n",
             static_cast<const void*>(node_projection_cache_.data()),
             static_cast<const void*>(last_to_radio_),
@@ -753,6 +775,94 @@ bool MeshtasticPhoneCore::shouldProjectNodeInfo(chat::NodeId node_id, uint32_t s
     return true;
 }
 
+bool MeshtasticPhoneCore::enqueueOutputEvent(const OutputEvent& event, const char* reason)
+{
+    OutputPushReport report{};
+    if (!output_queue_.push(event, &report))
+    {
+        logDual("[BLE][mtcore][q] drop new kind=%u pri=%u reason=%s notify=%08lX depth=%u\n",
+                static_cast<unsigned>(event.kind),
+                static_cast<unsigned>(event.priority),
+                reason ? reason : "?",
+                static_cast<unsigned long>(event.notify_id),
+                static_cast<unsigned>(output_queue_.size()));
+        return false;
+    }
+
+    switch (report.result)
+    {
+    case OutputPushReport::Result::Replaced:
+        logDual("[BLE][mtcore][q] replace kind=%u pri=%u reason=%s notify=%08lX depth=%u\n",
+                static_cast<unsigned>(event.kind),
+                static_cast<unsigned>(event.priority),
+                reason ? reason : "?",
+                static_cast<unsigned long>(event.notify_id),
+                static_cast<unsigned>(output_queue_.size()));
+        break;
+    case OutputPushReport::Result::DroppedExisting:
+        logDual("[BLE][mtcore][q] drop existing kind=%u pri=%u for kind=%u pri=%u reason=%s depth=%u\n",
+                static_cast<unsigned>(report.dropped_kind),
+                static_cast<unsigned>(report.dropped_priority),
+                static_cast<unsigned>(event.kind),
+                static_cast<unsigned>(event.priority),
+                reason ? reason : "?",
+                static_cast<unsigned>(output_queue_.size()));
+        break;
+    case OutputPushReport::Result::Enqueued:
+    case OutputPushReport::Result::DroppedNew:
+        break;
+    }
+
+    if (const OutputEvent* next = output_queue_.peek())
+    {
+        notifyFromNum(next->notify_id);
+    }
+    return true;
+}
+
+MeshtasticPhoneCore::OutputPriority MeshtasticPhoneCore::priorityForPacket(const meshtastic_MeshPacket& packet) const
+{
+    if (packet.which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+    {
+        return OutputPriority::P2;
+    }
+
+    const auto portnum = static_cast<meshtastic_PortNum>(packet.decoded.portnum);
+    if (portnum == meshtastic_PortNum_ADMIN_APP || portnum == meshtastic_PortNum_ROUTING_APP)
+    {
+        return OutputPriority::P0;
+    }
+    if (isPhoneTextPort(portnum))
+    {
+        return OutputPriority::P1;
+    }
+    if (packet.to == app_.getSelfNodeId() && packet.to != 0)
+    {
+        return OutputPriority::P1;
+    }
+    if (isLowPriorityStatePort(portnum))
+    {
+        return OutputPriority::P2;
+    }
+    return OutputPriority::P2;
+}
+
+uint32_t MeshtasticPhoneCore::coalesceKeyForPacket(const meshtastic_MeshPacket& packet,
+                                                   OutputPriority priority) const
+{
+    if (priority != OutputPriority::P2 || packet.which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+    {
+        return 0;
+    }
+
+    const auto portnum = static_cast<meshtastic_PortNum>(packet.decoded.portnum);
+    if (!isLowPriorityStatePort(portnum))
+    {
+        return 0;
+    }
+    return outputCoalesceKey(static_cast<uint32_t>(portnum), packet.from, packet.to);
+}
+
 void MeshtasticPhoneCore::enqueueKnownNodeInfoProjection(chat::NodeId node_id)
 {
     if (node_id == 0 || node_id == app_.getSelfNodeId())
@@ -772,19 +882,18 @@ void MeshtasticPhoneCore::enqueueKnownNodeInfoProjection(chat::NodeId node_id)
         return;
     }
 
-    bool dropped = false;
-    auto& info = node_info_queue_.pushSlotDropOldest(&dropped);
-    fillNodeInfoFromEntry(entry, &info);
-    if (dropped)
-    {
-        logDual("[BLE][mtcore] node_info queue dropped oldest before realtime projection\n");
-    }
+    output_event_scratch_.clear();
+    output_event_scratch_.kind = OutputEventKind::NodeInfo;
+    output_event_scratch_.priority = OutputPriority::P1;
+    output_event_scratch_.notify_id = entry.node_id;
+    output_event_scratch_.coalesce_key = outputCoalesceKey(0x4E494E46UL, entry.node_id, 0);
+    fillNodeInfoFromEntry(entry, &output_event_scratch_.payload.node_info);
     logDual("[BLE][mtcore] enqueue node_info projection node=%08lX short=%s long=%s via_mqtt=%u\n",
             static_cast<unsigned long>(entry.node_id),
             entry.short_name,
             entry.long_name,
             entry.via_mqtt ? 1U : 0U);
-    notifyFromNum(entry.node_id);
+    (void)enqueueOutputEvent(output_event_scratch_, "node_info_projection");
 }
 
 bool MeshtasticPhoneCore::enqueueMetadataNodeInfoProjection(const chat::MeshIncomingData& msg)
@@ -838,20 +947,19 @@ bool MeshtasticPhoneCore::enqueueMetadataNodeInfoProjection(const chat::MeshInco
         return false;
     }
 
-    bool dropped = false;
-    auto& info = node_info_queue_.pushSlotDropOldest(&dropped);
-    fillNodeInfoFromDecodedPayload(node, &info);
-    if (dropped)
-    {
-        logDual("[BLE][mtcore] node_info queue dropped oldest before metadata projection\n");
-    }
+    output_event_scratch_.clear();
+    output_event_scratch_.kind = OutputEventKind::NodeInfo;
+    output_event_scratch_.priority = OutputPriority::P1;
+    output_event_scratch_.notify_id = node.node_id;
+    output_event_scratch_.coalesce_key = outputCoalesceKey(0x4E494E46UL, node.node_id, 0);
+    fillNodeInfoFromDecodedPayload(node, &output_event_scratch_.payload.node_info);
     logDual("[BLE][mtcore] enqueue metadata node_info node=%08lX short=%s long=%s via_mqtt=%u port=%u\n",
             static_cast<unsigned long>(node.node_id),
             node.short_name.c_str(),
             node.long_name.c_str(),
             node.via_mqtt ? 1U : 0U,
             static_cast<unsigned>(msg.portnum));
-    notifyFromNum(node.node_id);
+    (void)enqueueOutputEvent(output_event_scratch_, "metadata_node_info");
     return true;
 }
 
@@ -1507,12 +1615,12 @@ bool MeshtasticPhoneCore::handleAdmin(meshtastic_MeshPacket& packet)
         return false;
     }
     reply.decoded.payload.size = static_cast<pb_size_t>(out_stream.bytes_written);
-    bool dropped = false;
-    packet_queue_.pushDropOldest(reply, &dropped);
-    if (dropped)
-    {
-        logDual("[BLE][mtcore] packet queue dropped oldest before admin response\n");
-    }
+    output_event_scratch_.clear();
+    output_event_scratch_.kind = OutputEventKind::Packet;
+    output_event_scratch_.priority = OutputPriority::P0;
+    output_event_scratch_.notify_id = reply.id;
+    output_event_scratch_.payload.packet = reply;
+    (void)enqueueOutputEvent(output_event_scratch_, "admin_response");
     return true;
 }
 
@@ -1572,13 +1680,12 @@ bool MeshtasticPhoneCore::handleLocalSelfPacket(meshtastic_MeshPacket& packet)
             return false;
         }
         reply.decoded.payload.size = static_cast<pb_size_t>(out_stream.bytes_written);
-        bool dropped = false;
-        packet_queue_.pushDropOldest(reply, &dropped);
-        if (dropped)
-        {
-            logDual("[BLE][mtcore] packet queue dropped oldest before telemetry loopback\n");
-        }
-        notifyFromNum(reply.id);
+        output_event_scratch_.clear();
+        output_event_scratch_.kind = OutputEventKind::Packet;
+        output_event_scratch_.priority = OutputPriority::P1;
+        output_event_scratch_.notify_id = reply.id;
+        output_event_scratch_.payload.packet = reply;
+        (void)enqueueOutputEvent(output_event_scratch_, "telemetry_loopback");
         return true;
     }
 
@@ -1608,13 +1715,12 @@ bool MeshtasticPhoneCore::handleLocalSelfPacket(meshtastic_MeshPacket& packet)
             return true;
         }
         reply.decoded.payload.size = static_cast<pb_size_t>(payload_len);
-        bool dropped = false;
-        packet_queue_.pushDropOldest(reply, &dropped);
-        if (dropped)
-        {
-            logDual("[BLE][mtcore] packet queue dropped oldest before position loopback\n");
-        }
-        notifyFromNum(reply.id);
+        output_event_scratch_.clear();
+        output_event_scratch_.kind = OutputEventKind::Packet;
+        output_event_scratch_.priority = OutputPriority::P1;
+        output_event_scratch_.notify_id = reply.id;
+        output_event_scratch_.payload.packet = reply;
+        (void)enqueueOutputEvent(output_event_scratch_, "position_loopback");
         return true;
     }
 
@@ -1643,13 +1749,12 @@ bool MeshtasticPhoneCore::handleLocalSelfPacket(meshtastic_MeshPacket& packet)
             return false;
         }
         reply.decoded.payload.size = static_cast<pb_size_t>(out_stream.bytes_written);
-        bool dropped = false;
-        packet_queue_.pushDropOldest(reply, &dropped);
-        if (dropped)
-        {
-            logDual("[BLE][mtcore] packet queue dropped oldest before nodeinfo loopback\n");
-        }
-        notifyFromNum(reply.id);
+        output_event_scratch_.clear();
+        output_event_scratch_.kind = OutputEventKind::Packet;
+        output_event_scratch_.priority = OutputPriority::P1;
+        output_event_scratch_.notify_id = reply.id;
+        output_event_scratch_.payload.packet = reply;
+        (void)enqueueOutputEvent(output_event_scratch_, "nodeinfo_loopback");
         return true;
     }
 
@@ -1669,21 +1774,22 @@ bool MeshtasticPhoneCore::handleLocalSelfPacket(meshtastic_MeshPacket& packet)
 
 void MeshtasticPhoneCore::pumpIncomingAppData()
 {
-    for (uint8_t count = 0; count < kPhoneQueueDepth; ++count)
+    for (uint8_t count = 0; count < kPhoneOutputQueueDepth; ++count)
     {
         chat::MeshIncomingData incoming{};
         if (!app_.pollIncomingPhoneData(incoming))
         {
             break;
         }
-        bool dropped = false;
-        auto& packet = packet_queue_.pushSlotDropOldest(&dropped);
+        output_event_scratch_.clear();
+        auto& packet = output_event_scratch_.payload.packet;
         fillPacketFromData(incoming, &packet);
-        if (dropped)
-        {
-            logDual("[BLE][mtcore] packet queue dropped oldest before app data enqueue\n");
-        }
-        notifyFromNum(packet.id);
+        const OutputPriority priority = priorityForPacket(packet);
+        output_event_scratch_.kind = OutputEventKind::Packet;
+        output_event_scratch_.priority = priority;
+        output_event_scratch_.notify_id = packet.id;
+        output_event_scratch_.coalesce_key = coalesceKeyForPacket(packet, priority);
+        (void)enqueueOutputEvent(output_event_scratch_, "app_data");
     }
 }
 
@@ -1706,31 +1812,26 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
 
     auto& from = from_radio_scratch_;
     std::memset(&from, 0, sizeof(from));
-    if (const meshtastic_QueueStatus* status = queue_status_queue_.front())
+    output_event_scratch_.clear();
+    if (output_queue_.pop(&output_event_scratch_))
     {
-        from.which_payload_variant = meshtastic_FromRadio_queueStatus_tag;
-        from.queueStatus = *status;
-        const uint32_t mesh_packet_id = status->mesh_packet_id;
-        queue_status_queue_.pop();
-        return encodeFromRadio(from, mesh_packet_id, out);
-    }
-
-    if (const meshtastic_NodeInfo* node_info = node_info_queue_.front())
-    {
-        from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
-        from.node_info = *node_info;
-        const uint32_t node_id = node_info->num;
-        node_info_queue_.pop();
-        return encodeFromRadio(from, node_id, out);
-    }
-
-    if (const meshtastic_MeshPacket* packet = packet_queue_.front())
-    {
-        from.which_payload_variant = meshtastic_FromRadio_packet_tag;
-        from.packet = *packet;
-        const uint32_t packet_id = packet->id;
-        packet_queue_.pop();
-        return encodeFromRadio(from, packet_id, out);
+        switch (output_event_scratch_.kind)
+        {
+        case OutputEventKind::QueueStatus:
+            from.which_payload_variant = meshtastic_FromRadio_queueStatus_tag;
+            from.queueStatus = output_event_scratch_.payload.queue_status;
+            return encodeFromRadio(from, output_event_scratch_.notify_id, out);
+        case OutputEventKind::NodeInfo:
+            from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+            from.node_info = output_event_scratch_.payload.node_info;
+            return encodeFromRadio(from, output_event_scratch_.notify_id, out);
+        case OutputEventKind::Packet:
+            from.which_payload_variant = meshtastic_FromRadio_packet_tag;
+            from.packet = output_event_scratch_.payload.packet;
+            return encodeFromRadio(from, output_event_scratch_.notify_id, out);
+        default:
+            break;
+        }
     }
 
     if (deferred_config_save_pending_)
@@ -1980,24 +2081,22 @@ bool MeshtasticPhoneCore::encodeFromRadio(meshtastic_FromRadio& from, uint32_t f
 
 void MeshtasticPhoneCore::enqueueQueueStatus(uint32_t packet_id, bool ok)
 {
-    meshtastic_QueueStatus status = meshtastic_QueueStatus_init_zero;
+    output_event_scratch_.clear();
+    auto& status = output_event_scratch_.payload.queue_status;
     status.res = ok ? 0 : 1;
-    const size_t queue_depth = queue_status_queue_.size();
+    const size_t queue_depth = output_queue_.size();
     status.free = static_cast<uint32_t>(
-        queue_depth < queue_status_queue_.capacity() ? queue_status_queue_.capacity() - queue_depth : 0U);
-    status.maxlen = static_cast<uint32_t>(queue_status_queue_.capacity());
+        queue_depth < output_queue_.capacity() ? output_queue_.capacity() - queue_depth : 0U);
+    status.maxlen = static_cast<uint32_t>(output_queue_.capacity());
     status.mesh_packet_id = packet_id;
-    bool dropped = false;
-    queue_status_queue_.pushDropOldest(status, &dropped);
-    if (dropped)
-    {
-        logDual("[BLE][mtcore] queue status dropped oldest before enqueue\n");
-    }
+    output_event_scratch_.kind = OutputEventKind::QueueStatus;
+    output_event_scratch_.priority = OutputPriority::P0;
+    output_event_scratch_.notify_id = packet_id;
+    (void)enqueueOutputEvent(output_event_scratch_, "queue_status");
     logDual("[BLE][mtcore] queue status mesh_packet_id=%08lX ok=%u depth=%u\n",
             static_cast<unsigned long>(packet_id),
             ok ? 1U : 0U,
-            static_cast<unsigned>(queue_status_queue_.size()));
-    notifyFromNum(packet_id);
+            static_cast<unsigned>(output_queue_.size()));
 }
 
 void MeshtasticPhoneCore::enqueueConfigSnapshot(uint32_t config_nonce)

@@ -222,8 +222,8 @@ bool tryDecodeWithChannelKey(const ::chat::MeshConfig& config,
                              uint8_t* out_plain,
                              size_t* inout_plain_len,
                              meshtastic_Data* out_decoded,
-                                const uint8_t** out_key,
-                                size_t* out_key_len)
+                             const uint8_t** out_key,
+                             size_t* out_key_len)
 {
     if (!out_decoded)
     {
@@ -577,7 +577,7 @@ bool MeshtasticRadioAdapter::sendTextWithId(::chat::ChannelId channel, const std
 
 bool MeshtasticRadioAdapter::pollIncomingText(::chat::MeshIncomingText* out)
 {
-    return text_queue_.popOldest(out);
+    return text_queue_.pop(out);
 }
 
 bool MeshtasticRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t portnum,
@@ -703,7 +703,7 @@ bool MeshtasticRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t por
 
 bool MeshtasticRadioAdapter::pollIncomingData(::chat::MeshIncomingData* out)
 {
-    return data_queue_.popOldest(out);
+    return data_queue_.pop(out);
 }
 
 bool MeshtasticRadioAdapter::requestNodeInfo(::chat::NodeId dest, bool want_response)
@@ -1019,8 +1019,8 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
 
     if (header.from == node_id_)
     {
-        const auto pending_it = pending_retransmits_.find(pendingKey(header.from, header.id));
-        if (is_broadcast && pending_it != pending_retransmits_.end())
+        const uint64_t key = pendingKey(header.from, header.id);
+        if (is_broadcast && pending_retransmits_.find(key))
         {
             logMeshtasticRx("[gat562][mt] implicit-ack observed self-broadcast id=%08lX relay=%u next=%u ch=%u\n",
                             static_cast<unsigned long>(header.id),
@@ -1035,7 +1035,7 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
             implicit_rx.channel_hash = header.channel;
             implicit_rx.next_hop = header.next_hop;
             implicit_rx.relay_node = header.relay_node;
-            pending_retransmits_.erase(pending_it);
+            pending_retransmits_.erase(key);
             emitRoutingResult(header.id,
                               meshtastic_Routing_Error_NONE,
                               node_id_,
@@ -1353,7 +1353,14 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
     }
 
     ::chat::MeshIncomingText incoming{};
-    if (decoded_ok && ::chat::meshtastic::decodeTextPayload(decoded, &incoming))
+    char* text_buf = reinterpret_cast<char*>(rx_scratch_.plain.data());
+    size_t text_len = 0;
+    if (decoded_ok &&
+        ::chat::meshtastic::decodeTextPayloadToBuffer(
+            decoded,
+            text_buf,
+            rx_scratch_.plain.size(),
+            &text_len))
     {
         incoming.from = header.from;
         incoming.to = header.to;
@@ -1371,14 +1378,27 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                         static_cast<unsigned>(decoded.portnum),
                         static_cast<unsigned>(decoded.payload.size),
                         text_compressed ? 1U : 0U,
-                        static_cast<unsigned>(incoming.text.size()),
-                        incoming.text.c_str());
+                        static_cast<unsigned>(text_len),
+                        text_buf);
 
-        bool dropped = false;
-        text_queue_.pushDropOldest(std::move(incoming), &dropped);
-        if (dropped)
+        ::chat::meshtastic::IncomingQueuePushReport report{};
+        if (text_queue_.push(incoming,
+                             text_buf,
+                             text_len,
+                             ::chat::meshtastic::IncomingQueuePriority::P1User,
+                             &report))
         {
-            logMeshtasticRx("[gat562][mt] text queue dropped oldest depth=%u\n",
+            if (report.dropped_existing)
+            {
+                logMeshtasticRx("[gat562][mt] text queue evicted prio=%u depth=%u\n",
+                                static_cast<unsigned>(report.dropped_priority),
+                                static_cast<unsigned>(text_queue_.size()));
+            }
+        }
+        else
+        {
+            logMeshtasticRx("[gat562][mt] text queue drop new len=%u depth=%u\n",
+                            static_cast<unsigned>(text_len),
                             static_cast<unsigned>(text_queue_.size()));
         }
         return;
@@ -1398,8 +1418,10 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
     ::chat::MeshIncomingData app_data{};
     if (decoded_ok &&
         decoded.portnum != meshtastic_PortNum_TRACEROUTE_APP &&
-        ::chat::meshtastic::decodeAppPayload(decoded, &app_data))
+        decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP &&
+        decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP)
     {
+        app_data.portnum = static_cast<uint32_t>(decoded.portnum);
         app_data.from = header.from;
         app_data.to = header.to;
         app_data.packet_id = header.id;
@@ -1415,13 +1437,27 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                         static_cast<unsigned long>(app_data.to),
                         static_cast<unsigned long>(app_data.packet_id),
                         static_cast<unsigned>(app_data.portnum),
-                        static_cast<unsigned>(app_data.payload.size()));
+                        static_cast<unsigned>(decoded.payload.size));
 
-        bool dropped = false;
-        data_queue_.pushDropOldest(std::move(app_data), &dropped);
-        if (dropped)
+        ::chat::meshtastic::IncomingQueuePushReport report{};
+        if (data_queue_.push(app_data,
+                             decoded.payload.bytes,
+                             decoded.payload.size,
+                             ::chat::meshtastic::IncomingQueuePriority::P1User,
+                             &report))
         {
-            logMeshtasticRx("[gat562][mt] app queue dropped oldest depth=%u\n",
+            if (report.dropped_existing)
+            {
+                logMeshtasticRx("[gat562][mt] app queue evicted prio=%u depth=%u\n",
+                                static_cast<unsigned>(report.dropped_priority),
+                                static_cast<unsigned>(data_queue_.size()));
+            }
+        }
+        else
+        {
+            logMeshtasticRx("[gat562][mt] app queue drop new port=%u len=%u depth=%u\n",
+                            static_cast<unsigned>(app_data.portnum),
+                            static_cast<unsigned>(decoded.payload.size),
                             static_cast<unsigned>(data_queue_.size()));
         }
     }
@@ -1437,16 +1473,23 @@ void MeshtasticRadioAdapter::processSendQueue()
 {
     const uint32_t now_ms = millis();
     maybeBroadcastNodeInfo(now_ms);
-    for (auto it = pending_retransmits_.begin(); it != pending_retransmits_.end();)
+    for (std::size_t index = 0; index < pending_retransmits_.capacity();)
     {
-        auto& pending = it->second;
-        if (pending.next_tx_ms > now_ms)
+        PendingRetransmitSlot* slot = pending_retransmits_.slotAt(index);
+        if (!slot || !slot->used)
         {
-            ++it;
+            ++index;
             continue;
         }
 
-        auto* header = reinterpret_cast<::chat::meshtastic::PacketHeaderWire*>(pending.wire.data());
+        auto& pending = slot->meta;
+        if (pending.next_tx_ms > now_ms)
+        {
+            ++index;
+            continue;
+        }
+
+        auto* header = reinterpret_cast<::chat::meshtastic::PacketHeaderWire*>(slot->wire.data());
         if (pending.retries_left == 0)
         {
             if (pending.observe_only)
@@ -1472,13 +1515,13 @@ void MeshtasticRadioAdapter::processSendQueue()
             {
                 node_store_->setNextHop(pending.dest, 0, nowSeconds());
             }
-            it = pending_retransmits_.erase(it);
+            pending_retransmits_.eraseAt(index);
             continue;
         }
 
         if (pending.observe_only)
         {
-            ++it;
+            ++index;
             continue;
         }
 
@@ -1492,13 +1535,13 @@ void MeshtasticRadioAdapter::processSendQueue()
             }
         }
 
-        if (transmitWire(pending.wire.data(), pending.wire.size()))
+        if (transmitWire(slot->wire.data(), slot->wire_size))
         {
             rememberLocalPacket(*header);
         }
         pending.retries_left--;
         pending.next_tx_ms = now_ms + kRetransmitIntervalMs;
-        ++it;
+        ++index;
     }
 }
 
@@ -1961,14 +2004,27 @@ bool MeshtasticRadioAdapter::executeProtocolEffect(const ::chat::runtime::Protoc
             }
             else if constexpr (std::is_same_v<Effect, ::chat::runtime::PublishIncomingDataEffect>)
             {
-                bool dropped = false;
-                data_queue_.pushDropOldest(item.data, &dropped);
-                if (dropped)
+                ::chat::meshtastic::IncomingQueuePushReport report{};
+                if (data_queue_.push(item.data,
+                                     ::chat::meshtastic::IncomingQueuePriority::P1User,
+                                     &report))
                 {
-                    logMeshtasticRx("[gat562][mt] protocol data queue dropped oldest depth=%u\n",
-                                    static_cast<unsigned>(data_queue_.size()));
+                    if (report.dropped_existing)
+                    {
+                        logMeshtasticRx("[gat562][mt] protocol data queue evicted prio=%u depth=%u\n",
+                                        static_cast<unsigned>(report.dropped_priority),
+                                        static_cast<unsigned>(data_queue_.size()));
+                    }
+                    ok = true;
                 }
-                ok = true;
+                else
+                {
+                    logMeshtasticRx("[gat562][mt] protocol data queue drop port=%u len=%u depth=%u\n",
+                                    static_cast<unsigned>(item.data.portnum),
+                                    static_cast<unsigned>(item.data.payload.size()),
+                                    static_cast<unsigned>(data_queue_.size()));
+                    ok = false;
+                }
             }
         });
     return ok;
@@ -2021,7 +2077,6 @@ void MeshtasticRadioAdapter::emitRoutingResult(uint32_t request_id, meshtastic_R
     incoming.channel = channel;
     incoming.channel_hash = channel_hash;
     incoming.hop_limit = rx_meta ? rx_meta->hop_limit : 0;
-    incoming.payload.assign(routing_buf, routing_buf + rstream.bytes_written);
     if (rx_meta)
     {
         incoming.rx_meta = *rx_meta;
@@ -2034,11 +2089,22 @@ void MeshtasticRadioAdapter::emitRoutingResult(uint32_t request_id, meshtastic_R
         incoming.rx_meta.origin = ::chat::RxOrigin::Mesh;
         incoming.rx_meta.channel_hash = channel_hash;
     }
-    bool dropped = false;
-    data_queue_.pushDropOldest(std::move(incoming), &dropped);
-    if (dropped)
+    ::chat::meshtastic::IncomingQueuePushReport report{};
+    if (!data_queue_.push(incoming,
+                          routing_buf,
+                          rstream.bytes_written,
+                          ::chat::meshtastic::IncomingQueuePriority::P0Critical,
+                          &report))
     {
-        logMeshtasticRx("[gat562][mt] routing queue dropped oldest depth=%u\n",
+        logMeshtasticRx("[gat562][mt] routing queue drop new req=%08lX depth=%u\n",
+                        static_cast<unsigned long>(request_id),
+                        static_cast<unsigned>(data_queue_.size()));
+    }
+    else if (report.dropped_existing)
+    {
+        logMeshtasticRx("[gat562][mt] routing queue evicted prio=%u req=%08lX depth=%u\n",
+                        static_cast<unsigned>(report.dropped_priority),
+                        static_cast<unsigned long>(request_id),
                         static_cast<unsigned>(data_queue_.size()));
     }
 }
@@ -2387,8 +2453,7 @@ void MeshtasticRadioAdapter::queuePendingRetransmit(const ::chat::meshtastic::Pa
         return;
     }
 
-    PendingRetransmit pending{};
-    pending.wire.assign(wire, wire + wire_size);
+    PendingRetransmitMeta pending{};
     pending.original_from = header.from;
     pending.dest = header.to;
     pending.packet_id = header.id;
@@ -2417,12 +2482,56 @@ void MeshtasticRadioAdapter::queuePendingRetransmit(const ::chat::meshtastic::Pa
                     pending.local_origin ? 1U : 0U,
                     pending.want_ack ? 1U : 0U,
                     static_cast<unsigned long>(pending.next_tx_ms));
-    pending_retransmits_[pendingKey(header.from, header.id)] = std::move(pending);
+
+    const auto priority = pending.observe_only
+                              ? ::chat::meshtastic::PendingWirePriority::P3
+                              : ((pending.local_origin && pending.want_ack)
+                                     ? ::chat::meshtastic::PendingWirePriority::P0
+                                     : ::chat::meshtastic::PendingWirePriority::P1);
+    ::chat::meshtastic::PendingWirePushReport report{};
+    auto* slot = pending_retransmits_.upsert(pendingKey(header.from, header.id),
+                                             priority,
+                                             wire,
+                                             wire_size,
+                                             pending,
+                                             &report);
+    if (!slot)
+    {
+        logMeshtasticRx("[gat562][mt] pending drop new id=%08lX from=%08lX dest=%08lX priority=%u wire=%u max=%u depth=%u\n",
+                        static_cast<unsigned long>(pending.packet_id),
+                        static_cast<unsigned long>(pending.original_from),
+                        static_cast<unsigned long>(pending.dest),
+                        static_cast<unsigned>(priority),
+                        static_cast<unsigned>(wire_size),
+                        static_cast<unsigned>(pending_retransmits_.maxWireLen()),
+                        static_cast<unsigned>(pending_retransmits_.size()));
+        if (pending.local_origin && pending.want_ack)
+        {
+            emitRoutingResult(pending.packet_id,
+                              meshtastic_Routing_Error_MAX_RETRANSMIT,
+                              node_id_,
+                              pending.dest,
+                              pending.channel,
+                              pending.channel_hash,
+                              nullptr);
+        }
+        return;
+    }
+
+    if (report.result == ::chat::meshtastic::PendingWirePushReport::Result::DroppedExisting)
+    {
+        logMeshtasticRx("[gat562][mt] pending drop old key=%016llX priority=%u for id=%08lX priority=%u depth=%u\n",
+                        static_cast<unsigned long long>(report.dropped_key),
+                        static_cast<unsigned>(report.dropped_priority),
+                        static_cast<unsigned long>(pending.packet_id),
+                        static_cast<unsigned>(priority),
+                        static_cast<unsigned>(pending_retransmits_.size()));
+    }
 }
 
 bool MeshtasticRadioAdapter::stopPendingRetransmit(::chat::NodeId from, ::chat::MessageId packet_id)
 {
-    return pending_retransmits_.erase(pendingKey(from, packet_id)) > 0;
+    return pending_retransmits_.erase(pendingKey(from, packet_id));
 }
 
 void MeshtasticRadioAdapter::maybeHandleObservedRelay(const ::chat::meshtastic::PacketHeaderWire& header)

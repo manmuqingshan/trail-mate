@@ -9,8 +9,10 @@
 #include "chat/domain/chat_types.h"
 #include "chat/infra/meshtastic/mt_codec_pb.h" // Use protobuf-based codec
 #include "chat/infra/meshtastic/mt_dedup.h"
+#include "chat/infra/meshtastic/mt_incoming_queue.h"
 #include "chat/infra/meshtastic/mt_mqtt_proxy_runtime.h"
 #include "chat/infra/meshtastic/mt_packet_wire.h" // Wire packet format
+#include "chat/infra/meshtastic/mt_pending_wire_table.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/meshtastic_runtime.h"
 #include "freertos/FreeRTOS.h"
@@ -140,6 +142,9 @@ class MtAdapter : public chat::IMeshAdapter
     uint8_t radio_sf_ = 0;
     uint8_t radio_cr_ = 0;
 
+    static constexpr std::size_t kPendingAckSlotCount = 8;
+    static constexpr std::size_t kPendingAckWireMaxLen = 512;
+
     struct PendingAckState
     {
         uint32_t dest = 0;
@@ -147,8 +152,11 @@ class MtAdapter : public chat::IMeshAdapter
         uint8_t channel_hash = 0;
         uint32_t last_attempt_ms = 0;
         uint8_t retransmit_count = 0;
-        std::vector<uint8_t> wire_packet;
     };
+
+    using PendingAckTable =
+        PendingWireTable<PendingAckState, kPendingAckSlotCount, kPendingAckWireMaxLen>;
+    using PendingAckSlot = PendingAckTable::Slot;
 
     enum class KeyVerificationState : uint8_t
     {
@@ -209,9 +217,11 @@ class MtAdapter : public chat::IMeshAdapter
         uint32_t last_attempt = 0;
     };
 
+    static constexpr std::size_t kIncomingQueueDepth = 12;
+
     std::queue<PendingSend> send_queue_;
-    std::queue<MeshIncomingText> receive_queue_;
-    std::queue<MeshIncomingData> app_receive_queue_;
+    IncomingTextQueue<kIncomingQueueDepth> receive_queue_;
+    IncomingDataQueue<kIncomingQueueDepth> app_receive_queue_;
     static constexpr std::size_t kMqttProxyQueueDepth = 12;
     sys::RingBuffer<meshtastic_MqttClientProxyMessage, kMqttProxyQueueDepth> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_;
@@ -253,7 +263,7 @@ class MtAdapter : public chat::IMeshAdapter
     TxScratchBuffers tx_scratch_;
     RxScratchBuffers rx_scratch_;
     meshtastic_MeshPacket protocol_effect_packet_scratch_ = meshtastic_MeshPacket_init_zero;
-    std::map<uint32_t, PendingAckState> pending_ack_states_;
+    PendingAckTable pending_ack_states_;
     std::unique_ptr<::platform::esp::arduino_common::mesh::EspMeshtasticAdapterBridge> core_bridge_;
 
     static constexpr size_t MAX_PACKET_SIZE = 255;
@@ -261,7 +271,6 @@ class MtAdapter : public chat::IMeshAdapter
     static constexpr uint8_t MAX_RETRIES = 3;
     static constexpr uint32_t NODEINFO_INTERVAL_MS = 3 * 60 * 60 * 1000;
     static constexpr uint32_t PKI_BACKOFF_MS = 5 * 60 * 1000;
-    static constexpr size_t MAX_APP_QUEUE = 10;
     static constexpr uint32_t ACK_TIMEOUT_MS = 15000;
     static constexpr uint8_t MAX_ACK_RETRIES = 3;
     static constexpr size_t kMaxPkiNodes = 16;
@@ -322,7 +331,7 @@ class MtAdapter : public chat::IMeshAdapter
     void trackPendingAck(uint32_t msg_id, uint32_t dest, ChannelId channel, uint8_t channel_hash,
                          const uint8_t* wire_data, size_t wire_size);
     void clearPendingAck(uint32_t msg_id);
-    void retryPendingAck(uint32_t msg_id, PendingAckState& pending);
+    void retryPendingAck(uint32_t msg_id, PendingAckSlot& slot);
     bool initPkiKeys();
     void loadPkiNodeKeys();
     void savePkiNodeKey(uint32_t node_id, const uint8_t* key, size_t key_len);

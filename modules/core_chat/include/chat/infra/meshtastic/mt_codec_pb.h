@@ -51,6 +51,19 @@ bool encodeTextMessage(ChannelId channel, const std::string& text,
 bool decodeTextPayload(const meshtastic_Data& data, MeshIncomingText* out);
 
 /**
+ * @brief Decode an already-parsed Meshtastic Data payload into caller-owned text storage
+ * @param data Decoded Meshtastic Data message
+ * @param out_text Caller-owned output text buffer
+ * @param out_text_cap Output buffer capacity, including space for the trailing null
+ * @param out_text_len Decoded text byte length, excluding trailing null
+ * @return true if successful
+ */
+bool decodeTextPayloadToBuffer(const meshtastic_Data& data,
+                               char* out_text,
+                               size_t out_text_cap,
+                               size_t* out_text_len);
+
+/**
  * @brief Decode Meshtastic Data payload to text message using protobuf
  * @param buffer Data message buffer (already decrypted)
  * @param size Buffer size

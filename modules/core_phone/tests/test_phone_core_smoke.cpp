@@ -477,6 +477,80 @@ int main()
     assert(heartbeat_from.queueStatus.res == 0);
     assert(!heartbeat_session.popToPhone(&heartbeat_frame));
 
+    phone::tests::FakePhoneRuntimeContext backpressure_runtime;
+    FakeMeshtasticTransport backpressure_transport;
+    phone::meshtastic::MeshtasticPhoneSession backpressure_session(
+        backpressure_runtime, backpressure_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(backpressure_session);
+    assert(encodeHeartbeatToRadio(heartbeat_to_radio,
+                                  sizeof(heartbeat_to_radio),
+                                  heartbeat_to_radio_len,
+                                  kHeartbeatNonce + 1U));
+    assert(backpressure_session.handleToRadio(heartbeat_to_radio, heartbeat_to_radio_len));
+    chat::MeshIncomingData pressure_data{};
+    pressure_data.portnum = meshtastic_PortNum_POSITION_APP;
+    pressure_data.to = 0xFFFFFFFF;
+    pressure_data.channel = chat::ChannelId::PRIMARY;
+    pressure_data.payload = {0x42};
+    for (uint32_t index = 0; index < 10; ++index)
+    {
+        pressure_data.from = 0x51000000U + index;
+        pressure_data.packet_id = 0x71000000U + index;
+        backpressure_session.onIncomingData(pressure_data);
+    }
+    assert(backpressure_session.popToPhone(&heartbeat_frame));
+    heartbeat_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(heartbeat_frame, heartbeat_from));
+    assert(heartbeat_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
+    assert(heartbeat_from.queueStatus.mesh_packet_id == kHeartbeatNonce + 1U);
+
+    phone::tests::FakePhoneRuntimeContext latest_runtime;
+    FakeMeshtasticTransport latest_transport;
+    phone::meshtastic::MeshtasticPhoneSession latest_session(
+        latest_runtime, latest_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(latest_session);
+    pressure_data.from = 0x52000001U;
+    pressure_data.to = 0xFFFFFFFF;
+    for (uint32_t index = 0; index < 4; ++index)
+    {
+        pressure_data.packet_id = 0x72000000U + index;
+        pressure_data.payload = {static_cast<uint8_t>(index)};
+        latest_session.onIncomingData(pressure_data);
+    }
+    assert(latest_session.popToPhone(&heartbeat_frame));
+    heartbeat_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(heartbeat_frame, heartbeat_from));
+    assert(heartbeat_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(heartbeat_from.packet.id == 0x72000003U);
+    assert(heartbeat_from.packet.decoded.payload.size == 1);
+    assert(heartbeat_from.packet.decoded.payload.bytes[0] == 3);
+    assert(!latest_session.popToPhone(&heartbeat_frame));
+
+    phone::tests::FakePhoneRuntimeContext retain_runtime;
+    FakeMeshtasticTransport retain_transport;
+    phone::meshtastic::MeshtasticPhoneSession retain_session(
+        retain_runtime, retain_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(retain_session);
+    chat::MeshIncomingText retained_text{};
+    retained_text.channel = chat::ChannelId::PRIMARY;
+    retained_text.from = 0x4A59CD8C;
+    retained_text.to = 0xFFFFFFFF;
+    retained_text.msg_id = 0x73000001U;
+    retained_text.text = "keep";
+    retain_session.onIncomingText(retained_text);
+    for (uint32_t index = 0; index < 10; ++index)
+    {
+        pressure_data.from = 0x53000000U + index;
+        pressure_data.packet_id = 0x73010000U + index;
+        pressure_data.payload = {static_cast<uint8_t>(index)};
+        retain_session.onIncomingData(pressure_data);
+    }
+    assert(retain_session.popToPhone(&heartbeat_frame));
+    heartbeat_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(heartbeat_frame, heartbeat_from));
+    assert(heartbeat_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(heartbeat_from.packet.id == retained_text.msg_id);
+
     phone::tests::FakePhoneRuntimeContext mqtt_gate_runtime;
     FakeMeshtasticTransport mqtt_gate_transport;
     FakeMqttHooks mqtt_gate_hooks;

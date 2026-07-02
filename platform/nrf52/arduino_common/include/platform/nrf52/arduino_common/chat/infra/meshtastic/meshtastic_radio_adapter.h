@@ -1,7 +1,9 @@
 #pragma once
 
+#include "chat/infra/meshtastic/mt_incoming_queue.h"
 #include "chat/infra/meshtastic/mt_mqtt_proxy_runtime.h"
 #include "chat/infra/meshtastic/mt_packet_wire.h"
+#include "chat/infra/meshtastic/mt_pending_wire_table.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/meshtastic_runtime.h"
 #include "chat/runtime/self_identity_policy.h"
@@ -84,9 +86,11 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
         bool was_upgraded = false;
     };
 
-    struct PendingRetransmit
+    static constexpr std::size_t kPendingRetransmitSlotCount = 8;
+    static constexpr std::size_t kPendingRetransmitWireMaxLen = 384;
+
+    struct PendingRetransmitMeta
     {
-        std::vector<uint8_t> wire;
         ::chat::NodeId original_from = 0;
         ::chat::NodeId dest = 0;
         ::chat::MessageId packet_id = 0;
@@ -99,6 +103,12 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
         bool fallback_sent = false;
         bool observe_only = false;
     };
+
+    using PendingRetransmitTable =
+        ::chat::meshtastic::PendingWireTable<PendingRetransmitMeta,
+                                             kPendingRetransmitSlotCount,
+                                             kPendingRetransmitWireMaxLen>;
+    using PendingRetransmitSlot = PendingRetransmitTable::Slot;
 
     struct TxScratchBuffers
     {
@@ -254,12 +264,12 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     static constexpr std::size_t kIncomingQueueDepth = 12;
     static constexpr std::size_t kMqttProxyQueueDepth = 12;
 
-    sys::RingBuffer<::chat::MeshIncomingText, kIncomingQueueDepth> text_queue_;
-    sys::RingBuffer<::chat::MeshIncomingData, kIncomingQueueDepth> data_queue_;
+    ::chat::meshtastic::IncomingTextQueue<kIncomingQueueDepth> text_queue_;
+    ::chat::meshtastic::IncomingDataQueue<kIncomingQueueDepth> data_queue_;
     sys::RingBuffer<meshtastic_MqttClientProxyMessage, kMqttProxyQueueDepth> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_{};
     std::vector<PacketHistoryEntry> packet_history_;
-    std::map<uint64_t, PendingRetransmit> pending_retransmits_;
+    PendingRetransmitTable pending_retransmits_;
     uint32_t last_nodeinfo_ms_ = 0;
     uint8_t last_raw_packet_[256] = {};
     size_t last_raw_packet_len_ = 0;
