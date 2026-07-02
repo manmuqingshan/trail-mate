@@ -17,6 +17,7 @@
 #include "freertos/queue.h"
 #include "meshtastic/mqtt.pb.h"
 #include "platform/esp/arduino_common/mesh/esp_meshtastic_adapter_bridge.h"
+#include "sys/ringbuf.h"
 #include <array>
 #include <cstddef>
 #include <map>
@@ -211,7 +212,8 @@ class MtAdapter : public chat::IMeshAdapter
     std::queue<PendingSend> send_queue_;
     std::queue<MeshIncomingText> receive_queue_;
     std::queue<MeshIncomingData> app_receive_queue_;
-    std::queue<meshtastic_MqttClientProxyMessage> mqtt_proxy_queue_;
+    static constexpr std::size_t kMqttProxyQueueDepth = 12;
+    sys::RingBuffer<meshtastic_MqttClientProxyMessage, kMqttProxyQueueDepth> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_;
 
     struct MqttScratchBuffers

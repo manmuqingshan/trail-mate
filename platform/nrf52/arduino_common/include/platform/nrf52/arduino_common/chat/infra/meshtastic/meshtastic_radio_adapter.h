@@ -9,12 +9,12 @@
 #include "chat/usecase/contact_service.h"
 #include "meshtastic/mesh.pb.h"
 #include "platform/nrf52/arduino_common/chat/infra/meshtastic/node_store.h"
+#include "sys/ringbuf.h"
 
 #include <array>
 #include <cstdint>
 #include <limits>
 #include <map>
-#include <queue>
 #include <string>
 #include <vector>
 
@@ -241,9 +241,12 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     ::chat::contacts::ContactService* contact_service_ = nullptr;
     float last_rx_rssi_ = std::numeric_limits<float>::quiet_NaN();
     float last_rx_snr_ = std::numeric_limits<float>::quiet_NaN();
-    std::queue<::chat::MeshIncomingText> text_queue_;
-    std::queue<::chat::MeshIncomingData> data_queue_;
-    std::queue<meshtastic_MqttClientProxyMessage> mqtt_proxy_queue_;
+    static constexpr std::size_t kIncomingQueueDepth = 12;
+    static constexpr std::size_t kMqttProxyQueueDepth = 12;
+
+    sys::RingBuffer<::chat::MeshIncomingText, kIncomingQueueDepth> text_queue_;
+    sys::RingBuffer<::chat::MeshIncomingData, kIncomingQueueDepth> data_queue_;
+    sys::RingBuffer<meshtastic_MqttClientProxyMessage, kMqttProxyQueueDepth> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_{};
     std::vector<PacketHistoryEntry> packet_history_;
     std::map<uint64_t, PendingRetransmit> pending_retransmits_;

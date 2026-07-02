@@ -60,7 +60,6 @@ namespace
 {
 constexpr uint8_t kDefaultPskIndex = 1;
 constexpr uint8_t kBitfieldWantResponseMask = 0x02;
-constexpr size_t kMaxMqttProxyQueue = 12;
 constexpr uint32_t kBroadcastNodeId = 0xFFFFFFFFu;
 
 using chat::meshtastic::allowPkiForPortnum;
@@ -856,13 +855,7 @@ void MtAdapter::setMqttProxySettings(const MqttProxySettings& settings)
 
 bool MtAdapter::pollMqttProxyMessage(meshtastic_MqttClientProxyMessage* out)
 {
-    if (!out || mqtt_proxy_queue_.empty())
-    {
-        return false;
-    }
-    *out = mqtt_proxy_queue_.front();
-    mqtt_proxy_queue_.pop();
-    return true;
+    return mqtt_proxy_queue_.popOldest(out);
 }
 
 std::string MtAdapter::mqttNodeIdString() const
@@ -1289,15 +1282,17 @@ bool MtAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
     proxy.payload_variant.data.size = static_cast<pb_size_t>(estream.bytes_written);
     proxy.retained = false;
 
-    while (mqtt_proxy_queue_.size() >= kMaxMqttProxyQueue)
-    {
-        mqtt_proxy_queue_.pop();
-    }
-    mqtt_proxy_queue_.push(proxy);
+    bool dropped = false;
+    mqtt_proxy_queue_.pushDropOldest(proxy, &dropped);
     LORA_LOG("[MQTT] uplink queue topic='%s' bytes=%u q=%u\n",
              proxy.topic,
              static_cast<unsigned>(proxy.payload_variant.data.size),
              static_cast<unsigned>(mqtt_proxy_queue_.size()));
+    if (dropped)
+    {
+        LORA_LOG("[MQTT] uplink queue dropped oldest depth=%u\n",
+                 static_cast<unsigned>(mqtt_proxy_queue_.size()));
+    }
     return true;
 }
 

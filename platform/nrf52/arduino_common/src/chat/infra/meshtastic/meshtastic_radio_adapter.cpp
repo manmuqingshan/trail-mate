@@ -38,7 +38,6 @@ namespace platform::nrf52::arduino_common::chat::meshtastic
 {
 namespace
 {
-constexpr size_t kMaxMqttProxyQueue = 12;
 constexpr size_t kPacketHistoryCapacity = 160;
 constexpr uint32_t kPacketHistoryTimeoutMs = 10UL * 60UL * 1000UL;
 constexpr uint8_t kDefaultNextHopRetries = 2;
@@ -570,13 +569,7 @@ bool MeshtasticRadioAdapter::sendTextWithId(::chat::ChannelId channel, const std
 
 bool MeshtasticRadioAdapter::pollIncomingText(::chat::MeshIncomingText* out)
 {
-    if (!out || text_queue_.empty())
-    {
-        return false;
-    }
-    *out = text_queue_.front();
-    text_queue_.pop();
-    return true;
+    return text_queue_.popOldest(out);
 }
 
 bool MeshtasticRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t portnum,
@@ -701,13 +694,7 @@ bool MeshtasticRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t por
 
 bool MeshtasticRadioAdapter::pollIncomingData(::chat::MeshIncomingData* out)
 {
-    if (!out || data_queue_.empty())
-    {
-        return false;
-    }
-    *out = data_queue_.front();
-    data_queue_.pop();
-    return true;
+    return data_queue_.popOldest(out);
 }
 
 bool MeshtasticRadioAdapter::requestNodeInfo(::chat::NodeId dest, bool want_response)
@@ -805,14 +792,7 @@ void MeshtasticRadioAdapter::setMqttProxySettings(const MqttProxySettings& setti
 
 bool MeshtasticRadioAdapter::pollMqttProxyMessage(meshtastic_MqttClientProxyMessage* out)
 {
-    if (!out || mqtt_proxy_queue_.empty())
-    {
-        return false;
-    }
-
-    *out = mqtt_proxy_queue_.front();
-    mqtt_proxy_queue_.pop();
-    return true;
+    return mqtt_proxy_queue_.popOldest(out);
 }
 
 bool MeshtasticRadioAdapter::handleMqttProxyMessage(const meshtastic_MqttClientProxyMessage& msg)
@@ -1385,7 +1365,13 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                         static_cast<unsigned>(incoming.text.size()),
                         incoming.text.c_str());
 
-        text_queue_.push(std::move(incoming));
+        bool dropped = false;
+        text_queue_.pushDropOldest(std::move(incoming), &dropped);
+        if (dropped)
+        {
+            logMeshtasticRx("[gat562][mt] text queue dropped oldest depth=%u\n",
+                            static_cast<unsigned>(text_queue_.size()));
+        }
         return;
     }
 
@@ -1422,7 +1408,13 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                         static_cast<unsigned>(app_data.portnum),
                         static_cast<unsigned>(app_data.payload.size()));
 
-        data_queue_.push(std::move(app_data));
+        bool dropped = false;
+        data_queue_.pushDropOldest(std::move(app_data), &dropped);
+        if (dropped)
+        {
+            logMeshtasticRx("[gat562][mt] app queue dropped oldest depth=%u\n",
+                            static_cast<unsigned>(data_queue_.size()));
+        }
     }
 }
 
@@ -1948,7 +1940,13 @@ bool MeshtasticRadioAdapter::executeProtocolEffect(const ::chat::runtime::Protoc
             }
             else if constexpr (std::is_same_v<Effect, ::chat::runtime::PublishIncomingDataEffect>)
             {
-                data_queue_.push(item.data);
+                bool dropped = false;
+                data_queue_.pushDropOldest(item.data, &dropped);
+                if (dropped)
+                {
+                    logMeshtasticRx("[gat562][mt] protocol data queue dropped oldest depth=%u\n",
+                                    static_cast<unsigned>(data_queue_.size()));
+                }
                 ok = true;
             }
         });
@@ -2015,7 +2013,13 @@ void MeshtasticRadioAdapter::emitRoutingResult(uint32_t request_id, meshtastic_R
         incoming.rx_meta.origin = ::chat::RxOrigin::Mesh;
         incoming.rx_meta.channel_hash = channel_hash;
     }
-    data_queue_.push(std::move(incoming));
+    bool dropped = false;
+    data_queue_.pushDropOldest(std::move(incoming), &dropped);
+    if (dropped)
+    {
+        logMeshtasticRx("[gat562][mt] routing queue dropped oldest depth=%u\n",
+                        static_cast<unsigned>(data_queue_.size()));
+    }
 }
 
 uint8_t MeshtasticRadioAdapter::ourRelayId() const
@@ -3321,11 +3325,8 @@ bool MeshtasticRadioAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& 
     proxy.payload_variant.data.size = static_cast<pb_size_t>(estream.bytes_written);
     proxy.retained = false;
 
-    while (mqtt_proxy_queue_.size() >= kMaxMqttProxyQueue)
-    {
-        mqtt_proxy_queue_.pop();
-    }
-    mqtt_proxy_queue_.push(proxy);
+    bool dropped = false;
+    mqtt_proxy_queue_.pushDropOldest(proxy, &dropped);
     logMeshtasticRx("[gat562][mt][mqtt] queued topic=%s env=%u variant=%u port=%u q=%u\n",
                     proxy.topic,
                     static_cast<unsigned>(proxy.payload_variant.data.size),
@@ -3334,6 +3335,11 @@ bool MeshtasticRadioAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& 
                         ? static_cast<unsigned>(packet.decoded.portnum)
                         : 0U,
                     static_cast<unsigned>(mqtt_proxy_queue_.size()));
+    if (dropped)
+    {
+        logMeshtasticRx("[gat562][mt][mqtt] queue dropped oldest depth=%u\n",
+                        static_cast<unsigned>(mqtt_proxy_queue_.size()));
+    }
     return true;
 }
 
