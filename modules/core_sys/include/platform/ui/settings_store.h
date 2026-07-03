@@ -18,6 +18,11 @@ bool get_bool(const char* ns, const char* key, bool default_value);
 uint32_t get_uint(const char* ns, const char* key, uint32_t default_value);
 bool get_string(const char* ns, const char* key, std::string& out);
 bool get_blob(const char* ns, const char* key, std::vector<uint8_t>& out);
+bool get_blob_into(const char* ns,
+                   const char* key,
+                   void* out,
+                   std::size_t capacity,
+                   std::size_t* out_len);
 void remove_keys(const char* ns, const char* const* keys, std::size_t key_count);
 void clear_namespace(const char* ns);
 

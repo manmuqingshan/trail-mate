@@ -1419,8 +1419,9 @@ struct GpsRuntime::Impl
 };
 
 GpsRuntime::GpsRuntime()
-    : impl_(new Impl())
 {
+    static Impl impl_storage;
+    impl_ = &impl_storage;
     if (impl_)
     {
         impl_->initializeDebugGuards();
@@ -1430,7 +1431,6 @@ GpsRuntime::GpsRuntime()
 
 GpsRuntime::~GpsRuntime()
 {
-    delete impl_;
     impl_ = nullptr;
 }
 

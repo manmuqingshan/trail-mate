@@ -2840,8 +2840,10 @@ bool MeshtasticRadioAdapter::initPkiKeys()
 void MeshtasticRadioAdapter::loadPkiNodeKeys()
 {
     ::platform::nrf52::arduino_common::mesh::Nrf52SettingsPeerKeyStore store;
-    std::vector<::mesh::PeerPublicKey> keys;
-    auto loaded = store.loadAll(keys);
+    size_t key_count = 0;
+    auto loaded = store.loadAll(pki_save_entries_.data(),
+                                pki_save_entries_.size(),
+                                &key_count);
     if (!loaded.ok)
     {
         if (loaded.failure != ::mesh::StoreFailure::NotFound)
@@ -2853,8 +2855,9 @@ void MeshtasticRadioAdapter::loadPkiNodeKeys()
     }
 
     clearPkiNodeKeys();
-    for (const auto& peer_key : keys)
+    for (size_t index = 0; index < key_count; ++index)
     {
+        const auto& peer_key = pki_save_entries_[index];
         bool evicted = false;
         (void)upsertPkiNodeKey(peer_key.node_id.value,
                                peer_key.public_key,

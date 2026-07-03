@@ -617,6 +617,72 @@ bool get_blob(const char* ns, const char* key, std::vector<uint8_t>& out)
     return true;
 }
 
+bool get_blob_into(const char* ns,
+                   const char* key,
+                   void* out,
+                   std::size_t capacity,
+                   std::size_t* out_len)
+{
+    using namespace ::platform::esp::common::settings_store_detail;
+
+    if (out_len)
+    {
+        *out_len = 0;
+    }
+    if (!key || (!out && capacity != 0))
+    {
+        return false;
+    }
+
+    const char* storage_key = resolve_storage_key(key);
+    if (!validate_storage_key("READ", ns, key, storage_key))
+    {
+        return false;
+    }
+
+    nvs_handle_t handle = 0;
+    if (!open_namespace(ns, true, &handle))
+    {
+        log_open_failure("READ", ns, key, storage_key);
+        return false;
+    }
+
+    std::size_t len = 0;
+    const esp_err_t len_err = nvs_get_blob(handle, storage_key, nullptr, &len);
+    if (len_err != ESP_OK || len == 0)
+    {
+        logf("[CfgStore][READ] ns=%s key=%s storage_key=%s type=blob source=%s len=0\n",
+             safe_label(ns),
+             safe_label(key),
+             safe_label(storage_key),
+             len_err == ESP_OK ? "empty" : "missing");
+        nvs_close(handle);
+        return false;
+    }
+
+    if (out_len)
+    {
+        *out_len = len;
+    }
+    if (len > capacity)
+    {
+        nvs_close(handle);
+        return false;
+    }
+
+    std::size_t read = len;
+    const bool ok = nvs_get_blob(handle, storage_key, out, &read) == ESP_OK && read == len;
+    nvs_close(handle);
+
+    logf("[CfgStore][READ] ns=%s key=%s storage_key=%s type=blob source=stored len=%lu ok=%s\n",
+         safe_label(ns),
+         safe_label(key),
+         safe_label(storage_key),
+         static_cast<unsigned long>(len),
+         bool_label(ok));
+    return ok;
+}
+
 void remove_keys(const char* ns, const char* const* keys, std::size_t key_count)
 {
     using namespace ::platform::esp::common::settings_store_detail;

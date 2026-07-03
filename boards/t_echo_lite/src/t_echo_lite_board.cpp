@@ -27,6 +27,18 @@ namespace boards::t_echo_lite
 namespace
 {
 
+GpsRuntime& sharedGpsRuntime()
+{
+    static GpsRuntime runtime;
+    return runtime;
+}
+
+InputRuntime& sharedInputRuntime()
+{
+    static InputRuntime runtime;
+    return runtime;
+}
+
 void writeLed(int pin, bool active_high, bool on)
 {
     if (pin < 0)
@@ -476,8 +488,8 @@ TEchoLiteBoard& TEchoLiteBoard::instance()
 }
 
 TEchoLiteBoard::TEchoLiteBoard()
-    : gps_runtime_(new GpsRuntime()),
-      input_runtime_(new InputRuntime())
+    : gps_runtime_(&sharedGpsRuntime()),
+      input_runtime_(&sharedInputRuntime())
 {
 }
 
