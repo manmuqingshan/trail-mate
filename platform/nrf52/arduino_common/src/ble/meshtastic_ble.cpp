@@ -935,6 +935,7 @@ void MeshtasticBleService::update()
         return;
     }
 
+    processPendingGapEvents();
     syncMqttProxySettings();
 
     if (phone_session_)
@@ -1625,6 +1626,80 @@ void MeshtasticBleService::startPhoneAdvertising(bool prefer_directed)
 
 void MeshtasticBleService::handleConnectEvent(uint16_t conn_handle)
 {
+    enqueueGapEvent(PendingGapEventType::Connect, conn_handle, 0);
+}
+
+void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle, uint8_t reason)
+{
+    enqueueGapEvent(PendingGapEventType::Disconnect, conn_handle, reason);
+}
+
+void MeshtasticBleService::enqueueGapEvent(PendingGapEventType type, uint16_t conn_handle, uint8_t reason)
+{
+    noInterrupts();
+    if (pending_gap_event_count_ >= kPendingGapEventCapacity)
+    {
+        pending_gap_event_head_ = static_cast<uint8_t>((pending_gap_event_head_ + 1U) % kPendingGapEventCapacity);
+        --pending_gap_event_count_;
+        if (pending_gap_event_drop_count_ != 0xFFU)
+        {
+            ++pending_gap_event_drop_count_;
+        }
+    }
+
+    PendingGapEvent& event = pending_gap_events_[pending_gap_event_tail_];
+    event.type = type;
+    event.conn_handle = conn_handle;
+    event.reason = reason;
+    pending_gap_event_tail_ = static_cast<uint8_t>((pending_gap_event_tail_ + 1U) % kPendingGapEventCapacity);
+    ++pending_gap_event_count_;
+    interrupts();
+}
+
+void MeshtasticBleService::processPendingGapEvents()
+{
+    uint8_t dropped = 0;
+    noInterrupts();
+    if (pending_gap_event_drop_count_ != 0)
+    {
+        dropped = pending_gap_event_drop_count_;
+        pending_gap_event_drop_count_ = 0;
+    }
+    interrupts();
+    if (dropped != 0)
+    {
+        bleLogBoth("[BLE][nrf52][mt][flow] gap event queue dropped=%u", static_cast<unsigned>(dropped));
+    }
+
+    while (true)
+    {
+        PendingGapEvent event{};
+        noInterrupts();
+        if (pending_gap_event_count_ == 0)
+        {
+            interrupts();
+            return;
+        }
+
+        event = pending_gap_events_[pending_gap_event_head_];
+        pending_gap_event_head_ =
+            static_cast<uint8_t>((pending_gap_event_head_ + 1U) % kPendingGapEventCapacity);
+        --pending_gap_event_count_;
+        interrupts();
+
+        if (event.type == PendingGapEventType::Connect)
+        {
+            applyConnectEvent(event.conn_handle);
+        }
+        else
+        {
+            applyDisconnectEvent(event.conn_handle, event.reason);
+        }
+    }
+}
+
+void MeshtasticBleService::applyConnectEvent(uint16_t conn_handle)
+{
     connected_ = true;
     conn_handle_ = conn_handle;
     ++ble_session_seq_;
@@ -1688,7 +1763,7 @@ void MeshtasticBleService::handleConnectEvent(uint16_t conn_handle)
     }
 }
 
-void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle, uint8_t reason)
+void MeshtasticBleService::applyDisconnectEvent(uint16_t conn_handle, uint8_t reason)
 {
     connected_ = false;
     from_num_notify_enabled_ = false;

@@ -78,6 +78,23 @@ class MeshtasticBleService final : public BleService,
         bool notified = false;
     };
 
+    enum class PendingGapEventType : uint8_t
+    {
+        Connect,
+        Disconnect,
+    };
+
+    struct PendingGapEvent
+    {
+        PendingGapEventType type = PendingGapEventType::Disconnect;
+        uint16_t conn_handle = BLE_CONN_HANDLE_INVALID;
+        uint8_t reason = 0;
+    };
+
+    void enqueueGapEvent(PendingGapEventType type, uint16_t conn_handle, uint8_t reason);
+    void processPendingGapEvents();
+    void applyConnectEvent(uint16_t conn_handle);
+    void applyDisconnectEvent(uint16_t conn_handle, uint8_t reason);
     void processPendingToRadio();
     void processPendingPairingRequest();
     void clearToPhoneQueue();
@@ -143,6 +160,13 @@ class MeshtasticBleService final : public BleService,
     volatile bool pairing_request_pending_ = false;
     volatile uint16_t pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     volatile bool pending_phone_disconnect_request_ = false;
+
+    static constexpr uint8_t kPendingGapEventCapacity = 4;
+    PendingGapEvent pending_gap_events_[kPendingGapEventCapacity]{};
+    volatile uint8_t pending_gap_event_head_ = 0;
+    volatile uint8_t pending_gap_event_tail_ = 0;
+    volatile uint8_t pending_gap_event_count_ = 0;
+    volatile uint8_t pending_gap_event_drop_count_ = 0;
 
     volatile bool pending_connect_log_ = false;
     volatile bool pending_disconnect_log_ = false;
