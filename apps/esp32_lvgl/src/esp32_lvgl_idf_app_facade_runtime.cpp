@@ -905,7 +905,6 @@ class IdfTeamCrypto final : public team::ITeamCrypto
                nonce_len == kTeamAeadNonceBytes &&
                (payload != nullptr || payload_len == 0);
     }
-
 };
 
 class IdfTeamTrackSourceGps final : public team::ITeamTrackSource
@@ -1385,9 +1384,9 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         }
 
         if (team_controller_->setKeysFromPsk(snapshot.team_id,
-                                            snapshot.security_round,
-                                            snapshot.team_psk.data(),
-                                            snapshot.team_psk.size()))
+                                             snapshot.security_round,
+                                             snapshot.team_psk.data(),
+                                             snapshot.team_psk.size()))
         {
             ESP_LOGI(kIdfTeamTag,
                      "keys restored from Team UI store key_id=%lu",
