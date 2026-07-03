@@ -241,6 +241,13 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
         meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
     };
 
+    struct PendingMqttDownlink
+    {
+        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
+        char channel_id[32] = {};
+        char gateway_id[16] = {};
+    };
+
     struct MqttPublishScratchBuffers
     {
         std::array<uint8_t, 256> buffer{};
@@ -345,6 +352,10 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
                                    meshtastic_MeshPacket* out_packet,
                                    char* out_channel_id, size_t channel_id_len,
                                    char* out_gateway_id, size_t gateway_id_len) const;
+    bool enqueueMqttEnvelope(const meshtastic_MeshPacket& packet,
+                             const char* channel_id,
+                             const char* gateway_id);
+    void processPendingMqttDownlinks();
     bool injectMqttEnvelope(const meshtastic_MeshPacket& packet,
                             const char* channel_id,
                             const char* gateway_id);
@@ -367,6 +378,8 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     float last_rx_snr_ = std::numeric_limits<float>::quiet_NaN();
     static constexpr std::size_t kIncomingQueueDepth = 12;
     static constexpr std::size_t kMqttProxyQueueDepth = 12;
+    static constexpr std::size_t kPendingMqttDownlinkDepth = 4;
+    static constexpr std::size_t kPendingMqttDownlinkDrainPerTick = 2;
     static constexpr std::size_t kPkiNodeTableDepth = 16;
     static constexpr std::size_t kNodeRuntimeTableDepth = 64;
 
@@ -391,6 +404,7 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     ::chat::infra::IncomingTextQueue<kIncomingQueueDepth> text_queue_;
     ::chat::infra::IncomingDataQueue<kIncomingQueueDepth> data_queue_;
     sys::RingBuffer<meshtastic_MqttClientProxyMessage, kMqttProxyQueueDepth> mqtt_proxy_queue_;
+    sys::RingBuffer<PendingMqttDownlink, kPendingMqttDownlinkDepth> pending_mqtt_downlinks_;
     MqttProxySettings mqtt_proxy_settings_{};
     PacketHistoryTable packet_history_;
     PendingRetransmitTable pending_retransmits_;

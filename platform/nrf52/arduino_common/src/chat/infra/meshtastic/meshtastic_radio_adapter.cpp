@@ -868,7 +868,7 @@ bool MeshtasticRadioAdapter::handleMqttProxyMessage(const meshtastic_MqttClientP
         return false;
     }
 
-    return injectMqttEnvelope(scratch.packet, scratch.channel_id, scratch.gateway_id);
+    return enqueueMqttEnvelope(scratch.packet, scratch.channel_id, scratch.gateway_id);
 }
 
 bool MeshtasticRadioAdapter::pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len)
@@ -1501,6 +1501,8 @@ void MeshtasticRadioAdapter::setLastRxStats(float rssi, float snr)
 
 void MeshtasticRadioAdapter::processSendQueue()
 {
+    processPendingMqttDownlinks();
+
     const uint32_t now_ms = millis();
     maybeBroadcastNodeInfo(now_ms);
     for (std::size_t index = 0; index < pending_retransmits_.capacity();)
@@ -3480,6 +3482,52 @@ bool MeshtasticRadioAdapter::decodeMqttServiceEnvelope(const uint8_t* payload, s
 
     return out_packet->which_payload_variant == meshtastic_MeshPacket_decoded_tag ||
            out_packet->which_payload_variant == meshtastic_MeshPacket_encrypted_tag;
+}
+
+bool MeshtasticRadioAdapter::enqueueMqttEnvelope(const meshtastic_MeshPacket& packet,
+                                                 const char* channel_id,
+                                                 const char* gateway_id)
+{
+    if (!channel_id || *channel_id == '\0')
+    {
+        return false;
+    }
+
+    PendingMqttDownlink pending{};
+    pending.packet = packet;
+    std::strncpy(pending.channel_id, channel_id, sizeof(pending.channel_id) - 1U);
+    pending.channel_id[sizeof(pending.channel_id) - 1U] = '\0';
+    if (gateway_id)
+    {
+        std::strncpy(pending.gateway_id, gateway_id, sizeof(pending.gateway_id) - 1U);
+        pending.gateway_id[sizeof(pending.gateway_id) - 1U] = '\0';
+    }
+
+    bool dropped = false;
+    pending_mqtt_downlinks_.pushDropOldest(pending, &dropped);
+    logMeshtasticRx("[nrf52][mt][mqtt] downlink queued topic_ch='%s' gateway='%s' from=%08lX to=%08lX id=%08lX q=%u dropped=%u\n",
+                    pending.channel_id,
+                    pending.gateway_id,
+                    static_cast<unsigned long>(packet.from),
+                    static_cast<unsigned long>(packet.to),
+                    static_cast<unsigned long>(packet.id),
+                    static_cast<unsigned>(pending_mqtt_downlinks_.size()),
+                    dropped ? 1U : 0U);
+    return true;
+}
+
+void MeshtasticRadioAdapter::processPendingMqttDownlinks()
+{
+    for (std::size_t count = 0; count < kPendingMqttDownlinkDrainPerTick; ++count)
+    {
+        PendingMqttDownlink pending{};
+        if (!pending_mqtt_downlinks_.popOldest(&pending))
+        {
+            return;
+        }
+
+        (void)injectMqttEnvelope(pending.packet, pending.channel_id, pending.gateway_id);
+    }
 }
 
 bool MeshtasticRadioAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
