@@ -88,6 +88,7 @@ class MeshtasticBleService final : public BleService,
     void flushPendingConfigSaves(bool force = false);
     void applyBleSecurity();
     void logFromRadioState(const char* tag) const;
+    void logSessionState(const char* tag, uint32_t detail = 0);
     void requestPairingIfNeeded(uint16_t conn_handle);
     uint32_t effectivePasskey() const;
     void logDeferredBleEvents();
@@ -163,6 +164,16 @@ class MeshtasticBleService final : public BleService,
     bool module_config_save_pending_ = false;
     uint32_t config_save_due_ms_ = 0;
     uint32_t last_ble_activity_ms_ = 0;
+    uint32_t ble_session_seq_ = 0;
+    uint32_t session_started_ms_ = 0;
+    uint32_t last_secured_ms_ = 0;
+    uint32_t last_from_num_cccd_ms_ = 0;
+    uint32_t last_to_radio_ms_ = 0;
+    uint32_t last_heartbeat_ms_ = 0;
+    uint32_t last_want_config_ms_ = 0;
+    uint32_t last_from_radio_read_ms_ = 0;
+    uint32_t last_from_num_notify_ms_ = 0;
+    uint32_t next_connected_session_log_ms_ = 0;
     uint32_t next_ble_idle_log_ms_ = 0;
     ble_gap_addr_t remembered_phone_peer_ = {};
     bool remembered_phone_peer_valid_ = false;

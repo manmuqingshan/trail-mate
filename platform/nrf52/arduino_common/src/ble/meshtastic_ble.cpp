@@ -26,6 +26,7 @@ namespace
 constexpr uint32_t kDefaultBleFixedPin = 654321;
 constexpr uint32_t kConfigSaveDebounceMs = 1500UL;
 constexpr uint32_t kBleIdleStateLogIntervalMs = 10000UL;
+constexpr uint32_t kBleConnectedSessionLogIntervalMs = 30000UL;
 constexpr uint32_t kDirectedAdvertisingMs = 3000UL;
 constexpr uint16_t kBleAdvertisingFastInterval = 32;
 constexpr uint16_t kBleAdvertisingSlowInterval = 668;
@@ -34,6 +35,7 @@ constexpr uint8_t kFromRadioEmptyInactive = 1;
 constexpr uint8_t kFromRadioEmptyNoFrame = 2;
 constexpr uint8_t kFromRadioEmptyInvalidFrame = 3;
 constexpr uint8_t kFromRadioEmptyNotNotified = 4;
+constexpr uint32_t kUnsetAgeMs = 0xFFFFFFFFUL;
 
 bool usbSerialWritable(std::size_t len)
 {
@@ -193,6 +195,91 @@ bool isEmptyBleAddress(const ble_gap_addr_t& addr)
 bool isIdentityBleAddressType(uint8_t type)
 {
     return type == BLE_GAP_ADDR_TYPE_PUBLIC || type == BLE_GAP_ADDR_TYPE_RANDOM_STATIC;
+}
+
+uint32_t ageSinceOrUnset(uint32_t now_ms, uint32_t then_ms)
+{
+    return then_ms == 0 ? kUnsetAgeMs : now_ms - then_ms;
+}
+
+bool readProtoVarint(const uint8_t* data, size_t len, size_t* index, uint64_t* out)
+{
+    if (!data || !index || !out)
+    {
+        return false;
+    }
+
+    uint64_t value = 0;
+    uint8_t shift = 0;
+    while (*index < len && shift < 64)
+    {
+        const uint8_t byte = data[*index];
+        ++(*index);
+        value |= static_cast<uint64_t>(byte & 0x7FU) << shift;
+        if ((byte & 0x80U) == 0)
+        {
+            *out = value;
+            return true;
+        }
+        shift = static_cast<uint8_t>(shift + 7U);
+    }
+    return false;
+}
+
+uint32_t peekToRadioVariant(const uint8_t* data, size_t len)
+{
+    size_t index = 0;
+    while (index < len)
+    {
+        uint64_t key = 0;
+        if (!readProtoVarint(data, len, &index, &key))
+        {
+            return 0;
+        }
+        const uint32_t field = static_cast<uint32_t>(key >> 3U);
+        const uint8_t wire_type = static_cast<uint8_t>(key & 0x07U);
+        if (field == meshtastic_ToRadio_packet_tag || field == meshtastic_ToRadio_want_config_id_tag ||
+            field == meshtastic_ToRadio_disconnect_tag || field == meshtastic_ToRadio_xmodemPacket_tag ||
+            field == meshtastic_ToRadio_mqttClientProxyMessage_tag || field == meshtastic_ToRadio_heartbeat_tag)
+        {
+            return field;
+        }
+
+        uint64_t skip_len = 0;
+        switch (wire_type)
+        {
+        case 0:
+            if (!readProtoVarint(data, len, &index, &skip_len))
+            {
+                return 0;
+            }
+            break;
+        case 1:
+            if (len - index < 8)
+            {
+                return 0;
+            }
+            index += 8;
+            break;
+        case 2:
+            if (!readProtoVarint(data, len, &index, &skip_len) || skip_len > len - index)
+            {
+                return 0;
+            }
+            index += static_cast<size_t>(skip_len);
+            break;
+        case 5:
+            if (len - index < 4)
+            {
+                return 0;
+            }
+            index += 4;
+            break;
+        default:
+            return 0;
+        }
+    }
+    return 0;
 }
 
 bool blePairingRequiresSecurity(const meshtastic_Config_BluetoothConfig& config)
@@ -572,6 +659,64 @@ void MeshtasticBleService::logFromRadioState(const char* tag) const
                (phone_session_ && phone_session_->isSendingPackets()) ? 1 : 0);
 }
 
+void MeshtasticBleService::logSessionState(const char* tag, uint32_t detail)
+{
+    const uint32_t now_ms = millis();
+    const bool gap_connected = Bluefruit.connected();
+    bool bonded = false;
+    bool secured = false;
+    uint16_t mtu = 0;
+    uint16_t interval = 0;
+    uint16_t latency = 0;
+    uint16_t timeout = 0;
+    if (conn_handle_ != BLE_CONN_HANDLE_INVALID)
+    {
+        BLEConnection* connection = Bluefruit.Connection(conn_handle_);
+        if (connection)
+        {
+            bonded = connection->bonded();
+            secured = connection->secured();
+            mtu = connection->getMtu();
+            interval = connection->getConnectionInterval();
+            latency = connection->getSlaveLatency();
+            timeout = connection->getSupervisionTimeout();
+        }
+    }
+
+    bleLogBoth("[BLE][nrf52][mt][session] seq=%lu tag=%s detail=%08lX age_ms=%lu connected=%u gap=%u "
+               "secured=%u bonded=%u notify=%u cccd=0x%04X cfg=%u send=%u published=%u head=%u tail=%u "
+               "pending_to=%u publish_req=%u mtu=%u ci=%u lat=%u sto=%u "
+               "last_sec=%lu last_cccd=%lu last_to=%lu last_hb=%lu last_cfg=%lu last_read=%lu last_notify=%lu",
+               static_cast<unsigned long>(ble_session_seq_),
+               tag ? tag : "?",
+               static_cast<unsigned long>(detail),
+               static_cast<unsigned long>(ageSinceOrUnset(now_ms, session_started_ms_)),
+               connected_ ? 1U : 0U,
+               gap_connected ? 1U : 0U,
+               secured ? 1U : 0U,
+               bonded ? 1U : 0U,
+               from_num_notify_enabled_ ? 1U : 0U,
+               conn_handle_ != BLE_CONN_HANDLE_INVALID ? static_cast<unsigned>(from_num_.getCccd(conn_handle_)) : 0U,
+               (phone_session_ && phone_session_->isConfigFlowActive()) ? 1U : 0U,
+               (phone_session_ && phone_session_->isSendingPackets()) ? 1U : 0U,
+               static_cast<unsigned>(published_from_radio_count_),
+               static_cast<unsigned>(published_from_radio_head_),
+               static_cast<unsigned>(published_from_radio_tail_),
+               static_cast<unsigned>(pending_to_radio_count_),
+               from_radio_publish_requested_ ? 1U : 0U,
+               static_cast<unsigned>(mtu),
+               static_cast<unsigned>(interval),
+               static_cast<unsigned>(latency),
+               static_cast<unsigned>(timeout),
+               static_cast<unsigned long>(ageSinceOrUnset(now_ms, last_secured_ms_)),
+               static_cast<unsigned long>(ageSinceOrUnset(now_ms, last_from_num_cccd_ms_)),
+               static_cast<unsigned long>(ageSinceOrUnset(now_ms, last_to_radio_ms_)),
+               static_cast<unsigned long>(ageSinceOrUnset(now_ms, last_heartbeat_ms_)),
+               static_cast<unsigned long>(ageSinceOrUnset(now_ms, last_want_config_ms_)),
+               static_cast<unsigned long>(ageSinceOrUnset(now_ms, last_from_radio_read_ms_)),
+               static_cast<unsigned long>(ageSinceOrUnset(now_ms, last_from_num_notify_ms_)));
+}
+
 void MeshtasticBleService::start()
 {
     s_active_service = this;
@@ -601,6 +746,16 @@ void MeshtasticBleService::start()
     directed_advertising_attempted_ = false;
     directed_advertising_until_ms_ = 0;
     last_ble_activity_ms_ = millis();
+    ble_session_seq_ = 0;
+    session_started_ms_ = 0;
+    last_secured_ms_ = 0;
+    last_from_num_cccd_ms_ = 0;
+    last_to_radio_ms_ = 0;
+    last_heartbeat_ms_ = 0;
+    last_want_config_ms_ = 0;
+    last_from_radio_read_ms_ = 0;
+    last_from_num_notify_ms_ = 0;
+    next_connected_session_log_ms_ = 0;
     next_ble_idle_log_ms_ = last_ble_activity_ms_ + 3000UL;
 
     prepareBluefruit(device_name_);
@@ -718,6 +873,15 @@ void MeshtasticBleService::stop()
     directed_advertising_active_ = false;
     directed_advertising_attempted_ = false;
     directed_advertising_until_ms_ = 0;
+    session_started_ms_ = 0;
+    last_secured_ms_ = 0;
+    last_from_num_cccd_ms_ = 0;
+    last_to_radio_ms_ = 0;
+    last_heartbeat_ms_ = 0;
+    last_want_config_ms_ = 0;
+    last_from_radio_read_ms_ = 0;
+    last_from_num_notify_ms_ = 0;
+    next_connected_session_log_ms_ = 0;
     next_ble_idle_log_ms_ = 0;
     if (s_active_service == this)
     {
@@ -788,6 +952,12 @@ void MeshtasticBleService::update()
                    phone_session_ && phone_session_->isSendingPackets() ? 1U : 0U,
                    device_name_.c_str());
         next_ble_idle_log_ms_ = now_ms + kBleIdleStateLogIntervalMs;
+    }
+
+    if (connected_ && static_cast<int32_t>(now_ms - next_connected_session_log_ms_) >= 0)
+    {
+        logSessionState("periodic");
+        next_connected_session_log_ms_ = now_ms + kBleConnectedSessionLogIntervalMs;
     }
 }
 
@@ -868,12 +1038,23 @@ void MeshtasticBleService::setDeviceName(const std::string& name)
 bool MeshtasticBleService::handleToRadio(const uint8_t* data, size_t len)
 {
     last_ble_activity_ms_ = millis();
+    last_to_radio_ms_ = last_ble_activity_ms_;
+    const uint32_t to_radio_variant = peekToRadioVariant(data, len);
+    if (to_radio_variant == meshtastic_ToRadio_heartbeat_tag)
+    {
+        last_heartbeat_ms_ = last_ble_activity_ms_;
+    }
+    else if (to_radio_variant == meshtastic_ToRadio_want_config_id_tag)
+    {
+        last_want_config_ms_ = last_ble_activity_ms_;
+    }
     const bool config_before = phone_session_ && phone_session_->isConfigFlowActive();
     const bool send_before = phone_session_ && phone_session_->isSendingPackets();
     probeGpsGuard("ble_to_radio_pre_handle");
     const bool ok = phone_session_ ? phone_session_->handleToRadio(data, len) : false;
     probeGpsGuard("ble_to_radio_post_handle");
-    Serial2.printf("[BLE][nrf52][mt] handleToRadio len=%u ok=%u connected=%u notify=%u config=%u->%u send=%u->%u\n",
+    Serial2.printf("[BLE][nrf52][mt] handleToRadio variant=%lu len=%u ok=%u connected=%u notify=%u config=%u->%u send=%u->%u\n",
+                   static_cast<unsigned long>(to_radio_variant),
                    static_cast<unsigned>(len),
                    ok ? 1U : 0U,
                    connected_ ? 1U : 0U,
@@ -882,6 +1063,24 @@ bool MeshtasticBleService::handleToRadio(const uint8_t* data, size_t len)
                    (phone_session_ && phone_session_->isConfigFlowActive()) ? 1U : 0U,
                    send_before ? 1U : 0U,
                    (phone_session_ && phone_session_->isSendingPackets()) ? 1U : 0U);
+    const bool config_after = phone_session_ && phone_session_->isConfigFlowActive();
+    const bool send_after = phone_session_ && phone_session_->isSendingPackets();
+    if (to_radio_variant == meshtastic_ToRadio_heartbeat_tag)
+    {
+        logSessionState("heartbeat", to_radio_variant);
+    }
+    else if (to_radio_variant == meshtastic_ToRadio_want_config_id_tag)
+    {
+        logSessionState("want_config", to_radio_variant);
+    }
+    else if (to_radio_variant == meshtastic_ToRadio_disconnect_tag)
+    {
+        logSessionState("phone_disconnect", to_radio_variant);
+    }
+    else if (config_before != config_after || send_before != send_after)
+    {
+        logSessionState("phase_change", to_radio_variant);
+    }
     return ok;
 }
 
@@ -906,6 +1105,7 @@ void MeshtasticBleService::handleFromRadioReadRequest(uint16_t conn_handle,
     authorizeRead(conn_handle);
     if (consumed)
     {
+        last_from_radio_read_ms_ = last_ble_activity_ms_;
         releasePublishedFromRadioHead();
     }
 }
@@ -955,7 +1155,6 @@ void MeshtasticBleService::fillPublishedFromRadioSlots()
             static_cast<uint8_t>((published_from_radio_tail_ + 1U) % kPublishedFromRadioCapacity);
         ++published_from_radio_count_;
         interrupts();
-
     }
 
     from_radio_publish_requested_ = true;
@@ -1256,10 +1455,20 @@ void MeshtasticBleService::handleConnectEvent(uint16_t conn_handle)
 {
     connected_ = true;
     conn_handle_ = conn_handle;
+    ++ble_session_seq_;
     directed_advertising_active_ = false;
     directed_advertising_attempted_ = false;
     directed_advertising_until_ms_ = 0;
     last_ble_activity_ms_ = millis();
+    session_started_ms_ = last_ble_activity_ms_;
+    last_secured_ms_ = 0;
+    last_from_num_cccd_ms_ = 0;
+    last_to_radio_ms_ = 0;
+    last_heartbeat_ms_ = 0;
+    last_want_config_ms_ = 0;
+    last_from_radio_read_ms_ = 0;
+    last_from_num_notify_ms_ = 0;
+    next_connected_session_log_ms_ = last_ble_activity_ms_ + kBleConnectedSessionLogIntervalMs;
     from_num_notify_enabled_ = false;
     if (phone_session_)
     {
@@ -1296,6 +1505,7 @@ void MeshtasticBleService::handleConnectEvent(uint16_t conn_handle)
                    static_cast<unsigned>(conn_handle),
                    Bluefruit.Advertising.isRunning() ? 1U : 0U);
     }
+    logSessionState("link_up");
     rememberPhonePeer(conn_handle, "connect");
 }
 
@@ -1305,6 +1515,7 @@ void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle, uint8_t r
     from_num_notify_enabled_ = false;
     conn_handle_ = BLE_CONN_HANDLE_INVALID;
     last_ble_activity_ms_ = millis();
+    next_connected_session_log_ms_ = 0;
     if (phone_session_)
     {
         phone_session_->close();
@@ -1327,6 +1538,7 @@ void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle, uint8_t r
                static_cast<unsigned>(reason),
                disconnectReasonName(reason),
                Bluefruit.Advertising.isRunning() ? 1U : 0U);
+    logSessionState("link_down", reason);
     flushPendingConfigSaves(true);
 }
 
@@ -1334,6 +1546,7 @@ void MeshtasticBleService::handleFromNumCccdWrite(uint16_t conn_handle, uint16_t
 {
     conn_handle_ = conn_handle;
     last_ble_activity_ms_ = millis();
+    last_from_num_cccd_ms_ = last_ble_activity_ms_;
     from_num_notify_enabled_ = (value != 0U);
     pending_from_num_cccd_conn_handle_ = conn_handle;
     pending_from_num_cccd_value_ = value;
@@ -1342,6 +1555,7 @@ void MeshtasticBleService::handleFromNumCccdWrite(uint16_t conn_handle, uint16_t
                from_num_notify_enabled_ ? 1U : 0U,
                static_cast<unsigned>(conn_handle),
                static_cast<unsigned>(value));
+    logSessionState(from_num_notify_enabled_ ? "from_num_cccd_on" : "from_num_cccd_off", value);
 }
 
 void MeshtasticBleService::handlePairPasskeyDisplay(uint16_t conn_handle, const uint8_t passkey[6], bool match_request)
@@ -1378,12 +1592,14 @@ void MeshtasticBleService::handleSecured(uint16_t conn_handle)
     pending_passkey_.store(0);
     pending_secured_conn_handle_ = conn_handle;
     pending_secured_log_ = true;
+    last_secured_ms_ = millis();
     BLEConnection* connection = Bluefruit.Connection(conn_handle);
     bleLogBoth("[BLE][nrf52][mt][flow] secured conn=%u bonded=%u secured=%u mtu=%u",
                static_cast<unsigned>(conn_handle),
                connection && connection->bonded() ? 1U : 0U,
                connection && connection->secured() ? 1U : 0U,
                connection ? static_cast<unsigned>(connection->getMtu()) : 0U);
+    logSessionState("secured");
     rememberPhonePeer(conn_handle, "secured");
 }
 
@@ -1533,6 +1749,7 @@ void MeshtasticBleService::flushPendingFromNumNotify()
                static_cast<unsigned>(published_from_radio_count_));
     if (ok)
     {
+        last_from_num_notify_ms_ = millis();
         slot.notified = true;
         return;
     }
@@ -1546,6 +1763,7 @@ void MeshtasticBleService::flushPendingFromNumNotify()
                    fallback_ok ? 1U : 0U);
         if (fallback_ok)
         {
+            last_from_num_notify_ms_ = millis();
             slot.notified = true;
         }
     }
@@ -1753,7 +1971,8 @@ void MeshtasticBleService::logDeferredBleEvents()
     if (pending_from_radio_read_log_)
     {
         pending_from_radio_read_log_ = false;
-        bleLogBoth("[BLE][nrf52][mt] from_radio read len=%u from_num=%08lX",
+        bleLogBoth("[BLE][nrf52][mt] from_radio read seq=%lu len=%u from_num=%08lX",
+                   static_cast<unsigned long>(ble_session_seq_),
                    static_cast<unsigned>(pending_from_radio_read_len_),
                    static_cast<unsigned long>(pending_from_radio_read_from_num_));
     }
@@ -1761,7 +1980,8 @@ void MeshtasticBleService::logDeferredBleEvents()
     if (pending_from_radio_empty_log_)
     {
         pending_from_radio_empty_log_ = false;
-        bleLogBoth("[BLE][nrf52][mt] from_radio read empty reason=%s config_active=%u send_packets=%u connected=%u",
+        bleLogBoth("[BLE][nrf52][mt] from_radio read empty seq=%lu reason=%s config_active=%u send_packets=%u connected=%u",
+                   static_cast<unsigned long>(ble_session_seq_),
                    fromRadioEmptyReasonName(pending_from_radio_empty_reason_),
                    (phone_session_ && phone_session_->isConfigFlowActive()) ? 1U : 0U,
                    (phone_session_ && phone_session_->isSendingPackets()) ? 1U : 0U,

@@ -423,6 +423,40 @@ Rules:
 - Android starts MQTT proxy from synchronized module config after node DB readiness. Firmware must not assume Android MQTT is ready during `SendNothing` or `ConfigFlow`.
 - `FromNum` can wake reads, but Android also proactively drains after writes. Early `FromRadio` contents are therefore observable even without a notify.
 
+### BLE Session Liveness Observation
+
+`App connected/online` 是 Android/iOS 基于多个事实投影出来的 UI 状态，不是单一 BLE 字段。诊断时必须同时观察：
+
+- BLE transport session: GAP connected、secured、bonded、MTU、connection interval、supervision timeout。
+- Notification readiness: `FromNum` CCCD 是否订阅、最近一次 `FromNum` notify、最近一次 `FromRadio` read。
+- PhoneAPI phase: `SendNothing`、`ConfigFlow`、`SendPackets`。
+- App liveness traffic: 最近一次 `ToRadio.heartbeat`、`ToRadio.want_config_id`、`FromRadio.queueStatus`。
+
+Trail Mate nRF Meshtastic BLE implementation must emit a low-rate session trace using one `session_seq` per transport session:
+
+```text
+[BLE][nrf52][mt][session] seq=... tag=... detail=... age_ms=... connected=... gap=...
+```
+
+Required tags:
+
+| Tag | Meaning |
+| --- | --- |
+| `link_up` | GAP connected; previous PhoneAPI session and unread `FromRadio` slots have been closed/reset. |
+| `secured` | The BLE link completed security. This does not by itself mean Android completed PhoneAPI config sync. |
+| `from_num_cccd_on` / `from_num_cccd_off` | Android subscribed/unsubscribed `FromNum`; without subscription, `FromRadio` data may still be read proactively but wakeup semantics are weaker. |
+| `want_config` | Android wrote `ToRadio.want_config_id`; this starts/restarts PhoneAPI config snapshot. |
+| `heartbeat` | Android wrote `ToRadio.heartbeat`; firmware must enqueue a non-empty `FromRadio.queueStatus` for liveness when phase allows it. |
+| `phase_change` | PhoneAPI phase changed while handling a `ToRadio` write. |
+| `periodic` | Low-rate snapshot while connected, used to diagnose stale app UI state when no edge event occurs. |
+| `link_down` | GAP disconnected; PhoneAPI session and unread published slots must be closed/reset. |
+
+Important distinction:
+
+- If logs show `connected=1`, `gap=1`, `notify=1`, `send=1`, and heartbeat/read ages are fresh, firmware should treat BLE transport as alive even if the app UI temporarily says offline.
+- If app UI says offline while `FromRadio` messages still drain, the suspect boundary is app-level connection projection or config freshness, not immediate packet transport.
+- Do not fix this symptom by forcing a fake online state or by emitting out-of-phase config frames. The proper fix is to align transport session lifecycle, `want_config` handling, heartbeat response, and `FromRadio` drain ordering with official firmware.
+
 ### MQTT Proxy Reliability Window
 
 ```mermaid
