@@ -81,6 +81,9 @@ class MeshtasticBleService final : public BleService,
     void processPendingPairingRequest();
     void clearToPhoneQueue();
     void fillPublishedFromRadioSlots();
+    void flushPendingFromRadioReadAuthorize();
+    void clearPendingFromRadioReadAuthorize();
+    void writeEmptyFromRadioRead(uint8_t reason);
     bool writePublishedFromRadioForRead(uint16_t conn_handle);
     void releasePublishedFromRadioHead();
     void syncMqttProxySettings();
@@ -156,8 +159,11 @@ class MeshtasticBleService final : public BleService,
 
     volatile bool pending_from_radio_read_log_ = false;
     volatile bool pending_from_radio_empty_log_ = false;
+    volatile bool pending_from_radio_read_authorize_ = false;
     volatile uint8_t pending_from_radio_empty_reason_ = 0;
+    volatile uint16_t pending_from_radio_read_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     volatile uint32_t pending_from_radio_read_from_num_ = 0;
+    volatile uint32_t pending_from_radio_read_due_ms_ = 0;
     volatile uint16_t pending_from_radio_read_len_ = 0;
 
     bool bluetooth_config_save_pending_ = false;

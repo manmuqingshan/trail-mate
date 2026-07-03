@@ -202,6 +202,18 @@ stateDiagram-v2
 `from_radio`，因此已经编码到 slot 的 frame 必须可以被 proactive read 消费。队列满时只能
 丢弃允许丢弃的 unread low-priority slot，或拒绝新的低优先级 projection。
 
+每个 encoded `FromRadio` slot 必须携带由 `MeshtasticPhoneCore` 产生的 immutable
+projection metadata：
+
+```text
+kind     = config | liveness | queue_status | admin_response | node_info | packet | mqtt_proxy
+priority = P0 | P1 | P2 | P3
+```
+
+这些 metadata 是发布/背压语义，不是新的协议事实。transport 可以按 metadata 选择保留、
+延迟、丢弃或记录日志；transport 不得为了判断重要性重新解析 `FromRadio` protobuf，也不得
+用 `from_num`、payload 长度、是否已 notify 等传输痕迹反推出 frame 类型。
+
 ### R4 Hot Paths Do Not Allocate Large Automatic Objects
 
 以下路径不得创建大型 automatic local：
@@ -227,6 +239,11 @@ std::deque node allocations in hot path
 
 这类对象必须进入 member scratch、fixed queue slot、static storage with declared owner，
 或 caller-provided output storage。
+
+BLE `ToRadio` 输入 bytes 是一次执行参数，不是长期协议状态。桥接层可以在
+`handleToRadio()` 阶段把它 decode 到 owner 明确的 scratch，但不得保留完整的
+“last ToRadio” 影子副本，除非这份副本有显式消费者和声明过的生命周期。debug trace、
+未来便利性或“也许以后有用”都不是合法 owner。
 
 ### R5 Scratch Is Stage-Local And Non-Reentrant
 

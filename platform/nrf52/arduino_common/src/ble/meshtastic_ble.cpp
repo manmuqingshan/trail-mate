@@ -34,6 +34,8 @@ constexpr uint16_t kBleAdvertisingFastTimeoutSec = 30;
 constexpr uint8_t kFromRadioEmptyInactive = 1;
 constexpr uint8_t kFromRadioEmptyNoFrame = 2;
 constexpr uint8_t kFromRadioEmptyInvalidFrame = 3;
+constexpr uint8_t kSteadyPublishedFromRadioWindow = 1;
+constexpr uint32_t kFromRadioReadHoldMs = 250UL;
 constexpr uint32_t kUnsetAgeMs = 0xFFFFFFFFUL;
 
 bool usbSerialWritable(std::size_t len)
@@ -60,6 +62,31 @@ void probeGpsGuard(const char* tag)
     if (trailmate_nrf52_debug_check_gps_guard)
     {
         (void)trailmate_nrf52_debug_check_gps_guard(tag);
+    }
+}
+
+const char* bleFrameKindName(phone::meshtastic::MeshtasticBleFrameKind kind)
+{
+    using phone::meshtastic::MeshtasticBleFrameKind;
+    switch (kind)
+    {
+    case MeshtasticBleFrameKind::Config:
+        return "config";
+    case MeshtasticBleFrameKind::Liveness:
+        return "liveness";
+    case MeshtasticBleFrameKind::QueueStatus:
+        return "queue_status";
+    case MeshtasticBleFrameKind::AdminResponse:
+        return "admin_response";
+    case MeshtasticBleFrameKind::NodeInfo:
+        return "node_info";
+    case MeshtasticBleFrameKind::Packet:
+        return "packet";
+    case MeshtasticBleFrameKind::MqttProxy:
+        return "mqtt_proxy";
+    case MeshtasticBleFrameKind::None:
+    default:
+        return "none";
     }
 }
 
@@ -682,7 +709,7 @@ void MeshtasticBleService::logSessionState(const char* tag, uint32_t detail)
 
     bleLogBoth("[BLE][nrf52][mt][session] seq=%lu tag=%s detail=%08lX age_ms=%lu connected=%u gap=%u "
                "secured=%u bonded=%u notify=%u cccd=0x%04X cfg=%u send=%u published=%u head=%u tail=%u "
-               "pending_to=%u publish_req=%u mtu=%u ci=%u lat=%u sto=%u "
+               "pending_to=%u publish_req=%u read_wait=%u mtu=%u ci=%u lat=%u sto=%u "
                "last_sec=%lu last_cccd=%lu last_to=%lu last_hb=%lu last_cfg=%lu last_read=%lu last_notify=%lu",
                static_cast<unsigned long>(ble_session_seq_),
                tag ? tag : "?",
@@ -701,6 +728,7 @@ void MeshtasticBleService::logSessionState(const char* tag, uint32_t detail)
                static_cast<unsigned>(published_from_radio_tail_),
                static_cast<unsigned>(pending_to_radio_count_),
                from_radio_publish_requested_ ? 1U : 0U,
+               pending_from_radio_read_authorize_ ? 1U : 0U,
                static_cast<unsigned>(mtu),
                static_cast<unsigned>(interval),
                static_cast<unsigned>(latency),
@@ -731,11 +759,15 @@ void MeshtasticBleService::start()
     pending_from_radio_auth_log_ = false;
     pending_from_radio_read_log_ = false;
     pending_from_radio_empty_log_ = false;
+    clearPendingFromRadioReadAuthorize();
     pending_from_radio_auth_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     pending_from_radio_auth_offset_ = 0;
     pending_from_radio_auth_chr_ = 0;
     pending_from_radio_auth_svc_ = 0;
     pending_from_radio_empty_reason_ = 0;
+    pending_from_radio_read_from_num_ = 0;
+    pending_from_radio_read_due_ms_ = 0;
+    pending_from_radio_read_len_ = 0;
     pending_disconnect_reason_ = 0;
     pairing_request_pending_ = false;
     pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
@@ -859,11 +891,15 @@ void MeshtasticBleService::stop()
     pending_from_radio_auth_log_ = false;
     pending_from_radio_read_log_ = false;
     pending_from_radio_empty_log_ = false;
+    clearPendingFromRadioReadAuthorize();
     pending_from_radio_auth_conn_handle_ = BLE_CONN_HANDLE_INVALID;
     pending_from_radio_auth_offset_ = 0;
     pending_from_radio_auth_chr_ = 0;
     pending_from_radio_auth_svc_ = 0;
     pending_from_radio_empty_reason_ = 0;
+    pending_from_radio_read_from_num_ = 0;
+    pending_from_radio_read_due_ms_ = 0;
+    pending_from_radio_read_len_ = 0;
     pending_disconnect_reason_ = 0;
     pairing_request_pending_ = false;
     pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
@@ -902,6 +938,7 @@ void MeshtasticBleService::update()
 
     processPendingPairingRequest();
     processPendingToRadio();
+    flushPendingFromRadioReadAuthorize();
     flushPendingFromNumNotify();
     logDeferredBleEvents();
     flushPendingConfigSaves(false);
@@ -1098,13 +1135,39 @@ void MeshtasticBleService::handleFromRadioReadRequest(uint16_t conn_handle,
     }
 
     last_ble_activity_ms_ = millis();
-    const bool consumed = writePublishedFromRadioForRead(conn_handle);
-    authorizeRead(conn_handle);
-    if (consumed)
+    if (published_from_radio_count_ > 0)
     {
-        last_from_radio_read_ms_ = last_ble_activity_ms_;
-        releasePublishedFromRadioHead();
+        const bool consumed = writePublishedFromRadioForRead(conn_handle);
+        authorizeRead(conn_handle);
+        if (consumed)
+        {
+            last_from_radio_read_ms_ = last_ble_activity_ms_;
+            releasePublishedFromRadioHead();
+        }
+        return;
     }
+
+    const bool publish_requested_before_read = from_radio_publish_requested_;
+    const bool should_hold = active_ && connected_ && phone_session_ &&
+                             (pending_to_radio_count_ > 0 || publish_requested_before_read ||
+                              phone_session_->isConfigFlowActive());
+    if (should_hold)
+    {
+        pending_from_radio_read_authorize_ = true;
+        pending_from_radio_read_conn_handle_ = conn_handle;
+        pending_from_radio_read_due_ms_ = last_ble_activity_ms_ + kFromRadioReadHoldMs;
+        from_radio_publish_requested_ = true;
+        bleLogBoth("[BLE][nrf52][mt][flow] from_radio read wait conn=%u pending_to=%u publish_req=%u cfg=%u due_ms=%lu",
+                   static_cast<unsigned>(conn_handle),
+                   static_cast<unsigned>(pending_to_radio_count_),
+                   publish_requested_before_read ? 1U : 0U,
+                   phone_session_->isConfigFlowActive() ? 1U : 0U,
+                   static_cast<unsigned long>(kFromRadioReadHoldMs));
+        return;
+    }
+
+    writeEmptyFromRadioRead(active_ && connected_ ? kFromRadioEmptyNoFrame : kFromRadioEmptyInactive);
+    authorizeRead(conn_handle);
 }
 
 void MeshtasticBleService::fillPublishedFromRadioSlots()
@@ -1120,7 +1183,11 @@ void MeshtasticBleService::fillPublishedFromRadioSlots()
         return;
     }
 
-    while (published_from_radio_count_ < kPublishedFromRadioCapacity)
+    const uint8_t target_capacity = phone_session_->isConfigFlowActive()
+                                        ? kPublishedFromRadioCapacity
+                                        : kSteadyPublishedFromRadioWindow;
+
+    while (published_from_radio_count_ < target_capacity)
     {
         auto& session_frame = session_frame_scratch_;
         std::memset(&session_frame, 0, sizeof(session_frame));
@@ -1135,10 +1202,12 @@ void MeshtasticBleService::fillPublishedFromRadioSlots()
 
         if (session_frame.len == 0 || session_frame.len > meshtastic_FromRadio_size)
         {
-            bleLogBoth("[BLE][nrf52][mt] drop invalid published from_radio frame from_num=%08lX len=%u max=%u",
+            bleLogBoth("[BLE][nrf52][mt] drop invalid published from_radio frame from_num=%08lX len=%u max=%u kind=%s pri=%u",
                        static_cast<unsigned long>(session_frame.from_num),
                        static_cast<unsigned>(session_frame.len),
-                       static_cast<unsigned>(meshtastic_FromRadio_size));
+                       static_cast<unsigned>(meshtastic_FromRadio_size),
+                       bleFrameKindName(session_frame.kind),
+                       static_cast<unsigned>(session_frame.priority));
             continue;
         }
 
@@ -1146,6 +1215,13 @@ void MeshtasticBleService::fillPublishedFromRadioSlots()
         PublishedFromRadioSlot& slot = published_from_radio_[slot_index];
         slot.frame = session_frame;
         slot.notified = false;
+        bleLogBoth("[BLE][nrf52][mt][flow] publish slot=%u from_num=%08lX len=%u kind=%s pri=%u q=%u",
+                   static_cast<unsigned>(slot_index),
+                   static_cast<unsigned long>(slot.frame.from_num),
+                   static_cast<unsigned>(slot.frame.len),
+                   bleFrameKindName(slot.frame.kind),
+                   static_cast<unsigned>(slot.frame.priority),
+                   static_cast<unsigned>(published_from_radio_count_));
 
         noInterrupts();
         published_from_radio_tail_ =
@@ -1157,28 +1233,96 @@ void MeshtasticBleService::fillPublishedFromRadioSlots()
     from_radio_publish_requested_ = true;
 }
 
+void MeshtasticBleService::flushPendingFromRadioReadAuthorize()
+{
+    if (!pending_from_radio_read_authorize_)
+    {
+        return;
+    }
+
+    fillPublishedFromRadioSlots();
+
+    const uint16_t conn_handle = pending_from_radio_read_conn_handle_;
+    if (conn_handle == BLE_CONN_HANDLE_INVALID)
+    {
+        clearPendingFromRadioReadAuthorize();
+        return;
+    }
+
+    const uint32_t now_ms = millis();
+    if (published_from_radio_count_ > 0)
+    {
+        const bool consumed = writePublishedFromRadioForRead(conn_handle);
+        authorizeRead(conn_handle);
+        clearPendingFromRadioReadAuthorize();
+        if (consumed)
+        {
+            last_from_radio_read_ms_ = now_ms;
+            releasePublishedFromRadioHead();
+        }
+        return;
+    }
+
+    if (!active_ || !connected_ || static_cast<int32_t>(now_ms - pending_from_radio_read_due_ms_) >= 0)
+    {
+        writeEmptyFromRadioRead(active_ && connected_ ? kFromRadioEmptyNoFrame : kFromRadioEmptyInactive);
+        authorizeRead(conn_handle);
+        bleLogBoth("[BLE][nrf52][mt][flow] from_radio read wait timeout conn=%u active=%u connected=%u pending_to=%u publish_req=%u",
+                   static_cast<unsigned>(conn_handle),
+                   active_ ? 1U : 0U,
+                   connected_ ? 1U : 0U,
+                   static_cast<unsigned>(pending_to_radio_count_),
+                   from_radio_publish_requested_ ? 1U : 0U);
+        clearPendingFromRadioReadAuthorize();
+    }
+}
+
+void MeshtasticBleService::clearPendingFromRadioReadAuthorize()
+{
+    pending_from_radio_read_authorize_ = false;
+    pending_from_radio_read_conn_handle_ = BLE_CONN_HANDLE_INVALID;
+    pending_from_radio_read_due_ms_ = 0;
+}
+
+void MeshtasticBleService::writeEmptyFromRadioRead(uint8_t reason)
+{
+    uint8_t empty = 0;
+    switch (reason)
+    {
+    case kFromRadioEmptyInactive:
+        probeGpsGuard("ble_from_radio_pre_write_empty_inactive");
+        from_radio_.write(&empty, 0);
+        probeGpsGuard("ble_from_radio_post_write_empty_inactive");
+        break;
+    case kFromRadioEmptyInvalidFrame:
+        probeGpsGuard("ble_from_radio_pre_write_empty_invalid");
+        from_radio_.write(&empty, 0);
+        probeGpsGuard("ble_from_radio_post_write_empty_invalid");
+        break;
+    case kFromRadioEmptyNoFrame:
+    default:
+        probeGpsGuard("ble_from_radio_pre_write_empty_no_frame");
+        from_radio_.write(&empty, 0);
+        probeGpsGuard("ble_from_radio_post_write_empty_no_frame");
+        reason = kFromRadioEmptyNoFrame;
+        break;
+    }
+    pending_from_radio_empty_log_ = true;
+    pending_from_radio_empty_reason_ = reason;
+}
+
 bool MeshtasticBleService::writePublishedFromRadioForRead(uint16_t conn_handle)
 {
     if (!active_ || !connected_ || !phone_session_)
     {
-        uint8_t empty = 0;
-        probeGpsGuard("ble_from_radio_pre_write_empty_inactive");
-        from_radio_.write(&empty, 0);
-        probeGpsGuard("ble_from_radio_post_write_empty_inactive");
-        pending_from_radio_empty_log_ = true;
-        pending_from_radio_empty_reason_ = kFromRadioEmptyInactive;
+        writeEmptyFromRadioRead(kFromRadioEmptyInactive);
         return false;
     }
 
     if (published_from_radio_count_ == 0)
     {
         from_radio_publish_requested_ = true;
-        uint8_t empty = 0;
-        probeGpsGuard("ble_from_radio_pre_write_empty_no_frame");
-        from_radio_.write(&empty, 0);
-        probeGpsGuard("ble_from_radio_post_write_empty_no_frame");
-        pending_from_radio_empty_log_ = true;
-        pending_from_radio_empty_reason_ = kFromRadioEmptyNoFrame;
+        writeEmptyFromRadioRead(kFromRadioEmptyNoFrame);
         return false;
     }
 
@@ -1186,18 +1330,15 @@ bool MeshtasticBleService::writePublishedFromRadioForRead(uint16_t conn_handle)
     PublishedFromRadioSlot& slot = published_from_radio_[slot_index];
     if (slot.frame.len == 0 || slot.frame.len > meshtastic_FromRadio_size)
     {
-        bleLogBoth("[BLE][nrf52][mt] drop invalid published from_radio read slot=%u from_num=%08lX len=%u max=%u",
+        bleLogBoth("[BLE][nrf52][mt] drop invalid published from_radio read slot=%u from_num=%08lX len=%u max=%u kind=%s pri=%u",
                    static_cast<unsigned>(slot_index),
                    static_cast<unsigned long>(slot.frame.from_num),
                    static_cast<unsigned>(slot.frame.len),
-                   static_cast<unsigned>(meshtastic_FromRadio_size));
+                   static_cast<unsigned>(meshtastic_FromRadio_size),
+                   bleFrameKindName(slot.frame.kind),
+                   static_cast<unsigned>(slot.frame.priority));
         releasePublishedFromRadioHead();
-        uint8_t empty = 0;
-        probeGpsGuard("ble_from_radio_pre_write_empty_invalid");
-        from_radio_.write(&empty, 0);
-        probeGpsGuard("ble_from_radio_post_write_empty_invalid");
-        pending_from_radio_empty_log_ = true;
-        pending_from_radio_empty_reason_ = kFromRadioEmptyInvalidFrame;
+        writeEmptyFromRadioRead(kFromRadioEmptyInvalidFrame);
         from_radio_publish_requested_ = true;
         return false;
     }
@@ -1208,6 +1349,12 @@ bool MeshtasticBleService::writePublishedFromRadioForRead(uint16_t conn_handle)
     pending_from_radio_read_len_ = static_cast<uint16_t>(slot.frame.len);
     pending_from_radio_read_from_num_ = slot.frame.from_num;
     pending_from_radio_read_log_ = true;
+    bleLogBoth("[BLE][nrf52][mt][flow] from_radio read slot=%u from_num=%08lX len=%u kind=%s pri=%u",
+               static_cast<unsigned>(slot_index),
+               static_cast<unsigned long>(slot.frame.from_num),
+               static_cast<unsigned>(slot.frame.len),
+               bleFrameKindName(slot.frame.kind),
+               static_cast<unsigned>(slot.frame.priority));
     (void)conn_handle;
     return true;
 }
@@ -1221,6 +1368,8 @@ void MeshtasticBleService::releasePublishedFromRadioHead()
 
     PublishedFromRadioSlot& slot = published_from_radio_[published_from_radio_head_];
     slot.frame.len = 0;
+    slot.frame.kind = phone::meshtastic::MeshtasticBleFrameKind::None;
+    slot.frame.priority = phone::meshtastic::MeshtasticBleFramePriority::P3;
     slot.frame.from_num = 0;
     slot.notified = false;
     noInterrupts();
@@ -1292,6 +1441,7 @@ void MeshtasticBleService::processPendingPairingRequest()
 
 void MeshtasticBleService::clearToPhoneQueue()
 {
+    clearPendingFromRadioReadAuthorize();
     session_frame_scratch_ = phone::meshtastic::MeshtasticBleFrame{};
     for (uint8_t index = 0; index < kPublishedFromRadioCapacity; ++index)
     {
@@ -1704,11 +1854,15 @@ void MeshtasticBleService::flushPendingFromNumNotify()
     const uint32_t from_num = slot.frame.from_num;
     if (slot.frame.len == 0 || slot.frame.len > meshtastic_FromRadio_size)
     {
-        bleLogBoth("[BLE][nrf52][mt][flow] from_num drop invalid published slot=%u from_num=%08lX len=%u",
+        bleLogBoth("[BLE][nrf52][mt][flow] from_num drop invalid published slot=%u from_num=%08lX len=%u kind=%s pri=%u",
                    static_cast<unsigned>(slot_index),
                    static_cast<unsigned long>(from_num),
-                   static_cast<unsigned>(slot.frame.len));
+                   static_cast<unsigned>(slot.frame.len),
+                   bleFrameKindName(slot.frame.kind),
+                   static_cast<unsigned>(slot.frame.priority));
         slot.frame.len = 0;
+        slot.frame.kind = phone::meshtastic::MeshtasticBleFrameKind::None;
+        slot.frame.priority = phone::meshtastic::MeshtasticBleFramePriority::P3;
         slot.frame.from_num = 0;
         slot.notified = false;
         noInterrupts();
@@ -1726,13 +1880,15 @@ void MeshtasticBleService::flushPendingFromNumNotify()
     probeGpsGuard("ble_from_num_pre_notify");
     const bool ok = from_num_.notify32(conn_handle_, from_num);
     probeGpsGuard("ble_from_num_post_notify");
-    bleLogBoth("[BLE][nrf52][mt][flow] from_num notify slot=%u value=%08lX conn=%u ok=%u cccd=0x%04X q=%u",
+    bleLogBoth("[BLE][nrf52][mt][flow] from_num notify slot=%u value=%08lX conn=%u ok=%u cccd=0x%04X q=%u kind=%s pri=%u",
                static_cast<unsigned>(slot_index),
                static_cast<unsigned long>(from_num),
                static_cast<unsigned>(conn_handle_),
                ok ? 1U : 0U,
                static_cast<unsigned>(from_num_.getCccd(conn_handle_)),
-               static_cast<unsigned>(published_from_radio_count_));
+               static_cast<unsigned>(published_from_radio_count_),
+               bleFrameKindName(slot.frame.kind),
+               static_cast<unsigned>(slot.frame.priority));
     if (ok)
     {
         last_from_num_notify_ms_ = millis();

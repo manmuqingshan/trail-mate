@@ -21,9 +21,31 @@
 namespace phone::meshtastic
 {
 
+enum class MeshtasticBleFrameKind : uint8_t
+{
+    None,
+    Config,
+    Liveness,
+    QueueStatus,
+    AdminResponse,
+    NodeInfo,
+    Packet,
+    MqttProxy,
+};
+
+enum class MeshtasticBleFramePriority : uint8_t
+{
+    P0 = 0,
+    P1 = 1,
+    P2 = 2,
+    P3 = 3,
+};
+
 struct MeshtasticBleFrame
 {
-    size_t len = 0;
+    uint16_t len = 0;
+    MeshtasticBleFrameKind kind = MeshtasticBleFrameKind::None;
+    MeshtasticBleFramePriority priority = MeshtasticBleFramePriority::P3;
     uint32_t from_num = 0;
     uint8_t buf[meshtastic_FromRadio_size] = {};
 };
@@ -469,7 +491,8 @@ class MeshtasticPhoneCore
     bool handleToRadioPacket(meshtastic_MeshPacket& packet);
     bool handleAdmin(meshtastic_MeshPacket& packet);
     bool handleLocalSelfPacket(meshtastic_MeshPacket& packet);
-    bool encodeFromRadio(meshtastic_FromRadio& from, uint32_t from_num, MeshtasticBleFrame* out);
+    bool encodeFromRadio(meshtastic_FromRadio& from, uint32_t from_num, MeshtasticBleFrame* out,
+                         MeshtasticBleFrameKind kind, MeshtasticBleFramePriority priority);
     bool popConfigSnapshotFrame(MeshtasticBleFrame* out);
     void enqueueKnownNodeInfoProjection(chat::NodeId node_id);
     bool enqueueMetadataNodeInfoProjection(const chat::MeshIncomingData& msg);
@@ -477,6 +500,8 @@ class MeshtasticPhoneCore
     bool enqueueOutputEvent(const OutputEvent& event, const char* reason);
     OutputPriority priorityForPacket(const meshtastic_MeshPacket& packet) const;
     uint32_t coalesceKeyForPacket(const meshtastic_MeshPacket& packet, OutputPriority priority) const;
+    static MeshtasticBleFramePriority framePriorityForOutput(OutputPriority priority);
+    static MeshtasticBleFrameKind frameKindForPacket(const meshtastic_MeshPacket& packet);
     void enqueueQueueStatus(uint32_t packet_id, bool ok);
     void enqueueConfigSnapshot(uint32_t config_nonce);
     void setPhoneApiPhase(PhoneApiPhase phase, const char* reason);
@@ -493,6 +518,7 @@ class MeshtasticPhoneCore
     void fillChannel(uint8_t idx, meshtastic_Channel* out) const;
     void fillConfig(meshtastic_AdminMessage_ConfigType type, meshtastic_Config* out) const;
     void fillModuleConfig(meshtastic_AdminMessage_ModuleConfigType type, meshtastic_ModuleConfig* out) const;
+    bool canEmitSendNothingLivenessFrame() const;
     meshtastic_MyNodeInfo buildMyInfo() const;
     meshtastic_NodeInfo buildSelfNodeInfo() const;
     meshtastic_NodeInfo buildNodeInfoFromEntry(const PhoneNodeView& entry) const;
@@ -521,8 +547,6 @@ class MeshtasticPhoneCore
     uint8_t config_module_type_index_ = 0;
     uint32_t config_request_seq_ = 0;
     uint32_t from_radio_id_ = 0;
-    uint8_t last_to_radio_[meshtastic_ToRadio_size] = {};
-    size_t last_to_radio_len_ = 0;
     PhoneApiPhase phone_api_phase_ = PhoneApiPhase::SendNothing;
     bool deferred_config_save_pending_ = false;
     bool deferred_module_config_save_pending_ = false;

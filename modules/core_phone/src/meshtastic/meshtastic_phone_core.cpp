@@ -630,8 +630,6 @@ void MeshtasticPhoneCore::reset()
     config_type_index_ = 0;
     config_module_type_index_ = 0;
     from_radio_id_ = 0;
-    last_to_radio_len_ = 0;
-    std::memset(last_to_radio_, 0, sizeof(last_to_radio_));
     setPhoneApiPhase(PhoneApiPhase::SendNothing, "reset");
     deferred_config_save_pending_ = false;
     deferred_module_config_save_pending_ = false;
@@ -710,9 +708,8 @@ void MeshtasticPhoneCore::debugLogMemoryLayout(const char* stage) const
             static_cast<unsigned>(sizeof(*this)),
             static_cast<const void*>(&output_queue_),
             static_cast<const void*>(&output_event_scratch_));
-    logDual("[BLE][mtcore][mem] cache=%p last_to=%p to=%p admin_req=%p admin_resp=%p reply=%p\n",
+    logDual("[BLE][mtcore][mem] cache=%p to=%p admin_req=%p admin_resp=%p reply=%p\n",
             static_cast<const void*>(node_projection_cache_.data()),
-            static_cast<const void*>(last_to_radio_),
             static_cast<const void*>(&to_radio_scratch_),
             static_cast<const void*>(&admin_req_scratch_),
             static_cast<const void*>(&admin_resp_scratch_),
@@ -863,6 +860,32 @@ uint32_t MeshtasticPhoneCore::coalesceKeyForPacket(const meshtastic_MeshPacket& 
     return outputCoalesceKey(static_cast<uint32_t>(portnum), packet.from, packet.to);
 }
 
+MeshtasticBleFramePriority MeshtasticPhoneCore::framePriorityForOutput(OutputPriority priority)
+{
+    switch (priority)
+    {
+    case OutputPriority::P0:
+        return MeshtasticBleFramePriority::P0;
+    case OutputPriority::P1:
+        return MeshtasticBleFramePriority::P1;
+    case OutputPriority::P2:
+        return MeshtasticBleFramePriority::P2;
+    case OutputPriority::P3:
+    default:
+        return MeshtasticBleFramePriority::P3;
+    }
+}
+
+MeshtasticBleFrameKind MeshtasticPhoneCore::frameKindForPacket(const meshtastic_MeshPacket& packet)
+{
+    if (packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+        static_cast<meshtastic_PortNum>(packet.decoded.portnum) == meshtastic_PortNum_ADMIN_APP)
+    {
+        return MeshtasticBleFrameKind::AdminResponse;
+    }
+    return MeshtasticBleFrameKind::Packet;
+}
+
 void MeshtasticPhoneCore::enqueueKnownNodeInfoProjection(chat::NodeId node_id)
 {
     if (node_id == 0 || node_id == app_.getSelfNodeId())
@@ -965,12 +988,10 @@ bool MeshtasticPhoneCore::enqueueMetadataNodeInfoProjection(const chat::MeshInco
 
 bool MeshtasticPhoneCore::handleToRadio(const uint8_t* data, size_t len)
 {
-    if (!data || len == 0 || len > sizeof(last_to_radio_))
+    if (!data || len == 0 || len > meshtastic_ToRadio_size)
     {
         return false;
     }
-    std::memcpy(last_to_radio_, data, len);
-    last_to_radio_len_ = len;
 
     auto& to_radio = to_radio_scratch_;
     std::memset(&to_radio, 0, sizeof(to_radio));
@@ -1807,6 +1828,23 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
 
     if (!canEmitSteadyStateFrame())
     {
+        if (canEmitSendNothingLivenessFrame())
+        {
+            auto& from = from_radio_scratch_;
+            std::memset(&from, 0, sizeof(from));
+            output_event_scratch_.clear();
+            if (output_queue_.pop(&output_event_scratch_) &&
+                output_event_scratch_.kind == OutputEventKind::QueueStatus)
+            {
+                from.which_payload_variant = meshtastic_FromRadio_queueStatus_tag;
+                from.queueStatus = output_event_scratch_.payload.queue_status;
+                return encodeFromRadio(from,
+                                       output_event_scratch_.notify_id,
+                                       out,
+                                       MeshtasticBleFrameKind::Liveness,
+                                       MeshtasticBleFramePriority::P0);
+            }
+        }
         return false;
     }
 
@@ -1820,15 +1858,27 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         case OutputEventKind::QueueStatus:
             from.which_payload_variant = meshtastic_FromRadio_queueStatus_tag;
             from.queueStatus = output_event_scratch_.payload.queue_status;
-            return encodeFromRadio(from, output_event_scratch_.notify_id, out);
+            return encodeFromRadio(from,
+                                   output_event_scratch_.notify_id,
+                                   out,
+                                   MeshtasticBleFrameKind::QueueStatus,
+                                   MeshtasticBleFramePriority::P0);
         case OutputEventKind::NodeInfo:
             from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
             from.node_info = output_event_scratch_.payload.node_info;
-            return encodeFromRadio(from, output_event_scratch_.notify_id, out);
+            return encodeFromRadio(from,
+                                   output_event_scratch_.notify_id,
+                                   out,
+                                   MeshtasticBleFrameKind::NodeInfo,
+                                   framePriorityForOutput(output_event_scratch_.priority));
         case OutputEventKind::Packet:
             from.which_payload_variant = meshtastic_FromRadio_packet_tag;
             from.packet = output_event_scratch_.payload.packet;
-            return encodeFromRadio(from, output_event_scratch_.notify_id, out);
+            return encodeFromRadio(from,
+                                   output_event_scratch_.notify_id,
+                                   out,
+                                   frameKindForPacket(output_event_scratch_.payload.packet),
+                                   framePriorityForOutput(output_event_scratch_.priority));
         default:
             break;
         }
@@ -1888,7 +1938,7 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
                     mqtt.which_payload_variant == meshtastic_MqttClientProxyMessage_data_tag
                         ? static_cast<unsigned>(mqtt.payload_variant.data.size)
                         : 0U);
-            return encodeFromRadio(from, 0, out);
+            return encodeFromRadio(from, 0, out, MeshtasticBleFrameKind::MqttProxy, MeshtasticBleFramePriority::P3);
         }
     }
 
@@ -1922,7 +1972,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
                 static_cast<unsigned long>(config_request_seq_),
                 static_cast<unsigned long>(from_num));
         logRuntimeFootprint("cfg_my_info");
-        return encodeFromRadio(from, from_num, out);
+        return encodeFromRadio(from, from_num, out, MeshtasticBleFrameKind::Config, MeshtasticBleFramePriority::P0);
     }
 
     if (!only_nodes && config_node_index_ == 1)
@@ -1934,7 +1984,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
                 static_cast<unsigned long>(config_request_seq_),
                 static_cast<unsigned long>(from_num));
         logRuntimeFootprint("cfg_deviceui");
-        return encodeFromRadio(from, from_num, out);
+        return encodeFromRadio(from, from_num, out, MeshtasticBleFrameKind::Config, MeshtasticBleFramePriority::P0);
     }
 
     if (only_config && config_node_index_ == 2)
@@ -1951,7 +2001,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
                 static_cast<unsigned long>(config_request_seq_),
                 static_cast<unsigned long>(from_num));
         logRuntimeFootprint("cfg_self_node");
-        return encodeFromRadio(from, from_num, out);
+        return encodeFromRadio(from, from_num, out, MeshtasticBleFrameKind::Config, MeshtasticBleFramePriority::P0);
     }
 
     const size_t node_count = app_.phoneNodeCount();
@@ -1974,7 +2024,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         }
         from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
         fillNodeInfoFromEntry(entry, &from.node_info);
-        return encodeFromRadio(from, entry.node_id, out);
+        return encodeFromRadio(from, entry.node_id, out, MeshtasticBleFrameKind::Config, MeshtasticBleFramePriority::P0);
     }
 
     if (!only_nodes && config_channel_index_ == 0)
@@ -1982,7 +2032,7 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         from.which_payload_variant = meshtastic_FromRadio_metadata_tag;
         fillMetadata(&from.metadata);
         ++config_channel_index_;
-        return encodeFromRadio(from, from_num, out);
+        return encodeFromRadio(from, from_num, out, MeshtasticBleFrameKind::Config, MeshtasticBleFramePriority::P0);
     }
 
     const uint8_t channel_slot = static_cast<uint8_t>(config_channel_index_ - 1);
@@ -1992,21 +2042,21 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
         fillChannel(channel_slot, &from.channel);
         logChannelSummary("snapshot", from.channel);
         ++config_channel_index_;
-        return encodeFromRadio(from, from_num, out);
+        return encodeFromRadio(from, from_num, out, MeshtasticBleFrameKind::Config, MeshtasticBleFramePriority::P0);
     }
 
     if (!only_nodes && config_type_index_ < (sizeof(kConfigSnapshotTypes) / sizeof(kConfigSnapshotTypes[0])))
     {
         from.which_payload_variant = meshtastic_FromRadio_config_tag;
         fillConfig(kConfigSnapshotTypes[config_type_index_++], &from.config);
-        return encodeFromRadio(from, from_num, out);
+        return encodeFromRadio(from, from_num, out, MeshtasticBleFrameKind::Config, MeshtasticBleFramePriority::P0);
     }
 
     if (!only_nodes && config_module_type_index_ < (sizeof(kModuleSnapshotTypes) / sizeof(kModuleSnapshotTypes[0])))
     {
         from.which_payload_variant = meshtastic_FromRadio_moduleConfig_tag;
         fillModuleConfig(kModuleSnapshotTypes[config_module_type_index_++], &from.moduleConfig);
-        return encodeFromRadio(from, from_num, out);
+        return encodeFromRadio(from, from_num, out, MeshtasticBleFrameKind::Config, MeshtasticBleFramePriority::P0);
     }
 
     from.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
@@ -2042,18 +2092,26 @@ bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)
             configStageName(from_num),
             static_cast<unsigned long>(from_num));
     logRuntimeFootprint("cfg_complete");
-    return encodeFromRadio(from, from_num, out);
+    return encodeFromRadio(from, from_num, out, MeshtasticBleFrameKind::Config, MeshtasticBleFramePriority::P0);
 }
 
-bool MeshtasticPhoneCore::encodeFromRadio(meshtastic_FromRadio& from, uint32_t from_num, MeshtasticBleFrame* out)
+bool MeshtasticPhoneCore::encodeFromRadio(meshtastic_FromRadio& from, uint32_t from_num, MeshtasticBleFrame* out,
+                                          MeshtasticBleFrameKind kind, MeshtasticBleFramePriority priority)
 {
     if (!out)
     {
-        logDual("[BLE][mtcore] encode from_radio failed: out=null variant=%u from_num=%08lX\n",
+        logDual("[BLE][mtcore] encode from_radio failed: out=null variant=%u from_num=%08lX kind=%u pri=%u\n",
                 static_cast<unsigned>(from.which_payload_variant),
-                static_cast<unsigned long>(from_num));
+                static_cast<unsigned long>(from_num),
+                static_cast<unsigned>(kind),
+                static_cast<unsigned>(priority));
         return false;
     }
+
+    out->len = 0;
+    out->kind = MeshtasticBleFrameKind::None;
+    out->priority = MeshtasticBleFramePriority::P3;
+    out->from_num = 0;
 
     from.id = ++from_radio_id_;
     if (from.id == 0)
@@ -2063,19 +2121,25 @@ bool MeshtasticPhoneCore::encodeFromRadio(meshtastic_FromRadio& from, uint32_t f
     pb_ostream_t ostream = pb_ostream_from_buffer(out->buf, sizeof(out->buf));
     if (!pb_encode(&ostream, meshtastic_FromRadio_fields, &from))
     {
-        logDual("[BLE][mtcore] encode from_radio failed: variant=%u from_num=%08lX\n",
+        logDual("[BLE][mtcore] encode from_radio failed: variant=%u from_num=%08lX kind=%u pri=%u\n",
                 static_cast<unsigned>(from.which_payload_variant),
-                static_cast<unsigned long>(from_num));
+                static_cast<unsigned long>(from_num),
+                static_cast<unsigned>(kind),
+                static_cast<unsigned>(priority));
         return false;
     }
 
-    out->len = ostream.bytes_written;
+    out->len = static_cast<uint16_t>(ostream.bytes_written);
+    out->kind = kind;
+    out->priority = priority;
     out->from_num = from_num;
-    logDual("[BLE][mtcore] encode from_radio ok: variant=%u id=%08lX from_num=%08lX len=%u\n",
+    logDual("[BLE][mtcore] encode from_radio ok: variant=%u id=%08lX from_num=%08lX len=%u kind=%u pri=%u\n",
             static_cast<unsigned>(from.which_payload_variant),
             static_cast<unsigned long>(from.id),
             static_cast<unsigned long>(from_num),
-            static_cast<unsigned>(out->len));
+            static_cast<unsigned>(out->len),
+            static_cast<unsigned>(out->kind),
+            static_cast<unsigned>(out->priority));
     return true;
 }
 
@@ -2126,12 +2190,25 @@ void MeshtasticPhoneCore::notifyFromNum(uint32_t from_num)
 {
     if (phone_api_phase_ == PhoneApiPhase::SendNothing)
     {
-        logDual("[BLE][mtcore][flow] from_num defer phase=%s source=%08lX\n",
-                phoneApiPhaseName(phone_api_phase_),
-                static_cast<unsigned long>(from_num));
-        return;
+        if (!canEmitSendNothingLivenessFrame())
+        {
+            logDual("[BLE][mtcore][flow] from_num defer phase=%s source=%08lX\n",
+                    phoneApiPhaseName(phone_api_phase_),
+                    static_cast<unsigned long>(from_num));
+            return;
+        }
     }
     transport_.notifyFromNum(from_num);
+}
+
+bool MeshtasticPhoneCore::canEmitSendNothingLivenessFrame() const
+{
+    if (phone_api_phase_ != PhoneApiPhase::SendNothing)
+    {
+        return false;
+    }
+    const OutputEvent* next = output_queue_.peek();
+    return next && next->kind == OutputEventKind::QueueStatus;
 }
 
 void MeshtasticPhoneCore::fillMyInfo(meshtastic_MyNodeInfo* out) const

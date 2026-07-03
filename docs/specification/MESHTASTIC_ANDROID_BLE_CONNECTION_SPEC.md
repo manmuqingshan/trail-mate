@@ -141,7 +141,7 @@ classDiagram
         -canHandleMqttProxy()
         -canEmitSteadyStateFrame()
         -enqueueQueueStatus(packet_id,ok)
-        -encodeFromRadio(from,from_num,out)
+        -encodeFromRadio(from,from_num,out,kind,priority)
     }
 
     class PhoneApiPhase {
@@ -216,6 +216,20 @@ NimBLE callback -> MeshtasticBleService queue -> update() -> MeshtasticPhoneSess
                -> MeshtasticPhoneCore -> AppPhoneFacade -> App services
 ```
 
+Read-authorize rule for BLE transports without a push-style FromRadioSync
+characteristic:
+
+```text
+FROMRADIO read callback -> record pending read -> return to BLE stack
+update() -> process pending ToRadio -> publish FromRadio slot -> authorize read
+```
+
+The callback must not call `popToPhone()` or encode protobuf frames directly. If
+Android writes a heartbeat and immediately drains FROMRADIO, the transport may
+hold the read authorization for a short bounded window so the main loop can turn
+the heartbeat into a `queueStatus` frame. If no frame appears before the window
+expires, the read is authorized with a zero-length value.
+
 The reverse direction is:
 
 ```text
@@ -258,7 +272,13 @@ State invariants:
 - `SendNothing` means GATT is connected but the PhoneAPI session has not entered config or packet delivery. Steady-state frames, including MQTT proxy, are forbidden.
 - `ConfigFlow` owns `config_nonce_` and snapshot indexes while config frames are being emitted.
 - `config_complete_id` is the phase boundary. Stage 1 (`CONFIG_NONCE=69420`) returns immediately to `SendNothing`; Stage 2 (`NODE_INFO_NONCE=69421`) enters `SendPackets` immediately.
-- `SendPackets` is the only state where `FromRadio.packet`, `FromRadio.queueStatus`, `FromRadio.mqttClientProxyMessage`, client notifications, and normal Admin traffic may be emitted.
+- `SendPackets` is the only normal steady-state where `FromRadio.packet`,
+  non-liveness `FromRadio.queueStatus`, `FromRadio.mqttClientProxyMessage`, client
+  notifications, and normal Admin traffic may be emitted.
+- `ToRadio.heartbeat` is the only `SendNothing` exception: firmware may emit its
+  `FromRadio.queueStatus` liveness response without entering steady-state packet delivery.
+  This does not permit MQTT proxy frames, normal packets, Admin traffic, or config frames in
+  `SendNothing`.
 - `DeferredSave` must happen after queue status and Admin response frames have been offered to the phone.
 - Any implementation that derives `SendPackets` from `!config_flow_active_` alone is wrong because it collapses `SendNothing` and steady-state into one bool.
 
@@ -388,6 +408,9 @@ FromNum/FromRadio binding rule:
 - `FromNum` notification must describe a frame that is already queued or preloaded for `FromRadio`.
 - `FromRadio` must not return empty solely because the head frame has not yet been notified. Android
   may consume that frame through proactive drain before the wakeup notification is sent.
+- Every encoded `FromRadio` projection carries core-produced `kind` and `priority` metadata. The
+  transport publishes and sheds by this metadata; it must not parse protobuf payloads, inspect
+  payload length, or infer semantics from `from_num` to decide priority.
 - A transport must not keep an independent pending `from_num` ring that can drift ahead of the readable frame.
 - If a transport uses a monotonic notify token, it must log the semantic `source` separately.
 - If a transport uses the frame `from_num` as the notify value, that value must be read from the same preloaded frame.
@@ -395,6 +418,10 @@ FromNum/FromRadio binding rule:
   notified; unread frames must not be overtaken by later notifications.
 - If proactive drain consumes a not-yet-notified head frame, the transport must skip/cancel the
   wakeup for that consumed slot and bind any later notification to the new head frame.
+- A transport may keep a smaller steady-state published window than its physical slot capacity
+  so ordinary packet projections cannot build a long unread FIFO in front of later liveness/control
+  frames. Config flow may use the full published capacity because config snapshot ordering is the
+  connection-completion boundary.
 
 ## Android App And Firmware Interaction Contract
 
