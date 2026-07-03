@@ -81,6 +81,8 @@ class MeshtasticBleService final : public BleService,
     void processPendingToRadio();
     void processPendingPairingRequest();
     void clearToPhoneQueue();
+    void requestFromRadioPublish(const char* reason);
+    uint32_t nextFromNumNotifyValue();
     void fillPublishedFromRadioSlots();
     void flushPendingFromRadioReadAuthorize();
     void clearPendingFromRadioReadAuthorize();
@@ -136,6 +138,7 @@ class MeshtasticBleService final : public BleService,
     volatile uint8_t published_from_radio_tail_ = 0;
     volatile uint8_t published_from_radio_count_ = 0;
     volatile bool from_radio_publish_requested_ = false;
+    uint32_t from_num_notify_counter_ = 0;
 
     volatile bool pairing_request_pending_ = false;
     volatile uint16_t pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;

@@ -413,22 +413,22 @@ const DEVICES = [
       zh: "LilyGo T-LoRa Pager LR1121",
     },
     status: {
-      en: "0.1.34 MeshCore advert fix",
-      zh: "0.1.34 MeshCore advert 修复",
+      en: "MeshCore advert fix retained",
+      zh: "MeshCore advert 修复已保留",
     },
     summary: {
-      en: "Use this target for the LR1121 Pager. The 0.1.34 release fixes MeshCore node adverts so nearby nodes can populate correctly on LR1121 hardware.",
-      zh: "这是 LR1121 Pager 专用目标。0.1.34 修复 MeshCore 节点 advert 接收，使 LR1121 硬件上的附近节点列表可以正确填充。",
+      en: "Use this target for the LR1121 Pager. Current releases keep the MeshCore node-advert receive fix so nearby nodes can populate correctly on LR1121 hardware.",
+      zh: "这是 LR1121 Pager 专用目标。当前发布线保留 MeshCore 节点 advert 接收修复，使 LR1121 硬件上的附近节点列表可以正确填充。",
     },
     interactions: {
       en: [
         "Check the radio chip before flashing; SX1262 and LR1121 builds are different.",
-        "0.1.34 keeps payload-present LR1121 reads in the shared MeshCore parser instead of dropping node adverts at the radio task boundary.",
+        "Payload-present LR1121 reads continue into the shared MeshCore parser instead of being dropped at the radio task boundary.",
         "Some screenshots are shared with the keyboard Pager until dedicated LR1121 photos are added.",
       ],
       zh: [
         "刷机前请确认 radio 芯片；SX1262 和 LR1121 不能混刷。",
-        "0.1.34 会把 LR1121 已读出 payload 的接收结果继续交给共享 MeshCore 解析器，而不是在 radio task 边界丢掉节点 advert。",
+        "LR1121 已读出 payload 的接收结果会继续交给共享 MeshCore 解析器，而不是在 radio task 边界丢掉节点 advert。",
         "在补充 LR1121 专属截图前，这里会暂用键盘 Pager 的部分截图。",
       ],
     },
@@ -516,21 +516,23 @@ const DEVICES = [
       zh: "GAT562 Mesh EVB Pro",
     },
     status: {
-      en: "Manual flashing",
-      zh: "手动刷写",
+      en: "0.1.35 BLE/MQTT stabilization",
+      zh: "0.1.35 BLE/MQTT 稳定化",
     },
     summary: {
-      en: "nRF52 board for users who flash downloaded firmware files manually. Browser flashing is not available for this board yet.",
-      zh: "面向 nRF52 的目标，目前需要手动刷写发布包，暂不支持网页刷机。",
+      en: "nRF52 board for users who flash downloaded firmware files manually. The 0.1.35 line hardens Meshtastic BLE, MQTT proxy flow, and bounded memory ownership.",
+      zh: "面向 nRF52 的目标，目前需要手动刷写发布包。0.1.35 发布线加强 Meshtastic BLE、MQTT proxy 流程和有界内存所有权。",
     },
     interactions: {
       en: [
         "Use the GAT562 nRF52840 UF2 release file instead of the browser flasher.",
+        "BLE FromRadio reads now bind to stable published slots, with fixed backpressure for high-traffic MQTT/NodeInfo paths.",
         "This board follows a different flashing model than the ESP32-S3 devices above.",
         "Screenshots will be added when this target has its own captured UI set.",
       ],
       zh: [
         "请优先使用 GitHub Release 中的 GAT562 nRF52840 UF2 发布文件，不要使用网页刷机。",
+        "BLE FromRadio 读取现在绑定到稳定发布槽位，高流量 MQTT/NodeInfo 路径也采用固定背压规则。",
         "这个设备的刷写方式和上面的 ESP32-S3 设备不同。",
         "后续有独立截图后，会补充该目标自己的界面展示。",
       ],
@@ -545,21 +547,23 @@ const DEVICES = [
       zh: "LILYGO T-Echo-Lite-KeyShield",
     },
     status: {
-      en: "Manual flashing",
-      zh: "手动刷写",
+      en: "0.1.35 BLE/MQTT stabilization",
+      zh: "0.1.35 BLE/MQTT 稳定化",
     },
     summary: {
-      en: "nRF52 e-paper keyboard target with 192x176 mono UI, physical keypad input, and local radio/device settings.",
-      zh: "nRF52 电子纸键盘目标，带 192x176 mono UI、实体键盘输入，以及本地无线和设备设置。",
+      en: "nRF52 e-paper keyboard target with 192x176 mono UI, physical keypad input, and hardened BLE/MQTT memory ownership for the 0.1.35 release.",
+      zh: "nRF52 电子纸键盘目标，带 192x176 mono UI、实体键盘输入，并在 0.1.35 中加强 BLE/MQTT 内存所有权。",
     },
     interactions: {
       en: [
         "Use the t-echo-lite nRF52840 UF2 release file from GitHub Releases.",
+        "The GPS runtime no longer sits on runtime heap, reducing exposure to unrelated heap corruption under BLE/MQTT traffic.",
         "Browser flashing is not available for this nRF52 target yet.",
         "Choose this firmware only for the T-Echo-Lite-KeyShield hardware.",
       ],
       zh: [
         "请优先使用 GitHub Release 中的 t-echo-lite nRF52840 UF2 发布文件。",
+        "GPS runtime 不再位于运行期 heap 上，降低 BLE/MQTT 高流量下被无关 heap 损坏波及的风险。",
         "这个 nRF52 目标暂不支持网页刷机。",
         "这个固件只用于 T-Echo-Lite-KeyShield 硬件。",
       ],

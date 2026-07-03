@@ -1464,6 +1464,31 @@ void MeshtasticBleService::clearToPhoneQueue()
     from_radio_publish_requested_ = false;
 }
 
+void MeshtasticBleService::requestFromRadioPublish(const char* reason)
+{
+    if (!phone_session_ || (!phone_session_->isSendingPackets() && !phone_session_->isConfigFlowActive()))
+    {
+        return;
+    }
+
+    from_radio_publish_requested_ = true;
+    bleLogBoth("[BLE][nrf52][mt][flow] from_radio publish kick reason=%s published=%u head=%u tail=%u",
+               reason ? reason : "?",
+               static_cast<unsigned>(published_from_radio_count_),
+               static_cast<unsigned>(published_from_radio_head_),
+               static_cast<unsigned>(published_from_radio_tail_));
+}
+
+uint32_t MeshtasticBleService::nextFromNumNotifyValue()
+{
+    uint32_t value = ++from_num_notify_counter_;
+    if (value == 0)
+    {
+        value = ++from_num_notify_counter_;
+    }
+    return value;
+}
+
 void MeshtasticBleService::loadRememberedPhonePeer()
 {
     MeshtasticBlePeerIdentity stored{};
@@ -1618,12 +1643,12 @@ void MeshtasticBleService::handleConnectEvent(uint16_t conn_handle)
     next_connected_session_log_ms_ = last_ble_activity_ms_ + kBleConnectedSessionLogIntervalMs;
     next_liveness_log_ms_ = 0;
     from_num_notify_enabled_ = false;
+    from_num_notify_counter_ = 0;
     pending_phone_disconnect_request_ = false;
-    if (phone_session_)
-    {
-        phone_session_->close();
-    }
+    // GAP reconnects are transport churn. Keep the phone core queue alive so MQTT
+    // downlinks and mesh projections can drain after the app resubscribes.
     clearToPhoneQueue();
+    requestFromRadioPublish("link_up");
     pairing_request_pending_ = true;
     pending_pairing_conn_handle_ = conn_handle;
     pending_connect_conn_handle_ = conn_handle;
@@ -1656,6 +1681,11 @@ void MeshtasticBleService::handleConnectEvent(uint16_t conn_handle)
     }
     logSessionState("link_up");
     rememberPhonePeer(conn_handle, "connect");
+    if (from_num_.getCccd(conn_handle) != 0U)
+    {
+        from_num_notify_enabled_ = true;
+        requestFromRadioPublish("link_up_cccd_restore");
+    }
 }
 
 void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle, uint8_t reason)
@@ -1665,10 +1695,8 @@ void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle, uint8_t r
     conn_handle_ = BLE_CONN_HANDLE_INVALID;
     last_ble_activity_ms_ = millis();
     next_connected_session_log_ms_ = 0;
-    if (phone_session_)
-    {
-        phone_session_->close();
-    }
+    // Do not close phone_session_ on a transient GAP disconnect; explicit
+    // ToRadio.disconnect is the protocol-level reset point.
     pending_passkey_.store(0);
     pending_to_radio_head_ = 0;
     pending_to_radio_tail_ = 0;
@@ -1707,6 +1735,10 @@ void MeshtasticBleService::handleFromNumCccdWrite(uint16_t conn_handle, uint16_t
                static_cast<unsigned>(conn_handle),
                static_cast<unsigned>(value));
     logSessionState(from_num_notify_enabled_ ? "from_num_cccd_on" : "from_num_cccd_off", value);
+    if (from_num_notify_enabled_)
+    {
+        requestFromRadioPublish("from_num_cccd_on");
+    }
 }
 
 void MeshtasticBleService::handlePairPasskeyDisplay(uint16_t conn_handle, const uint8_t passkey[6], bool match_request)
@@ -1752,6 +1784,11 @@ void MeshtasticBleService::handleSecured(uint16_t conn_handle)
                connection ? static_cast<unsigned>(connection->getMtu()) : 0U);
     logSessionState("secured");
     rememberPhonePeer(conn_handle, "secured");
+    if (from_num_.getCccd(conn_handle) != 0U)
+    {
+        from_num_notify_enabled_ = true;
+        requestFromRadioPublish("secured_cccd_restore");
+    }
 }
 
 bool MeshtasticBleService::getPairingStatus(BlePairingStatus* out) const
@@ -1960,12 +1997,12 @@ void MeshtasticBleService::flushPendingFromNumNotify()
         return;
     }
 
-    const uint32_t from_num = slot.frame.from_num;
+    const uint32_t source_from_num = slot.frame.from_num;
     if (slot.frame.len == 0 || slot.frame.len > meshtastic_FromRadio_size)
     {
         bleLogBoth("[BLE][nrf52][mt][flow] from_num drop invalid published slot=%u from_num=%08lX len=%u kind=%s pri=%u",
                    static_cast<unsigned>(slot_index),
-                   static_cast<unsigned long>(from_num),
+                   static_cast<unsigned long>(source_from_num),
                    static_cast<unsigned>(slot.frame.len),
                    bleFrameKindName(slot.frame.kind),
                    static_cast<unsigned>(slot.frame.priority));
@@ -1983,15 +2020,17 @@ void MeshtasticBleService::flushPendingFromNumNotify()
         return;
     }
 
+    const uint32_t notify_value = nextFromNumNotifyValue();
     probeGpsGuard("ble_from_num_pre_write");
-    from_num_.write32(from_num);
+    from_num_.write32(notify_value);
     probeGpsGuard("ble_from_num_post_write");
     probeGpsGuard("ble_from_num_pre_notify");
-    const bool ok = from_num_.notify32(conn_handle_, from_num);
+    const bool ok = from_num_.notify32(conn_handle_, notify_value);
     probeGpsGuard("ble_from_num_post_notify");
-    bleLogBoth("[BLE][nrf52][mt][flow] from_num notify slot=%u value=%08lX conn=%u ok=%u cccd=0x%04X q=%u kind=%s pri=%u",
+    bleLogBoth("[BLE][nrf52][mt][flow] from_num notify slot=%u value=%08lX source=%08lX conn=%u ok=%u cccd=0x%04X q=%u kind=%s pri=%u",
                static_cast<unsigned>(slot_index),
-               static_cast<unsigned long>(from_num),
+               static_cast<unsigned long>(notify_value),
+               static_cast<unsigned long>(source_from_num),
                static_cast<unsigned>(conn_handle_),
                ok ? 1U : 0U,
                static_cast<unsigned>(from_num_.getCccd(conn_handle_)),
@@ -2007,10 +2046,12 @@ void MeshtasticBleService::flushPendingFromNumNotify()
     if (!ok && Bluefruit.connected())
     {
         probeGpsGuard("ble_from_num_pre_notify_fallback");
-        const bool fallback_ok = from_num_.notify32(from_num);
+        const bool fallback_ok = from_num_.notify32(notify_value);
         probeGpsGuard("ble_from_num_post_notify_fallback");
-        bleLogBoth("[BLE][nrf52][mt][flow] from_num notify fallback slot=%u ok=%u",
+        bleLogBoth("[BLE][nrf52][mt][flow] from_num notify fallback slot=%u value=%08lX source=%08lX ok=%u",
                    static_cast<unsigned>(slot_index),
+                   static_cast<unsigned long>(notify_value),
+                   static_cast<unsigned long>(source_from_num),
                    fallback_ok ? 1U : 0U);
         if (fallback_ok)
         {
