@@ -850,12 +850,42 @@ meshtastic_Routing_Error MtAdapter::getLastRoutingError() const
 
 void MtAdapter::setMqttProxySettings(const MqttProxySettings& settings)
 {
+    const bool changed = mqtt_proxy_settings_.enabled != settings.enabled ||
+                         mqtt_proxy_settings_.proxy_to_client_enabled != settings.proxy_to_client_enabled ||
+                         mqtt_proxy_settings_.encryption_enabled != settings.encryption_enabled ||
+                         mqtt_proxy_settings_.primary_uplink_enabled != settings.primary_uplink_enabled ||
+                         mqtt_proxy_settings_.primary_downlink_enabled != settings.primary_downlink_enabled ||
+                         mqtt_proxy_settings_.secondary_uplink_enabled != settings.secondary_uplink_enabled ||
+                         mqtt_proxy_settings_.secondary_downlink_enabled != settings.secondary_downlink_enabled ||
+                         mqtt_proxy_settings_.root != settings.root ||
+                         mqtt_proxy_settings_.primary_channel_id != settings.primary_channel_id ||
+                         mqtt_proxy_settings_.secondary_channel_id != settings.secondary_channel_id;
     mqtt_proxy_settings_ = settings;
+    if (changed)
+    {
+        LORA_LOG("[MQTT] settings enabled=%u proxy=%u enc=%u root=%s "
+                 "primary='%s' up=%u down=%u secondary='%s' up=%u down=%u\n",
+                 mqtt_proxy_settings_.enabled ? 1U : 0U,
+                 mqtt_proxy_settings_.proxy_to_client_enabled ? 1U : 0U,
+                 mqtt_proxy_settings_.encryption_enabled ? 1U : 0U,
+                 mqtt_proxy_settings_.root.c_str(),
+                 mqtt_proxy_settings_.primary_channel_id.c_str(),
+                 mqtt_proxy_settings_.primary_uplink_enabled ? 1U : 0U,
+                 mqtt_proxy_settings_.primary_downlink_enabled ? 1U : 0U,
+                 mqtt_proxy_settings_.secondary_channel_id.c_str(),
+                 mqtt_proxy_settings_.secondary_uplink_enabled ? 1U : 0U,
+                 mqtt_proxy_settings_.secondary_downlink_enabled ? 1U : 0U);
+    }
 }
 
 bool MtAdapter::pollMqttProxyMessage(meshtastic_MqttClientProxyMessage* out)
 {
     return mqtt_proxy_queue_.popOldest(out);
+}
+
+bool MtAdapter::hasMqttProxyMessage() const
+{
+    return !mqtt_proxy_queue_.empty();
 }
 
 std::string MtAdapter::mqttNodeIdString() const
@@ -1318,8 +1348,26 @@ bool MtAdapter::queueMqttProxyPublishFromWire(const uint8_t* wire_data,
 
     const bool from_mqtt = (header.flags & PACKET_FLAGS_VIA_MQTT_MASK) != 0;
     const bool is_pki = (header.channel == 0);
-    if (!shouldPublishToMqtt(channel_index, from_mqtt, is_pki))
+    const auto publish_reason = ::chat::meshtastic::validateMqttProxyPublish(
+        mqtt_proxy_settings_, channel_index, from_mqtt, is_pki);
+    if (publish_reason != ::chat::meshtastic::MqttProxyRejectReason::None)
     {
+        if (publish_reason != ::chat::meshtastic::MqttProxyRejectReason::MqttLoopback &&
+            (publish_reason != ::chat::meshtastic::MqttProxyRejectReason::ProxyDisabled ||
+             mqtt_proxy_settings_.enabled || mqtt_proxy_settings_.proxy_to_client_enabled))
+        {
+            LORA_LOG("[MQTT] uplink reject reason=%s from=%08lX id=%08lX ch=%u idx=%u "
+                     "enabled=%u proxy=%u up=%u/%u\n",
+                     ::chat::meshtastic::mqttProxyRejectReasonName(publish_reason),
+                     static_cast<unsigned long>(header.from),
+                     static_cast<unsigned long>(header.id),
+                     static_cast<unsigned>(header.channel),
+                     static_cast<unsigned>(channel_index),
+                     mqtt_proxy_settings_.enabled ? 1U : 0U,
+                     mqtt_proxy_settings_.proxy_to_client_enabled ? 1U : 0U,
+                     mqtt_proxy_settings_.primary_uplink_enabled ? 1U : 0U,
+                     mqtt_proxy_settings_.secondary_uplink_enabled ? 1U : 0U);
+        }
         return false;
     }
 

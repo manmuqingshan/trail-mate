@@ -640,6 +640,7 @@ void MeshtasticPhoneCore::reset()
     admin_edit_transaction_bluetooth_dirty_ = false;
     admin_edit_transaction_restart_pending_ = false;
     restart_pending_ = false;
+    mqtt_proxy_deferral_count_ = 0;
     output_queue_.clear();
     output_event_scratch_.clear();
     node_projection_cache_ = {};
@@ -729,12 +730,90 @@ MeshtasticPhoneCore::PhoneApiPhase MeshtasticPhoneCore::phoneApiPhase() const
 
 bool MeshtasticPhoneCore::canHandleMqttProxy() const
 {
-    return isSendingPackets();
+    return true;
 }
 
 bool MeshtasticPhoneCore::canEmitSteadyStateFrame() const
 {
     return isSendingPackets();
+}
+
+bool MeshtasticPhoneCore::hasDeferredSideEffects() const
+{
+    return deferred_config_save_pending_ ||
+           deferred_module_config_save_pending_ ||
+           deferred_bluetooth_config_apply_pending_ ||
+           restart_pending_;
+}
+
+bool MeshtasticPhoneCore::shouldEmitMqttProxyBeforeOutput() const
+{
+    if (!mqtt_hooks_ || !mqtt_hooks_->hasMqttProxyToPhone() || hasDeferredSideEffects())
+    {
+        return false;
+    }
+
+    const OutputEvent* next = output_queue_.peek();
+    if (!next)
+    {
+        return false;
+    }
+    if (next->priority == OutputPriority::P0 || next->priority == OutputPriority::P1)
+    {
+        return false;
+    }
+    if (next->priority == OutputPriority::P3)
+    {
+        return true;
+    }
+    return mqtt_proxy_deferral_count_ >= kMqttProxyMaxP2Deferrals;
+}
+
+void MeshtasticPhoneCore::recordMqttProxyDeferral(const OutputEvent& event)
+{
+    if (!mqtt_hooks_ || !mqtt_hooks_->hasMqttProxyToPhone())
+    {
+        mqtt_proxy_deferral_count_ = 0;
+        return;
+    }
+    if (event.priority == OutputPriority::P2 || event.priority == OutputPriority::P3)
+    {
+        if (mqtt_proxy_deferral_count_ < kMqttProxyMaxP2Deferrals)
+        {
+            ++mqtt_proxy_deferral_count_;
+        }
+    }
+}
+
+bool MeshtasticPhoneCore::popMqttProxyFrame(MeshtasticBleFrame* out)
+{
+    if (!out || !mqtt_hooks_ || !canEmitSteadyStateFrame())
+    {
+        return false;
+    }
+
+    auto& mqtt = mqtt_proxy_scratch_;
+    std::memset(&mqtt, 0, sizeof(mqtt));
+    if (!mqtt_hooks_->pollMqttProxyToPhone(&mqtt))
+    {
+        mqtt_proxy_deferral_count_ = 0;
+        return false;
+    }
+
+    auto& from = from_radio_scratch_;
+    std::memset(&from, 0, sizeof(from));
+    from.which_payload_variant = meshtastic_FromRadio_mqttClientProxyMessage_tag;
+    from.mqttClientProxyMessage = mqtt;
+    logDual("[BLE][mtcore][mqtt] pop topic=%s retained=%u variant=%u len=%u deferrals=%u\n",
+            mqtt.topic,
+            mqtt.retained ? 1U : 0U,
+            static_cast<unsigned>(mqtt.which_payload_variant),
+            mqtt.which_payload_variant == meshtastic_MqttClientProxyMessage_data_tag
+                ? static_cast<unsigned>(mqtt.payload_variant.data.size)
+                : 0U,
+            static_cast<unsigned>(mqtt_proxy_deferral_count_));
+    mqtt_proxy_deferral_count_ = 0;
+    return encodeFromRadio(from, 0, out, MeshtasticBleFrameKind::MqttProxy, MeshtasticBleFramePriority::P3);
 }
 
 void MeshtasticPhoneCore::setPhoneApiPhase(PhoneApiPhase phase, const char* reason)
@@ -1851,6 +1930,11 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
     auto& from = from_radio_scratch_;
     std::memset(&from, 0, sizeof(from));
     output_event_scratch_.clear();
+    if (shouldEmitMqttProxyBeforeOutput() && popMqttProxyFrame(out))
+    {
+        return true;
+    }
+
     if (output_queue_.pop(&output_event_scratch_))
     {
         switch (output_event_scratch_.kind)
@@ -1858,6 +1942,7 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         case OutputEventKind::QueueStatus:
             from.which_payload_variant = meshtastic_FromRadio_queueStatus_tag;
             from.queueStatus = output_event_scratch_.payload.queue_status;
+            recordMqttProxyDeferral(output_event_scratch_);
             return encodeFromRadio(from,
                                    output_event_scratch_.notify_id,
                                    out,
@@ -1866,6 +1951,7 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         case OutputEventKind::NodeInfo:
             from.which_payload_variant = meshtastic_FromRadio_node_info_tag;
             from.node_info = output_event_scratch_.payload.node_info;
+            recordMqttProxyDeferral(output_event_scratch_);
             return encodeFromRadio(from,
                                    output_event_scratch_.notify_id,
                                    out,
@@ -1874,6 +1960,7 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         case OutputEventKind::Packet:
             from.which_payload_variant = meshtastic_FromRadio_packet_tag;
             from.packet = output_event_scratch_.payload.packet;
+            recordMqttProxyDeferral(output_event_scratch_);
             return encodeFromRadio(from,
                                    output_event_scratch_.notify_id,
                                    out,
@@ -1922,27 +2009,7 @@ bool MeshtasticPhoneCore::popToPhone(MeshtasticBleFrame* out)
         return false;
     }
 
-    if (mqtt_hooks_)
-    {
-        auto& mqtt = mqtt_proxy_scratch_;
-        std::memset(&mqtt, 0, sizeof(mqtt));
-        if (mqtt_hooks_->pollMqttProxyToPhone(&mqtt))
-        {
-            std::memset(&from, 0, sizeof(from));
-            from.which_payload_variant = meshtastic_FromRadio_mqttClientProxyMessage_tag;
-            from.mqttClientProxyMessage = mqtt;
-            logDual("[BLE][mtcore][mqtt] pop topic=%s retained=%u variant=%u len=%u\n",
-                    mqtt.topic,
-                    mqtt.retained ? 1U : 0U,
-                    static_cast<unsigned>(mqtt.which_payload_variant),
-                    mqtt.which_payload_variant == meshtastic_MqttClientProxyMessage_data_tag
-                        ? static_cast<unsigned>(mqtt.payload_variant.data.size)
-                        : 0U);
-            return encodeFromRadio(from, 0, out, MeshtasticBleFrameKind::MqttProxy, MeshtasticBleFramePriority::P3);
-        }
-    }
-
-    return false;
+    return popMqttProxyFrame(out);
 }
 
 bool MeshtasticPhoneCore::popConfigSnapshotFrame(MeshtasticBleFrame* out)

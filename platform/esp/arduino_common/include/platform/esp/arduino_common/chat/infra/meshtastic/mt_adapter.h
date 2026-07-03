@@ -74,6 +74,7 @@ class MtAdapter : public chat::IMeshAdapter
     meshtastic_Routing_Error getLastRoutingError() const;
     void setMqttProxySettings(const MqttProxySettings& settings);
     bool pollMqttProxyMessage(meshtastic_MqttClientProxyMessage* out);
+    bool hasMqttProxyMessage() const;
     bool handleMqttProxyMessage(const meshtastic_MqttClientProxyMessage& msg);
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;

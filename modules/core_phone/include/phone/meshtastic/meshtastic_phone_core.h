@@ -135,6 +135,10 @@ class MeshtasticPhoneMqttHooks
         (void)out;
         return false;
     }
+    virtual bool hasMqttProxyToPhone() const
+    {
+        return false;
+    }
 };
 
 class MeshtasticPhoneDeviceRuntimeHooks
@@ -481,6 +485,7 @@ class MeshtasticPhoneCore
 
     static constexpr size_t kPhoneOutputQueueDepth = 6;
     static constexpr size_t kNodeProjectionCacheDepth = 8;
+    static constexpr uint8_t kMqttProxyMaxP2Deferrals = 4;
 
     struct NodeProjectionCacheEntry
     {
@@ -507,6 +512,10 @@ class MeshtasticPhoneCore
     void setPhoneApiPhase(PhoneApiPhase phase, const char* reason);
     bool canHandleMqttProxy() const;
     bool canEmitSteadyStateFrame() const;
+    bool hasDeferredSideEffects() const;
+    bool shouldEmitMqttProxyBeforeOutput() const;
+    void recordMqttProxyDeferral(const OutputEvent& event);
+    bool popMqttProxyFrame(MeshtasticBleFrame* out);
     void notifyFromNum(uint32_t from_num);
     void fillMyInfo(meshtastic_MyNodeInfo* out) const;
     void fillSelfNodeInfo(meshtastic_NodeInfo* out) const;
@@ -557,6 +566,7 @@ class MeshtasticPhoneCore
     bool admin_edit_transaction_bluetooth_dirty_ = false;
     bool admin_edit_transaction_restart_pending_ = false;
     bool restart_pending_ = false;
+    uint8_t mqtt_proxy_deferral_count_ = 0;
     OutputQueue<kPhoneOutputQueueDepth> output_queue_;
     OutputEvent output_event_scratch_{};
     std::array<NodeProjectionCacheEntry, kNodeProjectionCacheDepth> node_projection_cache_{};

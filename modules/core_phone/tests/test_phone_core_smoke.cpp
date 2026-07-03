@@ -91,6 +91,11 @@ class FakeMqttHooks final : public phone::meshtastic::MeshtasticPhoneMqttHooks
         return true;
     }
 
+    bool hasMqttProxyToPhone() const override
+    {
+        return !to_phone.empty();
+    }
+
     int poll_count = 0;
     std::vector<meshtastic_MqttClientProxyMessage> to_phone;
     std::vector<meshtastic_MqttClientProxyMessage> to_radio;
@@ -635,8 +640,8 @@ int main()
                                   mqtt_proxy_to_radio,
                                   sizeof(mqtt_proxy_to_radio),
                                   mqtt_proxy_to_radio_len));
-    assert(!mqtt_gate_session.handleToRadio(mqtt_proxy_to_radio, mqtt_proxy_to_radio_len));
-    assert(mqtt_gate_hooks.to_radio.empty());
+    assert(mqtt_gate_session.handleToRadio(mqtt_proxy_to_radio, mqtt_proxy_to_radio_len));
+    assert(mqtt_gate_hooks.to_radio.size() == 1);
 
     drainMeshtasticConfigStage(mqtt_gate_session, 69420U);
     assert(!mqtt_gate_session.isSendingPackets());
@@ -647,9 +652,6 @@ int main()
     assert(mqtt_gate_session.isSendingPackets());
     assert(mqtt_gate_hooks.poll_count == 0);
     assert(mqtt_gate_hooks.to_phone.size() == 1);
-
-    assert(mqtt_gate_session.handleToRadio(mqtt_proxy_to_radio, mqtt_proxy_to_radio_len));
-    assert(mqtt_gate_hooks.to_radio.size() == 1);
 
     assert(mqtt_gate_session.popToPhone(&mqtt_gate_frame));
     assertFrameMetadata(mqtt_gate_frame,
@@ -855,6 +857,50 @@ int main()
     assert(text_from.which_payload_variant == meshtastic_FromRadio_mqttClientProxyMessage_tag);
     assert(mqtt_priority_hooks.poll_count == 1);
     assert(!mqtt_priority_session.popToPhone(&text_frame));
+
+    phone::tests::FakePhoneRuntimeContext mqtt_fair_runtime;
+    FakeMeshtasticTransport mqtt_fair_transport;
+    FakeMqttHooks mqtt_fair_hooks;
+    mqtt_fair_hooks.to_phone.push_back(mqtt_proxy_msg);
+    phone::meshtastic::MeshtasticPhoneSession mqtt_fair_session(mqtt_fair_runtime,
+                                                                mqtt_fair_transport,
+                                                                nullptr,
+                                                                nullptr,
+                                                                nullptr,
+                                                                nullptr,
+                                                                &mqtt_fair_hooks,
+                                                                nullptr);
+    enterMeshtasticSendPackets(mqtt_fair_session);
+    for (uint32_t index = 0; index < 6; ++index)
+    {
+        incoming_data.from = 0x52000000U + index;
+        incoming_data.to = 0xFFFFFFFF;
+        incoming_data.packet_id = 0x82000000U + index;
+        incoming_data.portnum = meshtastic_PortNum_POSITION_APP;
+        incoming_data.payload = {static_cast<uint8_t>(index)};
+        mqtt_fair_session.onIncomingData(incoming_data);
+    }
+
+    for (uint32_t index = 0; index < 4; ++index)
+    {
+        assert(mqtt_fair_session.popToPhone(&text_frame));
+        text_from = meshtastic_FromRadio_init_zero;
+        assert(decodeFromRadio(text_frame, text_from));
+        assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+        assertFrameMetadata(text_frame,
+                            phone::meshtastic::MeshtasticBleFrameKind::Packet,
+                            phone::meshtastic::MeshtasticBleFramePriority::P2);
+        assert(mqtt_fair_hooks.poll_count == 0);
+    }
+
+    assert(mqtt_fair_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_mqttClientProxyMessage_tag);
+    assertFrameMetadata(text_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::MqttProxy,
+                        phone::meshtastic::MeshtasticBleFramePriority::P3);
+    assert(mqtt_fair_hooks.poll_count == 1);
 
     phone::tests::FakePhoneRuntimeContext metadata_runtime;
     FakeMeshtasticTransport metadata_transport;

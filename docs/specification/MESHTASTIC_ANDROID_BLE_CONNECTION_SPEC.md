@@ -402,6 +402,10 @@ MQTT proxy egress rule:
 - This rule is stronger than queue priority. The first decision is phase, then variant priority within that phase.
 - Within `SendPackets`, local identity/message projections have priority over MQTT proxy frames:
   `queueStatus -> node_info -> packet -> deferred save/apply/restart -> mqttClientProxyMessage -> empty`.
+- MQTT proxy is still a bounded P3 projection, but it must not be starved forever by a continuous P2
+  latest-value stream. After a bounded number of P2/P3 deferrals, firmware may emit one pending
+  `mqttClientProxyMessage` before more P2/P3 frames. This fairness rule never applies before
+  `SendPackets`, never overtakes P0/P1 frames, and never overtakes deferred save/apply/restart side effects.
 
 FromNum/FromRadio binding rule:
 
@@ -724,6 +728,9 @@ Within `SendPackets`, preserve this priority:
 
 Do not reorder this casually. In particular, MQTT proxy must not overtake active config frames, node identity projection,
 mesh packet projection, or deferred saves. Deferred save must not overtake phone-visible Admin responses.
+The exception is the bounded P2/P3 fairness window: a continuous low-priority packet stream must not prevent a
+pending MQTT proxy frame from ever reaching Android. This exception does not apply to P0/P1 frames or deferred side
+effects.
 
 The response-drain-before-save rule exists because Android expects queue status and Admin response frames promptly.
 Blocking flash/NVS writes or restart before those frames are observable can make the App appear connected but stuck.

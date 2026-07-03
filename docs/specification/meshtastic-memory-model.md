@@ -491,6 +491,12 @@ stateDiagram-v2
 | P2 | Latest-value or coalescible data | GPS position, telemetry, battery/status heartbeat, repeated NodeInfo/User, map/report | 可丢旧保新，可合并。 |
 | P3 | Diagnostic or raw projection | raw MQTT proxy envelope for phone, duplicate packets, stale UI refresh, debug/log projection, old broadcast metadata | 高压优先丢弃。 |
 
+P3 是最先被丢弃的压力释放层，但不是永久饥饿层。对于 MQTT proxy 这类承担
+device->phone->broker 转发职责的 P3 projection，`SendPackets` 阶段必须有 bounded
+fairness：在没有 P0/P1 和 deferred side effect 的前提下，连续让路给 P2/P3 若干次后，
+可以交付一个 pending MQTT proxy frame。这个规则不改变 drop order；它只防止 strict
+priority 在持续低优先级流量下把 MQTT 上下行实际饿死。
+
 ### Drop Order
 
 高压时按以下顺序释放压力：

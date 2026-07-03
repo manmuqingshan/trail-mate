@@ -399,6 +399,12 @@ bool AppPhoneFacade::pollMqttProxyToPhone(meshtastic_MqttClientProxyMessage* out
     return (mt && out) ? mt->pollMqttProxyMessage(out) : false;
 }
 
+bool AppPhoneFacade::hasMqttProxyToPhone() const
+{
+    auto* mt = getMeshtasticBackend(app_);
+    return mt ? mt->hasMqttProxyMessage() : false;
+}
+
 bool AppPhoneFacade::loadTimezoneTzdef(char* out, size_t out_len) const
 {
     if (!out || out_len == 0)

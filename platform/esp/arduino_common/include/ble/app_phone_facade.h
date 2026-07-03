@@ -84,6 +84,7 @@ class AppPhoneFacade final : public phone::IPhoneAppFacade,
     bool loadDeviceConnectionStatus(meshtastic_DeviceConnectionStatus* out) const override;
     bool handleMqttProxyToRadio(const meshtastic_MqttClientProxyMessage& msg) override;
     bool pollMqttProxyToPhone(meshtastic_MqttClientProxyMessage* out) override;
+    bool hasMqttProxyToPhone() const override;
     bool loadTimezoneTzdef(char* out, size_t out_len) const override;
     void saveTimezoneTzdef(const char* tzdef) override;
     int getTimezoneOffsetMinutes() const override;

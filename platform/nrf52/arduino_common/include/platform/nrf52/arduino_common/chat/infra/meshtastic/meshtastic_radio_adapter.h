@@ -58,6 +58,7 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     ::chat::NodeId getNodeId() const override;
     void setMqttProxySettings(const MqttProxySettings& settings);
     bool pollMqttProxyMessage(meshtastic_MqttClientProxyMessage* out);
+    bool hasMqttProxyMessage() const;
     bool handleMqttProxyMessage(const meshtastic_MqttClientProxyMessage& msg);
     bool pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len) override;
     void handleRawPacket(const uint8_t* data, size_t size) override;
