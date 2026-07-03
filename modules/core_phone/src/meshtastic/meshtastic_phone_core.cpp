@@ -1113,6 +1113,7 @@ bool MeshtasticPhoneCore::handleToRadio(const uint8_t* data, size_t len)
         return true;
     case meshtastic_ToRadio_disconnect_tag:
         reset();
+        transport_.requestPhoneDisconnect();
         return true;
     default:
         return false;

@@ -70,6 +70,7 @@ class MeshtasticPhoneTransport
     virtual ~MeshtasticPhoneTransport() = default;
     virtual bool isBleConnected() const = 0;
     virtual void notifyFromNum(uint32_t from_num) = 0;
+    virtual void requestPhoneDisconnect() {}
 };
 
 class MeshtasticPhoneBluetoothConfigHooks

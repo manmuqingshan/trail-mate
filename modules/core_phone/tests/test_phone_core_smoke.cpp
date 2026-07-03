@@ -36,10 +36,12 @@ class FakeMeshtasticTransport final : public phone::meshtastic::MeshtasticPhoneT
         last_from_num = from_num;
         notify_count++;
     }
+    void requestPhoneDisconnect() override { disconnect_count++; }
 
     bool connected = true;
     uint32_t last_from_num = 0;
     int notify_count = 0;
+    int disconnect_count = 0;
 };
 
 class FakeBluetoothConfigHooks final : public phone::meshtastic::MeshtasticPhoneBluetoothConfigHooks
@@ -360,6 +362,20 @@ bool encodeHeartbeatToRadio(uint8_t* out, size_t out_len, size_t& written, uint3
     return true;
 }
 
+bool encodeDisconnectToRadio(uint8_t* out, size_t out_len, size_t& written)
+{
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_zero;
+    to_radio.which_payload_variant = meshtastic_ToRadio_disconnect_tag;
+
+    pb_ostream_t to_radio_stream = pb_ostream_from_buffer(out, out_len);
+    if (!pb_encode(&to_radio_stream, meshtastic_ToRadio_fields, &to_radio))
+    {
+        return false;
+    }
+    written = to_radio_stream.bytes_written;
+    return true;
+}
+
 bool encodeMqttProxyToRadio(const meshtastic_MqttClientProxyMessage& msg,
                             uint8_t* out,
                             size_t out_len,
@@ -537,6 +553,21 @@ int main()
     assert(heartbeat_from.queueStatus.mesh_packet_id == kHeartbeatNonce);
     assert(heartbeat_from.queueStatus.res == 0);
     assert(!heartbeat_session.popToPhone(&heartbeat_frame));
+
+    phone::tests::FakePhoneRuntimeContext disconnect_runtime;
+    FakeMeshtasticTransport disconnect_transport;
+    phone::meshtastic::MeshtasticPhoneSession disconnect_session(
+        disconnect_runtime, disconnect_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(disconnect_session);
+    assert(disconnect_session.isSendingPackets());
+    uint8_t disconnect_to_radio[meshtastic_ToRadio_size] = {};
+    size_t disconnect_to_radio_len = 0;
+    assert(encodeDisconnectToRadio(disconnect_to_radio,
+                                   sizeof(disconnect_to_radio),
+                                   disconnect_to_radio_len));
+    assert(disconnect_session.handleToRadio(disconnect_to_radio, disconnect_to_radio_len));
+    assert(disconnect_transport.disconnect_count == 1);
+    assert(!disconnect_session.isSendingPackets());
 
     phone::tests::FakePhoneRuntimeContext backpressure_runtime;
     FakeMeshtasticTransport backpressure_transport;

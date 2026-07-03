@@ -490,6 +490,7 @@ Required tags:
 | `want_config` | Android wrote `ToRadio.want_config_id`; this starts/restarts PhoneAPI config snapshot. |
 | `heartbeat` | Android wrote `ToRadio.heartbeat`; firmware must enqueue a non-empty `FromRadio.queueStatus` for liveness when phase allows it. |
 | `phase_change` | PhoneAPI phase changed while handling a `ToRadio` write. |
+| `phone_disconnect` | Android wrote `ToRadio.disconnect`; firmware must request a real GAP/GATT disconnect, not only reset PhoneAPI state. |
 | `periodic` | Low-rate snapshot while connected, used to diagnose stale app UI state when no edge event occurs. |
 | `link_down` | GAP disconnected; PhoneAPI session and unread published slots must be closed/reset. |
 
@@ -498,6 +499,13 @@ Important distinction:
 - If logs show `connected=1`, `gap=1`, `notify=1`, `send=1`, and heartbeat/read ages are fresh, firmware should treat BLE transport as alive even if the app UI temporarily says offline.
 - If app UI says offline while `FromRadio` messages still drain, the suspect boundary is app-level connection projection or config freshness, not immediate packet transport.
 - Do not fix this symptom by forcing a fake online state or by emitting out-of-phase config frames. The proper fix is to align transport session lifecycle, `want_config` handling, heartbeat response, and `FromRadio` drain ordering with official firmware.
+
+Transport lifecycle rules:
+
+- `ToRadio.disconnect` is a phone transport lifecycle command. Handling it is not complete until the platform BLE runtime requests a real link disconnect.
+- `PhoneCore` may reset PhoneAPI state, but it must delegate physical disconnect to the transport/runtime owner.
+- Platform runtimes must route the resulting GAP/GATT disconnect through the same `link_down` cleanup path used by remote disconnects: close PhoneAPI session, release published `FromRadio` slots, clear pending reads/notifies, clear pairing UI state, then restart advertising as appropriate.
+- nRF runtimes must also defend against half-open sessions: if GAP still reports connected but no phone-side liveness traffic is observed for the stale-session window, the runtime should proactively disconnect the old link so Android can perform a fresh connection handshake.
 
 ### MQTT Proxy Reliability Window
 

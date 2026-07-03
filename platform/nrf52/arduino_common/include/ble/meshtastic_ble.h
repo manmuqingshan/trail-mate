@@ -61,6 +61,7 @@ class MeshtasticBleService final : public BleService,
     uint32_t pendingPhoneBlePasskey() const override;
     void requestPhoneHighThroughputConnection() override;
     void requestPhoneLowerPowerConnection() override;
+    void requestPhoneDisconnect() override;
     void onPhoneBluetoothConfigChanged() override;
     void onPhoneModuleConfigChanged() override;
 
@@ -90,6 +91,8 @@ class MeshtasticBleService final : public BleService,
     void markConfigSavePending(bool bluetooth_changed, bool module_changed);
     void flushPendingConfigSaves(bool force = false);
     void applyBleSecurity();
+    bool processPendingPhoneDisconnect();
+    void checkPhoneSessionLiveness(uint32_t now_ms);
     void logFromRadioState(const char* tag) const;
     void logSessionState(const char* tag, uint32_t detail = 0);
     void requestPairingIfNeeded(uint16_t conn_handle);
@@ -136,6 +139,7 @@ class MeshtasticBleService final : public BleService,
 
     volatile bool pairing_request_pending_ = false;
     volatile uint16_t pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
+    volatile bool pending_phone_disconnect_request_ = false;
 
     volatile bool pending_connect_log_ = false;
     volatile bool pending_disconnect_log_ = false;
@@ -181,6 +185,7 @@ class MeshtasticBleService final : public BleService,
     uint32_t last_from_num_notify_ms_ = 0;
     uint32_t next_connected_session_log_ms_ = 0;
     uint32_t next_ble_idle_log_ms_ = 0;
+    uint32_t next_liveness_log_ms_ = 0;
     ble_gap_addr_t remembered_phone_peer_ = {};
     bool remembered_phone_peer_valid_ = false;
     bool remembered_phone_peer_bonded_ = false;

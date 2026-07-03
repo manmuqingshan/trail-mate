@@ -53,6 +53,7 @@ class MeshtasticBleService : public BleService,
     uint32_t pendingPhoneBlePasskey() const override;
     void requestPhoneHighThroughputConnection() override;
     void requestPhoneLowerPowerConnection() override;
+    void requestPhoneDisconnect() override;
     void onPhoneBluetoothConfigChanged() override;
     void onPhoneModuleConfigChanged() override;
 

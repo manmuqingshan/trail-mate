@@ -31,6 +31,8 @@ constexpr uint32_t kDirectedAdvertisingMs = 3000UL;
 constexpr uint16_t kBleAdvertisingFastInterval = 32;
 constexpr uint16_t kBleAdvertisingSlowInterval = 668;
 constexpr uint16_t kBleAdvertisingFastTimeoutSec = 30;
+constexpr uint32_t kPhoneSessionStaleMs = 90000UL;
+constexpr uint32_t kPhoneSessionStaleLogIntervalMs = 30000UL;
 constexpr uint8_t kFromRadioEmptyInactive = 1;
 constexpr uint8_t kFromRadioEmptyNoFrame = 2;
 constexpr uint8_t kFromRadioEmptyInvalidFrame = 3;
@@ -771,6 +773,7 @@ void MeshtasticBleService::start()
     pending_disconnect_reason_ = 0;
     pairing_request_pending_ = false;
     pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
+    pending_phone_disconnect_request_ = false;
     directed_advertising_active_ = false;
     directed_advertising_attempted_ = false;
     directed_advertising_until_ms_ = 0;
@@ -786,6 +789,7 @@ void MeshtasticBleService::start()
     last_from_num_notify_ms_ = 0;
     next_connected_session_log_ms_ = 0;
     next_ble_idle_log_ms_ = last_ble_activity_ms_ + 3000UL;
+    next_liveness_log_ms_ = 0;
 
     prepareBluefruit(device_name_);
     loadRememberedPhonePeer();
@@ -903,6 +907,7 @@ void MeshtasticBleService::stop()
     pending_disconnect_reason_ = 0;
     pairing_request_pending_ = false;
     pending_pairing_conn_handle_ = BLE_CONN_HANDLE_INVALID;
+    pending_phone_disconnect_request_ = false;
     directed_advertising_active_ = false;
     directed_advertising_attempted_ = false;
     directed_advertising_until_ms_ = 0;
@@ -916,6 +921,7 @@ void MeshtasticBleService::stop()
     last_from_num_notify_ms_ = 0;
     next_connected_session_log_ms_ = 0;
     next_ble_idle_log_ms_ = 0;
+    next_liveness_log_ms_ = 0;
     if (s_active_service == this)
     {
         s_active_service = nullptr;
@@ -938,6 +944,10 @@ void MeshtasticBleService::update()
 
     processPendingPairingRequest();
     processPendingToRadio();
+    if (processPendingPhoneDisconnect())
+    {
+        return;
+    }
     flushPendingFromRadioReadAuthorize();
     flushPendingFromNumNotify();
     logDeferredBleEvents();
@@ -993,6 +1003,7 @@ void MeshtasticBleService::update()
         logSessionState("periodic");
         next_connected_session_log_ms_ = now_ms + kBleConnectedSessionLogIntervalMs;
     }
+    checkPhoneSessionLiveness(now_ms);
 }
 
 void MeshtasticBleService::handleIncomingTextFromApp(const chat::MeshIncomingText& msg)
@@ -1605,7 +1616,9 @@ void MeshtasticBleService::handleConnectEvent(uint16_t conn_handle)
     last_from_radio_read_ms_ = 0;
     last_from_num_notify_ms_ = 0;
     next_connected_session_log_ms_ = last_ble_activity_ms_ + kBleConnectedSessionLogIntervalMs;
+    next_liveness_log_ms_ = 0;
     from_num_notify_enabled_ = false;
+    pending_phone_disconnect_request_ = false;
     if (phone_session_)
     {
         phone_session_->close();
@@ -1666,6 +1679,8 @@ void MeshtasticBleService::handleDisconnectEvent(uint16_t conn_handle, uint8_t r
     pending_disconnect_conn_handle_ = conn_handle;
     pending_disconnect_reason_ = reason;
     pending_disconnect_log_ = true;
+    pending_phone_disconnect_request_ = false;
+    next_liveness_log_ms_ = 0;
     directed_advertising_active_ = false;
     directed_advertising_attempted_ = false;
     directed_advertising_until_ms_ = 0;
@@ -1777,6 +1792,100 @@ void MeshtasticBleService::requestPhoneHighThroughputConnection()
 
 void MeshtasticBleService::requestPhoneLowerPowerConnection()
 {
+}
+
+void MeshtasticBleService::requestPhoneDisconnect()
+{
+    pending_phone_disconnect_request_ = true;
+}
+
+bool MeshtasticBleService::processPendingPhoneDisconnect()
+{
+    if (!pending_phone_disconnect_request_)
+    {
+        return false;
+    }
+
+    pending_phone_disconnect_request_ = false;
+    const uint16_t handle = conn_handle_;
+    const bool handle_valid = handle != BLE_CONN_HANDLE_INVALID;
+    const bool gap_connected = handle_valid && Bluefruit.connected(handle);
+    bleLogBoth("[BLE][nrf52][mt][flow] phone disconnect request connected=%u gap=%u handle=%u",
+               connected_ ? 1U : 0U,
+               gap_connected ? 1U : 0U,
+               handle_valid ? static_cast<unsigned>(handle) : 0xFFFFU);
+
+    clearPendingFromRadioReadAuthorize();
+    pending_to_radio_head_ = 0;
+    pending_to_radio_tail_ = 0;
+    pending_to_radio_count_ = 0;
+    clearToPhoneQueue();
+    from_num_notify_enabled_ = false;
+    pending_passkey_.store(0);
+
+    if (!connected_ || !gap_connected)
+    {
+        if (!Bluefruit.Advertising.isRunning())
+        {
+            startPhoneAdvertising(!directed_advertising_attempted_);
+        }
+        return false;
+    }
+
+    const bool ok = Bluefruit.disconnect(handle);
+    bleLogBoth("[BLE][nrf52][mt][flow] phone disconnect gap_request handle=%u ok=%u",
+               static_cast<unsigned>(handle),
+               ok ? 1U : 0U);
+    if (!ok)
+    {
+        pending_phone_disconnect_request_ = true;
+    }
+    return true;
+}
+
+void MeshtasticBleService::checkPhoneSessionLiveness(uint32_t now_ms)
+{
+    if (!active_ || !connected_ || conn_handle_ == BLE_CONN_HANDLE_INVALID)
+    {
+        return;
+    }
+
+    uint32_t last_phone_activity_ms = last_ble_activity_ms_;
+    if (last_heartbeat_ms_ > last_phone_activity_ms)
+    {
+        last_phone_activity_ms = last_heartbeat_ms_;
+    }
+    if (last_from_radio_read_ms_ > last_phone_activity_ms)
+    {
+        last_phone_activity_ms = last_from_radio_read_ms_;
+    }
+    if (last_to_radio_ms_ > last_phone_activity_ms)
+    {
+        last_phone_activity_ms = last_to_radio_ms_;
+    }
+
+    if (last_phone_activity_ms == 0 ||
+        static_cast<uint32_t>(now_ms - last_phone_activity_ms) < kPhoneSessionStaleMs)
+    {
+        return;
+    }
+
+    if (next_liveness_log_ms_ == 0 || static_cast<int32_t>(now_ms - next_liveness_log_ms_) >= 0)
+    {
+        bleLogBoth("[BLE][nrf52][mt][flow] phone session stale age_ms=%lu limit_ms=%lu connected=%u gap=%u "
+                   "notify=%u cfg=%u send=%u",
+                   static_cast<unsigned long>(now_ms - last_phone_activity_ms),
+                   static_cast<unsigned long>(kPhoneSessionStaleMs),
+                   connected_ ? 1U : 0U,
+                   Bluefruit.connected(conn_handle_) ? 1U : 0U,
+                   from_num_notify_enabled_ ? 1U : 0U,
+                   (phone_session_ && phone_session_->isConfigFlowActive()) ? 1U : 0U,
+                   (phone_session_ && phone_session_->isSendingPackets()) ? 1U : 0U);
+        next_liveness_log_ms_ = now_ms + kPhoneSessionStaleLogIntervalMs;
+    }
+
+    pending_phone_disconnect_request_ = true;
+    (void)processPendingPhoneDisconnect();
 }
 
 void MeshtasticBleService::onPhoneBluetoothConfigChanged()
