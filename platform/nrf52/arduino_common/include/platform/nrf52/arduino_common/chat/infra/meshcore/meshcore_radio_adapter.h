@@ -139,6 +139,7 @@ class MeshCoreRadioAdapter final : public ::chat::IMeshAdapter,
     ::chat::infra::IncomingTextQueue<kIncomingQueueDepth> text_queue_;
     ::chat::infra::IncomingDataQueue<kIncomingQueueDepth> data_queue_;
     ::chat::runtime::MeshCoreRuntime protocol_runtime_{};
+    ::chat::runtime::ProtocolEffectWorkspace protocol_effect_workspace_{};
 
     bool enqueueIncomingText(const ::chat::MeshIncomingText& metadata,
                              const char* text,

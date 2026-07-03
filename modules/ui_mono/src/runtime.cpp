@@ -2289,7 +2289,7 @@ void Runtime::tick(InputAction action)
                                                               context_provider);
         if (bundle.valid())
         {
-            auto facade = bundle.createFacade();
+            auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
             handleMeshtasticFacadeResult(facade.tick());
         }
     }
@@ -2302,7 +2302,7 @@ void Runtime::tick(InputAction action)
                                                               context_provider);
         if (bundle.valid())
         {
-            auto facade = bundle.createFacade();
+            auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
             handleMeshtasticFacadeResult(facade.tick());
         }
     }
@@ -2427,7 +2427,7 @@ void Runtime::onIncomingData(const chat::MeshIncomingData& msg)
                                                               context_provider);
         if (bundle.valid())
         {
-            auto facade = bundle.createFacade();
+            auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
             handleMeshtasticFacadeResult(facade.handleIncoming(packet));
         }
     }
@@ -2440,7 +2440,7 @@ void Runtime::onIncomingData(const chat::MeshIncomingData& msg)
                                                               context_provider);
         if (bundle.valid())
         {
-            auto facade = bundle.createFacade();
+            auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
             handleMeshtasticFacadeResult(facade.handleIncoming(packet));
         }
     }
@@ -8312,7 +8312,7 @@ void Runtime::executeNodeAction()
             showTransientPopup("TRACE ROUTE", "UNAVAILABLE");
             return;
         }
-        auto facade = bundle.createFacade();
+        auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
         chat::runtime::TraceRouteIntent intent{};
         intent.channel = chat::ChannelId::PRIMARY;
         intent.peer = node->node_id;
@@ -8386,7 +8386,7 @@ void Runtime::requestNodePositionExchange()
         showTransientPopup("EXCHANGE POSITION", "UNAVAILABLE");
         return;
     }
-    auto facade = bundle.createFacade();
+    auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
     chat::runtime::ExchangePositionIntent intent{};
     intent.channel = chat::ChannelId::PRIMARY;
     intent.peer = node->node_id;

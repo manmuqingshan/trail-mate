@@ -406,6 +406,7 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     uint32_t pki_node_keys_save_due_ms_ = 0;
     bool pki_node_keys_dirty_ = false;
     ::chat::runtime::MeshtasticRuntime protocol_runtime_{};
+    ::chat::runtime::ProtocolEffectWorkspace protocol_effect_workspace_{};
     std::array<NodeRuntimeEntry, kNodeRuntimeTableDepth> node_runtime_{};
     TxScratchBuffers tx_scratch_{};
     RxScratchBuffers rx_scratch_{};

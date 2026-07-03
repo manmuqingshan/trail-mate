@@ -349,6 +349,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     size_t gnss_page_index_ = 0;
     uint32_t last_compass_render_ms_ = 0;
     chat::runtime::MeshtasticRuntime meshtastic_protocol_runtime_{};
+    chat::runtime::ProtocolEffectWorkspace meshtastic_protocol_effect_workspace_{};
     chat::MessageId next_meshtastic_action_request_id_ = 0;
 
     static constexpr size_t kMaxConversationItems = 8;

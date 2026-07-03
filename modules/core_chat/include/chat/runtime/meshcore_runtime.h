@@ -43,10 +43,10 @@ struct MeshCoreAppAckRegistration
 class MeshCoreRuntime final : public IProtocolRuntime
 {
   public:
-    ProtocolEffects prepareOutgoing(const ProtocolIntent& intent,
-                                    const RuntimeContext& context) override
+    void prepareOutgoing(const ProtocolIntent& intent,
+                         const RuntimeContext& context,
+                         ProtocolEffects& effects) override
     {
-        ProtocolEffects effects{};
         std::visit(
             [this, &effects, &context](const auto& item)
             {
@@ -69,18 +69,19 @@ class MeshCoreRuntime final : public IProtocolRuntime
                 }
             },
             intent);
-        return effects;
     }
 
-    ProtocolEffects handleIncoming(const IncomingPacket& packet,
-                                   const RuntimeContext& context) override
+    void handleIncoming(const IncomingPacket& packet,
+                        const RuntimeContext& context,
+                        ProtocolEffects& effects) override
     {
-        return handleIncomingPacket(packet, context).effects;
+        (void)handleIncomingPacket(packet, context, effects);
     }
 
     IncomingPacketHandlingResult handleIncomingPacket(
         const IncomingPacket& packet,
-        const RuntimeContext& context) override
+        const RuntimeContext& context,
+        ProtocolEffects& effects) override
     {
         IncomingPacketHandlingResult result{};
         if (packet.protocol != MeshProtocol::MeshCore)
@@ -88,39 +89,48 @@ class MeshCoreRuntime final : public IProtocolRuntime
             return result;
         }
 
-        if (absorbIncomingHandlingResult(result, handleIncomingAck(packet, context)))
+        if (absorbIncomingHandlingResult(result, handleIncomingAck(packet, context, effects)))
         {
             return result;
         }
         if (absorbIncomingHandlingResult(result,
-                                         handleIncomingDiscoverControl(packet, context)))
+                                         handleIncomingDiscoverControl(packet, context, effects)))
         {
             return result;
         }
-        if (absorbIncomingHandlingResult(result, handleIncomingNodeInfoControl(packet, context)))
+        if (absorbIncomingHandlingResult(result, handleIncomingNodeInfoControl(packet,
+                                                                               context,
+                                                                               effects)))
         {
             return result;
         }
-        if (absorbIncomingHandlingResult(result, handleIncomingTrace(packet, context)))
+        if (absorbIncomingHandlingResult(result, handleIncomingTrace(packet,
+                                                                     context,
+                                                                     effects)))
         {
             return result;
         }
-        absorbIncomingHandlingResult(result, handleIncomingTextOrAppData(packet, context));
+        absorbIncomingHandlingResult(result, handleIncomingTextOrAppData(packet,
+                                                                         context,
+                                                                         effects));
         return result;
     }
 
     static IncomingPacketHandlingResult handleIncomingAck(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         (void)packet;
         (void)context;
+        (void)effects;
         return {};
     }
 
     static IncomingPacketHandlingResult handleIncomingNodeInfoControl(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         if (packet.portnum != chat::meshcore::kMeshCoreNodeInfoPortnum)
         {
@@ -148,7 +158,7 @@ class MeshCoreRuntime final : public IProtocolRuntime
                                  ? packet.from
                                  : 0;
                 reply.want_response = false;
-                result.effects.add(reply);
+                effects.add(reply);
             }
             return result;
         }
@@ -180,22 +190,22 @@ class MeshCoreRuntime final : public IProtocolRuntime
                 publish.hops = packet.rx_meta.hop_count;
             }
             publish.rx_meta = packet.rx_meta;
-            result.effects.add(std::move(publish));
+            effects.add(std::move(publish));
         }
 
         return result;
     }
 
-    ProtocolEffects handleTxResult(const TxResult& result,
-                                   const RuntimeContext& context) override
+    void handleTxResult(const TxResult& result,
+                        const RuntimeContext& context,
+                        ProtocolTxFeedbackEffects& effects) override
     {
         (void)context;
-        ProtocolEffects effects{};
         if (result.protocol != MeshProtocol::MeshCore ||
             !pending_trace_.active ||
             result.request_id != pending_trace_.request_id)
         {
-            return effects;
+            return;
         }
 
         if (result.ok)
@@ -212,17 +222,15 @@ class MeshCoreRuntime final : public IProtocolRuntime
             delivered.request_id = pending_trace_.request_id;
             delivered.detail = result.detail;
             effects.add(delivered);
-            return effects;
+            return;
         }
 
         effects.add(buildTraceResult(ProtocolActionState::Failed, result.detail));
         pending_trace_ = PendingTraceRoute{};
-        return effects;
     }
 
-    ProtocolEffects tick(const RuntimeContext& context) override
+    void tick(const RuntimeContext& context, ProtocolEffects& effects) override
     {
-        ProtocolEffects effects{};
         pruneAppAcks(context, effects);
 
         if (pending_trace_.active)
@@ -234,18 +242,16 @@ class MeshCoreRuntime final : public IProtocolRuntime
                 pending_trace_ = PendingTraceRoute{};
             }
         }
-
-        return effects;
     }
 
-    ProtocolEffects trackAppAck(const MeshCoreAppAckRegistration& input,
-                                const RuntimeContext& context)
+    void trackAppAck(const MeshCoreAppAckRegistration& input,
+                     const RuntimeContext& context,
+                     ProtocolEffects& effects)
     {
-        ProtocolEffects effects{};
         pruneAppAcks(context, effects);
         if (input.signature == 0 || input.peer == 0)
         {
-            return effects;
+            return;
         }
 
         const uint32_t timeout_ms = input.timeout_ms == 0
@@ -258,7 +264,7 @@ class MeshCoreRuntime final : public IProtocolRuntime
             ack->message_id = input.message_id;
             ack->created_ms = context.now_ms;
             ack->timeout_ms = timeout_ms;
-            return effects;
+            return;
         }
 
         PendingAppAck ack{};
@@ -273,31 +279,32 @@ class MeshCoreRuntime final : public IProtocolRuntime
         {
             effects.add(buildAppAckResult(dropped, ProtocolActionState::Failed, 0));
         }
-        return effects;
     }
 
-    ProtocolEffects bindAppAckToMessage(uint32_t signature, MessageId message_id)
+    void bindAppAckToMessage(uint32_t signature,
+                             MessageId message_id,
+                             ProtocolEffects& effects)
     {
-        ProtocolEffects effects{};
+        (void)effects;
         if (signature == 0 || message_id == 0)
         {
-            return effects;
+            return;
         }
 
         if (PendingAppAck* ack = pending_app_acks_.find(signature))
         {
             ack->message_id = message_id;
         }
-        return effects;
     }
 
-    ProtocolEffects handleAppAck(uint32_t signature, const RuntimeContext& context)
+    void handleAppAck(uint32_t signature,
+                      const RuntimeContext& context,
+                      ProtocolEffects& effects)
     {
-        ProtocolEffects effects{};
         pruneAppAcks(context, effects);
         if (signature == 0)
         {
-            return effects;
+            return;
         }
 
         PendingAppAck ack{};
@@ -306,14 +313,13 @@ class MeshCoreRuntime final : public IProtocolRuntime
             const int32_t trip_ms = static_cast<int32_t>(context.now_ms - ack.created_ms);
             effects.add(buildAppAckResult(ack, ProtocolActionState::Completed, trip_ms));
         }
-        return effects;
     }
 
-    ProtocolEffects prepareAutoDiscoverMissingPeer(
+    void prepareAutoDiscoverMissingPeer(
         const MeshCoreAutoDiscoverMissingPeerInput& input,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
-        ProtocolEffects effects{};
         const uint8_t self_hash = input.self_hash != 0
                                       ? input.self_hash
                                       : static_cast<uint8_t>(context.self_node & 0xFFU);
@@ -321,14 +327,14 @@ class MeshCoreRuntime final : public IProtocolRuntime
             input.peer_hash == 0xFF ||
             input.peer_hash == self_hash)
         {
-            return effects;
+            return;
         }
 
         if (auto_discover_.last_hash == input.peer_hash &&
             auto_discover_.last_success_ms != 0 &&
             (context.now_ms - auto_discover_.last_success_ms) < input.cooldown_ms)
         {
-            return effects;
+            return;
         }
 
         DiscoverIntent intent{};
@@ -338,7 +344,6 @@ class MeshCoreRuntime final : public IProtocolRuntime
         intent.since = input.since;
         intent.rx_guard_ms = input.rx_guard_ms;
         resolveDiscover(intent, context, effects);
-        return effects;
     }
 
     void markAutoDiscoverMissingPeerTxResult(uint8_t peer_hash,
@@ -637,7 +642,8 @@ class MeshCoreRuntime final : public IProtocolRuntime
 
     IncomingPacketHandlingResult handleIncomingDiscoverControl(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         if (packet.payload_type != chat::meshcore::kMeshCorePayloadTypeControl ||
             packet.payload.empty() ||
@@ -671,7 +677,7 @@ class MeshCoreRuntime final : public IProtocolRuntime
             response.protocol = MeshProtocol::MeshCore;
             response.tag = request.tag;
             response.prefix_only = request.prefix_only;
-            result.effects.add(response);
+            effects.add(response);
             return result;
         }
 
@@ -715,7 +721,7 @@ class MeshCoreRuntime final : public IProtocolRuntime
         publish.hops = hops;
         publish.rx_meta = rx_meta;
         publish.has_public_key = response.pubkey_len == chat::meshcore::kMeshCorePubKeySize;
-        result.effects.add(std::move(publish));
+        effects.add(std::move(publish));
 
         UpdatePeerRouteEffect route{};
         route.protocol = MeshProtocol::MeshCore;
@@ -728,7 +734,7 @@ class MeshCoreRuntime final : public IProtocolRuntime
         {
             route.public_key.assign(response.pubkey, response.pubkey + response.pubkey_len);
         }
-        result.effects.add(std::move(route));
+        effects.add(std::move(route));
         return result;
     }
 
@@ -770,7 +776,8 @@ class MeshCoreRuntime final : public IProtocolRuntime
     }
 
     IncomingPacketHandlingResult handleIncomingTrace(const IncomingPacket& packet,
-                                                     const RuntimeContext& context)
+                                                     const RuntimeContext& context,
+                                                     ProtocolEffects& effects)
     {
         (void)context;
         if (packet.payload_type != chat::meshcore::kMeshCorePayloadTypeTrace)
@@ -799,17 +806,19 @@ class MeshCoreRuntime final : public IProtocolRuntime
         completed.peer = pending_trace_.peer;
         completed.request_id = pending_trace_.request_id;
         completed.detail = static_cast<int32_t>(packet.path.size());
-        result.effects.add(completed);
+        effects.add(completed);
         pending_trace_ = PendingTraceRoute{};
         return result;
     }
 
     static IncomingPacketHandlingResult handleIncomingTextOrAppData(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         (void)packet;
         (void)context;
+        (void)effects;
         return {};
     }
 
@@ -854,6 +863,11 @@ class MeshCoreRuntime final : public IProtocolRuntime
             const uint32_t elapsed = context.now_ms - oldest->created_ms;
             if (elapsed < oldest->timeout_ms)
             {
+                break;
+            }
+            if (effects.full())
+            {
+                effects.markOverflowed();
                 break;
             }
             PendingAppAck ack{};

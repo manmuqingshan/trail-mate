@@ -532,26 +532,159 @@ using ProtocolEffect = std::variant<SendTextEffect,
                                     EmitActionResultEffect,
                                     UpdatePeerRouteEffect>;
 
-struct ProtocolEffects
+constexpr std::size_t kProtocolEffectsMaxItems = 8;
+constexpr std::size_t kProtocolTxFeedbackEffectsMaxItems = 1;
+
+template <std::size_t Capacity>
+class FixedProtocolEffectList
 {
-    std::vector<ProtocolEffect> items;
+  public:
+    bool empty() const
+    {
+        return count_ == 0;
+    }
+
+    std::size_t size() const
+    {
+        return count_;
+    }
+
+    constexpr std::size_t capacity() const
+    {
+        return Capacity;
+    }
+
+    bool full() const
+    {
+        return count_ >= Capacity;
+    }
+
+    bool overflowed() const
+    {
+        return overflowed_;
+    }
+
+    void markOverflowed()
+    {
+        overflowed_ = true;
+    }
+
+    void clear()
+    {
+        count_ = 0;
+        overflowed_ = false;
+    }
+
+    ProtocolEffect& operator[](std::size_t index)
+    {
+        return items_[index];
+    }
+
+    const ProtocolEffect& operator[](std::size_t index) const
+    {
+        return items_[index];
+    }
+
+    ProtocolEffect* begin()
+    {
+        return items_.data();
+    }
+
+    ProtocolEffect* end()
+    {
+        return items_.data() + count_;
+    }
+
+    const ProtocolEffect* begin() const
+    {
+        return items_.data();
+    }
+
+    const ProtocolEffect* end() const
+    {
+        return items_.data() + count_;
+    }
+
+    template <typename T>
+    bool push_back(T&& effect)
+    {
+        if (full())
+        {
+            overflowed_ = true;
+            return false;
+        }
+        items_[count_] = ProtocolEffect(std::forward<T>(effect));
+        ++count_;
+        return true;
+    }
+
+    template <typename T>
+    bool emplace_back(T&& effect)
+    {
+        return push_back(std::forward<T>(effect));
+    }
+
+  private:
+    std::array<ProtocolEffect, Capacity> items_{};
+    std::size_t count_ = 0;
+    bool overflowed_ = false;
+};
+
+template <std::size_t Capacity>
+struct ProtocolEffectBatch
+{
+    FixedProtocolEffectList<Capacity> items;
 
     bool empty() const
     {
         return items.empty();
     }
 
-    template <typename T>
-    void add(T effect)
+    std::size_t size() const
     {
-        items.emplace_back(std::move(effect));
+        return items.size();
     }
+
+    bool full() const
+    {
+        return items.full();
+    }
+
+    bool overflowed() const
+    {
+        return items.overflowed();
+    }
+
+    void clear()
+    {
+        items.clear();
+    }
+
+    void markOverflowed()
+    {
+        items.markOverflowed();
+    }
+
+    template <typename T>
+    bool add(T&& effect)
+    {
+        return items.push_back(std::forward<T>(effect));
+    }
+};
+
+using ProtocolEffects = ProtocolEffectBatch<kProtocolEffectsMaxItems>;
+using ProtocolTxFeedbackEffects =
+    ProtocolEffectBatch<kProtocolTxFeedbackEffectsMaxItems>;
+
+struct ProtocolEffectWorkspace
+{
+    ProtocolEffects primary{};
+    ProtocolTxFeedbackEffects feedback{};
 };
 
 struct IncomingPacketHandlingResult
 {
     PacketHandling handling = PacketHandling::NotHandled;
-    ProtocolEffects effects{};
 
     bool handled() const
     {
@@ -565,11 +698,17 @@ struct IncomingPacketHandlingResult
     }
 };
 
-inline void appendProtocolEffects(ProtocolEffects& target, ProtocolEffects source)
+template <std::size_t TargetCapacity, std::size_t SourceCapacity>
+inline void appendProtocolEffects(ProtocolEffectBatch<TargetCapacity>& target,
+                                  const ProtocolEffectBatch<SourceCapacity>& source)
 {
-    for (auto& effect : source.items)
+    if (source.overflowed())
     {
-        target.items.emplace_back(std::move(effect));
+        target.markOverflowed();
+    }
+    for (const auto& effect : source.items)
+    {
+        (void)target.add(effect);
     }
 }
 
@@ -577,7 +716,6 @@ inline bool absorbIncomingHandlingResult(IncomingPacketHandlingResult& target,
                                          IncomingPacketHandlingResult source)
 {
     const PacketHandling handling = source.handling;
-    appendProtocolEffects(target.effects, std::move(source.effects));
     if (handling == PacketHandling::NotHandled)
     {
         return false;
@@ -603,24 +741,29 @@ class IProtocolRuntime
   public:
     virtual ~IProtocolRuntime() = default;
 
-    virtual ProtocolEffects prepareOutgoing(const ProtocolIntent& intent,
-                                            const RuntimeContext& context) = 0;
-    virtual ProtocolEffects handleIncoming(const IncomingPacket& packet,
-                                           const RuntimeContext& context) = 0;
+    virtual void prepareOutgoing(const ProtocolIntent& intent,
+                                 const RuntimeContext& context,
+                                 ProtocolEffects& effects) = 0;
+    virtual void handleIncoming(const IncomingPacket& packet,
+                                const RuntimeContext& context,
+                                ProtocolEffects& effects) = 0;
     virtual IncomingPacketHandlingResult handleIncomingPacket(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
+        const std::size_t before = effects.size();
         IncomingPacketHandlingResult result{};
-        result.effects = handleIncoming(packet, context);
-        result.handling = result.effects.empty()
+        handleIncoming(packet, context, effects);
+        result.handling = effects.size() == before
                               ? PacketHandling::NotHandled
                               : PacketHandling::HandledStop;
         return result;
     }
-    virtual ProtocolEffects handleTxResult(const TxResult& result,
-                                           const RuntimeContext& context) = 0;
-    virtual ProtocolEffects tick(const RuntimeContext& context) = 0;
+    virtual void handleTxResult(const TxResult& result,
+                                const RuntimeContext& context,
+                                ProtocolTxFeedbackEffects& effects) = 0;
+    virtual void tick(const RuntimeContext& context, ProtocolEffects& effects) = 0;
 };
 
 class IProtocolEffectExecutor

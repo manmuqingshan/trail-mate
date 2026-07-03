@@ -1263,11 +1263,11 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         if (runtime_packet.payload.assign(decoded.payload.bytes, decoded.payload.size))
         {
             runtime_packet.rx_meta = rx_meta;
-            (void)executeProtocolEffects(
-                protocol_runtime_.handleIncomingPacket(
-                                     runtime_packet,
-                                     buildProtocolRuntimeContext())
-                    .effects);
+            protocol_effect_workspace_.primary.clear();
+            protocol_runtime_.handleIncomingPacket(runtime_packet,
+                                                   buildProtocolRuntimeContext(),
+                                                   protocol_effect_workspace_.primary);
+            (void)executeProtocolEffects(protocol_effect_workspace_.primary);
         }
         else
         {
@@ -2040,7 +2040,9 @@ bool MeshtasticRadioAdapter::executePkiResync(::chat::runtime::MeshtasticPkiResy
     input.peer = peer;
     input.request_id = request_id;
     input.channel = channel;
-    return executeProtocolEffects(protocol_runtime_.handlePkiResync(input));
+    protocol_effect_workspace_.primary.clear();
+    protocol_runtime_.handlePkiResync(input, protocol_effect_workspace_.primary);
+    return executeProtocolEffects(protocol_effect_workspace_.primary);
 }
 
 void MeshtasticRadioAdapter::emitRoutingResult(uint32_t request_id, meshtastic_Routing_Error reason,

@@ -268,7 +268,11 @@ bool MeshCoreRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t portn
                 ack.message_id = packet_id;
                 ::chat::runtime::RuntimeContext context = buildRuntimeContext();
                 context.now_ms = millis();
-                executeProtocolEffects(protocol_runtime_.trackAppAck(ack, context));
+                protocol_effect_workspace_.primary.clear();
+                protocol_runtime_.trackAppAck(ack,
+                                              context,
+                                              protocol_effect_workspace_.primary);
+                executeProtocolEffects(protocol_effect_workspace_.primary);
                 rememberLocalTextAck(ack.signature);
                 Serial.printf("[MESHCORE] ACK watch sig=%08lX msg=%08lX dest=%08lX port=%lu\n",
                               static_cast<unsigned long>(ack.signature),
@@ -357,6 +361,7 @@ bool MeshCoreRadioAdapter::requestNodeInfo(::chat::NodeId dest, bool want_respon
         return false;
     }
     auto facade = bundle.createFacade(
+        protocol_effect_workspace_,
         ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     return facade.requestNodeInfo(dest, want_response).ok();
 }
@@ -451,6 +456,7 @@ bool MeshCoreRadioAdapter::executeProtocolEffect(const ::chat::runtime::Protocol
                     if (bundle.valid())
                     {
                         auto facade = bundle.createFacade(
+                            protocol_effect_workspace_,
                             ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
                         facade.handleTxResult(result);
                     }
@@ -750,6 +756,7 @@ bool MeshCoreRadioAdapter::triggerDiscoveryAction(::chat::MeshDiscoveryAction ac
         return ::chat::MeshActionResult::fail(::chat::MeshOperationFailure::NotReady);
     }
     auto facade = bundle.createFacade(
+        protocol_effect_workspace_,
         ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     const auto result = facade.discover(intent);
     if (result.ok())
@@ -833,7 +840,11 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         std::memcpy(&ack_sig, parsed.payload, sizeof(ack_sig));
         Serial.printf("[MESHCORE] RX ACK sig=%08lX\n",
                       static_cast<unsigned long>(ack_sig));
-        executeProtocolEffects(protocol_runtime_.handleAppAck(ack_sig, buildRuntimeContext()));
+        protocol_effect_workspace_.primary.clear();
+        protocol_runtime_.handleAppAck(ack_sig,
+                                       buildRuntimeContext(),
+                                       protocol_effect_workspace_.primary);
+        executeProtocolEffects(protocol_effect_workspace_.primary);
         return;
     }
 
@@ -867,6 +878,7 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         if (bundle.valid())
         {
             auto facade = bundle.createFacade(
+                protocol_effect_workspace_,
                 ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
             facade.handleIncoming(packet);
         }
@@ -904,6 +916,7 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         if (bundle.valid())
         {
             auto facade = bundle.createFacade(
+                protocol_effect_workspace_,
                 ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
             facade.handleIncoming(packet);
         }
@@ -1113,6 +1126,7 @@ bool MeshCoreRadioAdapter::handleNodeInfoAppData(const ::chat::MeshIncomingData&
         return false;
     }
     auto facade = bundle.createFacade(
+        protocol_effect_workspace_,
         ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     const auto result = facade.handleIncoming(packet);
     if (result.effect_count == 0)
@@ -1136,6 +1150,7 @@ void MeshCoreRadioAdapter::processSendQueue()
         return;
     }
     auto facade = bundle.createFacade(
+        protocol_effect_workspace_,
         ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     facade.tick();
 }

@@ -651,6 +651,7 @@ class MeshCoreAdapter : public IMeshAdapter,
     MessageId next_msg_id_;
     std::array<uint8_t, 16> flood_scope_key_ = {};
     runtime::MeshCoreRuntime protocol_runtime_{};
+    runtime::ProtocolEffectWorkspace protocol_effect_workspace_{};
 
     static constexpr uint32_t kDiscoverRxGuardDefaultMs = 5000;
 

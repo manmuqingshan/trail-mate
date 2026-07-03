@@ -34,7 +34,6 @@ constexpr uint16_t kBleAdvertisingFastTimeoutSec = 30;
 constexpr uint8_t kFromRadioEmptyInactive = 1;
 constexpr uint8_t kFromRadioEmptyNoFrame = 2;
 constexpr uint8_t kFromRadioEmptyInvalidFrame = 3;
-constexpr uint8_t kFromRadioEmptyNotNotified = 4;
 constexpr uint32_t kUnsetAgeMs = 0xFFFFFFFFUL;
 
 bool usbSerialWritable(std::size_t len)
@@ -393,8 +392,6 @@ const char* fromRadioEmptyReasonName(uint8_t reason)
         return "no_frame";
     case kFromRadioEmptyInvalidFrame:
         return "invalid_frame";
-    case kFromRadioEmptyNotNotified:
-        return "not_notified";
     default:
         return "unknown";
     }
@@ -1187,17 +1184,6 @@ bool MeshtasticBleService::writePublishedFromRadioForRead(uint16_t conn_handle)
 
     const uint8_t slot_index = published_from_radio_head_;
     PublishedFromRadioSlot& slot = published_from_radio_[slot_index];
-    if (!slot.notified)
-    {
-        uint8_t empty = 0;
-        probeGpsGuard("ble_from_radio_pre_write_empty_not_notified");
-        from_radio_.write(&empty, 0);
-        probeGpsGuard("ble_from_radio_post_write_empty_not_notified");
-        pending_from_radio_empty_log_ = true;
-        pending_from_radio_empty_reason_ = kFromRadioEmptyNotNotified;
-        return false;
-    }
-
     if (slot.frame.len == 0 || slot.frame.len > meshtastic_FromRadio_size)
     {
         bleLogBoth("[BLE][nrf52][mt] drop invalid published from_radio read slot=%u from_num=%08lX len=%u max=%u",

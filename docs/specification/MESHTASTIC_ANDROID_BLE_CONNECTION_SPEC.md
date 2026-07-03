@@ -349,6 +349,12 @@ flowchart TD
     H --> I["Android treats current drain as complete"]
 ```
 
+Android does not read `FromRadio` only after a `FromNum` notification. The official app also
+actively drains `FromRadio` after `ToRadio` writes and during config setup. Therefore a transport
+with pre-published slots must treat "frame is encoded in a readable slot" as sufficient for a
+non-empty read. `FromNum` is a wakeup/announcement signal; it must not be used as a read-permission
+gate.
+
 `shouldBlockOnRead()` must be true when:
 
 - steady-state packet sending is active after a `FromNum` notify;
@@ -380,10 +386,15 @@ MQTT proxy egress rule:
 FromNum/FromRadio binding rule:
 
 - `FromNum` notification must describe a frame that is already queued or preloaded for `FromRadio`.
+- `FromRadio` must not return empty solely because the head frame has not yet been notified. Android
+  may consume that frame through proactive drain before the wakeup notification is sent.
 - A transport must not keep an independent pending `from_num` ring that can drift ahead of the readable frame.
 - If a transport uses a monotonic notify token, it must log the semantic `source` separately.
 - If a transport uses the frame `from_num` as the notify value, that value must be read from the same preloaded frame.
-- After Android reads a frame, the next frame may be preloaded and notified; unread frames must not be overtaken by later notifications.
+- After Android reads a frame, the consumed slot is released. The next frame may then be preloaded and
+  notified; unread frames must not be overtaken by later notifications.
+- If proactive drain consumes a not-yet-notified head frame, the transport must skip/cancel the
+  wakeup for that consumed slot and bind any later notification to the new head frame.
 
 ## Android App And Firmware Interaction Contract
 
@@ -1002,6 +1013,14 @@ Symptom mapping:
 | Android stuck at `Module config received` | Admin response or module config response did not drain; save/restart happened too early; `FromRadio` empty arrived before expected response. |
 | Android stuck at `Nodes(0)` | Stage 2 nodes snapshot missing self/peer `node_info`; premature empty read; `config_complete_id` missing; `fromNum` notify/read loop broken. |
 | App connects but never finishes setup | `want_config_id` not handled; config flow inactive; `shouldBlockOnRead()` false during config; queue full/drop. |
+| App UI says offline / `尚未联机`, but peer messages still appear | GATT and data-plane are alive, but Android app-level connection projection did not complete or was reset. Check config/node handshake completion, heartbeat response freshness, and whether proactive `FromRadio` drain was prematurely ended by an empty read such as an unread-but-not-notified frame. |
+
+`get_device_connection_status_response.bluetooth` is part of the app-level
+connection projection. ESP and nRF transports must compute it from the same
+rule: `is_connected` comes from the active BLE runtime, while `pin` is resolved
+from the persisted Bluetooth config plus any currently pending pairing
+passkey. A connected session must not report a zero PIN solely because there is
+no active pairing prompt when the configured mode is fixed PIN.
 | MQTT messages are lost throughout Android `Connecting` | `FromRadio.mqttClientProxyMessage` was emitted before `SendPackets`, or `ToRadio.mqttClientProxyMessage` was accepted before config/node handshake completed. |
 | Save config causes reboot | Save path stack/heap/storage bug after response drain; not a BLE protocol success/failure by itself. |
 | BLE setting says enabled but not visible until reboot | BLE manager/runtime lifecycle failed to start or restart advertising at runtime; do not hide with Admin response bypass. |

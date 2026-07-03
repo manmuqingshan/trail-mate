@@ -47,10 +47,15 @@ struct ProtocolRuntimeBundle
     }
 
     MeshProtocolFacade createFacade(
+        ProtocolEffectWorkspace& workspace,
         ProtocolProjectionPolicy projection_policy =
             ProtocolProjectionPolicy::CaptureAppFacing) const
     {
-        return MeshProtocolFacade(*runtime, *executor, *context_provider, projection_policy);
+        return MeshProtocolFacade(*runtime,
+                                  *executor,
+                                  *context_provider,
+                                  workspace,
+                                  projection_policy);
     }
 };
 

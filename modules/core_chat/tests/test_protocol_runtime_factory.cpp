@@ -8,39 +8,37 @@ namespace
 class FakeRuntime final : public chat::runtime::IProtocolRuntime
 {
   public:
-    chat::runtime::ProtocolEffects prepareOutgoing(
+    void prepareOutgoing(
         const chat::runtime::ProtocolIntent&,
-        const chat::runtime::RuntimeContext&) override
+        const chat::runtime::RuntimeContext&,
+        chat::runtime::ProtocolEffects& effects) override
     {
         ++prepare_count;
-        chat::runtime::ProtocolEffects effects{};
         chat::runtime::SendTextEffect text{};
         text.protocol = protocol;
         text.text = "factory";
         effects.add(text);
-        return effects;
     }
 
-    chat::runtime::ProtocolEffects handleIncoming(
+    void handleIncoming(
         const chat::runtime::IncomingPacket&,
-        const chat::runtime::RuntimeContext&) override
+        const chat::runtime::RuntimeContext&,
+        chat::runtime::ProtocolEffects& effects) override
     {
-        chat::runtime::ProtocolEffects effects{};
         chat::runtime::PublishIncomingDataEffect data{};
         effects.add(data);
-        return effects;
     }
 
-    chat::runtime::ProtocolEffects handleTxResult(
+    void handleTxResult(
         const chat::runtime::TxResult&,
-        const chat::runtime::RuntimeContext&) override
+        const chat::runtime::RuntimeContext&,
+        chat::runtime::ProtocolTxFeedbackEffects&) override
     {
-        return {};
     }
 
-    chat::runtime::ProtocolEffects tick(const chat::runtime::RuntimeContext&) override
+    void tick(const chat::runtime::RuntimeContext&,
+              chat::runtime::ProtocolEffects&) override
     {
-        return {};
     }
 
     chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic;
@@ -83,6 +81,7 @@ int main()
     chat::runtime::FixedProtocolRuntimeContextProvider context_provider(context);
 
     RecordingExecutor executor{};
+    chat::runtime::ProtocolEffectWorkspace workspace{};
 
     {
         const auto bundle = chat::runtime::protocolRuntimeFor(chat::MeshProtocol::Meshtastic,
@@ -102,7 +101,7 @@ int main()
                                                               context_provider);
         assert(bundle.valid());
         assert(bundle.runtime == &meshcore);
-        auto facade = bundle.createFacade();
+        auto facade = bundle.createFacade(workspace);
         const auto result =
             facade.sendText(chat::ChannelId::PRIMARY, 0x99UL, "through factory");
         assert(result.ok());
@@ -119,6 +118,7 @@ int main()
                                                               executor,
                                                               context_provider);
         auto facade = bundle.createFacade(
+            workspace,
             chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
         chat::runtime::IncomingPacket packet{};
         packet.protocol = chat::MeshProtocol::MeshCore;

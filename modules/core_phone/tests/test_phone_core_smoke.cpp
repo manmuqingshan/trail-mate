@@ -2,6 +2,7 @@
 #include "fake_phone_runtime_context.h"
 #include "phone/meshcore/meshcore_phone_core.h"
 #include "phone/meshtastic/meshtastic_defaults.h"
+#include "phone/meshtastic/meshtastic_phone_config_bridge.h"
 #include "phone/meshtastic/meshtastic_phone_session.h"
 
 #include <algorithm>
@@ -443,6 +444,20 @@ int main()
 {
     phone::tests::FakePhoneRuntimeContext runtime;
     FakeMeshtasticTransport transport;
+
+    meshtastic_Config_BluetoothConfig fixed_pin_config =
+        meshtastic_Config_BluetoothConfig_init_zero;
+    fixed_pin_config.mode = meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN;
+    fixed_pin_config.fixed_pin = 123456;
+    assert(phone::meshtastic::config_bridge::resolveBlePasskey(fixed_pin_config, 0) ==
+           123456);
+    assert(phone::meshtastic::config_bridge::resolveBlePasskey(fixed_pin_config,
+                                                               654321) == 654321);
+    meshtastic_DeviceConnectionStatus status = meshtastic_DeviceConnectionStatus_init_zero;
+    assert(phone::meshtastic::config_bridge::fillDeviceConnectionStatus(123456, true, &status));
+    assert(status.has_bluetooth);
+    assert(status.bluetooth.pin == 123456);
+    assert(status.bluetooth.is_connected);
 
     phone::meshtastic::MeshtasticPhoneSession meshtastic_session(
         runtime, transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);

@@ -189,15 +189,18 @@ stateDiagram-v2
     [*] --> Free
     Free --> Writing: enqueue begins
     Writing --> Ready: payload copied
-    Ready --> Published: from_num notify sent
-    Published --> Reading: phone reads from_radio
+    Ready --> Notified: from_num notify sent
+    Ready --> Reading: phone proactive drain reads from_radio
+    Notified --> Reading: phone reads from_radio
     Reading --> Free: read/consume complete
-    Ready --> Dropped: backpressure may drop unpublished low-priority slot
+    Ready --> Dropped: backpressure may drop unread low-priority slot
     Dropped --> Free
 ```
 
-`Published` 和 `Reading` 状态的 slot 不得被覆盖。队列满时只能丢弃允许丢弃的
-unpublished slot，或拒绝新的低优先级 projection。
+`Ready`、`Notified` 和 `Reading` 状态的 slot 不得被覆盖。`from_num` notify 是唤醒信号，
+不是读取许可或所有权边界；Meshtastic Android app 会在写 `ToRadio` 后主动 drain
+`from_radio`，因此已经编码到 slot 的 frame 必须可以被 proactive read 消费。队列满时只能
+丢弃允许丢弃的 unread low-priority slot，或拒绝新的低优先级 projection。
 
 ### R4 Hot Paths Do Not Allocate Large Automatic Objects
 
@@ -331,7 +334,41 @@ BLE service 内部的 advert 去重和 active connection keepalive 也是运行�
 协议上有固定最大长度的命令累积区，例如 MeshCore SIGN_DATA 的 8KiB buffer，必须使用固定
 owned storage 和长度计数；不得在 BLE 命令流中通过 `reserve()` / `insert()` 逐步扩容。
 
-### R6.3 Protocol Runtime Pending State Uses Fixed Tables
+### R6.3 Protocol Runtime Effects Use Caller-Owned Fixed Batches
+
+`ProtocolEffects` 是协议 runtime 把“事实处理结果”交给适配器执行的动作批次。它不是
+事实层存储，也不是平台私有投影队列；ESP、nRF 和 Linux 必须共用同一套批次语义。
+
+规则：
+
+```text
+adapter/facade-owned ProtocolEffectWorkspace
+    -> runtime handler writes effects into workspace.primary
+    -> adapter executor consumes workspace.primary
+    -> tx feedback writes at most one action result into workspace.feedback
+```
+
+`ProtocolEffects` 不得使用 hot-path `std::vector` / `std::deque` 或运行期 heap 扩容吸收
+压力。批次满时必须设置显式 overflow 状态，调用者可以选择延期、丢弃低价值投影或记录
+counter，但不得继续分配 emergency buffer。
+
+`ProtocolEffects` 也不得作为 hot-path by-value 返回对象在 runtime/facade 之间传递。
+`ProtocolEffect` 的最大 variant 包含 owned payload/public-key bytes，固定 8-slot batch
+在 32-bit 目标上约为数 KiB；把它放进每个 runtime handler 的自动局部变量，会把 heap
+风险转换成 stack/temporary 风险。正确边界是：调用方或长期存在的 adapter/runtime UI
+对象持有 `ProtocolEffectWorkspace`，runtime handler 只向传入 batch 写入动作。
+
+批次容量必须按“正常同步处理 burst”设计，而不是按无限 backlog 设计。批量 ACK timeout
+这类可延期投影在 batch 满时必须保留尚未消费的 pending fact，等待下一轮 tick 继续输出；
+不得先删除 pending fact 再因为 effect batch 满而静默丢失结果。
+
+`MeshProtocolFacade` 不得自带 fixed batch 成员再被栈上临时构造；它必须引用外部
+`ProtocolEffectWorkspace`。该 workspace 只允许一个完整主 batch；TX feedback 线必须使用
+专用 1-slot batch，因为当前 runtime 对一次 TX 结果最多只产出一个 action result。平台
+adapter 和 embedded UI runtime 必须把 workspace 作为成员或其他明确 lifetime 的 owned
+storage；Linux/测试可以使用局部 workspace，但仍必须显式注入。
+
+### R6.4 Protocol Runtime Pending State Uses Fixed Tables
 
 协议 runtime 内部的 pending 状态也是 hot path 状态，不允许通过 `std::deque` /
 运行期扩容 `std::vector` 保持未来状态机所需的信息。
@@ -348,7 +385,7 @@ pending retransmit    -> fixed slot table, slot owns wire bytes until terminal s
 消息是否被再次转发。满表时可以按声明规则丢弃低价值/最旧状态，但不得隐式分配 heap，
 也不得保存指向 scratch 或临时 decoded packet 的引用。
 
-### R6.4 Route / Identity Runtime State Uses Fixed Tables
+### R6.5 Route / Identity Runtime State Uses Fixed Tables
 
 协议适配器内部的路由、身份、公钥验证状态也是运行期事实缓存。它们不属于 UI 投影，
 也不能用 hot-path `std::vector` 扩容来记录未来发送、解密、显示身份或 key verification

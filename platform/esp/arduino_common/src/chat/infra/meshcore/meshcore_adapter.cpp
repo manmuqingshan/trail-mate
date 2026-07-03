@@ -1738,14 +1738,17 @@ void MeshCoreAdapter::maybeAutoDiscoverMissingPeer(uint8_t peer_hash, uint32_t n
 
     runtime::RuntimeContext context = buildRuntimeContext();
     context.now_ms = now_ms;
-    const runtime::ProtocolEffects effects =
-        protocol_runtime_.prepareAutoDiscoverMissingPeer(input, context);
-    if (effects.items.empty())
+    protocol_effect_workspace_.primary.clear();
+    protocol_runtime_.prepareAutoDiscoverMissingPeer(input,
+                                                     context,
+                                                     protocol_effect_workspace_.primary);
+    if (protocol_effect_workspace_.primary.items.empty())
     {
         return;
     }
 
-    const MeshActionResult result = executeDiscoveryEffectsDetailed(effects);
+    const MeshActionResult result =
+        executeDiscoveryEffectsDetailed(protocol_effect_workspace_.primary);
     protocol_runtime_.markAutoDiscoverMissingPeerTxResult(peer_hash, context, result.ok);
     if (result.ok)
     {
@@ -2095,7 +2098,8 @@ void MeshCoreAdapter::prunePendingAppAcks(uint32_t now_ms)
     {
         return;
     }
-    auto facade = bundle.createFacade(runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+    auto facade = bundle.createFacade(protocol_effect_workspace_,
+                                      runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     facade.tick();
 }
 
@@ -2108,21 +2112,28 @@ void MeshCoreAdapter::trackPendingAppAck(uint32_t signature, NodeId dest, uint32
     ack.peer = dest;
     ack.portnum = portnum;
     ack.timeout_ms = kAppAckTimeoutMs;
-    executeProtocolEffects(protocol_runtime_.trackAppAck(ack, context));
+    protocol_effect_workspace_.primary.clear();
+    protocol_runtime_.trackAppAck(ack, context, protocol_effect_workspace_.primary);
+    executeProtocolEffects(protocol_effect_workspace_.primary);
 }
 
 void MeshCoreAdapter::bindPendingAppAckToChatMessage(uint32_t signature, MessageId msg_id)
 {
-    executeProtocolEffects(protocol_runtime_.bindAppAckToMessage(signature, msg_id));
+    protocol_effect_workspace_.primary.clear();
+    protocol_runtime_.bindAppAckToMessage(signature,
+                                          msg_id,
+                                          protocol_effect_workspace_.primary);
+    executeProtocolEffects(protocol_effect_workspace_.primary);
 }
 
 bool MeshCoreAdapter::consumePendingAppAck(uint32_t signature, uint32_t now_ms)
 {
     runtime::RuntimeContext context = buildRuntimeContext();
     context.now_ms = now_ms;
-    const auto effects = protocol_runtime_.handleAppAck(signature, context);
+    protocol_effect_workspace_.primary.clear();
+    protocol_runtime_.handleAppAck(signature, context, protocol_effect_workspace_.primary);
     bool matched = false;
-    for (const auto& effect : effects.items)
+    for (const auto& effect : protocol_effect_workspace_.primary.items)
     {
         if (const auto* result = std::get_if<runtime::EmitActionResultEffect>(&effect))
         {
@@ -2132,7 +2143,7 @@ bool MeshCoreAdapter::consumePendingAppAck(uint32_t signature, uint32_t now_ms)
                        result->state == runtime::ProtocolActionState::Completed);
         }
     }
-    executeProtocolEffects(effects);
+    executeProtocolEffects(protocol_effect_workspace_.primary);
     return matched;
 }
 
@@ -2294,7 +2305,8 @@ bool MeshCoreAdapter::requestNodeInfo(NodeId dest, bool want_response)
     {
         return false;
     }
-    auto facade = bundle.createFacade(runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+    auto facade = bundle.createFacade(protocol_effect_workspace_,
+                                      runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     return facade.requestNodeInfo(dest, want_response).ok();
 }
 
@@ -2395,6 +2407,7 @@ bool MeshCoreAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effec
                     if (bundle.valid())
                     {
                         auto facade = bundle.createFacade(
+                            protocol_effect_workspace_,
                             runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
                         facade.handleTxResult(result);
                     }
@@ -2641,8 +2654,11 @@ MeshActionResult MeshCoreAdapter::executeDiscoverIntentDetailed(MeshDiscoveryAct
     intent.action = action;
     intent.type_filter = kMeshCoreDiscoverTypeFilterAll;
     intent.rx_guard_ms = kDiscoverRxGuardMs;
-    return executeDiscoveryEffectsDetailed(
-        protocol_runtime_.prepareOutgoing(intent, buildRuntimeContext()));
+    protocol_effect_workspace_.primary.clear();
+    protocol_runtime_.prepareOutgoing(intent,
+                                      buildRuntimeContext(),
+                                      protocol_effect_workspace_.primary);
+    return executeDiscoveryEffectsDetailed(protocol_effect_workspace_.primary);
 }
 
 MeshActionResult MeshCoreAdapter::executeDiscoveryEffectsDetailed(const runtime::ProtocolEffects& effects)
@@ -3204,7 +3220,8 @@ bool MeshCoreAdapter::handleNodeInfoControl(const MeshIncomingData& incoming,
     const auto bundle = protocolRuntimeBundle(context_provider);
     if (bundle.valid())
     {
-        auto facade = bundle.createFacade(runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+        auto facade = bundle.createFacade(protocol_effect_workspace_,
+                                          runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
         facade.handleIncoming(packet);
     }
     if (decoded.type == MeshCoreNodeInfoControlType::Info && decoded.complete)
@@ -4356,6 +4373,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             if (bundle.valid())
             {
                 auto facade = bundle.createFacade(
+                    protocol_effect_workspace_,
                     runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
                 facade.handleIncoming(packet);
             }
@@ -4439,6 +4457,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             if (bundle.valid())
             {
                 auto facade = bundle.createFacade(
+                    protocol_effect_workspace_,
                     runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
                 facade.handleIncoming(packet);
             }
@@ -5550,6 +5569,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             if (bundle.valid())
             {
                 auto facade = bundle.createFacade(
+                    protocol_effect_workspace_,
                     runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
                 facade.handleIncoming(packet);
             }
@@ -5591,7 +5611,8 @@ void MeshCoreAdapter::processSendQueue()
     const auto bundle = protocolRuntimeBundle(context_provider);
     if (bundle.valid())
     {
-        auto facade = bundle.createFacade(runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
+        auto facade = bundle.createFacade(protocol_effect_workspace_,
+                                          runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
         facade.tick();
     }
 

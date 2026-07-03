@@ -304,6 +304,7 @@ class MtAdapter : public chat::IMeshAdapter
     uint8_t encrypt_mode_ = 1;
     meshtastic_Routing_Error last_send_error_ = meshtastic_Routing_Error_NONE;
     runtime::MeshtasticRuntime protocol_runtime_{};
+    runtime::ProtocolEffectWorkspace protocol_effect_workspace_{};
     std::array<PendingProtocolAction, kProtocolActionQueueSize> protocol_action_queue_{};
     size_t protocol_action_head_ = 0;
     size_t protocol_action_count_ = 0;
