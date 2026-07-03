@@ -1437,6 +1437,22 @@ void TEchoLiteBoard::setGpsMotionSensorId(uint8_t sensor_id)
     }
 }
 
+void TEchoLiteBoard::acquireGpsPowerLease(const char* reason)
+{
+    if (gps_runtime_)
+    {
+        gps_runtime_->acquirePowerLease(reason);
+    }
+}
+
+void TEchoLiteBoard::releaseGpsPowerLease(const char* reason)
+{
+    if (gps_runtime_)
+    {
+        gps_runtime_->releasePowerLease(reason);
+    }
+}
+
 platform::ui::compass::CompassState TEchoLiteBoard::compassState()
 {
     static CompassRuntime runtime;

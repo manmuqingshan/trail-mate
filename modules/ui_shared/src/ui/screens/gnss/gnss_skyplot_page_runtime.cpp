@@ -608,6 +608,7 @@ struct SkyPlotUi
 static UI_GNSS_STATE_RAM_ATTR SkyPlotUi s_ui{};
 static UI_GNSS_STATE_RAM_ATTR SkyPlotLayout s_layout{};
 static lv_timer_t* s_refresh_timer = nullptr;
+static bool s_gps_power_lease_active = false;
 
 static UI_GNSS_STATE_RAM_ATTR SatInfo s_cached_sats[kMaxSats];
 static int s_cached_sat_count = 0;
@@ -1696,6 +1697,11 @@ bool is_available()
 void enter(const shell::Host* host, lv_obj_t* parent)
 {
     s_host = host;
+    if (!s_gps_power_lease_active)
+    {
+        platform::ui::gps::acquire_power_lease("lvgl-skyplot");
+        s_gps_power_lease_active = true;
+    }
     ui_gnss_skyplot_enter(parent);
 }
 
@@ -1703,6 +1709,11 @@ void exit(lv_obj_t* parent)
 {
     ui_gnss_skyplot_exit(parent);
     s_host = nullptr;
+    if (s_gps_power_lease_active)
+    {
+        platform::ui::gps::release_power_lease("lvgl-skyplot");
+        s_gps_power_lease_active = false;
+    }
 }
 
 } // namespace gnss::ui::runtime

@@ -424,6 +424,16 @@ void set_motion_sensor_id(uint8_t sensor_id)
     ::boards::gat562_mesh_evb_pro::Gat562Board::instance().setGpsMotionSensorId(sensor_id);
 }
 
+void acquire_power_lease(const char* reason)
+{
+    (void)reason;
+}
+
+void release_power_lease(const char* reason)
+{
+    (void)reason;
+}
+
 void suspend_runtime()
 {
     ::boards::gat562_mesh_evb_pro::Gat562Board::instance().suspendGps();

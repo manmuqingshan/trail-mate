@@ -435,6 +435,16 @@ void set_motion_sensor_id(uint8_t sensor_id)
     ::boards::t_echo_lite::TEchoLiteBoard::instance().setGpsMotionSensorId(sensor_id);
 }
 
+void acquire_power_lease(const char* reason)
+{
+    ::boards::t_echo_lite::TEchoLiteBoard::instance().acquireGpsPowerLease(reason);
+}
+
+void release_power_lease(const char* reason)
+{
+    ::boards::t_echo_lite::TEchoLiteBoard::instance().releaseGpsPowerLease(reason);
+}
+
 void suspend_runtime()
 {
     ::boards::t_echo_lite::TEchoLiteBoard::instance().suspendGps();

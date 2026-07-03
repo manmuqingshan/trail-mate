@@ -1998,6 +1998,16 @@ void set_motion_sensor_id(uint8_t sensor_id)
     s_motion_sensor_id = sensor_id;
 }
 
+void acquire_power_lease(const char* reason)
+{
+    (void)reason;
+}
+
+void release_power_lease(const char* reason)
+{
+    (void)reason;
+}
+
 void suspend_runtime()
 {
     s_suspended = true;

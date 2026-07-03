@@ -336,6 +336,8 @@ bool initialize()
     callbacks.gps_data_fn = platform::ui::gps::get_data;
     callbacks.gps_enabled_fn = platform::ui::gps::is_enabled;
     callbacks.gps_powered_fn = platform::ui::gps::is_powered;
+    callbacks.gps_acquire_power_lease_fn = platform::ui::gps::acquire_power_lease;
+    callbacks.gps_release_power_lease_fn = platform::ui::gps::release_power_lease;
     callbacks.ram_usage_fn = ram_usage;
     callbacks.flash_usage_fn = flash_usage;
     callbacks.clear_volatile_storage_fn = clear_volatile_storage;

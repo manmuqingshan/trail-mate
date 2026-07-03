@@ -5298,6 +5298,8 @@ void Runtime::renderActionPage()
 
 void Runtime::enterPage(Page page)
 {
+    const Page previous_page = page_;
+    updateGpsPowerLease(previous_page, page);
     const bool waking_from_sleep = page_ == Page::Sleep && page != Page::Sleep;
     page_ = page;
     page_entered_ms_ = nowMs();
@@ -7989,6 +7991,33 @@ bool Runtime::shouldRenderForTick(InputAction action)
 
     last_screensaver_render_ms_ = now;
     return true;
+}
+
+bool Runtime::pageUsesGpsPowerLease(Page page) const
+{
+    return page == Page::GnssPage || page == Page::CompassPage || page == Page::NodeCompass;
+}
+
+void Runtime::updateGpsPowerLease(Page previous, Page next)
+{
+    const bool had_lease = pageUsesGpsPowerLease(previous);
+    const bool needs_lease = pageUsesGpsPowerLease(next);
+    if (had_lease == needs_lease)
+    {
+        return;
+    }
+    if (needs_lease)
+    {
+        if (host_.gps_acquire_power_lease_fn)
+        {
+            host_.gps_acquire_power_lease_fn("mono-page");
+        }
+        return;
+    }
+    if (host_.gps_release_power_lease_fn)
+    {
+        host_.gps_release_power_lease_fn("mono-page");
+    }
 }
 
 uint32_t Runtime::nowMs() const

@@ -177,6 +177,8 @@ class TEchoLiteBoard final : public BoardBase
     void setGpsExternalNmeaConfig(uint8_t output_hz, uint8_t sentence_mask);
     void setGpsMotionIdleTimeout(uint32_t timeout_ms);
     void setGpsMotionSensorId(uint8_t sensor_id);
+    void acquireGpsPowerLease(const char* reason);
+    void releaseGpsPowerLease(const char* reason);
     platform::ui::compass::CompassState compassState();
     void suspendGps();
     void resumeGps();
