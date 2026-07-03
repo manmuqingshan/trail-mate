@@ -682,6 +682,9 @@ void AppFacadeRuntime::setBleEnabled(bool enabled)
 
 void AppFacadeRuntime::restartDevice()
 {
+    platform::nrf52::debug_console::println("[nrf52][app] restart requested");
+    Serial.flush();
+    Serial2.flush();
     NVIC_SystemReset();
 }
 

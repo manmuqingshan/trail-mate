@@ -9,13 +9,38 @@
 #include "platform/nrf52/debug/nrf52_debug_console.h"
 #include "sys/clock.h"
 
+#include <nrf.h>
+
 namespace trailmate::apps::nrf52_node::startup_runtime
 {
+namespace
+{
+
+void logAndClearResetReason()
+{
+    const uint32_t reason = NRF_POWER->RESETREAS;
+    platform::nrf52::debug_console::printf("%s resetreas raw=0x%08lX pin=%u dog=%u sreq=%u lockup=%u off=%u vbus=%u\n",
+                                           target_board::kLogTag,
+                                           static_cast<unsigned long>(reason),
+                                           (reason & POWER_RESETREAS_RESETPIN_Msk) ? 1U : 0U,
+                                           (reason & POWER_RESETREAS_DOG_Msk) ? 1U : 0U,
+                                           (reason & POWER_RESETREAS_SREQ_Msk) ? 1U : 0U,
+                                           (reason & POWER_RESETREAS_LOCKUP_Msk) ? 1U : 0U,
+                                           (reason & POWER_RESETREAS_OFF_Msk) ? 1U : 0U,
+                                           (reason & POWER_RESETREAS_VBUS_Msk) ? 1U : 0U);
+    if (reason != 0)
+    {
+        NRF_POWER->RESETREAS = reason;
+    }
+}
+
+} // namespace
 
 void run()
 {
     platform::nrf52::debug_console::begin();
     platform::nrf52::debug_console::println();
+    logAndClearResetReason();
     platform::nrf52::debug_console::printf("%s startup begin\n", target_board::kLogTag);
     auto& board = target_board::instance();
     platform::nrf52::debug_console::printf("%s startup board begin\n", target_board::kLogTag);
