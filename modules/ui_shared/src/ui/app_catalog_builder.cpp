@@ -6,6 +6,7 @@
 #include "board/BoardBase.h"
 #endif
 #include "ui/app_runtime.h"
+#include "ui/assets/fonts/font_utils.h"
 #include "ui/assets/images.h"
 #include "ui/callback_app_screen.h"
 #include "ui/page/page_host.h"
@@ -205,10 +206,15 @@ void power_off_cancel_cb(lv_event_t* e)
     power_off_close_modal();
 }
 
-void apply_power_off_text(lv_obj_t* label, uint32_t color, const lv_font_t* font)
+void set_power_off_label_text(lv_obj_t* label,
+                              const char* text,
+                              uint32_t color,
+                              const lv_font_t* font)
 {
+    const char* localized = ::ui::i18n::tr(text);
+    lv_label_set_text(label, localized);
     lv_obj_set_style_text_color(label, lv_color_hex(color), LV_PART_MAIN);
-    lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
+    ::ui::fonts::apply_localized_font(label, localized, font);
 }
 
 lv_obj_t* create_power_off_button(lv_obj_t* parent, const char* text, lv_event_cb_t cb, bool primary)
@@ -225,8 +231,10 @@ lv_obj_t* create_power_off_button(lv_obj_t* parent, const char* text, lv_event_c
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t* label = lv_label_create(btn);
-    lv_label_set_text(label, ::ui::i18n::tr(text));
-    apply_power_off_text(label, primary ? kPowerOffWarmBg : kPowerOffText, &lv_font_montserrat_16);
+    set_power_off_label_text(label,
+                             text,
+                             primary ? kPowerOffWarmBg : kPowerOffText,
+                             &lv_font_montserrat_16);
     lv_obj_center(label);
 
     if (s_power_off_group != nullptr)
@@ -280,20 +288,20 @@ void power_off_enter(void*, lv_obj_t* parent)
     lv_obj_add_flag(dialog, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t* title = lv_label_create(dialog);
-    lv_label_set_text(title, ::ui::i18n::tr("Shutdown"));
-    apply_power_off_text(title, kPowerOffText, &lv_font_montserrat_20);
+    set_power_off_label_text(title, "Shutdown", kPowerOffText, &lv_font_montserrat_20);
     lv_obj_set_size(title, 292, 26);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 10);
 
     lv_obj_t* body = lv_label_create(dialog);
-    lv_label_set_text(body, ::ui::i18n::tr("Power off device now?"));
-    apply_power_off_text(body, kPowerOffTextDim, &lv_font_montserrat_16);
+    set_power_off_label_text(body, "Power off device now?", kPowerOffTextDim, &lv_font_montserrat_16);
     lv_obj_set_size(body, 292, 22);
     lv_obj_align(body, LV_ALIGN_TOP_LEFT, 14, 43);
 
     lv_obj_t* hint = lv_label_create(dialog);
-    lv_label_set_text(hint, ::ui::i18n::tr("USB power keeps the device awake."));
-    apply_power_off_text(hint, kPowerOffWarn, &lv_font_montserrat_14);
+    set_power_off_label_text(hint,
+                             "USB power keeps the device awake.",
+                             kPowerOffWarn,
+                             &lv_font_montserrat_14);
     lv_obj_set_size(hint, 292, 18);
     lv_obj_align(hint, LV_ALIGN_TOP_LEFT, 14, 66);
 

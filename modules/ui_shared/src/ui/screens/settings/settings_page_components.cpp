@@ -189,7 +189,29 @@ static bool s_firmware_overlay_owned = false;
 static firmware_update_runtime::Phase s_last_firmware_phase = firmware_update_runtime::Phase::Unsupported;
 static bool s_last_firmware_busy = false;
 static lv_obj_t* s_gps_diagnostics_label = nullptr;
-static lv_obj_t* s_manual_time_textareas[6] = {};
+enum ManualDateTimeField : size_t
+{
+    kManualDateTimeYear = 0,
+    kManualDateTimeMonth,
+    kManualDateTimeDay,
+    kManualDateTimeHour,
+    kManualDateTimeMinute,
+    kManualDateTimeSecond,
+    kManualDateTimeFieldCount,
+};
+
+constexpr int kManualDateTimeYearMin = 2020;
+constexpr int kManualDateTimeYearMax = 2099;
+constexpr size_t kManualDateTimeFocusCapacity = kManualDateTimeFieldCount + 2;
+static lv_obj_t* s_manual_time_rollers[kManualDateTimeFieldCount] = {};
+static char s_manual_year_options[400] = {};
+static char s_manual_month_options[36] = {};
+static char s_manual_day_options[93] = {};
+static char s_manual_hour_options[72] = {};
+static char s_manual_minute_options[180] = {};
+static char s_manual_second_options[180] = {};
+static lv_obj_t* s_manual_datetime_focus_order[kManualDateTimeFocusCapacity] = {};
+static size_t s_manual_datetime_focus_count = 0;
 static std::unique_ptr<::ui::widgets::ImeWidget> s_text_modal_ime;
 
 static ::ui::settings::SettingsModel& settings_model()
@@ -1703,10 +1725,15 @@ static void modal_close()
     g_state.editing_item = nullptr;
     g_state.editing_widget = nullptr;
     s_gps_diagnostics_label = nullptr;
-    for (auto& textarea : s_manual_time_textareas)
+    for (auto& roller : s_manual_time_rollers)
     {
-        textarea = nullptr;
+        roller = nullptr;
     }
+    for (auto& obj : s_manual_datetime_focus_order)
+    {
+        obj = nullptr;
+    }
+    s_manual_datetime_focus_count = 0;
     s_option_click_count = 0;
     s_ime_toggle_count = 0;
     modal_restore_group();
@@ -1735,6 +1762,83 @@ static void modal_add_focus_obj(lv_obj_t* obj)
     lv_group_add_obj(g_state.modal_group, obj);
     lv_obj_remove_event_cb(obj, on_modal_key);
     lv_obj_add_event_cb(obj, on_modal_key, LV_EVENT_KEY, nullptr);
+}
+
+static void reset_manual_datetime_focus_order()
+{
+    for (auto& obj : s_manual_datetime_focus_order)
+    {
+        obj = nullptr;
+    }
+    s_manual_datetime_focus_count = 0;
+}
+
+static void add_manual_datetime_focus_obj(lv_obj_t* obj)
+{
+    if (obj == nullptr || s_manual_datetime_focus_count >= kManualDateTimeFocusCapacity)
+    {
+        return;
+    }
+    s_manual_datetime_focus_order[s_manual_datetime_focus_count++] = obj;
+}
+
+static bool focus_manual_datetime_neighbor(lv_obj_t* current, int delta)
+{
+    if (current == nullptr || s_manual_datetime_focus_count == 0)
+    {
+        return false;
+    }
+
+    for (size_t index = 0; index < s_manual_datetime_focus_count; ++index)
+    {
+        if (s_manual_datetime_focus_order[index] != current)
+        {
+            continue;
+        }
+        const int count = static_cast<int>(s_manual_datetime_focus_count);
+        int next = (static_cast<int>(index) + delta) % count;
+        if (next < 0)
+        {
+            next += count;
+        }
+        lv_obj_t* target = s_manual_datetime_focus_order[static_cast<size_t>(next)];
+        if (target == nullptr)
+        {
+            return false;
+        }
+        lv_group_focus_obj(target);
+        lv_obj_scroll_to_view(target, LV_ANIM_OFF);
+        return true;
+    }
+    return false;
+}
+
+static void on_manual_datetime_focus_key(lv_event_t* e)
+{
+    if (e == nullptr || lv_event_get_code(e) != LV_EVENT_KEY)
+    {
+        return;
+    }
+
+    const uint32_t key = lv_event_get_key(e);
+    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT)
+    {
+        return;
+    }
+
+    lv_obj_t* target = lv_event_get_target_obj(e);
+    if (focus_manual_datetime_neighbor(target, key == LV_KEY_RIGHT ? 1 : -1))
+    {
+        lv_event_stop_processing(e);
+    }
+}
+
+static void modal_add_datetime_focus_obj(lv_obj_t* obj)
+{
+    modal_add_focus_obj(obj);
+    add_manual_datetime_focus_obj(obj);
+    lv_obj_remove_event_cb(obj, on_manual_datetime_focus_key);
+    lv_obj_add_event_cb(obj, on_manual_datetime_focus_key, LV_EVENT_KEY, nullptr);
 }
 
 static void on_text_modal_key(lv_event_t* e)
@@ -2196,95 +2300,216 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     lv_group_focus_obj(g_state.modal_textarea);
 }
 
-static lv_obj_t* create_manual_time_textarea(lv_obj_t* parent,
-                                             const char* placeholder,
-                                             const char* value,
-                                             uint16_t max_length,
-                                             lv_coord_t width)
+static void build_number_options(char* out,
+                                 size_t out_size,
+                                 int min_value,
+                                 int max_value,
+                                 int digits)
 {
-    lv_obj_t* textarea = lv_textarea_create(parent);
-    lv_textarea_set_one_line(textarea, true);
-    lv_textarea_set_max_length(textarea, max_length);
-    lv_textarea_set_placeholder_text(textarea, placeholder);
-    lv_obj_set_width(textarea, width);
-    if (value && value[0] != '\0')
+    if (out == nullptr || out_size == 0 || min_value > max_value)
     {
-        lv_textarea_set_text(textarea, value);
-        lv_textarea_set_cursor_pos(textarea, LV_TEXTAREA_CURSOR_LAST);
+        return;
     }
-    return textarea;
+
+    out[0] = '\0';
+    size_t used = 0;
+    for (int value = min_value; value <= max_value; ++value)
+    {
+        char item[8] = {};
+        if (digits == 4)
+        {
+            std::snprintf(item, sizeof(item), "%04d", value);
+        }
+        else
+        {
+            std::snprintf(item, sizeof(item), "%02d", value);
+        }
+
+        const int written = std::snprintf(out + used,
+                                          out_size - used,
+                                          "%s%s",
+                                          value == min_value ? "" : "\n",
+                                          item);
+        if (written < 0)
+        {
+            break;
+        }
+        const size_t count = static_cast<size_t>(written);
+        if (count >= out_size - used)
+        {
+            out[out_size - 1] = '\0';
+            break;
+        }
+        used += count;
+    }
 }
 
-static lv_obj_t* create_manual_time_row(lv_obj_t* parent, const char* title)
+static int manual_time_field_value(const char* text,
+                                   int fallback,
+                                   int min_value,
+                                   int max_value)
 {
-    lv_obj_t* wrap = lv_obj_create(parent);
-    lv_obj_set_width(wrap, LV_PCT(100));
-    lv_obj_set_height(wrap, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(wrap, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(wrap, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_bg_opa(wrap, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(wrap, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(wrap, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(wrap, 3, LV_PART_MAIN);
-    lv_obj_clear_flag(wrap, LV_OBJ_FLAG_SCROLLABLE);
+    int parsed = 0;
+    if (parse_int_range(text, min_value, max_value, parsed))
+    {
+        return parsed;
+    }
+    return clamp_int(fallback, min_value, max_value);
+}
 
-    lv_obj_t* label = lv_label_create(wrap);
-    ::ui::i18n::set_label_text(label, title);
+static int manual_datetime_roller_value(ManualDateTimeField field)
+{
+    lv_obj_t* roller = s_manual_time_rollers[field];
+    if (roller)
+    {
+        const int selected = static_cast<int>(lv_roller_get_selected(roller));
+        switch (field)
+        {
+        case kManualDateTimeYear:
+            return kManualDateTimeYearMin + selected;
+        case kManualDateTimeMonth:
+        case kManualDateTimeDay:
+            return 1 + selected;
+        case kManualDateTimeHour:
+        case kManualDateTimeMinute:
+        case kManualDateTimeSecond:
+            return selected;
+        default:
+            break;
+        }
+    }
+
+    switch (field)
+    {
+    case kManualDateTimeYear:
+        return manual_time_field_value(g_settings.manual_time_year,
+                                       kManualDateTimeYearMin,
+                                       kManualDateTimeYearMin,
+                                       kManualDateTimeYearMax);
+    case kManualDateTimeMonth:
+        return manual_time_field_value(g_settings.manual_time_month, 1, 1, 12);
+    case kManualDateTimeDay:
+        return manual_time_field_value(g_settings.manual_time_day, 1, 1, 31);
+    case kManualDateTimeHour:
+        return manual_time_field_value(g_settings.manual_time_hour, 0, 0, 23);
+    case kManualDateTimeMinute:
+        return manual_time_field_value(g_settings.manual_time_minute, 0, 0, 59);
+    case kManualDateTimeSecond:
+        return manual_time_field_value(g_settings.manual_time_second, 0, 0, 59);
+    default:
+        return 0;
+    }
+}
+
+static void sync_manual_day_roller(bool keep_selection)
+{
+    lv_obj_t* day_roller = s_manual_time_rollers[kManualDateTimeDay];
+    if (day_roller == nullptr)
+    {
+        return;
+    }
+
+    const int year = manual_datetime_roller_value(kManualDateTimeYear);
+    const int month = manual_datetime_roller_value(kManualDateTimeMonth);
+    const int max_day = days_in_month(year, month);
+    const int current_day =
+        keep_selection
+            ? manual_datetime_roller_value(kManualDateTimeDay)
+            : clamp_int(manual_time_field_value(g_settings.manual_time_day, 1, 1, 31), 1, max_day);
+    const int bounded_day = clamp_int(current_day, 1, max_day);
+
+    build_number_options(s_manual_day_options, sizeof(s_manual_day_options), 1, max_day, 2);
+    lv_roller_set_options(day_roller, s_manual_day_options, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_selected(day_roller, static_cast<uint32_t>(bounded_day - 1), LV_ANIM_OFF);
+}
+
+static void on_manual_datetime_roller_changed(lv_event_t* e)
+{
+    if (e == nullptr || lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED)
+    {
+        return;
+    }
+    lv_obj_t* target = lv_event_get_target_obj(e);
+    if (target == s_manual_time_rollers[kManualDateTimeYear] ||
+        target == s_manual_time_rollers[kManualDateTimeMonth])
+    {
+        sync_manual_day_roller(true);
+    }
+}
+
+static void apply_manual_time_roller_style(lv_obj_t* roller)
+{
+    lv_obj_set_style_bg_color(roller, lv_color_hex(0xF6E6C6), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(roller, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(roller, lv_color_hex(0xE7C98F), LV_PART_MAIN);
+    lv_obj_set_style_radius(roller, 8, LV_PART_MAIN);
+    lv_obj_set_style_text_color(roller, lv_color_hex(0x6B4A1E), LV_PART_MAIN);
+    lv_obj_set_style_text_color(roller, lv_color_hex(0xF6E6C6), LV_PART_SELECTED);
+    lv_obj_set_style_bg_color(roller, lv_color_hex(0xEBA341), LV_PART_SELECTED);
+    lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, LV_PART_SELECTED);
+    lv_obj_set_style_text_font(
+        roller, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), LV_PART_MAIN);
+    lv_obj_set_style_text_font(
+        roller, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), LV_PART_SELECTED);
+    lv_obj_set_scrollbar_mode(roller, LV_SCROLLBAR_MODE_OFF);
+}
+
+static lv_obj_t* create_manual_time_roller(lv_obj_t* parent,
+                                           const char* caption,
+                                           const char* options,
+                                           uint32_t selected,
+                                           lv_coord_t width,
+                                           lv_coord_t height,
+                                           bool adjusts_day)
+{
+    lv_obj_t* col = lv_obj_create(parent);
+    lv_obj_set_size(col, width, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(col, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(col, 2, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(col, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* label = lv_label_create(col);
+    ::ui::i18n::set_label_text_raw(label, caption);
     style::apply_label_muted(label);
 
-    lv_obj_t* row = lv_obj_create(wrap);
-    lv_obj_set_width(row, LV_PCT(100));
-    lv_obj_set_height(row, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_column(row, 4, LV_PART_MAIN);
-    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    return row;
+    lv_obj_t* roller = lv_roller_create(col);
+    lv_roller_set_options(roller, options, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(roller, 3);
+    lv_roller_set_selected(roller, selected, LV_ANIM_OFF);
+    lv_obj_set_size(roller, width, height);
+    apply_manual_time_roller_style(roller);
+    if (adjusts_day)
+    {
+        lv_obj_add_event_cb(roller, on_manual_datetime_roller_changed, LV_EVENT_VALUE_CHANGED, nullptr);
+    }
+    return roller;
 }
 
 static void copy_manual_datetime_modal_fields()
 {
-    if (s_manual_time_textareas[0])
-    {
-        copy_bounded(g_settings.manual_time_year,
-                     sizeof(g_settings.manual_time_year),
-                     lv_textarea_get_text(s_manual_time_textareas[0]));
-    }
-    if (s_manual_time_textareas[1])
-    {
-        copy_bounded(g_settings.manual_time_month,
-                     sizeof(g_settings.manual_time_month),
-                     lv_textarea_get_text(s_manual_time_textareas[1]));
-    }
-    if (s_manual_time_textareas[2])
-    {
-        copy_bounded(g_settings.manual_time_day,
-                     sizeof(g_settings.manual_time_day),
-                     lv_textarea_get_text(s_manual_time_textareas[2]));
-    }
-    if (s_manual_time_textareas[3])
-    {
-        copy_bounded(g_settings.manual_time_hour,
-                     sizeof(g_settings.manual_time_hour),
-                     lv_textarea_get_text(s_manual_time_textareas[3]));
-    }
-    if (s_manual_time_textareas[4])
-    {
-        copy_bounded(g_settings.manual_time_minute,
-                     sizeof(g_settings.manual_time_minute),
-                     lv_textarea_get_text(s_manual_time_textareas[4]));
-    }
-    if (s_manual_time_textareas[5])
-    {
-        copy_bounded(g_settings.manual_time_second,
-                     sizeof(g_settings.manual_time_second),
-                     lv_textarea_get_text(s_manual_time_textareas[5]));
-    }
+    format_fixed_4(g_settings.manual_time_year,
+                   sizeof(g_settings.manual_time_year),
+                   manual_datetime_roller_value(kManualDateTimeYear));
+    format_fixed_2(g_settings.manual_time_month,
+                   sizeof(g_settings.manual_time_month),
+                   manual_datetime_roller_value(kManualDateTimeMonth));
+    format_fixed_2(g_settings.manual_time_day,
+                   sizeof(g_settings.manual_time_day),
+                   manual_datetime_roller_value(kManualDateTimeDay));
+    format_fixed_2(g_settings.manual_time_hour,
+                   sizeof(g_settings.manual_time_hour),
+                   manual_datetime_roller_value(kManualDateTimeHour));
+    format_fixed_2(g_settings.manual_time_minute,
+                   sizeof(g_settings.manual_time_minute),
+                   manual_datetime_roller_value(kManualDateTimeMinute));
+    format_fixed_2(g_settings.manual_time_second,
+                   sizeof(g_settings.manual_time_second),
+                   manual_datetime_roller_value(kManualDateTimeSecond));
 }
 
 static void on_manual_datetime_ok_clicked(lv_event_t* e)
@@ -2317,14 +2542,14 @@ static void open_manual_datetime_modal(settings::ui::ItemWidget& widget)
 
     refresh_manual_time_fields_from_runtime();
     modal_prepare_group();
-    g_state.modal_root = create_modal_root(320, 220);
+    reset_manual_datetime_focus_order();
+    const bool dense = ::ui::page_profile::is_dense();
+    g_state.modal_root = create_modal_root(dense ? 344 : 368, dense ? 176 : 190);
     lv_obj_t* win = lv_obj_get_child(g_state.modal_root, 0);
-    lv_obj_add_flag(win, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(win, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_clear_flag(win, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(win, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(win, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(win, ::ui::page_profile::is_dense() ? 4 : 7, LV_PART_MAIN);
+    lv_obj_set_flex_align(win, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(win, dense ? 5 : 7, LV_PART_MAIN);
 
     lv_obj_t* title = lv_label_create(win);
     ::ui::i18n::set_label_text(title, "Set Date/Time");
@@ -2332,21 +2557,95 @@ static void open_manual_datetime_modal(settings::ui::ItemWidget& widget)
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     style::apply_label_primary(title);
 
-    lv_obj_t* date_row = create_manual_time_row(win, "Date");
-    s_manual_time_textareas[0] =
-        create_manual_time_textarea(date_row, "YYYY", g_settings.manual_time_year, 4, 80);
-    s_manual_time_textareas[1] =
-        create_manual_time_textarea(date_row, "MM", g_settings.manual_time_month, 2, 58);
-    s_manual_time_textareas[2] =
-        create_manual_time_textarea(date_row, "DD", g_settings.manual_time_day, 2, 58);
+    const int year = manual_time_field_value(g_settings.manual_time_year,
+                                             kManualDateTimeYearMin,
+                                             kManualDateTimeYearMin,
+                                             kManualDateTimeYearMax);
+    const int month = manual_time_field_value(g_settings.manual_time_month, 1, 1, 12);
+    const int max_day = days_in_month(year, month);
+    const int day = clamp_int(manual_time_field_value(g_settings.manual_time_day, 1, 1, 31),
+                              1,
+                              max_day);
+    const int hour = manual_time_field_value(g_settings.manual_time_hour, 0, 0, 23);
+    const int minute = manual_time_field_value(g_settings.manual_time_minute, 0, 0, 59);
+    const int second = manual_time_field_value(g_settings.manual_time_second, 0, 0, 59);
 
-    lv_obj_t* time_row = create_manual_time_row(win, "Time");
-    s_manual_time_textareas[3] =
-        create_manual_time_textarea(time_row, "HH", g_settings.manual_time_hour, 2, 58);
-    s_manual_time_textareas[4] =
-        create_manual_time_textarea(time_row, "MM", g_settings.manual_time_minute, 2, 58);
-    s_manual_time_textareas[5] =
-        create_manual_time_textarea(time_row, "SS", g_settings.manual_time_second, 2, 58);
+    build_number_options(s_manual_year_options,
+                         sizeof(s_manual_year_options),
+                         kManualDateTimeYearMin,
+                         kManualDateTimeYearMax,
+                         4);
+    build_number_options(s_manual_month_options, sizeof(s_manual_month_options), 1, 12, 2);
+    build_number_options(s_manual_day_options, sizeof(s_manual_day_options), 1, max_day, 2);
+    build_number_options(s_manual_hour_options, sizeof(s_manual_hour_options), 0, 23, 2);
+    build_number_options(s_manual_minute_options, sizeof(s_manual_minute_options), 0, 59, 2);
+    build_number_options(s_manual_second_options, sizeof(s_manual_second_options), 0, 59, 2);
+
+    lv_obj_t* picker_row = lv_obj_create(win);
+    lv_obj_set_width(picker_row, LV_PCT(100));
+    lv_obj_set_height(picker_row, dense ? 78 : 88);
+    lv_obj_set_flex_flow(picker_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(picker_row,
+                          LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(picker_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_column(picker_row, dense ? 3 : 4, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(picker_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(picker_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(picker_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    const lv_coord_t roller_height = dense ? 54 : 64;
+    const lv_coord_t year_width = dense ? 62 : 70;
+    const lv_coord_t field_width = dense ? 40 : 46;
+    s_manual_time_rollers[kManualDateTimeYear] =
+        create_manual_time_roller(picker_row,
+                                  "YYYY",
+                                  s_manual_year_options,
+                                  static_cast<uint32_t>(year - kManualDateTimeYearMin),
+                                  year_width,
+                                  roller_height,
+                                  true);
+    s_manual_time_rollers[kManualDateTimeMonth] =
+        create_manual_time_roller(picker_row,
+                                  "MM",
+                                  s_manual_month_options,
+                                  static_cast<uint32_t>(month - 1),
+                                  field_width,
+                                  roller_height,
+                                  true);
+    s_manual_time_rollers[kManualDateTimeDay] =
+        create_manual_time_roller(picker_row,
+                                  "DD",
+                                  s_manual_day_options,
+                                  static_cast<uint32_t>(day - 1),
+                                  field_width,
+                                  roller_height,
+                                  false);
+    s_manual_time_rollers[kManualDateTimeHour] =
+        create_manual_time_roller(picker_row,
+                                  "HH",
+                                  s_manual_hour_options,
+                                  static_cast<uint32_t>(hour),
+                                  field_width,
+                                  roller_height,
+                                  false);
+    s_manual_time_rollers[kManualDateTimeMinute] =
+        create_manual_time_roller(picker_row,
+                                  "MM",
+                                  s_manual_minute_options,
+                                  static_cast<uint32_t>(minute),
+                                  field_width,
+                                  roller_height,
+                                  false);
+    s_manual_time_rollers[kManualDateTimeSecond] =
+        create_manual_time_roller(picker_row,
+                                  "SS",
+                                  s_manual_second_options,
+                                  static_cast<uint32_t>(second),
+                                  field_width,
+                                  roller_height,
+                                  false);
 
     lv_obj_t* btn_row = lv_obj_create(win);
     lv_obj_set_width(btn_row, LV_PCT(100));
@@ -2360,6 +2659,7 @@ static void open_manual_datetime_modal(settings::ui::ItemWidget& widget)
     lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* ok_btn = lv_btn_create(btn_row);
+    style::apply_btn_modal(ok_btn);
     lv_obj_set_size(ok_btn,
                     ::ui::page_profile::resolve_control_button_min_width(),
                     ::ui::page_profile::resolve_control_button_height());
@@ -2369,6 +2669,7 @@ static void open_manual_datetime_modal(settings::ui::ItemWidget& widget)
     lv_obj_add_event_cb(ok_btn, on_manual_datetime_ok_clicked, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t* cancel_btn = lv_btn_create(btn_row);
+    style::apply_btn_modal(cancel_btn);
     lv_obj_set_size(cancel_btn,
                     ::ui::page_profile::resolve_control_button_min_width(),
                     ::ui::page_profile::resolve_control_button_height());
@@ -2378,18 +2679,18 @@ static void open_manual_datetime_modal(settings::ui::ItemWidget& widget)
     lv_obj_add_event_cb(cancel_btn, on_manual_datetime_cancel_clicked, LV_EVENT_CLICKED, nullptr);
 
     g_state.editing_widget = &widget;
-    for (lv_obj_t* textarea : s_manual_time_textareas)
+    for (lv_obj_t* roller : s_manual_time_rollers)
     {
-        if (textarea)
+        if (roller)
         {
-            modal_add_focus_obj(textarea);
+            modal_add_datetime_focus_obj(roller);
         }
     }
-    modal_add_focus_obj(ok_btn);
-    modal_add_focus_obj(cancel_btn);
-    if (s_manual_time_textareas[0])
+    modal_add_datetime_focus_obj(ok_btn);
+    modal_add_datetime_focus_obj(cancel_btn);
+    if (s_manual_time_rollers[kManualDateTimeYear])
     {
-        lv_group_focus_obj(s_manual_time_textareas[0]);
+        lv_group_focus_obj(s_manual_time_rollers[kManualDateTimeYear]);
     }
 }
 
