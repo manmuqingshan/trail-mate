@@ -11,7 +11,6 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/common/shared_spi_lock.h"
 #include "src/draw/lv_image_decoder_private.h"
-#include "src/libs/tjpgd/tjpgd.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "sys/clock.h"
 #include "ui/page/page_profile.h"
@@ -330,8 +329,6 @@ const char* map_tile_format_name(ui::map_tiles::MapTileFormat format)
     {
     case ui::map_tiles::MapTileFormat::Png:
         return "png";
-    case ui::map_tiles::MapTileFormat::Jpeg:
-        return "jpeg";
     case ui::map_tiles::MapTileFormat::Unknown:
     default:
         return "unknown";
@@ -404,8 +401,6 @@ lv_color_format_t lvgl_source_format_for_tile(ui::map_tiles::MapTileFormat forma
     {
     case ui::map_tiles::MapTileFormat::Png:
         return LV_COLOR_FORMAT_RAW_ALPHA;
-    case ui::map_tiles::MapTileFormat::Jpeg:
-        return LV_COLOR_FORMAT_RAW;
     case ui::map_tiles::MapTileFormat::Unknown:
     default:
         return LV_COLOR_FORMAT_UNKNOWN;
@@ -484,192 +479,6 @@ void release_tile_payload(ui::map_tiles::MapTileAsyncEvent& event)
     event.payload_size = 0;
 }
 
-#if LV_USE_TJPGD
-constexpr std::size_t kMapTileJpegWorkBufferBytes = 4096U;
-
-constexpr uint8_t jpeg_output_bytes_per_pixel()
-{
-#if JD_FORMAT == 1
-    return 2;
-#elif JD_FORMAT == 2
-    return 1;
-#else
-    return 3;
-#endif
-}
-
-constexpr lv_color_format_t jpeg_output_color_format()
-{
-#if JD_FORMAT == 1
-    return LV_COLOR_FORMAT_RGB565;
-#elif JD_FORMAT == 2
-    return LV_COLOR_FORMAT_L8;
-#else
-    return LV_COLOR_FORMAT_RGB888;
-#endif
-}
-
-struct JpegMemoryDecodeContext
-{
-    const uint8_t* data = nullptr;
-    std::size_t size = 0;
-    std::size_t pos = 0;
-    uint8_t* output = nullptr;
-    uint16_t width = 0;
-    uint16_t height = 0;
-    uint32_t stride = 0;
-};
-
-size_t jpeg_memory_input(JDEC* jd, uint8_t* buff, size_t ndata)
-{
-    if (jd == nullptr || jd->device == nullptr)
-    {
-        return 0;
-    }
-
-    auto* ctx = static_cast<JpegMemoryDecodeContext*>(jd->device);
-    if (ctx->data == nullptr || ctx->pos >= ctx->size)
-    {
-        return 0;
-    }
-
-    const std::size_t remaining = ctx->size - ctx->pos;
-    const std::size_t bytes = std::min<std::size_t>(remaining, ndata);
-    if (buff != nullptr && bytes > 0)
-    {
-        std::memcpy(buff, ctx->data + ctx->pos, bytes);
-    }
-    ctx->pos += bytes;
-    return bytes;
-}
-
-int jpeg_memory_output(JDEC* jd, void* bitmap, JRECT* rect)
-{
-    if (jd == nullptr || jd->device == nullptr || bitmap == nullptr || rect == nullptr)
-    {
-        return 0;
-    }
-
-    auto* ctx = static_cast<JpegMemoryDecodeContext*>(jd->device);
-    if (ctx->output == nullptr ||
-        rect->right < rect->left ||
-        rect->bottom < rect->top ||
-        rect->right >= ctx->width ||
-        rect->bottom >= ctx->height)
-    {
-        return 0;
-    }
-
-    const uint32_t bpp = jpeg_output_bytes_per_pixel();
-    const uint32_t width = static_cast<uint32_t>(rect->right - rect->left + 1);
-    const uint32_t height = static_cast<uint32_t>(rect->bottom - rect->top + 1);
-    const uint32_t row_bytes = width * bpp;
-    const auto* src = static_cast<const uint8_t*>(bitmap);
-    for (uint32_t row = 0; row < height; ++row)
-    {
-        uint8_t* dst = ctx->output +
-                       (static_cast<uint32_t>(rect->top) + row) * ctx->stride +
-                       static_cast<uint32_t>(rect->left) * bpp;
-        std::memcpy(dst, src + row * row_bytes, row_bytes);
-    }
-    return 1;
-}
-
-lv_image_dsc_t* decode_jpeg_payload_to_image_desc(const ui::map_tiles::MapTileRef& ref,
-                                                  const ui::map_tiles::MapTilePayload& payload)
-{
-    JpegMemoryDecodeContext ctx{};
-    ctx.data = payload.data;
-    ctx.size = payload.size;
-
-    void* work_buffer = lv_malloc(kMapTileJpegWorkBufferBytes);
-    if (work_buffer == nullptr)
-    {
-        log_map_tile_decode_failure("jpeg_alloc_work",
-                                    ref,
-                                    ui::map_tiles::MapTileFormat::Jpeg,
-                                    payload.size,
-                                    -12);
-        return nullptr;
-    }
-
-    JDEC decoder{};
-    const JRESULT prepare_result = jd_prepare(&decoder,
-                                              jpeg_memory_input,
-                                              work_buffer,
-                                              kMapTileJpegWorkBufferBytes,
-                                              &ctx);
-    if (prepare_result != JDR_OK || decoder.width == 0 || decoder.height == 0)
-    {
-        log_map_tile_decode_failure("jpeg_prepare",
-                                    ref,
-                                    ui::map_tiles::MapTileFormat::Jpeg,
-                                    payload.size,
-                                    static_cast<long>(prepare_result));
-        lv_free(work_buffer);
-        return nullptr;
-    }
-
-    const uint8_t bpp = jpeg_output_bytes_per_pixel();
-    ctx.width = decoder.width;
-    ctx.height = decoder.height;
-    ctx.stride = static_cast<uint32_t>(ctx.width) * bpp;
-    const uint32_t data_size = ctx.stride * static_cast<uint32_t>(ctx.height);
-
-    lv_image_dsc_t* img_dsc = static_cast<lv_image_dsc_t*>(lv_malloc(sizeof(lv_image_dsc_t)));
-    if (img_dsc == nullptr)
-    {
-        log_map_tile_decode_failure("jpeg_alloc_desc",
-                                    ref,
-                                    ui::map_tiles::MapTileFormat::Jpeg,
-                                    payload.size,
-                                    -12);
-        lv_free(work_buffer);
-        return nullptr;
-    }
-    std::memset(img_dsc, 0, sizeof(lv_image_dsc_t));
-
-    ctx.output = static_cast<uint8_t*>(lv_malloc(data_size));
-    if (ctx.output == nullptr)
-    {
-        log_map_tile_decode_failure("jpeg_alloc_pixels",
-                                    ref,
-                                    ui::map_tiles::MapTileFormat::Jpeg,
-                                    data_size,
-                                    -12);
-        lv_free(img_dsc);
-        lv_free(work_buffer);
-        return nullptr;
-    }
-
-    const JRESULT decode_result = jd_decomp(&decoder, jpeg_memory_output, 0);
-    if (decode_result != JDR_OK)
-    {
-        log_map_tile_decode_failure("jpeg_decomp",
-                                    ref,
-                                    ui::map_tiles::MapTileFormat::Jpeg,
-                                    payload.size,
-                                    static_cast<long>(decode_result));
-        lv_free(ctx.output);
-        lv_free(img_dsc);
-        lv_free(work_buffer);
-        return nullptr;
-    }
-
-    img_dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
-    img_dsc->header.w = ctx.width;
-    img_dsc->header.h = ctx.height;
-    img_dsc->header.cf = jpeg_output_color_format();
-    img_dsc->header.flags = 0;
-    img_dsc->header.stride = ctx.stride;
-    img_dsc->data_size = data_size;
-    img_dsc->data = ctx.output;
-
-    lv_free(work_buffer);
-    return img_dsc;
-}
-#endif
-
 lv_image_dsc_t* decode_payload_to_image_desc(const ui::map_tiles::MapTileRef& ref,
                                              const ui::map_tiles::MapTilePayload& payload)
 {
@@ -691,20 +500,6 @@ lv_image_dsc_t* decode_payload_to_image_desc(const ui::map_tiles::MapTileRef& re
                                     payload.size,
                                     static_cast<long>(payload_format));
         return nullptr;
-    }
-
-    if (payload_format == ui::map_tiles::MapTileFormat::Jpeg)
-    {
-#if LV_USE_TJPGD
-        return decode_jpeg_payload_to_image_desc(ref, payload);
-#else
-        log_map_tile_decode_failure("jpeg_decoder_disabled",
-                                    ref,
-                                    payload_format,
-                                    payload.size,
-                                    -38);
-        return nullptr;
-#endif
     }
 
     lv_image_dsc_t compressed{};

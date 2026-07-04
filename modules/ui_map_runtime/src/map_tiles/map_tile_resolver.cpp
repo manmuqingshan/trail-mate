@@ -55,7 +55,8 @@ const char* contourLayerDir(MapTileLayer layer)
 
 const char* extensionFor(MapTileLayer layer)
 {
-    return mapTileFormatForLayer(layer) == MapTileFormat::Jpeg ? "jpg" : "png";
+    (void)layer;
+    return "png";
 }
 
 bool writePath(char* out_path,
@@ -190,7 +191,8 @@ MapTileLayer mapTileContourLayerForZoom(int zoom, bool* out_supported)
 
 MapTileFormat mapTileFormatForLayer(MapTileLayer layer)
 {
-    return layer == MapTileLayer::Satellite ? MapTileFormat::Jpeg : MapTileFormat::Png;
+    (void)layer;
+    return MapTileFormat::Png;
 }
 
 bool mapTileLayerIsContour(MapTileLayer layer)

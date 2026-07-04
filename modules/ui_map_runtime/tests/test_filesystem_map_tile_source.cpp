@@ -114,7 +114,7 @@ void test_resolve_path()
 
     char path[160]{};
     assert(source.resolvePath(ref, path, sizeof(path)));
-    assert(std::strcmp(path, "A:/maps/base/satellite/9/82/190.jpg") == 0);
+    assert(std::strcmp(path, "A:/maps/base/satellite/9/82/190.png") == 0);
 }
 
 } // namespace

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -207,7 +208,8 @@ std::string url_template_for_source(MapBaseSource source)
 
 const char* content_type_for_source(MapBaseSource source)
 {
-    return source == MapBaseSource::Satellite ? "image/jpeg" : "image/png";
+    (void)source;
+    return "image/png";
 }
 
 MapContourProfile major_contour(int interval_m) noexcept
@@ -236,6 +238,24 @@ std::uintmax_t file_size_or_zero(const std::filesystem::path& path)
     std::error_code ec;
     const auto size = std::filesystem::file_size(path, ec);
     return ec ? 0U : size;
+}
+
+bool file_has_png_signature(const std::filesystem::path& path)
+{
+    constexpr unsigned char kPngSignature[] = {0x89, 'P', 'N', 'G',
+                                               0x0D, 0x0A, 0x1A, 0x0A};
+    unsigned char header[sizeof(kPngSignature)]{};
+
+    std::ifstream input(path, std::ios::binary);
+    if (!input.is_open())
+    {
+        return false;
+    }
+
+    input.read(reinterpret_cast<char*>(header),
+               static_cast<std::streamsize>(sizeof(header)));
+    return input.gcount() == static_cast<std::streamsize>(sizeof(header)) &&
+           std::memcmp(header, kPngSignature, sizeof(header)) == 0;
 }
 
 struct DownloadContext
@@ -385,7 +405,8 @@ const char* map_base_source_label(MapBaseSource source) noexcept
 
 const char* map_base_source_extension(MapBaseSource source) noexcept
 {
-    return source == MapBaseSource::Satellite ? "jpg" : "png";
+    (void)source;
+    return "png";
 }
 
 const char* map_contour_kind_key(MapContourKind kind) noexcept
@@ -583,6 +604,22 @@ MapTileResult MapTileCache::ensure_tile(const MapTileId& requested) const
                 std::to_string(tile.z) + "/" + std::to_string(tile.x) +
                 "/" + std::to_string(tile.y) + " empty response from " + url);
         return fail_result(tile, relative_path, "Downloaded tile is empty.",
+                           http_status);
+    }
+
+    if (!file_has_png_signature(temp_path))
+    {
+        std::error_code remove_ec;
+        std::filesystem::remove(temp_path, remove_ec);
+        append_map_diagnostic(
+            "tile",
+            std::string(map_base_source_key(tile.source)) + " z" +
+                std::to_string(tile.z) + "/" + std::to_string(tile.x) +
+                "/" + std::to_string(tile.y) + " rejected non-PNG response from " +
+                url);
+        return fail_result(tile,
+                           relative_path,
+                           "Downloaded tile is not PNG.",
                            http_status);
     }
 

@@ -23,16 +23,16 @@
         ├── terrain
         │   └── {z}/{x}/{y}.png
         └── satellite
-            └── {z}/{x}/{y}.jpg
+            └── {z}/{x}/{y}.png
 ```
 
 ### 底图源与文件后缀
 
 - `osm` -> `.png`
 - `terrain` -> `.png`
-- `satellite` -> `.jpg`
+- `satellite` -> `.png`
 
-注意：后缀必须匹配，`satellite` 目录下放 `.png` 会导致读取失败。
+注意：所有底图源都必须使用 `.png` 后缀。
 
 ## 3. 可选目录（等高线叠加）
 
@@ -107,9 +107,9 @@
 
 ## 7. 代码参考
 
-- 地图源与后缀映射：`platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp`
-- 底图路径构造：`platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp`
-- 等高线路径构造与 profile 选择：`platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp`
+- 地图源与后缀映射：`modules/ui_map_runtime/src/map_tiles/map_tile_resolver.cpp`
+- 底图路径构造：`modules/ui_map_runtime/src/map_tiles/map_tile_resolver.cpp`
+- 等高线路径构造与 profile 选择：`modules/ui_map_runtime/src/map_tiles/map_tile_resolver.cpp`
 - 缩放范围：`platform/esp/arduino_common/include/ui/screens/gps/gps_constants.h`
 - Route 列表目录：`modules/ui_shared/src/ui/screens/tracker/tracker_page_components.cpp`
 - Track/Route 文件入口：`modules/ui_shared/src/ui/screens/tracker/tracker_page_components.cpp`

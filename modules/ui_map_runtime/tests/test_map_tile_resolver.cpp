@@ -21,7 +21,7 @@ void test_base_paths()
 
     ref.layer = ui::map_tiles::MapTileLayer::Satellite;
     assert(resolver.resolvePath(ref, path, sizeof(path)));
-    assert(std::strcmp(path, "/sd/maps/base/satellite/12/656/1582.jpg") == 0);
+    assert(std::strcmp(path, "/sd/maps/base/satellite/12/656/1582.png") == 0);
 
     ui::map_tiles::MapTileResolver sd_root_resolver("/");
     ref.layer = ui::map_tiles::MapTileLayer::Osm;
@@ -65,6 +65,9 @@ void test_layer_helpers()
            ui::map_tiles::MapTileLayer::Terrain);
     assert(ui::map_tiles::mapTileLayerFromBaseSource(2) ==
            ui::map_tiles::MapTileLayer::Satellite);
+    assert(ui::map_tiles::mapTileFormatForLayer(
+               ui::map_tiles::MapTileLayer::Satellite) ==
+           ui::map_tiles::MapTileFormat::Png);
 
     bool supported = false;
     assert(ui::map_tiles::mapTileContourLayerForZoom(8, &supported) ==

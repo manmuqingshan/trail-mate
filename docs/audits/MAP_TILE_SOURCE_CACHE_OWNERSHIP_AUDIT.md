@@ -25,7 +25,7 @@ The first burn-down slice moves Trail Mate offline tile directory mapping behind
 | --- | --- |
 | OSM | `/maps/base/osm/{z}/{x}/{y}.png` |
 | Terrain | `/maps/base/terrain/{z}/{x}/{y}.png` |
-| Satellite | `/maps/base/satellite/{z}/{x}/{y}.jpg` |
+| Satellite | `/maps/base/satellite/{z}/{x}/{y}.png` |
 | Contour major 500 | `/maps/contour/major-500/{z}/{x}/{y}.png` |
 | Contour major 200 | `/maps/contour/major-200/{z}/{x}/{y}.png` |
 | Contour major 100 | `/maps/contour/major-100/{z}/{x}/{y}.png` |
