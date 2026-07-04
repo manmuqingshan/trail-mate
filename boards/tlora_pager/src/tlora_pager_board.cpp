@@ -2286,6 +2286,7 @@ void TLoRaPagerBoard::feedback(void* args)
 // and is only useful while the device is already powered off.
 static volatile bool power_button_event = false;
 static volatile bool power_button_state = false; // true = pressed, false = released
+static volatile bool power_button_long_press_handled = false;
 static volatile uint32_t power_button_press_start = 0;
 static const uint32_t BOOT_BUTTON_LONG_PRESS_MS = 3000; // 3 seconds for shutdown
 static const uint32_t BOOT_BUTTON_DEBOUNCE_MS = 50;     // Debounce delay
@@ -2318,6 +2319,7 @@ static void IRAM_ATTR powerButtonISR()
         {
             // Button pressed
             power_button_press_start = current_time;
+            power_button_long_press_handled = false;
         }
     }
 }
@@ -2343,6 +2345,16 @@ void TLoRaPagerBoard::handlePowerButton()
 {
     // According to LilyGo docs, the physical POWER key only wakes the device from
     // Power OFF. This handler is for the separate BOOT/GPIO0 key.
+    if (power_button_state && !power_button_long_press_handled)
+    {
+        uint32_t press_duration_ms = millis() - power_button_press_start;
+        if (press_duration_ms >= BOOT_BUTTON_LONG_PRESS_MS)
+        {
+            power_button_long_press_handled = true;
+            log_i("BOOT key long-press (%lu ms) -> deep sleep", (unsigned long)press_duration_ms);
+            shutdown(true);
+        }
+    }
 
     if (power_button_event)
     {
@@ -2366,13 +2378,7 @@ void TLoRaPagerBoard::handlePowerButton()
         }
         else
         {
-            // BOOT key released: long-press (>= 3s) triggers shutdown
-            uint32_t press_duration_ms = millis() - power_button_press_start;
-            if (press_duration_ms >= BOOT_BUTTON_LONG_PRESS_MS)
-            {
-                log_i("BOOT key long-press (%lu ms) -> deep sleep", (unsigned long)press_duration_ms);
-                shutdown(true);
-            }
+            log_d("BOOT button released");
         }
     }
 }
