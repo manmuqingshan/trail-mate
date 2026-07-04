@@ -50,7 +50,7 @@ jobs:
           node-version: "22"
 
       - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Verify locale packs
         run: python tools/validate_locale_packs.py --pack-root packs
@@ -61,7 +61,7 @@ jobs:
         run: python scripts/prepare_pages_site.py --site-root site --repo ${{ github.repository }}
 
       - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
@@ -74,4 +74,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
