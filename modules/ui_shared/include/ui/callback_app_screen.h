@@ -16,8 +16,14 @@ class CallbackAppScreen : public AppScreen
                       const char* name,
                       const lv_image_dsc_t* icon,
                       SimpleCallback enter,
-                      SimpleCallback exit)
-        : stable_id_(stable_id), name_(name), icon_(icon), simple_enter_(enter), simple_exit_(exit)
+                      SimpleCallback exit,
+                      AppLaunchMode launch_mode = AppLaunchMode::Screen)
+        : stable_id_(stable_id),
+          name_(name),
+          icon_(icon),
+          simple_enter_(enter),
+          simple_exit_(exit),
+          launch_mode_(launch_mode)
     {
     }
 
@@ -26,19 +32,22 @@ class CallbackAppScreen : public AppScreen
                       const lv_image_dsc_t* icon,
                       Callback enter,
                       Callback exit,
-                      void* user_data = nullptr)
+                      void* user_data = nullptr,
+                      AppLaunchMode launch_mode = AppLaunchMode::Screen)
         : stable_id_(stable_id),
           name_(name),
           icon_(icon),
           callback_enter_(enter),
           callback_exit_(exit),
-          user_data_(user_data)
+          user_data_(user_data),
+          launch_mode_(launch_mode)
     {
     }
 
     const char* stable_id() const override { return stable_id_; }
     const char* name() const override { return ::ui::i18n::tr(name_); }
     const lv_image_dsc_t* icon() const override { return icon_; }
+    AppLaunchMode launch_mode() const override { return launch_mode_; }
 
     void enter(lv_obj_t* parent) override
     {
@@ -75,6 +84,7 @@ class CallbackAppScreen : public AppScreen
     Callback callback_enter_ = nullptr;
     Callback callback_exit_ = nullptr;
     void* user_data_ = nullptr;
+    AppLaunchMode launch_mode_ = AppLaunchMode::Screen;
 };
 
 } // namespace ui

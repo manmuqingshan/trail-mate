@@ -648,3 +648,11 @@ Seen %um ago	%u 分钟前出现
 Seen %uh ago	%u 小时前出现
 Seen %ud ago	%u 天前出现
 Seen --	未见
+Shutdown	关机
+Power Off	关机
+Powering off...	正在关机...
+Power off failed	关机失败
+Power off device now?	现在关闭设备电源?
+USB power keeps the device awake.	USB 供电会让设备保持唤醒.
+Unplug USB to power off	拔掉 USB 后才能关机
+Power chip unavailable	电源芯片不可用

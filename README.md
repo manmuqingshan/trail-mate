@@ -60,7 +60,7 @@ Expected SD card tile layout:
 ```text
 /maps/base/osm/{z}/{x}/{y}.png
 /maps/base/terrain/{z}/{x}/{y}.png
-/maps/base/satellite/{z}/{x}/{y}.jpg
+/maps/base/satellite/{z}/{x}/{y}.png
 /maps/contour/major-500/{z}/{x}/{y}.png
 /maps/contour/major-200/{z}/{x}/{y}.png
 /maps/contour/major-100/{z}/{x}/{y}.png

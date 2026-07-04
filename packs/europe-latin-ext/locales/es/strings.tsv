@@ -648,3 +648,11 @@ Seen %um ago	Visto hace %u min
 Seen %uh ago	Visto hace %u h
 Seen %ud ago	Visto hace %u d
 Seen --	Visto --
+Shutdown	Apagar
+Power Off	Apagar
+Powering off...	Apagando...
+Power off failed	Error al apagar
+Power off device now?	¿Apagar el dispositivo ahora?
+USB power keeps the device awake.	La alimentación USB mantiene el dispositivo activo.
+Unplug USB to power off	Desconecta USB para apagar
+Power chip unavailable	Chip de energía no disponible

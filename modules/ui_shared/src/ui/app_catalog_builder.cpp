@@ -2,13 +2,26 @@
 
 #include <cstdio>
 
+#if defined(ESP_PLATFORM)
+#include "board/BoardBase.h"
+#endif
 #include "ui/app_runtime.h"
 #include "ui/assets/images.h"
 #include "ui/callback_app_screen.h"
 #include "ui/page/page_host.h"
+#if defined(ESP_PLATFORM)
+#include "ui/runtime/ui_feedback.h"
+#endif
 
 #if defined(ESP_PLATFORM)
 #include "esp_log.h"
+#endif
+
+#if !defined(LV_FONT_MONTSERRAT_16) || !LV_FONT_MONTSERRAT_16
+#define lv_font_montserrat_16 lv_font_montserrat_14
+#endif
+#if !defined(LV_FONT_MONTSERRAT_20) || !LV_FONT_MONTSERRAT_20
+#define lv_font_montserrat_20 lv_font_montserrat_16
 #endif
 
 #include "ui/screens/chat/chat_page_shell.h"
@@ -70,6 +83,7 @@ extern "C"
     extern const lv_image_dsc_t img_usb;
 #endif
     extern const lv_image_dsc_t walkie_talkie;
+    extern const lv_image_dsc_t shutdown;
 }
 
 void request_menu_exit(void*)
@@ -146,6 +160,170 @@ ui::CallbackAppScreen s_walkie_app("walkie_talkie", "Walkie Talkie", &walkie_tal
                                    walkie_page::ui::shell::enter,
                                    walkie_page::ui::shell::exit,
                                    &s_menu_host);
+#if defined(ESP_PLATFORM)
+constexpr uint32_t kPowerOffAmber = 0xEBA341;
+constexpr uint32_t kPowerOffAmberDark = 0xC98118;
+constexpr uint32_t kPowerOffWarmBg = 0xF6E6C6;
+constexpr uint32_t kPowerOffPanelBg = 0xFAF0D8;
+constexpr uint32_t kPowerOffLine = 0xE7C98F;
+constexpr uint32_t kPowerOffText = 0x6B4A1E;
+constexpr uint32_t kPowerOffTextDim = 0x8A6A3A;
+constexpr uint32_t kPowerOffWarn = 0xB94A2C;
+
+lv_obj_t* s_power_off_modal = nullptr;
+lv_group_t* s_power_off_group = nullptr;
+lv_group_t* s_power_off_prev_group = nullptr;
+
+void power_off_restore_group()
+{
+    set_default_group(s_power_off_prev_group != nullptr ? s_power_off_prev_group : menu_g);
+    s_power_off_prev_group = nullptr;
+    ui_set_overlay_active(false);
+}
+
+void power_off_close_modal()
+{
+    if (s_power_off_modal != nullptr)
+    {
+        lv_obj_del(s_power_off_modal);
+        s_power_off_modal = nullptr;
+    }
+    power_off_restore_group();
+}
+
+void power_off_confirm_cb(lv_event_t* e)
+{
+    (void)e;
+    power_off_close_modal();
+    ::ui::feedback::show_notice(::ui::i18n::tr("Powering off..."), 1000);
+    ::board.softwareShutdown();
+}
+
+void power_off_cancel_cb(lv_event_t* e)
+{
+    (void)e;
+    power_off_close_modal();
+}
+
+void apply_power_off_text(lv_obj_t* label, uint32_t color, const lv_font_t* font)
+{
+    lv_obj_set_style_text_color(label, lv_color_hex(color), LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
+}
+
+lv_obj_t* create_power_off_button(lv_obj_t* parent, const char* text, lv_event_cb_t cb, bool primary)
+{
+    lv_obj_t* btn = lv_btn_create(parent);
+    lv_obj_set_size(btn, 132, 32);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(primary ? kPowerOffAmber : kPowerOffWarmBg), LV_PART_MAIN);
+    lv_obj_set_style_border_width(btn, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(btn, lv_color_hex(primary ? kPowerOffAmberDark : kPowerOffLine), LV_PART_MAIN);
+    lv_obj_set_style_radius(btn, 8, LV_PART_MAIN);
+    lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(primary ? kPowerOffAmberDark : kPowerOffLine), LV_STATE_FOCUSED);
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t* label = lv_label_create(btn);
+    lv_label_set_text(label, ::ui::i18n::tr(text));
+    apply_power_off_text(label, primary ? kPowerOffWarmBg : kPowerOffText, &lv_font_montserrat_16);
+    lv_obj_center(label);
+
+    if (s_power_off_group != nullptr)
+    {
+        lv_group_add_obj(s_power_off_group, btn);
+    }
+    return btn;
+}
+
+void power_off_enter(void*, lv_obj_t* parent)
+{
+    if (parent == nullptr)
+    {
+        return;
+    }
+    if (s_power_off_modal != nullptr)
+    {
+        return;
+    }
+
+    s_power_off_prev_group = lv_group_get_default();
+    if (s_power_off_group == nullptr)
+    {
+        s_power_off_group = lv_group_create();
+    }
+    lv_group_remove_all_objs(s_power_off_group);
+    set_default_group(s_power_off_group);
+    ui_set_overlay_active(true);
+
+    s_power_off_modal = lv_obj_create(parent);
+    lv_obj_set_size(s_power_off_modal, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_pos(s_power_off_modal, 0, 0);
+    lv_obj_set_style_bg_color(s_power_off_modal, lv_color_hex(kPowerOffText), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_power_off_modal, LV_OPA_40, LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_power_off_modal, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_power_off_modal, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(s_power_off_modal, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_power_off_modal, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_move_foreground(s_power_off_modal);
+
+    lv_obj_t* dialog = lv_obj_create(s_power_off_modal);
+    lv_obj_set_size(dialog, 320, 136);
+    lv_obj_center(dialog);
+    lv_obj_set_style_bg_color(dialog, lv_color_hex(kPowerOffPanelBg), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dialog, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(dialog, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(dialog, lv_color_hex(kPowerOffAmber), LV_PART_MAIN);
+    lv_obj_set_style_radius(dialog, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(dialog, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(dialog, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(dialog, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* title = lv_label_create(dialog);
+    lv_label_set_text(title, ::ui::i18n::tr("Shutdown"));
+    apply_power_off_text(title, kPowerOffText, &lv_font_montserrat_20);
+    lv_obj_set_size(title, 292, 26);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 10);
+
+    lv_obj_t* body = lv_label_create(dialog);
+    lv_label_set_text(body, ::ui::i18n::tr("Power off device now?"));
+    apply_power_off_text(body, kPowerOffTextDim, &lv_font_montserrat_16);
+    lv_obj_set_size(body, 292, 22);
+    lv_obj_align(body, LV_ALIGN_TOP_LEFT, 14, 43);
+
+    lv_obj_t* hint = lv_label_create(dialog);
+    lv_label_set_text(hint, ::ui::i18n::tr("USB power keeps the device awake."));
+    apply_power_off_text(hint, kPowerOffWarn, &lv_font_montserrat_14);
+    lv_obj_set_size(hint, 292, 18);
+    lv_obj_align(hint, LV_ALIGN_TOP_LEFT, 14, 66);
+
+    lv_obj_t* row = lv_obj_create(dialog);
+    lv_obj_set_size(row, 292, 34);
+    lv_obj_align(row, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_column(row, 10, LV_PART_MAIN);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* cancel_btn = create_power_off_button(row, "Cancel", power_off_cancel_cb, false);
+    (void)create_power_off_button(row, "Power Off", power_off_confirm_cb, true);
+    lv_group_focus_obj(cancel_btn);
+}
+
+void power_off_exit(void*, lv_obj_t* parent)
+{
+    (void)parent;
+}
+
+ui::CallbackAppScreen s_power_off_app("shutdown", "Shutdown", &shutdown,
+                                      power_off_enter,
+                                      power_off_exit,
+                                      nullptr,
+                                      ui::AppLaunchMode::MenuOverlay);
+#endif
 
 AppScreen* s_apps[kMaxMenuApps] = {};
 ui::StaticAppCatalogState s_catalog_state = ui::makeStaticAppCatalogState(s_apps);
@@ -233,6 +411,12 @@ AppCatalog build(const FeatureFlags& flags)
         if (flags.include_extensions)
         {
             add(&s_extensions_app);
+        }
+        if (flags.include_power_off)
+        {
+#if defined(ESP_PLATFORM)
+            add(&s_power_off_app);
+#endif
         }
         if (flags.include_settings)
         {

@@ -32,7 +32,7 @@ struct SidePanelSpec
     int pad_row = 3;
     int margin_left = 0;
     int margin_right = 0;
-    lv_scrollbar_mode_t scrollbar_mode = LV_SCROLLBAR_MODE_OFF;
+    lv_scrollbar_mode_t scrollbar_mode = LV_SCROLLBAR_MODE_AUTO;
 };
 
 struct MainPanelSpec

@@ -648,3 +648,11 @@ Seen %um ago	Visto %u min fa
 Seen %uh ago	Visto %u h fa
 Seen %ud ago	Visto %u g fa
 Seen --	Visto --
+Shutdown	Spegnimento
+Power Off	Spegni
+Powering off...	Spegnimento...
+Power off failed	Spegnimento non riuscito
+Power off device now?	Spegnere il dispositivo ora?
+USB power keeps the device awake.	L'alimentazione USB mantiene il dispositivo attivo.
+Unplug USB to power off	Scollega USB per spegnere
+Power chip unavailable	Chip di alimentazione non disponibile

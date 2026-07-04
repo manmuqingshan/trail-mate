@@ -22,7 +22,7 @@ from an input callback, LVGL timer, GTK callback, or page render callback.
 | --- | --- | --- | --- |
 | `MapTileRef` | Value Object | Identify layer/z/x/y | Filesystem path, LVGL object |
 | `MapTileLayer` | Layer key | Identify OSM/Terrain/Satellite/Contour layers | Renderer details |
-| `MapTileFormat` | Format enum | Identify PNG/JPEG payload format | Decode ownership |
+| `MapTileFormat` | Format enum | Identify PNG payload format | Decode ownership |
 | `MapTilePayload` | Data DTO | Optional byte payload returned by a source | Filesystem path ownership |
 | `IMapTileSource` | Port | Lookup/read tile payload by `MapTileRef` | LVGL rendering |
 | `IMapTileFileSystem` | Port | Filesystem operations needed by filesystem source | Tile path policy |
@@ -36,7 +36,7 @@ from an input callback, LVGL timer, GTK callback, or page render callback.
 
 - `MapTileLayer::Osm` -> `/maps/base/osm/{z}/{x}/{y}.png`
 - `MapTileLayer::Terrain` -> `/maps/base/terrain/{z}/{x}/{y}.png`
-- `MapTileLayer::Satellite` -> `/maps/base/satellite/{z}/{x}/{y}.jpg`
+- `MapTileLayer::Satellite` -> `/maps/base/satellite/{z}/{x}/{y}.png`
 - `MapTileLayer::ContourMajor500` -> `/maps/contour/major-500/{z}/{x}/{y}.png`
 - `MapTileLayer::ContourMajor200` -> `/maps/contour/major-200/{z}/{x}/{y}.png`
 - `MapTileLayer::ContourMajor100` -> `/maps/contour/major-100/{z}/{x}/{y}.png`

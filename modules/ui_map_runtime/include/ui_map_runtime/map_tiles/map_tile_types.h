@@ -29,7 +29,6 @@ enum class MapTileFormat : uint8_t
 {
     Unknown,
     Png,
-    Jpeg,
 };
 
 enum class MapTileStatus : uint8_t

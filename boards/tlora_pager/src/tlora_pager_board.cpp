@@ -17,6 +17,7 @@
 
 #include "display/drivers/ST7796.h"
 #include "pins_arduino.h"
+#include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/audio/pager_notification_tone.h"
 #include "platform/ui/settings_store.h"
@@ -1939,62 +1940,8 @@ bool board_adjust_rtc_by_offset_minutes(int offset_minutes)
 
 int TLoRaPagerBoard::getBatteryLevel()
 {
-    static int s_last_level = -1;
-    static int s_last_voltage_mv = -1;
-    static uint8_t s_zero_streak = 0;
-    static uint32_t s_last_read_ms = 0;
-
-    constexpr uint32_t kMinReadIntervalMs = 5000;
     constexpr int kVoltageMinMv = 3000;
     constexpr int kVoltageMaxMv = 4300;
-    constexpr int kDropGuardPct = 30;
-    constexpr int kZeroGuardMinPct = 15;
-    constexpr uint8_t kZeroGuardCount = 3;
-    constexpr int kRiseGuardPct = 2;
-
-    const uint32_t now_ms = millis();
-    if (s_last_level >= 0 && (now_ms - s_last_read_ms) < kMinReadIntervalMs)
-    {
-        return s_last_level;
-    }
-
-    auto battery_percent_from_mv = [](int mv) -> int
-    {
-        if (mv <= 0)
-        {
-            return -1;
-        }
-        static constexpr int kCurve[][2] = {
-            {4200, 100},
-            {4100, 90},
-            {4000, 80},
-            {3900, 60},
-            {3800, 40},
-            {3700, 20},
-            {3600, 10},
-            {3300, 0},
-        };
-        if (mv >= kCurve[0][0])
-        {
-            return 100;
-        }
-        if (mv <= kCurve[7][0])
-        {
-            return 0;
-        }
-        for (size_t i = 0; i + 1 < (sizeof(kCurve) / sizeof(kCurve[0])); ++i)
-        {
-            const int v1 = kCurve[i][0];
-            const int p1 = kCurve[i][1];
-            const int v2 = kCurve[i + 1][0];
-            const int p2 = kCurve[i + 1][1];
-            if (mv <= v1 && mv >= v2)
-            {
-                return p2 + (mv - v2) * (p1 - p2) / (v1 - v2);
-            }
-        }
-        return -1;
-    };
 
     auto read_bq27220_soc_direct = []() -> int
     {
@@ -2029,13 +1976,7 @@ int TLoRaPagerBoard::getBatteryLevel()
     auto read_battery_mv_from_adc = []() -> int
     {
 #ifdef BOARD_BAT_ADC
-        analogSetPinAttenuation(BOARD_BAT_ADC, ADC_11db);
-        int mv = analogReadMilliVolts(BOARD_BAT_ADC);
-        if (mv <= 0)
-        {
-            return -1;
-        }
-        return mv * 2;
+        return ::platform::esp::arduino_common::power::read_battery_adc_millivolts(BOARD_BAT_ADC, 2, 1);
 #else
         return -1;
 #endif
@@ -2043,14 +1984,20 @@ int TLoRaPagerBoard::getBatteryLevel()
 
     int soc = -1;
     int voltage_mv = -1;
-    int current_ma = 0;
-    int voltage_percent = -1;
     float temp_c = NAN;
     bool gauge_ok = false;
     bool temp_ok = false;
+    bool charging = false;
+    bool vbus_present = false;
 
     {
         I2CGuard i2c;
+        if (isPMUReady())
+        {
+            charging = pmu.isCharging();
+            vbus_present = pmu.isVbusIn();
+        }
+
         if (isGaugeReady())
         {
             bool refresh_ok = gauge.refresh();
@@ -2058,7 +2005,6 @@ int TLoRaPagerBoard::getBatteryLevel()
             {
                 soc = static_cast<int>(gauge.getStateOfCharge());
                 voltage_mv = static_cast<int>(gauge.getVoltage());
-                current_ma = static_cast<int>(gauge.getCurrent());
                 temp_c = gauge.getTemperature();
                 temp_ok = std::isfinite(temp_c) && temp_c > -20.0f && temp_c < 80.0f;
                 if (temp_ok)
@@ -2128,42 +2074,14 @@ int TLoRaPagerBoard::getBatteryLevel()
             voltage_mv = -1;
         }
 
-        voltage_percent = voltage_mv > 0 ? battery_percent_from_mv(voltage_mv) : -1;
-        if (voltage_percent < 0 && isPMUReady())
+        if (voltage_mv < 0 && isPMUReady())
         {
             const uint16_t pmu_mv = pmu.getBattVoltage();
             if (pmu_mv >= kVoltageMinMv && pmu_mv <= kVoltageMaxMv)
             {
                 voltage_mv = static_cast<int>(pmu_mv);
-                voltage_percent = battery_percent_from_mv(voltage_mv);
             }
         }
-    }
-
-    if (voltage_percent < 0)
-    {
-        const int adc_mv = read_battery_mv_from_adc();
-        if (adc_mv >= kVoltageMinMv && adc_mv <= kVoltageMaxMv)
-        {
-            voltage_mv = adc_mv;
-            voltage_percent = battery_percent_from_mv(voltage_mv);
-        }
-    }
-
-    if (!gauge_ok && s_last_voltage_mv > 0 && voltage_mv > 0)
-    {
-        voltage_mv = (s_last_voltage_mv * 3 + voltage_mv + 2) / 4;
-        voltage_percent = battery_percent_from_mv(voltage_mv);
-    }
-
-    int level = gauge_ok ? soc : -1;
-    if (level < 0 || level > 100)
-    {
-        level = -1;
-    }
-    if (level < 0 && voltage_percent >= 0)
-    {
-        level = voltage_percent;
     }
 
     // Temperature notifications: only when we have a valid reading, with cooldowns to avoid spam.
@@ -2182,62 +2100,26 @@ int TLoRaPagerBoard::getBatteryLevel()
         }
     }
 
-    if (level < 0)
+    int adc_mv = read_battery_mv_from_adc();
+    if (adc_mv < kVoltageMinMv || adc_mv > kVoltageMaxMv)
     {
-        s_last_read_ms = now_ms;
-        return s_last_level;
+        adc_mv = -1;
     }
 
-    if (level > 100)
-    {
-        level = 100;
-    }
+    power::BatteryEstimatorSample sample{};
+    sample.now_ms = millis();
+    sample.pmu_percent = gauge_ok ? soc : -1;
+    sample.pmu_battery_mv = voltage_mv;
+    sample.adc_battery_mv = adc_mv;
+    sample.charging = charging;
+    sample.vbus_present = vbus_present;
 
-    const bool charging = isCharging();
-
-    if (s_last_level >= 0)
+    const power::BatteryEstimate estimate = battery_estimator_.update(sample);
+    if (estimate.percent < 0)
     {
-        if (!charging && level > s_last_level + kRiseGuardPct)
-        {
-            level = s_last_level;
-        }
-        if (charging && level + kRiseGuardPct < s_last_level)
-        {
-            level = s_last_level;
-        }
+        return -1;
     }
-
-    if (!charging && s_last_level >= 0 && level + kDropGuardPct < s_last_level)
-    {
-        if (voltage_percent >= 0 && voltage_percent + 10 >= s_last_level)
-        {
-            level = voltage_percent;
-        }
-        else
-        {
-            level = s_last_level;
-        }
-    }
-
-    if (!charging && level == 0 && s_last_level >= kZeroGuardMinPct)
-    {
-        if (s_zero_streak < kZeroGuardCount)
-        {
-            s_zero_streak++;
-            s_last_read_ms = now_ms;
-            return s_last_level;
-        }
-    }
-    else
-    {
-        s_zero_streak = 0;
-    }
-
-    s_last_level = level;
-    s_last_voltage_mv = voltage_mv;
-    s_last_read_ms = now_ms;
-    (void)s_last_voltage_mv;
-    return level;
+    return estimate.percent;
 }
 
 bool TLoRaPagerBoard::isCharging()
@@ -2400,16 +2282,18 @@ void TLoRaPagerBoard::feedback(void* args)
     (void)args;
 }
 
-// Power button handling variables
+// BOOT button handling variables. The physical POWER key is wired to BQ25896 QON
+// and is only useful while the device is already powered off.
 static volatile bool power_button_event = false;
 static volatile bool power_button_state = false; // true = pressed, false = released
+static volatile bool power_button_long_press_handled = false;
 static volatile uint32_t power_button_press_start = 0;
-static const uint32_t POWER_BUTTON_LONG_PRESS_MS = 3000; // 3 seconds for shutdown
-static const uint32_t POWER_BUTTON_DEBOUNCE_MS = 50;     // Debounce delay
+static const uint32_t BOOT_BUTTON_LONG_PRESS_MS = 3000; // 3 seconds for shutdown
+static const uint32_t BOOT_BUTTON_DEBOUNCE_MS = 50;     // Debounce delay
 
 /**
- * @brief Power button interrupt handler
- * Detects power button press and release events
+ * @brief BOOT button interrupt handler
+ * Detects BOOT button press and release events
  */
 static void IRAM_ATTR powerButtonISR()
 {
@@ -2417,13 +2301,13 @@ static void IRAM_ATTR powerButtonISR()
     uint32_t current_time = micros() / 1000; // Convert to milliseconds
 
     // Debounce: ignore interrupts too close together
-    if (current_time - last_interrupt_time < POWER_BUTTON_DEBOUNCE_MS)
+    if (current_time - last_interrupt_time < BOOT_BUTTON_DEBOUNCE_MS)
     {
         return;
     }
     last_interrupt_time = current_time;
 
-    bool current_button_state = (digitalRead(POWER_KEY) == LOW); // Active low
+    bool current_button_state = (digitalRead(BOOT_KEY) == LOW); // Active low
 
     // Only trigger event on state change
     if (current_button_state != power_button_state)
@@ -2435,30 +2319,42 @@ static void IRAM_ATTR powerButtonISR()
         {
             // Button pressed
             power_button_press_start = current_time;
+            power_button_long_press_handled = false;
         }
     }
 }
 
 bool TLoRaPagerBoard::initPowerButton()
 {
-    // Configure power button pin
-    pinMode(POWER_KEY, INPUT_PULLUP);
+    // Configure BOOT button pin
+    pinMode(BOOT_KEY, INPUT_PULLUP);
 
     // Test initial pin state
-    int initial_state = digitalRead(POWER_KEY);
-    log_d("Power button GPIO %d initial state: %d (0=pressed, 1=released)", POWER_KEY, initial_state);
+    int initial_state = digitalRead(BOOT_KEY);
+    log_d("BOOT button GPIO %d initial state: %d (0=pressed, 1=released)", BOOT_KEY, initial_state);
 
     // Attach interrupt for both rising and falling edges
     // Note: attachInterrupt returns void in Arduino, no error checking possible
-    attachInterrupt(digitalPinToInterrupt(POWER_KEY), powerButtonISR, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(BOOT_KEY), powerButtonISR, CHANGE);
 
-    log_d("Power button interrupt attached to GPIO %d", POWER_KEY);
+    log_d("BOOT button interrupt attached to GPIO %d", BOOT_KEY);
     return true;
 }
 
 void TLoRaPagerBoard::handlePowerButton()
 {
-    // According to LilyGo docs: POWER key only wakes the device from Power OFF; it does not force shutdown by itself.
+    // According to LilyGo docs, the physical POWER key only wakes the device from
+    // Power OFF. This handler is for the separate BOOT/GPIO0 key.
+    if (power_button_state && !power_button_long_press_handled)
+    {
+        uint32_t press_duration_ms = millis() - power_button_press_start;
+        if (press_duration_ms >= BOOT_BUTTON_LONG_PRESS_MS)
+        {
+            power_button_long_press_handled = true;
+            log_i("BOOT key long-press (%lu ms) -> deep sleep", (unsigned long)press_duration_ms);
+            shutdown(true);
+        }
+    }
 
     if (power_button_event)
     {
@@ -2466,40 +2362,66 @@ void TLoRaPagerBoard::handlePowerButton()
 
         if (power_button_state)
         {
-            // POWER key pressed: this is a wake-up signal.
-            log_d("POWER button pressed - wake up signal");
+            log_d("BOOT button pressed");
 
             // Check if we are waking from deep sleep.
             esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-            if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0)
+            if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1)
             {
-                log_d("Waking up from deep sleep via POWER button");
+                log_d("Waking up from deep sleep via BOOT button");
                 wakeUp();
             }
             else
             {
-                // Device is already running; POWER press can be repurposed for other features (screen toggle, etc.).
-                log_d("POWER button pressed while device is running");
+                log_d("BOOT button pressed while device is running");
             }
         }
         else
         {
-            // POWER key released: long-press (>= 3s) triggers shutdown
-            uint32_t press_duration_ms = millis() - power_button_press_start;
-            if (press_duration_ms >= POWER_BUTTON_LONG_PRESS_MS)
-            {
-                log_i("POWER key long-press (%lu ms) -> shutdown", (unsigned long)press_duration_ms);
-                softwareShutdown();
-            }
+            log_d("BOOT button released");
         }
     }
 }
 
 void TLoRaPagerBoard::shutdown(bool save_data)
 {
-    log_i("=== LILYGO OFFICIAL SHUTDOWN SEQUENCE ===");
+    shutdownImpl(save_data, ShutdownMode::DeepSleep);
+}
 
+void TLoRaPagerBoard::shutdownImpl(bool save_data, ShutdownMode mode)
+{
     (void)save_data;
+
+    if (mode == ShutdownMode::PowerOff)
+    {
+        log_i("=== LILYGO BQ25896 POWER-OFF SEQUENCE ===");
+        if (isUsbPresent_bestEffort())
+        {
+            log_w("Power OFF rejected: USB is connected");
+            ui::feedback::show_notice("Unplug USB to power off", 3500);
+            return;
+        }
+        if (!isPMUReady())
+        {
+            log_w("Power OFF rejected: PMU unavailable");
+            ui::feedback::show_notice("Power chip unavailable", 2500);
+            return;
+        }
+
+        log_i("Requesting BQ25896 Power OFF via BATFET_DIS");
+        Serial.flush();
+        {
+            I2CGuard i2c;
+            pmu.shutdown();
+        }
+
+        delay(1500);
+        log_e("BQ25896 Power OFF request returned; device is still running");
+        ui::feedback::show_notice("Power off failed", 3500);
+        return;
+    }
+
+    log_i("=== LILYGO ESP DEEP-SLEEP SEQUENCE ===");
 
     // 1) Stop rotary task (LilyGo: vTaskDelete(rotaryHandler))
     if (rotaryHandler != nullptr)
@@ -2583,7 +2505,12 @@ void TLoRaPagerBoard::shutdown(bool save_data)
     }
 #endif
 
-    // 11) End communication buses
+    Serial.flush();
+    delay(200);
+
+    log_i("Entering BOOT-button deep sleep");
+
+    // 11) End communication buses before ESP deep sleep
     Serial1.end();
     SPI.end();
     Wire.end();
@@ -2633,9 +2560,9 @@ void TLoRaPagerBoard::shutdown(bool save_data)
 
     for (auto pin : pins)
     {
-        if (pin == POWER_KEY)
+        if (pin == BOOT_KEY)
         {
-            // Keep boot/power wake pin as input for EXT1 wakeup (LilyGo uses GPIO0)
+            // Keep BOOT wake pin as input for EXT1 wakeup (LilyGo uses GPIO0)
             continue;
         }
         log_d("Set pin %d to open drain", pin);
@@ -2648,9 +2575,9 @@ void TLoRaPagerBoard::shutdown(bool save_data)
     Serial.end();
     delay(1000);
 
-    // 13) Configure wakeup source (LilyGo: BOOT button on GPIO0 only)
-    pinMode(POWER_KEY, INPUT_PULLUP); // ensure stable HIGH when not pressed
-    uint64_t wakeup_pin = (1ULL << POWER_KEY);
+    // 13) Configure fallback wakeup source (LilyGo: BOOT button on GPIO0 only)
+    pinMode(BOOT_KEY, INPUT_PULLUP); // ensure stable HIGH when not pressed
+    uint64_t wakeup_pin = (1ULL << BOOT_KEY);
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     esp_sleep_enable_ext1_wakeup_io(wakeup_pin, ESP_EXT1_WAKEUP_ANY_LOW);
 #else
@@ -2669,16 +2596,8 @@ void TLoRaPagerBoard::shutdown(bool save_data)
 
 void TLoRaPagerBoard::softwareShutdown()
 {
-    // Check USB connection; avoid shutting down while host power is present.
-    if (isUsbPresent_bestEffort())
-    {
-        log_w("Cannot shutdown: USB is connected (PMIC will maintain power)");
-        ui::feedback::show_notice("Unplug USB to power off", 3500);
-        return;
-    }
-
-    log_i("Shutdown conditions met - entering Power OFF mode (26µA)");
-    shutdown(true);
+    log_i("Shutdown requested - PMU Power OFF only; no deep-sleep fallback");
+    shutdownImpl(true, ShutdownMode::PowerOff);
 }
 
 void TLoRaPagerBoard::wakeUp()

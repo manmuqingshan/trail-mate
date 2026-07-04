@@ -14,6 +14,7 @@ void apply_scroll_behavior(lv_obj_t* obj, lv_scrollbar_mode_t mode)
         return;
     }
     lv_obj_add_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(obj, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(obj, mode);
 }
 
