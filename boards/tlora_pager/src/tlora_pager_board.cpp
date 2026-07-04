@@ -21,6 +21,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/audio/pager_notification_tone.h"
 #include "platform/ui/settings_store.h"
+#include "ui/i18n.h"
 #include "ui/runtime/ui_feedback.h"
 #include <Preferences.h>
 
@@ -2384,10 +2385,38 @@ void TLoRaPagerBoard::shutdown(bool save_data)
 
 void TLoRaPagerBoard::shutdownImpl(bool save_data, ShutdownMode mode)
 {
-    log_i(mode == ShutdownMode::PowerOff ? "=== LILYGO BQ25896 POWER-OFF SEQUENCE ==="
-                                         : "=== LILYGO ESP DEEP-SLEEP SEQUENCE ===");
-
     (void)save_data;
+
+    if (mode == ShutdownMode::PowerOff)
+    {
+        log_i("=== LILYGO BQ25896 POWER-OFF SEQUENCE ===");
+        if (isUsbPresent_bestEffort())
+        {
+            log_w("Power OFF rejected: USB is connected");
+            ui::feedback::show_notice(ui::i18n::tr("Unplug USB to power off"), 3500);
+            return;
+        }
+        if (!isPMUReady())
+        {
+            log_w("Power OFF rejected: PMU unavailable");
+            ui::feedback::show_notice(ui::i18n::tr("Power chip unavailable"), 2500);
+            return;
+        }
+
+        log_i("Requesting BQ25896 Power OFF via BATFET_DIS");
+        Serial.flush();
+        {
+            I2CGuard i2c;
+            pmu.shutdown();
+        }
+
+        delay(1500);
+        log_e("BQ25896 Power OFF request returned; device is still running");
+        ui::feedback::show_notice(ui::i18n::tr("Power off failed"), 3500);
+        return;
+    }
+
+    log_i("=== LILYGO ESP DEEP-SLEEP SEQUENCE ===");
 
     // 1) Stop rotary task (LilyGo: vTaskDelete(rotaryHandler))
     if (rotaryHandler != nullptr)
@@ -2474,26 +2503,9 @@ void TLoRaPagerBoard::shutdownImpl(bool save_data, ShutdownMode mode)
     Serial.flush();
     delay(200);
 
-    if (mode == ShutdownMode::PowerOff && isPMUReady())
-    {
-        log_i("Requesting BQ25896 Power OFF via BATFET_DIS");
-        {
-            I2CGuard i2c;
-            pmu.shutdown();
-        }
-        delay(1000);
-        log_w("BQ25896 Power OFF returned; entering BOOT-button deep sleep fallback");
-    }
-    else if (mode == ShutdownMode::PowerOff)
-    {
-        log_w("PMU unavailable; entering BOOT-button deep sleep fallback");
-    }
-    else
-    {
-        log_i("Entering BOOT-button deep sleep");
-    }
+    log_i("Entering BOOT-button deep sleep");
 
-    // 11) End communication buses before deep sleep fallback
+    // 11) End communication buses before ESP deep sleep
     Serial1.end();
     SPI.end();
     Wire.end();
@@ -2579,22 +2591,7 @@ void TLoRaPagerBoard::shutdownImpl(bool save_data, ShutdownMode mode)
 
 void TLoRaPagerBoard::softwareShutdown()
 {
-    // Check USB connection; avoid shutting down while host power is present.
-    if (isUsbPresent_bestEffort())
-    {
-        log_w("Cannot shutdown: USB is connected (PMIC will maintain power)");
-        ui::feedback::show_notice("Unplug USB to power off", 3500);
-        return;
-    }
-
-    if (!isPMUReady())
-    {
-        log_w("PMU unavailable; true Power OFF is not available, using deep sleep fallback");
-        ui::feedback::show_notice("Power chip unavailable", 2500);
-        delay(500);
-    }
-
-    log_i("Shutdown conditions met - requesting BQ25896 Power OFF (26uA target)");
+    log_i("Shutdown requested - PMU Power OFF only; no deep-sleep fallback");
     shutdownImpl(true, ShutdownMode::PowerOff);
 }
 

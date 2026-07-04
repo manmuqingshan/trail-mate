@@ -651,6 +651,7 @@ Seen --	未見
 Shutdown	關機
 Power Off	關機
 Powering off...	正在關機...
+Power off failed	關機失敗
 Power off device now?	現在關閉裝置電源？
 USB power keeps the device awake.	USB 供電會讓裝置保持喚醒。
 Unplug USB to power off	拔掉 USB 後才能關機

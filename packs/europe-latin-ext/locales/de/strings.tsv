@@ -651,6 +651,7 @@ Seen --	Gesehen --
 Shutdown	Herunterfahren
 Power Off	Ausschalten
 Powering off...	Wird ausgeschaltet...
+Power off failed	Ausschalten fehlgeschlagen
 Power off device now?	Gerät jetzt ausschalten?
 USB power keeps the device awake.	USB-Strom hält das Gerät wach.
 Unplug USB to power off	USB abziehen, um auszuschalten

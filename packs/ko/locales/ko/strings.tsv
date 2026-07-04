@@ -651,6 +651,7 @@ Seen --	확인 --
 Shutdown	종료
 Power Off	전원 끄기
 Powering off...	전원을 끄는 중...
+Power off failed	전원 끄기 실패
 Power off device now?	지금 장치 전원을 끌까요?
 USB power keeps the device awake.	USB 전원이 장치를 깨어 있게 합니다.
 Unplug USB to power off	전원을 끄려면 USB를 분리하세요

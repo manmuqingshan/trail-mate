@@ -651,6 +651,7 @@ Seen --	آخر ظهور --
 Shutdown	إيقاف التشغيل
 Power Off	إيقاف الطاقة
 Powering off...	جارٍ إيقاف التشغيل...
+Power off failed	فشل إيقاف الطاقة
 Power off device now?	إيقاف تشغيل الجهاز الآن؟
 USB power keeps the device awake.	طاقة USB تُبقي الجهاز مستيقظًا.
 Unplug USB to power off	افصل USB لإيقاف التشغيل

@@ -651,6 +651,7 @@ Seen --	確認 --
 Shutdown	シャットダウン
 Power Off	電源オフ
 Powering off...	電源をオフにしています...
+Power off failed	電源オフに失敗しました
 Power off device now?	今すぐ電源をオフにしますか？
 USB power keeps the device awake.	USB給電中はデバイスが起動したままになります。
 Unplug USB to power off	電源をオフにするにはUSBを抜いてください
