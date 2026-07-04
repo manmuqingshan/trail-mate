@@ -21,7 +21,6 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/audio/pager_notification_tone.h"
 #include "platform/ui/settings_store.h"
-#include "ui/i18n.h"
 #include "ui/runtime/ui_feedback.h"
 #include <Preferences.h>
 
@@ -2393,13 +2392,13 @@ void TLoRaPagerBoard::shutdownImpl(bool save_data, ShutdownMode mode)
         if (isUsbPresent_bestEffort())
         {
             log_w("Power OFF rejected: USB is connected");
-            ui::feedback::show_notice(ui::i18n::tr("Unplug USB to power off"), 3500);
+            ui::feedback::show_notice("Unplug USB to power off", 3500);
             return;
         }
         if (!isPMUReady())
         {
             log_w("Power OFF rejected: PMU unavailable");
-            ui::feedback::show_notice(ui::i18n::tr("Power chip unavailable"), 2500);
+            ui::feedback::show_notice("Power chip unavailable", 2500);
             return;
         }
 
@@ -2412,7 +2411,7 @@ void TLoRaPagerBoard::shutdownImpl(bool save_data, ShutdownMode mode)
 
         delay(1500);
         log_e("BQ25896 Power OFF request returned; device is still running");
-        ui::feedback::show_notice(ui::i18n::tr("Power off failed"), 3500);
+        ui::feedback::show_notice("Power off failed", 3500);
         return;
     }
 
