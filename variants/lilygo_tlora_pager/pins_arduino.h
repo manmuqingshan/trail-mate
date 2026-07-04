@@ -40,9 +40,9 @@ static const uint8_t SCK = 35;
 #define SENSOR_INT (8)
 
 // Power management
-#define BOOT_KEY (0)      // BOOT button (GPIO0), also usable as ESP sleep wake source.
+#define BOOT_KEY (0)       // BOOT button (GPIO0), also usable as ESP sleep wake source.
 #define POWER_KEY BOOT_KEY // Legacy alias; the physical POWER key is PMU QON, not an ESP GPIO.
-#define CUSTOM_KEY (9)    // Custom GPIO on the external expansion header.
+#define CUSTOM_KEY (9)     // Custom GPIO on the external expansion header.
 
 // ES8311
 #define I2S_WS (18)
