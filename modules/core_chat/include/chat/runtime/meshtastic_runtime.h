@@ -44,12 +44,11 @@ struct MeshtasticPkiResyncInput
 class MeshtasticPkiResyncState
 {
   public:
-    ProtocolEffects handle(const MeshtasticPkiResyncInput& input) const
+    void handle(const MeshtasticPkiResyncInput& input, ProtocolEffects& effects) const
     {
-        ProtocolEffects effects{};
         if (input.peer == 0)
         {
-            return effects;
+            return;
         }
 
         if (input.cause == MeshtasticPkiResyncCause::PeerKeyStale)
@@ -77,8 +76,6 @@ class MeshtasticPkiResyncState
             routing.error_code = routingErrorForCause(input.cause);
             effects.add(routing);
         }
-
-        return effects;
     }
 
   private:
@@ -101,10 +98,10 @@ class MeshtasticPkiResyncState
 class MeshtasticRuntime final : public IProtocolRuntime
 {
   public:
-    ProtocolEffects prepareOutgoing(const ProtocolIntent& intent,
-                                    const RuntimeContext& context) override
+    void prepareOutgoing(const ProtocolIntent& intent,
+                         const RuntimeContext& context,
+                         ProtocolEffects& effects) override
     {
-        ProtocolEffects effects{};
         std::visit(
             [this, &effects, &context](const auto& item)
             {
@@ -131,18 +128,19 @@ class MeshtasticRuntime final : public IProtocolRuntime
                 }
             },
             intent);
-        return effects;
     }
 
-    ProtocolEffects handleIncoming(const IncomingPacket& packet,
-                                   const RuntimeContext& context) override
+    void handleIncoming(const IncomingPacket& packet,
+                        const RuntimeContext& context,
+                        ProtocolEffects& effects) override
     {
-        return handleIncomingPacket(packet, context).effects;
+        (void)handleIncomingPacket(packet, context, effects);
     }
 
     IncomingPacketHandlingResult handleIncomingPacket(
         const IncomingPacket& packet,
-        const RuntimeContext& context) override
+        const RuntimeContext& context,
+        ProtocolEffects& effects) override
     {
         IncomingPacketHandlingResult result{};
         if (packet.protocol != MeshProtocol::Meshtastic)
@@ -150,46 +148,52 @@ class MeshtasticRuntime final : public IProtocolRuntime
             return result;
         }
 
-        if (absorbIncomingHandlingResult(result, handleIncomingRoutingApp(packet, context)))
+        if (absorbIncomingHandlingResult(result,
+                                         handleIncomingRoutingApp(packet, context, effects)))
         {
             return result;
         }
-        if (absorbIncomingHandlingResult(result, handleIncomingNodeInfo(packet, context)))
+        if (absorbIncomingHandlingResult(result,
+                                         handleIncomingNodeInfo(packet, context, effects)))
         {
             return result;
         }
-        if (absorbIncomingHandlingResult(result, handleIncomingPosition(packet, context)))
+        if (absorbIncomingHandlingResult(result,
+                                         handleIncomingPosition(packet, context, effects)))
         {
             return result;
         }
-        if (absorbIncomingHandlingResult(result, handleIncomingTraceRoute(packet, context)))
+        if (absorbIncomingHandlingResult(result,
+                                         handleIncomingTraceRoute(packet, context, effects)))
         {
             return result;
         }
-        if (absorbIncomingHandlingResult(result, handleIncomingKeyVerification(packet, context)))
+        if (absorbIncomingHandlingResult(result,
+                                         handleIncomingKeyVerification(packet, context, effects)))
         {
             return result;
         }
-        absorbIncomingHandlingResult(result, handleIncomingTextOrAppData(packet, context));
+        absorbIncomingHandlingResult(result,
+                                     handleIncomingTextOrAppData(packet, context, effects));
         return result;
     }
 
-    ProtocolEffects handleTxResult(const TxResult& result,
-                                   const RuntimeContext& context) override
+    void handleTxResult(const TxResult& result,
+                        const RuntimeContext& context,
+                        ProtocolTxFeedbackEffects& effects) override
     {
-        ProtocolEffects effects{};
         if (result.protocol != MeshProtocol::Meshtastic ||
             result.ok ||
             result.request_id == 0 ||
             !app_actions_.active())
         {
-            return effects;
+            return;
         }
 
         const MeshtasticAppActionSnapshot current = app_actions_.snapshot();
         if (current.request_id != result.request_id)
         {
-            return effects;
+            return;
         }
 
         app_actions_.markLocalSendFailed(current.kind,
@@ -197,23 +201,21 @@ class MeshtasticRuntime final : public IProtocolRuntime
                                          current.peer,
                                          context.now_ms);
         effects.add(actionResultFromSnapshot(app_actions_.snapshot()));
-        return effects;
     }
 
-    ProtocolEffects tick(const RuntimeContext& context) override
+    void tick(const RuntimeContext& context, ProtocolEffects& effects) override
     {
-        ProtocolEffects effects{};
         MeshtasticAppActionSnapshot snapshot{};
         if (app_actions_.tick(context.now_ms, &snapshot))
         {
             effects.add(actionResultFromSnapshot(snapshot));
         }
-        return effects;
     }
 
-    ProtocolEffects handlePkiResync(const MeshtasticPkiResyncInput& input) const
+    void handlePkiResync(const MeshtasticPkiResyncInput& input,
+                         ProtocolEffects& effects) const
     {
-        return pki_resync_.handle(input);
+        pki_resync_.handle(input, effects);
     }
 
   private:
@@ -319,7 +321,14 @@ class MeshtasticRuntime final : public IProtocolRuntime
         packet.request_id = request_id;
         packet.want_ack = true;
         packet.want_response = true;
-        packet.payload.assign(route_buf, route_buf + stream.bytes_written);
+        if (!packet.payload.assign(route_buf, stream.bytes_written))
+        {
+            effects.add(buildFailedAction(ProtocolActionKind::TraceRoute,
+                                          peer,
+                                          request_id,
+                                          kMeshtasticActionDetailEncodeFailed));
+            return;
+        }
         effects.add(std::move(packet));
         app_actions_.startTraceRoute(request_id,
                                      peer,
@@ -397,7 +406,14 @@ class MeshtasticRuntime final : public IProtocolRuntime
         packet.portnum = meshtastic_PortNum_POSITION_APP;
         packet.want_ack = intent.want_ack && packet.dest != 0;
         packet.want_response = intent.want_response;
-        packet.payload.assign(payload, payload + payload_len);
+        if (!packet.payload.assign(payload, payload_len))
+        {
+            effects.add(buildFailedAction(ProtocolActionKind::SharePosition,
+                                          normalizePeer(intent.peer),
+                                          0,
+                                          kMeshtasticActionDetailEncodeFailed));
+            return;
+        }
         effects.add(std::move(packet));
     }
 
@@ -435,7 +451,14 @@ class MeshtasticRuntime final : public IProtocolRuntime
         packet.portnum = meshtastic_PortNum_WAYPOINT_APP;
         packet.want_ack = intent.want_ack && packet.dest != 0;
         packet.want_response = intent.want_response;
-        packet.payload.assign(payload, payload + payload_len);
+        if (!packet.payload.assign(payload, payload_len))
+        {
+            effects.add(buildFailedAction(ProtocolActionKind::ShareWaypoint,
+                                          normalizePeer(intent.peer),
+                                          0,
+                                          kMeshtasticActionDetailEncodeFailed));
+            return;
+        }
         effects.add(std::move(packet));
     }
 
@@ -449,34 +472,38 @@ class MeshtasticRuntime final : public IProtocolRuntime
         data.request_id = packet.request_id;
         data.channel = packet.channel;
         data.want_response = packet.want_response;
-        data.payload = packet.payload;
+        data.payload.assign(packet.payload.begin(), packet.payload.end());
         data.rx_meta = packet.rx_meta;
         return data;
     }
 
     IncomingPacketHandlingResult handleIncomingRoutingApp(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         if (packet.portnum != meshtastic_PortNum_ROUTING_APP)
         {
             return {};
         }
-        return consumeIncomingAppAction(packet, context);
+        return consumeIncomingAppAction(packet, context, effects);
     }
 
     static IncomingPacketHandlingResult handleIncomingNodeInfo(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         (void)packet;
         (void)context;
+        (void)effects;
         return {};
     }
 
     IncomingPacketHandlingResult handleIncomingPosition(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         if (packet.portnum != meshtastic_PortNum_POSITION_APP)
         {
@@ -484,7 +511,7 @@ class MeshtasticRuntime final : public IProtocolRuntime
         }
 
         IncomingPacketHandlingResult result =
-            consumeIncomingAppAction(packet, context);
+            consumeIncomingAppAction(packet, context, effects);
         if (result.shouldStop())
         {
             return result;
@@ -497,9 +524,9 @@ class MeshtasticRuntime final : public IProtocolRuntime
             last_position_reply_ms_);
         if (reply_policy.should_reply)
         {
-            const std::size_t before = result.effects.items.size();
-            appendPositionReplyEffect(result, packet, context);
-            if (result.effects.items.size() != before)
+            const std::size_t before = effects.size();
+            appendPositionReplyEffect(result, packet, context, effects);
+            if (effects.size() != before)
             {
                 last_position_reply_ms_ = context.now_ms;
             }
@@ -509,25 +536,26 @@ class MeshtasticRuntime final : public IProtocolRuntime
 
     IncomingPacketHandlingResult handleIncomingTraceRoute(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         if (packet.portnum != meshtastic_PortNum_TRACEROUTE_APP)
         {
             return {};
         }
 
-        std::vector<uint8_t> updated_payload;
+        ProtocolPayloadBytes updated_payload;
         if (!buildUpdatedTraceRoutePayload(packet, context, updated_payload))
         {
-            return consumeIncomingAppAction(packet, context);
+            return consumeIncomingAppAction(packet, context, effects);
         }
 
         IncomingPacket updated_packet = packet;
         updated_packet.payload = updated_payload;
 
         IncomingPacketHandlingResult result =
-            consumeIncomingAppAction(updated_packet, context);
-        publishIncomingData(result, updated_packet, updated_payload);
+            consumeIncomingAppAction(updated_packet, context, effects);
+        publishIncomingData(result, updated_packet, updated_payload, effects);
 
         const auto reply_policy = resolveMeshtasticTraceRouteReplyPolicy(
             packet.request_id != 0,
@@ -538,41 +566,49 @@ class MeshtasticRuntime final : public IProtocolRuntime
             packetHopStart(packet));
         if (reply_policy.should_reply)
         {
-            appendTraceRouteReplyEffect(result, packet, updated_payload);
+            appendTraceRouteReplyEffect(result, packet, updated_payload, effects);
         }
         return result;
     }
 
     static IncomingPacketHandlingResult handleIncomingKeyVerification(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         (void)packet;
         (void)context;
+        (void)effects;
         return {};
     }
 
     static IncomingPacketHandlingResult handleIncomingTextOrAppData(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         (void)packet;
         (void)context;
+        (void)effects;
         return {};
     }
 
     IncomingPacketHandlingResult consumeIncomingAppAction(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
         IncomingPacketHandlingResult result{};
         MeshtasticAppActionSnapshot snapshot{};
-        if (app_actions_.consumeIncomingData(toMeshIncomingData(packet),
-                                             context.now_ms,
-                                             &snapshot))
+        if (app_actions_.consumeIncomingPayload(packet.portnum,
+                                                packet.request_id,
+                                                packet.payload.empty() ? nullptr : packet.payload.data(),
+                                                packet.payload.size(),
+                                                context.now_ms,
+                                                &snapshot))
         {
             result.handling = PacketHandling::HandledStop;
-            result.effects.add(actionResultFromSnapshot(snapshot));
+            effects.add(actionResultFromSnapshot(snapshot));
         }
         return result;
     }
@@ -716,22 +752,23 @@ class MeshtasticRuntime final : public IProtocolRuntime
 
     static MeshIncomingData incomingDataFromPacket(
         const IncomingPacket& packet,
-        const std::vector<uint8_t>& payload)
+        const ProtocolPayloadBytes& payload)
     {
         MeshIncomingData data = toMeshIncomingData(packet);
         data.channel_hash = packet.rx_meta.channel_hash;
         data.hop_limit = packet.rx_meta.hop_limit;
-        data.payload = payload;
+        data.payload.assign(payload.begin(), payload.end());
         return data;
     }
 
     static void publishIncomingData(IncomingPacketHandlingResult& result,
                                     const IncomingPacket& packet,
-                                    const std::vector<uint8_t>& payload)
+                                    const ProtocolPayloadBytes& payload,
+                                    ProtocolEffects& effects)
     {
         PublishIncomingDataEffect publish{};
         publish.data = incomingDataFromPacket(packet, payload);
-        result.effects.add(std::move(publish));
+        effects.add(std::move(publish));
         if (result.handling == PacketHandling::NotHandled)
         {
             result.handling = PacketHandling::HandledContinue;
@@ -740,7 +777,8 @@ class MeshtasticRuntime final : public IProtocolRuntime
 
     static void appendPositionReplyEffect(IncomingPacketHandlingResult& result,
                                           const IncomingPacket& packet,
-                                          const RuntimeContext& context)
+                                          const RuntimeContext& context,
+                                          ProtocolEffects& effects)
     {
         uint8_t payload[meshtastic_Position_size] = {};
         size_t payload_len = sizeof(payload);
@@ -760,8 +798,11 @@ class MeshtasticRuntime final : public IProtocolRuntime
         reply.response_request_id = packet.packet_id;
         reply.want_ack = false;
         reply.want_response = false;
-        reply.payload.assign(payload, payload + payload_len);
-        result.effects.add(std::move(reply));
+        if (!reply.payload.assign(payload, payload_len))
+        {
+            return;
+        }
+        effects.add(std::move(reply));
         if (result.handling == PacketHandling::NotHandled)
         {
             result.handling = PacketHandling::HandledContinue;
@@ -771,7 +812,7 @@ class MeshtasticRuntime final : public IProtocolRuntime
     static bool buildUpdatedTraceRoutePayload(
         const IncomingPacket& packet,
         const RuntimeContext& context,
-        std::vector<uint8_t>& out_payload)
+        ProtocolPayloadBytes& out_payload)
     {
         meshtastic_Data decoded = meshtastic_Data_init_zero;
         decoded.portnum = meshtastic_PortNum_TRACEROUTE_APP;
@@ -797,14 +838,13 @@ class MeshtasticRuntime final : public IProtocolRuntime
             return false;
         }
 
-        out_payload.assign(decoded.payload.bytes,
-                           decoded.payload.bytes + decoded.payload.size);
-        return true;
+        return out_payload.assign(decoded.payload.bytes, decoded.payload.size);
     }
 
     static void appendTraceRouteReplyEffect(IncomingPacketHandlingResult& result,
                                             const IncomingPacket& packet,
-                                            const std::vector<uint8_t>& payload)
+                                            const ProtocolPayloadBytes& payload,
+                                            ProtocolEffects& effects)
     {
         SendPacketEffect reply{};
         reply.protocol = MeshProtocol::Meshtastic;
@@ -815,7 +855,7 @@ class MeshtasticRuntime final : public IProtocolRuntime
         reply.want_ack = packetWantsAck(packet);
         reply.want_response = false;
         reply.payload = payload;
-        result.effects.add(std::move(reply));
+        effects.add(std::move(reply));
         if (result.handling == PacketHandling::NotHandled)
         {
             result.handling = PacketHandling::HandledContinue;

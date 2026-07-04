@@ -29,6 +29,7 @@ class MeshtasticPhoneSession
     void pumpIncomingAppData();
     bool isSendingPackets() const;
     bool isConfigFlowActive() const;
+    void debugLogMemoryLayout(const char* stage) const;
     bool handleToRadio(const uint8_t* buf, size_t len);
     bool popToPhone(MeshtasticBleFrame* out);
     void onIncomingText(const chat::MeshIncomingText& msg);

@@ -22,14 +22,14 @@ class StaticContextProvider final : public chat::runtime::IProtocolRuntimeContex
 class FakeRuntime final : public chat::runtime::IProtocolRuntime
 {
   public:
-    chat::runtime::ProtocolEffects prepareOutgoing(
+    void prepareOutgoing(
         const chat::runtime::ProtocolIntent& intent,
-        const chat::runtime::RuntimeContext& context) override
+        const chat::runtime::RuntimeContext& context,
+        chat::runtime::ProtocolEffects& effects) override
     {
         ++prepare_count;
         last_context = context;
 
-        chat::runtime::ProtocolEffects effects{};
         if (const auto* trace = std::get_if<chat::runtime::TraceRouteIntent>(&intent))
         {
             saw_trace_route = true;
@@ -84,36 +84,34 @@ class FakeRuntime final : public chat::runtime::IProtocolRuntime
             packet.request_id = next_request_id;
             effects.add(packet);
         }
-        return effects;
     }
 
-    chat::runtime::ProtocolEffects handleIncoming(
+    void handleIncoming(
         const chat::runtime::IncomingPacket& packet,
-        const chat::runtime::RuntimeContext& context) override
+        const chat::runtime::RuntimeContext& context,
+        chat::runtime::ProtocolEffects& effects) override
     {
         ++incoming_count;
         last_context = context;
         last_peer = packet.from;
 
-        chat::runtime::ProtocolEffects effects{};
         chat::runtime::PublishIncomingDataEffect data{};
         data.data.from = packet.from;
         data.data.to = packet.to;
         data.data.portnum = packet.portnum;
         data.data.payload = packet.payload;
         effects.add(data);
-        return effects;
     }
 
-    chat::runtime::ProtocolEffects handleTxResult(
+    void handleTxResult(
         const chat::runtime::TxResult& result,
-        const chat::runtime::RuntimeContext& context) override
+        const chat::runtime::RuntimeContext& context,
+        chat::runtime::ProtocolTxFeedbackEffects& effects) override
     {
         ++tx_result_count;
         last_context = context;
         last_tx = result;
 
-        chat::runtime::ProtocolEffects effects{};
         chat::runtime::EmitActionResultEffect action{};
         action.protocol = result.protocol;
         action.action = chat::runtime::ProtocolActionKind::TraceRoute;
@@ -122,16 +120,14 @@ class FakeRuntime final : public chat::runtime::IProtocolRuntime
         action.peer = result.peer;
         action.request_id = result.request_id;
         effects.add(action);
-        return effects;
     }
 
-    chat::runtime::ProtocolEffects tick(
-        const chat::runtime::RuntimeContext& context) override
+    void tick(const chat::runtime::RuntimeContext& context,
+              chat::runtime::ProtocolEffects& effects) override
     {
         ++tick_count;
         last_context = context;
 
-        chat::runtime::ProtocolEffects effects{};
         chat::runtime::EmitActionResultEffect timed_out{};
         timed_out.protocol = context.protocol;
         timed_out.action = chat::runtime::ProtocolActionKind::ExchangePosition;
@@ -139,7 +135,6 @@ class FakeRuntime final : public chat::runtime::IProtocolRuntime
         timed_out.peer = 0x7777UL;
         timed_out.request_id = 0x8888UL;
         effects.add(timed_out);
-        return effects;
     }
 
     int prepare_count = 0;
@@ -196,18 +191,23 @@ int main()
     static_assert(std::is_constructible<chat::runtime::MeshProtocolFacade,
                                         chat::runtime::IProtocolRuntime&,
                                         chat::runtime::IProtocolEffectExecutor&,
-                                        const chat::runtime::IProtocolRuntimeContextProvider&>::value,
+                                        const chat::runtime::IProtocolRuntimeContextProvider&,
+                                        chat::runtime::ProtocolEffectWorkspace&>::value,
                   "MeshProtocolFacade must be a real injectable use-case boundary");
 
     StaticContextProvider context_provider{};
     context_provider.context.protocol = chat::MeshProtocol::Meshtastic;
     context_provider.context.self_node = 0xBEEFUL;
     context_provider.context.now_ms = 1234;
+    chat::runtime::ProtocolEffectWorkspace workspace{};
 
     {
         FakeRuntime runtime{};
         RecordingExecutor executor{};
-        chat::runtime::MeshProtocolFacade facade(runtime, executor, context_provider);
+        chat::runtime::MeshProtocolFacade facade(runtime,
+                                                 executor,
+                                                 context_provider,
+                                                 workspace);
 
         const auto result =
             facade.sendText(chat::ChannelId::SECONDARY, 0x11112222UL, "hello facade");
@@ -236,7 +236,10 @@ int main()
         FakeRuntime runtime{};
         RecordingExecutor executor{};
         executor.fail_send_text = true;
-        chat::runtime::MeshProtocolFacade facade(runtime, executor, context_provider);
+        chat::runtime::MeshProtocolFacade facade(runtime,
+                                                 executor,
+                                                 context_provider,
+                                                 workspace);
 
         const auto result =
             facade.sendText(chat::ChannelId::PRIMARY, 0x33334444UL, "fail text");
@@ -257,7 +260,10 @@ int main()
     {
         FakeRuntime runtime{};
         RecordingExecutor executor{};
-        chat::runtime::MeshProtocolFacade facade(runtime, executor, context_provider);
+        chat::runtime::MeshProtocolFacade facade(runtime,
+                                                 executor,
+                                                 context_provider,
+                                                 workspace);
 
         const auto result = facade.startTraceRoute(0x12345678UL);
 
@@ -284,7 +290,10 @@ int main()
         FakeRuntime runtime{};
         RecordingExecutor executor{};
         executor.fail_send_packet = true;
-        chat::runtime::MeshProtocolFacade facade(runtime, executor, context_provider);
+        chat::runtime::MeshProtocolFacade facade(runtime,
+                                                 executor,
+                                                 context_provider,
+                                                 workspace);
 
         const auto result = facade.startTraceRoute(0x2222UL);
 
@@ -308,7 +317,10 @@ int main()
     {
         FakeRuntime runtime{};
         RecordingExecutor executor{};
-        chat::runtime::MeshProtocolFacade facade(runtime, executor, context_provider);
+        chat::runtime::MeshProtocolFacade facade(runtime,
+                                                 executor,
+                                                 context_provider,
+                                                 workspace);
 
         const auto result = facade.requestNodeInfo(0x3333UL, false);
 
@@ -325,7 +337,10 @@ int main()
     {
         FakeRuntime runtime{};
         RecordingExecutor executor{};
-        chat::runtime::MeshProtocolFacade facade(runtime, executor, context_provider);
+        chat::runtime::MeshProtocolFacade facade(runtime,
+                                                 executor,
+                                                 context_provider,
+                                                 workspace);
 
         chat::runtime::SharePositionIntent intent{};
         intent.peer = 0x4444UL;
@@ -341,7 +356,10 @@ int main()
     {
         FakeRuntime runtime{};
         RecordingExecutor executor{};
-        chat::runtime::MeshProtocolFacade facade(runtime, executor, context_provider);
+        chat::runtime::MeshProtocolFacade facade(runtime,
+                                                 executor,
+                                                 context_provider,
+                                                 workspace);
 
         chat::runtime::IncomingPacket packet{};
         packet.protocol = chat::MeshProtocol::Meshtastic;
@@ -367,6 +385,7 @@ int main()
             runtime,
             executor,
             context_provider,
+            workspace,
             chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
 
         chat::runtime::IncomingPacket packet{};
@@ -388,7 +407,10 @@ int main()
     {
         FakeRuntime runtime{};
         RecordingExecutor executor{};
-        chat::runtime::MeshProtocolFacade facade(runtime, executor, context_provider);
+        chat::runtime::MeshProtocolFacade facade(runtime,
+                                                 executor,
+                                                 context_provider,
+                                                 workspace);
 
         chat::runtime::TxResult tx{};
         tx.protocol = chat::MeshProtocol::Meshtastic;
@@ -410,7 +432,10 @@ int main()
     {
         FakeRuntime runtime{};
         RecordingExecutor executor{};
-        chat::runtime::MeshProtocolFacade facade(runtime, executor, context_provider);
+        chat::runtime::MeshProtocolFacade facade(runtime,
+                                                 executor,
+                                                 context_provider,
+                                                 workspace);
 
         const auto result = facade.tick();
 

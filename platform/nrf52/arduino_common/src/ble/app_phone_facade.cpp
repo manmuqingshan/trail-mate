@@ -381,7 +381,9 @@ void AppPhoneFacade::onConfigComplete()
 bool AppPhoneFacade::loadDeviceConnectionStatus(meshtastic_DeviceConnectionStatus* out) const
 {
     const bool connected = ble_runtime_ ? ble_runtime_->isPhoneBleConnected() : false;
-    const uint32_t passkey = ble_runtime_ ? ble_runtime_->pendingPhoneBlePasskey() : 0;
+    const uint32_t pending_passkey = ble_runtime_ ? ble_runtime_->pendingPhoneBlePasskey() : 0;
+    const uint32_t passkey =
+        meshtastic_config_bridge::resolveBlePasskey(bluetooth_config_, pending_passkey);
     return meshtastic_config_bridge::fillDeviceConnectionStatus(passkey, connected, out);
 }
 
@@ -395,6 +397,12 @@ bool AppPhoneFacade::pollMqttProxyToPhone(meshtastic_MqttClientProxyMessage* out
 {
     auto* mt = getMeshtasticBackend(app_);
     return (mt && out) ? mt->pollMqttProxyMessage(out) : false;
+}
+
+bool AppPhoneFacade::hasMqttProxyToPhone() const
+{
+    auto* mt = getMeshtasticBackend(app_);
+    return mt ? mt->hasMqttProxyMessage() : false;
 }
 
 bool AppPhoneFacade::loadTimezoneTzdef(char* out, size_t out_len) const

@@ -6,6 +6,9 @@
 #include "app/app_facades.h"
 #include "board/BoardBase.h"
 #include "chat/infra/contact_store_core.h"
+#include "chat/infra/mesh_protocol_utils.h"
+#include "chat/infra/meshcore/mc_region_presets.h"
+#include "chat/infra/meshtastic/mt_region.h"
 #include "chat/infra/node_store_blob_format.h"
 #include "chat/infra/node_store_core.h"
 #include "chat/infra/store/ram_store.h"
@@ -16,13 +19,37 @@
 #include "chat/usecase/contact_service.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_random.h"
 #include "esp_system.h"
+#include "esp_timer.h"
+#include "mbedtls/chachapoly.h"
+#include "mbedtls/sha256.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
+#include "platform/esp/radio/meshtastic_radio_adapter.h"
+#include "platform/ui/gps_runtime.h"
+#include "platform/ui/settings_store.h"
+#include "platform/ui/team_ui_store_runtime.h"
+#include "platform/ui/tracker_runtime.h"
+#include "sys/event_bus.h"
+#include "team/ports/i_team_crypto.h"
+#include "team/ports/i_team_event_sink.h"
+#include "team/ports/i_team_runtime.h"
+#include "team/ports/i_team_track_source.h"
+#include "team/protocol/team_position.h"
+#include "team/usecase/team_controller.h"
+#include "team/usecase/team_pairing_service.h"
+#include "team/usecase/team_service.h"
+#include "team/usecase/team_track_sampler.h"
+#include "ui/chat_ui_runtime.h"
+#include "ui/screens/team/team_page_shell.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
+#include <memory>
 #include <string>
 #include <vector>
 #endif
@@ -34,9 +61,17 @@ namespace
 
 #if defined(ESP_PLATFORM)
 constexpr const char* kIdfStoreTag = "idf-app-store";
+constexpr const char* kIdfConfigTag = "idf-app-cfg";
+constexpr const char* kIdfSettingsNs = "idf_app";
+constexpr const char* kIdfConfigKey = "app_cfg";
+constexpr const char* kIdfNodesNvsKey = "nodes_blob";
+constexpr const char* kIdfContactsNvsKey = "contacts";
 constexpr const char* kIdfContactsFile = "/contacts.dat";
 constexpr const char* kIdfNodesFile = "/nodes.bin";
 constexpr size_t kIdfReadChunkBytes = 256;
+constexpr uint32_t kIdfAppConfigMagic = 0x50344346UL; // P4CF
+constexpr uint16_t kIdfAppConfigVersion = 1;
+constexpr uint32_t kIdfNodeStoreFlushIntervalMs = 5000UL;
 constexpr size_t kIdfMaxContactBlobBytes =
     chat::contacts::ContactStoreCore::kMaxContacts *
     chat::contacts::ContactStoreCore::kSerializedEntrySize;
@@ -44,6 +79,217 @@ constexpr size_t kIdfMaxNodeFileBytes =
     sizeof(chat::contacts::NodeStoreSdHeader) +
     chat::contacts::NodeStoreCore::kMaxNodes *
         chat::contacts::NodeStoreCore::kSerializedEntrySizeV8;
+constexpr const char* kIdfTeamTag = "idf-team";
+constexpr size_t kTeamAeadTagBytes = 16;
+constexpr size_t kTeamAeadKeyBytes = 32;
+constexpr size_t kTeamAeadNonceBytes = 12;
+
+struct IdfPersistedAppConfig
+{
+    uint32_t magic = 0;
+    uint16_t version = 0;
+    uint16_t payload_size = 0;
+    uint32_t checksum = 0;
+    app::AppConfig config{};
+};
+
+IdfPersistedAppConfig s_config_blob_scratch{};
+
+uint32_t fnv1a32(const void* data, size_t len)
+{
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    uint32_t hash = 2166136261UL;
+    for (size_t i = 0; i < len; ++i)
+    {
+        hash ^= bytes[i];
+        hash *= 16777619UL;
+    }
+    return hash;
+}
+
+int8_t clampTxPower(int8_t value)
+{
+    if (value < app::AppConfig::kTxPowerMinDbm)
+    {
+        return app::AppConfig::kTxPowerMinDbm;
+    }
+    if (value > app::AppConfig::kTxPowerMaxDbm)
+    {
+        return app::AppConfig::kTxPowerMaxDbm;
+    }
+    return value;
+}
+
+bool idfSupportsMeshProtocol(chat::MeshProtocol protocol)
+{
+    return protocol == chat::MeshProtocol::Meshtastic;
+}
+
+void normalizeIdfAppConfig(app::AppConfig& config)
+{
+    if (!chat::infra::isValidMeshProtocol(config.mesh_protocol) ||
+        !idfSupportsMeshProtocol(config.mesh_protocol))
+    {
+        ESP_LOGW(kIdfConfigTag,
+                 "unsupported mesh protocol=%u; falling back to Meshtastic",
+                 static_cast<unsigned>(config.mesh_protocol));
+        config.mesh_protocol = chat::MeshProtocol::Meshtastic;
+    }
+
+    if (chat::meshtastic::findRegion(
+            static_cast<meshtastic_Config_LoRaConfig_RegionCode>(
+                config.meshtastic_config.region)) == nullptr)
+    {
+        config.meshtastic_config.region = app::AppConfig::kDefaultRegionCode;
+    }
+
+    config.meshtastic_config.tx_power = clampTxPower(config.meshtastic_config.tx_power);
+    config.meshcore_config.tx_power = clampTxPower(config.meshcore_config.tx_power);
+    config.rnode_config.tx_power = clampTxPower(config.rnode_config.tx_power);
+    if (!chat::meshcore::isValidRegionPresetId(
+            config.meshcore_config.meshcore_region_preset))
+    {
+        config.meshcore_config.meshcore_region_preset = 0;
+    }
+    if (config.gps_interval_ms == 0)
+    {
+        config.gps_interval_ms = 60000;
+    }
+    if (config.chat_channel > 1)
+    {
+        config.chat_channel = 0;
+    }
+}
+
+bool loadIdfAppConfig(app::AppConfig& out)
+{
+    std::vector<uint8_t> blob;
+    if (!platform::ui::settings_store::get_blob(kIdfSettingsNs, kIdfConfigKey, blob))
+    {
+        return false;
+    }
+    if (blob.size() != sizeof(IdfPersistedAppConfig))
+    {
+        ESP_LOGW(kIdfConfigTag,
+                 "load rejected size=%u expected=%u",
+                 static_cast<unsigned>(blob.size()),
+                 static_cast<unsigned>(sizeof(IdfPersistedAppConfig)));
+        return false;
+    }
+
+    std::memcpy(&s_config_blob_scratch, blob.data(), sizeof(s_config_blob_scratch));
+    if (s_config_blob_scratch.magic != kIdfAppConfigMagic ||
+        s_config_blob_scratch.version != kIdfAppConfigVersion ||
+        s_config_blob_scratch.payload_size != sizeof(app::AppConfig))
+    {
+        ESP_LOGW(kIdfConfigTag,
+                 "load rejected magic=%08lx version=%u payload=%u",
+                 static_cast<unsigned long>(s_config_blob_scratch.magic),
+                 static_cast<unsigned>(s_config_blob_scratch.version),
+                 static_cast<unsigned>(s_config_blob_scratch.payload_size));
+        return false;
+    }
+
+    const uint32_t checksum =
+        fnv1a32(&s_config_blob_scratch.config, sizeof(s_config_blob_scratch.config));
+    if (checksum != s_config_blob_scratch.checksum)
+    {
+        ESP_LOGW(kIdfConfigTag,
+                 "load rejected checksum stored=%08lx actual=%08lx",
+                 static_cast<unsigned long>(s_config_blob_scratch.checksum),
+                 static_cast<unsigned long>(checksum));
+        return false;
+    }
+
+    out = s_config_blob_scratch.config;
+    normalizeIdfAppConfig(out);
+    ESP_LOGI(kIdfConfigTag,
+             "loaded app config proto=%u region=%u tx=%d",
+             static_cast<unsigned>(out.mesh_protocol),
+             static_cast<unsigned>(out.meshtastic_config.region),
+             static_cast<int>(out.meshtastic_config.tx_power));
+    return true;
+}
+
+bool saveIdfAppConfig(const app::AppConfig& config)
+{
+    s_config_blob_scratch = IdfPersistedAppConfig{};
+    s_config_blob_scratch.magic = kIdfAppConfigMagic;
+    s_config_blob_scratch.version = kIdfAppConfigVersion;
+    s_config_blob_scratch.payload_size = static_cast<uint16_t>(sizeof(app::AppConfig));
+    s_config_blob_scratch.config = config;
+    s_config_blob_scratch.checksum =
+        fnv1a32(&s_config_blob_scratch.config, sizeof(s_config_blob_scratch.config));
+
+    const bool ok = platform::ui::settings_store::put_blob(
+        kIdfSettingsNs,
+        kIdfConfigKey,
+        &s_config_blob_scratch,
+        sizeof(s_config_blob_scratch));
+    ESP_LOGI(kIdfConfigTag,
+             "save app config proto=%u region=%u tx=%d ok=%u",
+             static_cast<unsigned>(config.mesh_protocol),
+             static_cast<unsigned>(config.meshtastic_config.region),
+             static_cast<int>(config.meshtastic_config.tx_power),
+             ok ? 1U : 0U);
+    return ok;
+}
+
+bool loadNvsBlob(const char* key, const char* label, std::vector<uint8_t>& out, size_t max_len)
+{
+    std::vector<uint8_t> blob;
+    if (!platform::ui::settings_store::get_blob(kIdfSettingsNs, key, blob))
+    {
+        return false;
+    }
+    if (blob.empty() || blob.size() > max_len)
+    {
+        ESP_LOGW(kIdfStoreTag,
+                 "%s nvs load rejected len=%u max=%u",
+                 label,
+                 static_cast<unsigned>(blob.size()),
+                 static_cast<unsigned>(max_len));
+        out.clear();
+        return false;
+    }
+    out = blob;
+    ESP_LOGI(kIdfStoreTag,
+             "%s load source=nvs key=%s len=%u",
+             label,
+             key,
+             static_cast<unsigned>(out.size()));
+    return true;
+}
+
+bool saveNvsBlob(const char* key, const char* label, const uint8_t* data, size_t len, size_t max_len)
+{
+    if (len == 0)
+    {
+        return platform::ui::settings_store::put_blob(kIdfSettingsNs, key, nullptr, 0);
+    }
+    if (!data || len > max_len)
+    {
+        return false;
+    }
+
+    const bool ok = platform::ui::settings_store::put_blob(kIdfSettingsNs, key, data, len);
+    ESP_LOGI(kIdfStoreTag,
+             "%s save target=nvs key=%s len=%u ok=%u",
+             label,
+             key,
+             static_cast<unsigned>(len),
+             ok ? 1U : 0U);
+    return ok;
+}
+
+bool isValidContactBlobSize(size_t len)
+{
+    return len != 0 &&
+           len <= kIdfMaxContactBlobBytes &&
+           (len % chat::contacts::ContactStoreCore::kSerializedEntrySize) == 0 &&
+           (len / chat::contacts::ContactStoreCore::kSerializedEntrySize) <=
+               chat::contacts::ContactStoreCore::kMaxContacts;
+}
 
 std::string makeSdPath(const char* relative)
 {
@@ -194,8 +440,7 @@ class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
         if (!readSdFile(kIdfNodesFile, file, kIdfMaxNodeFileBytes) ||
             file.size() <= sizeof(chat::contacts::NodeStoreSdHeader))
         {
-            out.clear();
-            return false;
+            return loadBlobFromNvs(out);
         }
 
         chat::contacts::NodeStoreSdHeader header{};
@@ -212,7 +457,7 @@ class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
                      static_cast<unsigned>(header.ver),
                      static_cast<unsigned>(header.count),
                      static_cast<unsigned>(payload_len));
-            return false;
+            return loadBlobFromNvs(out);
         }
 
         std::vector<chat::contacts::NodeEntry> entries;
@@ -222,7 +467,7 @@ class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
             ESP_LOGW(kIdfStoreTag, "node load decode failed path=%s ver=%u",
                      kIdfNodesFile,
                      static_cast<unsigned>(header.ver));
-            return false;
+            return loadBlobFromNvs(out);
         }
 
         chat::contacts::NodeStoreCore::encodeBlob(out, entries);
@@ -238,7 +483,8 @@ class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
     {
         if (len == 0)
         {
-            removeSdFile(kIdfNodesFile);
+            (void)removeSdFile(kIdfNodesFile);
+            (void)saveNvsBlob(kIdfNodesNvsKey, "node", nullptr, 0, kIdfMaxNodeFileBytes);
             return true;
         }
         if (!chat::contacts::isValidNodeBlobSize(len) ||
@@ -252,19 +498,60 @@ class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
         std::vector<uint8_t> file(sizeof(header) + len);
         std::memcpy(file.data(), &header, sizeof(header));
         std::memcpy(file.data() + sizeof(header), data, len);
-        const bool ok = writeSdFileAtomic(kIdfNodesFile, file.data(), file.size());
+        const bool sd_ok = writeSdFileAtomic(kIdfNodesFile, file.data(), file.size());
+        const bool nvs_ok =
+            saveNvsBlob(kIdfNodesNvsKey, "node", data, len, kIdfMaxNodeFileBytes);
         ESP_LOGI(kIdfStoreTag,
-                 "node save target=sd path=%s count=%u len=%u ok=%u",
+                 "node save path=%s count=%u len=%u sd=%u nvs=%u",
                  kIdfNodesFile,
                  static_cast<unsigned>(header.count),
                  static_cast<unsigned>(len),
-                 ok ? 1U : 0U);
-        return ok;
+                 sd_ok ? 1U : 0U,
+                 nvs_ok ? 1U : 0U);
+        return sd_ok || nvs_ok;
     }
 
     void clearBlob() override
     {
         (void)removeSdFile(kIdfNodesFile);
+        (void)saveNvsBlob(kIdfNodesNvsKey, "node", nullptr, 0, kIdfMaxNodeFileBytes);
+    }
+
+  private:
+    bool loadBlobFromNvs(std::vector<uint8_t>& out)
+    {
+        if (!loadNvsBlob(kIdfNodesNvsKey, "node", out, kIdfMaxNodeFileBytes))
+        {
+            out.clear();
+            return false;
+        }
+        if (!chat::contacts::isValidNodeBlobSize(out.size()) ||
+            chat::contacts::nodeBlobEntryCount(out.size()) >
+                chat::contacts::NodeStoreCore::kMaxNodes)
+        {
+            ESP_LOGW(kIdfStoreTag,
+                     "node nvs load invalid len=%u",
+                     static_cast<unsigned>(out.size()));
+            out.clear();
+            return false;
+        }
+
+        std::vector<chat::contacts::NodeEntry> entries;
+        if (!chat::contacts::NodeStoreCore::decodeBlob(entries, out.data(), out.size()))
+        {
+            ESP_LOGW(kIdfStoreTag,
+                     "node nvs decode failed len=%u",
+                     static_cast<unsigned>(out.size()));
+            out.clear();
+            return false;
+        }
+
+        chat::contacts::NodeStoreCore::encodeBlob(out, entries);
+        ESP_LOGI(kIdfStoreTag,
+                 "node load source=nvs count=%u len=%u",
+                 static_cast<unsigned>(entries.size()),
+                 static_cast<unsigned>(out.size()));
+        return !out.empty();
     }
 };
 
@@ -280,19 +567,55 @@ class IdfSdContactBlobStore final : public chat::IContactBlobStore
                      "contacts load source=sd path=%s len=%u",
                      kIdfContactsFile,
                      static_cast<unsigned>(out.size()));
+            if (isValidContactBlobSize(out.size()))
+            {
+                return true;
+            }
+            ESP_LOGW(kIdfStoreTag,
+                     "contacts sd load invalid len=%u",
+                     static_cast<unsigned>(out.size()));
+            out.clear();
         }
-        return ok;
+
+        if (!loadNvsBlob(kIdfContactsNvsKey, "contacts", out, kIdfMaxContactBlobBytes))
+        {
+            out.clear();
+            return false;
+        }
+        if (!isValidContactBlobSize(out.size()))
+        {
+            ESP_LOGW(kIdfStoreTag,
+                     "contacts nvs load invalid len=%u",
+                     static_cast<unsigned>(out.size()));
+            out.clear();
+            return false;
+        }
+        return true;
     }
 
     bool saveBlob(const uint8_t* data, size_t len) override
     {
-        const bool ok = writeSdFileAtomic(kIdfContactsFile, data, len);
+        if (len == 0)
+        {
+            (void)removeSdFile(kIdfContactsFile);
+            (void)saveNvsBlob(kIdfContactsNvsKey, "contacts", nullptr, 0, kIdfMaxContactBlobBytes);
+            return true;
+        }
+        if (!isValidContactBlobSize(len))
+        {
+            return false;
+        }
+
+        const bool sd_ok = writeSdFileAtomic(kIdfContactsFile, data, len);
+        const bool nvs_ok =
+            saveNvsBlob(kIdfContactsNvsKey, "contacts", data, len, kIdfMaxContactBlobBytes);
         ESP_LOGI(kIdfStoreTag,
-                 "contacts save target=sd path=%s len=%u ok=%u",
+                 "contacts save path=%s len=%u sd=%u nvs=%u",
                  kIdfContactsFile,
                  static_cast<unsigned>(len),
-                 ok ? 1U : 0U);
-        return ok;
+                 sd_ok ? 1U : 0U,
+                 nvs_ok ? 1U : 0U);
+        return sd_ok || nvs_ok;
     }
 };
 
@@ -429,10 +752,287 @@ class IdfNullMeshAdapter final : public chat::IMeshAdapter
     uint8_t encrypt_mode_ = 1;
 };
 
+class IdfTeamRuntime final : public team::ITeamRuntime
+{
+  public:
+    uint32_t nowMillis() override
+    {
+        return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+    }
+
+    uint32_t nowUnixSeconds() override
+    {
+        const std::time_t now = std::time(nullptr);
+        if (now > 0)
+        {
+            return static_cast<uint32_t>(now);
+        }
+        return nowMillis() / 1000U;
+    }
+
+    void fillRandomBytes(uint8_t* out, size_t len) override
+    {
+        if (out == nullptr || len == 0)
+        {
+            return;
+        }
+        esp_fill_random(out, len);
+    }
+};
+
+class IdfTeamCrypto final : public team::ITeamCrypto
+{
+  public:
+    bool deriveKey(const uint8_t* key,
+                   size_t key_len,
+                   const char* info,
+                   uint8_t* out,
+                   size_t out_len) override
+    {
+        if (key == nullptr || info == nullptr || out == nullptr || out_len > 32)
+        {
+            return false;
+        }
+
+        uint8_t digest[32] = {};
+        mbedtls_sha256_context ctx;
+        mbedtls_sha256_init(&ctx);
+        const bool ok = mbedtls_sha256_starts(&ctx, 0) == 0 &&
+                        mbedtls_sha256_update(&ctx, key, key_len) == 0 &&
+                        mbedtls_sha256_update(
+                            &ctx,
+                            reinterpret_cast<const unsigned char*>(info),
+                            std::strlen(info)) == 0 &&
+                        mbedtls_sha256_finish(&ctx, digest) == 0;
+        mbedtls_sha256_free(&ctx);
+        if (!ok)
+        {
+            return false;
+        }
+        std::memcpy(out, digest, out_len);
+        return true;
+    }
+
+    bool aeadEncrypt(const uint8_t* key,
+                     size_t key_len,
+                     const uint8_t* nonce,
+                     size_t nonce_len,
+                     const uint8_t* aad,
+                     size_t aad_len,
+                     const uint8_t* plain,
+                     size_t plain_len,
+                     std::vector<uint8_t>& out_cipher) override
+    {
+        if (!validAeadInput(key, key_len, nonce, nonce_len, plain, plain_len))
+        {
+            return false;
+        }
+
+        out_cipher.assign(plain_len + kTeamAeadTagBytes, 0);
+        mbedtls_chachapoly_context ctx;
+        mbedtls_chachapoly_init(&ctx);
+        const bool ok =
+            mbedtls_chachapoly_setkey(&ctx, key) == 0 &&
+            mbedtls_chachapoly_encrypt_and_tag(
+                &ctx,
+                plain_len,
+                nonce,
+                aad_len > 0 ? aad : nullptr,
+                aad_len,
+                plain_len > 0 ? plain : nullptr,
+                plain_len > 0 ? out_cipher.data() : nullptr,
+                out_cipher.data() + plain_len) == 0;
+        mbedtls_chachapoly_free(&ctx);
+        if (!ok)
+        {
+            out_cipher.clear();
+            return false;
+        }
+        return true;
+    }
+
+    bool aeadDecrypt(const uint8_t* key,
+                     size_t key_len,
+                     const uint8_t* nonce,
+                     size_t nonce_len,
+                     const uint8_t* aad,
+                     size_t aad_len,
+                     const uint8_t* cipher,
+                     size_t cipher_len,
+                     std::vector<uint8_t>& out_plain) override
+    {
+        if (!validAeadInput(key, key_len, nonce, nonce_len, cipher, cipher_len) ||
+            cipher_len < kTeamAeadTagBytes)
+        {
+            return false;
+        }
+
+        const size_t plain_len = cipher_len - kTeamAeadTagBytes;
+        out_plain.assign(plain_len, 0);
+        mbedtls_chachapoly_context ctx;
+        mbedtls_chachapoly_init(&ctx);
+        const bool ok =
+            mbedtls_chachapoly_setkey(&ctx, key) == 0 &&
+            mbedtls_chachapoly_auth_decrypt(
+                &ctx,
+                plain_len,
+                nonce,
+                aad_len > 0 ? aad : nullptr,
+                aad_len,
+                cipher + plain_len,
+                plain_len > 0 ? cipher : nullptr,
+                plain_len > 0 ? out_plain.data() : nullptr) == 0;
+        mbedtls_chachapoly_free(&ctx);
+        if (!ok)
+        {
+            out_plain.clear();
+            return false;
+        }
+        return true;
+    }
+
+  private:
+    static bool validAeadInput(const uint8_t* key,
+                               size_t key_len,
+                               const uint8_t* nonce,
+                               size_t nonce_len,
+                               const uint8_t* payload,
+                               size_t payload_len)
+    {
+        return key != nullptr &&
+               key_len == kTeamAeadKeyBytes &&
+               nonce != nullptr &&
+               nonce_len == kTeamAeadNonceBytes &&
+               (payload != nullptr || payload_len == 0);
+    }
+};
+
+class IdfTeamTrackSourceGps final : public team::ITeamTrackSource
+{
+  public:
+    bool readTrackPoint(team::proto::TeamTrackPoint* out_point) override
+    {
+        if (out_point == nullptr)
+        {
+            return false;
+        }
+
+        const platform::ui::gps::GpsState state = platform::ui::gps::get_data();
+        if (!state.valid)
+        {
+            out_point->lat_e7 = 0;
+            out_point->lon_e7 = 0;
+            return false;
+        }
+
+        out_point->lat_e7 = static_cast<int32_t>(std::lround(state.lat * 10000000.0));
+        out_point->lon_e7 = static_cast<int32_t>(std::lround(state.lng * 10000000.0));
+        return true;
+    }
+};
+
+class IdfTeamAppDataEventBusBridge final
+    : public team::TeamService::UnhandledAppDataObserver
+{
+  public:
+    void onUnhandledAppData(const chat::MeshIncomingData& msg) override
+    {
+        sys::EventBus::publish(
+            new sys::AppDataEvent(
+                msg.portnum,
+                msg.from,
+                msg.to,
+                msg.packet_id,
+                static_cast<uint8_t>(msg.channel),
+                msg.channel_hash,
+                msg.want_response,
+                msg.payload,
+                &msg.rx_meta),
+            0);
+    }
+};
+
+class IdfTeamEventBusSink final : public team::ITeamEventSink
+{
+  public:
+    void onTeamKick(const team::TeamKickEvent& event) override
+    {
+        sys::EventBus::publish(new sys::TeamKickEvent(event), 0);
+    }
+
+    void onTeamTransferLeader(const team::TeamTransferLeaderEvent& event) override
+    {
+        sys::EventBus::publish(new sys::TeamTransferLeaderEvent(event), 0);
+    }
+
+    void onTeamKeyDist(const team::TeamKeyDistEvent& event) override
+    {
+        sys::EventBus::publish(new sys::TeamKeyDistEvent(event), 0);
+    }
+
+    void onTeamKeyRequest(const team::TeamKeyRequestEvent& event) override
+    {
+        sys::EventBus::publish(new sys::TeamKeyRequestEvent(event), 0);
+    }
+
+    void onTeamStatus(const team::TeamStatusEvent& event) override
+    {
+        sys::EventBus::publish(new sys::TeamStatusEvent(event), 0);
+    }
+
+    void onTeamPosition(const team::TeamPositionEvent& event) override
+    {
+        team::proto::TeamPositionMessage msg;
+        if (event.ctx.from != 0 &&
+            team::proto::decodeTeamPositionMessage(event.payload.data(),
+                                                   event.payload.size(),
+                                                   &msg))
+        {
+            const uint32_t timestamp = (msg.ts != 0) ? msg.ts : event.ctx.timestamp;
+            sys::EventBus::publish(
+                new sys::NodePositionUpdateEvent(
+                    event.ctx.from,
+                    msg.lat_e7,
+                    msg.lon_e7,
+                    team::proto::teamPositionHasAltitude(msg),
+                    team::proto::teamPositionHasAltitude(msg) ? msg.alt_m : 0,
+                    timestamp,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0),
+                0);
+        }
+
+        sys::EventBus::publish(new sys::TeamPositionEvent(event), 0);
+    }
+
+    void onTeamWaypoint(const team::TeamWaypointEvent& event) override
+    {
+        sys::EventBus::publish(new sys::TeamWaypointEvent(event), 0);
+    }
+
+    void onTeamTrack(const team::TeamTrackEvent& event) override
+    {
+        sys::EventBus::publish(new sys::TeamTrackEvent(event), 0);
+    }
+
+    void onTeamChat(const team::TeamChatEvent& event) override
+    {
+        sys::EventBus::publish(new sys::TeamChatEvent(event), 0);
+    }
+
+    void onTeamError(const team::TeamErrorEvent& event) override
+    {
+        sys::EventBus::publish(new sys::TeamErrorEvent(event), 0);
+    }
+};
+
 class IdfAppFacadeRuntime final : public app::IAppFacade
 {
   public:
-    bool begin(BoardBase& board)
+    bool begin(BoardBase& board, LoraBoard* lora_board)
     {
         if (initialized_)
         {
@@ -440,23 +1040,49 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         }
 
         board_ = &board;
-        config_ = app::AppConfig{};
+        lora_board_ = lora_board;
+        if (!loadIdfAppConfig(config_))
+        {
+            config_ = app::AppConfig{};
+            normalizeIdfAppConfig(config_);
+            ESP_LOGI(kIdfConfigTag, "using default app config");
+        }
+
+        if (!sys::EventBus::init())
+        {
+            return false;
+        }
 
         const auto identity = platform::esp::boards::defaultIdentity();
-        copyString(config_.node_name, sizeof(config_.node_name), identity.long_name);
-        copyString(config_.short_name, sizeof(config_.short_name), identity.short_name);
+        if (config_.node_name[0] == '\0')
+        {
+            copyString(config_.node_name, sizeof(config_.node_name), identity.long_name);
+        }
+        if (config_.short_name[0] == '\0')
+        {
+            copyString(config_.short_name, sizeof(config_.short_name), identity.short_name);
+        }
 
-        mesh_adapter_.setSelfNodeId(resolveSelfNodeId());
+        installMeshAdapter();
         applyMeshConfig();
         applyUserInfo();
         applyNetworkLimits();
         applyPrivacyConfig();
 
+        node_store_.setProtectedNodeChecker(
+            [this](uint32_t node_id)
+            {
+                return !contact_store_.getNickname(node_id).empty();
+            });
         node_store_.setAutoSaveEnabled(false);
         contact_service_.begin();
-        chat_service_.setActiveProtocol(config_.mesh_protocol);
-        chat_service_.switchChannel(config_.chat_channel == 1 ? chat::ChannelId::SECONDARY
-                                                              : chat::ChannelId::PRIMARY);
+        chat_service_.reset(new chat::ChatService(chat_model_, meshAdapter(), chat_store_));
+        chat_service_->setActiveProtocol(config_.mesh_protocol);
+        chat_service_->switchChannel(config_.chat_channel == 1 ? chat::ChannelId::SECONDARY
+                                                               : chat::ChannelId::PRIMARY);
+        initTeamServices();
+        restoreTeamKeysFromSnapshot();
+        setTeamModeActive(team_service_ && team_service_->hasKeys());
         initialized_ = true;
         return true;
     }
@@ -464,11 +1090,20 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     app::AppConfig& getConfig() override { return config_; }
     const app::AppConfig& getConfig() const override { return config_; }
 
-    void saveConfig() override {}
+    void saveConfig() override
+    {
+        normalizeIdfAppConfig(config_);
+        if (chat_service_)
+        {
+            chat_service_->setActiveProtocol(config_.mesh_protocol);
+        }
+        (void)saveIdfAppConfig(config_);
+    }
 
     void applyMeshConfig() override
     {
-        mesh_adapter_.applyConfig(config_.activeMeshConfig());
+        normalizeIdfAppConfig(config_);
+        meshAdapter().applyConfig(config_.activeMeshConfig());
         if (board_)
         {
             board_->applyRadioConfig(config_.mesh_protocol, config_.activeMeshConfig());
@@ -480,25 +1115,28 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         char long_name[sizeof(config_.node_name)] = {};
         char short_name[sizeof(config_.short_name)] = {};
         getEffectiveUserInfo(long_name, sizeof(long_name), short_name, sizeof(short_name));
-        mesh_adapter_.setUserInfo(long_name, short_name);
+        meshAdapter().setUserInfo(long_name, short_name);
     }
 
     void applyPositionConfig() override {}
 
     void applyNetworkLimits() override
     {
-        mesh_adapter_.setNetworkLimits(config_.net_duty_cycle, config_.net_channel_util);
+        meshAdapter().setNetworkLimits(config_.net_duty_cycle, config_.net_channel_util);
     }
 
     void applyPrivacyConfig() override
     {
-        mesh_adapter_.setPrivacyConfig(config_.privacy_encrypt_mode);
+        meshAdapter().setPrivacyConfig(config_.privacy_encrypt_mode);
     }
 
     void applyChatDefaults() override
     {
-        chat_service_.switchChannel(config_.chat_channel == 1 ? chat::ChannelId::SECONDARY
-                                                              : chat::ChannelId::PRIMARY);
+        if (chat_service_)
+        {
+            chat_service_->switchChannel(config_.chat_channel == 1 ? chat::ChannelId::SECONDARY
+                                                                   : chat::ChannelId::PRIMARY);
+        }
     }
 
     chat::MeshProtocol getMeshProtocol() const override
@@ -522,8 +1160,20 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     bool switchMeshProtocol(chat::MeshProtocol protocol, bool persist = true) override
     {
+        if (!chat::infra::isValidMeshProtocol(protocol) ||
+            !idfSupportsMeshProtocol(protocol))
+        {
+            ESP_LOGW(kIdfConfigTag,
+                     "reject mesh protocol switch proto=%u",
+                     static_cast<unsigned>(protocol));
+            return false;
+        }
+
         config_.mesh_protocol = protocol;
-        chat_service_.setActiveProtocol(protocol);
+        if (chat_service_)
+        {
+            chat_service_->setActiveProtocol(protocol);
+        }
         applyMeshConfig();
         if (persist)
         {
@@ -532,20 +1182,23 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         return true;
     }
 
-    chat::ChatService& getChatService() override { return chat_service_; }
+    chat::ChatService& getChatService() override { return *chat_service_; }
     chat::contacts::ContactService& getContactService() override { return contact_service_; }
-    chat::IMeshAdapter* getMeshAdapter() override { return &mesh_adapter_; }
-    const chat::IMeshAdapter* getMeshAdapter() const override { return &mesh_adapter_; }
-    chat::NodeId getSelfNodeId() const override { return mesh_adapter_.getNodeId(); }
+    chat::IMeshAdapter* getMeshAdapter() override { return &meshAdapter(); }
+    const chat::IMeshAdapter* getMeshAdapter() const override { return &meshAdapter(); }
+    chat::NodeId getSelfNodeId() const override { return meshAdapter().getNodeId(); }
 
-    team::TeamController* getTeamController() override { return nullptr; }
-    team::TeamPairingService* getTeamPairing() override { return nullptr; }
-    team::TeamService* getTeamService() override { return nullptr; }
-    const team::TeamService* getTeamService() const override { return nullptr; }
-    team::TeamTrackSampler* getTeamTrackSampler() override { return nullptr; }
+    team::TeamController* getTeamController() override { return team_controller_.get(); }
+    team::TeamPairingService* getTeamPairing() override { return team_pairing_service_.get(); }
+    team::TeamService* getTeamService() override { return team_service_.get(); }
+    const team::TeamService* getTeamService() const override { return team_service_.get(); }
+    team::TeamTrackSampler* getTeamTrackSampler() override { return team_track_sampler_.get(); }
     void setTeamModeActive(bool active) override { team_mode_active_ = active; }
 
-    void broadcastNodeInfo() override {}
+    void broadcastNodeInfo() override
+    {
+        (void)meshAdapter().triggerDiscoveryAction(chat::MeshDiscoveryAction::SendIdBroadcast);
+    }
 
     void clearNodeDb() override
     {
@@ -555,7 +1208,10 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void clearMessageDb() override
     {
-        chat_service_.clearAllMessages();
+        if (chat_service_)
+        {
+            chat_service_->clearAllMessages();
+        }
     }
 
     ble::BleManager* getBleManager() override { return nullptr; }
@@ -583,15 +1239,68 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void updateCoreServices() override
     {
-        mesh_adapter_.processSendQueue();
-        chat_service_.processIncoming();
-        chat_service_.flushStore();
+        meshAdapter().processSendQueue();
+        platform::ui::tracker::poll();
+        chat_service_->processIncoming();
+        chat_service_->flushStore();
+        flushNodeStoreIfDue();
+        if (team_service_)
+        {
+            team_service_->processIncoming();
+        }
+        if (team_pairing_service_)
+        {
+            team_pairing_service_->update();
+        }
+
+        const bool team_active = team_service_ && team_service_->hasKeys();
+        setTeamModeActive(team_active);
+        if (team_track_sampler_)
+        {
+            team_track_sampler_->update(team_controller_.get(), team_active);
+        }
     }
 
-    void tickEventRuntime() override {}
+    void tickEventRuntime() override
+    {
+        chat::ui::IChatUiRuntime* runtime = getChatUiRuntime();
+        if (runtime != nullptr)
+        {
+            runtime->update();
+        }
+    }
+
     void dispatchPendingEvents(std::size_t max_events = 32) override
     {
-        (void)max_events;
+        sys::Event* event = nullptr;
+        for (std::size_t processed = 0;
+             processed < max_events && sys::EventBus::subscribe(&event, 0);)
+        {
+            if (event == nullptr)
+            {
+                continue;
+            }
+            ++processed;
+
+            if (dispatchRuntimeEvent(event))
+            {
+                continue;
+            }
+
+            if (dispatchTeamUiEvent(event))
+            {
+                continue;
+            }
+
+            chat::ui::IChatUiRuntime* runtime = getChatUiRuntime();
+            if (runtime != nullptr)
+            {
+                runtime->onChatEvent(event);
+                continue;
+            }
+
+            delete event;
+        }
     }
 
     bool initialized() const { return initialized_; }
@@ -625,9 +1334,240 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         return 0x544D5034UL; // "TMP4"
     }
 
+    void initTeamServices()
+    {
+        team_crypto_.reset(new IdfTeamCrypto());
+        team_event_sink_.reset(new IdfTeamEventBusSink());
+        team_app_data_bridge_.reset(new IdfTeamAppDataEventBusBridge());
+        team_runtime_.reset(new IdfTeamRuntime());
+        team_track_source_.reset(new IdfTeamTrackSourceGps());
+
+        if (!team_crypto_ ||
+            !team_event_sink_ ||
+            !team_app_data_bridge_ ||
+            !team_runtime_ ||
+            !team_track_source_)
+        {
+            ESP_LOGW(kIdfTeamTag, "team service dependencies unavailable");
+            return;
+        }
+
+        team_service_.reset(
+            new team::TeamService(
+                *team_crypto_,
+                meshAdapter(),
+                *team_event_sink_,
+                *team_runtime_));
+        if (team_service_)
+        {
+            team_service_->setUnhandledAppDataObserver(team_app_data_bridge_.get());
+        }
+        team_controller_.reset(new team::TeamController(*team_service_));
+        team_track_sampler_.reset(
+            new team::TeamTrackSampler(*team_runtime_, *team_track_source_));
+    }
+
+    void restoreTeamKeysFromSnapshot()
+    {
+        if (!team_controller_)
+        {
+            return;
+        }
+
+        team::ui::TeamUiSnapshot snapshot{};
+        if (!team::ui::team_ui_snapshot_store().load(snapshot) ||
+            !snapshot.has_team_id ||
+            !snapshot.has_team_psk ||
+            snapshot.security_round == 0)
+        {
+            return;
+        }
+
+        if (team_controller_->setKeysFromPsk(snapshot.team_id,
+                                             snapshot.security_round,
+                                             snapshot.team_psk.data(),
+                                             snapshot.team_psk.size()))
+        {
+            ESP_LOGI(kIdfTeamTag,
+                     "keys restored from Team UI store key_id=%lu",
+                     static_cast<unsigned long>(snapshot.security_round));
+        }
+        else
+        {
+            ESP_LOGW(kIdfTeamTag,
+                     "keys restore failed key_id=%lu",
+                     static_cast<unsigned long>(snapshot.security_round));
+        }
+    }
+
+    void installMeshAdapter()
+    {
+        null_mesh_adapter_.setSelfNodeId(resolveSelfNodeId());
+        mesh_adapter_ = &null_mesh_adapter_;
+
+        if (lora_board_ != nullptr)
+        {
+            radio_mesh_adapter_.reset(new platform::esp::radio::MeshtasticRadioAdapter(*lora_board_));
+            mesh_adapter_ = radio_mesh_adapter_.get();
+        }
+    }
+
+    chat::IMeshAdapter& meshAdapter()
+    {
+        return mesh_adapter_ != nullptr ? *mesh_adapter_ : null_mesh_adapter_;
+    }
+
+    const chat::IMeshAdapter& meshAdapter() const
+    {
+        if (mesh_adapter_ != nullptr)
+        {
+            return *mesh_adapter_;
+        }
+        return null_mesh_adapter_;
+    }
+
+    void flushNodeStoreIfDue()
+    {
+        const uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+        if ((now_ms - last_node_store_flush_ms_) < kIdfNodeStoreFlushIntervalMs)
+        {
+            return;
+        }
+        last_node_store_flush_ms_ = now_ms;
+        if (!node_store_.flush())
+        {
+            ESP_LOGW(kIdfStoreTag, "node flush failed");
+        }
+    }
+
+    static bool isTeamRuntimeEvent(sys::EventType type)
+    {
+        return type == sys::EventType::TeamKick ||
+               type == sys::EventType::TeamTransferLeader ||
+               type == sys::EventType::TeamKeyDist ||
+               type == sys::EventType::TeamKeyRequest ||
+               type == sys::EventType::TeamStatus ||
+               type == sys::EventType::TeamPosition ||
+               type == sys::EventType::TeamWaypoint ||
+               type == sys::EventType::TeamTrack ||
+               type == sys::EventType::TeamChat ||
+               type == sys::EventType::TeamPairing ||
+               type == sys::EventType::TeamError;
+    }
+
+    bool dispatchTeamUiEvent(sys::Event* event)
+    {
+        if (event == nullptr)
+        {
+            return true;
+        }
+        if (!isTeamRuntimeEvent(event->type) &&
+            event->type != sys::EventType::SystemTick)
+        {
+            return false;
+        }
+
+        team::ui::shell::handle_event(nullptr, event);
+        delete event;
+        return true;
+    }
+
+    bool dispatchRuntimeEvent(sys::Event* event)
+    {
+        if (event == nullptr)
+        {
+            return true;
+        }
+
+        switch (event->type)
+        {
+        case sys::EventType::ChatSendResult:
+        {
+            auto* result_event = static_cast<sys::ChatSendResultEvent*>(event);
+            chat_service_->handleSendResult(result_event->msg_id, result_event->success);
+            return false;
+        }
+        case sys::EventType::NodeInfoUpdate:
+        {
+            auto* node_event = static_cast<sys::NodeInfoUpdateEvent*>(event);
+            chat::contacts::NodeUpdate update{};
+            update.short_name = node_event->short_name;
+            update.long_name = node_event->long_name;
+            update.has_last_seen = true;
+            update.last_seen = node_event->timestamp;
+            update.has_snr = true;
+            update.snr = node_event->snr;
+            update.has_rssi = true;
+            update.rssi = node_event->rssi;
+            update.has_protocol = true;
+            update.protocol = node_event->protocol;
+            update.has_role = true;
+            update.role = node_event->role;
+            update.has_hops_away = true;
+            update.hops_away = node_event->hops_away;
+            update.has_hw_model = true;
+            update.hw_model = node_event->hw_model;
+            update.has_channel = true;
+            update.channel = node_event->channel;
+            update.has_macaddr = node_event->has_macaddr;
+            if (node_event->has_macaddr)
+            {
+                std::memcpy(update.macaddr, node_event->macaddr, sizeof(update.macaddr));
+            }
+            update.has_via_mqtt = true;
+            update.via_mqtt = node_event->via_mqtt;
+            update.has_is_ignored = true;
+            update.is_ignored = node_event->is_ignored;
+            update.has_public_key = node_event->has_public_key_state;
+            update.public_key_present = node_event->has_public_key;
+            update.has_key_manually_verified = node_event->has_key_manually_verified_state;
+            update.key_manually_verified = node_event->key_manually_verified;
+            update.has_device_metrics = node_event->has_device_metrics;
+            if (node_event->has_device_metrics)
+            {
+                update.device_metrics = node_event->device_metrics;
+            }
+            contact_service_.applyNodeUpdate(node_event->node_id, update);
+            delete event;
+            return true;
+        }
+        case sys::EventType::NodeProtocolUpdate:
+        {
+            auto* protocol_event = static_cast<sys::NodeProtocolUpdateEvent*>(event);
+            contact_service_.updateNodeProtocol(protocol_event->node_id,
+                                                protocol_event->protocol,
+                                                protocol_event->timestamp);
+            delete event;
+            return true;
+        }
+        case sys::EventType::NodePositionUpdate:
+        {
+            auto* pos_event = static_cast<sys::NodePositionUpdateEvent*>(event);
+            chat::contacts::NodePosition pos{};
+            pos.valid = true;
+            pos.latitude_i = pos_event->latitude_i;
+            pos.longitude_i = pos_event->longitude_i;
+            pos.has_altitude = pos_event->has_altitude;
+            pos.altitude = pos_event->altitude;
+            pos.timestamp = pos_event->timestamp;
+            pos.precision_bits = pos_event->precision_bits;
+            pos.pdop = pos_event->pdop;
+            pos.hdop = pos_event->hdop;
+            pos.vdop = pos_event->vdop;
+            pos.gps_accuracy_mm = pos_event->gps_accuracy_mm;
+            contact_service_.updateNodePosition(pos_event->node_id, pos);
+            delete event;
+            return true;
+        }
+        default:
+            return false;
+        }
+    }
+
     bool initialized_ = false;
     bool team_mode_active_ = false;
     BoardBase* board_ = nullptr;
+    LoraBoard* lora_board_ = nullptr;
     app::AppConfig config_{};
     IdfSdNodeBlobStore node_blob_store_{};
     IdfSdContactBlobStore contact_blob_store_{};
@@ -636,9 +1576,21 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     chat::contacts::ContactService contact_service_{node_store_, contact_store_};
     chat::ChatModel chat_model_{};
     chat::RamStore chat_store_{};
-    IdfNullMeshAdapter mesh_adapter_{};
-    chat::ChatService chat_service_{chat_model_, mesh_adapter_, chat_store_};
+    IdfNullMeshAdapter null_mesh_adapter_{};
+    std::unique_ptr<platform::esp::radio::MeshtasticRadioAdapter> radio_mesh_adapter_{};
+    chat::IMeshAdapter* mesh_adapter_ = &null_mesh_adapter_;
+    std::unique_ptr<chat::ChatService> chat_service_{};
+    std::unique_ptr<team::ITeamCrypto> team_crypto_{};
+    std::unique_ptr<team::ITeamEventSink> team_event_sink_{};
+    std::unique_ptr<team::TeamService::UnhandledAppDataObserver> team_app_data_bridge_{};
+    std::unique_ptr<team::ITeamRuntime> team_runtime_{};
+    std::unique_ptr<team::ITeamTrackSource> team_track_source_{};
+    std::unique_ptr<team::TeamPairingService> team_pairing_service_{};
+    std::unique_ptr<team::TeamService> team_service_{};
+    std::unique_ptr<team::TeamController> team_controller_{};
+    std::unique_ptr<team::TeamTrackSampler> team_track_sampler_{};
     chat::ui::IChatUiRuntime* chat_ui_runtime_ = nullptr;
+    uint32_t last_node_store_flush_ms_ = 0;
 };
 
 IdfAppFacadeRuntime s_runtime{};
@@ -661,7 +1613,7 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
         return true;
     }
 
-    if (!s_runtime.begin(*handles.board))
+    if (!s_runtime.begin(*handles.board, handles.lora_board))
     {
         ESP_LOGE(config.log_tag, "IDF AppFacade runtime initialization failed for %s", config.target_name);
         return false;
@@ -669,9 +1621,12 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
 
     app::bindAppFacade(s_runtime);
     ESP_LOGI(config.log_tag,
-             "IDF AppFacade runtime bound for %s self=%08lX mesh_backend=not_ready",
+             "IDF AppFacade runtime bound for %s self=%08lX mesh_backend=%s",
              config.target_name,
-             static_cast<unsigned long>(s_runtime.getSelfNodeId()));
+             static_cast<unsigned long>(s_runtime.getSelfNodeId()),
+             s_runtime.getMeshAdapter() != nullptr && s_runtime.getMeshAdapter()->isReady()
+                 ? "meshtastic_radio"
+                 : "not_ready");
     return true;
 #else
     (void)handles;

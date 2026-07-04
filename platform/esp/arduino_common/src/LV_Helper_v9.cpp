@@ -18,6 +18,7 @@
 #include "ui/support/lvgl_fs_utils.h"
 #include "walkie/walkie_service.h"
 #include <Arduino.h>
+#include <atomic>
 #include <cstring>
 #include <dirent.h>
 #include <errno.h>
@@ -59,11 +60,29 @@ static_assert(kTDeckDmaDrawBufferLines >= 10, "TDeck draw buffers below 10 lines
 // bus must surface as LV_FS_RES_BUSY/failed open, not as a blocked UI frame.
 constexpr TickType_t kLvglSdFsWait = pdMS_TO_TICKS(2);
 constexpr TickType_t kLvglSdFsCloseWait = pdMS_TO_TICKS(10);
+constexpr TickType_t kLvglSdFsExternalFontWait = pdMS_TO_TICKS(100);
+constexpr TickType_t kLvglSdFsExternalFontCloseWait = pdMS_TO_TICKS(100);
 
 lv_fs_drv_t s_flash_fs_drv;
 lv_fs_drv_t s_sd_fs_drv;
 bool s_flash_fs_ready = false;
 bool s_sd_fs_ready = false;
+std::atomic<unsigned> s_external_font_load_fs_depth{0};
+
+bool external_font_load_fs_scope_active()
+{
+    return s_external_font_load_fs_depth.load(std::memory_order_relaxed) > 0;
+}
+
+TickType_t current_sd_fs_wait(TickType_t normal_wait, TickType_t font_wait)
+{
+    return external_font_load_fs_scope_active() ? font_wait : normal_wait;
+}
+
+const char* current_sd_fs_owner()
+{
+    return external_font_load_fs_scope_active() ? "lvgl_font_sd" : nullptr;
+}
 
 inline int flash_fs_fd_from_ptr(void* file_p)
 {
@@ -125,7 +144,9 @@ void* sd_fs_open(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
     // This is a platform adapter boundary. Product/UI code must not use LVGL
     // FS as a synchronous SD probe; callers should submit runtime work and let
     // worker-domain code handle retry/backpressure.
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
+        current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return nullptr;
@@ -162,7 +183,9 @@ lv_fs_res_t sd_fs_close(lv_fs_drv_t* drv, void* file_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsCloseWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsCloseWait, kLvglSdFsExternalFontCloseWait),
+        current_sd_fs_owner());
     file->close();
     delete file;
     return LV_FS_RES_OK;
@@ -176,7 +199,9 @@ lv_fs_res_t sd_fs_read(lv_fs_drv_t* drv, void* file_p, void* buf, uint32_t btr, 
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
+        current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -206,7 +231,9 @@ lv_fs_res_t sd_fs_write(lv_fs_drv_t* drv,
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
+        current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -228,7 +255,9 @@ lv_fs_res_t sd_fs_seek(lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whenc
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
+        current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -260,7 +289,9 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
+        current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -272,7 +303,9 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
 void* sd_fs_dir_open(lv_fs_drv_t* drv, const char* path)
 {
     LV_UNUSED(drv);
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
+        current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return nullptr;
@@ -299,7 +332,9 @@ lv_fs_res_t sd_fs_dir_read(lv_fs_drv_t* drv, void* dir_p, char* fn, uint32_t fn_
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
+        current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -328,7 +363,9 @@ lv_fs_res_t sd_fs_dir_close(lv_fs_drv_t* drv, void* dir_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kLvglSdFsCloseWait);
+    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsCloseWait, kLvglSdFsExternalFontCloseWait),
+        current_sd_fs_owner());
     dir->close();
     delete dir;
     return LV_FS_RES_OK;
@@ -1232,6 +1269,24 @@ lv_indev_t* lv_get_keyboard_indev()
 lv_indev_t* lv_get_encoder_indev()
 {
     return indev_encoder;
+}
+
+void lv_begin_external_font_load_fs_scope()
+{
+    s_external_font_load_fs_depth.fetch_add(1, std::memory_order_relaxed);
+}
+
+void lv_end_external_font_load_fs_scope()
+{
+    unsigned depth = s_external_font_load_fs_depth.load(std::memory_order_relaxed);
+    while (depth > 0)
+    {
+        if (s_external_font_load_fs_depth.compare_exchange_weak(
+                depth, depth - 1, std::memory_order_relaxed))
+        {
+            return;
+        }
+    }
 }
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_CUSTOM

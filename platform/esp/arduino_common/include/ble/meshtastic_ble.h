@@ -18,6 +18,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -52,6 +53,7 @@ class MeshtasticBleService : public BleService,
     uint32_t pendingPhoneBlePasskey() const override;
     void requestPhoneHighThroughputConnection() override;
     void requestPhoneLowerPowerConnection() override;
+    void requestPhoneDisconnect() override;
     void onPhoneBluetoothConfigChanged() override;
     void onPhoneModuleConfigChanged() override;
 
@@ -84,7 +86,10 @@ class MeshtasticBleService : public BleService,
 
     struct Frame
     {
-        size_t len = 0;
+        uint16_t len = 0;
+        phone::meshtastic::MeshtasticBleFrameKind kind = phone::meshtastic::MeshtasticBleFrameKind::None;
+        phone::meshtastic::MeshtasticBleFramePriority priority = phone::meshtastic::MeshtasticBleFramePriority::P3;
+        uint32_t from_num = 0;
         std::array<uint8_t, meshtastic_FromRadio_size> buf{};
     };
 
@@ -94,8 +99,8 @@ class MeshtasticBleService : public BleService,
 
     std::array<NimBLEAttValue, kFromPhoneQueueDepth> from_phone_queue_{};
     size_t from_phone_len_ = 0;
-    std::array<uint8_t, meshtastic_ToRadio_size> last_to_radio_{};
     size_t last_to_radio_len_ = 0;
+    uint64_t last_to_radio_fingerprint_ = 0;
 
     std::array<Frame, kToPhoneQueueDepth> to_phone_queue_{};
     size_t to_phone_len_ = 0;
@@ -103,7 +108,6 @@ class MeshtasticBleService : public BleService,
     std::atomic<bool> read_waiting_{false};
     bool pending_to_phone_valid_ = false;
     Frame pending_to_phone_{};
-    uint32_t pending_to_phone_from_num_ = 0;
     Frame to_phone_scratch_{};
     Frame read_frame_scratch_{};
     phone::meshtastic::MeshtasticBleFrame session_frame_scratch_{};

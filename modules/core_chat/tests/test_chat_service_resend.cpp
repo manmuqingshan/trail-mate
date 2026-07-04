@@ -3,6 +3,8 @@
 #include "chat/usecase/chat_service.h"
 
 #include <cassert>
+#include <cstdint>
+#include <deque>
 
 namespace
 {
@@ -43,7 +45,33 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
         return chat::MeshSendResult::fail(next_failure, id);
     }
 
-    bool pollIncomingText(chat::MeshIncomingText*) override { return false; }
+    void pushIncoming(chat::NodeId from, chat::MessageId msg_id, const std::string& text)
+    {
+        chat::MeshIncomingText incoming{};
+        incoming.channel = chat::ChannelId::PRIMARY;
+        incoming.from = from;
+        incoming.to = 0xFFFFFFFFUL;
+        incoming.msg_id = msg_id;
+        incoming.text = text;
+        incoming.timestamp = 1;
+        incoming.hop_limit = 3;
+        incoming.encrypted = true;
+        incoming_.push_back(incoming);
+    }
+
+    bool pollIncomingText(chat::MeshIncomingText* out) override
+    {
+        if (incoming_.empty())
+        {
+            return false;
+        }
+        if (out)
+        {
+            *out = incoming_.front();
+        }
+        incoming_.pop_front();
+        return true;
+    }
 
     bool sendAppData(chat::ChannelId,
                      uint32_t,
@@ -75,6 +103,22 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
     std::string last_text;
     chat::MessageId last_forced_id = 0;
     chat::NodeId last_peer = 0;
+
+  private:
+    std::deque<chat::MeshIncomingText> incoming_{};
+};
+
+class CountingIncomingObserver final : public chat::ChatService::IncomingMessageObserver
+{
+  public:
+    void onIncomingMessage(const chat::ChatMessage& msg, const chat::RxMeta*) override
+    {
+        ++count;
+        last_msg_id = msg.msg_id;
+    }
+
+    int count = 0;
+    chat::MessageId last_msg_id = 0;
 };
 
 const chat::ChatMessage* onlyMessage(chat::ChatService& service,
@@ -165,6 +209,39 @@ int main()
     service.setActiveProtocol(chat::MeshProtocol::MeshCore);
     assert(!service.resendFailed(88));
     assert(mesh.send_count == before_cross_protocol_retry);
+
+    {
+        chat::ChatModel incoming_model;
+        FakeMeshAdapter incoming_mesh;
+        chat::RamStore incoming_store;
+        chat::ChatService incoming_service(incoming_model, incoming_mesh, incoming_store);
+        CountingIncomingObserver incoming_observer;
+        incoming_service.addIncomingMessageObserver(&incoming_observer);
+        const chat::ConversationId broadcast(chat::ChannelId::PRIMARY,
+                                             0,
+                                             chat::MeshProtocol::Meshtastic);
+
+        incoming_mesh.pushIncoming(0x1234ABCDU, 0x42U, "test");
+        incoming_mesh.pushIncoming(0x1234ABCDU, 0x42U, "test");
+        incoming_service.processIncoming();
+        auto incoming_messages = incoming_store.loadRecent(broadcast, 10);
+        assert(incoming_messages.size() == 1);
+        assert(incoming_store.getUnread(broadcast) == 1);
+        assert(incoming_observer.count == 1);
+
+        for (std::uint32_t i = 0; i < 256U; ++i)
+        {
+            incoming_mesh.pushIncoming(0x1234ABCDU, 0x1000U + i, "window fill");
+        }
+        incoming_service.processIncoming();
+        assert(incoming_observer.count == 257);
+
+        incoming_mesh.pushIncoming(0x1234ABCDU, 0x10FFU, "recent duplicate");
+        incoming_mesh.pushIncoming(0x1234ABCDU, 0x42U, "evicted original id");
+        incoming_service.processIncoming();
+        assert(incoming_observer.count == 258);
+        assert(incoming_observer.last_msg_id == 0x42U);
+    }
 
     return 0;
 }

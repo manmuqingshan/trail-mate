@@ -117,6 +117,16 @@ void set_motion_sensor_id(uint8_t sensor_id)
     ::platform::esp::idf_common::gps_runtime::set_motion_sensor_id(sensor_id);
 }
 
+void acquire_power_lease(const char* reason)
+{
+    (void)reason;
+}
+
+void release_power_lease(const char* reason)
+{
+    (void)reason;
+}
+
 void suspend_runtime()
 {
     TaskHandle_t task_handle = ::platform::esp::idf_common::gps_runtime::get_task_handle();

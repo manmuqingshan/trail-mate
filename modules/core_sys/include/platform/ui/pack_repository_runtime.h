@@ -45,9 +45,28 @@ struct PackageRecord
     InstalledPackageRecord installed_record{};
 };
 
+enum class PackageInstallPhase : std::uint8_t
+{
+    Idle = 0,
+    Installing,
+    Succeeded,
+    Failed,
+};
+
+struct PackageInstallStatus
+{
+    PackageInstallPhase phase = PackageInstallPhase::Idle;
+    bool busy = false;
+    std::string package_id;
+    std::string message;
+    std::string detail;
+};
+
 bool is_supported();
 bool load_installed_packages(std::vector<InstalledPackageRecord>& out_installed, std::string& out_error);
 bool fetch_catalog(std::vector<PackageRecord>& out_packages, std::string& out_error);
+bool start_install_package(const PackageRecord& package, std::string& out_error);
+PackageInstallStatus install_status();
 bool install_package(const PackageRecord& package, std::string& out_error);
 bool uninstall_package(const PackageRecord& package, std::string& out_error);
 

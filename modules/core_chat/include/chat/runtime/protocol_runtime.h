@@ -2,7 +2,11 @@
 
 #include "chat/domain/chat_types.h"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <initializer_list>
 #include <string>
 #include <utility>
 #include <variant>
@@ -10,6 +14,201 @@
 
 namespace chat::runtime
 {
+
+constexpr std::size_t kProtocolPayloadMaxLen = 233;
+constexpr std::size_t kProtocolPathMaxLen = 64;
+constexpr std::size_t kProtocolPublicKeyMaxLen = 64;
+
+template <std::size_t Capacity>
+class BoundedBytes
+{
+  public:
+    bool empty() const
+    {
+        return size_ == 0;
+    }
+
+    std::size_t size() const
+    {
+        return size_;
+    }
+
+    constexpr std::size_t capacity() const
+    {
+        return Capacity;
+    }
+
+    const uint8_t* data() const
+    {
+        return bytes_.data();
+    }
+
+    uint8_t* data()
+    {
+        return bytes_.data();
+    }
+
+    void clear()
+    {
+        size_ = 0;
+    }
+
+    bool assign(const uint8_t* data, std::size_t len)
+    {
+        if ((len > 0 && !data) || len > Capacity)
+        {
+            return false;
+        }
+        if (len > 0)
+        {
+            std::memcpy(bytes_.data(), data, len);
+        }
+        size_ = len;
+        return true;
+    }
+
+    bool assign(std::initializer_list<uint8_t> values)
+    {
+        return assign(values.begin(), values.end());
+    }
+
+    bool assign(const std::vector<uint8_t>& values)
+    {
+        return assign(values.empty() ? nullptr : values.data(), values.size());
+    }
+
+    template <typename Iterator>
+    bool assign(Iterator first, Iterator last)
+    {
+        clear();
+        for (Iterator it = first; it != last; ++it)
+        {
+            if (size_ >= Capacity)
+            {
+                clear();
+                return false;
+            }
+            bytes_[size_++] = static_cast<uint8_t>(*it);
+        }
+        return true;
+    }
+
+    bool push_back(uint8_t value)
+    {
+        if (size_ >= Capacity)
+        {
+            return false;
+        }
+        bytes_[size_++] = value;
+        return true;
+    }
+
+    uint8_t& operator[](std::size_t index)
+    {
+        return bytes_[index];
+    }
+
+    const uint8_t& operator[](std::size_t index) const
+    {
+        return bytes_[index];
+    }
+
+    uint8_t* begin()
+    {
+        return bytes_.data();
+    }
+
+    uint8_t* end()
+    {
+        return bytes_.data() + size_;
+    }
+
+    const uint8_t* begin() const
+    {
+        return bytes_.data();
+    }
+
+    const uint8_t* end() const
+    {
+        return bytes_.data() + size_;
+    }
+
+    std::vector<uint8_t> toVector() const
+    {
+        return std::vector<uint8_t>(begin(), end());
+    }
+
+    operator std::vector<uint8_t>() const
+    {
+        return toVector();
+    }
+
+  private:
+    std::array<uint8_t, Capacity> bytes_{};
+    std::size_t size_ = 0;
+};
+
+using ProtocolPayloadBytes = BoundedBytes<kProtocolPayloadMaxLen>;
+using ProtocolPathBytes = BoundedBytes<kProtocolPathMaxLen>;
+using ProtocolPublicKeyBytes = BoundedBytes<kProtocolPublicKeyMaxLen>;
+
+template <std::size_t Capacity>
+inline bool operator==(const BoundedBytes<Capacity>& lhs, const BoundedBytes<Capacity>& rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < lhs.size(); ++index)
+    {
+        if (lhs[index] != rhs[index])
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+template <std::size_t Capacity>
+inline bool operator!=(const BoundedBytes<Capacity>& lhs, const BoundedBytes<Capacity>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+template <std::size_t Capacity>
+inline bool operator==(const std::vector<uint8_t>& lhs, const BoundedBytes<Capacity>& rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < lhs.size(); ++index)
+    {
+        if (lhs[index] != rhs[index])
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+template <std::size_t Capacity>
+inline bool operator==(const BoundedBytes<Capacity>& lhs, const std::vector<uint8_t>& rhs)
+{
+    return rhs == lhs;
+}
+
+template <std::size_t Capacity>
+inline bool operator!=(const std::vector<uint8_t>& lhs, const BoundedBytes<Capacity>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+template <std::size_t Capacity>
+inline bool operator!=(const BoundedBytes<Capacity>& lhs, const std::vector<uint8_t>& rhs)
+{
+    return !(lhs == rhs);
+}
 
 enum class ProtocolActionKind : uint8_t
 {
@@ -156,8 +355,8 @@ struct IncomingPacket
     uint8_t payload_type = 0;
     bool want_response = false;
     bool encrypted = false;
-    std::vector<uint8_t> payload;
-    std::vector<uint8_t> path;
+    ProtocolPayloadBytes payload;
+    ProtocolPathBytes path;
     RxMeta rx_meta{};
 };
 
@@ -197,7 +396,7 @@ struct SendPacketEffect
     MessageId response_request_id = 0;
     bool want_ack = false;
     bool want_response = false;
-    std::vector<uint8_t> payload;
+    ProtocolPayloadBytes payload;
 };
 
 struct SendNodeInfoEffect
@@ -310,11 +509,11 @@ struct UpdatePeerRouteEffect
     uint8_t peer_hash = 0;
     uint8_t next_hop = 0;
     ChannelId preferred_channel = ChannelId::PRIMARY;
-    std::vector<uint8_t> public_key;
+    ProtocolPublicKeyBytes public_key;
     bool public_key_verified = false;
     uint8_t hops = 0xFF;
     MessageId tag = 0;
-    std::vector<uint8_t> payload;
+    ProtocolPayloadBytes payload;
 };
 
 using ProtocolEffect = std::variant<SendTextEffect,
@@ -333,26 +532,159 @@ using ProtocolEffect = std::variant<SendTextEffect,
                                     EmitActionResultEffect,
                                     UpdatePeerRouteEffect>;
 
-struct ProtocolEffects
+constexpr std::size_t kProtocolEffectsMaxItems = 8;
+constexpr std::size_t kProtocolTxFeedbackEffectsMaxItems = 1;
+
+template <std::size_t Capacity>
+class FixedProtocolEffectList
 {
-    std::vector<ProtocolEffect> items;
+  public:
+    bool empty() const
+    {
+        return count_ == 0;
+    }
+
+    std::size_t size() const
+    {
+        return count_;
+    }
+
+    constexpr std::size_t capacity() const
+    {
+        return Capacity;
+    }
+
+    bool full() const
+    {
+        return count_ >= Capacity;
+    }
+
+    bool overflowed() const
+    {
+        return overflowed_;
+    }
+
+    void markOverflowed()
+    {
+        overflowed_ = true;
+    }
+
+    void clear()
+    {
+        count_ = 0;
+        overflowed_ = false;
+    }
+
+    ProtocolEffect& operator[](std::size_t index)
+    {
+        return items_[index];
+    }
+
+    const ProtocolEffect& operator[](std::size_t index) const
+    {
+        return items_[index];
+    }
+
+    ProtocolEffect* begin()
+    {
+        return items_.data();
+    }
+
+    ProtocolEffect* end()
+    {
+        return items_.data() + count_;
+    }
+
+    const ProtocolEffect* begin() const
+    {
+        return items_.data();
+    }
+
+    const ProtocolEffect* end() const
+    {
+        return items_.data() + count_;
+    }
+
+    template <typename T>
+    bool push_back(T&& effect)
+    {
+        if (full())
+        {
+            overflowed_ = true;
+            return false;
+        }
+        items_[count_] = ProtocolEffect(std::forward<T>(effect));
+        ++count_;
+        return true;
+    }
+
+    template <typename T>
+    bool emplace_back(T&& effect)
+    {
+        return push_back(std::forward<T>(effect));
+    }
+
+  private:
+    std::array<ProtocolEffect, Capacity> items_{};
+    std::size_t count_ = 0;
+    bool overflowed_ = false;
+};
+
+template <std::size_t Capacity>
+struct ProtocolEffectBatch
+{
+    FixedProtocolEffectList<Capacity> items;
 
     bool empty() const
     {
         return items.empty();
     }
 
-    template <typename T>
-    void add(T effect)
+    std::size_t size() const
     {
-        items.emplace_back(std::move(effect));
+        return items.size();
     }
+
+    bool full() const
+    {
+        return items.full();
+    }
+
+    bool overflowed() const
+    {
+        return items.overflowed();
+    }
+
+    void clear()
+    {
+        items.clear();
+    }
+
+    void markOverflowed()
+    {
+        items.markOverflowed();
+    }
+
+    template <typename T>
+    bool add(T&& effect)
+    {
+        return items.push_back(std::forward<T>(effect));
+    }
+};
+
+using ProtocolEffects = ProtocolEffectBatch<kProtocolEffectsMaxItems>;
+using ProtocolTxFeedbackEffects =
+    ProtocolEffectBatch<kProtocolTxFeedbackEffectsMaxItems>;
+
+struct ProtocolEffectWorkspace
+{
+    ProtocolEffects primary{};
+    ProtocolTxFeedbackEffects feedback{};
 };
 
 struct IncomingPacketHandlingResult
 {
     PacketHandling handling = PacketHandling::NotHandled;
-    ProtocolEffects effects{};
 
     bool handled() const
     {
@@ -366,11 +698,17 @@ struct IncomingPacketHandlingResult
     }
 };
 
-inline void appendProtocolEffects(ProtocolEffects& target, ProtocolEffects source)
+template <std::size_t TargetCapacity, std::size_t SourceCapacity>
+inline void appendProtocolEffects(ProtocolEffectBatch<TargetCapacity>& target,
+                                  const ProtocolEffectBatch<SourceCapacity>& source)
 {
-    for (auto& effect : source.items)
+    if (source.overflowed())
     {
-        target.items.emplace_back(std::move(effect));
+        target.markOverflowed();
+    }
+    for (const auto& effect : source.items)
+    {
+        (void)target.add(effect);
     }
 }
 
@@ -378,7 +716,6 @@ inline bool absorbIncomingHandlingResult(IncomingPacketHandlingResult& target,
                                          IncomingPacketHandlingResult source)
 {
     const PacketHandling handling = source.handling;
-    appendProtocolEffects(target.effects, std::move(source.effects));
     if (handling == PacketHandling::NotHandled)
     {
         return false;
@@ -404,24 +741,29 @@ class IProtocolRuntime
   public:
     virtual ~IProtocolRuntime() = default;
 
-    virtual ProtocolEffects prepareOutgoing(const ProtocolIntent& intent,
-                                            const RuntimeContext& context) = 0;
-    virtual ProtocolEffects handleIncoming(const IncomingPacket& packet,
-                                           const RuntimeContext& context) = 0;
+    virtual void prepareOutgoing(const ProtocolIntent& intent,
+                                 const RuntimeContext& context,
+                                 ProtocolEffects& effects) = 0;
+    virtual void handleIncoming(const IncomingPacket& packet,
+                                const RuntimeContext& context,
+                                ProtocolEffects& effects) = 0;
     virtual IncomingPacketHandlingResult handleIncomingPacket(
         const IncomingPacket& packet,
-        const RuntimeContext& context)
+        const RuntimeContext& context,
+        ProtocolEffects& effects)
     {
+        const std::size_t before = effects.size();
         IncomingPacketHandlingResult result{};
-        result.effects = handleIncoming(packet, context);
-        result.handling = result.effects.empty()
+        handleIncoming(packet, context, effects);
+        result.handling = effects.size() == before
                               ? PacketHandling::NotHandled
                               : PacketHandling::HandledStop;
         return result;
     }
-    virtual ProtocolEffects handleTxResult(const TxResult& result,
-                                           const RuntimeContext& context) = 0;
-    virtual ProtocolEffects tick(const RuntimeContext& context) = 0;
+    virtual void handleTxResult(const TxResult& result,
+                                const RuntimeContext& context,
+                                ProtocolTxFeedbackEffects& effects) = 0;
+    virtual void tick(const RuntimeContext& context, ProtocolEffects& effects) = 0;
 };
 
 class IProtocolEffectExecutor

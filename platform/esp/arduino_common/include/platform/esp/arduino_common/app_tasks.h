@@ -106,6 +106,7 @@ class AppTasks
     static void requestRadioReceiveRestart();
     static void setRadioTransmitActive(bool active);
     static bool isRadioTransmitActive();
+    static bool enqueueRadioTransmit(const uint8_t* data, size_t size);
 
     class ScopedRadioTransmitActivity
     {

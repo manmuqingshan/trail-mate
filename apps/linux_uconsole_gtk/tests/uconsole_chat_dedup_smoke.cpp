@@ -1,5 +1,5 @@
 #include "chat/domain/chat_model.h"
-#include "chat/infra/store/ram_store.h"
+#include "chat/ports/i_chat_store.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
 
@@ -92,6 +92,113 @@ class FakeMeshAdapter final : public ::chat::IMeshAdapter
     std::deque<::chat::MeshIncomingText> incoming_{};
 };
 
+class FakeChatStore final : public ::chat::IChatStore
+{
+  public:
+    void append(const ::chat::ChatMessage& msg) override
+    {
+        messages_.push_back(msg);
+        if (msg.status == ::chat::MessageStatus::Incoming)
+        {
+            ++unread_;
+        }
+    }
+
+    std::vector<::chat::ChatMessage> loadRecent(const ::chat::ConversationId& conv,
+                                                std::size_t n) override
+    {
+        std::vector<::chat::ChatMessage> matching;
+        for (const auto& msg : messages_)
+        {
+            if (::chat::ConversationId(msg.channel, msg.peer, msg.protocol) == conv)
+            {
+                matching.push_back(msg);
+            }
+        }
+
+        const std::size_t count = matching.size();
+        const std::size_t start = count > n ? count - n : 0;
+        return std::vector<::chat::ChatMessage>(
+            matching.begin() + static_cast<std::ptrdiff_t>(start),
+            matching.end());
+    }
+
+    std::vector<::chat::ConversationMeta> loadConversationPage(std::size_t,
+                                                               std::size_t,
+                                                               std::size_t* total) override
+    {
+        if (total != nullptr)
+        {
+            *total = 0;
+        }
+        return {};
+    }
+
+    void setUnread(const ::chat::ConversationId&, int unread) override
+    {
+        unread_ = unread;
+    }
+
+    int getUnread(const ::chat::ConversationId&) const override
+    {
+        return unread_;
+    }
+
+    void clearConversation(const ::chat::ConversationId& conv) override
+    {
+        std::vector<::chat::ChatMessage> kept;
+        for (const auto& msg : messages_)
+        {
+            if (!(::chat::ConversationId(msg.channel, msg.peer, msg.protocol) == conv))
+            {
+                kept.push_back(msg);
+            }
+        }
+        messages_ = kept;
+        unread_ = 0;
+    }
+
+    void clearAll() override
+    {
+        messages_.clear();
+        unread_ = 0;
+    }
+
+    bool updateMessageStatus(::chat::MessageId msg_id,
+                             ::chat::MessageStatus status) override
+    {
+        for (auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id && msg.from == 0)
+            {
+                msg.status = status;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool getMessage(::chat::MessageId msg_id, ::chat::ChatMessage* out) const override
+    {
+        for (const auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id)
+            {
+                if (out != nullptr)
+                {
+                    *out = msg;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+  private:
+    std::vector<::chat::ChatMessage> messages_{};
+    int unread_ = 0;
+};
+
 } // namespace
 
 int expect(bool condition, const char* message)
@@ -108,7 +215,7 @@ int main()
 {
     ::chat::ChatModel model;
     FakeMeshAdapter adapter;
-    ::chat::RamStore store;
+    FakeChatStore store;
     ::chat::ChatService service(model,
                                 adapter,
                                 store,
@@ -176,6 +283,35 @@ int main()
     }
     if (int rc = expect(store.getUnread(broadcast) == 3,
                         "unread count does not match unique incoming messages"))
+    {
+        return rc;
+    }
+
+    for (std::uint32_t i = 0; i < 256U; ++i)
+    {
+        adapter.pushIncoming(0x1234ABCDU, 0x1000U + i, "window fill");
+    }
+    service.processIncoming();
+
+    messages = store.loadRecent(broadcast, 300);
+    if (int rc = expect(messages.size() == 259U,
+                        "recent incoming fixed window dropped unique messages early"))
+    {
+        return rc;
+    }
+
+    adapter.pushIncoming(0x1234ABCDU, 0x10FFU, "recent duplicate");
+    adapter.pushIncoming(0x1234ABCDU, 0x42U, "evicted original id");
+    service.processIncoming();
+
+    messages = store.loadRecent(broadcast, 300);
+    if (int rc = expect(messages.size() == 260U,
+                        "recent incoming fixed window did not preserve eviction semantics"))
+    {
+        return rc;
+    }
+    if (int rc = expect(messages.back().msg_id == 0x42U,
+                        "evicted original incoming id was not accepted again"))
     {
         return rc;
     }

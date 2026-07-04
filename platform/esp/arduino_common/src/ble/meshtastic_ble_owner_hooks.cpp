@@ -47,6 +47,21 @@ void MeshtasticBleService::requestPhoneLowerPowerConnection()
     requestLowerPowerConnection();
 }
 
+void MeshtasticBleService::requestPhoneDisconnect()
+{
+    if (!server_ || !connected_ || !conn_handle_valid_)
+    {
+        Serial.printf("[BLE][mt] phone disconnect ignored connected=%u handle_valid=%u\n",
+                      connected_ ? 1U : 0U,
+                      conn_handle_valid_ ? 1U : 0U);
+        return;
+    }
+
+    Serial.printf("[BLE][mt] phone disconnect request handle=%u\n",
+                  static_cast<unsigned>(conn_handle_));
+    server_->disconnect(conn_handle_);
+}
+
 void MeshtasticBleService::onPhoneBluetoothConfigChanged()
 {
     saveBleConfig();

@@ -34,11 +34,13 @@ class Nrf52SettingsLocalIdentityStore final : public ::mesh::ILocalIdentityStore
 class Nrf52SettingsPeerKeyStore final : public ::mesh::IPeerKeyStore
 {
   public:
+    static constexpr size_t kMaxStoredPeerKeys = 16;
+
     struct Options
     {
         const char* ns = "chat_pki";
         const char* key = "pki_nodes";
-        size_t max_keys = 16;
+        size_t max_keys = kMaxStoredPeerKeys;
     };
 
     Nrf52SettingsPeerKeyStore();
@@ -50,10 +52,13 @@ class Nrf52SettingsPeerKeyStore final : public ::mesh::IPeerKeyStore
     ::mesh::StoreResult clear() override;
 
     ::mesh::StoreResult loadAll(std::vector<::mesh::PeerPublicKey>& out);
+    ::mesh::StoreResult loadAll(::mesh::PeerPublicKey* out,
+                                size_t capacity,
+                                size_t* out_count);
     ::mesh::StoreResult replaceAll(const ::mesh::PeerPublicKey* keys, size_t count);
 
   private:
-    ::mesh::StoreResult saveAll(std::vector<::mesh::PeerPublicKey>& keys);
+    ::mesh::StoreResult saveAll(const ::mesh::PeerPublicKey* keys, size_t count);
 
     Options options_;
 };

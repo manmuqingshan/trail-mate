@@ -107,7 +107,9 @@ chat::MeshCapabilities MeshtasticRadioAdapter::getCapabilities() const
     chat::MeshCapabilities caps{};
     caps.supports_unicast_text = true;
     caps.supports_unicast_appdata = true;
+    caps.supports_broadcast_appdata = true;
     caps.supports_node_info = true;
+    caps.supports_discovery_actions = true;
     caps.supports_node_info_query = true;
     caps.supports_node_info_reply = true;
     caps.supports_node_info_reannounce = true;
@@ -130,10 +132,9 @@ bool MeshtasticRadioAdapter::sendText(chat::ChannelId channel,
 
     const chat::NodeId dest = (peer != 0) ? peer : kBroadcastNodeId;
     const chat::MessageId msg_id = next_packet_id_++;
-    uint8_t data_buffer[256];
-    size_t data_size = sizeof(data_buffer);
+    size_t data_size = data_scratch_.size();
     if (!chat::meshtastic::encodeTextMessage(channel, text, node_id_, msg_id, dest,
-                                             data_buffer, &data_size))
+                                             data_scratch_.data(), &data_size))
     {
         return false;
     }
@@ -142,18 +143,12 @@ bool MeshtasticRadioAdapter::sendText(chat::ChannelId channel,
     {
         *out_msg_id = msg_id;
     }
-    return sendEncodedPayload(channel, data_buffer, data_size, peer, false, msg_id, true);
+    return sendEncodedPayload(channel, data_scratch_.data(), data_size, peer, false, msg_id, true);
 }
 
 bool MeshtasticRadioAdapter::pollIncomingText(chat::MeshIncomingText* out)
 {
-    if (!out || text_queue_.empty())
-    {
-        return false;
-    }
-    *out = text_queue_.front();
-    text_queue_.pop();
-    return true;
+    return text_queue_.pop(out);
 }
 
 bool MeshtasticRadioAdapter::sendAppData(chat::ChannelId channel,
@@ -170,26 +165,19 @@ bool MeshtasticRadioAdapter::sendAppData(chat::ChannelId channel,
         return false;
     }
 
-    uint8_t data_buffer[256];
-    size_t data_size = sizeof(data_buffer);
+    size_t data_size = data_scratch_.size();
     if (!chat::meshtastic::encodeAppData(portnum, payload, len, want_response,
-                                         data_buffer, &data_size))
+                                         data_scratch_.data(), &data_size))
     {
         return false;
     }
 
-    return sendEncodedPayload(channel, data_buffer, data_size, dest, want_ack, packet_id, false);
+    return sendEncodedPayload(channel, data_scratch_.data(), data_size, dest, want_ack, packet_id, false);
 }
 
 bool MeshtasticRadioAdapter::pollIncomingData(chat::MeshIncomingData* out)
 {
-    if (!out || data_queue_.empty())
-    {
-        return false;
-    }
-    *out = data_queue_.front();
-    data_queue_.pop();
-    return true;
+    return data_queue_.pop(out);
 }
 
 bool MeshtasticRadioAdapter::requestNodeInfo(chat::NodeId dest, bool want_response)
@@ -263,10 +251,6 @@ void MeshtasticRadioAdapter::setLastRxStats(float rssi, float snr)
 void MeshtasticRadioAdapter::processSendQueue()
 {
     pollRadio();
-    if (!nodeinfo_broadcast_sent_ && ready_)
-    {
-        nodeinfo_broadcast_sent_ = broadcastNodeInfo();
-    }
 }
 
 chat::NodeId MeshtasticRadioAdapter::getNodeId() const
@@ -298,17 +282,16 @@ bool MeshtasticRadioAdapter::sendEncodedPayload(chat::ChannelId channel,
     const chat::NodeId dest_node = (dest != 0) ? dest : kBroadcastNodeId;
     const chat::MessageId msg_id = (packet_id != 0) ? packet_id : next_packet_id_++;
 
-    uint8_t wire_buffer[512];
-    size_t wire_size = sizeof(wire_buffer);
+    size_t wire_size = wire_scratch_.size();
     if (!chat::meshtastic::buildWirePacket(payload, len, node_id_, msg_id,
                                            dest_node, channel_hash, config_.hop_limit,
                                            want_ack, psk, psk_len,
-                                           wire_buffer, &wire_size))
+                                           wire_scratch_.data(), &wire_size))
     {
         return false;
     }
 
-    const int state = board_.transmitRadio(wire_buffer, wire_size);
+    const int state = board_.transmitRadio(wire_scratch_.data(), wire_size);
     const bool ok = (state == static_cast<int>(kRadioOk));
     if (ok)
     {
@@ -429,19 +412,32 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
 {
     if (!data || size < sizeof(chat::meshtastic::PacketHeaderWire))
     {
+        ESP_LOGW(kTag, "rx drop invalid raw len=%u", static_cast<unsigned>(size));
         return;
     }
 
     chat::meshtastic::PacketHeaderWire header{};
-    uint8_t payload[256];
-    size_t payload_size = sizeof(payload);
-    if (!chat::meshtastic::parseWirePacket(data, size, &header, payload, &payload_size))
+    size_t payload_size = payload_scratch_.size();
+    if (!chat::meshtastic::parseWirePacket(data, size, &header, payload_scratch_.data(), &payload_size))
     {
+        ESP_LOGW(kTag, "rx drop parse_fail raw_len=%u", static_cast<unsigned>(size));
         return;
     }
 
-    if (header.from == node_id_ || dedup_.isDuplicate(header.from, header.id))
+    if (header.from == node_id_)
     {
+        ESP_LOGI(kTag,
+                 "rx drop self from=%08lX id=%08lX",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.id));
+        return;
+    }
+    if (dedup_.isDuplicate(header.from, header.id))
+    {
+        ESP_LOGI(kTag,
+                 "rx drop duplicate from=%08lX id=%08lX",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.id));
         return;
     }
     dedup_.markSeen(header.from, header.id);
@@ -460,19 +456,29 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
 
     size_t psk_len = 0;
     const uint8_t* psk = channelKeyFor(channel, &psk_len);
-    uint8_t plaintext[256];
-    size_t plaintext_len = sizeof(plaintext);
+    size_t plaintext_len = plaintext_scratch_.size();
     if (psk_len > 0)
     {
-        if (!chat::meshtastic::decryptPayload(header, payload, payload_size, psk, psk_len,
-                                              plaintext, &plaintext_len))
+        if (!chat::meshtastic::decryptPayload(header,
+                                              payload_scratch_.data(),
+                                              payload_size,
+                                              psk,
+                                              psk_len,
+                                              plaintext_scratch_.data(),
+                                              &plaintext_len))
         {
+            ESP_LOGW(kTag,
+                     "rx drop decrypt_fail from=%08lX id=%08lX ch=0x%02X payload=%u",
+                     static_cast<unsigned long>(header.from),
+                     static_cast<unsigned long>(header.id),
+                     static_cast<unsigned>(header.channel),
+                     static_cast<unsigned>(payload_size));
             return;
         }
     }
     else
     {
-        std::memcpy(plaintext, payload, payload_size);
+        std::memcpy(plaintext_scratch_.data(), payload_scratch_.data(), payload_size);
         plaintext_len = payload_size;
     }
 
@@ -481,9 +487,14 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
                  radio_freq_hz_, radio_bw_hz_, radio_sf_, radio_cr_);
 
     meshtastic_Data decoded = meshtastic_Data_init_default;
-    pb_istream_t stream = pb_istream_from_buffer(plaintext, plaintext_len);
+    pb_istream_t stream = pb_istream_from_buffer(plaintext_scratch_.data(), plaintext_len);
     if (!pb_decode(&stream, meshtastic_Data_fields, &decoded))
     {
+        ESP_LOGW(kTag,
+                 "rx drop data_decode_fail from=%08lX id=%08lX plain=%u",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(plaintext_len));
         return;
     }
 
@@ -505,10 +516,17 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
     {
         if (decoded.payload.size > 0)
         {
-            (void)publishNodePayload(decoded,
-                                     rx_meta,
-                                     header.from,
-                                     to_channel_index(channel));
+            const bool published = publishNodePayload(decoded,
+                                                      rx_meta,
+                                                      header.from,
+                                                      to_channel_index(channel));
+            ESP_LOGI(kTag,
+                     "rx node payload from=%08lX id=%08lX port=%u len=%u published=%u",
+                     static_cast<unsigned long>(header.from),
+                     static_cast<unsigned long>(header.id),
+                     static_cast<unsigned>(decoded.portnum),
+                     static_cast<unsigned>(decoded.payload.size),
+                     published ? 1U : 0U);
         }
         if (decoded.portnum == meshtastic_PortNum_NODEINFO_APP &&
             want_response && (to_us || is_broadcast))
@@ -528,16 +546,34 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
                 &position))
         {
             publishPositionEvent(position.node_id, position.position);
+            ESP_LOGI(kTag,
+                     "rx position from=%08lX id=%08lX valid=%u",
+                     static_cast<unsigned long>(header.from),
+                     static_cast<unsigned long>(header.id),
+                     position.position.valid ? 1U : 0U);
+        }
+        else
+        {
+            ESP_LOGW(kTag,
+                     "rx position decode_fail from=%08lX id=%08lX len=%u",
+                     static_cast<unsigned long>(header.from),
+                     static_cast<unsigned long>(header.id),
+                     static_cast<unsigned>(decoded.payload.size));
         }
     }
 
     if (decoded.portnum == meshtastic_PortNum_ROUTING_APP)
     {
+        ESP_LOGI(kTag,
+                 "rx routing from=%08lX id=%08lX len=%u",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(decoded.payload.size));
         return;
     }
 
     chat::MeshIncomingText incoming_text{};
-    if (chat::meshtastic::decodeTextMessage(plaintext, plaintext_len, &incoming_text))
+    if (chat::meshtastic::decodeTextMessage(plaintext_scratch_.data(), plaintext_len, &incoming_text))
     {
         incoming_text.from = header.from;
         incoming_text.to = header.to;
@@ -546,7 +582,33 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
         incoming_text.hop_limit = header.flags & chat::meshtastic::PACKET_FLAGS_HOP_LIMIT_MASK;
         incoming_text.encrypted = (psk_len > 0);
         incoming_text.rx_meta = rx_meta;
-        text_queue_.push(incoming_text);
+        chat::infra::IncomingQueuePushReport report{};
+        if (!text_queue_.push(incoming_text,
+                              chat::infra::IncomingQueuePriority::P1User,
+                              &report))
+        {
+            ESP_LOGW(kTag,
+                     "rx text queue drop from=%08lX id=%08lX len=%u depth=%u",
+                     static_cast<unsigned long>(header.from),
+                     static_cast<unsigned long>(header.id),
+                     static_cast<unsigned>(incoming_text.text.size()),
+                     static_cast<unsigned>(text_queue_.size()));
+            return;
+        }
+        if (report.dropped_existing)
+        {
+            ESP_LOGW(kTag,
+                     "rx text queue pressure evicted_prio=%u depth=%u",
+                     static_cast<unsigned>(report.dropped_priority),
+                     static_cast<unsigned>(text_queue_.size()));
+        }
+        ESP_LOGI(kTag,
+                 "rx text queued from=%08lX to=%08lX id=%08lX ch=%u len=%u",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.to),
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(to_channel_index(channel)),
+                 static_cast<unsigned>(incoming_text.text.size()));
         return;
     }
 
@@ -562,10 +624,45 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
         incoming_data.channel_hash = header.channel;
         incoming_data.hop_limit = header.flags & chat::meshtastic::PACKET_FLAGS_HOP_LIMIT_MASK;
         incoming_data.want_response = want_response;
-        incoming_data.payload.assign(decoded.payload.bytes,
-                                     decoded.payload.bytes + decoded.payload.size);
         incoming_data.rx_meta = rx_meta;
-        data_queue_.push(incoming_data);
+        chat::infra::IncomingQueuePushReport report{};
+        if (!data_queue_.push(incoming_data,
+                              decoded.payload.bytes,
+                              decoded.payload.size,
+                              chat::infra::IncomingQueuePriority::P1User,
+                              &report))
+        {
+            ESP_LOGW(kTag,
+                     "rx appdata queue drop from=%08lX id=%08lX port=%u len=%u depth=%u",
+                     static_cast<unsigned long>(header.from),
+                     static_cast<unsigned long>(header.id),
+                     static_cast<unsigned>(decoded.portnum),
+                     static_cast<unsigned>(decoded.payload.size),
+                     static_cast<unsigned>(data_queue_.size()));
+            return;
+        }
+        if (report.dropped_existing)
+        {
+            ESP_LOGW(kTag,
+                     "rx appdata queue pressure evicted_prio=%u depth=%u",
+                     static_cast<unsigned>(report.dropped_priority),
+                     static_cast<unsigned>(data_queue_.size()));
+        }
+        ESP_LOGI(kTag,
+                 "rx appdata queued from=%08lX to=%08lX id=%08lX port=%u len=%u",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.to),
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(decoded.portnum),
+                 static_cast<unsigned>(decoded.payload.size));
+    }
+    else
+    {
+        ESP_LOGI(kTag,
+                 "rx no business payload from=%08lX id=%08lX port=%u",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(decoded.portnum));
     }
 }
 
@@ -584,6 +681,7 @@ void MeshtasticRadioAdapter::pollRadio()
         return;
     }
 
+    ESP_LOGI(kTag, "radio irq=0x%04lX", static_cast<unsigned long>(irq));
     board_.clearRadioIrqFlags(irq);
     if ((irq & kIrqRxDone) == 0)
     {
@@ -595,16 +693,32 @@ void MeshtasticRadioAdapter::pollRadio()
     const int packet_length = board_.getRadioPacketLength(true);
     if (packet_length <= 0 || packet_length > 255)
     {
+        ESP_LOGW(kTag,
+                 "rx drop invalid packet_length=%d irq=0x%04lX",
+                 packet_length,
+                 static_cast<unsigned long>(irq));
         rx_started_ = false;
         ensureReceiveStarted();
         return;
     }
 
-    uint8_t buffer[255];
-    if (board_.readRadioData(buffer, static_cast<size_t>(packet_length)) == static_cast<int>(kRadioOk))
+    if (board_.readRadioData(radio_rx_scratch_.data(),
+                             static_cast<size_t>(packet_length)) == static_cast<int>(kRadioOk))
     {
         setLastRxStats(board_.getRadioRSSI(), board_.getRadioSNR());
-        processReceivedPacket(buffer, static_cast<size_t>(packet_length));
+        ESP_LOGI(kTag,
+                 "rx raw len=%d rssi=%.1f snr=%.1f",
+                 packet_length,
+                 last_rx_rssi_,
+                 last_rx_snr_);
+        processReceivedPacket(radio_rx_scratch_.data(), static_cast<size_t>(packet_length));
+    }
+    else
+    {
+        ESP_LOGW(kTag,
+                 "rx read failed len=%d irq=0x%04lX",
+                 packet_length,
+                 static_cast<unsigned long>(irq));
     }
 
     if ((irq & (kIrqHeaderErr | kIrqCrcErr | kIrqTimeout)) != 0)
@@ -712,7 +826,12 @@ void MeshtasticRadioAdapter::ensureReceiveStarted()
 {
     if (!rx_started_)
     {
-        rx_started_ = (board_.startRadioReceive() == static_cast<int>(kRadioOk));
+        const int state = board_.startRadioReceive();
+        rx_started_ = (state == static_cast<int>(kRadioOk));
+        if (!rx_started_)
+        {
+            ESP_LOGW(kTag, "radio rx start failed state=%d", state);
+        }
     }
 }
 

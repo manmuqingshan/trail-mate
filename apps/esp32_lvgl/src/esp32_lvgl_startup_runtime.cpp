@@ -17,6 +17,7 @@
 #include "platform/ui/gps_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/settings_store.h"
+#include "product_composition/target_ux_binding.h"
 #include "ui/app_registry.h"
 #include "ui/app_runtime.h"
 #include "ui/startup_shell.h"
@@ -67,11 +68,18 @@ void applyPlatformRuntimeConfig(const Esp32LvglRuntimeConfig& config)
              app_config.motion_config.sensor_id);
 }
 
-ui::startup_shell::Hooks buildShellHooks()
+const char* activeUxPackId(const Esp32LvglRuntimeConfig& config)
+{
+    const auto* binding = product_composition::findTargetUxBinding(config.target_id);
+    return binding != nullptr ? binding->active_ux_pack_id : nullptr;
+}
+
+ui::startup_shell::Hooks buildShellHooks(const Esp32LvglRuntimeConfig& config)
 {
     ui::startup_shell::Hooks hooks{};
     hooks.messaging = app::hasAppFacade() ? &app::messagingFacade() : nullptr;
     hooks.apps = ui::appCatalog();
+    hooks.ux_pack_id = activeUxPackId(config);
     hooks.show_main_menu = menu_show;
     hooks.watch_face = ui::startup_shell::defaultWatchFaceHooks();
     hooks.set_max_brightness = []()
@@ -174,7 +182,7 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
     idf_app_runtime_access::initialize(config);
     applyPlatformRuntimeConfig(config);
 
-    const ui::startup_shell::Hooks shell_hooks = buildShellHooks();
+    const ui::startup_shell::Hooks shell_hooks = buildShellHooks(config);
 
     const size_t app_count = ui::catalogCount(shell_hooks.apps);
     ESP_LOGI(config.log_tag, "initializeShell begin app_count=%u", static_cast<unsigned>(app_count));

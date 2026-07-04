@@ -3,6 +3,7 @@
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/hostlink_runtime.h"
 #include "platform/ui/lora_runtime.h"
+#include "platform/ui/pack_repository_runtime.h"
 #include "platform/ui/route_storage.h"
 #include "platform/ui/sstv_runtime.h"
 #include "platform/ui/tracker_runtime.h"
@@ -199,10 +200,10 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
     flags.include_sstv = platform::ui::sstv::is_supported();
     flags.include_usb = platform::ui::usb_support::is_supported() &&
                         platform::ui::device::sd_ready();
-    flags.include_extensions = true;
+    flags.include_extensions = ui::runtime::packs::is_supported();
     flags.include_walkie_talkie = platform::ui::walkie::is_supported();
     APP_REG_LOG(
-        "flags profile=idf gps_map=%d skyplot=%d tracker=%d chat=%d sweep=%d pc_link=%d sstv=%d usb=%d walkie=%d gps_supported=%d gps_ready=%d sd_ready=%d\n",
+        "flags profile=idf gps_map=%d skyplot=%d tracker=%d chat=%d sweep=%d pc_link=%d sstv=%d usb=%d extensions=%d walkie=%d gps_supported=%d gps_ready=%d sd_ready=%d\n",
         flags.include_gps_map ? 1 : 0,
         flags.include_gnss_skyplot ? 1 : 0,
         flags.include_tracker ? 1 : 0,
@@ -211,6 +212,7 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
         flags.include_pc_link ? 1 : 0,
         flags.include_sstv ? 1 : 0,
         flags.include_usb ? 1 : 0,
+        flags.include_extensions ? 1 : 0,
         flags.include_walkie_talkie ? 1 : 0,
         platform::ui::device::gps_supported() ? 1 : 0,
         platform::ui::device::gps_ready() ? 1 : 0,

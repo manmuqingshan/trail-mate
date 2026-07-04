@@ -6,10 +6,10 @@
 #pragma once
 
 #include "board/LoraBoard.h"
+#include "chat/infra/mesh_incoming_queue.h"
 #include "chat/infra/rnode/rnode_packet_wire.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include <cstddef>
-#include <queue>
 
 namespace chat
 {
@@ -66,7 +66,8 @@ class RNodeAdapter : public IMeshAdapter
     chat::rnode::ReassemblyState reassembly_;
     PendingRawPacket last_raw_packet_;
     bool has_pending_raw_packet_ = false;
-    std::queue<MeshIncomingData> app_receive_queue_;
+    static constexpr std::size_t kIncomingQueueDepth = 4;
+    ::chat::infra::IncomingDataQueue<kIncomingQueueDepth, chat::rnode::kRNodeMaxPayloadSize> app_receive_queue_;
 
     void startRadioReceive();
     void enqueueIncomingData(const uint8_t* payload, size_t len);

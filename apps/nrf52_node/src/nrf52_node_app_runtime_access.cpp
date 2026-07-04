@@ -11,6 +11,11 @@
 #include "platform/nrf52/arduino_common/chat/infra/radio_packet_io.h"
 #include "platform/nrf52/debug/nrf52_debug_console.h"
 
+extern "C" bool trailmate_nrf52_debug_check_gps_guard(const char* tag)
+{
+    return trailmate::apps::nrf52_node::target_board::instance().debugCheckGpsMemoryGuard(tag);
+}
+
 namespace trailmate::apps::nrf52_node::app_runtime_access
 {
 namespace
@@ -50,12 +55,14 @@ void tick()
 {
     auto& board = target_board::instance();
     board.tickGps();
+    (void)trailmate_nrf52_debug_check_gps_guard("app_tick_after_gps");
     target_board::BoardInputEvent input_event{};
     (void)board.pollInputEvent(&input_event);
     AppFacadeRuntime& runtime = AppFacadeRuntime::instance();
     if (chat::IMeshAdapter* adapter = runtime.getMeshAdapter())
     {
         adapter->processSendQueue();
+        (void)trailmate_nrf52_debug_check_gps_guard("app_tick_after_send_queue");
 
         platform::nrf52::arduino_common::chat::infra::RadioPacket packet{};
         auto* io = platform::nrf52::arduino_common::chat::infra::radioPacketIo();
@@ -78,13 +85,18 @@ void tick()
                                                        decimalDigit(packet.rx_meta.snr_db_x10 % 10));
             }
             adapter->handleRawPacket(packet.data, packet.size);
+            (void)trailmate_nrf52_debug_check_gps_guard("app_tick_after_raw_packet");
         }
     }
 
     runtime.updateCoreServices();
+    (void)trailmate_nrf52_debug_check_gps_guard("app_tick_after_core_services");
     runtime.tickEventRuntime();
+    (void)trailmate_nrf52_debug_check_gps_guard("app_tick_after_event_runtime");
     runtime.dispatchPendingEvents();
+    (void)trailmate_nrf52_debug_check_gps_guard("app_tick_after_events");
     ui_runtime::tick(&input_event);
+    (void)trailmate_nrf52_debug_check_gps_guard("app_tick_after_ui");
 }
 
 const Status& status()

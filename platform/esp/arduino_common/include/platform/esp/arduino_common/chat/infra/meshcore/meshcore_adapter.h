@@ -6,17 +6,19 @@
 #pragma once
 
 #include "board/LoraBoard.h"
+#include "chat/infra/mesh_incoming_queue.h"
 #include "chat/infra/meshcore/meshcore_ble_backend.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/meshcore_runtime.h"
 #include "chat/runtime/protocol_runtime_factory.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_identity.h"
+#include <array>
 #include <cstddef>
-#include <deque>
+#include <cstring>
 #include <limits>
-#include <queue>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace chat
@@ -166,12 +168,12 @@ class MeshCoreAdapter : public IMeshAdapter,
         uint32_t tag = 0;
         uint32_t auth = 0;
         uint32_t trip_ms = 0;
-        std::vector<uint8_t> payload;
+        runtime::ProtocolPayloadBytes payload;
         PayloadProfile path_profile = PayloadProfile::V1;
-        std::vector<uint8_t> in_path;
-        std::vector<uint8_t> out_path;
-        std::vector<uint8_t> trace_hashes;
-        std::vector<uint8_t> trace_snrs;
+        runtime::ProtocolPathBytes in_path;
+        runtime::ProtocolPathBytes out_path;
+        runtime::ProtocolPathBytes trace_hashes;
+        runtime::ProtocolPathBytes trace_snrs;
         bool advert_is_new = false;
     };
 
@@ -222,24 +224,200 @@ class MeshCoreAdapter : public IMeshAdapter,
 
   private:
     static constexpr size_t kMaxPeerRouteCandidates = 4;
+    static constexpr size_t kMaxPeerRoutes = 128;
+    static constexpr size_t kMaxVerifiedPeers = 128;
     static constexpr size_t kMaxPersistedPeerPubKeys = 64;
     static constexpr const char* kPeerPubKeyPrefsNs = "mc_peers";
     static constexpr const char* kPeerPubKeyPrefsKey = "peer_keys";
     static constexpr const char* kPeerPubKeyPrefsKeyVer = "peer_ver";
     static constexpr uint8_t kPeerPubKeyPrefsVersion = 1;
     static constexpr size_t kMaxEventQueue = 32;
+    static constexpr size_t kMaxScheduledFrames = 24;
+    static constexpr size_t kMaxSeenPackets = 128;
+    static constexpr size_t kScheduledFrameMaxLen = 255;
+
+    struct PersistedPeerPubKeyEntryV1
+    {
+        uint8_t peer_hash = 0;
+        uint8_t flags = 0;
+        uint16_t reserved = 0;
+        uint8_t pubkey[MeshCoreIdentity::kPubKeySize] = {};
+    } __attribute__((packed));
+    static_assert(sizeof(PersistedPeerPubKeyEntryV1) == 36,
+                  "Persisted peer pubkey entry must remain stable");
+
+    struct StagedPeerPubKeySaveEntry
+    {
+        uint32_t seen_ms = 0;
+        PersistedPeerPubKeyEntryV1 entry{};
+    };
 
     struct ScheduledFrame
     {
-        std::vector<uint8_t> bytes;
+        std::array<uint8_t, kScheduledFrameMaxLen> bytes{};
+        size_t bytes_len = 0;
         uint32_t due_ms = 0;
         bool defer_during_discover = false;
+
+        bool assign(const uint8_t* data, size_t len)
+        {
+            if ((len > 0 && !data) || len > bytes.size())
+            {
+                return false;
+            }
+            if (len > 0)
+            {
+                memcpy(bytes.data(), data, len);
+            }
+            bytes_len = len;
+            return true;
+        }
     };
 
     struct SeenEntry
     {
         uint32_t signature = 0;
         uint32_t seen_ms = 0;
+    };
+
+    class ScheduledFrameQueue
+    {
+      public:
+        bool empty() const { return count_ == 0; }
+        size_t size() const { return count_; }
+        void clear()
+        {
+            for (size_t index = 0; index < count_; ++index)
+            {
+                items_[index] = ScheduledFrame{};
+            }
+            count_ = 0;
+        }
+        ScheduledFrame* at(size_t index)
+        {
+            return index < count_ ? &items_[index] : nullptr;
+        }
+        bool pushDropOldest(ScheduledFrame frame)
+        {
+            if (count_ >= kMaxScheduledFrames)
+            {
+                removeAt(0);
+            }
+            items_[count_++] = frame;
+            return true;
+        }
+        void removeAt(size_t index)
+        {
+            if (index >= count_)
+            {
+                return;
+            }
+            for (size_t move = index + 1; move < count_; ++move)
+            {
+                items_[move - 1] = items_[move];
+            }
+            --count_;
+            items_[count_] = ScheduledFrame{};
+        }
+
+      private:
+        std::array<ScheduledFrame, kMaxScheduledFrames> items_{};
+        size_t count_ = 0;
+    };
+
+    class SeenSignatureTable
+    {
+      public:
+        void prune(uint32_t now_ms, uint32_t ttl_ms)
+        {
+            for (size_t index = 0; index < count_;)
+            {
+                if ((now_ms - items_[index].seen_ms) > ttl_ms)
+                {
+                    removeAt(index);
+                    continue;
+                }
+                ++index;
+            }
+        }
+        bool contains(uint32_t signature) const
+        {
+            for (size_t index = 0; index < count_; ++index)
+            {
+                if (items_[index].signature == signature)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        void appendDropOldest(SeenEntry entry)
+        {
+            if (count_ >= kMaxSeenPackets)
+            {
+                removeAt(0);
+            }
+            items_[count_++] = entry;
+        }
+
+      private:
+        void removeAt(size_t index)
+        {
+            if (index >= count_)
+            {
+                return;
+            }
+            for (size_t move = index + 1; move < count_; ++move)
+            {
+                items_[move - 1] = items_[move];
+            }
+            --count_;
+            items_[count_] = SeenEntry{};
+        }
+
+        std::array<SeenEntry, kMaxSeenPackets> items_{};
+        size_t count_ = 0;
+    };
+
+    class EventQueue
+    {
+      public:
+        bool pop(Event* out)
+        {
+            if (!out || count_ == 0)
+            {
+                return false;
+            }
+            *out = std::move(items_[0]);
+            removeAt(0);
+            return true;
+        }
+        void pushDropOldest(Event&& event)
+        {
+            if (count_ >= kMaxEventQueue)
+            {
+                removeAt(0);
+            }
+            items_[count_++] = std::move(event);
+        }
+
+      private:
+        void removeAt(size_t index)
+        {
+            if (index >= count_)
+            {
+                return;
+            }
+            for (size_t move = index + 1; move < count_; ++move)
+            {
+                items_[move - 1] = std::move(items_[move]);
+            }
+            --count_;
+            items_[count_] = Event{};
+        }
+
+        std::array<Event, kMaxEventQueue> items_{};
+        size_t count_ = 0;
     };
 
     struct PeerRouteEntry
@@ -278,6 +456,134 @@ class MeshCoreAdapter : public IMeshAdapter,
         uint8_t best_candidate = 0;
         uint8_t candidate_count = 0;
         PathCandidate candidates[kMaxPeerRouteCandidates];
+    };
+
+    class PeerRouteTable
+    {
+      public:
+        using iterator = PeerRouteEntry*;
+        using const_iterator = const PeerRouteEntry*;
+
+        iterator begin() { return entries_.data(); }
+        iterator end() { return entries_.data() + count_; }
+        const_iterator begin() const { return entries_.data(); }
+        const_iterator end() const { return entries_.data() + count_; }
+
+        size_t size() const { return count_; }
+        bool empty() const { return count_ == 0; }
+
+        void clear()
+        {
+            for (size_t index = 0; index < count_; ++index)
+            {
+                entries_[index] = PeerRouteEntry{};
+            }
+            count_ = 0;
+        }
+
+        iterator erase(iterator it)
+        {
+            if (it < begin() || it >= end())
+            {
+                return end();
+            }
+            const size_t index = static_cast<size_t>(it - begin());
+            removeAt(index);
+            return begin() + index;
+        }
+
+        bool push_back(const PeerRouteEntry& entry)
+        {
+            if (count_ >= entries_.size())
+            {
+                return false;
+            }
+            entries_[count_++] = entry;
+            return true;
+        }
+
+        PeerRouteEntry& back() { return entries_[count_ - 1]; }
+        const PeerRouteEntry& back() const { return entries_[count_ - 1]; }
+
+      private:
+        void removeAt(size_t index)
+        {
+            if (index >= count_)
+            {
+                return;
+            }
+            for (size_t move = index + 1; move < count_; ++move)
+            {
+                entries_[move - 1] = entries_[move];
+            }
+            --count_;
+            entries_[count_] = PeerRouteEntry{};
+        }
+
+        std::array<PeerRouteEntry, kMaxPeerRoutes> entries_{};
+        size_t count_ = 0;
+    };
+
+    class VerifiedPeerTable
+    {
+      public:
+        using iterator = NodeId*;
+        using const_iterator = const NodeId*;
+
+        iterator begin() { return peers_.data(); }
+        iterator end() { return peers_.data() + count_; }
+        const_iterator begin() const { return peers_.data(); }
+        const_iterator end() const { return peers_.data() + count_; }
+
+        size_t size() const { return count_; }
+
+        void clear()
+        {
+            for (size_t index = 0; index < count_; ++index)
+            {
+                peers_[index] = 0;
+            }
+            count_ = 0;
+        }
+
+        iterator erase(iterator it)
+        {
+            if (it < begin() || it >= end())
+            {
+                return end();
+            }
+            const size_t index = static_cast<size_t>(it - begin());
+            removeAt(index);
+            return begin() + index;
+        }
+
+        bool push_back(NodeId peer)
+        {
+            if (count_ >= peers_.size())
+            {
+                return false;
+            }
+            peers_[count_++] = peer;
+            return true;
+        }
+
+      private:
+        void removeAt(size_t index)
+        {
+            if (index >= count_)
+            {
+                return;
+            }
+            for (size_t move = index + 1; move < count_; ++move)
+            {
+                peers_[move - 1] = peers_[move];
+            }
+            --count_;
+            peers_[count_] = 0;
+        }
+
+        std::array<NodeId, kMaxVerifiedPeers> peers_{};
+        size_t count_ = 0;
     };
 
     struct KeyVerifySession
@@ -324,23 +630,28 @@ class MeshCoreAdapter : public IMeshAdapter,
     bool initialized_;
 
     // Receive queue for parsed messages
-    std::queue<MeshIncomingText> receive_queue_;
-    std::queue<MeshIncomingData> app_receive_queue_;
+    static constexpr std::size_t kIncomingQueueDepth = 12;
+    ::chat::infra::IncomingTextQueue<kIncomingQueueDepth> receive_queue_;
+    ::chat::infra::IncomingDataQueue<kIncomingQueueDepth> app_receive_queue_;
+    std::array<uint8_t, ::chat::infra::kIncomingDataPayloadMaxLen> incoming_data_scratch_ = {};
 
     // Raw packet storage for debugging/inspection
     uint8_t last_raw_packet_[256];
     size_t last_raw_packet_len_;
     bool has_pending_raw_packet_;
-    std::deque<ScheduledFrame> scheduled_tx_;
-    std::deque<SeenEntry> seen_recent_;
-    std::deque<Event> events_;
-    std::vector<PeerRouteEntry> peer_routes_;
-    std::vector<NodeId> verified_peers_;
+    ScheduledFrameQueue scheduled_tx_;
+    SeenSignatureTable seen_recent_;
+    EventQueue events_;
+    PeerRouteTable peer_routes_;
+    VerifiedPeerTable verified_peers_;
+    std::array<StagedPeerPubKeySaveEntry, kMaxPersistedPeerPubKeys> peer_key_save_scratch_{};
+    std::array<PersistedPeerPubKeyEntryV1, kMaxPersistedPeerPubKeys> peer_key_save_entries_{};
     KeyVerifySession key_verify_session_;
 
     MessageId next_msg_id_;
     std::array<uint8_t, 16> flood_scope_key_ = {};
     runtime::MeshCoreRuntime protocol_runtime_{};
+    runtime::ProtocolEffectWorkspace protocol_effect_workspace_{};
 
     static constexpr uint32_t kDiscoverRxGuardDefaultMs = 5000;
 
@@ -442,9 +753,11 @@ class MeshCoreAdapter : public IMeshAdapter,
     bool sendIdentityAdvert(bool broadcast);
     bool sendIdentityAdvert(bool broadcast, bool include_location,
                             int32_t lat_i6, int32_t lon_i6);
-    bool handleControlAppData(const MeshIncomingData& incoming);
-    bool handleNodeInfoControl(const MeshIncomingData& incoming);
-    bool handleKeyVerifyControl(const MeshIncomingData& incoming);
+    bool enqueueIncomingText(const MeshIncomingText& metadata, const char* text, size_t text_len);
+    bool enqueueIncomingData(const MeshIncomingData& metadata, const uint8_t* payload, size_t payload_len);
+    bool handleControlAppData(const MeshIncomingData& incoming, const uint8_t* payload, size_t payload_len);
+    bool handleNodeInfoControl(const MeshIncomingData& incoming, const uint8_t* payload, size_t payload_len);
+    bool handleKeyVerifyControl(const MeshIncomingData& incoming, const uint8_t* payload, size_t payload_len);
     uint32_t computeVerificationNumber(NodeId peer, uint64_t nonce) const;
     bool isPeerVerified(NodeId peer) const;
     void markPeerVerified(NodeId peer);

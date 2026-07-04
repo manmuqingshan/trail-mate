@@ -684,6 +684,42 @@ bool get_blob(const char* ns, const char* key, std::vector<uint8_t>& out)
     return true;
 }
 
+bool get_blob_into(const char* ns,
+                   const char* key,
+                   void* out,
+                   std::size_t capacity,
+                   std::size_t* out_len)
+{
+    if (out_len)
+    {
+        *out_len = 0;
+    }
+    if (!key || (!out && capacity != 0))
+    {
+        return false;
+    }
+    ensureLoaded();
+    const auto it = blobStore().find(makeScopedKey(ns, key));
+    if (it == blobStore().end())
+    {
+        return false;
+    }
+    const std::size_t size = it->second.size();
+    if (out_len)
+    {
+        *out_len = size;
+    }
+    if (size > capacity)
+    {
+        return false;
+    }
+    if (size > 0)
+    {
+        std::memcpy(out, it->second.data(), size);
+    }
+    return true;
+}
+
 void remove_keys(const char* ns, const char* const* keys, std::size_t key_count)
 {
     if (!keys)

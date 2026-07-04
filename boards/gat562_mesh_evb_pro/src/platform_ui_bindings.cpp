@@ -336,8 +336,7 @@ GpsDiagnosticsSnapshot diagnostics()
 
     GnssStatus status{};
     std::size_t sat_count = 0;
-    ::gps::GnssSatInfo sats[::gps::kMaxGnssSats]{};
-    if (get_gnss_snapshot(sats, ::gps::kMaxGnssSats, &sat_count, &status))
+    if (get_gnss_snapshot(nullptr, 0, &sat_count, &status))
     {
         snapshot.sats_in_view = status.sats_in_view;
         snapshot.sats_in_use = status.sats_in_use;
@@ -423,6 +422,16 @@ void set_motion_idle_timeout(uint32_t timeout_ms)
 void set_motion_sensor_id(uint8_t sensor_id)
 {
     ::boards::gat562_mesh_evb_pro::Gat562Board::instance().setGpsMotionSensorId(sensor_id);
+}
+
+void acquire_power_lease(const char* reason)
+{
+    (void)reason;
+}
+
+void release_power_lease(const char* reason)
+{
+    (void)reason;
 }
 
 void suspend_runtime()

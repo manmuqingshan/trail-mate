@@ -25,6 +25,21 @@ constexpr const char* kInstalledStorage = "linux-local";
 constexpr std::size_t kTextFileReadChunkBytes = 4096;
 constexpr std::size_t kMaxDescriptionBytes = 16 * 1024;
 
+PackageInstallStatus s_install_status{};
+
+void set_install_status(PackageInstallPhase phase,
+                        bool busy,
+                        const std::string& package_id,
+                        const char* message,
+                        const char* detail = nullptr)
+{
+    s_install_status.phase = phase;
+    s_install_status.busy = busy;
+    s_install_status.package_id = package_id;
+    s_install_status.message = message ? message : "";
+    s_install_status.detail = detail ? detail : "";
+}
+
 std::string trim_copy(std::string value)
 {
     auto is_space = [](unsigned char ch)
@@ -402,6 +417,28 @@ bool install_package(const PackageRecord& package, std::string& out_error)
         return false;
     }
     return true;
+}
+
+bool start_install_package(const PackageRecord& package, std::string& out_error)
+{
+    set_install_status(PackageInstallPhase::Installing,
+                       true,
+                       package.id,
+                       "Installing package...",
+                       package.id.c_str());
+    const bool ok = install_package(package, out_error);
+    set_install_status(ok ? PackageInstallPhase::Succeeded : PackageInstallPhase::Failed,
+                       false,
+                       package.id,
+                       ok ? "Package installed"
+                          : (out_error.empty() ? "Install package failed" : out_error.c_str()),
+                       package.id.c_str());
+    return ok;
+}
+
+PackageInstallStatus install_status()
+{
+    return s_install_status;
 }
 
 bool uninstall_package(const PackageRecord& package, std::string& out_error)

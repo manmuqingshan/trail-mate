@@ -48,6 +48,8 @@ void set_receiver_init_config(const GpsReceiverInitConfig& config);
 void set_fallback_mode(FallbackMode mode);
 void set_motion_idle_timeout(uint32_t timeout_ms);
 void set_motion_sensor_id(uint8_t sensor_id);
+void acquire_power_lease(const char* reason);
+void release_power_lease(const char* reason);
 void suspend_runtime();
 void resume_runtime();
 double calculate_map_resolution(int zoom, double lat);

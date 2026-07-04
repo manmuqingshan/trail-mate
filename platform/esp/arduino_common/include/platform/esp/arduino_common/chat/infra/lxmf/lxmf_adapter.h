@@ -7,6 +7,7 @@
 
 #include "board/LoraBoard.h"
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "chat/infra/mesh_incoming_queue.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_state.h"
@@ -14,7 +15,6 @@
 
 #include <array>
 #include <cstddef>
-#include <queue>
 #include <vector>
 
 namespace chat::lxmf
@@ -72,8 +72,9 @@ class LxmfAdapter : public IMeshAdapter
     rnode::RNodeAdapter raw_;
     LxmfIdentity identity_;
     MeshConfig config_{};
-    std::queue<MeshIncomingText> text_receive_queue_;
-    std::queue<MeshIncomingData> data_receive_queue_;
+    static constexpr std::size_t kIncomingQueueDepth = 4;
+    ::chat::infra::IncomingTextQueue<kIncomingQueueDepth, reticulum::kReticulumMtu> text_receive_queue_;
+    ::chat::infra::IncomingDataQueue<kIncomingQueueDepth, reticulum::kReticulumMtu> data_receive_queue_;
     std::vector<PeerInfo> peers_;
     runtime::TransportRuntime transport_;
     runtime::LinkRuntime links_;

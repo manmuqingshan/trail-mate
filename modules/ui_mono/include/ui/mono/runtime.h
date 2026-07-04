@@ -84,6 +84,8 @@ struct HostCallbacks
     platform::ui::gps::GpsState (*gps_data_fn)() = nullptr;
     bool (*gps_enabled_fn)() = nullptr;
     bool (*gps_powered_fn)() = nullptr;
+    void (*gps_acquire_power_lease_fn)(const char* reason) = nullptr;
+    void (*gps_release_power_lease_fn)(const char* reason) = nullptr;
     ResourceUsage (*ram_usage_fn)() = nullptr;
     ResourceUsage (*flash_usage_fn)() = nullptr;
     bool (*clear_volatile_storage_fn)() = nullptr;
@@ -285,6 +287,8 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     Page mainMenuPageForIndex(size_t index) const;
     size_t nodeActionCount() const;
     const char* nodeActionLabel(size_t index) const;
+    bool pageUsesGpsPowerLease(Page page) const;
+    void updateGpsPowerLease(Page previous, Page next);
 
     uint32_t nowMs() const;
     app::IAppFacade* app() const;
@@ -349,6 +353,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     size_t gnss_page_index_ = 0;
     uint32_t last_compass_render_ms_ = 0;
     chat::runtime::MeshtasticRuntime meshtastic_protocol_runtime_{};
+    chat::runtime::ProtocolEffectWorkspace meshtastic_protocol_effect_workspace_{};
     chat::MessageId next_meshtastic_action_request_id_ = 0;
 
     static constexpr size_t kMaxConversationItems = 8;

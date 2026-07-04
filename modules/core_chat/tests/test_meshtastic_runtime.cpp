@@ -11,11 +11,66 @@
 namespace
 {
 
-template <typename T>
-const T* effectAt(const chat::runtime::ProtocolEffects& effects, size_t index)
+template <typename T, typename Effects>
+const T* effectAt(const Effects& effects, size_t index)
 {
     assert(index < effects.items.size());
     return std::get_if<T>(&effects.items[index]);
+}
+
+struct CapturedIncomingResult
+{
+    chat::runtime::PacketHandling handling = chat::runtime::PacketHandling::NotHandled;
+    chat::runtime::ProtocolEffects effects{};
+};
+
+chat::runtime::ProtocolEffects collectPrepareOutgoing(
+    chat::runtime::MeshtasticRuntime& runtime,
+    const chat::runtime::ProtocolIntent& intent,
+    const chat::runtime::RuntimeContext& context)
+{
+    chat::runtime::ProtocolEffects effects{};
+    runtime.prepareOutgoing(intent, context, effects);
+    return effects;
+}
+
+CapturedIncomingResult collectHandleIncomingPacket(
+    chat::runtime::MeshtasticRuntime& runtime,
+    const chat::runtime::IncomingPacket& packet,
+    const chat::runtime::RuntimeContext& context)
+{
+    CapturedIncomingResult captured{};
+    const auto result = runtime.handleIncomingPacket(packet, context, captured.effects);
+    captured.handling = result.handling;
+    return captured;
+}
+
+chat::runtime::ProtocolTxFeedbackEffects collectHandleTxResult(
+    chat::runtime::MeshtasticRuntime& runtime,
+    const chat::runtime::TxResult& result,
+    const chat::runtime::RuntimeContext& context)
+{
+    chat::runtime::ProtocolTxFeedbackEffects effects{};
+    runtime.handleTxResult(result, context, effects);
+    return effects;
+}
+
+chat::runtime::ProtocolEffects collectTick(
+    chat::runtime::MeshtasticRuntime& runtime,
+    const chat::runtime::RuntimeContext& context)
+{
+    chat::runtime::ProtocolEffects effects{};
+    runtime.tick(context, effects);
+    return effects;
+}
+
+chat::runtime::ProtocolEffects collectPkiResync(
+    chat::runtime::MeshtasticRuntime& runtime,
+    const chat::runtime::MeshtasticPkiResyncInput& input)
+{
+    chat::runtime::ProtocolEffects effects{};
+    runtime.handlePkiResync(input, effects);
+    return effects;
 }
 
 std::vector<uint8_t> encodeRouting(meshtastic_Routing_Error reason)
@@ -74,7 +129,7 @@ int main()
         intent.message_id = 0x01020304UL;
         intent.text = "hello runtime";
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* text = effectAt<SendTextEffect>(effects, 0);
         assert(text);
@@ -89,7 +144,7 @@ int main()
         SendTextIntent intent{};
         intent.peer = 0xFFFFFFFFUL;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* failed = effectAt<EmitActionResultEffect>(effects, 0);
         assert(failed);
@@ -108,7 +163,7 @@ int main()
         intent.request_id = 0x01020304UL;
         intent.timeout_ms = 9000;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* packet = effectAt<SendPacketEffect>(effects, 0);
         assert(packet);
@@ -157,7 +212,7 @@ int main()
         intent.peer = 0x33333333UL;
         intent.request_id = 0x05060708UL;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* packet = effectAt<SendPacketEffect>(effects, 0);
         assert(packet);
@@ -188,7 +243,7 @@ int main()
         request.rx_meta.wire_flags = 0x4A;
         request.rx_meta.snr_db_x10 = 58;
 
-        const auto result = reply_runtime.handleIncomingPacket(request, reply_context);
+        const auto result = collectHandleIncomingPacket(reply_runtime, request, reply_context);
         assert(result.handling == PacketHandling::HandledContinue);
         assert(result.effects.items.size() == 2);
 
@@ -233,7 +288,7 @@ int main()
         request.portnum = meshtastic_PortNum_POSITION_APP;
         request.want_response = true;
 
-        const auto result = reply_runtime.handleIncomingPacket(request, reply_context);
+        const auto result = collectHandleIncomingPacket(reply_runtime, request, reply_context);
         assert(result.handling == PacketHandling::HandledContinue);
         assert(result.effects.items.size() == 1);
 
@@ -273,7 +328,7 @@ int main()
         intent.altitude_m = 1903.6;
         intent.timestamp_s = 1710000000U;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* packet = effectAt<SendPacketEffect>(effects, 0);
         assert(packet);
@@ -303,7 +358,7 @@ int main()
         intent.peer = 0x55555555UL;
         intent.valid = false;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* failed = effectAt<EmitActionResultEffect>(effects, 0);
         assert(failed);
@@ -325,7 +380,7 @@ int main()
         intent.name = "Trail Mate POI";
         intent.description = "Shared from uConsole current GPS fix";
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* packet = effectAt<SendPacketEffect>(effects, 0);
         assert(packet);
@@ -356,7 +411,7 @@ int main()
         intent.peer = 0x77777777UL;
         intent.valid = false;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* failed = effectAt<EmitActionResultEffect>(effects, 0);
         assert(failed);
@@ -371,7 +426,7 @@ int main()
         intent.peer = context.self_node;
         intent.request_id = 0x0A0B0C0DUL;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* failed = effectAt<EmitActionResultEffect>(effects, 0);
         assert(failed);
@@ -391,16 +446,17 @@ int main()
         intent.peer = 0x24242424UL;
         intent.request_id = 0x6006UL;
         intent.timeout_ms = 5000;
-        assert(action_runtime.prepareOutgoing(intent, action_context).items.size() == 1);
+        assert(collectPrepareOutgoing(action_runtime, intent, action_context).items.size() == 1);
 
         IncomingPacket routing{};
         routing.protocol = MeshProtocol::Meshtastic;
         routing.portnum = meshtastic_PortNum_ROUTING_APP;
         routing.request_id = intent.request_id;
-        routing.payload = encodeRouting(meshtastic_Routing_Error_NONE);
+        const auto routing_payload = encodeRouting(meshtastic_Routing_Error_NONE);
+        assert(routing.payload.assign(routing_payload));
         action_context.now_ms = 1200;
 
-        const auto delivered_result = action_runtime.handleIncomingPacket(routing, action_context);
+        const auto delivered_result = collectHandleIncomingPacket(action_runtime, routing, action_context);
         assert(delivered_result.handling == PacketHandling::HandledStop);
         const auto& delivered_effects = delivered_result.effects;
         assert(delivered_effects.items.size() == 1);
@@ -417,7 +473,7 @@ int main()
         response.payload.push_back(0);
         action_context.now_ms = 1500;
 
-        const auto completed_result = action_runtime.handleIncomingPacket(response, action_context);
+        const auto completed_result = collectHandleIncomingPacket(action_runtime, response, action_context);
         assert(completed_result.handling == PacketHandling::HandledStop);
         const auto& completed_effects = completed_result.effects;
         assert(completed_effects.items.size() == 1);
@@ -436,7 +492,7 @@ int main()
         ExchangePositionIntent intent{};
         intent.peer = 0x35353535UL;
         intent.request_id = 0x7007UL;
-        assert(action_runtime.prepareOutgoing(intent, action_context).items.size() == 1);
+        assert(collectPrepareOutgoing(action_runtime, intent, action_context).items.size() == 1);
 
         TxResult tx{};
         tx.protocol = MeshProtocol::Meshtastic;
@@ -444,7 +500,7 @@ int main()
         tx.ok = false;
         action_context.now_ms = 2100;
 
-        const auto failed_effects = action_runtime.handleTxResult(tx, action_context);
+        const auto failed_effects = collectHandleTxResult(action_runtime, tx, action_context);
         assert(failed_effects.items.size() == 1);
         const auto* failed = effectAt<EmitActionResultEffect>(failed_effects, 0);
         assert(failed);
@@ -461,13 +517,13 @@ int main()
         ExchangePositionIntent intent{};
         intent.peer = 0x46464646UL;
         intent.request_id = 0x8008UL;
-        assert(action_runtime.prepareOutgoing(intent, action_context).items.size() == 1);
+        assert(collectPrepareOutgoing(action_runtime, intent, action_context).items.size() == 1);
 
         action_context.now_ms = 3000 + kMeshtasticAppActionTimeoutMs - 1;
-        assert(action_runtime.tick(action_context).items.empty());
+        assert(collectTick(action_runtime, action_context).items.empty());
 
         action_context.now_ms = 3000 + kMeshtasticAppActionTimeoutMs;
-        const auto timeout_effects = action_runtime.tick(action_context);
+        const auto timeout_effects = collectTick(action_runtime, action_context);
         assert(timeout_effects.items.size() == 1);
         const auto* timed_out = effectAt<EmitActionResultEffect>(timeout_effects, 0);
         assert(timed_out);
@@ -480,7 +536,7 @@ int main()
         packet.protocol = MeshProtocol::Meshtastic;
         packet.portnum = 0xFEEDUL;
 
-        const auto result = runtime.handleIncomingPacket(packet, context);
+        const auto result = collectHandleIncomingPacket(runtime, packet, context);
         assert(result.handling == PacketHandling::NotHandled);
         assert(result.effects.empty());
     }
@@ -492,7 +548,7 @@ int main()
         input.request_id = 0x1001UL;
         input.channel = ChannelId::PRIMARY;
 
-        const auto effects = runtime.handlePkiResync(input);
+        const auto effects = collectPkiResync(runtime, input);
         assert(effects.items.size() == 2);
 
         const auto* node_info = effectAt<SendNodeInfoEffect>(effects, 0);
@@ -515,7 +571,7 @@ int main()
         input.request_id = 0x2002UL;
         input.channel = ChannelId::SECONDARY;
 
-        const auto effects = runtime.handlePkiResync(input);
+        const auto effects = collectPkiResync(runtime, input);
         assert(effects.items.size() == 3);
 
         const auto* forget = effectAt<ForgetPeerKeyEffect>(effects, 0);
@@ -537,7 +593,7 @@ int main()
         input.peer = 0x0BADF00DUL;
         input.request_id = 0x3003UL;
 
-        const auto effects = runtime.handlePkiResync(input);
+        const auto effects = collectPkiResync(runtime, input);
         assert(effects.items.size() == 1);
         assert(effectAt<SendNodeInfoEffect>(effects, 0));
     }
@@ -548,7 +604,7 @@ int main()
         input.peer = 0x11223344UL;
         input.request_id = 0x5005UL;
 
-        const auto effects = runtime.handlePkiResync(input);
+        const auto effects = collectPkiResync(runtime, input);
         assert(effects.items.size() == 2);
         assert(effectAt<SendNodeInfoEffect>(effects, 0));
 
@@ -565,7 +621,7 @@ int main()
         input.peer = 0;
         input.request_id = 0x4004UL;
 
-        const auto effects = runtime.handlePkiResync(input);
+        const auto effects = collectPkiResync(runtime, input);
         assert(effects.empty());
     }
 

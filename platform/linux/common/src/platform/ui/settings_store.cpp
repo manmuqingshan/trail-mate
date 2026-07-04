@@ -413,6 +413,42 @@ bool get_blob(const char* ns, const char* key, std::vector<uint8_t>& out)
     return load_value(ns, key, ValueKind::Blob, out);
 }
 
+bool get_blob_into(const char* ns,
+                   const char* key,
+                   void* out,
+                   std::size_t capacity,
+                   std::size_t* out_len)
+{
+    if (out_len)
+    {
+        *out_len = 0;
+    }
+    if (!out && capacity != 0)
+    {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(s_store_mutex);
+    std::vector<uint8_t> payload;
+    if (!load_value(ns, key, ValueKind::Blob, payload))
+    {
+        return false;
+    }
+    if (out_len)
+    {
+        *out_len = payload.size();
+    }
+    if (payload.size() > capacity)
+    {
+        return false;
+    }
+    if (!payload.empty())
+    {
+        std::memcpy(out, payload.data(), payload.size());
+    }
+    return true;
+}
+
 void remove_keys(const char* ns, const char* const* keys, std::size_t key_count)
 {
     if (!ns || !keys || key_count == 0U)

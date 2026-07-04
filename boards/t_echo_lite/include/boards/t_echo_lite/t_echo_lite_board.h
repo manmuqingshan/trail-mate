@@ -9,7 +9,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 
 class TwoWire;
 
@@ -170,6 +169,7 @@ class TEchoLiteBoard final : public BoardBase
                          std::size_t max,
                          std::size_t* out_count,
                          ::gps::GnssStatus* status) const;
+    bool debugCheckGpsMemoryGuard(const char* reason);
     void setGpsCollectionInterval(uint32_t interval_ms);
     void setGpsEnabled(bool enabled);
     void setGpsPowerStrategy(uint8_t strategy);
@@ -177,6 +177,8 @@ class TEchoLiteBoard final : public BoardBase
     void setGpsExternalNmeaConfig(uint8_t output_hz, uint8_t sentence_mask);
     void setGpsMotionIdleTimeout(uint32_t timeout_ms);
     void setGpsMotionSensorId(uint8_t sensor_id);
+    void acquireGpsPowerLease(const char* reason);
+    void releaseGpsPowerLease(const char* reason);
     platform::ui::compass::CompassState compassState();
     void suspendGps();
     void resumeGps();
@@ -212,8 +214,8 @@ class TEchoLiteBoard final : public BoardBase
     bool message_keyboard_light_enabled_ = true;
     uint8_t status_led_color_index_ = 0;
     uint8_t message_tone_volume_ = 45;
-    std::unique_ptr<GpsRuntime> gps_runtime_;
-    std::unique_ptr<InputRuntime> input_runtime_;
+    GpsRuntime* gps_runtime_ = nullptr;
+    InputRuntime* input_runtime_ = nullptr;
 };
 
 } // namespace boards::t_echo_lite

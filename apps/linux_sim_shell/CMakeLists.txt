@@ -122,6 +122,21 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_chat_presentation_source_smoke
              COMMAND trailmate_chat_presentation_source_smoke)
 
+    add_executable(trailmate_chat_service_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_chat_service_resend.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/domain/chat_model.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/chat_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/store/ram_store.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+    target_include_directories(trailmate_chat_service_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_chat_service_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_chat_service_smoke
+             COMMAND trailmate_chat_service_smoke)
+
     add_executable(trailmate_mesh_adapter_router_core_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_adapter_router_core.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_adapter_router_core.cpp")
@@ -668,6 +683,10 @@ if(BUILD_TESTING)
             "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
     target_compile_features(trailmate_team_page_deferred_dispatch_smoke
         PRIVATE cxx_std_17)
+    if(WIN32)
+        set_target_properties(trailmate_team_page_deferred_dispatch_smoke
+            PROPERTIES OUTPUT_NAME trailmate_team_page_deferred_queue_smoke)
+    endif()
     add_test(NAME trailmate_team_page_deferred_dispatch_smoke
              COMMAND trailmate_team_page_deferred_dispatch_smoke)
 

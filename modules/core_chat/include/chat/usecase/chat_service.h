@@ -9,8 +9,8 @@
 #include "../domain/chat_types.h"
 #include "../ports/i_chat_store.h"
 #include "../ports/i_mesh_adapter.h"
+#include <array>
 #include <cstddef>
-#include <deque>
 #include <vector>
 
 namespace chat
@@ -187,6 +187,17 @@ class ChatService
 
     static constexpr std::size_t kRecentIncomingLimit = 256;
 
+    struct RecentIncomingWindow
+    {
+        void clear();
+        [[nodiscard]] bool contains(const IncomingIdentity& identity) const;
+        void remember(const IncomingIdentity& identity);
+
+        std::array<IncomingIdentity, kRecentIncomingLimit> entries{};
+        std::size_t next = 0;
+        std::size_t count = 0;
+    };
+
     ChatModel& model_;
     IMeshAdapter& adapter_;
     IChatStore& store_;
@@ -194,7 +205,7 @@ class ChatService
     bool model_enabled_ = true;
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;
     mutable ChatMessage store_lookup_cache_{};
-    std::deque<IncomingIdentity> recent_incoming_{};
+    RecentIncomingWindow recent_incoming_{};
 
     std::vector<IncomingTextObserver*> incoming_text_observers_;
     std::vector<IncomingMessageObserver*> incoming_message_observers_;

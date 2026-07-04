@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstddef>
+#include <utility>
 
 namespace sys
 {
@@ -27,22 +28,64 @@ class RingBuffer
     /**
      * @brief Append an element to the buffer
      * @param item Item to append
-     * @return true if successful, false if buffer is full
+     * @return true after appending; when full, the oldest element is dropped
      */
-    bool append(const T& item)
+    bool append(const T& item, bool* dropped = nullptr)
     {
+        return appendImpl(item, dropped);
+    }
+
+    bool append(T&& item, bool* dropped = nullptr)
+    {
+        return appendImpl(std::move(item), dropped);
+    }
+
+    bool popOldest(T* out)
+    {
+        if (!out || count_ == 0)
+        {
+            return false;
+        }
+
+        *out = std::move(buffer_[tail_]);
+        tail_ = (tail_ + 1) % N;
+        count_--;
+        return true;
+    }
+
+    bool pushDropOldest(const T& item, bool* dropped = nullptr)
+    {
+        return append(item, dropped);
+    }
+
+    bool pushDropOldest(T&& item, bool* dropped = nullptr)
+    {
+        return append(std::move(item), dropped);
+    }
+
+  private:
+    template <typename U>
+    bool appendImpl(U&& item, bool* dropped)
+    {
+        bool was_full = false;
         if (count_ >= N)
         {
             // Buffer full, overwrite oldest
             tail_ = (tail_ + 1) % N;
             count_--;
+            was_full = true;
         }
-        buffer_[head_] = item;
+        if (dropped)
+        {
+            *dropped = was_full;
+        }
+        buffer_[head_] = std::forward<U>(item);
         head_ = (head_ + 1) % N;
         count_++;
         return true;
     }
 
+  public:
     /**
      * @brief Get element at index (0 = oldest, count-1 = newest)
      * @param index Index
@@ -95,6 +138,11 @@ class RingBuffer
         return count_;
     }
 
+    size_t size() const
+    {
+        return count_;
+    }
+
     /**
      * @brief Check if buffer is full
      */
@@ -107,6 +155,11 @@ class RingBuffer
      * @brief Check if buffer is empty
      */
     bool isEmpty() const
+    {
+        return count_ == 0;
+    }
+
+    bool empty() const
     {
         return count_ == 0;
     }

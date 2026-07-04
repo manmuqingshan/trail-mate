@@ -1,6 +1,8 @@
 #include "chat/infra/meshtastic/mt_protocol_helpers.h"
 #include "fake_phone_runtime_context.h"
 #include "phone/meshcore/meshcore_phone_core.h"
+#include "phone/meshtastic/meshtastic_defaults.h"
+#include "phone/meshtastic/meshtastic_phone_config_bridge.h"
 #include "phone/meshtastic/meshtastic_phone_session.h"
 
 #include <algorithm>
@@ -34,10 +36,12 @@ class FakeMeshtasticTransport final : public phone::meshtastic::MeshtasticPhoneT
         last_from_num = from_num;
         notify_count++;
     }
+    void requestPhoneDisconnect() override { disconnect_count++; }
 
     bool connected = true;
     uint32_t last_from_num = 0;
     int notify_count = 0;
+    int disconnect_count = 0;
 };
 
 class FakeBluetoothConfigHooks final : public phone::meshtastic::MeshtasticPhoneBluetoothConfigHooks
@@ -66,6 +70,37 @@ class FakeModuleConfigHooks final : public phone::meshtastic::MeshtasticPhoneMod
 
     int save_count = 0;
     meshtastic_LocalModuleConfig last_saved = meshtastic_LocalModuleConfig_init_zero;
+};
+
+class FakeMqttHooks final : public phone::meshtastic::MeshtasticPhoneMqttHooks
+{
+  public:
+    bool handleMqttProxyToRadio(const meshtastic_MqttClientProxyMessage& msg) override
+    {
+        to_radio.push_back(msg);
+        return true;
+    }
+
+    bool pollMqttProxyToPhone(meshtastic_MqttClientProxyMessage* out) override
+    {
+        poll_count++;
+        if (!out || to_phone.empty())
+        {
+            return false;
+        }
+        *out = to_phone.front();
+        to_phone.erase(to_phone.begin());
+        return true;
+    }
+
+    bool hasMqttProxyToPhone() const override
+    {
+        return !to_phone.empty();
+    }
+
+    int poll_count = 0;
+    std::vector<meshtastic_MqttClientProxyMessage> to_phone;
+    std::vector<meshtastic_MqttClientProxyMessage> to_radio;
 };
 
 class FakeMeshCoreContactHooks final : public phone::meshcore::MeshCorePhoneHooks
@@ -116,6 +151,16 @@ void copyBounded(char* dst, size_t dst_len, const char* src)
         dst[i] = src[i];
     }
     dst[i] = '\0';
+}
+
+meshtastic_MqttClientProxyMessage makeMqttProxyMessage(const char* topic, const char* text)
+{
+    meshtastic_MqttClientProxyMessage msg = meshtastic_MqttClientProxyMessage_init_zero;
+    copyBounded(msg.topic, sizeof(msg.topic), topic);
+    msg.which_payload_variant = meshtastic_MqttClientProxyMessage_text_tag;
+    copyBounded(msg.payload_variant.text, sizeof(msg.payload_variant.text), text);
+    msg.retained = true;
+    return msg;
 }
 
 bool encodeAdminToRadio(const meshtastic_AdminMessage& admin,
@@ -302,11 +347,114 @@ bool encodeWantConfigToRadio(uint8_t* out, size_t out_len, size_t& written, uint
     return true;
 }
 
+bool encodeHeartbeatToRadio(uint8_t* out, size_t out_len, size_t& written, uint32_t nonce)
+{
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_zero;
+    to_radio.which_payload_variant = meshtastic_ToRadio_heartbeat_tag;
+    to_radio.heartbeat.nonce = nonce;
+
+    pb_ostream_t to_radio_stream = pb_ostream_from_buffer(out, out_len);
+    if (!pb_encode(&to_radio_stream, meshtastic_ToRadio_fields, &to_radio))
+    {
+        return false;
+    }
+    written = to_radio_stream.bytes_written;
+    return true;
+}
+
+bool encodeDisconnectToRadio(uint8_t* out, size_t out_len, size_t& written)
+{
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_zero;
+    to_radio.which_payload_variant = meshtastic_ToRadio_disconnect_tag;
+
+    pb_ostream_t to_radio_stream = pb_ostream_from_buffer(out, out_len);
+    if (!pb_encode(&to_radio_stream, meshtastic_ToRadio_fields, &to_radio))
+    {
+        return false;
+    }
+    written = to_radio_stream.bytes_written;
+    return true;
+}
+
+bool encodeMqttProxyToRadio(const meshtastic_MqttClientProxyMessage& msg,
+                            uint8_t* out,
+                            size_t out_len,
+                            size_t& written)
+{
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_zero;
+    to_radio.which_payload_variant = meshtastic_ToRadio_mqttClientProxyMessage_tag;
+    to_radio.mqttClientProxyMessage = msg;
+
+    pb_ostream_t to_radio_stream = pb_ostream_from_buffer(out, out_len);
+    if (!pb_encode(&to_radio_stream, meshtastic_ToRadio_fields, &to_radio))
+    {
+        return false;
+    }
+    written = to_radio_stream.bytes_written;
+    return true;
+}
+
 bool decodeFromRadio(const phone::meshtastic::MeshtasticBleFrame& frame, meshtastic_FromRadio& out)
 {
     out = meshtastic_FromRadio_init_zero;
     pb_istream_t stream = pb_istream_from_buffer(frame.buf, frame.len);
     return pb_decode(&stream, meshtastic_FromRadio_fields, &out);
+}
+
+void assertFrameMetadata(const phone::meshtastic::MeshtasticBleFrame& frame,
+                         phone::meshtastic::MeshtasticBleFrameKind kind,
+                         phone::meshtastic::MeshtasticBleFramePriority priority)
+{
+    assert(frame.kind == kind);
+    assert(frame.priority == priority);
+}
+
+void drainMeshtasticConfigStage(phone::meshtastic::MeshtasticPhoneSession& session, uint32_t nonce)
+{
+    uint8_t want_config_to_radio[meshtastic_ToRadio_size] = {};
+    size_t want_config_to_radio_len = 0;
+    assert(encodeWantConfigToRadio(want_config_to_radio,
+                                   sizeof(want_config_to_radio),
+                                   want_config_to_radio_len,
+                                   nonce));
+    assert(session.handleToRadio(want_config_to_radio, want_config_to_radio_len));
+    assert(session.isConfigFlowActive());
+
+    phone::meshtastic::MeshtasticBleFrame frame{};
+    bool saw_complete = false;
+    for (uint8_t index = 0; index < 96 && session.popToPhone(&frame); ++index)
+    {
+        meshtastic_FromRadio from = meshtastic_FromRadio_init_zero;
+        assert(decodeFromRadio(frame, from));
+        assertFrameMetadata(frame,
+                            phone::meshtastic::MeshtasticBleFrameKind::Config,
+                            phone::meshtastic::MeshtasticBleFramePriority::P0);
+        if (from.which_payload_variant == meshtastic_FromRadio_config_complete_id_tag)
+        {
+            assert(from.config_complete_id == nonce);
+            saw_complete = true;
+            break;
+        }
+    }
+    assert(saw_complete);
+    assert(!session.isConfigFlowActive());
+    if (nonce == phone::meshtastic::defaults::kConfigNonceOnlyConfig)
+    {
+        assert(!session.isSendingPackets());
+        assert(!session.popToPhone(&frame));
+    }
+    else
+    {
+        assert(session.isSendingPackets());
+    }
+}
+
+void enterMeshtasticSendPackets(phone::meshtastic::MeshtasticPhoneSession& session)
+{
+    drainMeshtasticConfigStage(session, 69420U);
+    assert(!session.isSendingPackets());
+    drainMeshtasticConfigStage(session, 69421U);
+    assert(session.isSendingPackets());
 }
 
 bool encodeNodeInfoPayload(const meshtastic_NodeInfo& node, std::vector<uint8_t>& out)
@@ -329,16 +477,249 @@ int main()
     phone::tests::FakePhoneRuntimeContext runtime;
     FakeMeshtasticTransport transport;
 
+    meshtastic_Config_BluetoothConfig fixed_pin_config =
+        meshtastic_Config_BluetoothConfig_init_zero;
+    fixed_pin_config.mode = meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN;
+    fixed_pin_config.fixed_pin = 123456;
+    assert(phone::meshtastic::config_bridge::resolveBlePasskey(fixed_pin_config, 0) ==
+           123456);
+    assert(phone::meshtastic::config_bridge::resolveBlePasskey(fixed_pin_config,
+                                                               654321) == 654321);
+    meshtastic_DeviceConnectionStatus status = meshtastic_DeviceConnectionStatus_init_zero;
+    assert(phone::meshtastic::config_bridge::fillDeviceConnectionStatus(123456, true, &status));
+    assert(status.has_bluetooth);
+    assert(status.bluetooth.pin == 123456);
+    assert(status.bluetooth.is_connected);
+
     phone::meshtastic::MeshtasticPhoneSession meshtastic_session(
         runtime, transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     const uint8_t invalid_meshtastic[] = {0xFF, 0xFF, 0xFF};
     assert(!meshtastic_session.handleToRadio(invalid_meshtastic, sizeof(invalid_meshtastic)));
     meshtastic_session.close();
 
+    constexpr uint32_t kHeartbeatNonce = 0xA0B0C0D0;
+    uint8_t heartbeat_to_radio[meshtastic_ToRadio_size] = {};
+    size_t heartbeat_to_radio_len = 0;
+    assert(encodeHeartbeatToRadio(heartbeat_to_radio,
+                                  sizeof(heartbeat_to_radio),
+                                  heartbeat_to_radio_len,
+                                  kHeartbeatNonce));
+
+    phone::tests::FakePhoneRuntimeContext send_nothing_heartbeat_runtime;
+    FakeMeshtasticTransport send_nothing_heartbeat_transport;
+    phone::meshtastic::MeshtasticPhoneSession send_nothing_heartbeat_session(
+        send_nothing_heartbeat_runtime,
+        send_nothing_heartbeat_transport,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr);
+    assert(send_nothing_heartbeat_session.handleToRadio(heartbeat_to_radio, heartbeat_to_radio_len));
+    assert(send_nothing_heartbeat_transport.notify_count == 1);
+    assert(send_nothing_heartbeat_transport.last_from_num == kHeartbeatNonce);
+    phone::meshtastic::MeshtasticBleFrame send_nothing_heartbeat_frame{};
+    assert(send_nothing_heartbeat_session.popToPhone(&send_nothing_heartbeat_frame));
+    assertFrameMetadata(send_nothing_heartbeat_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::Liveness,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
+    meshtastic_FromRadio send_nothing_heartbeat_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(send_nothing_heartbeat_frame, send_nothing_heartbeat_from));
+    assert(send_nothing_heartbeat_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
+    assert(send_nothing_heartbeat_from.queueStatus.mesh_packet_id == kHeartbeatNonce);
+    assert(send_nothing_heartbeat_from.queueStatus.res == 0);
+    assert(!send_nothing_heartbeat_session.popToPhone(&send_nothing_heartbeat_frame));
+
+    phone::tests::FakePhoneRuntimeContext heartbeat_runtime;
+    FakeMeshtasticTransport heartbeat_transport;
+    phone::meshtastic::MeshtasticPhoneSession heartbeat_session(
+        heartbeat_runtime, heartbeat_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(heartbeat_session);
+    const int heartbeat_notify_before = heartbeat_transport.notify_count;
+    assert(heartbeat_session.handleToRadio(heartbeat_to_radio, heartbeat_to_radio_len));
+    assert(heartbeat_transport.notify_count == heartbeat_notify_before + 1);
+    assert(heartbeat_transport.last_from_num == kHeartbeatNonce);
+
+    phone::meshtastic::MeshtasticBleFrame heartbeat_frame{};
+    assert(heartbeat_session.popToPhone(&heartbeat_frame));
+    assertFrameMetadata(heartbeat_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::QueueStatus,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
+    meshtastic_FromRadio heartbeat_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(heartbeat_frame, heartbeat_from));
+    assert(heartbeat_frame.from_num == kHeartbeatNonce);
+    assert(heartbeat_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
+    assert(heartbeat_from.queueStatus.mesh_packet_id == kHeartbeatNonce);
+    assert(heartbeat_from.queueStatus.res == 0);
+    assert(!heartbeat_session.popToPhone(&heartbeat_frame));
+
+    phone::tests::FakePhoneRuntimeContext disconnect_runtime;
+    FakeMeshtasticTransport disconnect_transport;
+    phone::meshtastic::MeshtasticPhoneSession disconnect_session(
+        disconnect_runtime, disconnect_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(disconnect_session);
+    assert(disconnect_session.isSendingPackets());
+    uint8_t disconnect_to_radio[meshtastic_ToRadio_size] = {};
+    size_t disconnect_to_radio_len = 0;
+    assert(encodeDisconnectToRadio(disconnect_to_radio,
+                                   sizeof(disconnect_to_radio),
+                                   disconnect_to_radio_len));
+    assert(disconnect_session.handleToRadio(disconnect_to_radio, disconnect_to_radio_len));
+    assert(disconnect_transport.disconnect_count == 1);
+    assert(!disconnect_session.isSendingPackets());
+
+    phone::tests::FakePhoneRuntimeContext backpressure_runtime;
+    FakeMeshtasticTransport backpressure_transport;
+    phone::meshtastic::MeshtasticPhoneSession backpressure_session(
+        backpressure_runtime, backpressure_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(backpressure_session);
+    assert(encodeHeartbeatToRadio(heartbeat_to_radio,
+                                  sizeof(heartbeat_to_radio),
+                                  heartbeat_to_radio_len,
+                                  kHeartbeatNonce + 1U));
+    assert(backpressure_session.handleToRadio(heartbeat_to_radio, heartbeat_to_radio_len));
+    chat::MeshIncomingData pressure_data{};
+    pressure_data.portnum = meshtastic_PortNum_POSITION_APP;
+    pressure_data.to = 0xFFFFFFFF;
+    pressure_data.channel = chat::ChannelId::PRIMARY;
+    pressure_data.payload = {0x42};
+    for (uint32_t index = 0; index < 10; ++index)
+    {
+        pressure_data.from = 0x51000000U + index;
+        pressure_data.packet_id = 0x71000000U + index;
+        backpressure_session.onIncomingData(pressure_data);
+    }
+    assert(backpressure_session.popToPhone(&heartbeat_frame));
+    assertFrameMetadata(heartbeat_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::QueueStatus,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
+    heartbeat_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(heartbeat_frame, heartbeat_from));
+    assert(heartbeat_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
+    assert(heartbeat_from.queueStatus.mesh_packet_id == kHeartbeatNonce + 1U);
+
+    phone::tests::FakePhoneRuntimeContext latest_runtime;
+    FakeMeshtasticTransport latest_transport;
+    phone::meshtastic::MeshtasticPhoneSession latest_session(
+        latest_runtime, latest_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(latest_session);
+    pressure_data.from = 0x52000001U;
+    pressure_data.to = 0xFFFFFFFF;
+    for (uint32_t index = 0; index < 4; ++index)
+    {
+        pressure_data.packet_id = 0x72000000U + index;
+        pressure_data.payload = {static_cast<uint8_t>(index)};
+        latest_session.onIncomingData(pressure_data);
+    }
+    assert(latest_session.popToPhone(&heartbeat_frame));
+    assertFrameMetadata(heartbeat_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::Packet,
+                        phone::meshtastic::MeshtasticBleFramePriority::P2);
+    heartbeat_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(heartbeat_frame, heartbeat_from));
+    assert(heartbeat_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(heartbeat_from.packet.id == 0x72000003U);
+    assert(heartbeat_from.packet.decoded.payload.size == 1);
+    assert(heartbeat_from.packet.decoded.payload.bytes[0] == 3);
+    assert(!latest_session.popToPhone(&heartbeat_frame));
+
+    phone::tests::FakePhoneRuntimeContext retain_runtime;
+    FakeMeshtasticTransport retain_transport;
+    phone::meshtastic::MeshtasticPhoneSession retain_session(
+        retain_runtime, retain_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(retain_session);
+    chat::MeshIncomingText retained_text{};
+    retained_text.channel = chat::ChannelId::PRIMARY;
+    retained_text.from = 0x4A59CD8C;
+    retained_text.to = 0xFFFFFFFF;
+    retained_text.msg_id = 0x73000001U;
+    retained_text.text = "keep";
+    retain_session.onIncomingText(retained_text);
+    for (uint32_t index = 0; index < 10; ++index)
+    {
+        pressure_data.from = 0x53000000U + index;
+        pressure_data.packet_id = 0x73010000U + index;
+        pressure_data.payload = {static_cast<uint8_t>(index)};
+        retain_session.onIncomingData(pressure_data);
+    }
+    assert(retain_session.popToPhone(&heartbeat_frame));
+    assertFrameMetadata(heartbeat_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::Packet,
+                        phone::meshtastic::MeshtasticBleFramePriority::P1);
+    heartbeat_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(heartbeat_frame, heartbeat_from));
+    assert(heartbeat_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(heartbeat_from.packet.id == retained_text.msg_id);
+
+    phone::tests::FakePhoneRuntimeContext mqtt_gate_runtime;
+    FakeMeshtasticTransport mqtt_gate_transport;
+    FakeMqttHooks mqtt_gate_hooks;
+    const auto mqtt_proxy_msg = makeMqttProxyMessage("msh/2/json/LongFast/!12345678", "{\"text\":\"hi\"}");
+    mqtt_gate_hooks.to_phone.push_back(mqtt_proxy_msg);
+    phone::meshtastic::MeshtasticPhoneSession mqtt_gate_session(
+        mqtt_gate_runtime, mqtt_gate_transport, nullptr, nullptr, nullptr, nullptr, &mqtt_gate_hooks, nullptr);
+
+    phone::meshtastic::MeshtasticBleFrame mqtt_gate_frame{};
+    assert(!mqtt_gate_session.popToPhone(&mqtt_gate_frame));
+    assert(mqtt_gate_hooks.poll_count == 0);
+    assert(mqtt_gate_hooks.to_phone.size() == 1);
+
+    uint8_t mqtt_proxy_to_radio[meshtastic_ToRadio_size] = {};
+    size_t mqtt_proxy_to_radio_len = 0;
+    assert(encodeMqttProxyToRadio(mqtt_proxy_msg,
+                                  mqtt_proxy_to_radio,
+                                  sizeof(mqtt_proxy_to_radio),
+                                  mqtt_proxy_to_radio_len));
+    assert(mqtt_gate_session.handleToRadio(mqtt_proxy_to_radio, mqtt_proxy_to_radio_len));
+    assert(mqtt_gate_hooks.to_radio.size() == 1);
+
+    drainMeshtasticConfigStage(mqtt_gate_session, 69420U);
+    assert(!mqtt_gate_session.isSendingPackets());
+    assert(mqtt_gate_hooks.poll_count == 0);
+    assert(mqtt_gate_hooks.to_phone.size() == 1);
+
+    drainMeshtasticConfigStage(mqtt_gate_session, 69421U);
+    assert(mqtt_gate_session.isSendingPackets());
+    assert(mqtt_gate_hooks.poll_count == 0);
+    assert(mqtt_gate_hooks.to_phone.size() == 1);
+
+    assert(mqtt_gate_session.popToPhone(&mqtt_gate_frame));
+    assertFrameMetadata(mqtt_gate_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::MqttProxy,
+                        phone::meshtastic::MeshtasticBleFramePriority::P3);
+    meshtastic_FromRadio mqtt_gate_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(mqtt_gate_frame, mqtt_gate_from));
+    assert(mqtt_gate_from.which_payload_variant == meshtastic_FromRadio_mqttClientProxyMessage_tag);
+    assert(std::strcmp(mqtt_gate_from.mqttClientProxyMessage.topic, mqtt_proxy_msg.topic) == 0);
+    assert(std::strcmp(mqtt_gate_from.mqttClientProxyMessage.payload_variant.text,
+                       mqtt_proxy_msg.payload_variant.text) == 0);
+    assert(mqtt_gate_hooks.poll_count == 1);
+    assert(mqtt_gate_hooks.to_phone.empty());
+
+    phone::tests::FakePhoneRuntimeContext mqtt_close_runtime;
+    FakeMeshtasticTransport mqtt_close_transport;
+    FakeMqttHooks mqtt_close_hooks;
+    mqtt_close_hooks.to_phone.push_back(mqtt_proxy_msg);
+    phone::meshtastic::MeshtasticPhoneSession mqtt_close_session(
+        mqtt_close_runtime, mqtt_close_transport, nullptr, nullptr, nullptr, nullptr, &mqtt_close_hooks, nullptr);
+    mqtt_close_session.close();
+    assert(mqtt_close_hooks.to_phone.size() == 1);
+    enterMeshtasticSendPackets(mqtt_close_session);
+    assert(mqtt_close_session.popToPhone(&mqtt_gate_frame));
+    assertFrameMetadata(mqtt_gate_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::MqttProxy,
+                        phone::meshtastic::MeshtasticBleFramePriority::P3);
+    mqtt_gate_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(mqtt_gate_frame, mqtt_gate_from));
+    assert(mqtt_gate_from.which_payload_variant == meshtastic_FromRadio_mqttClientProxyMessage_tag);
+    assert(mqtt_close_hooks.to_phone.empty());
+
     phone::tests::FakePhoneRuntimeContext text_runtime;
     FakeMeshtasticTransport text_transport;
     phone::meshtastic::MeshtasticPhoneSession text_session(
         text_runtime, text_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(text_session);
     chat::MeshIncomingText incoming_text{};
     incoming_text.channel = chat::ChannelId::PRIMARY;
     incoming_text.from = 0x4A59CD8C;
@@ -351,6 +732,9 @@ int main()
 
     phone::meshtastic::MeshtasticBleFrame text_frame{};
     assert(text_session.popToPhone(&text_frame));
+    assertFrameMetadata(text_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::Packet,
+                        phone::meshtastic::MeshtasticBleFramePriority::P1);
     meshtastic_FromRadio text_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(text_frame, text_from));
     assert(text_frame.from_num == incoming_text.msg_id);
@@ -373,6 +757,9 @@ int main()
     incoming_text.rx_meta.relay_node = 7;
     text_session.onIncomingText(incoming_text);
     assert(text_session.popToPhone(&text_frame));
+    assertFrameMetadata(text_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::Packet,
+                        phone::meshtastic::MeshtasticBleFramePriority::P1);
     text_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(text_frame, text_from));
     assert(text_from.packet.id == incoming_text.msg_id);
@@ -394,6 +781,9 @@ int main()
     incoming_data.payload = {0x01, 0x02};
     text_session.onIncomingData(incoming_data);
     assert(text_session.popToPhone(&text_frame));
+    assertFrameMetadata(text_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::Packet,
+                        phone::meshtastic::MeshtasticBleFramePriority::P2);
     text_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(text_frame, text_from));
     assert(text_from.packet.id == incoming_data.packet_id);
@@ -417,6 +807,7 @@ int main()
     known_node_runtime.nodes.push_back(cd8c_node);
     phone::meshtastic::MeshtasticPhoneSession known_node_session(
         known_node_runtime, known_node_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(known_node_session);
 
     incoming_text.msg_id = 0x9DD4E0EA;
     known_node_session.onIncomingText(incoming_text);
@@ -460,10 +851,93 @@ int main()
     assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
     assert(!known_node_session.popToPhone(&text_frame));
 
+    phone::tests::FakePhoneRuntimeContext mqtt_priority_runtime;
+    mqtt_priority_runtime.nodes.push_back(cd8c_node);
+    FakeMeshtasticTransport mqtt_priority_transport;
+    FakeMqttHooks mqtt_priority_hooks;
+    mqtt_priority_hooks.to_phone.push_back(mqtt_proxy_msg);
+    phone::meshtastic::MeshtasticPhoneSession mqtt_priority_session(mqtt_priority_runtime,
+                                                                    mqtt_priority_transport,
+                                                                    nullptr,
+                                                                    nullptr,
+                                                                    nullptr,
+                                                                    nullptr,
+                                                                    &mqtt_priority_hooks,
+                                                                    nullptr);
+    enterMeshtasticSendPackets(mqtt_priority_session);
+
+    incoming_text.msg_id = 0x9DD4E0ED;
+    mqtt_priority_session.onIncomingText(incoming_text);
+    assert(mqtt_priority_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_node_info_tag);
+    assert(text_frame.from_num == cd8c_node.node_id);
+    assert(mqtt_priority_hooks.poll_count == 0);
+
+    assert(mqtt_priority_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+    assert(text_frame.from_num == incoming_text.msg_id);
+    assert(mqtt_priority_hooks.poll_count == 0);
+
+    assert(mqtt_priority_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_mqttClientProxyMessage_tag);
+    assert(mqtt_priority_hooks.poll_count == 1);
+    assert(!mqtt_priority_session.popToPhone(&text_frame));
+
+    phone::tests::FakePhoneRuntimeContext mqtt_fair_runtime;
+    FakeMeshtasticTransport mqtt_fair_transport;
+    FakeMqttHooks mqtt_fair_hooks;
+    mqtt_fair_hooks.to_phone.push_back(mqtt_proxy_msg);
+    phone::meshtastic::MeshtasticPhoneSession mqtt_fair_session(mqtt_fair_runtime,
+                                                                mqtt_fair_transport,
+                                                                nullptr,
+                                                                nullptr,
+                                                                nullptr,
+                                                                nullptr,
+                                                                &mqtt_fair_hooks,
+                                                                nullptr);
+    enterMeshtasticSendPackets(mqtt_fair_session);
+    for (uint32_t index = 0; index < 6; ++index)
+    {
+        incoming_data.from = 0x52000000U + index;
+        incoming_data.to = 0xFFFFFFFF;
+        incoming_data.packet_id = 0x82000000U + index;
+        incoming_data.portnum = meshtastic_PortNum_POSITION_APP;
+        incoming_data.payload = {static_cast<uint8_t>(index)};
+        mqtt_fair_session.onIncomingData(incoming_data);
+    }
+
+    for (uint32_t index = 0; index < 4; ++index)
+    {
+        assert(mqtt_fair_session.popToPhone(&text_frame));
+        text_from = meshtastic_FromRadio_init_zero;
+        assert(decodeFromRadio(text_frame, text_from));
+        assert(text_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
+        assertFrameMetadata(text_frame,
+                            phone::meshtastic::MeshtasticBleFrameKind::Packet,
+                            phone::meshtastic::MeshtasticBleFramePriority::P2);
+        assert(mqtt_fair_hooks.poll_count == 0);
+    }
+
+    assert(mqtt_fair_session.popToPhone(&text_frame));
+    text_from = meshtastic_FromRadio_init_zero;
+    assert(decodeFromRadio(text_frame, text_from));
+    assert(text_from.which_payload_variant == meshtastic_FromRadio_mqttClientProxyMessage_tag);
+    assertFrameMetadata(text_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::MqttProxy,
+                        phone::meshtastic::MeshtasticBleFramePriority::P3);
+    assert(mqtt_fair_hooks.poll_count == 1);
+
     phone::tests::FakePhoneRuntimeContext metadata_runtime;
     FakeMeshtasticTransport metadata_transport;
     phone::meshtastic::MeshtasticPhoneSession metadata_session(
         metadata_runtime, metadata_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(metadata_session);
 
     meshtastic_NodeInfo metadata_node = meshtastic_NodeInfo_init_zero;
     metadata_node.num = 0x0C16AAEC;
@@ -499,6 +973,9 @@ int main()
 
     metadata_session.onIncomingData(metadata_data);
     assert(metadata_session.popToPhone(&text_frame));
+    assertFrameMetadata(text_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::NodeInfo,
+                        phone::meshtastic::MeshtasticBleFramePriority::P1);
     text_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(text_frame, text_from));
     assert(text_frame.from_num == metadata_node.num);
@@ -512,6 +989,9 @@ int main()
     assert(text_from.node_info.has_hops_away);
     assert(text_from.node_info.hops_away == 2);
     assert(metadata_session.popToPhone(&text_frame));
+    assertFrameMetadata(text_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::Packet,
+                        phone::meshtastic::MeshtasticBleFramePriority::P2);
     text_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(text_frame, text_from));
     assert(text_frame.from_num == metadata_data.packet_id);
@@ -522,6 +1002,7 @@ int main()
     FakeMeshtasticTransport admin_transport;
     phone::meshtastic::MeshtasticPhoneSession admin_session(
         admin_runtime, admin_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(admin_session);
     constexpr uint32_t kSetChannelPacketId = 0xABCDEF12;
     uint8_t set_channel_to_radio[meshtastic_ToRadio_size] = {};
     size_t set_channel_to_radio_len = 0;
@@ -543,6 +1024,9 @@ int main()
 
     phone::meshtastic::MeshtasticBleFrame first_frame{};
     assert(admin_session.popToPhone(&first_frame));
+    assertFrameMetadata(first_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::QueueStatus,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
     meshtastic_FromRadio first_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(first_frame, first_from));
     assert(first_frame.from_num == kSetChannelPacketId);
@@ -554,6 +1038,9 @@ int main()
 
     phone::meshtastic::MeshtasticBleFrame second_frame{};
     assert(admin_session.popToPhone(&second_frame));
+    assertFrameMetadata(second_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::AdminResponse,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
     meshtastic_FromRadio second_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(second_frame, second_from));
     assert(second_from.id > first_from_radio_id);
@@ -581,6 +1068,7 @@ int main()
     FakeModuleConfigHooks custom_module_hooks;
     phone::meshtastic::MeshtasticPhoneSession custom_session(
         custom_runtime, custom_transport, nullptr, &custom_module_hooks, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(custom_session);
     constexpr uint32_t kPrimaryCustomPacketId = 0xCAFE4400;
     uint8_t primary_channel_to_radio[meshtastic_ToRadio_size] = {};
     size_t primary_channel_to_radio_len = 0;
@@ -607,6 +1095,9 @@ int main()
 
     phone::meshtastic::MeshtasticBleFrame custom_queue_frame{};
     assert(custom_session.popToPhone(&custom_queue_frame));
+    assertFrameMetadata(custom_queue_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::QueueStatus,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
     meshtastic_FromRadio custom_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(custom_queue_frame, custom_from));
     assert(custom_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
@@ -615,6 +1106,9 @@ int main()
 
     phone::meshtastic::MeshtasticBleFrame custom_response_frame{};
     assert(custom_session.popToPhone(&custom_response_frame));
+    assertFrameMetadata(custom_response_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::AdminResponse,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
     custom_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(custom_response_frame, custom_from));
     assert(custom_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
@@ -664,6 +1158,9 @@ int main()
 
     phone::meshtastic::MeshtasticBleFrame lora_queue_frame{};
     assert(custom_session.popToPhone(&lora_queue_frame));
+    assertFrameMetadata(lora_queue_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::QueueStatus,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
     meshtastic_FromRadio lora_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(lora_queue_frame, lora_from));
     assert(lora_from.which_payload_variant == meshtastic_FromRadio_queueStatus_tag);
@@ -672,6 +1169,9 @@ int main()
 
     phone::meshtastic::MeshtasticBleFrame lora_response_frame{};
     assert(custom_session.popToPhone(&lora_response_frame));
+    assertFrameMetadata(lora_response_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::AdminResponse,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
     lora_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(lora_response_frame, lora_from));
     assert(lora_from.which_payload_variant == meshtastic_FromRadio_packet_tag);
@@ -697,6 +1197,7 @@ int main()
     FakeBluetoothConfigHooks bluetooth_hooks;
     phone::meshtastic::MeshtasticPhoneSession bluetooth_session(
         bluetooth_runtime, bluetooth_transport, &bluetooth_hooks, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(bluetooth_session);
     constexpr uint32_t kBluetoothPacketId = 0xCAFE4403;
     uint8_t bluetooth_to_radio[meshtastic_ToRadio_size] = {};
     size_t bluetooth_to_radio_len = 0;
@@ -744,6 +1245,7 @@ int main()
     FakeMeshtasticTransport edit_transport;
     phone::meshtastic::MeshtasticPhoneSession edit_session(
         edit_runtime, edit_transport, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    enterMeshtasticSendPackets(edit_session);
     constexpr uint32_t kBeginEditPacketId = 0xCAFE5500;
     uint8_t begin_edit_to_radio[meshtastic_ToRadio_size] = {};
     size_t begin_edit_to_radio_len = 0;
@@ -928,6 +1430,9 @@ int main()
     {
         meshtastic_FromRadio config_only_from = meshtastic_FromRadio_init_zero;
         assert(decodeFromRadio(config_only_frame, config_only_from));
+        assertFrameMetadata(config_only_frame,
+                            phone::meshtastic::MeshtasticBleFrameKind::Config,
+                            phone::meshtastic::MeshtasticBleFramePriority::P0);
         assert(config_only_frame.from_num == kConfigOnlyNonce);
         if (config_only_from.which_payload_variant == meshtastic_FromRadio_my_info_tag)
         {
@@ -988,6 +1493,9 @@ int main()
     assert(saw_config_only_deviceui);
     assert(saw_config_only_metadata);
     assert(saw_config_only_complete);
+    assert(!config_stage1_session.isSendingPackets());
+    assert(!config_stage1_session.popToPhone(&config_only_frame));
+    assert(!config_stage1_session.isSendingPackets());
 
     FakeMeshtasticTransport config_transport;
     phone::meshtastic::MeshtasticPhoneSession config_session(
@@ -1003,6 +1511,9 @@ int main()
 
     phone::meshtastic::MeshtasticBleFrame config_frame{};
     assert(config_session.popToPhone(&config_frame));
+    assertFrameMetadata(config_frame,
+                        phone::meshtastic::MeshtasticBleFrameKind::Config,
+                        phone::meshtastic::MeshtasticBleFramePriority::P0);
     meshtastic_FromRadio config_from = meshtastic_FromRadio_init_zero;
     assert(decodeFromRadio(config_frame, config_from));
     assert(config_frame.from_num == kNodesOnlyNonce);
@@ -1020,6 +1531,9 @@ int main()
     {
         config_from = meshtastic_FromRadio_init_zero;
         assert(decodeFromRadio(config_frame, config_from));
+        assertFrameMetadata(config_frame,
+                            phone::meshtastic::MeshtasticBleFrameKind::Config,
+                            phone::meshtastic::MeshtasticBleFramePriority::P0);
         assert(config_from.id > last_config_from_radio_id);
         last_config_from_radio_id = config_from.id;
         assert(config_from.which_payload_variant != meshtastic_FromRadio_metadata_tag);
@@ -1053,6 +1567,8 @@ int main()
     assert(!saw_observation_only_node);
     assert(saw_peer_node);
     assert(saw_config_complete);
+    assert(config_session.isSendingPackets());
+    assert(!config_session.popToPhone(&config_frame));
 
     phone::meshcore::MeshCorePhoneCore meshcore_core(runtime, "Trail Mate");
     assert(!meshcore_core.handleRxFrame(nullptr, 0));

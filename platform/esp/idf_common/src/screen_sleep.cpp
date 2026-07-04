@@ -51,6 +51,17 @@ bool s_screen_sleep_disabled = false;
 bool s_screen_saver_active = false;
 uint8_t s_saved_screen_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
 
+bool auto_sleep_supported()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // P4 touch wake is still a board bring-up contract. Keep the UI awake so
+    // field LoRa/debug sessions do not look frozen after the backlight sleeps.
+    return false;
+#else
+    return true;
+#endif
+}
+
 uint32_t now_ms()
 {
     return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
@@ -145,7 +156,7 @@ void screen_sleep_task(void*)
                 wake_display_locked();
                 should_notify_wake = true;
             }
-            else if ((s_screen_sleeping == false) && elapsed >= s_timeout_ms)
+            else if (auto_sleep_supported() && (s_screen_sleeping == false) && elapsed >= s_timeout_ms)
             {
                 sleep_display_locked();
             }
@@ -364,7 +375,7 @@ ScreenSleepHooks adapt_hooks(const Hooks& hooks)
 uint32_t clamp_timeout_ms(uint32_t timeout_ms) { return clampScreenTimeoutMs(timeout_ms); }
 uint32_t timeout_ms() { return getScreenSleepTimeout(); }
 uint16_t timeout_secs() { return readScreenTimeoutSecs(); }
-bool supports_app_timeout_setting() { return true; }
+bool supports_app_timeout_setting() { return auto_sleep_supported(); }
 void set_timeout_ms(uint32_t t) { setScreenSleepTimeout(t); }
 void init(const Hooks& h) { initScreenSleepRuntime(adapt_hooks(h)); }
 bool is_sleeping() { return isScreenSleeping(); }

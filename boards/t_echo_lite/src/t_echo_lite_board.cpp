@@ -27,6 +27,18 @@ namespace boards::t_echo_lite
 namespace
 {
 
+GpsRuntime& sharedGpsRuntime()
+{
+    static GpsRuntime runtime;
+    return runtime;
+}
+
+InputRuntime& sharedInputRuntime()
+{
+    static InputRuntime runtime;
+    return runtime;
+}
+
 void writeLed(int pin, bool active_high, bool on)
 {
     if (pin < 0)
@@ -476,8 +488,8 @@ TEchoLiteBoard& TEchoLiteBoard::instance()
 }
 
 TEchoLiteBoard::TEchoLiteBoard()
-    : gps_runtime_(new GpsRuntime()),
-      input_runtime_(new InputRuntime())
+    : gps_runtime_(&sharedGpsRuntime()),
+      input_runtime_(&sharedInputRuntime())
 {
 }
 
@@ -1370,6 +1382,11 @@ bool TEchoLiteBoard::gpsGnssSnapshot(::gps::GnssSatInfo* out,
     return gps_runtime_ ? gps_runtime_->gnssSnapshot(out, max, out_count, status) : false;
 }
 
+bool TEchoLiteBoard::debugCheckGpsMemoryGuard(const char* reason)
+{
+    return gps_runtime_ ? gps_runtime_->debugCheckMemoryGuard(reason) : true;
+}
+
 void TEchoLiteBoard::setGpsCollectionInterval(uint32_t interval_ms)
 {
     if (gps_runtime_)
@@ -1417,6 +1434,22 @@ void TEchoLiteBoard::setGpsMotionSensorId(uint8_t sensor_id)
     if (gps_runtime_)
     {
         gps_runtime_->setMotionSensorId(sensor_id);
+    }
+}
+
+void TEchoLiteBoard::acquireGpsPowerLease(const char* reason)
+{
+    if (gps_runtime_)
+    {
+        gps_runtime_->acquirePowerLease(reason);
+    }
+}
+
+void TEchoLiteBoard::releaseGpsPowerLease(const char* reason)
+{
+    if (gps_runtime_)
+    {
+        gps_runtime_->releasePowerLease(reason);
     }
 }
 

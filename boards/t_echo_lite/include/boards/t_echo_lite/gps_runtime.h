@@ -30,6 +30,7 @@ class GpsRuntime
                       std::size_t max,
                       std::size_t* out_count,
                       ::gps::GnssStatus* status) const;
+    bool debugCheckMemoryGuard(const char* reason);
 
     void setCollectionInterval(uint32_t interval_ms);
     void setEnabled(bool enabled);
@@ -38,6 +39,8 @@ class GpsRuntime
     void setExternalNmeaConfig(uint8_t output_hz, uint8_t sentence_mask);
     void setMotionIdleTimeout(uint32_t timeout_ms);
     void setMotionSensorId(uint8_t sensor_id);
+    void acquirePowerLease(const char* reason);
+    void releasePowerLease(const char* reason);
     void suspend();
     void resume();
     void setCurrentEpochSeconds(uint32_t epoch_s);

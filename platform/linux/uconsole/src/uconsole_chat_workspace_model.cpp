@@ -1355,7 +1355,8 @@ bool UConsoleChatWorkspaceModel::sendCurrentPosition()
         action_status_ = "Position encoding failed.";
         return false;
     }
-    auto facade = bundle.createFacade();
+    ::chat::runtime::ProtocolEffectWorkspace workspace{};
+    auto facade = bundle.createFacade(workspace);
 
     const auto result = facade.sharePosition(intent);
     if (result.hasActionResult())
@@ -1428,7 +1429,8 @@ bool UConsoleChatWorkspaceModel::sendCurrentPoi()
         action_status_ = "POI encoding failed.";
         return false;
     }
-    auto facade = bundle.createFacade();
+    ::chat::runtime::ProtocolEffectWorkspace workspace{};
+    auto facade = bundle.createFacade(workspace);
 
     const auto result = facade.shareWaypoint(intent);
     if (result.hasActionResult())

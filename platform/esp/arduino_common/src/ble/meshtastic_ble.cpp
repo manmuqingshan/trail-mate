@@ -47,6 +47,47 @@ inline void ble_log(const char* fmt, ...)
     va_end(args);
     Serial.printf("[BLE] %s\n", buf);
 }
+
+const char* bleFrameKindName(phone::meshtastic::MeshtasticBleFrameKind kind)
+{
+    using phone::meshtastic::MeshtasticBleFrameKind;
+    switch (kind)
+    {
+    case MeshtasticBleFrameKind::Config:
+        return "config";
+    case MeshtasticBleFrameKind::Liveness:
+        return "liveness";
+    case MeshtasticBleFrameKind::QueueStatus:
+        return "queue_status";
+    case MeshtasticBleFrameKind::AdminResponse:
+        return "admin_response";
+    case MeshtasticBleFrameKind::NodeInfo:
+        return "node_info";
+    case MeshtasticBleFrameKind::Packet:
+        return "packet";
+    case MeshtasticBleFrameKind::MqttProxy:
+        return "mqtt_proxy";
+    case MeshtasticBleFrameKind::None:
+    default:
+        return "none";
+    }
+}
+
+uint64_t fingerprintBytes(const uint8_t* data, size_t len)
+{
+    uint64_t hash = 1469598103934665603ULL;
+    if (!data)
+    {
+        return hash;
+    }
+    for (size_t index = 0; index < len; ++index)
+    {
+        hash ^= static_cast<uint64_t>(data[index]);
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
 constexpr size_t kMaxFromRadio = meshtastic_FromRadio_size;
 constexpr size_t kMaxToRadio = meshtastic_ToRadio_size;
 #if defined(CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU)
@@ -232,7 +273,7 @@ class MeshtasticServerCallbacks : public NimBLEServerCallbacks
         owner_.from_radio_sync_subscribed_ = false;
         owner_.from_radio_sync_sub_value_ = 0;
         owner_.last_to_radio_len_ = 0;
-        memset(owner_.last_to_radio_.data(), 0, owner_.last_to_radio_.size());
+        owner_.last_to_radio_fingerprint_ = 0;
         owner_.closePhoneSession();
         if (owner_.server_)
         {
@@ -259,7 +300,7 @@ class MeshtasticServerCallbacks : public NimBLEServerCallbacks
         owner_.from_radio_sync_sub_value_ = 0;
         owner_.pending_passkey_.store(0);
         owner_.last_to_radio_len_ = 0;
-        memset(owner_.last_to_radio_.data(), 0, owner_.last_to_radio_.size());
+        owner_.last_to_radio_fingerprint_ = 0;
         owner_.closePhoneSession();
         owner_.clearQueues();
         const bool advertising_ok = owner_.startAdvertising();
@@ -292,8 +333,10 @@ class MeshtasticToRadioCallbacks : public NimBLECharacteristicCallbacks
             return;
         }
         ble_log("fromPhone write len=%u", static_cast<unsigned>(val.length()));
+        const uint64_t fingerprint =
+            fingerprintBytes(reinterpret_cast<const uint8_t*>(val.data()), val.length());
         if (owner_.last_to_radio_len_ == val.length() &&
-            memcmp(owner_.last_to_radio_.data(), val.data(), val.length()) == 0)
+            owner_.last_to_radio_fingerprint_ == fingerprint)
         {
             ble_log("fromPhone drop duplicate len=%u", static_cast<unsigned>(val.length()));
             return;
@@ -306,7 +349,7 @@ class MeshtasticToRadioCallbacks : public NimBLECharacteristicCallbacks
                 owner_.from_phone_queue_[owner_.from_phone_len_] = val;
                 owner_.from_phone_len_++;
                 owner_.last_to_radio_len_ = val.length();
-                memcpy(owner_.last_to_radio_.data(), val.data(), val.length());
+                owner_.last_to_radio_fingerprint_ = fingerprint;
             }
             else
             {
@@ -375,7 +418,11 @@ class MeshtasticFromRadioCallbacks : public NimBLECharacteristicCallbacks
         if (has_frame)
         {
             characteristic->setValue(frame.buf.data(), frame.len);
-            ble_log("fromRadio read len=%u", static_cast<unsigned>(frame.len));
+            ble_log("fromRadio read from_num=%lu len=%u kind=%s pri=%u",
+                    static_cast<unsigned long>(frame.from_num),
+                    static_cast<unsigned>(frame.len),
+                    bleFrameKindName(frame.kind),
+                    static_cast<unsigned>(frame.priority));
         }
         else
         {
@@ -568,7 +615,7 @@ void MeshtasticBleService::stop()
     from_radio_sync_subscribed_ = false;
     from_radio_sync_sub_value_ = 0;
     last_to_radio_len_ = 0;
-    memset(last_to_radio_.data(), 0, last_to_radio_.size());
+    last_to_radio_fingerprint_ = 0;
     phone_session_.reset();
 }
 
@@ -802,12 +849,10 @@ void MeshtasticBleService::handleToPhone()
         const bool waiting_for_read = read_waiting_.load();
 
         Frame* frame = nullptr;
-        uint32_t from_num = 0;
 
         if (pending_to_phone_valid_)
         {
             frame = &pending_to_phone_;
-            from_num = pending_to_phone_from_num_;
         }
         else
         {
@@ -833,8 +878,10 @@ void MeshtasticBleService::handleToPhone()
             }
             auto& scratch = to_phone_scratch_;
             scratch.len = session_frame.len;
+            scratch.kind = session_frame.kind;
+            scratch.priority = session_frame.priority;
+            scratch.from_num = session_frame.from_num;
             std::memcpy(scratch.buf.data(), session_frame.buf, session_frame.len);
-            from_num = session_frame.from_num;
             frame = &scratch;
         }
 
@@ -853,20 +900,23 @@ void MeshtasticBleService::handleToPhone()
             if (sent)
             {
                 pending_to_phone_valid_ = false;
-                ble_log("fromRadioSync tx from_num=%lu len=%u",
-                        static_cast<unsigned long>(from_num),
-                        static_cast<unsigned>(frame->len));
+                ble_log("fromRadioSync tx from_num=%lu len=%u kind=%s pri=%u",
+                        static_cast<unsigned long>(frame->from_num),
+                        static_cast<unsigned>(frame->len),
+                        bleFrameKindName(frame->kind),
+                        static_cast<unsigned>(frame->priority));
                 return;
             }
 
             // If the app is using FromRadioSync it will not drain legacy FromRadio reads.
             // Keep the frame pending and retry sync on the next update tick.
             pending_to_phone_ = *frame;
-            pending_to_phone_from_num_ = from_num;
             pending_to_phone_valid_ = true;
-            ble_log("fromRadioSync tx busy; defer from_num=%lu len=%u",
-                    static_cast<unsigned long>(from_num),
-                    static_cast<unsigned>(frame->len));
+            ble_log("fromRadioSync tx busy; defer from_num=%lu len=%u kind=%s pri=%u",
+                    static_cast<unsigned long>(frame->from_num),
+                    static_cast<unsigned>(frame->len),
+                    bleFrameKindName(frame->kind),
+                    static_cast<unsigned>(frame->priority));
             return;
         }
 
@@ -886,13 +936,15 @@ void MeshtasticBleService::handleToPhone()
         if (queued)
         {
             pending_to_phone_valid_ = false;
-            ble_log("toPhone enqueue from_num=%lu len=%u q=%u",
-                    static_cast<unsigned long>(from_num),
+            ble_log("toPhone enqueue from_num=%lu len=%u q=%u kind=%s pri=%u",
+                    static_cast<unsigned long>(frame->from_num),
                     static_cast<unsigned>(frame->len),
-                    static_cast<unsigned>(queue_depth));
+                    static_cast<unsigned>(queue_depth),
+                    bleFrameKindName(frame->kind),
+                    static_cast<unsigned>(frame->priority));
             if (in_send_packets && !waiting_for_read)
             {
-                notifyFromNum(from_num);
+                notifyFromNum(frame->from_num);
                 return;
             }
             if (!can_preload || sync_active || queue_depth >= kToPhoneQueueDepth)
@@ -902,11 +954,12 @@ void MeshtasticBleService::handleToPhone()
             continue;
         }
         pending_to_phone_ = *frame;
-        pending_to_phone_from_num_ = from_num;
         pending_to_phone_valid_ = true;
-        ble_log("toPhone enqueue defer from_num=%lu len=%u (queue full/busy)",
-                static_cast<unsigned long>(from_num),
-                static_cast<unsigned>(frame->len));
+        ble_log("toPhone enqueue defer from_num=%lu len=%u kind=%s pri=%u (queue full/busy)",
+                static_cast<unsigned long>(frame->from_num),
+                static_cast<unsigned>(frame->len),
+                bleFrameKindName(frame->kind),
+                static_cast<unsigned>(frame->priority));
         return;
     }
 }
@@ -969,11 +1022,10 @@ void MeshtasticBleService::clearQueues()
 {
     read_waiting_.store(false);
     pending_to_phone_valid_ = false;
-    pending_to_phone_from_num_ = 0;
-    pending_to_phone_.len = 0;
-    to_phone_scratch_.len = 0;
-    read_frame_scratch_.len = 0;
-    session_frame_scratch_.len = 0;
+    pending_to_phone_ = Frame{};
+    to_phone_scratch_ = Frame{};
+    read_frame_scratch_ = Frame{};
+    session_frame_scratch_ = phone::meshtastic::MeshtasticBleFrame{};
     from_num_notify_counter_ = 0;
 
     if (from_phone_mutex_)

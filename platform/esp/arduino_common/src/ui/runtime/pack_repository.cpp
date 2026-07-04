@@ -12,6 +12,7 @@
 #include <ctime>
 #include <dirent.h>
 #include <map>
+#include <new>
 #include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -31,6 +32,9 @@
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
 #ifdef INADDR_NONE
@@ -57,6 +61,11 @@ extern "C" esp_err_t esp_crt_bundle_attach(void* conf);
 
 namespace ui::runtime::packs
 {
+
+bool install_package_impl(const PackageRecord& package,
+                          std::string& out_error,
+                          bool reload_language_after_install);
+
 namespace
 {
 
@@ -103,6 +112,179 @@ struct InstalledIndex
 {
     std::vector<InstalledPackageRecord> packages;
 };
+
+constexpr uint32_t kInstallWorkerStackBytes = 16 * 1024;
+constexpr UBaseType_t kInstallWorkerPriority = 3;
+
+struct InstallWorkerContext
+{
+    PackageRecord package{};
+};
+
+struct AsyncInstallState
+{
+    SemaphoreHandle_t mutex = nullptr;
+    TaskHandle_t worker_task = nullptr;
+    bool launch_pending = false;
+    PackageInstallStatus status{};
+};
+
+AsyncInstallState s_install_state{};
+
+bool ensure_install_mutex()
+{
+    if (s_install_state.mutex != nullptr)
+    {
+        return true;
+    }
+
+    s_install_state.mutex = xSemaphoreCreateMutex();
+    return s_install_state.mutex != nullptr;
+}
+
+class InstallStateLock
+{
+  public:
+    explicit InstallStateLock(SemaphoreHandle_t mutex) : mutex_(mutex)
+    {
+        if (mutex_ != nullptr)
+        {
+            xSemaphoreTake(mutex_, portMAX_DELAY);
+        }
+    }
+
+    ~InstallStateLock()
+    {
+        if (mutex_ != nullptr)
+        {
+            xSemaphoreGive(mutex_);
+        }
+    }
+
+    InstallStateLock(const InstallStateLock&) = delete;
+    InstallStateLock& operator=(const InstallStateLock&) = delete;
+
+  private:
+    SemaphoreHandle_t mutex_ = nullptr;
+};
+
+void set_install_status_locked(PackageInstallPhase phase,
+                               bool busy,
+                               const std::string& package_id,
+                               const char* message,
+                               const char* detail = nullptr)
+{
+    s_install_state.status.phase = phase;
+    s_install_state.status.busy = busy;
+    s_install_state.status.package_id = package_id;
+    s_install_state.status.message = message ? message : "";
+    s_install_state.status.detail = detail ? detail : "";
+}
+
+void* allocate_pack_scratch(std::size_t bytes)
+{
+    if (bytes == 0)
+    {
+        return nullptr;
+    }
+
+    const bool prefer_psram =
+        heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 &&
+        bytes > kTlsLargeAllocThresholdBytes;
+    const uint32_t primary_caps = prefer_psram ? (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+                                               : (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t secondary_caps = prefer_psram ? (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+                                                 : (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
+    void* ptr = heap_caps_malloc(bytes, primary_caps);
+    if (ptr == nullptr)
+    {
+        ptr = heap_caps_malloc(bytes, secondary_caps);
+    }
+    return ptr;
+}
+
+class ScopedPackScratch
+{
+  public:
+    explicit ScopedPackScratch(std::size_t bytes) : data_(allocate_pack_scratch(bytes))
+    {
+        size_ = data_ != nullptr ? bytes : 0;
+    }
+
+    ~ScopedPackScratch()
+    {
+        if (data_ != nullptr)
+        {
+            heap_caps_free(data_);
+        }
+    }
+
+    ScopedPackScratch(const ScopedPackScratch&) = delete;
+    ScopedPackScratch& operator=(const ScopedPackScratch&) = delete;
+
+    explicit operator bool() const
+    {
+        return data_ != nullptr;
+    }
+
+    void* data()
+    {
+        return data_;
+    }
+
+    std::uint8_t* bytes()
+    {
+        return static_cast<std::uint8_t*>(data_);
+    }
+
+    std::size_t size() const
+    {
+        return data_ != nullptr ? size_ : 0;
+    }
+
+  private:
+    void* data_ = nullptr;
+    std::size_t size_ = 0;
+};
+
+void install_worker_task_entry(void* param)
+{
+    InstallWorkerContext* ctx = static_cast<InstallWorkerContext*>(param);
+    PackageRecord package{};
+    if (ctx != nullptr)
+    {
+        package = std::move(ctx->package);
+        delete ctx;
+    }
+
+    std::printf("[Packs][InstallAsync] worker start id=%s stack=%lu priority=%u\n",
+                package.id.c_str(),
+                static_cast<unsigned long>(kInstallWorkerStackBytes),
+                static_cast<unsigned>(kInstallWorkerPriority));
+
+    std::string error;
+    const bool ok = install_package_impl(package, error, false);
+
+    if (ensure_install_mutex())
+    {
+        InstallStateLock lock(s_install_state.mutex);
+        s_install_state.worker_task = nullptr;
+        s_install_state.launch_pending = false;
+        set_install_status_locked(ok ? PackageInstallPhase::Succeeded : PackageInstallPhase::Failed,
+                                  false,
+                                  package.id,
+                                  ok ? "Package installed"
+                                     : (error.empty() ? "Install package failed" : error.c_str()),
+                                  package.id.c_str());
+    }
+
+    std::printf("[Packs][InstallAsync] worker finish id=%s ok=%d error=%s\n",
+                package.id.c_str(),
+                ok ? 1 : 0,
+                error.empty() ? "<none>" : error.c_str());
+    vTaskDelete(nullptr);
+}
 
 void log_pack_memory_snapshot(const char* stage)
 {
@@ -1561,14 +1743,20 @@ bool read_file_chunks(const std::string& logical_path, ChunkHandler on_chunk)
         return false;
     }
 
-    std::uint8_t buffer[kFileReadChunkBytes];
+    ScopedPackScratch buffer(kFileReadChunkBytes);
+    if (!buffer)
+    {
+        file.close();
+        return false;
+    }
+
     std::size_t offset = 0;
     const std::size_t size = file.size();
     bool ok = true;
     while (offset < size)
     {
-        const std::size_t chunk = std::min<std::size_t>(sizeof(buffer), size - offset);
-        if (!file.read_at(offset, buffer, chunk) || !on_chunk(buffer, chunk))
+        const std::size_t chunk = std::min<std::size_t>(buffer.size(), size - offset);
+        if (!file.read_at(offset, buffer.bytes(), chunk) || !on_chunk(buffer.bytes(), chunk))
         {
             ok = false;
             break;
@@ -1637,10 +1825,20 @@ bool http_get_text(const std::string& url, std::string& out, std::string& out_er
             }
             else
             {
-                char buffer[kHttpBufferSize];
+                ScopedPackScratch buffer(kHttpBufferSize);
+                if (!buffer)
+                {
+                    out_error = "Allocate catalog buffer failed";
+                }
                 while (true)
                 {
-                    const int read = esp_http_client_read(client, buffer, sizeof(buffer));
+                    if (!buffer)
+                    {
+                        break;
+                    }
+                    const int read = esp_http_client_read(client,
+                                                          reinterpret_cast<char*>(buffer.bytes()),
+                                                          static_cast<int>(buffer.size()));
                     if (read < 0)
                     {
                         out_error = "Read catalog failed";
@@ -1651,7 +1849,8 @@ bool http_get_text(const std::string& url, std::string& out, std::string& out_er
                         ok = true;
                         break;
                     }
-                    out.append(buffer, static_cast<std::size_t>(read));
+                    out.append(reinterpret_cast<const char*>(buffer.bytes()),
+                               static_cast<std::size_t>(read));
                 }
             }
         }
@@ -1719,12 +1918,20 @@ bool http_download_file(const std::string& url,
             }
             else
             {
-                std::uint8_t buffer[kHttpBufferSize];
+                ScopedPackScratch buffer(kHttpBufferSize);
+                if (!buffer)
+                {
+                    out_error = "Allocate download buffer failed";
+                }
                 while (true)
                 {
+                    if (!buffer)
+                    {
+                        break;
+                    }
                     const int read = esp_http_client_read(client,
-                                                          reinterpret_cast<char*>(buffer),
-                                                          sizeof(buffer));
+                                                          reinterpret_cast<char*>(buffer.bytes()),
+                                                          static_cast<int>(buffer.size()));
                     if (read < 0)
                     {
                         out_error = "Download read failed";
@@ -1735,7 +1942,7 @@ bool http_download_file(const std::string& url,
                         ok = true;
                         break;
                     }
-                    if (!file.write(buffer, static_cast<std::size_t>(read)))
+                    if (!file.write(buffer.bytes(), static_cast<std::size_t>(read)))
                     {
                         out_error = "Write download file failed";
                         break;
@@ -2665,13 +2872,19 @@ bool copy_file_range(RandomAccessFile& source,
         return false;
     }
 
-    std::uint8_t buffer[kFileReadChunkBytes];
+    ScopedPackScratch buffer(kFileReadChunkBytes);
+    if (!buffer)
+    {
+        out_error = "Allocate zip copy buffer failed";
+        return false;
+    }
+
     std::size_t copied = 0;
     while (copied < len)
     {
-        const std::size_t chunk = std::min<std::size_t>(sizeof(buffer), len - copied);
-        if (!source.read_at(source_offset + copied, buffer, chunk) ||
-            !target.write(buffer, chunk))
+        const std::size_t chunk = std::min<std::size_t>(buffer.size(), len - copied);
+        if (!source.read_at(source_offset + copied, buffer.bytes(), chunk) ||
+            !target.write(buffer.bytes(), chunk))
         {
             out_error = "Copy zip entry data failed";
             return false;
@@ -2703,11 +2916,20 @@ bool inflate_zip_entry_to_file(RandomAccessFile& source,
         return false;
     }
 
-    tinfl_decompressor inflator;
-    tinfl_init(&inflator);
+    ScopedPackScratch inflator_storage(sizeof(tinfl_decompressor));
+    ScopedPackScratch input_storage(kFileReadChunkBytes);
+    ScopedPackScratch output_storage(TINFL_LZ_DICT_SIZE);
+    if (!inflator_storage || !input_storage || !output_storage)
+    {
+        out_error = "Allocate zip inflate buffers failed";
+        return false;
+    }
 
-    std::uint8_t input[kFileReadChunkBytes];
-    std::vector<std::uint8_t> output(TINFL_LZ_DICT_SIZE);
+    auto* inflator = static_cast<tinfl_decompressor*>(inflator_storage.data());
+    tinfl_init(inflator);
+
+    std::uint8_t* input = input_storage.bytes();
+    std::uint8_t* output = output_storage.bytes();
     std::size_t loaded = 0;
     std::size_t input_pos = 0;
     std::size_t input_size = 0;
@@ -2718,7 +2940,7 @@ bool inflate_zip_entry_to_file(RandomAccessFile& source,
     {
         if (input_pos == input_size && loaded < compressed_size)
         {
-            input_size = std::min<std::size_t>(sizeof(input), compressed_size - loaded);
+            input_size = std::min<std::size_t>(input_storage.size(), compressed_size - loaded);
             if (!source.read_at(data_offset + loaded, input, input_size))
             {
                 out_error = "Read zip entry data failed";
@@ -2730,21 +2952,21 @@ bool inflate_zip_entry_to_file(RandomAccessFile& source,
 
         std::size_t in_avail = input_size - input_pos;
         const std::size_t dict_ofs = output_pos & (TINFL_LZ_DICT_SIZE - 1U);
-        std::size_t out_avail = output.size() - dict_ofs;
+        std::size_t out_avail = output_storage.size() - dict_ofs;
         const mz_uint32 flags = loaded < compressed_size ? TINFL_FLAG_HAS_MORE_INPUT : 0;
         const tinfl_status status =
-            tinfl_decompress(&inflator,
+            tinfl_decompress(inflator,
                              reinterpret_cast<const mz_uint8*>(input + input_pos),
                              &in_avail,
-                             reinterpret_cast<mz_uint8*>(output.data()),
-                             reinterpret_cast<mz_uint8*>(output.data() + dict_ofs),
+                             reinterpret_cast<mz_uint8*>(output),
+                             reinterpret_cast<mz_uint8*>(output + dict_ofs),
                              &out_avail,
                              flags);
         input_pos += in_avail;
 
         if (out_avail > 0)
         {
-            if (!target.write(output.data() + dict_ofs, out_avail))
+            if (!target.write(output + dict_ofs, out_avail))
             {
                 out_error = "Write inflated payload failed";
                 return false;
@@ -3225,7 +3447,112 @@ bool fetch_catalog(std::vector<PackageRecord>& out_packages, std::string& out_er
     return true;
 }
 
-bool install_package(const PackageRecord& package, std::string& out_error)
+bool start_install_package(const PackageRecord& package, std::string& out_error)
+{
+    out_error.clear();
+
+    if (!ensure_install_mutex())
+    {
+        out_error = "Create package install mutex failed";
+        std::printf("[Packs][InstallAsync] start rejected id=%s reason=%s\n",
+                    package.id.c_str(),
+                    out_error.c_str());
+        return false;
+    }
+
+    InstallWorkerContext* ctx = new (std::nothrow) InstallWorkerContext{};
+    if (ctx == nullptr)
+    {
+        out_error = "Allocate package install task failed";
+        std::printf("[Packs][InstallAsync] start rejected id=%s reason=%s\n",
+                    package.id.c_str(),
+                    out_error.c_str());
+        return false;
+    }
+    ctx->package = package;
+
+    {
+        InstallStateLock lock(s_install_state.mutex);
+        if (s_install_state.status.busy ||
+            s_install_state.worker_task != nullptr ||
+            s_install_state.launch_pending)
+        {
+            out_error = "Package install already in progress";
+            std::printf("[Packs][InstallAsync] start rejected id=%s reason=%s current_id=%s\n",
+                        package.id.c_str(),
+                        out_error.c_str(),
+                        s_install_state.status.package_id.c_str());
+            delete ctx;
+            return false;
+        }
+
+        s_install_state.launch_pending = true;
+        set_install_status_locked(PackageInstallPhase::Installing,
+                                  true,
+                                  package.id,
+                                  "Installing package...",
+                                  package.id.c_str());
+    }
+
+    TaskHandle_t task_handle = nullptr;
+    const BaseType_t task_ok = xTaskCreate(install_worker_task_entry,
+                                           "pack_install",
+                                           kInstallWorkerStackBytes,
+                                           ctx,
+                                           kInstallWorkerPriority,
+                                           &task_handle);
+
+    {
+        InstallStateLock lock(s_install_state.mutex);
+        if (task_ok != pdPASS || task_handle == nullptr)
+        {
+            s_install_state.worker_task = nullptr;
+            s_install_state.launch_pending = false;
+            set_install_status_locked(PackageInstallPhase::Failed,
+                                      false,
+                                      package.id,
+                                      "Create package install task failed",
+                                      package.id.c_str());
+            out_error = s_install_state.status.message;
+            delete ctx;
+            std::printf("[Packs][InstallAsync] start failed id=%s result=%d handle=%p\n",
+                        package.id.c_str(),
+                        static_cast<int>(task_ok),
+                        static_cast<void*>(task_handle));
+            return false;
+        }
+
+        if (s_install_state.launch_pending)
+        {
+            s_install_state.worker_task = task_handle;
+            s_install_state.launch_pending = false;
+        }
+    }
+
+    std::printf("[Packs][InstallAsync] start accepted id=%s task=%p\n",
+                package.id.c_str(),
+                static_cast<void*>(task_handle));
+    return true;
+}
+
+PackageInstallStatus install_status()
+{
+    PackageInstallStatus status{};
+    if (!ensure_install_mutex())
+    {
+        status.phase = PackageInstallPhase::Failed;
+        status.message = "Create package install mutex failed";
+        return status;
+    }
+
+    InstallStateLock lock(s_install_state.mutex);
+    status = s_install_state.status;
+    return status;
+}
+
+bool install_package_impl(const PackageRecord& package,
+                          std::string& out_error,
+                          bool reload_language_after_install)
 {
     out_error.clear();
 
@@ -3383,10 +3710,23 @@ bool install_package(const PackageRecord& package, std::string& out_error)
 #endif
 
     log_package_payload_probe("before_reload", package, kInstallStorage);
-    std::printf("[Packs][Install] reload_language id=%s\n", package.id.c_str());
-    ::ui::i18n::reload_language();
+    if (reload_language_after_install)
+    {
+        std::printf("[Packs][Install] reload_language id=%s\n", package.id.c_str());
+        ::ui::i18n::reload_language();
+    }
+    else
+    {
+        std::printf("[Packs][Install] reload_language deferred id=%s\n",
+                    package.id.c_str());
+    }
     std::printf("[Packs][Install] complete id=%s\n", package.id.c_str());
     return true;
+}
+
+bool install_package(const PackageRecord& package, std::string& out_error)
+{
+    return install_package_impl(package, out_error, true);
 }
 
 bool uninstall_package(const PackageRecord& package, std::string& out_error)
@@ -3487,6 +3827,18 @@ bool install_package(const PackageRecord& package, std::string& out_error)
     (void)package;
     out_error = "Pack installation is unsupported on this platform";
     return false;
+}
+
+bool start_install_package(const PackageRecord& package, std::string& out_error)
+{
+    return install_package(package, out_error);
+}
+
+PackageInstallStatus install_status()
+{
+    PackageInstallStatus status{};
+    status.phase = PackageInstallPhase::Idle;
+    return status;
 }
 
 bool uninstall_package(const PackageRecord& package, std::string& out_error)

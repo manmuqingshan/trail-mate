@@ -6,9 +6,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
+#include <cstring>
 #include <string>
-#include <vector>
 
 namespace chat
 {
@@ -23,8 +22,79 @@ namespace phone::meshcore
 
 struct MeshCoreBleFrame
 {
+    static constexpr size_t kMaxLen = 172;
+
     size_t len = 0;
-    std::array<uint8_t, 172> buf{};
+    std::array<uint8_t, kMaxLen> buf{};
+
+    bool assign(const uint8_t* data, size_t size)
+    {
+        if (!data || size == 0 || size > buf.size())
+        {
+            return false;
+        }
+        len = size;
+        std::memcpy(buf.data(), data, size);
+        return true;
+    }
+};
+
+template <size_t Capacity>
+class MeshCoreBleFrameQueue
+{
+  public:
+    bool empty() const { return count_ == 0; }
+    size_t size() const { return count_; }
+
+    void clear()
+    {
+        for (size_t index = 0; index < count_; ++index)
+        {
+            frames_[index] = MeshCoreBleFrame{};
+        }
+        count_ = 0;
+    }
+
+    const MeshCoreBleFrame* front() const
+    {
+        return count_ == 0 ? nullptr : &frames_[0];
+    }
+
+    void pop_front()
+    {
+        removeAt(0);
+    }
+
+    bool pushDropOldest(const uint8_t* data, size_t len)
+    {
+        if (!data || len == 0 || len > MeshCoreBleFrame::kMaxLen)
+        {
+            return false;
+        }
+        if (count_ >= Capacity)
+        {
+            removeAt(0);
+        }
+        return frames_[count_++].assign(data, len);
+    }
+
+  private:
+    void removeAt(size_t index)
+    {
+        if (index >= count_)
+        {
+            return;
+        }
+        for (size_t move = index + 1; move < count_; ++move)
+        {
+            frames_[move - 1] = frames_[move];
+        }
+        --count_;
+        frames_[count_] = MeshCoreBleFrame{};
+    }
+
+    std::array<MeshCoreBleFrame, Capacity> frames_{};
+    size_t count_ = 0;
 };
 
 struct MeshCorePhoneBatteryInfo
@@ -205,8 +275,11 @@ class MeshCorePhoneCore
     IPhoneAppFacade& app_;
     std::string device_name_;
     MeshCorePhoneHooks* hooks_ = nullptr;
-    std::deque<MeshCoreBleFrame> tx_queue_;
-    std::vector<uint8_t> sign_data_;
+    static constexpr size_t kTxFrameQueueDepth = 32;
+    static constexpr size_t kSignDataMaxLen = 8 * 1024;
+    MeshCoreBleFrameQueue<kTxFrameQueueDepth> tx_queue_;
+    std::array<uint8_t, kSignDataMaxLen> sign_data_{};
+    size_t sign_data_len_ = 0;
     MeshCoreBleFrame frame_scratch_{};
     MeshCorePhoneContactView contact_scratch_{};
     bool sign_active_ = false;

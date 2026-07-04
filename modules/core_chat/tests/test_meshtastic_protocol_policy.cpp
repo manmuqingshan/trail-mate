@@ -17,6 +17,7 @@ int main()
     using chat::meshtastic::validateMqttDecodedDownlinkPayload;
     using chat::meshtastic::validateMqttDownlinkChannel;
     using chat::meshtastic::validateMqttProxyInbound;
+    using chat::meshtastic::validateMqttProxyPublish;
     using chat::runtime::kMeshtasticBroadcastNode;
     using chat::runtime::MeshtasticBleVisibleNameReason;
     using chat::runtime::MeshtasticMqttDownlinkReason;
@@ -152,7 +153,11 @@ int main()
         assert(validateMqttProxyInbound(settings, true, false) == MqttProxyRejectReason::EmptyPayload);
         assert(validateMqttProxyInbound(settings, true, true) == MqttProxyRejectReason::None);
         assert(hasAnyMqttDownlinkEnabled(settings));
+        assert(validateMqttProxyPublish(settings, chat::ChannelId::PRIMARY, false, false) ==
+               MqttProxyRejectReason::None);
         assert(shouldPublishToMqtt(settings, chat::ChannelId::PRIMARY, false, false));
+        assert(validateMqttProxyPublish(settings, chat::ChannelId::PRIMARY, true, false) ==
+               MqttProxyRejectReason::MqttLoopback);
         assert(!shouldPublishToMqtt(settings, chat::ChannelId::PRIMARY, true, false));
         assert(std::strcmp(mqttChannelIdFor(settings, chat::ChannelId::PRIMARY),
                            settings.primary_channel_id.c_str()) == 0);

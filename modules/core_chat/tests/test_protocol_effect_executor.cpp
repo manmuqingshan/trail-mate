@@ -145,6 +145,48 @@ int main()
                   "RecordingProtocolExecutor must implement the effect bridge");
 
     {
+        chat::runtime::ProtocolEffects effects{};
+        chat::runtime::EmitActionResultEffect result{};
+        for (std::size_t i = 0; i < chat::runtime::kProtocolEffectsMaxItems; ++i)
+        {
+            result.request_id = static_cast<chat::MessageId>(i + 1);
+            assert(effects.add(result));
+        }
+
+        assert(effects.items.size() == chat::runtime::kProtocolEffectsMaxItems);
+        assert(effects.full());
+        assert(!effects.overflowed());
+
+        result.request_id = 0xFEEDUL;
+        assert(!effects.add(result));
+        assert(effects.items.size() == chat::runtime::kProtocolEffectsMaxItems);
+        assert(effects.overflowed());
+
+        const auto* last =
+            std::get_if<chat::runtime::EmitActionResultEffect>(
+                &effects.items[chat::runtime::kProtocolEffectsMaxItems - 1]);
+        assert(last);
+        assert(last->request_id ==
+               static_cast<chat::MessageId>(chat::runtime::kProtocolEffectsMaxItems));
+    }
+
+    {
+        chat::runtime::ProtocolEffects source{};
+        chat::runtime::EmitActionResultEffect result{};
+        for (std::size_t i = 0; i < chat::runtime::kProtocolEffectsMaxItems; ++i)
+        {
+            result.request_id = static_cast<chat::MessageId>(i + 1);
+            assert(source.add(result));
+        }
+        assert(!source.add(result));
+
+        chat::runtime::ProtocolEffects target{};
+        chat::runtime::appendProtocolEffects(target, std::move(source));
+        assert(target.items.size() == chat::runtime::kProtocolEffectsMaxItems);
+        assert(target.overflowed());
+    }
+
+    {
         chat::runtime::SendDiscoverRequestEffect effect{};
         effect.protocol = chat::MeshProtocol::MeshCore;
         effect.tag = 0xAABBCCDDUL;
@@ -179,7 +221,9 @@ int main()
         input.request_id = 0xCAFEUL;
 
         RecordingProtocolExecutor executor{};
-        assert(executeAll(executor, runtime.handlePkiResync(input)));
+        chat::runtime::ProtocolEffects effects{};
+        runtime.handlePkiResync(input, effects);
+        assert(executeAll(executor, effects));
         assert(executor.effects.size() == 3);
 
         const auto* forget =

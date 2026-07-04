@@ -72,3 +72,9 @@ This project is indexed by GitNexus as **trail-mate** (43886 symbols, 82034 rela
 - Use `rg`/`rg --files` for search, `git` for git state, and `apply_patch` for manual file edits.
 - For repeated or complex local operations, write down the intended steps first and run them as small observable commands instead of one large opaque command.
 - After any failed or timed-out command, inspect the process state before retrying.
+
+## Formatting
+
+- Use clang-format 14 only. On this machine the stable executable is `C:\Users\vicliu\AppData\Roaming\Python\Python313\Scripts\clang-format.exe` and it reports `clang-format version 14.0.6`.
+- Do not use Visual Studio's bundled clang-format at `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\bin\clang-format.exe`; it is version 19.1.5 and will not match CI.
+- If `clang-format` is not on `PATH`, call the stable executable above directly instead of searching the whole disk.

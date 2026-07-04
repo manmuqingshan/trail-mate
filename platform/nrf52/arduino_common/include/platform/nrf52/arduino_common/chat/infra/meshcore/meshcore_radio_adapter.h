@@ -1,5 +1,6 @@
 #pragma once
 
+#include "chat/infra/mesh_incoming_queue.h"
 #include "chat/infra/meshcore/meshcore_ble_backend.h"
 #include "chat/infra/meshcore/meshcore_identity_crypto.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
@@ -10,7 +11,7 @@
 #include "chat/runtime/self_identity_provider.h"
 
 #include <array>
-#include <queue>
+#include <cstddef>
 #include <string>
 
 namespace chat::contacts
@@ -101,7 +102,9 @@ class MeshCoreRadioAdapter final : public ::chat::IMeshAdapter,
     void ensureIdentityKeys();
     bool transmitFrame(const uint8_t* data, size_t size);
     bool sendAdvert(bool broadcast);
-    bool handleNodeInfoAppData(const ::chat::MeshIncomingData& incoming);
+    bool handleNodeInfoAppData(const ::chat::MeshIncomingData& incoming,
+                               const uint8_t* payload,
+                               size_t payload_len);
     ::chat::meshcore::PayloadProfile payloadProfile() const;
     ::chat::runtime::RuntimeContext buildRuntimeContext() const;
     ::chat::runtime::ProtocolRuntimeBundle protocolRuntimeBundle(
@@ -132,9 +135,18 @@ class MeshCoreRadioAdapter final : public ::chat::IMeshAdapter,
     std::array<uint8_t, 16> flood_scope_key_{};
     std::array<uint32_t, 32> local_text_ack_signatures_{};
     uint8_t local_text_ack_next_ = 0;
-    std::queue<::chat::MeshIncomingText> text_queue_;
-    std::queue<::chat::MeshIncomingData> data_queue_;
+    static constexpr std::size_t kIncomingQueueDepth = 12;
+    ::chat::infra::IncomingTextQueue<kIncomingQueueDepth> text_queue_;
+    ::chat::infra::IncomingDataQueue<kIncomingQueueDepth> data_queue_;
     ::chat::runtime::MeshCoreRuntime protocol_runtime_{};
+    ::chat::runtime::ProtocolEffectWorkspace protocol_effect_workspace_{};
+
+    bool enqueueIncomingText(const ::chat::MeshIncomingText& metadata,
+                             const char* text,
+                             size_t text_len);
+    bool enqueueIncomingData(const ::chat::MeshIncomingData& metadata,
+                             const uint8_t* payload,
+                             size_t payload_len);
 };
 
 } // namespace platform::nrf52::arduino_common::chat::meshcore

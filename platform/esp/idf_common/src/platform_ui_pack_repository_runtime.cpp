@@ -29,6 +29,18 @@ bool install_package(const PackageRecord& package, std::string& out_error)
     return false;
 }
 
+bool start_install_package(const PackageRecord& package, std::string& out_error)
+{
+    return install_package(package, out_error);
+}
+
+PackageInstallStatus install_status()
+{
+    PackageInstallStatus status{};
+    status.phase = PackageInstallPhase::Idle;
+    return status;
+}
+
 bool uninstall_package(const PackageRecord& package, std::string& out_error)
 {
     (void)package;

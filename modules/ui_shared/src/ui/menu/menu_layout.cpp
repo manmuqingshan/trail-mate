@@ -829,6 +829,23 @@ bool createAppButtonsFromUxMenu(lv_obj_t* panel)
         ++created_count;
     }
 
+    if (created_count > 0)
+    {
+        const size_t app_count = ui::catalogCount(s_init_options.apps);
+        for (size_t index = 0; index < app_count && created_count < kMaxMenuApps; ++index)
+        {
+            AppScreen* app = ui::catalogAt(s_init_options.apps, index);
+            if (app == nullptr || appAlreadyAdded(app, created_count))
+            {
+                continue;
+            }
+
+            createAppButton(panel, app, created_count);
+            lv_group_add_obj(menu_g, lv_obj_get_child(panel, static_cast<int32_t>(created_count)));
+            ++created_count;
+        }
+    }
+
     MENU_LAYOUT_DIAG("createAppGrid ux_menu_items=%u matched_apps=%u\n",
                      static_cast<unsigned>(ux_menu->size()),
                      static_cast<unsigned>(created_count));

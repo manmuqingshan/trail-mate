@@ -7,21 +7,23 @@
 
 #include "board/LoraBoard.h"
 #include "chat/domain/chat_types.h"
+#include "chat/infra/mesh_incoming_queue.h"
 #include "chat/infra/meshtastic/mt_codec_pb.h" // Use protobuf-based codec
 #include "chat/infra/meshtastic/mt_dedup.h"
 #include "chat/infra/meshtastic/mt_mqtt_proxy_runtime.h"
 #include "chat/infra/meshtastic/mt_packet_wire.h" // Wire packet format
+#include "chat/infra/meshtastic/mt_pending_wire_table.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/meshtastic_runtime.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "mesh/domain/peer_identity.h"
 #include "meshtastic/mqtt.pb.h"
 #include "platform/esp/arduino_common/mesh/esp_meshtastic_adapter_bridge.h"
+#include "sys/ringbuf.h"
 #include <array>
 #include <cstddef>
-#include <map>
 #include <memory>
-#include <queue>
 #include <string>
 
 namespace chat
@@ -72,6 +74,7 @@ class MtAdapter : public chat::IMeshAdapter
     meshtastic_Routing_Error getLastRoutingError() const;
     void setMqttProxySettings(const MqttProxySettings& settings);
     bool pollMqttProxyMessage(meshtastic_MqttClientProxyMessage* out);
+    bool hasMqttProxyMessage() const;
     bool handleMqttProxyMessage(const meshtastic_MqttClientProxyMessage& msg);
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
@@ -125,11 +128,6 @@ class MtAdapter : public chat::IMeshAdapter
     bool pki_ready_;
     std::array<uint8_t, 32> pki_public_key_;
     std::array<uint8_t, 32> pki_private_key_;
-    std::map<uint32_t, std::array<uint8_t, 32>> node_public_keys_;
-    std::map<uint32_t, uint32_t> node_key_last_seen_;
-    std::map<uint32_t, ChannelId> node_last_channel_;
-    std::map<uint32_t, uint32_t> nodeinfo_reply_ms_;
-    std::map<uint32_t, std::string> node_long_names_;
     std::string user_long_name_;
     std::string user_short_name_;
     float last_rx_rssi_;
@@ -139,6 +137,9 @@ class MtAdapter : public chat::IMeshAdapter
     uint8_t radio_sf_ = 0;
     uint8_t radio_cr_ = 0;
 
+    static constexpr std::size_t kPendingAckSlotCount = 8;
+    static constexpr std::size_t kPendingAckWireMaxLen = 512;
+
     struct PendingAckState
     {
         uint32_t dest = 0;
@@ -146,8 +147,11 @@ class MtAdapter : public chat::IMeshAdapter
         uint8_t channel_hash = 0;
         uint32_t last_attempt_ms = 0;
         uint8_t retransmit_count = 0;
-        std::vector<uint8_t> wire_packet;
     };
+
+    using PendingAckTable =
+        PendingWireTable<PendingAckState, kPendingAckSlotCount, kPendingAckWireMaxLen>;
+    using PendingAckSlot = PendingAckTable::Slot;
 
     enum class KeyVerificationState : uint8_t
     {
@@ -176,20 +180,57 @@ class MtAdapter : public chat::IMeshAdapter
     {
         ChannelId channel;
         uint32_t portnum;
-        std::string text;
+        std::array<char, ::chat::infra::kIncomingTextMaxLen + 1> text{};
+        size_t text_len = 0;
         MessageId msg_id;
         NodeId dest;
         uint32_t retry_count;
         uint32_t last_attempt;
     };
 
-    std::queue<PendingSend> send_queue_;
-    std::queue<MeshIncomingText> receive_queue_;
-    std::queue<MeshIncomingData> app_receive_queue_;
-    std::queue<meshtastic_MqttClientProxyMessage> mqtt_proxy_queue_;
+    enum class PendingProtocolActionType : uint8_t
+    {
+        None,
+        SendNodeInfo,
+        SendRoutingAck,
+        SendRoutingError,
+        SendPacket
+    };
+
+    struct PendingProtocolAction
+    {
+        PendingProtocolActionType type = PendingProtocolActionType::None;
+        NodeId peer = 0;
+        MessageId request_id = 0;
+        ChannelId channel = ChannelId::PRIMARY;
+        uint8_t channel_hash = 0;
+        bool want_response = false;
+        meshtastic_Routing_Error routing_error = meshtastic_Routing_Error_NONE;
+        runtime::SendPacketEffect packet{};
+        bool mark_nodeinfo_reply = false;
+        uint32_t nodeinfo_reply_ms = 0;
+        uint8_t retry_count = 0;
+        uint32_t last_attempt = 0;
+    };
+
+    static constexpr std::size_t kIncomingQueueDepth = 12;
+    static constexpr std::size_t kPendingSendQueueDepth = 8;
+
+    sys::RingBuffer<PendingSend, kPendingSendQueueDepth> send_queue_;
+    ::chat::infra::IncomingTextQueue<kIncomingQueueDepth> receive_queue_;
+    ::chat::infra::IncomingDataQueue<kIncomingQueueDepth> app_receive_queue_;
+    static constexpr std::size_t kMqttProxyQueueDepth = 12;
+    sys::RingBuffer<meshtastic_MqttClientProxyMessage, kMqttProxyQueueDepth> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_;
 
-    struct MqttScratchBuffers
+    struct MqttDownlinkScratchBuffers
+    {
+        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
+        char channel_id[32] = {};
+        char gateway_id[16] = {};
+    };
+
+    struct MqttPublishScratchBuffers
     {
         std::array<uint8_t, 256> payload{};
         meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
@@ -214,11 +255,12 @@ class MtAdapter : public chat::IMeshAdapter
         meshtastic_Data candidate_decoded = meshtastic_Data_init_default;
     };
 
-    MqttScratchBuffers mqtt_scratch_;
+    MqttDownlinkScratchBuffers mqtt_downlink_scratch_;
+    MqttPublishScratchBuffers mqtt_publish_scratch_;
     TxScratchBuffers tx_scratch_;
     RxScratchBuffers rx_scratch_;
     meshtastic_MeshPacket protocol_effect_packet_scratch_ = meshtastic_MeshPacket_init_zero;
-    std::map<uint32_t, PendingAckState> pending_ack_states_;
+    PendingAckTable pending_ack_states_;
     std::unique_ptr<::platform::esp::arduino_common::mesh::EspMeshtasticAdapterBridge> core_bridge_;
 
     static constexpr size_t MAX_PACKET_SIZE = 255;
@@ -226,23 +268,49 @@ class MtAdapter : public chat::IMeshAdapter
     static constexpr uint8_t MAX_RETRIES = 3;
     static constexpr uint32_t NODEINFO_INTERVAL_MS = 3 * 60 * 60 * 1000;
     static constexpr uint32_t PKI_BACKOFF_MS = 5 * 60 * 1000;
-    static constexpr size_t MAX_APP_QUEUE = 10;
     static constexpr uint32_t ACK_TIMEOUT_MS = 15000;
     static constexpr uint8_t MAX_ACK_RETRIES = 3;
-    static constexpr size_t kMaxPkiNodes = 16;
+    static constexpr size_t kPkiNodeTableDepth = 16;
+    static constexpr size_t kNodeRuntimeTableDepth = 64;
+    static constexpr size_t kProtocolActionQueueSize = 8;
     static constexpr const char* kPkiPrefsNs = "chat_pki";
     static constexpr const char* kPkiPrefsKey = "pki_nodes";
     static constexpr const char* kPkiPrefsKeyVer = "pki_nodes_ver";
     static constexpr uint8_t kPkiPrefsVersion = 2;
+
+    struct PkiNodeKeyEntry
+    {
+        bool used = false;
+        NodeId node_id = 0;
+        std::array<uint8_t, 32> key{};
+        uint32_t last_seen_s = 0;
+    };
+
+    struct NodeRuntimeEntry
+    {
+        bool used = false;
+        NodeId node_id = 0;
+        ChannelId last_channel = ChannelId::PRIMARY;
+        bool has_last_channel = false;
+        uint32_t nodeinfo_reply_ms = 0;
+        uint32_t last_touch_ms = 0;
+    };
+
+    std::array<PkiNodeKeyEntry, kPkiNodeTableDepth> pki_node_keys_{};
+    std::array<::mesh::PeerPublicKey, kPkiNodeTableDepth> pki_save_entries_{};
+    std::array<NodeRuntimeEntry, kNodeRuntimeTableDepth> node_runtime_{};
 
     uint32_t min_tx_interval_ms_ = 0;
     uint32_t last_tx_ms_ = 0;
     uint8_t encrypt_mode_ = 1;
     meshtastic_Routing_Error last_send_error_ = meshtastic_Routing_Error_NONE;
     runtime::MeshtasticRuntime protocol_runtime_{};
+    runtime::ProtocolEffectWorkspace protocol_effect_workspace_{};
+    std::array<PendingProtocolAction, kProtocolActionQueueSize> protocol_action_queue_{};
+    size_t protocol_action_head_ = 0;
+    size_t protocol_action_count_ = 0;
 
     bool sendPacket(const PendingSend& pending);
-    bool sendNodeInfo();
     bool sendNodeInfoTo(uint32_t dest, bool want_response,
                         ChannelId channel = ChannelId::PRIMARY);
     void maybeBroadcastNodeInfo(uint32_t now_ms);
@@ -254,6 +322,19 @@ class MtAdapter : public chat::IMeshAdapter
     void initNodeIdentity();
     void updateChannelKeys();
     bool transmitWirePacket(const uint8_t* wire_data, size_t wire_size);
+    bool enqueueProtocolAction(const PendingProtocolAction& action);
+    bool enqueueNodeInfoAction(NodeId peer, bool want_response, ChannelId channel,
+                               bool mark_reply = false, uint32_t reply_ms = 0);
+    bool enqueueRoutingAckAction(NodeId peer, MessageId request_id, uint8_t channel_hash);
+    bool enqueueRoutingErrorAction(NodeId peer, MessageId request_id, ChannelId channel,
+                                   meshtastic_Routing_Error reason);
+    bool enqueueSendPacketAction(const runtime::SendPacketEffect& packet);
+    bool popProtocolAction();
+    void processProtocolActionQueue(uint32_t now_ms);
+    bool executeProtocolAction(const PendingProtocolAction& action);
+    bool resolvePskForChannelHash(uint8_t channel_hash,
+                                  const uint8_t** out_psk,
+                                  size_t* out_psk_len) const;
     bool sendChannelAppDataViaCore(uint32_t portnum,
                                    const uint8_t* payload,
                                    size_t len,
@@ -271,7 +352,7 @@ class MtAdapter : public chat::IMeshAdapter
     void trackPendingAck(uint32_t msg_id, uint32_t dest, ChannelId channel, uint8_t channel_hash,
                          const uint8_t* wire_data, size_t wire_size);
     void clearPendingAck(uint32_t msg_id);
-    void retryPendingAck(uint32_t msg_id, PendingAckState& pending);
+    void retryPendingAck(uint32_t msg_id, PendingAckSlot& slot);
     bool initPkiKeys();
     void loadPkiNodeKeys();
     void savePkiNodeKey(uint32_t node_id, const uint8_t* key, size_t key_len);
@@ -283,6 +364,21 @@ class MtAdapter : public chat::IMeshAdapter
                            uint8_t* out_cipher, size_t* out_cipher_len);
     void savePkiKeysToPrefs();
     void touchPkiNodeKey(uint32_t node_id);
+    PkiNodeKeyEntry* findPkiNodeKey(uint32_t node_id);
+    const PkiNodeKeyEntry* findPkiNodeKey(uint32_t node_id) const;
+    PkiNodeKeyEntry* upsertPkiNodeKey(uint32_t node_id, const uint8_t* key, uint32_t last_seen_s,
+                                      bool* out_changed = nullptr, bool* out_evicted = nullptr);
+    void clearPkiNodeKeys();
+    bool erasePkiNodeKey(uint32_t node_id);
+    size_t pkiNodeKeyCount() const;
+    NodeRuntimeEntry* findNodeRuntime(uint32_t node_id);
+    const NodeRuntimeEntry* findNodeRuntime(uint32_t node_id) const;
+    NodeRuntimeEntry* upsertNodeRuntime(uint32_t node_id, uint32_t now_ms);
+    void eraseNodeRuntime(uint32_t node_id);
+    bool getNodeLastChannel(uint32_t node_id, ChannelId* out) const;
+    void rememberNodeLastChannel(uint32_t node_id, ChannelId channel, uint32_t now_ms);
+    uint32_t getNodeInfoReplyMs(uint32_t node_id) const;
+    void setNodeInfoReplyMs(uint32_t node_id, uint32_t now_ms);
     bool sendRoutingAck(uint32_t dest, uint32_t request_id, uint8_t channel_hash,
                         const uint8_t* psk, size_t psk_len);
     bool sendRoutingError(uint32_t dest, uint32_t request_id, uint8_t channel_hash,

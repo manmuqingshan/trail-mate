@@ -3,9 +3,9 @@
 #include "chat/domain/chat_types.h"
 #include "sys/clock.h"
 
+#include <array>
 #include <cstdint>
 #include <cstring>
-#include <deque>
 
 namespace sys
 {
@@ -80,9 +80,12 @@ struct KeyVerificationFinalEvent : public Event
 class EventBus
 {
   public:
+    static constexpr size_t kMaxEvents = 32;
+
     static bool init(size_t queue_size = 32)
     {
-        instance_.queue_size_ = queue_size;
+        instance_.queue_size_ = normalizeQueueSize(queue_size);
+        instance_.trimToCapacity();
         return true;
     }
 
@@ -93,47 +96,95 @@ class EventBus
         {
             return false;
         }
-        if (instance_.queue_size_ == 0)
+        while (instance_.event_count_ >= instance_.queue_size_)
         {
-            instance_.queue_size_ = 32;
+            instance_.dropOldest();
         }
-        while (instance_.events_.size() >= instance_.queue_size_)
-        {
-            delete instance_.events_.front();
-            instance_.events_.pop_front();
-        }
-        instance_.events_.push_back(event);
+        instance_.pushBack(event);
         return true;
     }
 
     static bool subscribe(Event** event_out, uint32_t timeout_ms = 0)
     {
         (void)timeout_ms;
-        if (!event_out || instance_.events_.empty())
+        if (!event_out || instance_.event_count_ == 0)
         {
             return false;
         }
-        *event_out = instance_.events_.front();
-        instance_.events_.pop_front();
+        *event_out = instance_.popFront();
         return true;
     }
 
     static size_t pendingCount()
     {
-        return instance_.events_.size();
+        return instance_.event_count_;
     }
 
     static void clear()
     {
-        while (!instance_.events_.empty())
+        while (instance_.event_count_ > 0)
         {
-            delete instance_.events_.front();
-            instance_.events_.pop_front();
+            instance_.dropOldest();
         }
     }
 
   private:
-    std::deque<Event*> events_{};
+    static size_t normalizeQueueSize(size_t queue_size)
+    {
+        if (queue_size == 0 || queue_size > kMaxEvents)
+        {
+            return kMaxEvents;
+        }
+        return queue_size;
+    }
+
+    void trimToCapacity()
+    {
+        while (event_count_ > queue_size_)
+        {
+            dropOldest();
+        }
+    }
+
+    void dropOldest()
+    {
+        Event* event = events_[event_head_];
+        events_[event_head_] = nullptr;
+        event_head_ = (event_head_ + 1) % kMaxEvents;
+        if (event_count_ > 0)
+        {
+            --event_count_;
+        }
+        delete event;
+        if (event_count_ == 0)
+        {
+            event_head_ = 0;
+        }
+    }
+
+    void pushBack(Event* event)
+    {
+        const size_t index = (event_head_ + event_count_) % kMaxEvents;
+        events_[index] = event;
+        ++event_count_;
+    }
+
+    Event* popFront()
+    {
+        Event* event = events_[event_head_];
+        events_[event_head_] = nullptr;
+        event_head_ = (event_head_ + 1) % kMaxEvents;
+        --event_count_;
+        if (event_count_ == 0)
+        {
+            event_head_ = 0;
+        }
+        return event;
+    }
+
+    std::array<Event*, kMaxEvents> events_{};
+    size_t event_head_ = 0;
+    size_t event_count_ = 0;
     size_t queue_size_ = 32;
     static EventBus instance_;
 };

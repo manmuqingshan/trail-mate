@@ -129,6 +129,7 @@ int s_map_pan_y = 0;
 bool s_map_view_initialized = false;
 UI_GPS_PAGE_STATE_RAM_ATTR ::ui::map::MapOverlaySnapshot s_overlay_snapshot;
 Projection s_projection = Projection::Map;
+bool s_gps_power_lease_active = false;
 lv_obj_t* s_gps_status_label = nullptr;
 lv_obj_t* s_gps_coord_label = nullptr;
 lv_obj_t* s_gps_sat_label = nullptr;
@@ -2728,6 +2729,11 @@ bool load_map_track_file(const char* path, bool show_fail_toast)
 
 void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projection)
 {
+    if (!s_gps_power_lease_active)
+    {
+        platform::ui::gps::acquire_power_lease(projection == Projection::GpsStatus ? "lvgl-gps" : "lvgl-map");
+        s_gps_power_lease_active = true;
+    }
     s_host = host;
     s_projection = projection;
     clear_gps_status_labels();
@@ -2834,8 +2840,14 @@ void exit(lv_obj_t* parent)
         lv_obj_del(s_root);
         s_root = nullptr;
     }
+    const bool was_gps_status = s_projection == Projection::GpsStatus;
     s_host = nullptr;
     s_projection = Projection::Map;
+    if (s_gps_power_lease_active)
+    {
+        platform::ui::gps::release_power_lease(was_gps_status ? "lvgl-gps" : "lvgl-map");
+        s_gps_power_lease_active = false;
+    }
 }
 
 } // namespace gps::ui::runtime

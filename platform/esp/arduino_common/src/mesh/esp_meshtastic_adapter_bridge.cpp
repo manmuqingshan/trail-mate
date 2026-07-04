@@ -3,7 +3,6 @@
 #include "platform/esp/arduino_common/app_tasks.h"
 
 #include <Arduino.h>
-#include <RadioLib.h>
 #include <cstring>
 #include <esp_heap_caps.h>
 #include <new>
@@ -100,23 +99,12 @@ EspMeshtasticPacketRadio::EspMeshtasticPacketRadio(LoraBoard& board)
         return ::mesh::RadioResult::fail(::mesh::RadioFailure::NotReady);
     }
 
-    app::AppTasks::requestRadioReceiveRestart();
-    int state = RADIOLIB_ERR_UNSUPPORTED;
-#if defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_LR1121) || \
-    defined(ARDUINO_LILYGO_LORA_SX1280)
-    {
-        app::AppTasks::ScopedRadioTransmitActivity tx_activity;
-        state = board_.transmitRadio(packet.data, packet.size);
-    }
-#endif
-    if (state == RADIOLIB_ERR_NONE)
+    if (app::AppTasks::enqueueRadioTransmit(packet.data, packet.size))
     {
         last_sent_size_ = packet.size;
         std::memcpy(last_sent_, packet.data, packet.size);
-        board_.startRadioReceive();
         return ::mesh::RadioResult::success();
     }
-    app::AppTasks::requestRadioReceiveRestart();
     return ::mesh::RadioResult::fail(::mesh::RadioFailure::TxFailed);
 }
 

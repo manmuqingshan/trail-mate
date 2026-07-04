@@ -111,11 +111,18 @@ std::time_t utc_epoch_from_local(int year, int month, int day, int hour, int min
 bool utc_to_datetime(std::time_t epoch, DateTime& out)
 {
     std::tm tm_utc{};
-#if defined(_WIN32)
+#if defined(_MSC_VER)
     if (gmtime_s(&tm_utc, &epoch) != 0)
     {
         return false;
     }
+#elif defined(_WIN32)
+    std::tm* tm_ptr = std::gmtime(&epoch);
+    if (tm_ptr == nullptr)
+    {
+        return false;
+    }
+    tm_utc = *tm_ptr;
 #else
     if (gmtime_r(&epoch, &tm_utc) == nullptr)
     {

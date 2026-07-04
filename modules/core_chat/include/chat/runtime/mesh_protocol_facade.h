@@ -57,11 +57,13 @@ class MeshProtocolFacade
     MeshProtocolFacade(IProtocolRuntime& runtime,
                        IProtocolEffectExecutor& executor,
                        const IProtocolRuntimeContextProvider& context_provider,
+                       ProtocolEffectWorkspace& workspace,
                        ProtocolProjectionPolicy projection_policy =
                            ProtocolProjectionPolicy::CaptureAppFacing)
         : runtime_(runtime),
           executor_(executor),
           context_provider_(context_provider),
+          workspace_(workspace),
           projection_policy_(projection_policy)
     {
     }
@@ -69,7 +71,9 @@ class MeshProtocolFacade
     MeshProtocolFacadeResult executeIntent(const ProtocolIntent& intent)
     {
         const RuntimeContext context = context_provider_.runtimeContext();
-        return executeEffects(runtime_.prepareOutgoing(intent, context), context, true);
+        workspace_.primary.clear();
+        runtime_.prepareOutgoing(intent, context, workspace_.primary);
+        return executeEffects(workspace_.primary, context, true);
     }
 
     MeshProtocolFacadeResult startTraceRoute(NodeId peer,
@@ -129,21 +133,25 @@ class MeshProtocolFacade
     MeshProtocolFacadeResult handleIncoming(const IncomingPacket& packet)
     {
         const RuntimeContext context = context_provider_.runtimeContext();
-        return executeEffects(runtime_.handleIncomingPacket(packet, context).effects,
-                              context,
-                              true);
+        workspace_.primary.clear();
+        runtime_.handleIncomingPacket(packet, context, workspace_.primary);
+        return executeEffects(workspace_.primary, context, true);
     }
 
     MeshProtocolFacadeResult handleTxResult(const TxResult& result)
     {
         const RuntimeContext context = context_provider_.runtimeContext();
-        return executeEffects(runtime_.handleTxResult(result, context), context, false);
+        workspace_.feedback.clear();
+        runtime_.handleTxResult(result, context, workspace_.feedback);
+        return executeEffects(workspace_.feedback, context, false);
     }
 
     MeshProtocolFacadeResult tick()
     {
         const RuntimeContext context = context_provider_.runtimeContext();
-        return executeEffects(runtime_.tick(context), context, true);
+        workspace_.primary.clear();
+        runtime_.tick(context, workspace_.primary);
+        return executeEffects(workspace_.primary, context, true);
     }
 
   private:
@@ -189,7 +197,8 @@ class MeshProtocolFacade
                isAppFacingProjection(effect);
     }
 
-    MeshProtocolFacadeResult executeEffects(const ProtocolEffects& effects,
+    template <typename EffectBatch>
+    MeshProtocolFacadeResult executeEffects(const EffectBatch& effects,
                                             const RuntimeContext& context,
                                             bool allow_tx_feedback)
     {
@@ -242,8 +251,10 @@ class MeshProtocolFacade
             }
 
             tx.ok = false;
+            workspace_.feedback.clear();
+            runtime_.handleTxResult(tx, context, workspace_.feedback);
             const MeshProtocolFacadeResult feedback =
-                executeEffects(runtime_.handleTxResult(tx, context), context, false);
+                executeEffects(workspace_.feedback, context, false);
             mergeResult(result, feedback);
         }
         return result;
@@ -252,6 +263,7 @@ class MeshProtocolFacade
     IProtocolRuntime& runtime_;
     IProtocolEffectExecutor& executor_;
     const IProtocolRuntimeContextProvider& context_provider_;
+    ProtocolEffectWorkspace& workspace_;
     ProtocolProjectionPolicy projection_policy_ = ProtocolProjectionPolicy::CaptureAppFacing;
 };
 

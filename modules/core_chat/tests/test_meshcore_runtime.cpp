@@ -3,14 +3,100 @@
 #include <cassert>
 #include <cstring>
 
-template <typename T>
-const T* effectAt(const chat::runtime::ProtocolEffects& effects, size_t index)
+template <typename T, typename Effects>
+const T* effectAt(const Effects& effects, size_t index)
 {
     if (index >= effects.items.size())
     {
         return nullptr;
     }
     return std::get_if<T>(&effects.items[index]);
+}
+
+struct CapturedIncomingResult
+{
+    chat::runtime::PacketHandling handling = chat::runtime::PacketHandling::NotHandled;
+    chat::runtime::ProtocolEffects effects{};
+};
+
+chat::runtime::ProtocolEffects collectPrepareOutgoing(
+    chat::runtime::MeshCoreRuntime& runtime,
+    const chat::runtime::ProtocolIntent& intent,
+    const chat::runtime::RuntimeContext& context)
+{
+    chat::runtime::ProtocolEffects effects{};
+    runtime.prepareOutgoing(intent, context, effects);
+    return effects;
+}
+
+CapturedIncomingResult collectHandleIncomingPacket(
+    chat::runtime::MeshCoreRuntime& runtime,
+    const chat::runtime::IncomingPacket& packet,
+    const chat::runtime::RuntimeContext& context)
+{
+    CapturedIncomingResult captured{};
+    const auto result = runtime.handleIncomingPacket(packet, context, captured.effects);
+    captured.handling = result.handling;
+    return captured;
+}
+
+chat::runtime::ProtocolTxFeedbackEffects collectHandleTxResult(
+    chat::runtime::MeshCoreRuntime& runtime,
+    const chat::runtime::TxResult& result,
+    const chat::runtime::RuntimeContext& context)
+{
+    chat::runtime::ProtocolTxFeedbackEffects effects{};
+    runtime.handleTxResult(result, context, effects);
+    return effects;
+}
+
+chat::runtime::ProtocolEffects collectTick(
+    chat::runtime::MeshCoreRuntime& runtime,
+    const chat::runtime::RuntimeContext& context)
+{
+    chat::runtime::ProtocolEffects effects{};
+    runtime.tick(context, effects);
+    return effects;
+}
+
+chat::runtime::ProtocolEffects collectTrackAppAck(
+    chat::runtime::MeshCoreRuntime& runtime,
+    const chat::runtime::MeshCoreAppAckRegistration& input,
+    const chat::runtime::RuntimeContext& context)
+{
+    chat::runtime::ProtocolEffects effects{};
+    runtime.trackAppAck(input, context, effects);
+    return effects;
+}
+
+chat::runtime::ProtocolEffects collectBindAppAckToMessage(
+    chat::runtime::MeshCoreRuntime& runtime,
+    uint32_t signature,
+    chat::MessageId message_id)
+{
+    chat::runtime::ProtocolEffects effects{};
+    runtime.bindAppAckToMessage(signature, message_id, effects);
+    return effects;
+}
+
+chat::runtime::ProtocolEffects collectHandleAppAck(
+    chat::runtime::MeshCoreRuntime& runtime,
+    uint32_t signature,
+    const chat::runtime::RuntimeContext& context)
+{
+    chat::runtime::ProtocolEffects effects{};
+    runtime.handleAppAck(signature, context, effects);
+    return effects;
+}
+
+chat::runtime::ProtocolEffects collectPrepareAutoDiscoverMissingPeer(
+    chat::runtime::MeshCoreRuntime& runtime,
+    const chat::runtime::MeshCoreAutoDiscoverMissingPeerInput& input,
+    const chat::runtime::RuntimeContext& context)
+{
+    chat::runtime::ProtocolEffects effects{};
+    runtime.prepareAutoDiscoverMissingPeer(input, context, effects);
+    return effects;
 }
 
 int main()
@@ -57,7 +143,7 @@ int main()
         intent.message_id = 0x01020304UL;
         intent.text = "hello meshcore";
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* text = effectAt<SendTextEffect>(effects, 0);
         assert(text);
@@ -72,7 +158,7 @@ int main()
         SendTextIntent intent{};
         intent.peer = 0xFFFFFFFFUL;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* failed = effectAt<EmitActionResultEffect>(effects, 0);
         assert(failed);
@@ -93,7 +179,7 @@ int main()
         intent.since = 1781258481UL;
         intent.rx_guard_ms = 7000;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* discover = effectAt<SendDiscoverRequestEffect>(effects, 0);
         assert(discover);
@@ -108,7 +194,7 @@ int main()
     {
         DiscoverIntent intent{};
         intent.action = chat::MeshDiscoveryAction::SendIdLocal;
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* announce = effectAt<SendSelfAnnouncementEffect>(effects, 0);
         assert(announce);
@@ -119,7 +205,7 @@ int main()
     {
         DiscoverIntent intent{};
         intent.action = chat::MeshDiscoveryAction::SendIdBroadcast;
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* announce = effectAt<SendSelfAnnouncementEffect>(effects, 0);
         assert(announce);
@@ -131,13 +217,13 @@ int main()
         MeshCoreAutoDiscoverMissingPeerInput input{};
         input.peer_hash = 0x00;
         context.now_ms = 100;
-        assert(runtime.prepareAutoDiscoverMissingPeer(input, context).items.empty());
+        assert(collectPrepareAutoDiscoverMissingPeer(runtime, input, context).items.empty());
 
         input.peer_hash = 0xFF;
-        assert(runtime.prepareAutoDiscoverMissingPeer(input, context).items.empty());
+        assert(collectPrepareAutoDiscoverMissingPeer(runtime, input, context).items.empty());
 
         input.peer_hash = static_cast<uint8_t>(context.self_node & 0xFFU);
-        assert(runtime.prepareAutoDiscoverMissingPeer(input, context).items.empty());
+        assert(collectPrepareAutoDiscoverMissingPeer(runtime, input, context).items.empty());
     }
 
     {
@@ -150,7 +236,7 @@ int main()
         input.self_hash = static_cast<uint8_t>(auto_context.self_node & 0xFFU);
         input.rx_guard_ms = kMeshCoreDiscoverRxGuardDefaultMs;
 
-        const auto first = auto_runtime.prepareAutoDiscoverMissingPeer(input, auto_context);
+        const auto first = collectPrepareAutoDiscoverMissingPeer(auto_runtime, input, auto_context);
         assert(first.items.size() == 1);
         const auto* discover = effectAt<SendDiscoverRequestEffect>(first, 0);
         assert(discover);
@@ -162,10 +248,10 @@ int main()
                                                          auto_context,
                                                          true);
         auto_context.now_ms += kMeshCoreAutoDiscoverCooldownMs - 1;
-        assert(auto_runtime.prepareAutoDiscoverMissingPeer(input, auto_context).items.empty());
+        assert(collectPrepareAutoDiscoverMissingPeer(auto_runtime, input, auto_context).items.empty());
 
         auto_context.now_ms = 1000 + kMeshCoreAutoDiscoverCooldownMs;
-        assert(auto_runtime.prepareAutoDiscoverMissingPeer(input, auto_context).items.size() == 1);
+        assert(collectPrepareAutoDiscoverMissingPeer(auto_runtime, input, auto_context).items.size() == 1);
     }
 
     {
@@ -176,19 +262,19 @@ int main()
         MeshCoreAutoDiscoverMissingPeerInput input{};
         input.peer_hash = 0x43;
 
-        assert(auto_runtime.prepareAutoDiscoverMissingPeer(input, auto_context).items.size() == 1);
+        assert(collectPrepareAutoDiscoverMissingPeer(auto_runtime, input, auto_context).items.size() == 1);
         auto_runtime.markAutoDiscoverMissingPeerTxResult(input.peer_hash,
                                                          auto_context,
                                                          false);
         auto_context.now_ms = 2001;
-        assert(auto_runtime.prepareAutoDiscoverMissingPeer(input, auto_context).items.size() == 1);
+        assert(collectPrepareAutoDiscoverMissingPeer(auto_runtime, input, auto_context).items.size() == 1);
     }
 
     {
         RequestNodeInfoIntent intent{};
         intent.peer = 0xFFFFFFFFUL;
         intent.want_response = true;
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* node_info = effectAt<SendNodeInfoEffect>(effects, 0);
         assert(node_info);
@@ -216,7 +302,7 @@ int main()
         packet.payload_type = chat::meshcore::kMeshCorePayloadTypeControl;
         packet.payload.assign(payload, payload + payload_len);
 
-        const auto result = runtime.handleIncomingPacket(packet, context);
+        const auto result = collectHandleIncomingPacket(runtime, packet, context);
         assert(result.handling == PacketHandling::HandledStop);
         const auto& effects = result.effects;
         assert(effects.items.size() == 1);
@@ -232,7 +318,7 @@ int main()
                                                                   sizeof(payload),
                                                                   &payload_len));
         packet.payload.assign(payload, payload + payload_len);
-        const auto repeater_result = runtime.handleIncomingPacket(packet, context);
+        const auto repeater_result = collectHandleIncomingPacket(runtime, packet, context);
         assert(repeater_result.handling == PacketHandling::HandledStop);
         assert(repeater_result.effects.empty());
 
@@ -243,7 +329,7 @@ int main()
                                                                   sizeof(payload),
                                                                   &payload_len));
         packet.payload.assign(payload, payload + payload_len);
-        const auto stale_result = runtime.handleIncomingPacket(packet, context);
+        const auto stale_result = collectHandleIncomingPacket(runtime, packet, context);
         assert(stale_result.handling == PacketHandling::HandledStop);
         assert(stale_result.effects.empty());
     }
@@ -274,7 +360,7 @@ int main()
         packet.payload.assign(payload, payload + payload_len);
         packet.rx_meta.rssi_dbm_x10 = -840;
 
-        const auto result = runtime.handleIncomingPacket(packet, context);
+        const auto result = collectHandleIncomingPacket(runtime, packet, context);
         assert(result.handling == PacketHandling::HandledStop);
         const auto& effects = result.effects;
         assert(effects.items.size() == 2);
@@ -315,7 +401,7 @@ int main()
         packet.from = 0x22222222UL;
         packet.payload.assign(payload, payload + payload_len);
 
-        const auto result = runtime.handleIncomingPacket(packet, context);
+        const auto result = collectHandleIncomingPacket(runtime, packet, context);
         assert(result.handling == PacketHandling::HandledStop);
         const auto& effects = result.effects;
         assert(effects.items.size() == 1);
@@ -349,7 +435,7 @@ int main()
         packet.rx_meta.hop_count = 3;
         packet.payload.assign(payload, payload + payload_len);
 
-        const auto result = runtime.handleIncomingPacket(packet, context);
+        const auto result = collectHandleIncomingPacket(runtime, packet, context);
         assert(result.handling == PacketHandling::HandledStop);
         const auto& effects = result.effects;
         assert(effects.items.size() == 1);
@@ -371,7 +457,7 @@ int main()
         intent.timeout_ms = 1000;
         context.now_ms = 5000;
 
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         const auto* trace = effectAt<SendTraceRouteEffect>(effects, 0);
         assert(trace);
@@ -386,7 +472,7 @@ int main()
         tx.peer = intent.peer;
         tx.ok = true;
         tx.detail = 2300;
-        const auto tx_effects = runtime.handleTxResult(tx, context);
+        const auto tx_effects = collectHandleTxResult(runtime, tx, context);
         assert(tx_effects.items.size() == 1);
         const auto* delivered = effectAt<EmitActionResultEffect>(tx_effects, 0);
         assert(delivered);
@@ -408,7 +494,7 @@ int main()
         packet.payload_type = chat::meshcore::kMeshCorePayloadTypeTrace;
         packet.payload.assign(payload, payload + payload_len);
         packet.path.assign({10, 11});
-        const auto rx_result = runtime.handleIncomingPacket(packet, context);
+        const auto rx_result = collectHandleIncomingPacket(runtime, packet, context);
         assert(rx_result.handling == PacketHandling::HandledStop);
         const auto& rx_effects = rx_result.effects;
         assert(rx_effects.items.size() == 1);
@@ -427,15 +513,15 @@ int main()
         intent.request_id = 0x0A0B0C0DUL;
         intent.timeout_ms = 100;
         context.now_ms = 1000;
-        const auto effects = runtime.prepareOutgoing(intent, context);
+        const auto effects = collectPrepareOutgoing(runtime, intent, context);
         assert(effects.items.size() == 1);
         assert(effectAt<SendTraceRouteEffect>(effects, 0));
 
         context.now_ms = 1099;
-        assert(runtime.tick(context).items.empty());
+        assert(collectTick(runtime, context).items.empty());
 
         context.now_ms = 1100;
-        const auto timeout_effects = runtime.tick(context);
+        const auto timeout_effects = collectTick(runtime, context);
         assert(timeout_effects.items.size() == 1);
         const auto* timed_out = effectAt<EmitActionResultEffect>(timeout_effects, 0);
         assert(timed_out);
@@ -452,7 +538,7 @@ int main()
         packet.payload_type = 0x01;
         packet.payload.push_back(0xAA);
 
-        const auto result = runtime.handleIncomingPacket(packet, context);
+        const auto result = collectHandleIncomingPacket(runtime, packet, context);
         assert(result.handling == PacketHandling::NotHandled);
         assert(result.effects.empty());
     }
@@ -464,11 +550,11 @@ int main()
         ack.portnum = 0x1001;
         ack.timeout_ms = 500;
         context.now_ms = 2000;
-        assert(runtime.trackAppAck(ack, context).items.empty());
-        assert(runtime.bindAppAckToMessage(ack.signature, 77).items.empty());
+        assert(collectTrackAppAck(runtime, ack, context).items.empty());
+        assert(collectBindAppAckToMessage(runtime, ack.signature, 77).items.empty());
 
         context.now_ms = 2075;
-        const auto effects = runtime.handleAppAck(ack.signature, context);
+        const auto effects = collectHandleAppAck(runtime, ack.signature, context);
         assert(effects.items.size() == 1);
         const auto* completed = effectAt<EmitActionResultEffect>(effects, 0);
         assert(completed);
@@ -479,7 +565,7 @@ int main()
         assert(completed->request_id == ack.signature);
         assert(completed->message_id == 77);
         assert(completed->detail == 75);
-        assert(runtime.handleAppAck(ack.signature, context).items.empty());
+        assert(collectHandleAppAck(runtime, ack.signature, context).items.empty());
     }
 
     {
@@ -489,13 +575,13 @@ int main()
         ack.message_id = 88;
         ack.timeout_ms = 100;
         context.now_ms = 3000;
-        assert(runtime.trackAppAck(ack, context).items.empty());
+        assert(collectTrackAppAck(runtime, ack, context).items.empty());
 
         context.now_ms = 3099;
-        assert(runtime.tick(context).items.empty());
+        assert(collectTick(runtime, context).items.empty());
 
         context.now_ms = 3100;
-        const auto effects = runtime.tick(context);
+        const auto effects = collectTick(runtime, context);
         assert(effects.items.size() == 1);
         const auto* timed_out = effectAt<EmitActionResultEffect>(effects, 0);
         assert(timed_out);
@@ -505,6 +591,47 @@ int main()
         assert(timed_out->request_id == ack.signature);
         assert(timed_out->message_id == ack.message_id);
         assert(timed_out->detail == 100);
+    }
+
+    {
+        MeshCoreRuntime ack_runtime{};
+        context.now_ms = 4000;
+        for (uint32_t index = 0; index < 32; ++index)
+        {
+            MeshCoreAppAckRegistration ack{};
+            ack.signature = 0xC0000000UL + index;
+            ack.peer = 0x70000000UL + index;
+            ack.message_id = 1000 + index;
+            ack.timeout_ms = 5000;
+            assert(collectTrackAppAck(ack_runtime, ack, context).items.empty());
+        }
+
+        MeshCoreAppAckRegistration overflow{};
+        overflow.signature = 0xC0000020UL;
+        overflow.peer = 0x70000020UL;
+        overflow.message_id = 2000;
+        overflow.timeout_ms = 5000;
+        const auto dropped = collectTrackAppAck(ack_runtime, overflow, context);
+        assert(dropped.items.size() == 1);
+        const auto* failed = effectAt<EmitActionResultEffect>(dropped, 0);
+        assert(failed);
+        assert(failed->action == ProtocolActionKind::SendText);
+        assert(failed->state == ProtocolActionState::Failed);
+        assert(failed->request_id == 0xC0000000UL);
+        assert(failed->message_id == 1000);
+
+        assert(collectHandleAppAck(ack_runtime, 0xC0000000UL, context).items.empty());
+
+        context.now_ms = 4075;
+        const auto completed_effects = collectHandleAppAck(ack_runtime, overflow.signature, context);
+        assert(completed_effects.items.size() == 1);
+        const auto* completed = effectAt<EmitActionResultEffect>(completed_effects, 0);
+        assert(completed);
+        assert(completed->state == ProtocolActionState::Completed);
+        assert(completed->peer == overflow.peer);
+        assert(completed->request_id == overflow.signature);
+        assert(completed->message_id == overflow.message_id);
+        assert(completed->detail == 75);
     }
 
     return 0;

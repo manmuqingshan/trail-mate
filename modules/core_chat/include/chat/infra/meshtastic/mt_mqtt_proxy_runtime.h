@@ -32,6 +32,7 @@ enum class MqttProxyRejectReason : uint8_t
     EmptyPayload,
     DecodeFailed,
     UnknownOrDisabledChannel,
+    MqttLoopback,
     DecodedPayloadWhileEncrypted,
     AdminPayload,
     PayloadTooLarge,
@@ -55,6 +56,8 @@ inline const char* mqttProxyRejectReasonName(MqttProxyRejectReason reason)
         return "decode_failed";
     case MqttProxyRejectReason::UnknownOrDisabledChannel:
         return "unknown_or_disabled_channel";
+    case MqttProxyRejectReason::MqttLoopback:
+        return "mqtt_loopback";
     case MqttProxyRejectReason::DecodedPayloadWhileEncrypted:
         return "decoded_payload_while_encrypted";
     case MqttProxyRejectReason::AdminPayload:
@@ -134,24 +137,39 @@ inline MqttProxyDownlinkChannel resolveMqttProxyDownlinkChannel(
     return result;
 }
 
+inline MqttProxyRejectReason validateMqttProxyPublish(const MqttProxyRuntimeSettings& settings,
+                                                      ChannelId channel,
+                                                      bool from_mqtt,
+                                                      bool is_pki)
+{
+    if (!mqttProxyRuntimeEnabled(settings))
+    {
+        return MqttProxyRejectReason::ProxyDisabled;
+    }
+    if (from_mqtt)
+    {
+        return MqttProxyRejectReason::MqttLoopback;
+    }
+    if (is_pki)
+    {
+        return MqttProxyRejectReason::None;
+    }
+    if (channel == ChannelId::SECONDARY)
+    {
+        return settings.secondary_uplink_enabled ? MqttProxyRejectReason::None
+                                                 : MqttProxyRejectReason::UnknownOrDisabledChannel;
+    }
+    return settings.primary_uplink_enabled ? MqttProxyRejectReason::None
+                                           : MqttProxyRejectReason::UnknownOrDisabledChannel;
+}
+
 inline bool shouldPublishToMqtt(const MqttProxyRuntimeSettings& settings,
                                 ChannelId channel,
                                 bool from_mqtt,
                                 bool is_pki)
 {
-    if (!mqttProxyRuntimeEnabled(settings) || from_mqtt)
-    {
-        return false;
-    }
-    if (is_pki)
-    {
-        return true;
-    }
-    if (channel == ChannelId::SECONDARY)
-    {
-        return settings.secondary_uplink_enabled;
-    }
-    return settings.primary_uplink_enabled;
+    return validateMqttProxyPublish(settings, channel, from_mqtt, is_pki) ==
+           MqttProxyRejectReason::None;
 }
 
 inline const char* mqttChannelIdFor(const MqttProxyRuntimeSettings& settings, ChannelId channel)

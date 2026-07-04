@@ -2289,7 +2289,7 @@ void Runtime::tick(InputAction action)
                                                               context_provider);
         if (bundle.valid())
         {
-            auto facade = bundle.createFacade();
+            auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
             handleMeshtasticFacadeResult(facade.tick());
         }
     }
@@ -2302,7 +2302,7 @@ void Runtime::tick(InputAction action)
                                                               context_provider);
         if (bundle.valid())
         {
-            auto facade = bundle.createFacade();
+            auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
             handleMeshtasticFacadeResult(facade.tick());
         }
     }
@@ -2408,7 +2408,10 @@ void Runtime::onIncomingData(const chat::MeshIncomingData& msg)
     packet.request_id = msg.request_id;
     packet.portnum = msg.portnum;
     packet.want_response = msg.want_response;
-    packet.payload = msg.payload;
+    if (!packet.payload.assign(msg.payload))
+    {
+        return;
+    }
     packet.rx_meta = msg.rx_meta;
 
     const chat::runtime::RuntimeContext protocol_context = buildMeshtasticProtocolContext();
@@ -2424,7 +2427,7 @@ void Runtime::onIncomingData(const chat::MeshIncomingData& msg)
                                                               context_provider);
         if (bundle.valid())
         {
-            auto facade = bundle.createFacade();
+            auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
             handleMeshtasticFacadeResult(facade.handleIncoming(packet));
         }
     }
@@ -2437,7 +2440,7 @@ void Runtime::onIncomingData(const chat::MeshIncomingData& msg)
                                                               context_provider);
         if (bundle.valid())
         {
-            auto facade = bundle.createFacade();
+            auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
             handleMeshtasticFacadeResult(facade.handleIncoming(packet));
         }
     }
@@ -5295,6 +5298,8 @@ void Runtime::renderActionPage()
 
 void Runtime::enterPage(Page page)
 {
+    const Page previous_page = page_;
+    updateGpsPowerLease(previous_page, page);
     const bool waking_from_sleep = page_ == Page::Sleep && page != Page::Sleep;
     page_ = page;
     page_entered_ms_ = nowMs();
@@ -7988,6 +7993,33 @@ bool Runtime::shouldRenderForTick(InputAction action)
     return true;
 }
 
+bool Runtime::pageUsesGpsPowerLease(Page page) const
+{
+    return page == Page::GnssPage || page == Page::CompassPage || page == Page::NodeCompass;
+}
+
+void Runtime::updateGpsPowerLease(Page previous, Page next)
+{
+    const bool had_lease = pageUsesGpsPowerLease(previous);
+    const bool needs_lease = pageUsesGpsPowerLease(next);
+    if (had_lease == needs_lease)
+    {
+        return;
+    }
+    if (needs_lease)
+    {
+        if (host_.gps_acquire_power_lease_fn)
+        {
+            host_.gps_acquire_power_lease_fn("mono-page");
+        }
+        return;
+    }
+    if (host_.gps_release_power_lease_fn)
+    {
+        host_.gps_release_power_lease_fn("mono-page");
+    }
+}
+
 uint32_t Runtime::nowMs() const
 {
     return host_.millis_fn ? host_.millis_fn() : 0U;
@@ -8309,7 +8341,7 @@ void Runtime::executeNodeAction()
             showTransientPopup("TRACE ROUTE", "UNAVAILABLE");
             return;
         }
-        auto facade = bundle.createFacade();
+        auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
         chat::runtime::TraceRouteIntent intent{};
         intent.channel = chat::ChannelId::PRIMARY;
         intent.peer = node->node_id;
@@ -8383,7 +8415,7 @@ void Runtime::requestNodePositionExchange()
         showTransientPopup("EXCHANGE POSITION", "UNAVAILABLE");
         return;
     }
-    auto facade = bundle.createFacade();
+    auto facade = bundle.createFacade(meshtastic_protocol_effect_workspace_);
     chat::runtime::ExchangePositionIntent intent{};
     intent.channel = chat::ChannelId::PRIMARY;
     intent.peer = node->node_id;

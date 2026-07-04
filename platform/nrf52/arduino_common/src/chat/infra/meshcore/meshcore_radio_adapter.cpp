@@ -172,13 +172,32 @@ bool MeshCoreRadioAdapter::sendTextWithId(::chat::ChannelId channel, const std::
 
 bool MeshCoreRadioAdapter::pollIncomingText(::chat::MeshIncomingText* out)
 {
-    if (!out || text_queue_.empty())
+    return text_queue_.pop(out);
+}
+
+bool MeshCoreRadioAdapter::enqueueIncomingText(const ::chat::MeshIncomingText& metadata,
+                                               const char* text,
+                                               size_t text_len)
+{
+    ::chat::infra::IncomingQueuePushReport report{};
+    if (text_queue_.push(metadata,
+                         text,
+                         text_len,
+                         ::chat::infra::IncomingQueuePriority::P1User,
+                         &report))
     {
-        return false;
+        if (report.dropped_existing)
+        {
+            Serial.printf("[MESHCORE] RX text queue pressure evicted_prio=%u depth=%u\n",
+                          static_cast<unsigned>(report.dropped_priority),
+                          static_cast<unsigned>(text_queue_.size()));
+        }
+        return true;
     }
-    *out = text_queue_.front();
-    text_queue_.pop();
-    return true;
+    Serial.printf("[MESHCORE] RX text queue drop len=%u depth=%u\n",
+                  static_cast<unsigned>(text_len),
+                  static_cast<unsigned>(text_queue_.size()));
+    return false;
 }
 
 bool MeshCoreRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t portnum,
@@ -249,7 +268,11 @@ bool MeshCoreRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t portn
                 ack.message_id = packet_id;
                 ::chat::runtime::RuntimeContext context = buildRuntimeContext();
                 context.now_ms = millis();
-                executeProtocolEffects(protocol_runtime_.trackAppAck(ack, context));
+                protocol_effect_workspace_.primary.clear();
+                protocol_runtime_.trackAppAck(ack,
+                                              context,
+                                              protocol_effect_workspace_.primary);
+                executeProtocolEffects(protocol_effect_workspace_.primary);
                 rememberLocalTextAck(ack.signature);
                 Serial.printf("[MESHCORE] ACK watch sig=%08lX msg=%08lX dest=%08lX port=%lu\n",
                               static_cast<unsigned long>(ack.signature),
@@ -295,13 +318,33 @@ bool MeshCoreRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t portn
 
 bool MeshCoreRadioAdapter::pollIncomingData(::chat::MeshIncomingData* out)
 {
-    if (!out || data_queue_.empty())
+    return data_queue_.pop(out);
+}
+
+bool MeshCoreRadioAdapter::enqueueIncomingData(const ::chat::MeshIncomingData& metadata,
+                                               const uint8_t* payload,
+                                               size_t payload_len)
+{
+    ::chat::infra::IncomingQueuePushReport report{};
+    if (data_queue_.push(metadata,
+                         payload,
+                         payload_len,
+                         ::chat::infra::IncomingQueuePriority::P1User,
+                         &report))
     {
-        return false;
+        if (report.dropped_existing)
+        {
+            Serial.printf("[MESHCORE] RX data queue pressure evicted_prio=%u depth=%u\n",
+                          static_cast<unsigned>(report.dropped_priority),
+                          static_cast<unsigned>(data_queue_.size()));
+        }
+        return true;
     }
-    *out = data_queue_.front();
-    data_queue_.pop();
-    return true;
+    Serial.printf("[MESHCORE] RX data queue drop port=%lu len=%u depth=%u\n",
+                  static_cast<unsigned long>(metadata.portnum),
+                  static_cast<unsigned>(payload_len),
+                  static_cast<unsigned>(data_queue_.size()));
+    return false;
 }
 
 bool MeshCoreRadioAdapter::requestNodeInfo(::chat::NodeId dest, bool want_response)
@@ -318,6 +361,7 @@ bool MeshCoreRadioAdapter::requestNodeInfo(::chat::NodeId dest, bool want_respon
         return false;
     }
     auto facade = bundle.createFacade(
+        protocol_effect_workspace_,
         ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     return facade.requestNodeInfo(dest, want_response).ok();
 }
@@ -412,6 +456,7 @@ bool MeshCoreRadioAdapter::executeProtocolEffect(const ::chat::runtime::Protocol
                     if (bundle.valid())
                     {
                         auto facade = bundle.createFacade(
+                            protocol_effect_workspace_,
                             ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
                         facade.handleTxResult(result);
                     }
@@ -711,6 +756,7 @@ bool MeshCoreRadioAdapter::triggerDiscoveryAction(::chat::MeshDiscoveryAction ac
         return ::chat::MeshActionResult::fail(::chat::MeshOperationFailure::NotReady);
     }
     auto facade = bundle.createFacade(
+        protocol_effect_workspace_,
         ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     const auto result = facade.discover(intent);
     if (result.ok())
@@ -794,7 +840,11 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         std::memcpy(&ack_sig, parsed.payload, sizeof(ack_sig));
         Serial.printf("[MESHCORE] RX ACK sig=%08lX\n",
                       static_cast<unsigned long>(ack_sig));
-        executeProtocolEffects(protocol_runtime_.handleAppAck(ack_sig, buildRuntimeContext()));
+        protocol_effect_workspace_.primary.clear();
+        protocol_runtime_.handleAppAck(ack_sig,
+                                       buildRuntimeContext(),
+                                       protocol_effect_workspace_.primary);
+        executeProtocolEffects(protocol_effect_workspace_.primary);
         return;
     }
 
@@ -804,16 +854,31 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         ::chat::runtime::IncomingPacket packet{};
         packet.protocol = ::chat::MeshProtocol::MeshCore;
         packet.payload_type = kPayloadTypeTrace;
-        packet.payload.assign(parsed.payload, parsed.payload + parsed.payload_len);
+        if (!packet.payload.assign(parsed.payload, parsed.payload_len))
+        {
+            Serial.printf("[MESHCORE] RX runtime drop type=%u payload=%u cap=%u\n",
+                          static_cast<unsigned>(parsed.payload_type),
+                          static_cast<unsigned>(parsed.payload_len),
+                          static_cast<unsigned>(packet.payload.capacity()));
+            return;
+        }
         if (parsed.path_len > 0)
         {
-            packet.path.assign(parsed.path, parsed.path + parsed.path_len);
+            if (!packet.path.assign(parsed.path, parsed.path_len))
+            {
+                Serial.printf("[MESHCORE] RX runtime drop type=%u path=%u cap=%u\n",
+                              static_cast<unsigned>(parsed.payload_type),
+                              static_cast<unsigned>(parsed.path_len),
+                              static_cast<unsigned>(packet.path.capacity()));
+                return;
+            }
         }
         ::chat::runtime::FixedProtocolRuntimeContextProvider context_provider(buildRuntimeContext());
         const auto bundle = protocolRuntimeBundle(context_provider);
         if (bundle.valid())
         {
             auto facade = bundle.createFacade(
+                protocol_effect_workspace_,
                 ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
             facade.handleIncoming(packet);
         }
@@ -827,16 +892,31 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         ::chat::runtime::IncomingPacket packet{};
         packet.protocol = ::chat::MeshProtocol::MeshCore;
         packet.payload_type = kPayloadTypeControl;
-        packet.payload.assign(parsed.payload, parsed.payload + parsed.payload_len);
+        if (!packet.payload.assign(parsed.payload, parsed.payload_len))
+        {
+            Serial.printf("[MESHCORE] RX runtime drop type=%u payload=%u cap=%u\n",
+                          static_cast<unsigned>(parsed.payload_type),
+                          static_cast<unsigned>(parsed.payload_len),
+                          static_cast<unsigned>(packet.payload.capacity()));
+            return;
+        }
         if (parsed.path_len > 0)
         {
-            packet.path.assign(parsed.path, parsed.path + parsed.path_len);
+            if (!packet.path.assign(parsed.path, parsed.path_len))
+            {
+                Serial.printf("[MESHCORE] RX runtime drop type=%u path=%u cap=%u\n",
+                              static_cast<unsigned>(parsed.payload_type),
+                              static_cast<unsigned>(parsed.path_len),
+                              static_cast<unsigned>(packet.path.capacity()));
+                return;
+            }
         }
         ::chat::runtime::FixedProtocolRuntimeContextProvider context_provider(buildRuntimeContext());
         const auto bundle = protocolRuntimeBundle(context_provider);
         if (bundle.valid())
         {
             auto facade = bundle.createFacade(
+                protocol_effect_workspace_,
                 ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
             facade.handleIncoming(packet);
         }
@@ -953,14 +1033,12 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         incoming.from = node_id_;
         incoming.to = 0;
         incoming.portnum = direct_payload.portnum;
-        incoming.payload.assign(direct_payload.payload,
-                                direct_payload.payload + direct_payload.payload_len);
         if (incoming.portnum == ::chat::meshcore::kMeshCoreNodeInfoPortnum &&
-            handleNodeInfoAppData(incoming))
+            handleNodeInfoAppData(incoming, direct_payload.payload, direct_payload.payload_len))
         {
             return;
         }
-        data_queue_.push(incoming);
+        enqueueIncomingData(incoming, direct_payload.payload, direct_payload.payload_len);
 
         if (direct_payload.portnum == 0x1001 &&
             isPrintableTextPayload(direct_payload.payload, direct_payload.payload_len))
@@ -969,9 +1047,9 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
             text.from = incoming.from;
             text.to = incoming.to;
             text.channel = ::chat::ChannelId::PRIMARY;
-            text.text.assign(reinterpret_cast<const char*>(direct_payload.payload),
-                             direct_payload.payload_len);
-            text_queue_.push(std::move(text));
+            enqueueIncomingText(text,
+                                reinterpret_cast<const char*>(direct_payload.payload),
+                                direct_payload.payload_len);
         }
         return;
     }
@@ -984,14 +1062,12 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         incoming.from = group_payload.sender;
         incoming.to = 0xFFFFFFFFUL;
         incoming.portnum = group_payload.portnum;
-        incoming.payload.assign(group_payload.payload,
-                                group_payload.payload + group_payload.payload_len);
         if (incoming.portnum == ::chat::meshcore::kMeshCoreNodeInfoPortnum &&
-            handleNodeInfoAppData(incoming))
+            handleNodeInfoAppData(incoming, group_payload.payload, group_payload.payload_len))
         {
             return;
         }
-        data_queue_.push(incoming);
+        enqueueIncomingData(incoming, group_payload.payload, group_payload.payload_len);
 
         if (group_payload.portnum == 0x1001 &&
             isPrintableTextPayload(group_payload.payload, group_payload.payload_len))
@@ -1000,9 +1076,9 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
             text.from = incoming.from;
             text.to = incoming.to;
             text.channel = ::chat::ChannelId::PRIMARY;
-            text.text.assign(reinterpret_cast<const char*>(group_payload.payload),
-                             group_payload.payload_len);
-            text_queue_.push(std::move(text));
+            enqueueIncomingText(text,
+                                reinterpret_cast<const char*>(group_payload.payload),
+                                group_payload.payload_len);
         }
     }
 }
@@ -1013,11 +1089,13 @@ void MeshCoreRadioAdapter::setLastRxStats(float rssi, float snr)
     (void)snr;
 }
 
-bool MeshCoreRadioAdapter::handleNodeInfoAppData(const ::chat::MeshIncomingData& incoming)
+bool MeshCoreRadioAdapter::handleNodeInfoAppData(const ::chat::MeshIncomingData& incoming,
+                                                 const uint8_t* payload,
+                                                 size_t payload_len)
 {
     ::chat::meshcore::DecodedNodeInfoControl decoded{};
-    if (!::chat::meshcore::decodeNodeInfoControlPayload(incoming.payload.data(),
-                                                        incoming.payload.size(),
+    if (!::chat::meshcore::decodeNodeInfoControlPayload(payload,
+                                                        payload_len,
                                                         &decoded))
     {
         return false;
@@ -1032,7 +1110,13 @@ bool MeshCoreRadioAdapter::handleNodeInfoAppData(const ::chat::MeshIncomingData&
     packet.request_id = incoming.request_id;
     packet.portnum = incoming.portnum;
     packet.want_response = incoming.want_response;
-    packet.payload = incoming.payload;
+    if (!packet.payload.assign(payload, payload_len))
+    {
+        Serial.printf("[MESHCORE] RX runtime drop nodeinfo payload=%u cap=%u\n",
+                      static_cast<unsigned>(payload_len),
+                      static_cast<unsigned>(packet.payload.capacity()));
+        return false;
+    }
     packet.rx_meta = incoming.rx_meta;
 
     ::chat::runtime::FixedProtocolRuntimeContextProvider context_provider(buildRuntimeContext());
@@ -1042,6 +1126,7 @@ bool MeshCoreRadioAdapter::handleNodeInfoAppData(const ::chat::MeshIncomingData&
         return false;
     }
     auto facade = bundle.createFacade(
+        protocol_effect_workspace_,
         ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     const auto result = facade.handleIncoming(packet);
     if (result.effect_count == 0)
@@ -1065,6 +1150,7 @@ void MeshCoreRadioAdapter::processSendQueue()
         return;
     }
     auto facade = bundle.createFacade(
+        protocol_effect_workspace_,
         ::chat::runtime::ProtocolProjectionPolicy::ExecuteAppFacing);
     facade.tick();
 }

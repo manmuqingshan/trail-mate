@@ -27,6 +27,8 @@ constexpr std::size_t kGpsTailCanarySize = 32;
 constexpr uint8_t kGpsTailCanaryByte = 0xA5;
 constexpr uint32_t kTimeSyncHeartbeatLogMs = 60000UL;
 constexpr uint32_t kTimeSyncJumpThresholdS = 5UL;
+constexpr uint32_t kTimeSyncRefreshIntervalMs = 3600000UL;
+constexpr uint32_t kTimeSyncWakeWindowMs = 180000UL;
 constexpr bool kGpsFlowDebugLog = false;
 constexpr uint8_t kGpsPowerStrategyOff = 2;
 constexpr uint32_t kMotionProbeRetryMs = 30000UL;
@@ -502,6 +504,8 @@ struct GpsRuntime::Impl
     uint32_t last_nmea_ms = 0;
     uint32_t last_time_sync_log_ms = 0;
     uint32_t last_time_sync_epoch_logged = 0;
+    uint32_t next_time_sync_wake_ms = 0;
+    uint32_t time_sync_window_deadline_ms = 0;
     TimeSyncSource last_time_sync_source = TimeSyncSource::None;
     uint32_t last_status_log_ms = 0;
     std::array<GsvCollector, 5> gsv{};
@@ -511,11 +515,14 @@ struct GpsRuntime::Impl
     std::size_t sat_count = 0;
     std::size_t used_sat_count = 0;
     std::size_t nmea_line_len = 0;
+    uint8_t power_lease_count = 0;
     bool user_enabled = true;
     bool enabled = true;
     bool powered = false;
     bool initialized = false;
     bool time_synced = false;
+    bool time_sync_window_active = false;
+    bool time_sync_window_satisfied = false;
     bool nmea_seen = false;
     uint32_t last_sat_diag_log_ms = 0;
     uint8_t last_logged_parser_sats = 0xFF;
@@ -617,6 +624,83 @@ struct GpsRuntime::Impl
         return motion_available && motion_idle_timeout_ms > 0 && power_strategy != kGpsPowerStrategyOff;
     }
 
+    bool timeSyncWindowDue(uint32_t now_ms) const
+    {
+        return next_time_sync_wake_ms != 0 && static_cast<int32_t>(now_ms - next_time_sync_wake_ms) >= 0;
+    }
+
+    bool timeSyncWindowExpired(uint32_t now_ms) const
+    {
+        return time_sync_window_active && time_sync_window_deadline_ms != 0 &&
+               static_cast<int32_t>(now_ms - time_sync_window_deadline_ms) >= 0;
+    }
+
+    void scheduleNextTimeSyncWake(uint32_t now_ms)
+    {
+        next_time_sync_wake_ms = now_ms + kTimeSyncRefreshIntervalMs;
+    }
+
+    void cancelTimeSyncWindow()
+    {
+        time_sync_window_active = false;
+        time_sync_window_deadline_ms = 0;
+        time_sync_window_satisfied = false;
+    }
+
+    void startTimeSyncWindow(uint32_t now_ms, const char* reason)
+    {
+        if (!enabled || power_strategy == kGpsPowerStrategyOff)
+        {
+            cancelTimeSyncWindow();
+            return;
+        }
+        time_sync_window_active = true;
+        time_sync_window_satisfied = false;
+        time_sync_window_deadline_ms = now_ms + kTimeSyncWakeWindowMs;
+        Serial.printf("[T-Echo Lite][gps][power] sync window start reason=%s lease=%u next_ms=%lu deadline_ms=%lu\n",
+                      reason ? reason : "unknown",
+                      static_cast<unsigned>(power_lease_count),
+                      static_cast<unsigned long>(next_time_sync_wake_ms),
+                      static_cast<unsigned long>(time_sync_window_deadline_ms));
+    }
+
+    void finishTimeSyncWindow(uint32_t now_ms, const char* reason)
+    {
+        if (time_sync_window_active)
+        {
+            Serial.printf("[T-Echo Lite][gps][power] sync window stop reason=%s lease=%u next_ms=%lu\n",
+                          reason ? reason : "unknown",
+                          static_cast<unsigned>(power_lease_count),
+                          static_cast<unsigned long>(now_ms + kTimeSyncRefreshIntervalMs));
+        }
+        cancelTimeSyncWindow();
+        scheduleNextTimeSyncWake(now_ms);
+    }
+
+    void pollTimeSyncScheduler(uint32_t now_ms)
+    {
+        if (!enabled || power_strategy == kGpsPowerStrategyOff)
+        {
+            cancelTimeSyncWindow();
+            next_time_sync_wake_ms = 0;
+            return;
+        }
+        if (timeSyncWindowExpired(now_ms))
+        {
+            finishTimeSyncWindow(now_ms, "timeout");
+            return;
+        }
+        if (!time_sync_window_active && timeSyncWindowDue(now_ms))
+        {
+            startTimeSyncWindow(now_ms, "periodic");
+        }
+    }
+
+    bool hasActivePowerLease() const
+    {
+        return power_lease_count > 0;
+    }
+
     bool shouldPowerGps(uint32_t now_ms) const
     {
         if (!enabled)
@@ -627,9 +711,17 @@ struct GpsRuntime::Impl
         {
             return false;
         }
-        if (!motionGateEnabled())
+        if (hasActivePowerLease())
         {
             return true;
+        }
+        if (time_sync_window_active && !timeSyncWindowExpired(now_ms))
+        {
+            return true;
+        }
+        if (!motionGateEnabled())
+        {
+            return false;
         }
         if (last_motion_ms == 0)
         {
@@ -692,6 +784,7 @@ struct GpsRuntime::Impl
 
     void updateGpsPowerState(uint32_t now_ms, const char* reason)
     {
+        pollTimeSyncScheduler(now_ms);
         const bool should_power = shouldPowerGps(now_ms);
         if (should_power != powered)
         {
@@ -846,7 +939,7 @@ struct GpsRuntime::Impl
             }
             if (motion_read_fail_count >= 5)
             {
-                Serial.printf("[T-Echo Lite][motion] ICM20948 read failed repeatedly; disabling motion gate and using normal GPS power\n");
+                Serial.printf("[T-Echo Lite][motion] ICM20948 read failed repeatedly; disabling motion gate and using lease/sync GPS power policy\n");
                 motion_available = false;
                 motion_probe_done = false;
                 motion_address = 0;
@@ -1166,6 +1259,10 @@ struct GpsRuntime::Impl
         epoch_base_s = utc_s;
         epoch_base_ms = now_ms;
         time_synced = true;
+        if (time_sync_window_active)
+        {
+            time_sync_window_satisfied = true;
+        }
 
         uint32_t expected_epoch_s = prev_epoch_s;
         if (prev_epoch_s != 0 && prev_epoch_ms != 0 && now_ms >= prev_epoch_ms)
@@ -1419,8 +1516,9 @@ struct GpsRuntime::Impl
 };
 
 GpsRuntime::GpsRuntime()
-    : impl_(new Impl())
 {
+    static Impl impl_storage;
+    impl_ = &impl_storage;
     if (impl_)
     {
         impl_->initializeDebugGuards();
@@ -1430,7 +1528,6 @@ GpsRuntime::GpsRuntime()
 
 GpsRuntime::~GpsRuntime()
 {
-    delete impl_;
     impl_ = nullptr;
 }
 
@@ -1442,6 +1539,23 @@ GpsRuntime::Impl* GpsRuntime::impl()
 const GpsRuntime::Impl* GpsRuntime::impl() const
 {
     return impl_;
+}
+
+bool GpsRuntime::debugCheckMemoryGuard(const char* reason)
+{
+    if (!impl_)
+    {
+        return true;
+    }
+
+    auto& s = *impl_;
+    if (!s.satelliteStateLooksCorrupt())
+    {
+        return true;
+    }
+
+    s.repairCorruptSatelliteState(reason ? reason : "debug_probe");
+    return false;
 }
 
 bool GpsRuntime::start(const app::AppConfig& config)
@@ -1474,6 +1588,7 @@ bool GpsRuntime::begin(const app::AppConfig& config)
         if (s.enabled)
         {
             const uint32_t now_ms = millis();
+            s.startTimeSyncWindow(now_ms, "begin");
             (void)s.probeMotionSensor(now_ms, true);
             s.pollMotionSensor(now_ms);
             s.updateGpsPowerState(now_ms, "begin");
@@ -1499,12 +1614,23 @@ void GpsRuntime::applyConfig(const app::AppConfig& config)
     s.enabled = s.user_enabled;
     if (!s.enabled)
     {
+        s.power_lease_count = 0;
+        s.cancelTimeSyncWindow();
+        s.next_time_sync_wake_ms = 0;
         s.setGpsPower(false, "config-disabled");
         s.clearObservations();
     }
     else if (s.initialized)
     {
         const uint32_t now_ms = millis();
+        if (!s.time_synced && !s.time_sync_window_active)
+        {
+            s.startTimeSyncWindow(now_ms, "config");
+        }
+        else if (s.time_synced && s.next_time_sync_wake_ms == 0)
+        {
+            s.scheduleNextTimeSyncWake(now_ms);
+        }
         (void)s.probeMotionSensor(now_ms, false);
         s.pollMotionSensor(now_ms);
         s.updateGpsPowerState(now_ms, "config");
@@ -1562,6 +1688,13 @@ void GpsRuntime::tick()
 
     s.applyTimeIfValid();
     s.refreshFix();
+
+    if (s.time_sync_window_satisfied)
+    {
+        const uint32_t done_ms = millis();
+        s.finishTimeSyncWindow(done_ms, "synced");
+        s.updateGpsPowerState(done_ms, "time-sync");
+    }
 
     if (s.satelliteStateLooksCorrupt())
     {
@@ -1656,6 +1789,14 @@ void GpsRuntime::setPowerStrategy(uint8_t strategy)
     if (s.initialized)
     {
         const uint32_t now_ms = millis();
+        if (s.enabled && strategy != kGpsPowerStrategyOff && !s.time_synced && !s.time_sync_window_active)
+        {
+            s.startTimeSyncWindow(now_ms, "strategy");
+        }
+        else if (s.enabled && strategy != kGpsPowerStrategyOff && s.time_synced && s.next_time_sync_wake_ms == 0)
+        {
+            s.scheduleNextTimeSyncWake(now_ms);
+        }
         s.updateGpsPowerState(now_ms, "strategy");
     }
 }
@@ -1667,6 +1808,9 @@ void GpsRuntime::setEnabled(bool enabled)
     s.enabled = enabled;
     if (!s.enabled)
     {
+        s.power_lease_count = 0;
+        s.cancelTimeSyncWindow();
+        s.next_time_sync_wake_ms = 0;
         s.setGpsPower(false, "user-disabled");
         s.clearObservations();
         return;
@@ -1674,6 +1818,14 @@ void GpsRuntime::setEnabled(bool enabled)
     if (s.initialized)
     {
         const uint32_t now_ms = millis();
+        if (!s.time_synced && !s.time_sync_window_active)
+        {
+            s.startTimeSyncWindow(now_ms, "user-enabled");
+        }
+        else if (s.time_synced && s.next_time_sync_wake_ms == 0)
+        {
+            s.scheduleNextTimeSyncWake(now_ms);
+        }
         (void)s.probeMotionSensor(now_ms, true);
         s.pollMotionSensor(now_ms);
         s.updateGpsPowerState(now_ms, "user-enabled");
@@ -1716,9 +1868,48 @@ void GpsRuntime::setMotionSensorId(uint8_t sensor_id)
     }
 }
 
+void GpsRuntime::acquirePowerLease(const char* reason)
+{
+    auto& s = *impl();
+    if (s.power_lease_count < 0xFFU)
+    {
+        ++s.power_lease_count;
+    }
+    Serial.printf("[T-Echo Lite][gps][power] lease acquire reason=%s count=%u enabled=%u powered=%u\n",
+                  reason ? reason : "unknown",
+                  static_cast<unsigned>(s.power_lease_count),
+                  static_cast<unsigned>(s.enabled ? 1 : 0),
+                  static_cast<unsigned>(s.powered ? 1 : 0));
+    if (s.initialized && s.enabled)
+    {
+        const uint32_t now_ms = millis();
+        s.updateGpsPowerState(now_ms, reason ? reason : "lease-acquire");
+    }
+}
+
+void GpsRuntime::releasePowerLease(const char* reason)
+{
+    auto& s = *impl();
+    if (s.power_lease_count > 0)
+    {
+        --s.power_lease_count;
+    }
+    Serial.printf("[T-Echo Lite][gps][power] lease release reason=%s count=%u enabled=%u powered=%u\n",
+                  reason ? reason : "unknown",
+                  static_cast<unsigned>(s.power_lease_count),
+                  static_cast<unsigned>(s.enabled ? 1 : 0),
+                  static_cast<unsigned>(s.powered ? 1 : 0));
+    if (s.initialized)
+    {
+        const uint32_t now_ms = millis();
+        s.updateGpsPowerState(now_ms, reason ? reason : "lease-release");
+    }
+}
+
 void GpsRuntime::suspend()
 {
     auto& s = *impl();
+    s.cancelTimeSyncWindow();
     s.setGpsPower(false, "suspend");
     s.enabled = false;
     s.clearObservations();
@@ -1735,6 +1926,14 @@ void GpsRuntime::resume()
     else if (s.initialized)
     {
         const uint32_t now_ms = millis();
+        if (!s.time_synced && !s.time_sync_window_active)
+        {
+            s.startTimeSyncWindow(now_ms, "resume");
+        }
+        else if (s.time_synced && s.next_time_sync_wake_ms == 0)
+        {
+            s.scheduleNextTimeSyncWake(now_ms);
+        }
         s.pollMotionSensor(now_ms);
         s.updateGpsPowerState(now_ms, "resume");
     }
@@ -1755,6 +1954,8 @@ void GpsRuntime::setCurrentEpochSeconds(uint32_t epoch_s)
     s.last_time_sync_epoch_logged = epoch_s;
     s.last_time_sync_log_ms = s.epoch_base_ms;
     s.last_time_sync_source = TimeSyncSource::External;
+    s.finishTimeSyncWindow(s.epoch_base_ms, "external");
+    s.updateGpsPowerState(s.epoch_base_ms, "external-time");
     Serial.printf("[T-Echo Lite][gps] time sync source=external epoch=%lu prev=%lu\n",
                   static_cast<unsigned long>(epoch_s),
                   static_cast<unsigned long>(prev_epoch_s));

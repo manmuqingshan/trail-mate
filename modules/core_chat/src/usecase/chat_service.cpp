@@ -38,6 +38,34 @@ ChatService::ChatService(ChatModel& model,
 {
 }
 
+void ChatService::RecentIncomingWindow::clear()
+{
+    next = 0;
+    count = 0;
+}
+
+bool ChatService::RecentIncomingWindow::contains(const IncomingIdentity& identity) const
+{
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        if (entries[i] == identity)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ChatService::RecentIncomingWindow::remember(const IncomingIdentity& identity)
+{
+    entries[next] = identity;
+    next = (next + 1) % kRecentIncomingLimit;
+    if (count < kRecentIncomingLimit)
+    {
+        ++count;
+    }
+}
+
 MessageId ChatService::sendText(ChannelId channel, const std::string& text, NodeId peer)
 {
     return sendTextWithId(channel, text, 0, peer);
@@ -325,9 +353,7 @@ bool ChatService::isDuplicateIncoming(const ChatMessage& msg) const
     identity.from = msg.from;
     identity.peer = msg.peer;
     identity.msg_id = msg.msg_id;
-    return std::find(recent_incoming_.begin(),
-                     recent_incoming_.end(),
-                     identity) != recent_incoming_.end();
+    return recent_incoming_.contains(identity);
 }
 
 void ChatService::rememberIncoming(const ChatMessage& msg)
@@ -343,11 +369,7 @@ void ChatService::rememberIncoming(const ChatMessage& msg)
     identity.from = msg.from;
     identity.peer = msg.peer;
     identity.msg_id = msg.msg_id;
-    recent_incoming_.push_back(identity);
-    while (recent_incoming_.size() > kRecentIncomingLimit)
-    {
-        recent_incoming_.pop_front();
-    }
+    recent_incoming_.remember(identity);
 }
 
 void ChatService::flushStore()

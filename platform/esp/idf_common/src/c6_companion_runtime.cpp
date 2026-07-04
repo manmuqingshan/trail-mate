@@ -567,11 +567,61 @@ class SdioC6Transport final : public C6Transport
             return false;
         }
 
+        esp_err_t err = essl_wait_int(handle_, timeout_ms);
+        last_rx_err_ = err;
+        last_rx_size_ = 0;
+        last_size_read_ = 0;
+        if (err == ESP_ERR_TIMEOUT)
+        {
+            set_error("sdio_rx_empty");
+            return false;
+        }
+        if (err != ESP_OK)
+        {
+            set_error("sdio_wait_int_failed");
+            ESP_LOGW(kTag,
+                     "SDIO wait interrupt failed timeout_ms=%lu err=%s",
+                     static_cast<unsigned long>(timeout_ms),
+                     esp_err_to_name(err));
+            return false;
+        }
+
+        uint32_t intr_raw = 0;
+        uint32_t intr_st = 0;
+        err = essl_get_intr(handle_, &intr_raw, &intr_st, kShortIoTimeoutMs);
+        last_rx_err_ = err;
+        if (err != ESP_OK)
+        {
+            set_error("sdio_get_intr_failed");
+            ESP_LOGW(kTag, "SDIO get intr failed err=%s", esp_err_to_name(err));
+            return false;
+        }
+
+        if (intr_raw != 0)
+        {
+            const esp_err_t clear_err = essl_clear_intr(handle_, intr_raw, kShortIoTimeoutMs);
+            if (clear_err != ESP_OK)
+            {
+                set_error("sdio_clear_intr_failed");
+                last_rx_err_ = clear_err;
+                ESP_LOGW(kTag,
+                         "SDIO clear intr failed raw=0x%08lX err=%s",
+                         static_cast<unsigned long>(intr_raw),
+                         esp_err_to_name(clear_err));
+                return false;
+            }
+        }
+
+        if ((intr_raw & ESSL_SDIO_DEF_ESP32C6.new_packet_intr_mask) == 0)
+        {
+            set_error("sdio_rx_empty");
+            return false;
+        }
+
         uint32_t rx_size = 0;
-        esp_err_t err = essl_get_rx_data_size(handle_, &rx_size, timeout_ms);
+        err = essl_get_rx_data_size(handle_, &rx_size, kShortIoTimeoutMs);
         last_rx_err_ = err;
         last_rx_size_ = rx_size;
-        last_size_read_ = 0;
         if (err != ESP_OK)
         {
             set_error("sdio_rx_size_failed");

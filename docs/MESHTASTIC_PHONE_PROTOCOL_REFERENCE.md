@@ -4,9 +4,9 @@
 
 This document summarizes the Meshtastic phone-facing protocol as implemented by the official upstream code currently vendored in this repo:
 
-- Firmware: `.tmp/firmware`
-- Apple app: `.tmp/Meshtastic-Apple`
-- Android app: `.tmp/meshtastic-android`
+- Firmware: `.tmp/official/firmware` commit `0488a46`
+- Android app: `.tmp/official/Meshtastic-Android` commit `e634e71`
+- Apple app, when present: `.tmp/Meshtastic-Apple`
 
 The goal is to answer protocol and encoding questions from source-grounded rules instead of relying on local assumptions.
 
@@ -26,16 +26,17 @@ This document focuses on:
 
 Primary firmware sources:
 
-- `.tmp/firmware/src/mesh/PhoneAPI.h`
-- `.tmp/firmware/src/mesh/PhoneAPI.cpp`
-- `.tmp/firmware/src/mesh/api/PacketAPI.cpp`
-- `.tmp/firmware/src/mesh/StreamAPI.cpp`
-- `.tmp/firmware/src/mesh/Router.cpp`
-- `.tmp/firmware/src/mesh/ReliableRouter.cpp`
-- `.tmp/firmware/src/mesh/MeshService.cpp`
-- `.tmp/firmware/src/mesh/MeshModule.cpp`
-- `.tmp/firmware/src/modules/RoutingModule.cpp`
-- `.tmp/firmware/src/mesh/generated/meshtastic/mesh.pb.h`
+- `.tmp/official/firmware/src/mesh/PhoneAPI.h`
+- `.tmp/official/firmware/src/mesh/PhoneAPI.cpp`
+- `.tmp/official/firmware/src/mesh/api/PacketAPI.cpp`
+- `.tmp/official/firmware/src/mesh/StreamAPI.cpp`
+- `.tmp/official/firmware/src/mesh/Router.cpp`
+- `.tmp/official/firmware/src/mesh/ReliableRouter.cpp`
+- `.tmp/official/firmware/src/mesh/MeshService.cpp`
+- `.tmp/official/firmware/src/mesh/MeshModule.cpp`
+- `.tmp/official/firmware/src/modules/RoutingModule.cpp`
+- `.tmp/official/firmware/src/mqtt/MQTT.cpp`
+- `.tmp/official/firmware/src/mesh/generated/meshtastic/mesh.pb.h`
 
 Official app sources:
 
@@ -44,10 +45,14 @@ Official app sources:
 - `.tmp/Meshtastic-Apple/Meshtastic/Accessory/Accessory Manager/AccessoryManager+ToRadio.swift`
 - `.tmp/Meshtastic-Apple/Meshtastic/Accessory/Transports/Bluetooth Low Energy/BLEConnection.swift`
 - `.tmp/Meshtastic-Apple/Meshtastic/Helpers/MeshPackets.swift`
-- `.tmp/meshtastic-android/app/src/main/java/com/geeksville/mesh/service/PacketHandler.kt`
-- `.tmp/meshtastic-android/app/src/main/java/com/geeksville/mesh/service/FromRadioPacketHandler.kt`
-- `.tmp/meshtastic-android/app/src/main/java/com/geeksville/mesh/service/MeshDataHandler.kt`
-- `.tmp/meshtastic-android/core/model/src/commonMain/kotlin/org/meshtastic/core/model/DataPacket.kt`
+- `.tmp/official/Meshtastic-Android/core/ble/src/commonMain/kotlin/org/meshtastic/core/ble/KableMeshtasticRadioProfile.kt`
+- `.tmp/official/Meshtastic-Android/core/network/src/commonMain/kotlin/org/meshtastic/core/network/radio/BleRadioTransport.kt`
+- `.tmp/official/Meshtastic-Android/core/data/src/commonMain/kotlin/org/meshtastic/core/data/manager/MeshConnectionManagerImpl.kt`
+- `.tmp/official/Meshtastic-Android/core/data/src/commonMain/kotlin/org/meshtastic/core/data/manager/FromRadioPacketHandlerImpl.kt`
+- `.tmp/official/Meshtastic-Android/core/data/src/commonMain/kotlin/org/meshtastic/core/data/manager/MqttManagerImpl.kt`
+- `.tmp/official/Meshtastic-Android/core/network/src/commonMain/kotlin/org/meshtastic/core/network/repository/MQTTRepositoryImpl.kt`
+- `.tmp/official/Meshtastic-Android/core/data/src/commonMain/kotlin/org/meshtastic/core/data/manager/PacketHandlerImpl.kt`
+- `.tmp/official/Meshtastic-Android/core/model/src/commonMain/kotlin/org/meshtastic/core/model/DataPacket.kt`
 
 ## Big Picture
 
@@ -122,6 +127,12 @@ Official Apple BLE behavior in `BLEConnection.swift`:
 
 So `FROMNUM` is not the data itself. It is a wakeup/edge signal telling the client that one or more `FromRadio` packets are ready.
 
+Protocol alignment rules for Trail Mate nRF builds:
+
+- `FROMNUM` notifications carry the same `from_num` associated with the pending `FromRadio` frame, matching upstream firmware behavior.
+- `FROMNUM` may be queued until the phone has subscribed, but once notified the phone must be able to drain all pending non-empty `FROMRADIO` frames before the next empty read.
+- `FROMNUM` must not be replaced with a local-only counter, because that hides ordering and liveness mismatches from app clients.
+
 ## PhoneAPI State Machine
 
 `PhoneAPI.cpp` contains the canonical state machine for what the phone receives.
@@ -155,6 +166,8 @@ When the device receives `ToRadio.want_config_id`:
 - the device enters the config-send sequence
 - after config is complete, it sends `FromRadio.config_complete_id`
 - only then does it move to `STATE_SEND_PACKETS`
+
+Trail Mate mirrors this as an immediate phase transition on `config_complete_id`: the config-only nonce `69420` returns to `SendNothing`, while the node/full config nonce enters `SendPackets` without a one-shot empty-read transition state.
 
 ### Special nonces
 
@@ -216,7 +229,17 @@ Then the next `getFromRadio()` emits:
 
 So on modern firmware, heartbeat is effectively a "please prove you are alive and tell me queue status" request.
 
-Official Apple app uses this to detect link liveness.
+Official mobile apps use this to detect link liveness. If the app sees no non-empty `FromRadio` packets after connection setup and heartbeat drains, it may treat the BLE transport as disconnected even if the underlying GAP link is still present.
+
+### `ToRadio.mqttClientProxyMessage`
+
+Official `PhoneAPI.cpp` handles this only after the PhoneAPI state has reached `STATE_SEND_PACKETS`.
+
+Rules:
+
+- Before `STATE_SEND_PACKETS`, firmware logs and ignores `ToRadio.mqttClientProxyMessage`.
+- During config handshake, MQTT proxy downlink must not re-enter mesh routing.
+- The packet is not a config message, not a liveness message, and not a way to complete Android setup.
 
 ## `FromRadio` Variants
 
@@ -233,6 +256,34 @@ Important distinction:
 - `FromRadio.clientNotification` is not a mesh packet
 
 That distinction matters because official apps treat them differently.
+
+## MQTT Client Proxy Semantics
+
+MQTT client proxy is a PhoneAPI steady-state feature. It has two directions:
+
+1. device -> phone -> broker: firmware emits `FromRadio.mqttClientProxyMessage`; Android publishes it.
+2. broker -> phone -> device: Android emits `ToRadio.mqttClientProxyMessage`; firmware validates and injects it.
+
+Official firmware behavior:
+
+- `MeshService` owns a separate `toPhoneMqttProxyQueue`.
+- `MeshService::sendMqttMessageToClientProxy()` enqueues a bounded message and increments `fromNum`.
+- `PhoneAPI::available()` only pulls from `toPhoneMqttProxyQueue` in `STATE_SEND_PACKETS`.
+- `PhoneAPI::getFromRadio()` only emits `FromRadio.mqttClientProxyMessage` in `STATE_SEND_PACKETS`.
+- `PhoneAPI::close()` releases only the current in-flight MQTT proxy message held by that `PhoneAPI` session. It does not clear the underlying `MeshService` queue.
+
+Official Android behavior:
+
+- Android starts MQTT proxy after config and node readiness, from synchronized module config.
+- Android's MQTT client uses `autoReconnect` and QoS at least once for active subscriptions, but it uses a per-client random owner id. Do not assume broker-level persistent session replay for every offline interval.
+- If firmware sends `FromRadio.mqttClientProxyMessage` while Android is still `Connecting`, Android may not yet have an active MQTT client and the publish can be dropped.
+
+Normative consequence for Trail Mate:
+
+- Firmware must not emit or consume device->phone MQTT proxy messages before the PhoneAPI reaches `SEND_PACKETS`.
+- Firmware must ignore broker->phone->device MQTT proxy input before `SEND_PACKETS`.
+- A bounded in-memory proxy queue is required for the reconnect window; it is not an infinite history store.
+- Drop-oldest on full queue is acceptable when logged. Early consumption before Android is ready is not acceptable.
 
 ## `MeshPacket` Field Semantics
 
@@ -514,6 +565,8 @@ Important consequences:
 - if firmware queues `FromRadio` data but does not cause the app to drain, status updates can appear delayed
 - if firmware only wakes the app for some variants and not others, phone-side state may lag
 - if `QueueStatus` or `ROUTING_APP` packets are generated but not drained, UI stays stale
+- on nRF52/Bluefruit, the read-authorize callback must stay a lightweight consume marker; `FromRadio`
+  protobuf encoding, MQTT proxy polling, and characteristic preloading belong in the main runtime loop
 
 ## What Must Not Be Misinterpreted
 
@@ -593,6 +646,14 @@ These rules follow upstream behavior and should be treated as protocol constrain
 
 - `FROMNUM` must wake draining of `FROMRADIO`.
 - All generated `FromRadio` packets that matter to UI state must be drainable in a timely way.
+
+### MQTT client proxy
+
+- Treat MQTT proxy as `STATE_SEND_PACKETS` traffic only.
+- Do not send `FromRadio.mqttClientProxyMessage` during config sync or before Android has completed the app-level connection handshake.
+- Do not pop the device->phone MQTT proxy queue until the message can legally be emitted.
+- Ignore `ToRadio.mqttClientProxyMessage` before steady-state.
+- Keep a bounded queue for device->phone proxy messages across BLE session close/reconnect. This preserves a short reconnect window but does not promise infinite offline MQTT delivery.
 
 ## Why `from=00000011` Was Suspicious In Our Case
 

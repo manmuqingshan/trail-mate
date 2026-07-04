@@ -4,6 +4,9 @@
 
 本文不讨论 UI、GPS、LoRa 或 flash 持久化问题，只聚焦 Meshtastic BLE 握手、配置流和连接完成判定。
 
+> Normative spec: `docs/specification/MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`.
+> This file is a diagnostic timing note. If it conflicts with the specification, the specification wins.
+
 ## 1. 总体结论
 
 Android 端的 Meshtastic BLE 连接并不是：
@@ -127,7 +130,9 @@ Stage 1 完成后：
 当前 nRF52 侧入口主要在：
 
 - `platform/nrf52/arduino_common/src/ble/meshtastic_ble.cpp`
-- `modules/core_chat/src/ble/meshtastic_phone_core.cpp`
+- `modules/core_phone/src/meshtastic/meshtastic_phone_core.cpp`
+
+注意：本节描述的是必须达到的交互语义，不证明某个历史实现已经满足该语义。当前实现状态必须以源码和主规格回归为准。
 
 ### 3.1 BLE service 层
 
@@ -138,7 +143,7 @@ Stage 1 完成后：
 - `FromNum`
 - `LogRadio`
 
-主循环的关键顺序目前是：
+主循环必须达到的关键顺序是：
 
 1. `processPendingToRadio()`
 2. `handleToPhone()`
@@ -173,23 +178,30 @@ Stage 1 完成后：
 
 ### 3.3 FromNum / FromRadio 当前实现
 
-当前 nRF52 transport 的基本模型是：
+目标 nRF52 transport 的基本模型是：
 
-1. `PhoneCore.popToPhone()` 产出一帧
-2. `handleToPhone()` 将其缓存为待发送帧
-3. `prepareReadableFromRadio()` 把这帧写入 `FromRadio`
-4. `notifyFromNum(from_num)` 发出一条 `FromNum` 通知
-5. App 如果读取 `FromRadio`，则走 `onFromRadioAuthorize()`
-6. 读成功后 `markReadableFromRadioConsumed()` 清空当前可读帧
+1. `MeshtasticPhoneCore.notifyFromNum(from_num)` 把真实 `from_num` 交给 nRF52 transport
+2. nRF52 transport 将 `from_num` 放入固定深度 pending 队列
+3. 主循环调用 `prepareReadableFromRadio()`，让 `PhoneCore.popToPhone()` 产出下一帧并预装进 `FROMRADIO`
+4. 手机完成 `FROMNUM` 订阅且已有预装帧后，transport 用同一个真实 `from_num` 发送通知
+5. App 读取 `FROMRADIO` 时进入 `onFromRadioAuthorize()`；该回调只记录读取/消费状态，不再产出 protobuf 帧
+6. 主循环调用 `consumeReadableFromRadio()` 消费已读预装帧，并立刻尝试换装下一帧
+7. App 持续读取，直到 `FROMRADIO` 返回空包，表示本轮 drain 完成
+
+关键约束是：两帧之间不能先发布一个人为的空 `FROMRADIO` 值。`consumeReadableFromRadio()` 只有在确认
+`PhoneCore.popToPhone()` 没有下一帧之后，才允许把 characteristic 写成 0 长度；否则 Android 的
+`read-until-empty` 可能把配置流提前判定为 drain 完成，错过后续 `config_complete_id`。
+
+这里有一个稳定性边界：Bluefruit 的 read-authorize 回调不能执行 `popToPhone()`、MQTT proxy 轮询、nanopb 编码或串口日志重活。否则在手机高频 drain、空中包入站和 MQTT downlink 混在一起时，nRF52 侧可能出现无 HardFault 日志的 USB 重枚举/断连。
 
 为了排障，目前固件还打印了这些日志：
 
 - `[BLE][nrf52][mt][flow] link-up ...`
 - `[BLE][nrf52][mt][flow] from_num subscribed=...`
-- `[BLE][nrf52][mt][flow] preload from_num=... len=...`
-- `[BLE][nrf52][mt][flow] from_num notify=...`
+- `[BLE][nrf52][mt][flow] from_num pending source=... depth=...`
+- `[BLE][nrf52][mt][flow] from_num notify value=... source=...`
 - `[BLE][nrf52][mt] from_radio read len=...`
-- `[BLE][nrf52][mt] from_radio read empty`
+- `[BLE][nrf52][mt] from_radio read empty reason=...`
 
 ## 4. 双方时序的核心关系
 
@@ -333,10 +345,10 @@ Android 端 legacy 模式会一直 `read(FROMRADIO)`，直到返回空包才结�
 
 - `[BLE][nrf52][mt][flow] link-up ...`
 - `[BLE][nrf52][mt][flow] from_num subscribed=...`
-- `[BLE][nrf52][mt][flow] preload ...`
-- `[BLE][nrf52][mt][flow] from_num notify=...`
+- `[BLE][nrf52][mt][flow] from_num pending source=... depth=...`
+- `[BLE][nrf52][mt][flow] from_num notify value=... source=...`
 - `[BLE][nrf52][mt] from_radio read len=...`
-- `[BLE][nrf52][mt] from_radio read empty`
+- `[BLE][nrf52][mt] from_radio read empty reason=...`
 - `[BLE][mtcore][cfg#N] start/frame/complete`
 - `[BLE][mtcore][rt] stage=... stack_hwm=...`
 

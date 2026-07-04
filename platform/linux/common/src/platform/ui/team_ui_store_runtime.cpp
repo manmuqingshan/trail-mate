@@ -124,12 +124,17 @@ std::string iso_time(std::time_t t)
 
     std::tm tm_utc{};
     char buf[32] = {0};
-#if defined(_WIN32)
+#if defined(_MSC_VER)
     if (gmtime_s(&tm_utc, &t) == 0)
+#elif defined(_WIN32)
+    if (std::tm* tm_ptr = std::gmtime(&t))
 #else
     if (gmtime_r(&t, &tm_utc) != nullptr)
 #endif
     {
+#if defined(_WIN32) && !defined(_MSC_VER)
+        tm_utc = *tm_ptr;
+#endif
         std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
         return std::string(buf);
     }

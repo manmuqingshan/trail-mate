@@ -419,7 +419,7 @@ std::string ContactService::formatTimeStatus(uint32_t last_seen) const
     {
         uint32_t minutes = age_secs / 60;
         char buf[16];
-        std::snprintf(buf, sizeof(buf), "Seen %" PRIu32 "m", minutes);
+        std::snprintf(buf, sizeof(buf), "Seen %lum", static_cast<unsigned long>(minutes));
         return std::string(buf);
     }
 
@@ -427,7 +427,7 @@ std::string ContactService::formatTimeStatus(uint32_t last_seen) const
     {
         uint32_t hours = age_secs / 3600;
         char buf[16];
-        std::snprintf(buf, sizeof(buf), "Seen %" PRIu32 "h", hours);
+        std::snprintf(buf, sizeof(buf), "Seen %luh", static_cast<unsigned long>(hours));
         return std::string(buf);
     }
 
@@ -435,7 +435,7 @@ std::string ContactService::formatTimeStatus(uint32_t last_seen) const
     {
         uint32_t days = age_secs / 86400;
         char buf[16];
-        std::snprintf(buf, sizeof(buf), "Seen %" PRIu32 "d", days);
+        std::snprintf(buf, sizeof(buf), "Seen %lud", static_cast<unsigned long>(days));
         return std::string(buf);
     }
 
