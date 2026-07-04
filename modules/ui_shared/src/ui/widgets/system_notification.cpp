@@ -9,10 +9,78 @@
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 
-#include <cstring>
+#include <cstddef>
 
 namespace ui
 {
+namespace
+{
+
+size_t utf8_unit_bytes(const unsigned char* text)
+{
+    if (text == nullptr || text[0] == 0)
+    {
+        return 0;
+    }
+
+    const unsigned char lead = text[0];
+    size_t bytes = 1;
+    if ((lead & 0xE0U) == 0xC0U)
+    {
+        bytes = 2;
+    }
+    else if ((lead & 0xF0U) == 0xE0U)
+    {
+        bytes = 3;
+    }
+    else if ((lead & 0xF8U) == 0xF0U)
+    {
+        bytes = 4;
+    }
+
+    for (size_t index = 1; index < bytes; ++index)
+    {
+        if (text[index] == 0 || (text[index] & 0xC0U) != 0x80U)
+        {
+            return 1;
+        }
+    }
+    return bytes;
+}
+
+void copy_notice_text(char* out, size_t out_size, const char* text, size_t ascii_max_chars)
+{
+    if (out == nullptr || out_size == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (text == nullptr || text[0] == '\0')
+    {
+        return;
+    }
+
+    const bool has_non_ascii = ::ui::fonts::utf8_has_non_ascii(text);
+    const size_t byte_limit = has_non_ascii ? out_size - 1 : ascii_max_chars;
+    size_t used = 0;
+    const unsigned char* cursor = reinterpret_cast<const unsigned char*>(text);
+    while (*cursor != 0)
+    {
+        const size_t unit = has_non_ascii ? utf8_unit_bytes(cursor) : 1;
+        if (unit == 0 || used + unit > byte_limit || used + unit >= out_size)
+        {
+            break;
+        }
+        for (size_t index = 0; index < unit; ++index)
+        {
+            out[used++] = static_cast<char>(cursor[index]);
+        }
+        cursor += unit;
+    }
+    out[used] = '\0';
+}
+
+} // namespace
 
 lv_obj_t* SystemNotification::container_ = nullptr;
 lv_obj_t* SystemNotification::icon_ = nullptr;
@@ -88,26 +156,15 @@ void SystemNotification::show(const char* text, uint32_t duration_ms)
     }
 
     const char* localized = ::ui::i18n::tr(text ? text : "");
-    const bool has_non_ascii = ::ui::fonts::utf8_has_non_ascii(localized);
 
-    // Keep the historical short-toast behavior for ASCII text, but avoid
-    // byte-splitting UTF-8 strings.
+    // Toasts can contain translated strings or runtime content, so use the
+    // content fallback chain and keep truncation on UTF-8 unit boundaries.
     char truncated[96];
-    size_t len = strlen(localized);
     const size_t max_chars = ::ui::page_profile::current().large_touch_hitbox ? 30 : 15;
-    if (!has_non_ascii && len > max_chars)
-    {
-        strncpy(truncated, localized, max_chars);
-        truncated[max_chars] = '\0';
-    }
-    else
-    {
-        strncpy(truncated, localized, sizeof(truncated) - 1);
-        truncated[sizeof(truncated) - 1] = '\0';
-    }
+    copy_notice_text(truncated, sizeof(truncated), localized, max_chars);
 
     lv_label_set_text(label_, truncated);
-    ::ui::fonts::apply_localized_font(label_, truncated, ::ui::fonts::ui_chrome_font());
+    ::ui::fonts::apply_content_font(label_, truncated, ::ui::fonts::ui_chrome_font());
 
     // Cancel existing timer if any
     if (hide_timer_)
