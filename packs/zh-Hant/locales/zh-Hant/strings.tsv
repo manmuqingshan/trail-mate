@@ -648,3 +648,10 @@ Seen %um ago	%u 分鐘前出現
 Seen %uh ago	%u 小時前出現
 Seen %ud ago	%u 天前出現
 Seen --	未見
+Shutdown	關機
+Power Off	關機
+Powering off...	正在關機...
+Power off device now?	現在關閉裝置電源？
+USB power keeps the device awake.	USB 供電會讓裝置保持喚醒。
+Unplug USB to power off	拔掉 USB 後才能關機
+Power chip unavailable	電源晶片不可用

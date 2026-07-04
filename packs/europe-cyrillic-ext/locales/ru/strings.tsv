@@ -648,3 +648,10 @@ Seen %um ago	Видели %u мин назад
 Seen %uh ago	Видели %u ч назад
 Seen %ud ago	Видели %u дн назад
 Seen --	Нет данных
+Shutdown	Выключение
+Power Off	Выключить
+Powering off...	Выключение...
+Power off device now?	Выключить устройство сейчас?
+USB power keeps the device awake.	Питание от USB оставляет устройство активным.
+Unplug USB to power off	Отключите USB, чтобы выключить
+Power chip unavailable	Контроллер питания недоступен

@@ -648,3 +648,10 @@ Seen %um ago	Vu il y a %u min
 Seen %uh ago	Vu il y a %u h
 Seen %ud ago	Vu il y a %u j
 Seen --	Vu --
+Shutdown	Arrêt
+Power Off	Éteindre
+Powering off...	Extinction...
+Power off device now?	Éteindre l'appareil maintenant ?
+USB power keeps the device awake.	L'alimentation USB garde l'appareil éveillé.
+Unplug USB to power off	Débranchez l'USB pour éteindre
+Power chip unavailable	Puce d'alimentation indisponible

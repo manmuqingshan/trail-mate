@@ -648,3 +648,10 @@ Seen %um ago	%u분 전에 확인
 Seen %uh ago	%u시간 전에 확인
 Seen %ud ago	%u일 전에 확인
 Seen --	확인 --
+Shutdown	종료
+Power Off	전원 끄기
+Powering off...	전원을 끄는 중...
+Power off device now?	지금 장치 전원을 끌까요?
+USB power keeps the device awake.	USB 전원이 장치를 깨어 있게 합니다.
+Unplug USB to power off	전원을 끄려면 USB를 분리하세요
+Power chip unavailable	전원 칩을 사용할 수 없습니다

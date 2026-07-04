@@ -648,3 +648,10 @@ Seen %um ago	Visto há %u min
 Seen %uh ago	Visto há %u h
 Seen %ud ago	Visto há %u d
 Seen --	Visto --
+Shutdown	Desligar
+Power Off	Desligar
+Powering off...	A desligar...
+Power off device now?	Desligar o dispositivo agora?
+USB power keeps the device awake.	A alimentação USB mantém o dispositivo acordado.
+Unplug USB to power off	Desliga o USB para desligar
+Power chip unavailable	Chip de alimentação indisponível

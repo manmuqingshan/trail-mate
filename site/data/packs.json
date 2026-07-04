@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "archive_layout": "trailmate-pack-v1",
-  "generated_at": "2026-06-26T17:52:53.216153Z",
+  "generated_at": "2026-07-04T03:08:57.367761Z",
   "packages": [
     {
       "id": "ar",
       "package_type": "locale-bundle",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "display_name": "Arabic",
       "summary": "Arabic review locale bundle with Naskh font coverage for RTL UI text and mixed-script content rendering; display-only until Arabic input is implemented.",
       "description": "Arabic locale bundle for Trail Mate.\n\nIncludes:\n- ar-naskh font (Noto Naskh Arabic, 16px, 2bpp)\n  Covers Arabic core (0600-06FF), Supplement (0750-077F),\n  Presentation Forms-A (FB50-FDFF) and Forms-B (FE70-FEFF)\n  for correct contextual letter shaping without HarfBuzz.\n- Arabic translations (ar locale)\n- RTL direction support (direction=rtl in manifest)\n- Display-only review status; Arabic input is not implemented yet\n\nFont dependency: tools/fonts/NotoNaskhArabic-Regular.otf",
@@ -55,9 +55,9 @@
       },
       "archive": {
         "layout": "trailmate-pack-v1",
-        "path": "assets/packs/ar-1.1.1.zip",
-        "size_bytes": 32776,
-        "sha256": "ff8bc2e051ff4b113335ed1f100e40e5ebaa17d598b0d7b8efa8ac24a772bd8f"
+        "path": "assets/packs/ar-1.1.2.zip",
+        "size_bytes": 33025,
+        "sha256": "d0a3ddcd5a521399895a530cd5b0701a10c7fd45cafaa92755204e323a894b7e"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -68,7 +68,7 @@
     {
       "id": "europe-cyrillic-ext",
       "package_type": "locale-bundle",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "display_name": "European Cyrillic Extended",
       "summary": "Shared Cyrillic font coverage, a Russian review locale pack, and a Russian Cyrillic keyboard layout.",
       "description": "European Cyrillic Extended installs the Russian locale together with a shared\nCyrillic external font pack so interface labels and Russian content can render\nwithout inflating the firmware image. It also registers a Russian Cyrillic\nkeyboard layout backed by the firmware's direct keyboard-layout runtime.\n\nThe locale remains in review status until native-language review is complete.\nThe keyboard layout is a direct virtual-keyboard layout; it does not provide\ncandidate conversion or physical keyboard remapping.\n\nCredits: Russian translations were contributed by polarikus, based on the\npolarikus/trail-mate Russian localization PR.",
@@ -127,9 +127,9 @@
       },
       "archive": {
         "layout": "trailmate-pack-v1",
-        "path": "assets/packs/europe-cyrillic-ext-1.2.0.zip",
-        "size_bytes": 16448,
-        "sha256": "a43324feb9cdae8527ecc136096c891e30d48c692518aa3f912c6c668810f148"
+        "path": "assets/packs/europe-cyrillic-ext-1.2.1.zip",
+        "size_bytes": 16707,
+        "sha256": "a2e290b8da239d34a342eb234de62e733cde48efc8a36ae06f17ee000477a952"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -140,7 +140,7 @@
     {
       "id": "europe-latin-ext",
       "package_type": "locale-bundle",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "display_name": "European Latin Extended",
       "summary": "Shared Latin-Extended font coverage plus German, Spanish, French, Italian, Dutch, Polish, and Portuguese review locale packs.",
       "description": "European Latin Extended adds a shared external font pack for common accented Latin text\nand installs locale packs for German, Spanish, French, Italian, Dutch, Polish, and\nPortuguese (Portugal).\n\nThis bundle is designed to stay lightweight while still rendering mixed-language contact\nnames, chat content, and localized UI labels cleanly across European languages. The\nlocales are review-status until native-language review is complete.",
@@ -256,9 +256,9 @@
       },
       "archive": {
         "layout": "trailmate-pack-v1",
-        "path": "assets/packs/europe-latin-ext-1.1.1.zip",
-        "size_bytes": 66529,
-        "sha256": "8cb5e215aa91a38717ebc51d6d557708ca39c3e73215f9479fe43626cfb37750"
+        "path": "assets/packs/europe-latin-ext-1.1.2.zip",
+        "size_bytes": 68104,
+        "sha256": "21bb3855dbf52fc18644e99b180dd3fc636cb434d96002fb37a9f469574e5e7c"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -269,7 +269,7 @@
     {
       "id": "ja",
       "package_type": "locale-bundle",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "display_name": "Japanese",
       "summary": "Japanese review locale bundle with external CJK font coverage for UI text and mixed-language content; display-only until Japanese input is implemented.",
       "description": "Japanese installs the ja locale together with the ja-cjk external font pack so menu text,\nlabels, and received Japanese content can render without inflating the firmware image.\n\nThis bundle is currently display-only. It does not add a Japanese IME yet, but it keeps\nJapanese coverage available as an installable package on SD storage.",
@@ -319,9 +319,9 @@
       },
       "archive": {
         "layout": "trailmate-pack-v1",
-        "path": "assets/packs/ja-1.1.2.zip",
-        "size_bytes": 32744,
-        "sha256": "3024bba7427b4a9584ecee92304e7e0bbcec09233cd03b62b849dcefe5ca4b62"
+        "path": "assets/packs/ja-1.1.3.zip",
+        "size_bytes": 33082,
+        "sha256": "1a093212034e883e934cf3875a6c9c6381ca83a170f288b7d180b09d8f087a54"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -332,7 +332,7 @@
     {
       "id": "ko",
       "package_type": "locale-bundle",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "display_name": "Korean",
       "summary": "Korean review locale bundle with external CJK font coverage for UI text and mixed-language content; display-only until Korean input is implemented.",
       "description": "Korean installs the ko locale together with the ko-cjk external font pack so interface\nlabels and Korean content can render correctly without carrying the glyph set in firmware.\n\nThis bundle is currently display-only. It does not add a Korean IME yet, but it keeps\nKorean support available as an installable SD package.",
@@ -382,9 +382,9 @@
       },
       "archive": {
         "layout": "trailmate-pack-v1",
-        "path": "assets/packs/ko-1.1.2.zip",
-        "size_bytes": 24692,
-        "sha256": "7d3554548fb5cb6da1188ef872440c02bea9a069a67ad8a7cbf7224263153940"
+        "path": "assets/packs/ko-1.1.3.zip",
+        "size_bytes": 24911,
+        "sha256": "11650b4d3adc030afbd5593e45e2b68d70e85c8146d43619d6ba2ed53fb76aaa"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -395,7 +395,7 @@
     {
       "id": "zh-Hans",
       "package_type": "locale-bundle",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "display_name": "Simplified Chinese",
       "summary": "Tiered Simplified Chinese locale bundle with a fast core font, an on-demand extension font, and the built-in Pinyin IME backend.",
       "description": "Simplified Chinese installs the zh-Hans locale, a tiered two-pack font stack, and the\nzh-hans-pinyin IME registration used by the built-in Pinyin input backend.\n\nThe bundle ships:\n- zh-hans-core: the common-glyph UI/content font loaded first for fast startup and lower steady-state RAM use\n- zh-hans-ext: the remaining Chinese glyph coverage that the runtime can load on demand as a content supplement\n- zh-hans-pinyin: the built-in Pinyin IME registration layer\n\nUse this bundle when you want a Chinese interface, Chinese text entry, or reliable\nrendering of Chinese names and chat content while another locale remains active, without\npaying the full monolithic CJK font cost up front.",
@@ -459,9 +459,9 @@
       },
       "archive": {
         "layout": "trailmate-pack-v1",
-        "path": "assets/packs/zh-Hans-1.1.2.zip",
-        "size_bytes": 340727,
-        "sha256": "dc81440ef61fc11fe87c793e1c88123591a88d92b7f5b4bc1d53f72007868271"
+        "path": "assets/packs/zh-Hans-1.1.3.zip",
+        "size_bytes": 340918,
+        "sha256": "ed8a61d05a7a45bf6dae28143e5c4ffe8bd01eb8808f79e8d1ccfd3ff44ad136"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -472,7 +472,7 @@
     {
       "id": "zh-Hant",
       "package_type": "locale-bundle",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "display_name": "Traditional Chinese (Taiwan)",
       "summary": "Traditional Chinese (Taiwan) review locale bundle with CJK font coverage; display-only until native review and a real Zhuyin-focused IME are available.",
       "description": "Traditional Chinese installs the zh-Hant locale together with the zh-hant-cjk external\nfont pack so the UI and mixed-language content can render Traditional Chinese correctly.\n\nThis bundle is display-focused today. It does not add a dedicated Traditional Chinese IME\nyet, but it keeps rendering support fully external to the firmware image.",
@@ -523,9 +523,9 @@
       },
       "archive": {
         "layout": "trailmate-pack-v1",
-        "path": "assets/packs/zh-Hant-1.1.2.zip",
-        "size_bytes": 36248,
-        "sha256": "403414a4597ce5965ab5d3cd9267aca1f8076a0de5e636fe5ee0fc0404027132"
+        "path": "assets/packs/zh-Hant-1.1.3.zip",
+        "size_bytes": 36682,
+        "sha256": "7220d11d30327697d322d12975e63a4f6f4c7dbec1b4c3ac6b4ad627934fc5cc"
       },
       "files": {
         "package_manifest": "package.ini",

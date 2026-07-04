@@ -648,3 +648,10 @@ Seen %um ago	Vor %u Min. gesehen
 Seen %uh ago	Vor %u Std. gesehen
 Seen %ud ago	Vor %u Tg. gesehen
 Seen --	Gesehen --
+Shutdown	Herunterfahren
+Power Off	Ausschalten
+Powering off...	Wird ausgeschaltet...
+Power off device now?	Gerät jetzt ausschalten?
+USB power keeps the device awake.	USB-Strom hält das Gerät wach.
+Unplug USB to power off	USB abziehen, um auszuschalten
+Power chip unavailable	Energiechip nicht verfügbar
