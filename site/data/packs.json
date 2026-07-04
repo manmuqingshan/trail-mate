@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "archive_layout": "trailmate-pack-v1",
-  "generated_at": "2026-07-04T04:06:36.857387Z",
+  "generated_at": "2026-07-04T08:34:41.072646Z",
   "packages": [
     {
       "id": "ar",
@@ -128,8 +128,8 @@
       "archive": {
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/europe-cyrillic-ext-1.2.2.zip",
-        "size_bytes": 16717,
-        "sha256": "f182a9c52ead99d7d6d2f30a6af9e2e8e55a05473966f54126b629b367439c54"
+        "size_bytes": 16716,
+        "sha256": "76d250e5a496c8a908d94adf49d687d490eea99bd84f27d54f83a221e07cb140"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -257,8 +257,8 @@
       "archive": {
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/europe-latin-ext-1.1.3.zip",
-        "size_bytes": 68164,
-        "sha256": "14333a918dc633999d152693b34d3b5bf52834bb84eeae5b25abce7f52b2f786"
+        "size_bytes": 68166,
+        "sha256": "fcd72567e9e2953eb32d7df21cf632070b14da0902153196eb971f4c40a58c3c"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -321,7 +321,7 @@
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/ja-1.1.4.zip",
         "size_bytes": 33091,
-        "sha256": "e8d1eec81e15926ecc02d0f5d5c740ae1f35e8e07656d9990a567aa5f4b179a7"
+        "sha256": "438ed0299853ec117b739f054091d13088b5665a0c3fbbe47dd7b9cf8299233c"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -383,8 +383,8 @@
       "archive": {
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/ko-1.1.4.zip",
-        "size_bytes": 24918,
-        "sha256": "723423cec42b528d00a3e1f2743f677d781b12bcedca7f6d3b8af2defeb674da"
+        "size_bytes": 24919,
+        "sha256": "0d1f64a55ae07445f1f9395ec0fdaa50b3314d62a8e65a798df28bbfded1dd7e"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -461,7 +461,7 @@
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/zh-Hans-1.1.4.zip",
         "size_bytes": 340926,
-        "sha256": "63053a772a947480f3e6b28d80fef3cefd47ce0cdb62ee0c56c76f0e177b1270"
+        "sha256": "fe25cc66a2a14a8a7dfa0fec1aa8833055fe4262cf2325b24bd060ed5df62f66"
       },
       "files": {
         "package_manifest": "package.ini",
@@ -525,7 +525,7 @@
         "layout": "trailmate-pack-v1",
         "path": "assets/packs/zh-Hant-1.1.4.zip",
         "size_bytes": 36688,
-        "sha256": "73e09ffcd700c451053d30806d4465320379bf9aef97a1e5ec25b7852c367588"
+        "sha256": "cd2104af76e26249e95b94be1fb78df22bf11e84282254012f2f9f90b9825815"
       },
       "files": {
         "package_manifest": "package.ini",
