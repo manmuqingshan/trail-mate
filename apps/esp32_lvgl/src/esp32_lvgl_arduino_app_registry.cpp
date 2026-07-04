@@ -30,8 +30,14 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
     flags.include_usb = platform::ui::usb_support::is_supported() && platform::ui::device::sd_ready();
     flags.include_extensions = true;
     flags.include_walkie_talkie = platform::ui::walkie::is_supported();
+    flags.include_power_off =
+#if defined(ARDUINO_T_LORA_PAGER)
+        true;
+#else
+        false;
+#endif
     APP_REG_LOG(
-        "flags gps_map=%d skyplot=%d tracker=%d chat=%d sweep=%d pc_link=%d sstv=%d usb=%d walkie=%d gps_supported=%d gps_ready=%d sd_ready=%d\n",
+        "flags gps_map=%d skyplot=%d tracker=%d chat=%d sweep=%d pc_link=%d sstv=%d usb=%d walkie=%d power_off=%d gps_supported=%d gps_ready=%d sd_ready=%d\n",
         flags.include_gps_map ? 1 : 0,
         flags.include_gnss_skyplot ? 1 : 0,
         flags.include_tracker ? 1 : 0,
@@ -41,6 +47,7 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
         flags.include_sstv ? 1 : 0,
         flags.include_usb ? 1 : 0,
         flags.include_walkie_talkie ? 1 : 0,
+        flags.include_power_off ? 1 : 0,
         platform::ui::device::gps_supported() ? 1 : 0,
         platform::ui::device::gps_ready() ? 1 : 0,
         platform::ui::device::sd_ready() ? 1 : 0);

@@ -523,6 +523,16 @@ void menuButtonClickCallback(lv_event_t* e)
              target_app ? target_app->name() : "(null)",
              ui::menu_profile::current().input_mode == ui::menu_profile::InputMode::TouchPrimary ? 1 : 0);
 #endif
+    if (target_app == nullptr)
+    {
+        return;
+    }
+    if (target_app->launch_mode() == ui::AppLaunchMode::MenuOverlay)
+    {
+        target_app->enter(lv_screen_active());
+        return;
+    }
+
     set_default_group(nullptr);
     if (ui::menu_profile::current().input_mode == ui::menu_profile::InputMode::TouchPrimary)
     {

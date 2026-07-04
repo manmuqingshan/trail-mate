@@ -2,6 +2,7 @@
 #include "boards/tdeck/tdeck_board.h"
 #include "board/sd_utils.h"
 #include "display/drivers/ST7789TDeck.h"
+#include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/audio/pager_notification_tone.h"
 #include <AudioOutputI2S.h>
@@ -197,14 +198,8 @@ time_t gps_datetime_to_epoch_utc(int year, uint8_t month, uint8_t day, uint8_t h
 int read_battery_mv_adc_fallback()
 {
 #ifdef BOARD_BAT_ADC
-    analogSetPinAttenuation(BOARD_BAT_ADC, ADC_11db);
     // LilyGo T-Deck reference code uses analogReadMilliVolts(BOARD_BAT_ADC) * 2.
-    int mv = analogReadMilliVolts(BOARD_BAT_ADC);
-    if (mv <= 0)
-    {
-        return -1;
-    }
-    return mv * 2;
+    return ::platform::esp::arduino_common::power::read_battery_adc_millivolts(BOARD_BAT_ADC, 2, 1);
 #else
     return -1;
 #endif
@@ -749,15 +744,20 @@ int TDeckBoard::getBatteryLevel()
 {
     power::BatteryEstimatorSample sample{};
     sample.now_ms = millis();
+    sample.adc_battery_mv = read_battery_mv_adc_fallback();
+
     if (pmu_ready_)
     {
-        sample.pmu_percent = pmu_.getBatteryPercent();
-        sample.pmu_battery_mv = static_cast<int>(pmu_.getBattVoltage());
+        // AXP2101 percent can jump by board/revision. T-Deck follows the LilyGo
+        // ADC divider path for display, with PMU voltage only as fallback.
+        if (sample.adc_battery_mv <= 0)
+        {
+            sample.pmu_battery_mv = static_cast<int>(pmu_.getBattVoltage());
+        }
         sample.charging = pmu_.isCharging();
         sample.vbus_present = pmu_.isVbusIn();
     }
 
-    sample.adc_battery_mv = read_battery_mv_adc_fallback();
     const power::BatteryEstimate estimate = battery_estimator_.update(sample);
     return estimate.percent;
 }

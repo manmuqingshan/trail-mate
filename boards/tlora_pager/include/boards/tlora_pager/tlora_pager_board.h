@@ -52,6 +52,7 @@ class AppContext;
 #include "input/rotary/Rotary.h"
 #include "pins_arduino.h"
 #include "platform/esp/arduino_common/gps/GPS.h"
+#include "power/battery_estimator.h"
 
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
 class SX1262Access : public SX1262
@@ -156,16 +157,17 @@ class TLoRaPagerBoard : public BoardBase,
     // Power control
     void powerControl(PowerCtrlChannel_t ch, bool enable) override;
 
-    // Power button management
+    // BOOT button management. The physical POWER key is connected to the
+    // BQ25896/QON power path and is not a runtime ESP GPIO.
     /**
-     * @brief Initialize power button handling
+     * @brief Initialize BOOT button handling
      * @return true if initialization successful, false otherwise
      */
     bool initPowerButton();
 
     /**
-     * @brief Handle power button press (call this in main loop)
-     * Processes power button events for wake/shutdown functionality
+     * @brief Handle BOOT button press (call this in main loop)
+     * Processes BOOT button events for wake/shutdown functionality
      */
     void handlePowerButton() override;
 
@@ -177,7 +179,7 @@ class TLoRaPagerBoard : public BoardBase,
 
     /**
      * @brief Software-initiated shutdown (for UI buttons, etc.)
-     * Checks shutdown conditions before proceeding
+     * Checks shutdown conditions before requesting BQ25896 Power OFF
      */
     void softwareShutdown() override;
 
@@ -474,10 +476,18 @@ class TLoRaPagerBoard : public BoardBase,
     static void rotaryTask(void* p);
 
   private:
+    enum class ShutdownMode : uint8_t
+    {
+        DeepSleep,
+        PowerOff,
+    };
+
     // Two-stage power-off implementation
     bool isUsbPresent_bestEffort();
+    void shutdownImpl(bool save_data, ShutdownMode mode);
 
     CachedLoRaConfig lora_config_;
+    power::BatteryEstimator battery_estimator_{};
     int power_tier_ = 0;          ///< 0=Normal, 1=Low(<=20%), 2=Critical(<=10%)
     uint32_t devices_probe = 0;   ///< Hardware detection status bitmask
     uint8_t _haptic_effects = 15; ///< Default haptic effect (strong buzz for message notification)

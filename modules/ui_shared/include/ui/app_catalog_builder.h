@@ -27,6 +27,7 @@ struct FeatureFlags
     bool include_settings = true;
     bool include_extensions = true;
     bool include_walkie_talkie = false;
+    bool include_power_off = false;
 };
 
 AppCatalog build(const FeatureFlags& flags);
