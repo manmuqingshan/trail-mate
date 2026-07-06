@@ -84,6 +84,8 @@ constexpr lv_coord_t kMapControlButtonWideWidth = 44;
 constexpr lv_coord_t kMapControlButtonContourWidth = 56;
 constexpr lv_coord_t kMapControlButtonTrackerWidth = 42;
 constexpr lv_coord_t kMapSideRailWidth = 72;
+constexpr lv_coord_t kMapAltitudePanelHeight = 18;
+constexpr lv_coord_t kMapAltitudePanelWidth = 82;
 constexpr std::uint32_t kLvglFunctionKeyF1 = 0x110001U;
 constexpr std::uint32_t kInvalidMemberId = 0xFFFFFFFFU;
 constexpr std::size_t kMaxTrackOverlayPoints = 48;
@@ -123,10 +125,12 @@ lv_obj_t* s_root = nullptr;
 lv_timer_t* s_timer = nullptr;
 ::ui::widgets::TopBar s_top_bar;
 ::ui::widgets::map::Runtime s_map_runtime;
+lv_obj_t* s_map_viewport = nullptr;
 int s_map_zoom = kCardputerZeroMapDefaultZoom;
 int s_map_pan_x = 0;
 int s_map_pan_y = 0;
 bool s_map_view_initialized = false;
+bool s_map_info_visible = true;
 UI_GPS_PAGE_STATE_RAM_ATTR ::ui::map::MapOverlaySnapshot s_overlay_snapshot;
 Projection s_projection = Projection::Map;
 bool s_gps_power_lease_active = false;
@@ -146,6 +150,8 @@ lv_obj_t* s_map_layer_btn = nullptr;
 lv_obj_t* s_map_contour_btn = nullptr;
 lv_obj_t* s_map_help_btn = nullptr;
 lv_obj_t* s_map_tracker_btn = nullptr;
+lv_obj_t* s_map_altitude_panel = nullptr;
+lv_obj_t* s_map_altitude_label = nullptr;
 lv_obj_t* s_map_notice_panel = nullptr;
 lv_obj_t* s_map_notice_label = nullptr;
 lv_obj_t* s_map_context_rail = nullptr;
@@ -178,6 +184,8 @@ void open_tracker_modal();
 void add_map_controls_to_group(lv_group_t* group);
 void request_refresh_view();
 void consume_key_event(lv_event_t* e);
+void sync_map_chrome_visibility();
+void rebuild_map_control_group();
 bool load_map_track_file_impl(const char* path, bool show_fail_toast);
 void append_track_point(std::vector<TrackOverlayPoint>& out,
                         double lat,
@@ -453,6 +461,7 @@ void set_button_label(lv_obj_t* btn, const char* text)
 
 void clear_map_controls()
 {
+    s_map_viewport = nullptr;
     s_map_control_bar = nullptr;
     s_map_zoom_label = nullptr;
     s_map_zoom_out_btn = nullptr;
@@ -462,6 +471,8 @@ void clear_map_controls()
     s_map_contour_btn = nullptr;
     s_map_help_btn = nullptr;
     s_map_tracker_btn = nullptr;
+    s_map_altitude_panel = nullptr;
+    s_map_altitude_label = nullptr;
     s_map_notice_panel = nullptr;
     s_map_notice_label = nullptr;
     s_map_context_rail = nullptr;
@@ -500,6 +511,112 @@ void set_hidden(lv_obj_t* obj, bool hidden)
 bool map_control_visible(lv_obj_t* obj)
 {
     return obj && lv_obj_is_valid(obj) && !lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN);
+}
+
+void resize_map_runtime_to_viewport()
+{
+    if (!s_root || !s_map_viewport || !lv_obj_is_valid(s_map_viewport))
+    {
+        return;
+    }
+
+    lv_obj_update_layout(s_root);
+    lv_obj_update_layout(s_map_viewport);
+    ::ui::widgets::map::set_size(s_map_runtime,
+                                 lv_obj_get_content_width(s_map_viewport),
+                                 lv_obj_get_content_height(s_map_viewport));
+
+    const auto& widgets = ::ui::widgets::map::widgets(s_map_runtime);
+    if (widgets.root && lv_obj_is_valid(widgets.root))
+    {
+        lv_obj_align(widgets.root, LV_ALIGN_CENTER, 0, 0);
+    }
+}
+
+void sync_map_chrome_visibility()
+{
+    if (s_projection != Projection::Map)
+    {
+        return;
+    }
+
+    const bool show_info = s_map_info_visible;
+    set_hidden(s_top_bar.container, !show_info);
+    set_hidden(s_map_control_bar, !show_info);
+
+    if (!show_info)
+    {
+        set_hidden(s_map_altitude_panel, true);
+        set_hidden(s_map_context_rail, true);
+        set_hidden(s_map_notice_panel, true);
+    }
+
+    if (app_g && !(s_map_help_modal && lv_obj_is_valid(s_map_help_modal)) &&
+        !(s_tracker_modal && lv_obj_is_valid(s_tracker_modal)))
+    {
+        if (show_info)
+        {
+            rebuild_map_control_group();
+        }
+        else if (s_root && lv_obj_is_valid(s_root))
+        {
+            lv_group_remove_all_objs(app_g);
+            lv_group_add_obj(app_g, s_root);
+            lv_group_focus_obj(s_root);
+            lv_group_set_editing(app_g, false);
+        }
+    }
+
+    resize_map_runtime_to_viewport();
+}
+
+bool format_map_altitude_label(char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return false;
+    }
+
+    const auto snapshot = gps_status_model().snapshot();
+    if (snapshot.header.valid &&
+        snapshot.fix_valid &&
+        snapshot.has_altitude &&
+        std::isfinite(snapshot.altitude_m))
+    {
+        std::snprintf(out, out_len, "Alt %.0f m", static_cast<double>(snapshot.altitude_m));
+        return true;
+    }
+
+    std::snprintf(out, out_len, "Alt --");
+    return false;
+}
+
+void sync_map_altitude_overlay()
+{
+    if (!s_map_altitude_panel || !lv_obj_is_valid(s_map_altitude_panel) ||
+        !s_map_altitude_label || !lv_obj_is_valid(s_map_altitude_label))
+    {
+        return;
+    }
+
+    if (!s_map_info_visible)
+    {
+        set_hidden(s_map_altitude_panel, true);
+        return;
+    }
+
+    char label[24]{};
+    (void)format_map_altitude_label(label, sizeof(label));
+    set_compact_label(s_map_altitude_label, label);
+    set_hidden(s_map_altitude_panel, false);
+    lv_obj_move_foreground(s_map_altitude_panel);
+}
+
+void toggle_map_info_visibility()
+{
+    s_map_info_visible = !s_map_info_visible;
+    sync_map_chrome_visibility();
+    refresh_view();
 }
 
 bool help_uses_f1()
@@ -784,6 +901,12 @@ void sync_map_notice_overlay()
         return;
     }
 
+    if (!s_map_info_visible)
+    {
+        set_hidden(s_map_notice_panel, true);
+        return;
+    }
+
     const uint32_t now = sys::millis_now();
     if (s_map_notice_text[0] != '\0' && now < s_map_notice_until_ms)
     {
@@ -800,6 +923,14 @@ void sync_map_notice_overlay()
 
 void sync_map_context_buttons(const ::ui::map::MapWorkspaceSnapshot& snapshot)
 {
+    if (!s_map_info_visible)
+    {
+        set_hidden(s_map_route_btn, true);
+        set_hidden(s_map_context_rail, true);
+        (void)snapshot;
+        return;
+    }
+
     const bool show_route = route_context_available();
     ::team::ui::TeamUiSnapshot team_snapshot;
     const bool has_team_members = load_team_snapshot(team_snapshot) && !team_snapshot.members.empty();
@@ -870,6 +1001,18 @@ void sync_map_control_labels(const ::ui::map::MapWorkspaceSnapshot& snapshot)
     {
         return;
     }
+
+    if (!s_map_info_visible)
+    {
+        set_hidden(s_map_control_bar, true);
+        sync_map_altitude_overlay();
+        sync_map_context_buttons(snapshot);
+        sync_map_notice_overlay();
+        return;
+    }
+
+    set_hidden(s_map_control_bar, false);
+    sync_map_altitude_overlay();
 
     const auto layers = ::ui::widgets::map::current_layer_state();
     set_button_label(s_map_layer_btn, compact_map_source_label(layers.map_source));
@@ -960,7 +1103,7 @@ void refresh_gps_status_view()
     set_compact_label(s_gps_sat_label, snapshot.satellite_label.c_str());
 
     char line[48]{};
-    if (snapshot.fix_valid && std::isfinite(snapshot.altitude_m))
+    if (snapshot.fix_valid && snapshot.has_altitude && std::isfinite(snapshot.altitude_m))
     {
         std::snprintf(line, sizeof(line), "%.0f m", static_cast<double>(snapshot.altitude_m));
     }
@@ -1516,6 +1659,26 @@ void append_track_overlay(::ui::map::MapOverlaySnapshot& snapshot)
     }
 }
 
+void keep_only_current_position_overlay(::ui::map::MapOverlaySnapshot& snapshot)
+{
+    std::size_t write = 0;
+    for (std::size_t read = 0; read < snapshot.item_count; ++read)
+    {
+        const auto& item = snapshot.items[read];
+        if (item.kind != ::ui::map::MapOverlayKind::CurrentPosition)
+        {
+            continue;
+        }
+        if (write != read)
+        {
+            snapshot.items[write] = item;
+        }
+        ++write;
+    }
+    snapshot.item_count = write;
+    snapshot.truncated = false;
+}
+
 bool load_map_track_file_impl(const char* path, bool show_fail_toast)
 {
     if (!path || path[0] == '\0')
@@ -1643,6 +1806,10 @@ void refresh_view()
     auto snapshot = map_workspace_model().snapshot();
     (void)map_overlay_source().buildMapOverlaySnapshot(s_overlay_snapshot);
     append_track_overlay(s_overlay_snapshot);
+    if (!s_map_info_visible)
+    {
+        keep_only_current_position_overlay(s_overlay_snapshot);
+    }
 
     if (snapshot.header.valid)
     {
@@ -2026,6 +2193,7 @@ void open_map_help_modal()
     add_help_row("L", nullptr, "Change base layer");
     add_help_row("O", "Contour", "Toggle contour overlay");
     add_help_row("T", "Track", "Select track file");
+    add_help_row("I", nullptr, "Hide info");
     add_help_row("Route", nullptr, "Shown when route active");
     add_help_row("Members", nullptr, "Shown when team active");
     add_help_row(help_key_label(), "Back", "Close help");
@@ -2385,6 +2553,11 @@ bool handle_map_key(uint32_t key, lv_event_t* e)
         adjust_map_zoom(1);
         consume_key_event(e);
         return true;
+    case 'i':
+    case 'I':
+        toggle_map_info_visibility();
+        consume_key_event(e);
+        return true;
     case 'c':
     case 'C':
     case 'p':
@@ -2553,6 +2726,36 @@ void create_map_control_bar(lv_obj_t* viewport)
     lv_obj_move_foreground(s_map_control_bar);
 }
 
+void create_map_altitude_overlay(lv_obj_t* viewport)
+{
+    s_map_altitude_panel = lv_obj_create(viewport);
+    lv_obj_set_size(s_map_altitude_panel, kMapAltitudePanelWidth, kMapAltitudePanelHeight);
+    lv_obj_align(s_map_altitude_panel,
+                 LV_ALIGN_BOTTOM_LEFT,
+                 4,
+                 -(kMapControlBarHeight + 4));
+    lv_obj_add_flag(s_map_altitude_panel, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_style_bg_color(s_map_altitude_panel, lv_color_hex(0x25170D), 0);
+    lv_obj_set_style_bg_opa(s_map_altitude_panel, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(s_map_altitude_panel, 0, 0);
+    lv_obj_set_style_radius(s_map_altitude_panel, 4, 0);
+    lv_obj_set_style_pad_left(s_map_altitude_panel, 5, 0);
+    lv_obj_set_style_pad_right(s_map_altitude_panel, 5, 0);
+    lv_obj_set_style_pad_top(s_map_altitude_panel, 1, 0);
+    lv_obj_set_style_pad_bottom(s_map_altitude_panel, 1, 0);
+    lv_obj_clear_flag(s_map_altitude_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_map_altitude_label = lv_label_create(s_map_altitude_panel);
+    lv_label_set_text(s_map_altitude_label, "Alt --");
+    lv_obj_set_width(s_map_altitude_label, kMapAltitudePanelWidth - 10);
+    lv_obj_set_style_text_font(s_map_altitude_label, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_color(s_map_altitude_label, lv_color_hex(0xFFF3DF), 0);
+    lv_obj_set_style_text_align(s_map_altitude_label, LV_TEXT_ALIGN_LEFT, 0);
+    lv_label_set_long_mode(s_map_altitude_label, LV_LABEL_LONG_CLIP);
+    lv_obj_center(s_map_altitude_label);
+    lv_obj_move_foreground(s_map_altitude_panel);
+}
+
 void create_map_notice_overlay(lv_obj_t* viewport)
 {
     s_map_notice_panel = lv_obj_create(viewport);
@@ -2666,6 +2869,7 @@ void create_gps_status_content(lv_obj_t* content)
 void create_map_content(lv_obj_t* content)
 {
     lv_obj_t* viewport = lv_obj_create(content);
+    s_map_viewport = viewport;
     lv_obj_set_size(viewport, LV_PCT(100), 0);
     lv_obj_set_flex_grow(viewport, 1);
     lv_obj_set_style_bg_color(viewport, lv_color_hex(0xEAD9B2), 0);
@@ -2688,6 +2892,7 @@ void create_map_content(lv_obj_t* content)
         lv_obj_align(map_widgets.root, LV_ALIGN_CENTER, 0, 0);
     }
     create_map_control_bar(viewport);
+    create_map_altitude_overlay(viewport);
     create_map_notice_overlay(viewport);
     create_map_context_rail(viewport);
 
@@ -2738,6 +2943,10 @@ void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projecti
     s_projection = projection;
     clear_gps_status_labels();
     clear_map_controls();
+    if (s_projection == Projection::Map)
+    {
+        s_map_info_visible = true;
+    }
     if (s_projection == Projection::Map && !s_map_view_initialized)
     {
         s_map_zoom = kCardputerZeroMapDefaultZoom;

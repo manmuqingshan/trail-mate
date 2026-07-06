@@ -18,6 +18,7 @@ struct GpsStatusSnapshot
     bool fix_valid = false;
     double latitude = 0.0;
     double longitude = 0.0;
+    bool has_altitude = false;
     float altitude_m = 0.0f;
     float speed_mps = 0.0f;
     float course_deg = 0.0f;

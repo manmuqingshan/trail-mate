@@ -317,7 +317,7 @@ MapWorkspaceSnapshot UConsoleMapWorkspaceModel::snapshot() const
         out.lat = gps.latitude;
         out.lon = gps.longitude;
         out.altitude_m = static_cast<double>(gps.altitude_m);
-        out.has_altitude = out.has_fix;
+        out.has_altitude = out.has_fix && gps.has_altitude;
         out.speed_mps = static_cast<double>(gps.speed_mps);
         out.has_speed = out.has_fix;
         out.satellites = gps.satellites;
