@@ -30,6 +30,7 @@
 #include "ui/app_runtime.h"
 #include "ui/menu/menu_runtime.h"
 #include "ui/runtime/ui_feedback.h"
+#include "ui/ui_common.h"
 
 extern "C" void trail_mate_idf_note_user_activity(void);
 
@@ -101,6 +102,7 @@ constexpr uint32_t kTca8418KeyCtrl = 0x8D;
 constexpr uint32_t kTca8418KeyFn = 0x8E;
 constexpr uint32_t kTca8418KeyWin = 0x8F;
 constexpr uint32_t kTca8418KeyShift = 0x90;
+constexpr uint32_t kAltDoublePressMs = 350;
 
 constexpr std::array<uint32_t, 68> kTca8418LvglKeyMap = {
     0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A,
@@ -143,6 +145,7 @@ bool s_keyboard_shift_active = false;
 bool s_keyboard_interrupt_registered = false;
 int s_brightness_percent = 0;
 uint32_t s_keyboard_last_key = 0;
+uint32_t s_keyboard_last_alt_press_ms = 0;
 uint8_t s_keyboard_attach_probe_count = 0;
 uint8_t s_keyboard_detach_probe_count = 0;
 uint32_t s_hi8561_touch_info_start_address = 0;
@@ -1321,6 +1324,23 @@ uint32_t resolve_keyboard_key(uint8_t key_num, bool pressed)
     if (key == kTca8418KeyShift)
     {
         s_keyboard_shift_active = pressed;
+        return 0;
+    }
+
+    if (key == kTca8418KeyAlt)
+    {
+        if (pressed)
+        {
+            const std::uint32_t now = static_cast<std::uint32_t>(esp_timer_get_time() / 1000ULL);
+            if (s_keyboard_last_alt_press_ms != 0 &&
+                (now - s_keyboard_last_alt_press_ms) <= kAltDoublePressMs)
+            {
+                ui_take_screenshot_to_sd();
+                s_keyboard_last_alt_press_ms = 0;
+                return 0;
+            }
+            s_keyboard_last_alt_press_ms = now;
+        }
         return 0;
     }
 

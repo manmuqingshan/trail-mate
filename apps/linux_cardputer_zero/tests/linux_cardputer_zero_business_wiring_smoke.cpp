@@ -158,6 +158,22 @@ int main(int argc, char** argv)
     assert(contains(linux_sources_cmake, "TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/ble_topbar.c"));
     assert(not_contains(linux_sources_cmake, "TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/ui/ui_status.cpp"));
 
+    const std::string menu_runtime = read_file(
+        repo_root / "modules/ui_shared/src/ui/menu/menu_runtime.cpp");
+    assert(contains(menu_runtime, "lv_label_set_text(title, \"Main Menu Help\")"));
+    assert(contains(menu_runtime, "screenshotShortcutHelpEnabled"));
+    assert(contains(menu_runtime, "defined(ARDUINO_T_LORA_PAGER)"));
+    assert(contains(menu_runtime, "defined(ARDUINO_T_DECK)"));
+    assert(contains(menu_runtime, "defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)"));
+    assert(contains(menu_runtime, "add_help_row(\"ALT\", \"ALT\", \"Save screenshot\")"));
+    assert(contains(menu_runtime,
+                    "if (isMenuHelpKey(key))\n    {\n        openMenuHelpModal();\n        return true;\n    }"));
+
+    const std::string t_display_p4_runtime = read_file(
+        repo_root / "platform/esp/idf_components/t_display_p4/trail_mate_t_display_p4_runtime.cpp");
+    assert(contains(t_display_p4_runtime, "kAltDoublePressMs"));
+    assert(contains(t_display_p4_runtime, "ui_take_screenshot_to_sd();"));
+
     const std::string gps_runtime = read_file(
         repo_root / "modules/ui_shared/src/ui/screens/gps/gps_page_runtime.cpp");
     assert(contains(gps_runtime, "runtime_gps_status_source"));

@@ -206,6 +206,15 @@ bool pagerMenuKeyboardBacklightShortcutEnabled()
 #endif
 }
 
+bool screenshotShortcutHelpEnabled()
+{
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return true;
+#else
+    return false;
+#endif
+}
+
 void consumeMenuKeyEvent(lv_event_t* e)
 {
     if (!e)
@@ -399,6 +408,10 @@ void openMenuHelpModal()
         add_help_row("K", nullptr, "Cycle keyboard backlight");
     }
     add_help_row("Space", nullptr, "Walkie PTT when monitor is on");
+    if (screenshotShortcutHelpEnabled())
+    {
+        add_help_row("ALT", "ALT", "Save screenshot");
+    }
     add_help_row("H", "Back", "Close help");
 
     lv_obj_move_foreground(s_runtime.menu_help_modal);
@@ -978,10 +991,6 @@ bool handleShortcutKey(char key, int state)
 
     if (isMenuHelpKey(key))
     {
-        if (!pagerMenuKeyboardBacklightShortcutEnabled())
-        {
-            return false;
-        }
         openMenuHelpModal();
         return true;
     }
