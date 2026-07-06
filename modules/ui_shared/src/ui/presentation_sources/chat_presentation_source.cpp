@@ -5,6 +5,7 @@
 #include "chat_presentation_adapters/chat_message_mapper.h"
 #include "ui_presentation/common/fixed_text.h"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 
@@ -15,6 +16,7 @@ namespace
 
 constexpr std::size_t kMaxConversationRows = 16;
 constexpr std::size_t kMaxMessageRows = 24;
+constexpr double kCoordinateScale = 10000000.0;
 
 template <std::size_t N>
 void copyString(ui::FixedText<N>& out, const std::string& text)
@@ -34,6 +36,193 @@ void copyNodeLabel(ui::FixedText<32>& out, ::chat::NodeId node_id)
     std::snprintf(buffer, sizeof(buffer), "%04lX",
                   static_cast<unsigned long>(node_id & 0xFFFFU));
     ui::copyText(out, buffer);
+}
+
+bool isValidCoordinate(double lat, double lon)
+{
+    return std::isfinite(lat) && std::isfinite(lon) &&
+           lat >= -90.0 && lat <= 90.0 &&
+           lon >= -180.0 && lon <= 180.0;
+}
+
+void copyParticipantLabel(ui::FixedText<32>& out,
+                          const ::chat::contacts::ContactService* contacts,
+                          ::chat::NodeId node_id,
+                          bool self)
+{
+    if (self)
+    {
+        ui::copyText(out, "Me");
+        return;
+    }
+    if (contacts != nullptr)
+    {
+        const std::string contact = contacts->getContactName(node_id);
+        if (!contact.empty())
+        {
+            ui::copyText(out, contact.c_str());
+            return;
+        }
+    }
+    copyNodeLabel(out, node_id);
+}
+
+bool nodePositionToLocation(const ::chat::contacts::ContactService* contacts,
+                            ::chat::NodeId node_id,
+                            double& out_lat,
+                            double& out_lon,
+                            uint32_t& out_timestamp)
+{
+    if (contacts == nullptr || node_id == 0)
+    {
+        return false;
+    }
+
+    const auto* node = contacts->getNodeInfo(node_id);
+    if (node == nullptr || !node->position.valid)
+    {
+        return false;
+    }
+
+    const double lat = static_cast<double>(node->position.latitude_i) / kCoordinateScale;
+    const double lon = static_cast<double>(node->position.longitude_i) / kCoordinateScale;
+    if (!isValidCoordinate(lat, lon))
+    {
+        return false;
+    }
+
+    out_lat = lat;
+    out_lon = lon;
+    out_timestamp = node->position.timestamp;
+    return true;
+}
+
+bool messageGeoToLocation(const ::chat::ChatMessage& message,
+                          double& out_lat,
+                          double& out_lon,
+                          uint32_t& out_timestamp)
+{
+    if (!message.has_geo)
+    {
+        return false;
+    }
+
+    const double lat = static_cast<double>(message.geo_lat_e7) / kCoordinateScale;
+    const double lon = static_cast<double>(message.geo_lon_e7) / kCoordinateScale;
+    if (!isValidCoordinate(lat, lon))
+    {
+        return false;
+    }
+
+    out_lat = lat;
+    out_lon = lon;
+    out_timestamp = message.timestamp;
+    return true;
+}
+
+::ui::chat::ConversationLocationParticipant* findLocationParticipant(
+    ::ui::chat::ChatWorkspaceSnapshot& snapshot,
+    ::chat::NodeId node_id)
+{
+    if (node_id == 0)
+    {
+        return nullptr;
+    }
+
+    for (std::size_t i = 0; i < snapshot.location_participant_count; ++i)
+    {
+        auto& participant = snapshot.location_participants[i];
+        if (participant.node_id == node_id)
+        {
+            return &participant;
+        }
+    }
+    return nullptr;
+}
+
+void appendLocationParticipant(::ui::chat::ChatWorkspaceSnapshot& snapshot,
+                               const ::chat::contacts::ContactService* contacts,
+                               ::chat::NodeId node_id,
+                               double lat,
+                               double lon,
+                               uint32_t timestamp,
+                               bool self)
+{
+    if (node_id == 0 || !isValidCoordinate(lat, lon))
+    {
+        return;
+    }
+
+    if (auto* existing = findLocationParticipant(snapshot, node_id))
+    {
+        existing->lat = lat;
+        existing->lon = lon;
+        existing->timestamp = timestamp;
+        existing->valid = true;
+        existing->self = existing->self || self;
+        if (existing->label.empty())
+        {
+            copyParticipantLabel(existing->label, contacts, node_id, existing->self);
+        }
+        return;
+    }
+
+    if (snapshot.location_participant_count >=
+        ::ui::chat::ChatWorkspaceSnapshot::kMaxLocationParticipants)
+    {
+        snapshot.location_participants_truncated = true;
+        return;
+    }
+
+    auto& participant =
+        snapshot.location_participants[snapshot.location_participant_count++];
+    participant.node_id = node_id;
+    participant.lat = lat;
+    participant.lon = lon;
+    participant.timestamp = timestamp;
+    participant.valid = true;
+    participant.self = self;
+    copyParticipantLabel(participant.label, contacts, node_id, self);
+}
+
+void appendNodePositionParticipant(
+    ::ui::chat::ChatWorkspaceSnapshot& snapshot,
+    const ::chat::contacts::ContactService* contacts,
+    ::chat::NodeId node_id,
+    bool self)
+{
+    double lat = 0.0;
+    double lon = 0.0;
+    uint32_t timestamp = 0;
+    if (!nodePositionToLocation(contacts, node_id, lat, lon, timestamp))
+    {
+        return;
+    }
+    appendLocationParticipant(snapshot, contacts, node_id, lat, lon, timestamp, self);
+}
+
+void appendMessageLocationParticipant(
+    ::ui::chat::ChatWorkspaceSnapshot& snapshot,
+    const ::chat::contacts::ContactService* contacts,
+    const ::chat::ChatMessage& message,
+    ::chat::NodeId self_node)
+{
+    const bool outgoing = message.status != ::chat::MessageStatus::Incoming;
+    const ::chat::NodeId node_id = outgoing ? self_node : message.from;
+    if (node_id == 0 || findLocationParticipant(snapshot, node_id) != nullptr)
+    {
+        return;
+    }
+
+    double lat = 0.0;
+    double lon = 0.0;
+    uint32_t timestamp = 0;
+    if (nodePositionToLocation(contacts, node_id, lat, lon, timestamp) ||
+        messageGeoToLocation(message, lat, lon, timestamp))
+    {
+        appendLocationParticipant(
+            snapshot, contacts, node_id, lat, lon, timestamp, outgoing);
+    }
 }
 
 void copyTimeLabel(ui::FixedText<24>& out, uint32_t timestamp)
@@ -105,10 +294,12 @@ ui::chat::MessageFailureKind mapDeliveryFailure(
 ChatPresentationSource::ChatPresentationSource(
     ::chat::ChatService& chat_service,
     ::chat::contacts::ContactService* contact_service,
-    const ::chat::delivery::ChatDeliveryReadModel* delivery_read_model)
+    const ::chat::delivery::ChatDeliveryReadModel* delivery_read_model,
+    const ::chat::IMeshAdapter* mesh_adapter)
     : chat_service_(chat_service),
       contact_service_(contact_service),
-      delivery_read_model_(delivery_read_model)
+      delivery_read_model_(delivery_read_model),
+      mesh_adapter_(mesh_adapter)
 {
 }
 
@@ -157,6 +348,18 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
     {
         const auto messages =
             chat_service_.getRecentMessages(core_selected, kMaxMessageRows);
+        const ::chat::NodeId self_node =
+            mesh_adapter_ != nullptr ? mesh_adapter_->getNodeId() : 0;
+        if (self_node != 0)
+        {
+            appendNodePositionParticipant(
+                out, contact_service_, self_node, true);
+        }
+        if (core_selected.peer != 0)
+        {
+            appendNodePositionParticipant(
+                out, contact_service_, core_selected.peer, false);
+        }
         out.message_count = messages.size() < kMaxMessageRows
                                 ? messages.size()
                                 : kMaxMessageRows;
@@ -212,6 +415,8 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
             {
                 copyNodeLabel(row.sender_label, message.from);
             }
+            appendMessageLocationParticipant(
+                out, contact_service_, message, self_node);
         }
     }
 

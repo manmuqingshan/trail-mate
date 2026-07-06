@@ -288,7 +288,8 @@ void enter(const shell::Host* host, lv_obj_t* parent)
         new ::ui::presentation_sources::ChatPresentationSource(
             chat_service,
             &app::messagingFacade().getContactService(),
-            s_delivery_read_model.get()));
+            s_delivery_read_model.get(),
+            app::messagingFacade().getMeshAdapter()));
     s_chat_sink = std::unique_ptr<::ui::presentation_sources::RuntimeChatActionSink>(
         new ::ui::presentation_sources::RuntimeChatActionSink(chat_service));
     s_chat_model = std::unique_ptr<::ui::chat::ChatWorkspaceModel>(

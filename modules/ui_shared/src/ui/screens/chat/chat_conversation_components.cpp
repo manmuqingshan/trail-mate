@@ -21,8 +21,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 
 #ifndef CHAT_CONVERSATION_LOG_ENABLE
@@ -50,10 +52,132 @@ constexpr uint32_t kSecondsPerMonth = 30U * kSecondsPerDay;
 constexpr uint32_t kSecondsPerYear = 365U * kSecondsPerDay;
 constexpr uint32_t kMinValidEpochSeconds = 1577836800U; // 2020-01-01
 constexpr size_t kMaxPrefixedSenderLen = 20;
+constexpr lv_coord_t kLocationMapBorderPx = 2;
+constexpr lv_coord_t kLocationMapInnerSize = 188;
+constexpr lv_coord_t kLocationMapOuterSize =
+    kLocationMapInnerSize + (kLocationMapBorderPx * 2);
+constexpr lv_coord_t kLocationMapFitPadding = 14;
 
 lv_coord_t bubble_pad_x()
 {
     return ::ui::page_profile::is_dense() ? 6 : kBubblePadX;
+}
+
+void make_plain(lv_obj_t* obj)
+{
+    if (!obj)
+    {
+        return;
+    }
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_pad_all(obj, 0, 0);
+    lv_obj_set_style_border_width(obj, 0, 0);
+    lv_obj_set_style_radius(obj, 0, 0);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
+}
+
+void set_hidden(lv_obj_t* obj, bool hidden)
+{
+    if (!obj || !lv_obj_is_valid(obj))
+    {
+        return;
+    }
+    if (hidden)
+    {
+        lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+bool overlay_item_has_valid_point(const ::ui::map::MapOverlayItem& item)
+{
+    return item.visible && item.point.valid &&
+           std::isfinite(item.point.lat) &&
+           std::isfinite(item.point.lon) &&
+           item.point.lat >= -90.0 && item.point.lat <= 90.0 &&
+           item.point.lon >= -180.0 && item.point.lon <= 180.0;
+}
+
+bool location_overlay_bounds(const ::ui::map::MapOverlaySnapshot& overlay,
+                             double& out_min_lat,
+                             double& out_max_lat,
+                             double& out_min_lon,
+                             double& out_max_lon,
+                             std::size_t& out_count)
+{
+    out_min_lat = 90.0;
+    out_max_lat = -90.0;
+    out_min_lon = 180.0;
+    out_max_lon = -180.0;
+    out_count = 0;
+
+    if (!overlay.header.valid)
+    {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < overlay.item_count; ++i)
+    {
+        const auto& item = overlay.items[i];
+        if (!overlay_item_has_valid_point(item))
+        {
+            continue;
+        }
+        out_min_lat = std::min(out_min_lat, item.point.lat);
+        out_max_lat = std::max(out_max_lat, item.point.lat);
+        out_min_lon = std::min(out_min_lon, item.point.lon);
+        out_max_lon = std::max(out_max_lon, item.point.lon);
+        ++out_count;
+    }
+
+    return out_count > 0;
+}
+
+bool model_fits_location_overlay(lv_obj_t* viewport_root,
+                                 const ::ui::widgets::map::Model& model,
+                                 const ::ui::map::MapOverlaySnapshot& overlay)
+{
+    if (!viewport_root || !lv_obj_is_valid(viewport_root))
+    {
+        return false;
+    }
+
+    lv_obj_update_layout(viewport_root);
+    for (std::size_t i = 0; i < overlay.item_count; ++i)
+    {
+        const auto& item = overlay.items[i];
+        if (!overlay_item_has_valid_point(item))
+        {
+            continue;
+        }
+
+        lv_point_t point{};
+        const ::ui::widgets::map::GeoPoint geo{
+            true,
+            item.point.lat,
+            item.point.lon};
+        if (!::ui::widgets::map::preview_project_point(
+                viewport_root,
+                model,
+                geo,
+                point))
+        {
+            return false;
+        }
+
+        if (point.x < kLocationMapFitPadding ||
+            point.y < kLocationMapFitPadding ||
+            point.x > kLocationMapInnerSize - kLocationMapFitPadding ||
+            point.y > kLocationMapInnerSize - kLocationMapFitPadding)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 ::ui::chat::MessageDeliveryState delivery_from_message_status(
@@ -289,6 +413,8 @@ ChatConversationScreen::ChatConversationScreen(lv_obj_t* parent, chat::Conversat
     // ----- Layout -----
     auto w = chat::ui::layout::create_conversation_base(parent);
     container_ = w.root;
+    body_row_ = w.body_row;
+    right_column_ = w.right_column;
     msg_list_ = w.msg_list;
     action_bar_ = w.action_bar;
     reply_btn_ = w.reply_btn;
@@ -340,6 +466,8 @@ ChatConversationScreen::ChatConversationScreen(lv_obj_t* parent, chat::Conversat
 
 ChatConversationScreen::~ChatConversationScreen()
 {
+    ::ui::widgets::map::destroy(location_map_runtime_);
+    location_map_created_ = false;
     if (container_ && lv_obj_is_valid(container_))
     {
         lv_obj_del(container_);
@@ -512,6 +640,218 @@ void ChatConversationScreen::setReplyEnabled(bool enabled)
     {
         lv_obj_add_state(reply_btn_, LV_STATE_DISABLED);
     }
+}
+
+void ChatConversationScreen::setLocationOverlay(
+    const ::ui::map::MapOverlaySnapshot& overlay)
+{
+    location_overlay_ = overlay;
+    if (location_map_visible_)
+    {
+        refreshLocationMap();
+    }
+}
+
+void ChatConversationScreen::toggleLocationMap()
+{
+    if (!guard_ || !guard_->alive)
+    {
+        return;
+    }
+
+    location_map_visible_ = !location_map_visible_;
+    syncLocationMapVisibility();
+}
+
+bool ChatConversationScreen::usesFloatingLocationMap() const
+{
+#if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
+    return true;
+#else
+    const auto& profile = ::ui::page_profile::current();
+    return profile.name != nullptr && std::strcmp(profile.name, "tdeck") == 0;
+#endif
+}
+
+void ChatConversationScreen::createLocationPanel()
+{
+    if (location_panel_ && lv_obj_is_valid(location_panel_))
+    {
+        return;
+    }
+    if (!container_ || !lv_obj_is_valid(container_))
+    {
+        return;
+    }
+
+    const bool floating = usesFloatingLocationMap();
+    lv_obj_t* parent = floating ? container_ : body_row_;
+    if (!parent || !lv_obj_is_valid(parent))
+    {
+        return;
+    }
+
+    location_panel_ = lv_obj_create(parent);
+    lv_obj_set_size(location_panel_,
+                    kLocationMapOuterSize,
+                    kLocationMapOuterSize);
+    lv_obj_clear_flag(location_panel_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(location_panel_, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_pad_all(location_panel_, 0, 0);
+    lv_obj_set_style_radius(location_panel_, 0, 0);
+    lv_obj_set_style_bg_color(location_panel_, lv_color_hex(0x111827), 0);
+    lv_obj_set_style_bg_opa(location_panel_, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(location_panel_, kLocationMapBorderPx, 0);
+    lv_obj_set_style_border_color(location_panel_, lv_color_hex(0xF8FAFC), 0);
+    lv_obj_set_style_border_opa(location_panel_, LV_OPA_COVER, 0);
+    lv_obj_set_flex_grow(location_panel_, 0);
+    lv_obj_add_flag(location_panel_, LV_OBJ_FLAG_HIDDEN);
+
+    if (floating)
+    {
+#ifdef LV_OBJ_FLAG_IGNORE_LAYOUT
+        lv_obj_add_flag(location_panel_, LV_OBJ_FLAG_IGNORE_LAYOUT);
+#endif
+        lv_obj_align(location_panel_,
+                     LV_ALIGN_TOP_LEFT,
+                     kLocationMapBorderPx,
+                     static_cast<lv_coord_t>(
+                         ::ui::page_profile::current().top_bar_height +
+                         kLocationMapBorderPx));
+    }
+    else
+    {
+        lv_obj_move_to_index(location_panel_, 0);
+    }
+
+    location_map_host_ = lv_obj_create(location_panel_);
+    make_plain(location_map_host_);
+    lv_obj_set_size(location_map_host_,
+                    kLocationMapInnerSize,
+                    kLocationMapInnerSize);
+    lv_obj_center(location_map_host_);
+}
+
+void ChatConversationScreen::ensureLocationMapCreated()
+{
+    createLocationPanel();
+    if (location_map_created_ ||
+        !location_map_host_ ||
+        !lv_obj_is_valid(location_map_host_))
+    {
+        return;
+    }
+
+    (void)::ui::widgets::map::create(
+        location_map_runtime_,
+        location_map_host_,
+        75);
+    ::ui::widgets::map::set_size(
+        location_map_runtime_,
+        kLocationMapInnerSize,
+        kLocationMapInnerSize);
+    ::ui::widgets::map::set_gesture_enabled(location_map_runtime_, false);
+    location_map_created_ = true;
+}
+
+void ChatConversationScreen::refreshLocationMap()
+{
+    if (!location_map_visible_)
+    {
+        return;
+    }
+
+    ensureLocationMapCreated();
+    if (!location_map_created_ ||
+        !location_map_host_ ||
+        !lv_obj_is_valid(location_map_host_))
+    {
+        return;
+    }
+
+    double min_lat = 0.0;
+    double max_lat = 0.0;
+    double min_lon = 0.0;
+    double max_lon = 0.0;
+    std::size_t point_count = 0;
+    if (!location_overlay_bounds(location_overlay_,
+                                 min_lat,
+                                 max_lat,
+                                 min_lon,
+                                 max_lon,
+                                 point_count))
+    {
+        ::ui::widgets::map::clear(location_map_runtime_);
+        return;
+    }
+
+    ::ui::widgets::map::Model model{};
+    const auto layers = ::ui::widgets::map::current_layer_state();
+    model.focus_point.valid = true;
+    model.focus_point.lat = (min_lat + max_lat) / 2.0;
+    model.focus_point.lon = (min_lon + max_lon) / 2.0;
+    model.map_source = layers.map_source;
+    model.contour_enabled = layers.contour_enabled;
+    model.coord_system = app::configFacade().getConfig().map_coord_system;
+
+    if (point_count <= 1)
+    {
+        model.zoom = ::ui::widgets::map::kDefaultZoom;
+    }
+    else
+    {
+        model.zoom = ::ui::widgets::map::kMinZoom;
+        for (int zoom = ::ui::widgets::map::kMaxZoom;
+             zoom >= ::ui::widgets::map::kMinZoom;
+             --zoom)
+        {
+            model.zoom = zoom;
+            if (model_fits_location_overlay(
+                    location_map_host_,
+                    model,
+                    location_overlay_))
+            {
+                break;
+            }
+        }
+    }
+
+    ::ui::widgets::map::apply_model(location_map_runtime_, model);
+    ::ui::widgets::map::apply_overlay(location_map_runtime_, location_overlay_);
+}
+
+void ChatConversationScreen::syncLocationMapVisibility()
+{
+    if (!location_map_visible_)
+    {
+        set_hidden(location_panel_, true);
+        if (location_map_created_)
+        {
+            ::ui::widgets::map::clear(location_map_runtime_);
+        }
+        return;
+    }
+
+    ensureLocationMapCreated();
+    set_hidden(location_panel_, false);
+    if (location_panel_ && lv_obj_is_valid(location_panel_))
+    {
+        if (usesFloatingLocationMap())
+        {
+            lv_obj_align(location_panel_,
+                         LV_ALIGN_TOP_LEFT,
+                         kLocationMapBorderPx,
+                         static_cast<lv_coord_t>(
+                             ::ui::page_profile::current().top_bar_height +
+                             kLocationMapBorderPx));
+            lv_obj_move_foreground(location_panel_);
+        }
+        else
+        {
+            lv_obj_move_to_index(location_panel_, 0);
+        }
+    }
+    refreshLocationMap();
 }
 
 void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row)
@@ -928,6 +1268,8 @@ void ChatConversationScreen::handle_root_deleted()
     reply_ctx_.screen = nullptr;
 
     chat::ui::conversation::input::cleanup(&input_binding_);
+    ::ui::widgets::map::destroy(location_map_runtime_);
+    location_map_created_ = false;
     clear_all_timers();
 
     if (top_bar_.back_btn)
@@ -936,10 +1278,15 @@ void ChatConversationScreen::handle_root_deleted()
     }
 
     container_ = nullptr;
+    body_row_ = nullptr;
+    right_column_ = nullptr;
     msg_list_ = nullptr;
     action_bar_ = nullptr;
     reply_btn_ = nullptr;
     compose_btn_ = nullptr;
+    location_panel_ = nullptr;
+    location_map_host_ = nullptr;
+    location_map_visible_ = false;
 }
 
 void ChatConversationScreen::schedule_action_async(ActionIntent intent)

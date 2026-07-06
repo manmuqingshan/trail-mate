@@ -24,6 +24,7 @@
 #include "ui_lvgl_ux_packs/common/key_verification_modal_renderer.h"
 #include "ui_lvgl_ux_packs/common/team_position_picker_renderer.h"
 #include "ui_presentation/key_verification/key_verification_model.h"
+#include "ui_presentation/map/map_overlay_snapshot.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -163,6 +164,47 @@ bool teamConversationMetaFromSnapshot(
     return false;
 }
 
+::ui::map::MapOverlaySnapshot buildConversationLocationOverlay(
+    const ::ui::chat::ChatWorkspaceSnapshot& snapshot)
+{
+    ::ui::map::MapOverlaySnapshot overlay{};
+    overlay.header.valid = true;
+    overlay.header.version = 1;
+
+    for (size_t i = 0; i < snapshot.location_participant_count; ++i)
+    {
+        if (overlay.item_count >= ::ui::map::MapOverlaySnapshot::kMaxItems)
+        {
+            overlay.truncated = true;
+            break;
+        }
+
+        const auto& participant = snapshot.location_participants[i];
+        if (!participant.valid)
+        {
+            continue;
+        }
+
+        auto& item = overlay.items[overlay.item_count++];
+        item.kind = participant.self
+                        ? ::ui::map::MapOverlayKind::CurrentPosition
+                        : ::ui::map::MapOverlayKind::TeamMember;
+        item.style = participant.self
+                         ? ::ui::map::MapOverlayStyle::OwnPosition
+                         : ::ui::map::MapOverlayStyle::Team;
+        item.point.valid = true;
+        item.point.lat = participant.lat;
+        item.point.lon = participant.lon;
+        item.stable_id = participant.node_id;
+        item.visible = true;
+        ::ui::copyText(item.label, participant.label.c_str());
+    }
+
+    overlay.truncated =
+        overlay.truncated || snapshot.location_participants_truncated;
+    return overlay;
+}
+
 void applySnapshotMessagesToConversation(
     const ::ui::chat::ChatWorkspaceSnapshot& snapshot,
     ChatConversationScreen& conversation)
@@ -172,6 +214,7 @@ void applySnapshotMessagesToConversation(
     {
         conversation.addMessage(snapshot.messages[i]);
     }
+    conversation.setLocationOverlay(buildConversationLocationOverlay(snapshot));
     conversation.scrollToBottom();
 }
 

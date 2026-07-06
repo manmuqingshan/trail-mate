@@ -10,6 +10,8 @@ struct ConversationWidgets
 {
     lv_obj_t* root = nullptr;
 
+    lv_obj_t* body_row = nullptr;
+    lv_obj_t* right_column = nullptr;
     lv_obj_t* msg_list = nullptr;
     lv_obj_t* action_bar = nullptr;
     lv_obj_t* reply_btn = nullptr;
@@ -17,7 +19,8 @@ struct ConversationWidgets
 };
 
 /**
- * Root(Column): TopBar(widget) + MsgList(grow=1) + ActionBar(fixed height)
+ * Root(Column): TopBar(widget) + BodyRow(grow=1)
+ * BodyRow: optional LocationPanel + RightColumn(MsgList + ActionBar)
  */
 ConversationWidgets create_conversation_base(lv_obj_t* parent);
 

@@ -97,15 +97,32 @@ struct MessageRow
     TeamMessageRichPayload team_rich_payload;
 };
 
+struct ConversationLocationParticipant
+{
+    uint32_t node_id = 0;
+    ui::FixedText<32> label;
+    double lat = 0.0;
+    double lon = 0.0;
+    uint32_t timestamp = 0;
+    bool valid = false;
+    bool self = false;
+};
+
 struct ChatWorkspaceSnapshot
 {
     ui::SnapshotHeader header;
+
+    static constexpr size_t kMaxLocationParticipants = 16;
 
     ConversationRow conversations[16]{};
     size_t conversation_count = 0;
 
     MessageRow messages[24]{};
     size_t message_count = 0;
+
+    ConversationLocationParticipant location_participants[kMaxLocationParticipants]{};
+    size_t location_participant_count = 0;
+    bool location_participants_truncated = false;
 
     ConversationId selected_conversation;
 
@@ -152,6 +169,18 @@ inline void resetMessageRow(MessageRow& row)
     row.team_rich_payload = TeamMessageRichPayload{};
 }
 
+inline void resetConversationLocationParticipant(
+    ConversationLocationParticipant& participant)
+{
+    participant.node_id = 0;
+    participant.label.clear();
+    participant.lat = 0.0;
+    participant.lon = 0.0;
+    participant.timestamp = 0;
+    participant.valid = false;
+    participant.self = false;
+}
+
 inline void resetChatWorkspaceSnapshot(ChatWorkspaceSnapshot& out)
 {
     out.header = ui::SnapshotHeader{};
@@ -167,6 +196,13 @@ inline void resetChatWorkspaceSnapshot(ChatWorkspaceSnapshot& out)
         resetMessageRow(out.messages[i]);
     }
     out.message_count = 0;
+
+    for (size_t i = 0; i < ChatWorkspaceSnapshot::kMaxLocationParticipants; ++i)
+    {
+        resetConversationLocationParticipant(out.location_participants[i]);
+    }
+    out.location_participant_count = 0;
+    out.location_participants_truncated = false;
 
     out.selected_conversation = ConversationId{};
     out.can_send = false;

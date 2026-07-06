@@ -4,15 +4,18 @@
 #include "chat/infra/store/ram_store.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
+#include "chat/usecase/contact_service.h"
 #include "sys/clock.h"
 #include "ui/presentation_sources/chat_presentation_source.h"
 #include "ui/presentation_sources/runtime_chat_action_sink.h"
 
 #include <cassert>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -75,6 +78,7 @@ class FakeMeshAdapter final : public ::chat::IMeshAdapter
     void applyConfig(const ::chat::MeshConfig&) override {}
     bool isReady() const override { return true; }
     bool pollIncomingRawPacket(uint8_t*, size_t&, size_t) override { return false; }
+    ::chat::NodeId getNodeId() const override { return self_node_id; }
 
     int send_count = 0;
     bool send_ok = true;
@@ -84,7 +88,138 @@ class FakeMeshAdapter final : public ::chat::IMeshAdapter
     ::chat::ChannelId last_channel = ::chat::ChannelId::PRIMARY;
     std::string last_text;
     ::chat::NodeId last_peer = 0;
+    ::chat::NodeId self_node_id = 0;
     std::deque<::chat::MeshIncomingText> incoming;
+};
+
+class FakeNodeStore final : public ::chat::contacts::INodeStore
+{
+  public:
+    void begin() override {}
+
+    void applyUpdate(uint32_t node_id,
+                     const ::chat::contacts::NodeUpdate& update) override
+    {
+        auto* entry = findOrCreate(node_id);
+        if (update.short_name != nullptr)
+        {
+            std::snprintf(entry->short_name,
+                          sizeof(entry->short_name),
+                          "%s",
+                          update.short_name);
+        }
+        if (update.long_name != nullptr)
+        {
+            std::snprintf(entry->long_name,
+                          sizeof(entry->long_name),
+                          "%s",
+                          update.long_name);
+        }
+        if (update.has_last_seen)
+        {
+            entry->last_seen = update.last_seen;
+        }
+        if (update.has_position)
+        {
+            updatePosition(node_id, update.position);
+        }
+    }
+
+    void upsert(uint32_t node_id,
+                const char* short_name,
+                const char* long_name,
+                uint32_t now_secs,
+                float snr = 0.0f,
+                float rssi = 0.0f,
+                uint8_t protocol = 0,
+                uint8_t role = ::chat::contacts::kNodeRoleUnknown,
+                uint8_t hops_away = 0xFF,
+                uint8_t hw_model = 0,
+                uint8_t channel = 0xFF) override
+    {
+        (void)snr;
+        (void)rssi;
+        (void)protocol;
+        (void)role;
+        (void)hops_away;
+        (void)hw_model;
+        (void)channel;
+        auto* entry = findOrCreate(node_id);
+        std::snprintf(entry->short_name,
+                      sizeof(entry->short_name),
+                      "%s",
+                      short_name ? short_name : "");
+        std::snprintf(entry->long_name,
+                      sizeof(entry->long_name),
+                      "%s",
+                      long_name ? long_name : "");
+        entry->last_seen = now_secs;
+    }
+
+    void updateProtocol(uint32_t, uint8_t, uint32_t) override {}
+
+    void updatePosition(uint32_t node_id,
+                        const ::chat::contacts::NodePosition& position) override
+    {
+        auto* entry = findOrCreate(node_id);
+        entry->position_valid = position.valid;
+        entry->position_latitude_i = position.latitude_i;
+        entry->position_longitude_i = position.longitude_i;
+        entry->position_has_altitude = position.has_altitude;
+        entry->position_altitude = position.altitude;
+        entry->position_timestamp = position.timestamp;
+    }
+
+    bool remove(uint32_t node_id) override
+    {
+        for (auto it = entries.begin(); it != entries.end(); ++it)
+        {
+            if (it->node_id == node_id)
+            {
+                entries.erase(it);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    const std::vector<::chat::contacts::NodeEntry>& getEntries() const override
+    {
+        return entries;
+    }
+
+    void clear() override { entries.clear(); }
+    bool flush() override { return true; }
+
+  private:
+    ::chat::contacts::NodeEntry* findOrCreate(uint32_t node_id)
+    {
+        for (auto& entry : entries)
+        {
+            if (entry.node_id == node_id)
+            {
+                return &entry;
+            }
+        }
+        ::chat::contacts::NodeEntry entry{};
+        entry.node_id = node_id;
+        entries.push_back(entry);
+        return &entries.back();
+    }
+
+    std::vector<::chat::contacts::NodeEntry> entries;
+};
+
+class FakeContactStore final : public ::chat::contacts::IContactStore
+{
+  public:
+    void begin() override {}
+    std::string getNickname(uint32_t) const override { return {}; }
+    bool setNickname(uint32_t, const char*) override { return false; }
+    bool removeNickname(uint32_t) override { return false; }
+    bool hasNickname(const char*) const override { return false; }
+    std::vector<uint32_t> getAllContactIds() const override { return {}; }
+    size_t getCount() const override { return 0; }
 };
 
 ui::chat::ConversationId directPeer(uint32_t peer)
@@ -133,6 +268,33 @@ ui::chat::ConversationId systemConversation()
     return id;
 }
 
+const ui::chat::ConversationLocationParticipant* findLocationParticipant(
+    const ui::chat::ChatWorkspaceSnapshot& snapshot,
+    uint32_t node_id)
+{
+    for (size_t i = 0; i < snapshot.location_participant_count; ++i)
+    {
+        if (snapshot.location_participants[i].node_id == node_id)
+        {
+            return &snapshot.location_participants[i];
+        }
+    }
+    return nullptr;
+}
+
+void setNodePosition(::chat::contacts::ContactService& contacts,
+                     uint32_t node_id,
+                     int32_t lat_e7,
+                     int32_t lon_e7)
+{
+    ::chat::contacts::NodePosition pos{};
+    pos.valid = true;
+    pos.latitude_i = lat_e7;
+    pos.longitude_i = lon_e7;
+    pos.timestamp = 1700000000U;
+    contacts.updateNodePosition(node_id, pos);
+}
+
 } // namespace
 
 int main()
@@ -144,13 +306,19 @@ int main()
 
     ::chat::ChatModel model;
     FakeMeshAdapter mesh;
+    mesh.self_node_id = 0x01020304;
     ::chat::RamStore store;
     ::chat::ChatService service(model, mesh, store);
     ::chat::delivery::ChatDeliveryReadModel delivery_read_model;
+    FakeNodeStore node_store;
+    FakeContactStore contact_store;
+    ::chat::contacts::ContactService contacts(node_store, contact_store);
+    setNodePosition(contacts, mesh.self_node_id, 312345678, 1219876543);
+    setNodePosition(contacts, 1234, 313000000, 1220000000);
 
     ui::presentation_sources::RuntimeChatActionSink sink(service);
     ui::presentation_sources::ChatPresentationSource source(
-        service, nullptr, &delivery_read_model);
+        service, &contacts, &delivery_read_model, &mesh);
 
     const ui::chat::ConversationId ada = directPeer(1234);
     ui::chat::SendMessageView send;
@@ -207,6 +375,18 @@ int main()
     assert(std::strcmp(snapshot.messages[0].text.c_str(), "hello") == 0);
     assert(snapshot.can_send);
     assert(snapshot.composer_enabled);
+    assert(snapshot.location_participant_count == 2);
+    const auto* self_location =
+        findLocationParticipant(snapshot, mesh.self_node_id);
+    assert(self_location != nullptr);
+    assert(self_location->self);
+    assert(self_location->valid);
+    assert(self_location->lat > 31.23 && self_location->lat < 31.24);
+    const auto* peer_location = findLocationParticipant(snapshot, 1234);
+    assert(peer_location != nullptr);
+    assert(!peer_location->self);
+    assert(peer_location->valid);
+    assert(peer_location->lon > 121.99 && peer_location->lon < 122.01);
 
     mesh.send_ok = false;
     mesh.send_failure = ::chat::MeshOperationFailure::PeerKeyMissing;

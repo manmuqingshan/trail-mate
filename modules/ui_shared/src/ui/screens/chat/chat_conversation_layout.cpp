@@ -14,27 +14,23 @@
  *  | | < Back     (Title)                     (Status/...)       | |
  *  | +------------------------------------------------------------+ |
  *  |                                                                |
- *  | Msg List (scrollable V, flex-grow = 1)                         |
+ *  | BodyRow (ROW, flex-grow = 1)                                   |
  *  | +------------------------------------------------------------+ |
- *  | | Row (full width, transparent)                              | |
- *  | |   + Bubble (max ~70% width)                                | |
- *  | |     + TextLabel (WRAP)                                     | |
- *  | | self -> row align END / other -> row align START           | |
- *  | +------------------------------------------------------------+ |
- *  |                                                                |
- *  | Action Bar (fixed height = 30, non-scrollable)                |
- *  | +------------------------------------------------------------+ |
- *  | |                     [ Send ]                               | |
+ *  | | Optional location map panel + RightColumn                   | |
+ *  | | RightColumn: MsgList(grow=1) + ActionBar(fixed height)      | |
  *  | +------------------------------------------------------------+ |
  *  +----------------------------------------------------------------+
  *
  * Tree view:
  * Root(COL)
  * - TopBar(widget)    // created by top_bar_init(top_bar_, root)
- * - MsgList(COL, scroll V, grow=1)
- *   - MsgRow*(repeat, ROW, full)
- *     - Bubble(COL, content) -> TextLabel(WRAP)
- * - ActionBar(ROW, fixed=30) -> ComposeBtn -> ComposeLabel
+ * - BodyRow(ROW, grow=1)
+ *   - LocationPanel(optional)
+ *   - RightColumn(COL, grow=1)
+ *     - MsgList(COL, scroll V, grow=1)
+ *       - MsgRow*(repeat, ROW, full)
+ *         - Bubble(COL, content) -> TextLabel(WRAP)
+ *     - ActionBar(ROW, fixed=30) -> ComposeBtn -> ComposeLabel
  *
  * Notes:
  * - Structure/layout only: create objects, set size/flex/align/flags.
@@ -53,6 +49,15 @@ static void make_non_scrollable(lv_obj_t* obj)
     lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
 }
 
+static void make_plain_container(lv_obj_t* obj)
+{
+    make_non_scrollable(obj);
+    lv_obj_set_style_pad_all(obj, 0, 0);
+    lv_obj_set_style_border_width(obj, 0, 0);
+    lv_obj_set_style_radius(obj, 0, 0);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
+}
+
 ConversationWidgets create_conversation_base(lv_obj_t* parent)
 {
     ConversationWidgets w{};
@@ -65,8 +70,25 @@ ConversationWidgets create_conversation_base(lv_obj_t* parent)
     lv_obj_set_style_pad_row(w.root, 0, 0);
     make_non_scrollable(w.root);
 
+    // Body row holds the optional location panel plus the message/actions column.
+    w.body_row = lv_obj_create(w.root);
+    lv_obj_set_width(w.body_row, LV_PCT(100));
+    lv_obj_set_flex_grow(w.body_row, 1);
+    lv_obj_set_flex_flow(w.body_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(w.body_row, 0, 0);
+    lv_obj_set_style_pad_row(w.body_row, 0, 0);
+    make_plain_container(w.body_row);
+
+    w.right_column = lv_obj_create(w.body_row);
+    lv_obj_set_width(w.right_column, 1);
+    lv_obj_set_height(w.right_column, LV_PCT(100));
+    lv_obj_set_flex_grow(w.right_column, 1);
+    lv_obj_set_flex_flow(w.right_column, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(w.right_column, 0, 0);
+    make_plain_container(w.right_column);
+
     // Msg list (scrollable, grow=1)
-    w.msg_list = lv_obj_create(w.root);
+    w.msg_list = lv_obj_create(w.right_column);
     lv_obj_set_width(w.msg_list, LV_PCT(100));
     lv_obj_set_flex_grow(w.msg_list, 1);
     lv_obj_set_flex_flow(w.msg_list, LV_FLEX_FLOW_COLUMN);
@@ -76,7 +98,7 @@ ConversationWidgets create_conversation_base(lv_obj_t* parent)
     lv_obj_set_scrollbar_mode(w.msg_list, LV_SCROLLBAR_MODE_OFF);
 
     // Action bar (fixed height)
-    w.action_bar = lv_obj_create(w.root);
+    w.action_bar = lv_obj_create(w.right_column);
     lv_obj_set_size(w.action_bar, LV_PCT(100),
                     ::ui::page_profile::resolve_control_button_height() +
                         (profile.dense ? 2 : 2));

@@ -11,8 +11,10 @@
 #include "chat/domain/chat_types.h"
 #include "chat_conversation_input.h"
 #include "lvgl.h"
+#include "ui/widgets/map/map_viewport.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_presentation/chat/chat_message_ref.h"
+#include "ui_presentation/map/map_overlay_snapshot.h"
 #include <memory>
 #include <utility>
 #include <vector>
@@ -68,6 +70,9 @@ class ChatConversationScreen
     void setBackCallback(void (*cb)(void*), void* user_data);
     void setReplyEnabled(bool enabled);
     bool isReplyEnabled() const { return reply_enabled_; }
+    void setLocationOverlay(const ::ui::map::MapOverlaySnapshot& overlay);
+    void toggleLocationMap();
+    bool isLocationMapVisible() const { return location_map_visible_; }
 
   private:
     enum class TimerDomain
@@ -129,10 +134,16 @@ class ChatConversationScreen
 
     lv_obj_t* container_ = nullptr;
     ::ui::widgets::TopBar top_bar_{};
+    lv_obj_t* body_row_ = nullptr;
+    lv_obj_t* right_column_ = nullptr;
     lv_obj_t* msg_list_ = nullptr;
     lv_obj_t* action_bar_ = nullptr;
     lv_obj_t* reply_btn_ = nullptr;
     lv_obj_t* compose_btn_ = nullptr; // kept for compatibility (not created in v0)
+    lv_obj_t* location_panel_ = nullptr;
+    lv_obj_t* location_map_host_ = nullptr;
+    ::ui::widgets::map::Runtime location_map_runtime_{};
+    ::ui::map::MapOverlaySnapshot location_overlay_{};
     chat::ConversationId conv_{};
 
     void (*action_cb_)(ActionIntent intent, void*) = nullptr;
@@ -167,10 +178,17 @@ class ChatConversationScreen
     conversation::input::Binding input_binding_{};
     ActionContext reply_ctx_{};
     bool reply_enabled_ = true;
+    bool location_map_visible_ = false;
+    bool location_map_created_ = false;
 
     void createMessageItem(const ::ui::chat::MessageRow& row);
     void enableRetryAction(MessageItem& item);
     void disableRetryAction(MessageItem& item);
+    void createLocationPanel();
+    void ensureLocationMapCreated();
+    void refreshLocationMap();
+    void syncLocationMapVisibility();
+    bool usesFloatingLocationMap() const;
 
     static void action_event_cb(lv_event_t* e);
     static void message_action_event_cb(lv_event_t* e);
