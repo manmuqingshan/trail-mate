@@ -2217,11 +2217,17 @@ void append_track_overlay(::ui::map::MapOverlaySnapshot& snapshot)
 
 void keep_only_current_position_overlay(::ui::map::MapOverlaySnapshot& snapshot)
 {
+    const bool keep_route_points =
+        s_track_overlay_active &&
+        s_track_overlay_kind == TrackOverlayFileKind::Route;
     std::size_t write = 0;
     for (std::size_t read = 0; read < snapshot.item_count; ++read)
     {
         const auto& item = snapshot.items[read];
-        if (item.kind != ::ui::map::MapOverlayKind::CurrentPosition)
+        const bool keep_item =
+            item.kind == ::ui::map::MapOverlayKind::CurrentPosition ||
+            (keep_route_points && item.kind == ::ui::map::MapOverlayKind::RoutePoint);
+        if (!keep_item)
         {
             continue;
         }
@@ -2639,6 +2645,27 @@ void on_map_help_modal_key(lv_event_t* e)
         return;
     }
 
+    if (key == LV_KEY_UP || key == 'w' || key == 'W')
+    {
+        lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+        if (target && lv_obj_is_valid(target))
+        {
+            lv_obj_scroll_by(target, 0, 18, LV_ANIM_OFF);
+        }
+        consume_key_event(e);
+        return;
+    }
+    if (key == LV_KEY_DOWN || key == 's' || key == 'S')
+    {
+        lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+        if (target && lv_obj_is_valid(target))
+        {
+            lv_obj_scroll_by(target, 0, -18, LV_ANIM_OFF);
+        }
+        consume_key_event(e);
+        return;
+    }
+
     consume_key_event(e);
 }
 
@@ -2679,7 +2706,9 @@ void open_map_help_modal()
     lv_obj_set_style_pad_top(panel, 5, 0);
     lv_obj_set_style_pad_bottom(panel, 5, 0);
     lv_obj_set_style_pad_row(panel, 2, 0);
-    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(panel, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(panel, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(panel, on_map_help_modal_key, LV_EVENT_KEY, nullptr);
 
@@ -2763,8 +2792,8 @@ void open_map_help_modal()
     add_help_row("L", nullptr, "Change base layer");
     add_help_row("O", "Contour", "Toggle contour overlay");
     add_help_row("T", "Track", "Select track file");
-    add_help_row("V", nullptr, "Toggle elevation profile");
-    add_help_row("I", nullptr, "Hide info");
+    add_help_row("V", nullptr, "Show/hide elevation profile");
+    add_help_row("I", nullptr, "Hide info, keep route");
     add_help_row("Route", nullptr, "Shown when route active");
     add_help_row("Members", nullptr, "Shown when team active");
     add_help_row(help_key_label(), "Back", "Close help");
