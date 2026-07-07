@@ -177,8 +177,7 @@ GtkWidget* launchSettingsLayout(GtkUConsoleAppState& state)
     std::vector<const char*> protocols{
         ::chat::infra::meshProtocolName(::chat::MeshProtocol::Meshtastic),
         ::chat::infra::meshProtocolName(::chat::MeshProtocol::MeshCore),
-        ::chat::infra::meshProtocolName(::chat::MeshProtocol::RNode),
-        ::chat::infra::meshProtocolName(::chat::MeshProtocol::LXMF),
+        ::chat::infra::meshProtocolName(::chat::MeshProtocol::Reticulum),
     };
     state.settings_protocol =
         makeCombo(protocols, protocolIndex(config.mesh_protocol));

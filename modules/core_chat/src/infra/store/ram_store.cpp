@@ -27,7 +27,7 @@ void RamStore::append(const ChatMessage& msg)
         evictOldestMessage();
     }
 
-    ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    ConversationId conv = conversationIdForMessage(msg);
     ConversationStorage& storage = getConversationStorage(conv);
     StoredMessageEntry entry;
     entry.message = msg;
@@ -71,11 +71,13 @@ std::vector<ConversationMeta> RamStore::loadConversationPage(size_t offset,
         {
             continue;
         }
+        const ChatMessage& latest = storage.messages.back().message;
         ConversationMeta meta;
         meta.id = conv;
-        meta.preview = storage.messages.back().message.text;
-        meta.last_timestamp = storage.messages.back().message.timestamp;
+        meta.preview = latest.text;
+        meta.last_timestamp = latest.timestamp;
         meta.unread = storage.unread_count;
+        meta.reticulum_identity = latest.reticulum_identity;
         if (conv.peer == 0)
         {
             meta.name = "Broadcast";

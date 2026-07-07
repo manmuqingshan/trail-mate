@@ -16,6 +16,10 @@ size_t nodeBlobEntrySizeForVersion(uint8_t version)
 {
     if (version == NodeStoreCore::kPersistVersion)
     {
+        return NodeStoreCore::kSerializedEntrySize;
+    }
+    if (version == NodeStoreCore::kPersistVersionV8)
+    {
         return NodeStoreCore::kSerializedEntrySizeV8;
     }
     return 0;
@@ -23,17 +27,17 @@ size_t nodeBlobEntrySizeForVersion(uint8_t version)
 
 bool isValidNodeBlobSize(size_t len)
 {
-    return len != 0 && (len % NodeStoreCore::kSerializedEntrySizeV8) == 0;
+    return len != 0 && (len % NodeStoreCore::kSerializedEntrySize) == 0;
 }
 
 size_t nodeBlobEntryCount(size_t len)
 {
-    return isValidNodeBlobSize(len) ? (len / NodeStoreCore::kSerializedEntrySizeV8) : 0;
+    return isValidNodeBlobSize(len) ? (len / NodeStoreCore::kSerializedEntrySize) : 0;
 }
 
 size_t nodeBlobByteSize(size_t count)
 {
-    return count * NodeStoreCore::kSerializedEntrySizeV8;
+    return count * NodeStoreCore::kSerializedEntrySize;
 }
 
 NodeStoreSdHeader makeNodeStoreSdHeader(const uint8_t* data, size_t len)

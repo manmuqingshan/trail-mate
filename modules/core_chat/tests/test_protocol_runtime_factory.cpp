@@ -70,10 +70,13 @@ int main()
     meshtastic.protocol = chat::MeshProtocol::Meshtastic;
     FakeRuntime meshcore{};
     meshcore.protocol = chat::MeshProtocol::MeshCore;
+    FakeRuntime reticulum{};
+    reticulum.protocol = chat::MeshProtocol::Reticulum;
 
     chat::runtime::ProtocolRuntimeSelection selection{};
     selection.meshtastic = &meshtastic;
     selection.meshcore = &meshcore;
+    selection.reticulum = &reticulum;
 
     chat::runtime::RuntimeContext context{};
     context.protocol = chat::MeshProtocol::MeshCore;
@@ -133,8 +136,27 @@ int main()
                                                               selection,
                                                               executor,
                                                               context_provider);
-        assert(!bundle.valid());
-        assert(bundle.runtime == nullptr);
+        assert(bundle.valid());
+        assert(bundle.protocol == chat::MeshProtocol::Reticulum);
+        assert(bundle.runtime == &reticulum);
+    }
+
+    {
+        const auto bundle = chat::runtime::protocolRuntimeFor(chat::MeshProtocol::Reticulum,
+                                                              selection,
+                                                              executor,
+                                                              context_provider);
+        assert(bundle.valid());
+        assert(bundle.protocol == chat::MeshProtocol::Reticulum);
+        assert(bundle.runtime == &reticulum);
+        auto facade = bundle.createFacade(workspace);
+        const auto result =
+            facade.sendText(chat::ChannelId::PRIMARY, 0x44UL, "through reticulum factory");
+        assert(result.ok());
+        assert(result.effect_count == 1);
+        assert(result.executed_effect_count == 1);
+        assert(reticulum.prepare_count == 1);
+        assert(executor.last_protocol == chat::MeshProtocol::Reticulum);
     }
 
     {

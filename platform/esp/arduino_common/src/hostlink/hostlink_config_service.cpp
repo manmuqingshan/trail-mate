@@ -43,7 +43,8 @@ bool build_status_payload(std::vector<uint8_t>& out, uint8_t link_state, uint32_
     snapshot.charging = battery_info.charging;
     snapshot.link_state = link_state;
     snapshot.last_error = last_error;
-    snapshot.mesh_protocol = static_cast<uint8_t>(cfg.mesh_protocol);
+    snapshot.mesh_protocol =
+        static_cast<uint8_t>(chat::infra::normalizeMeshProtocol(cfg.mesh_protocol));
     snapshot.region = cfg.meshtastic_config.region;
     snapshot.channel = cfg.chat_channel;
     snapshot.duty_cycle = cfg.net_duty_cycle;

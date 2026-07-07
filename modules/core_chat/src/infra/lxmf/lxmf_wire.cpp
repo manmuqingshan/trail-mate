@@ -923,7 +923,7 @@ bool encodeResourceAdvertisement(uint32_t transfer_size,
     }
 
     size_t used = 0;
-    if (!appendMapHeader(10, out_payload, *inout_len, used) ||
+    if (!appendMapHeader(11, out_payload, *inout_len, used) ||
         !appendBin(reinterpret_cast<const uint8_t*>("t"), 1, out_payload, *inout_len, used) ||
         !appendUint(transfer_size, out_payload, *inout_len, used) ||
         !appendBin(reinterpret_cast<const uint8_t*>("d"), 1, out_payload, *inout_len, used) ||

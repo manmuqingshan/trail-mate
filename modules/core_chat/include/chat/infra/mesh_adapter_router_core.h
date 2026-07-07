@@ -26,6 +26,11 @@ class MeshAdapterRouterCore : public IMeshAdapter
     MeshSendResult sendTextDetailed(ChannelId channel, const std::string& text,
                                     MessageId forced_msg_id = 0,
                                     NodeId peer = 0) override;
+    MeshSendResult sendTextToReticulumDestination(
+        ChannelId channel,
+        const std::string& text,
+        MessageId forced_msg_id,
+        const ReticulumPeerIdentity& destination) override;
     bool pollIncomingText(MeshIncomingText* out) override;
     bool sendAppData(ChannelId channel, uint32_t portnum,
                      const uint8_t* payload, size_t len,
@@ -34,6 +39,7 @@ class MeshAdapterRouterCore : public IMeshAdapter
                      bool want_response = false) override;
     bool pollIncomingData(MeshIncomingData* out) override;
     bool requestNodeInfo(NodeId dest, bool want_response) override;
+    bool broadcastSelfIdentity() override;
     bool startKeyVerification(NodeId dest) override;
     bool submitKeyVerificationNumber(NodeId dest, uint64_t nonce, uint32_t number) override;
     NodeId getNodeId() const override;

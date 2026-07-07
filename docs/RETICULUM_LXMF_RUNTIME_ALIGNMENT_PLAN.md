@@ -5,6 +5,13 @@
 This document defines the full Trail Mate adaptation target for device-side
 Reticulum and LXMF support over the existing ESP RNode-compatible radio path.
 
+Protocol conformance rules and reference-oracle boundaries are defined in
+[RETICULUM_CONFORMANCE_BASELINE.md](RETICULUM_CONFORMANCE_BASELINE.md). This
+runtime plan describes the target implementation shape; the conformance baseline
+defines how we decide whether the implementation is still Reticulum-compatible.
+User-facing Reticulum mode behavior and SD-card group TSV configuration are
+documented in [RETICULUM_MODE_USER_GUIDE.md](RETICULUM_MODE_USER_GUIDE.md).
+
 It replaces the earlier phase-oriented view that treated `LxmfAdapter` as a
 single adapter with incremental feature add-ons. The runtime has now grown into
  transport, path discovery, link relay, resource transfer, propagation, and
@@ -23,8 +30,9 @@ The goal is to land a complete embedded runtime architecture that is:
 ## Scope
 
 This plan covers the device-side runtime used when Trail Mate is operating in
- native `LXMF` mode. It does not redefine `RNode Bridge`, which remains the
- host-controlled modem path for an external Reticulum instance.
+native `Reticulum` product-protocol mode. It does not redefine the old `RNode`
+bridge concept, which remains only a historical host-controlled modem path for
+an external Reticulum instance.
 
 This plan is explicitly about:
 
@@ -55,6 +63,8 @@ documents describe:
 - link request relay
 - resource advertise/request/hashmap/part/proof flows
 - propagation offer/get request handling
+- runtime ownership contract coverage for transport, link, resource, and
+  propagation state objects
 
 The main problem is not missing packet codecs. The main problem is that these
 capabilities are still governed by a monolithic adapter with limited runtime
@@ -76,12 +86,78 @@ Implemented runtime behaviors:
 - deferred link payload queuing until the link becomes active
 - active-link keepalive, stale transition, and timeout teardown behavior
 - split-resource segment assembly for inbound multi-segment resource delivery
+- runtime ownership contract smoke coverage for transport, link, resource, and
+  propagation state objects, keeping the current monolithic adapter's internal
+  state split into explicit ownership tables while behavior-level conformance
+  traces continue to grow
+- transport runtime table operations are split into `lxmf_transport_runtime.*`
+  for path lookup/upsert, duplicate packet filtering, reverse proof routes,
+  pending path request lifecycle, link relay lookup/upsert, and TTL cleanup;
+  `LxmfAdapter` now injects time and limits while keeping product-facing
+  behavior unchanged
+- link runtime lifecycle operations are split into `lxmf_link_runtime.*` for
+  session lookup, bounded session insertion, close cleanup, stale/timeout
+  decisions, request/resource culling, and expired-session removal. The adapter
+  still owns side effects such as deferred payload flushing, keepalive sends,
+  path expiry, and rediscovery triggers.
+
+Implemented product-protocol convergence:
+
+- user-facing protocol selection is Meshtastic / MeshCore / Reticulum; `RNode`
+  and `LXMF` remain compatibility/runtime terms, not selector-level product
+  protocols
+- chat messages and conversation ids now carry Reticulum destination identity
+  as a first-class peer fact while preserving `NodeId` as a compatibility
+  projection
+- Reticulum peer identity construction now lives in the core chat domain, so
+  LXMF/RNode runtime code only supplies hashes and does not own the product
+  identity model. UI and storage projections that only carry a destination hash
+  now use an explicit destination-only identity constructor instead of
+  pretending to reconstruct a full identity hash.
+- Reticulum identity hash reads, writes, comparisons, and duplicate-window
+  projections now pass through core domain helpers across NodeStore, ChatService,
+  ContactService, Linux SQLite, ESP SD, and nRF52 InternalFS, keeping raw hash
+  field access inside the identity model and low-level wire codecs.
+- Linux SQLite chat persistence groups Reticulum conversations, unread counts,
+  recent-message loads, and conversation clearing by destination hash when it
+  is available
+- SQLite persistence rejects duplicate incoming Reticulum messages by
+  `{protocol, channel, destination_hash, msg_id}` so projected peer changes do
+  not create duplicate persisted messages
+- presentation conversation tokens preserve Reticulum destination hash across
+  core/UI round trips, so UI selection and mark-read actions do not collapse
+  back to `NodeId` projection semantics
+- Node protocol labels and protocol-to-runtime projection now use shared core
+  helpers, so legacy contact values such as `RNode` and `LXMF` display and route
+  as Reticulum without each UI surface reinterpreting them independently
+- Reticulum team/appdata support is exposed through unicast appdata and known
+  peer fan-out. It deliberately does not claim native broadcast appdata
+  semantics, because LXMF delivery remains destination-oriented.
+- nRF52 internal-file chat persistence writes Reticulum destination and
+  identity hashes in its v3 format, while still reading the legacy v2
+  projection-only records
+- ESP SD chat log persistence writes Reticulum destination and identity hashes
+  in its v3 message/index formats and uses destination-hash keyed log filenames
+  when a Reticulum destination is available, while still reading legacy v2
+  projection-only logs/index entries
+- core runtime selection now has a Reticulum slot, and legacy `RNode` raw enum
+  values normalize to the Reticulum product runtime instead of selecting a raw
+  RNode user protocol
+- ESP adapter creation now enters Reticulum through a product-level
+  `ReticulumAdapter` class. The current implementation behind that boundary is
+  still the LXMF service over the RNode-compatible raw carrier, but factory code
+  no longer selects those internal implementation names directly and the product
+  boundary no longer collapses to a type alias.
 
 Still intentionally narrower than full upstream desktop/service parity:
 
 - no shared-instance service runtime parity
 - no management destinations or tunnel handling
 - no metadata/compressed resource handling yet
+- legacy v2 Reticulum SD logs that only contain the `NodeId` projection are not
+  automatically merged into newer destination-keyed conversations
+- ESP SDStore still needs target-firmware build/runtime verification on actual
+  SD-backed hardware
 - no deep automated interoperability matrix inside CI
 
 ## End-State Runtime Architecture
@@ -89,6 +165,10 @@ Still intentionally narrower than full upstream desktop/service parity:
 The end state is a layered runtime with the following modules.
 
 ### 1. Carrier Layer
+
+`ReticulumAdapter` is the ESP product-protocol adapter boundary. Today it
+delegates to the existing LXMF service adapter while the runtime is still being
+split by responsibility.
 
 `RNodeAdapter` remains responsible for:
 
@@ -170,14 +250,14 @@ The resource runtime owns large-payload delivery over links.
 
 Responsibilities:
 
-- advertisement encoding/decoding
+- advertisement decode result initialisation
+- incoming/outgoing transfer bookkeeping
 - windowed part request scheduling
 - hashmap segment tracking
-- split-resource continuation
-- cancel semantics
+- split-resource continuation bookkeeping
+- cancel lookup/erase semantics
 - proof completion semantics
-- timeout and retry policy
-- link-close cleanup
+- resource TTL culling
 
 The target behavior is not the current "single-segment encrypted resource only"
 subset. The runtime must be able to reason about:
@@ -187,6 +267,64 @@ subset. The runtime must be able to reason about:
 - resource proof timing
 - in-flight cancellation
 - partial hashmap knowledge
+
+Current split status: transfer initialisation, hashmap window construction,
+hashmap update application, part receipt bookkeeping, split assembly,
+proof-completion marking, resource lookup/erase helpers, and resource TTL
+culling now live in `lxmf_resource_runtime.*`. Wire encode/decode, packet
+encryption/decryption, proof payload construction, and product dispatch remain
+in `LxmfAdapter`.
+
+### 4b. Reticulum Propagation Runtime
+
+The propagation runtime owns store-and-forward bookkeeping for LXMF propagation
+nodes, but not LXMF wire encoding or local message delivery.
+
+Responsibilities:
+
+- held propagation entry lookup and bounded retention
+- transient duplicate tracking and delivered-state merging
+- propagation peer lookup, insertion, seen time, and counters
+- offer wanted-id selection from known entries/transients
+- get-response message selection and served counters
+- propagation entry/transient/peer TTL culling
+
+Current split status: entry/transient/peer bookkeeping, wanted-id selection,
+message selection with transfer-limit accounting, served/incoming counters, and
+TTL culling now live in `lxmf_propagation_runtime.*`. `/offer` and `/get`
+request planning, peering-key validation, wanted-id response selection, held-id
+listing, get-message response selection, served counters, propagation batch
+decode/gating, remote propagation peer bookkeeping, and propagated message
+acceptance decisions now live in `lxmf_propagation_service_runtime.*`. The
+propagation service runtime decides whether a propagation batch is admissible
+for the current offer state and whether each propagated LXMF message is
+rejected, already known, destined for local delivery, or stored for another
+destination. Link response sending, propagated delivery decryption, and local
+envelope acceptance remain in `LxmfAdapter`.
+
+### 4c. LXMF Delivery Runtime
+
+The delivery runtime owns product ingress classification and materialisation
+after LXMF envelope verification has already succeeded. It does not parse
+Reticulum packets, validate outer LXMF envelope signatures, decrypt payloads, or
+push/drop adapter queues.
+
+Responsibilities:
+
+- classify verified LXMF packed payload bytes as Trail Mate app-data or LXMF
+  text
+- map LXMF text payloads into `MeshIncomingText`
+- map LXMF app-data payloads into `MeshIncomingData`
+- preserve Reticulum destination identity for product conversation grouping
+- preserve RX metadata captured by the adapter
+- keep local-node, peer-node, message-id, timestamp, and channel projection
+  explicit
+
+Current split status: verified packed-payload classification and text/app-data
+materialisation now live in `lxmf_delivery_runtime.*`, and `IncomingTextQueue`
+preserves Reticulum identity through push/pop. `LxmfAdapter` still owns message
+envelope unpacking, signature verification, queue pressure policy, Serial
+logging, and propagation/local delivery orchestration.
 
 ### 5. LXMF Service Layer
 
@@ -199,7 +337,7 @@ Responsibilities:
 - opportunistic delivery
 - direct link-based delivery
 - propagation offer/get flows
-- local chat/app-data injection
+- local chat/app-data injection and queue/drop side effects
 - proof/delivery result translation to UI/service events
 
 This layer should not own route discovery or link teardown policy directly.

@@ -15,6 +15,7 @@
 #include "app/app_facade_access.h"
 #include "cJSON.h"
 #include "chat/domain/chat_types.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/settings_store.h"
 
@@ -338,7 +339,8 @@ void restore_chat_policy(cJSON* object, chat::ChatPolicy& policy)
 void add_mesh_config(cJSON* parent,
                      const char* key,
                      const chat::MeshConfig& config,
-                     bool include_meshcore_fields)
+                     bool include_meshcore_fields,
+                     bool include_reticulum_fields)
 {
     cJSON* object = add_object(parent, key);
     if (!object)
@@ -389,11 +391,24 @@ void add_mesh_config(cJSON* parent,
         add_string(object, "meshcore_channel_name", config.meshcore_channel_name);
         add_blob_hex(object, "meshcore_channel_key", config.secondary_key, chat::kMeshCoreChannelKeyLen);
     }
+    if (include_reticulum_fields)
+    {
+        add_bool(object, "reticulum_lora_enabled", config.reticulum_lora_enabled);
+        add_bool(object, "reticulum_wifi_gateway_enabled", config.reticulum_wifi_gateway_enabled);
+        add_bool(object, "reticulum_wifi_auto_connect", config.reticulum_wifi_auto_connect);
+        add_bool(object, "reticulum_anonymous_peer", config.reticulum_anonymous_peer);
+        add_string(object, "reticulum_wifi_gateway_host", config.reticulum_wifi_gateway_host);
+        add_int(object, "reticulum_wifi_gateway_port", config.reticulum_wifi_gateway_port);
+        add_int(object,
+                "reticulum_interface_policy",
+                static_cast<int>(static_cast<uint8_t>(config.reticulum_interface_policy)));
+    }
 }
 
 void restore_mesh_config(cJSON* object,
                          chat::MeshConfig& config,
-                         bool include_meshcore_fields)
+                         bool include_meshcore_fields,
+                         bool include_reticulum_fields)
 {
     if (!cJSON_IsObject(object))
     {
@@ -452,6 +467,38 @@ void restore_mesh_config(cJSON* object,
             json_int(object, "meshcore_channel_slot", config.meshcore_channel_slot));
         copy_json_string(object, "meshcore_channel_name", config.meshcore_channel_name, sizeof(config.meshcore_channel_name));
         copy_json_blob(object, "meshcore_channel_key", config.secondary_key, sizeof(config.secondary_key));
+    }
+    if (include_reticulum_fields)
+    {
+        config.reticulum_lora_enabled =
+            json_bool(object, "reticulum_lora_enabled", config.reticulum_lora_enabled);
+        config.reticulum_wifi_gateway_enabled =
+            json_bool(object, "reticulum_wifi_gateway_enabled", config.reticulum_wifi_gateway_enabled);
+        config.reticulum_wifi_auto_connect =
+            json_bool(object, "reticulum_wifi_auto_connect", config.reticulum_wifi_auto_connect);
+        config.reticulum_anonymous_peer =
+            json_bool(object, "reticulum_anonymous_peer", config.reticulum_anonymous_peer);
+        copy_json_string(object,
+                         "reticulum_wifi_gateway_host",
+                         config.reticulum_wifi_gateway_host,
+                         sizeof(config.reticulum_wifi_gateway_host));
+        config.reticulum_wifi_gateway_port = static_cast<uint16_t>(
+            json_int(object,
+                     "reticulum_wifi_gateway_port",
+                     config.reticulum_wifi_gateway_port != 0
+                         ? config.reticulum_wifi_gateway_port
+                         : 4242));
+        const int policy = json_int(object,
+                                    "reticulum_interface_policy",
+                                    static_cast<int>(static_cast<uint8_t>(
+                                        config.reticulum_interface_policy)));
+        if (policy >= 0 &&
+            policy <= static_cast<int>(static_cast<uint8_t>(
+                          chat::ReticulumInterfacePolicy::WifiGatewayOnly)))
+        {
+            config.reticulum_interface_policy =
+                static_cast<chat::ReticulumInterfacePolicy>(policy);
+        }
     }
 }
 
@@ -517,9 +564,9 @@ cJSON* create_app_config_json(const app::AppConfig& config)
         return nullptr;
     }
     add_chat_policy(object, config.chat_policy);
-    add_mesh_config(object, "meshtastic", config.meshtastic_config, false);
-    add_mesh_config(object, "meshcore", config.meshcore_config, true);
-    add_mesh_config(object, "rnode", config.rnode_config, false);
+    add_mesh_config(object, "meshtastic", config.meshtastic_config, false, false);
+    add_mesh_config(object, "meshcore", config.meshcore_config, true, false);
+    add_mesh_config(object, "reticulum", config.reticulumConfig(), false, true);
     add_int(object, "mesh_protocol", static_cast<int>(config.mesh_protocol));
     add_string(object, "node_name", config.node_name);
     add_string(object, "short_name", config.short_name);
@@ -570,14 +617,25 @@ void restore_app_config_json(cJSON* object, app::AppConfig& config)
         return;
     }
     restore_chat_policy(cJSON_GetObjectItemCaseSensitive(object, "chat_policy"), config.chat_policy);
-    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshtastic"), config.meshtastic_config, false);
-    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshcore"), config.meshcore_config, true);
-    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "rnode"), config.rnode_config, false);
-    const int protocol = json_int(object, "mesh_protocol", static_cast<int>(config.mesh_protocol));
-    if (protocol >= static_cast<int>(chat::MeshProtocol::Meshtastic) &&
-        protocol <= static_cast<int>(chat::MeshProtocol::LXMF))
+    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshtastic"), config.meshtastic_config, false, false);
+    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshcore"), config.meshcore_config, true, false);
+    cJSON* reticulum_object = cJSON_GetObjectItemCaseSensitive(object, "reticulum");
+    if (cJSON_IsObject(reticulum_object))
     {
-        config.mesh_protocol = static_cast<chat::MeshProtocol>(protocol);
+        restore_mesh_config(reticulum_object, config.reticulumConfig(), false, true);
+    }
+    else
+    {
+        restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "rnode"),
+                            config.reticulumConfig(),
+                            false,
+                            true);
+    }
+    const int protocol = json_int(object, "mesh_protocol", static_cast<int>(config.mesh_protocol));
+    if (protocol >= 0 && protocol <= 0xFF &&
+        chat::infra::isValidMeshProtocolValue(static_cast<uint8_t>(protocol)))
+    {
+        config.mesh_protocol = chat::infra::meshProtocolFromRaw(static_cast<uint8_t>(protocol));
     }
     copy_json_string(object, "node_name", config.node_name, sizeof(config.node_name));
     copy_json_string(object, "short_name", config.short_name, sizeof(config.short_name));

@@ -20,6 +20,7 @@
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/infra/meshcore/mc_region_presets.h"
 #include "chat/infra/meshtastic/mt_region.h"
+#include "chat/ports/i_mesh_adapter.h"
 #include "meshtastic/config.pb.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/firmware_update_runtime.h"
@@ -850,6 +851,33 @@ static void create_item_content(settings::ui::ItemWidget& widget, lv_obj_t* btn)
         return;
     }
 
+    const bool reticulum_hash_item =
+        widget.def->pref_key &&
+        (strcmp(widget.def->pref_key, "rt_identity_hash") == 0 ||
+         strcmp(widget.def->pref_key, "rt_lxmf_address") == 0);
+    if (reticulum_hash_item)
+    {
+        lv_obj_set_height(btn, ::ui::page_profile::is_dense() ? 64 : 72);
+        lv_obj_set_style_pad_row(btn, 3, LV_PART_MAIN);
+        lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(btn,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START);
+
+        lv_obj_t* label = lv_label_create(btn);
+        ::ui::i18n::set_label_text(label, widget.def->label);
+        style::apply_label_primary(label);
+        lv_obj_set_width(label, LV_PCT(100));
+
+        widget.value_label = lv_label_create(btn);
+        style::apply_label_muted(widget.value_label);
+        lv_label_set_long_mode(widget.value_label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(widget.value_label, LV_PCT(100));
+        update_item_value(widget);
+        return;
+    }
+
     lv_obj_t* label = lv_label_create(btn);
     ::ui::i18n::set_label_text(label, widget.def->label);
     style::apply_label_primary(label);
@@ -1062,6 +1090,63 @@ static void bytes_to_hex(const uint8_t* data, size_t len, char* out, size_t out_
     out[len * 2] = '\0';
 }
 
+static void bytes_to_wrapped_hash(const uint8_t* data, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!data || out_len < 35)
+    {
+        copy_bounded(out, out_len, "--");
+        return;
+    }
+
+    static const char* kHex = "0123456789ABCDEF";
+    size_t cursor = 0;
+    for (size_t index = 0; index < chat::kReticulumPeerHashSize; ++index)
+    {
+        if (index == 8)
+        {
+            out[cursor++] = '\n';
+        }
+        const uint8_t b = data[index];
+        out[cursor++] = kHex[b >> 4];
+        out[cursor++] = kHex[b & 0x0F];
+    }
+    out[cursor] = '\0';
+}
+
+static void refresh_reticulum_identity_fields(app::IAppFacade& app_ctx,
+                                              const app::AppConfig& cfg)
+{
+    copy_bounded(g_settings.rt_identity_hash,
+                 sizeof(g_settings.rt_identity_hash),
+                 "--");
+    copy_bounded(g_settings.rt_lxmf_address,
+                 sizeof(g_settings.rt_lxmf_address),
+                 "--");
+    if (!chat::infra::isReticulumMeshProtocol(cfg.mesh_protocol))
+    {
+        return;
+    }
+
+    const chat::IMeshAdapter* adapter = app_ctx.getMeshAdapter();
+    chat::ReticulumLocalIdentityInfo info{};
+    if (!adapter || !adapter->getReticulumLocalIdentityInfo(&info) || !info.ready)
+    {
+        return;
+    }
+
+    bytes_to_wrapped_hash(info.identity_hash,
+                          g_settings.rt_identity_hash,
+                          sizeof(g_settings.rt_identity_hash));
+    bytes_to_wrapped_hash(info.lxmf_address,
+                          g_settings.rt_lxmf_address,
+                          sizeof(g_settings.rt_lxmf_address));
+}
+
 static bool parse_hex_char(char c, uint8_t& out)
 {
     if (c >= '0' && c <= '9')
@@ -1158,7 +1243,8 @@ static bool parse_float_text(const char* text, float* out_value)
 
 static chat::MeshProtocol selected_protocol()
 {
-    return static_cast<chat::MeshProtocol>(g_settings.chat_protocol);
+    return chat::infra::normalizeMeshProtocol(
+        static_cast<chat::MeshProtocol>(g_settings.chat_protocol));
 }
 
 static bool is_meshcore_protocol_selected()
@@ -1166,10 +1252,9 @@ static bool is_meshcore_protocol_selected()
     return selected_protocol() == chat::MeshProtocol::MeshCore;
 }
 
-static bool is_rnode_protocol_selected()
+static bool is_reticulum_protocol_selected()
 {
-    return selected_protocol() == chat::MeshProtocol::RNode ||
-           selected_protocol() == chat::MeshProtocol::LXMF;
+    return chat::infra::isReticulumMeshProtocol(selected_protocol());
 }
 
 static void reset_mesh_settings()
@@ -1179,8 +1264,8 @@ static void reset_mesh_settings()
     app_ctx.getConfig().meshtastic_config.region = app::AppConfig::kDefaultRegionCode;
     app_ctx.getConfig().meshcore_config = chat::MeshConfig();
     app_ctx.getConfig().applyMeshCoreFactoryDefaults();
-    app_ctx.getConfig().rnode_config = chat::MeshConfig();
-    app_ctx.getConfig().applyRNodeFactoryDefaults();
+    app_ctx.getConfig().reticulumConfig() = chat::MeshConfig();
+    app_ctx.getConfig().applyReticulumFactoryDefaults();
     strncpy(app_ctx.getConfig().meshcore_config.meshcore_channel_name, "Public",
             sizeof(app_ctx.getConfig().meshcore_config.meshcore_channel_name) - 1);
     app_ctx.getConfig().meshcore_config.meshcore_channel_name[sizeof(app_ctx.getConfig().meshcore_config.meshcore_channel_name) - 1] = '\0';
@@ -1238,6 +1323,12 @@ static void reset_mesh_settings()
         "mc_fwd_prof",
         "mc_channel_slot",
         "mc_ch_slot",
+        "rt_lora_enabled",
+        "rt_wifi_gateway",
+        "rt_wifi_host",
+        "rt_wifi_port",
+        "rt_wifi_auto",
+        "rt_anonymous_peer",
     };
     prefs_remove_keys(kPrefsNs, kResetKeys, sizeof(kResetKeys) / sizeof(kResetKeys[0]));
 
@@ -1357,7 +1448,7 @@ static void settings_load()
     const app::AppConfig& cfg = app_ctx.getConfig();
     const chat::MeshConfig& mt_cfg = cfg.meshtastic_config;
     const chat::MeshConfig& mc_cfg = cfg.meshcore_config;
-    const chat::MeshConfig& rn_cfg = cfg.rnode_config;
+    const chat::MeshConfig& reticulum_cfg = cfg.reticulumConfig();
 
     uint32_t gps_interval_seconds = cfg.gps_interval_ms / 1000U;
     if (gps_interval_seconds == 0)
@@ -1425,17 +1516,31 @@ static void settings_load()
                      g_settings.chat_psk,
                      sizeof(g_settings.chat_psk));
     }
+    refresh_reticulum_identity_fields(app_ctx, cfg);
 
-    if (cfg.mesh_protocol == chat::MeshProtocol::RNode ||
-        cfg.mesh_protocol == chat::MeshProtocol::LXMF)
+    if (chat::infra::isReticulumMeshProtocol(cfg.mesh_protocol))
     {
         g_settings.net_use_preset = 0;
         g_settings.net_modem_preset = 0;
-        g_settings.net_manual_bw = static_cast<int>(std::lround(rn_cfg.bandwidth_khz));
-        g_settings.net_manual_sf = rn_cfg.spread_factor;
-        g_settings.net_manual_cr = rn_cfg.coding_rate;
-        float_to_text(rn_cfg.override_frequency_mhz, g_settings.net_override_freq,
+        g_settings.net_manual_bw = static_cast<int>(std::lround(reticulum_cfg.bandwidth_khz));
+        g_settings.net_manual_sf = reticulum_cfg.spread_factor;
+        g_settings.net_manual_cr = reticulum_cfg.coding_rate;
+        float_to_text(reticulum_cfg.override_frequency_mhz, g_settings.net_override_freq,
                       sizeof(g_settings.net_override_freq), 3);
+        g_settings.rt_lora_enabled = reticulum_cfg.reticulum_lora_enabled;
+        g_settings.rt_wifi_gateway_enabled = reticulum_cfg.reticulum_wifi_gateway_enabled;
+        g_settings.rt_wifi_auto_connect = reticulum_cfg.reticulum_wifi_auto_connect;
+        g_settings.rt_anonymous_peer = reticulum_cfg.reticulum_anonymous_peer;
+        copy_bounded(g_settings.rt_wifi_gateway_host,
+                     sizeof(g_settings.rt_wifi_gateway_host),
+                     reticulum_cfg.reticulum_wifi_gateway_host);
+        std::snprintf(g_settings.rt_wifi_gateway_port,
+                      sizeof(g_settings.rt_wifi_gateway_port),
+                      "%u",
+                      static_cast<unsigned>(
+                          reticulum_cfg.reticulum_wifi_gateway_port != 0
+                              ? reticulum_cfg.reticulum_wifi_gateway_port
+                              : 4242));
     }
     else
     {
@@ -2040,10 +2145,9 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            if (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::RNode ||
-                app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::LXMF)
+            if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
             {
-                app_ctx.getConfig().rnode_config.override_frequency_mhz = value;
+                app_ctx.getConfig().reticulumConfig().override_frequency_mhz = value;
             }
             else
             {
@@ -2163,6 +2267,36 @@ static void on_text_save_clicked(lv_event_t* e)
             }
             prefs_put_uint_ns("power", "gauge_full_mah", static_cast<uint32_t>(value));
             device_runtime::reload_configurable_battery_gauge();
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "rt_wifi_host") == 0)
+        {
+            app::IAppFacade& app_ctx = app::appFacade();
+            copy_bounded(app_ctx.getConfig().reticulumConfig().reticulum_wifi_gateway_host,
+                         sizeof(app_ctx.getConfig().reticulumConfig().reticulum_wifi_gateway_host),
+                         g_state.editing_item->text_value);
+            app_ctx.saveConfig();
+            app_ctx.applyMeshConfig();
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "rt_wifi_port") == 0)
+        {
+            char* end = nullptr;
+            long value = strtol(g_state.editing_item->text_value, &end, 10);
+            if (end == g_state.editing_item->text_value || (end && *end != '\0') ||
+                value <= 0 || value > 65535)
+            {
+                ::ui::feedback::show_notice(::ui::i18n::tr("Invalid gateway port"), 3000);
+                modal_close();
+                return;
+            }
+            app::IAppFacade& app_ctx = app::appFacade();
+            app_ctx.getConfig().reticulumConfig().reticulum_wifi_gateway_port =
+                static_cast<uint16_t>(value);
+            app_ctx.saveConfig();
+            app_ctx.applyMeshConfig();
+            std::snprintf(g_settings.rt_wifi_gateway_port,
+                          sizeof(g_settings.rt_wifi_gateway_port),
+                          "%u",
+                          static_cast<unsigned>(value));
         }
         if (g_state.editing_item->pref_key &&
             (strcmp(g_state.editing_item->pref_key, "wifi_ssid") == 0 ||
@@ -2746,7 +2880,8 @@ static void on_option_clicked(lv_event_t* e)
     if (payload->item->pref_key && strcmp(payload->item->pref_key, "mesh_protocol") == 0)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        chat::MeshProtocol target = static_cast<chat::MeshProtocol>(payload->value);
+        chat::MeshProtocol target = chat::infra::normalizeMeshProtocol(
+            static_cast<chat::MeshProtocol>(payload->value));
         if (!app_ctx.switchMeshProtocol(target, true))
         {
             *payload->item->enum_value = previous_value;
@@ -2808,10 +2943,9 @@ static void on_option_clicked(lv_event_t* e)
     if (payload->item->pref_key && strcmp(payload->item->pref_key, "net_bw") == 0)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        if (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::RNode ||
-            app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::LXMF)
+        if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
         {
-            app_ctx.getConfig().rnode_config.bandwidth_khz = static_cast<float>(payload->value);
+            app_ctx.getConfig().reticulumConfig().bandwidth_khz = static_cast<float>(payload->value);
         }
         else
         {
@@ -2826,10 +2960,9 @@ static void on_option_clicked(lv_event_t* e)
     if (payload->item->pref_key && strcmp(payload->item->pref_key, "net_sf") == 0)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        if (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::RNode ||
-            app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::LXMF)
+        if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
         {
-            app_ctx.getConfig().rnode_config.spread_factor = static_cast<uint8_t>(payload->value);
+            app_ctx.getConfig().reticulumConfig().spread_factor = static_cast<uint8_t>(payload->value);
         }
         else
         {
@@ -2844,10 +2977,9 @@ static void on_option_clicked(lv_event_t* e)
     if (payload->item->pref_key && strcmp(payload->item->pref_key, "net_cr") == 0)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        if (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::RNode ||
-            app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::LXMF)
+        if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
         {
-            app_ctx.getConfig().rnode_config.coding_rate = static_cast<uint8_t>(payload->value);
+            app_ctx.getConfig().reticulumConfig().coding_rate = static_cast<uint8_t>(payload->value);
         }
         else
         {
@@ -3033,10 +3165,9 @@ static void on_option_clicked(lv_event_t* e)
     if (payload->item->pref_key && strcmp(payload->item->pref_key, "net_tx_power") == 0)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        if (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::RNode ||
-            app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::LXMF)
+        if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
         {
-            app_ctx.getConfig().rnode_config.tx_power = static_cast<int8_t>(payload->value);
+            app_ctx.getConfig().reticulumConfig().tx_power = static_cast<int8_t>(payload->value);
         }
         else
         {
@@ -3852,8 +3983,7 @@ static const settings::ui::SettingOption kChatChannelOptions[] = {
 static const settings::ui::SettingOption kChatProtocolOptions[] = {
     {"Meshtastic", static_cast<int>(chat::MeshProtocol::Meshtastic)},
     {"MeshCore", static_cast<int>(chat::MeshProtocol::MeshCore)},
-    {"LXMF", static_cast<int>(chat::MeshProtocol::LXMF)},
-    {"RNode Bridge", static_cast<int>(chat::MeshProtocol::RNode)},
+    {"Reticulum", static_cast<int>(chat::MeshProtocol::Reticulum)},
 };
 
 static const settings::ui::SettingOption kNetPresetOptions[] = {
@@ -4045,7 +4175,7 @@ static settings::ui::SettingItem kMapItems[] = {
 static settings::ui::SettingItem kChatItems[] = {
     {"User Name", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.user_name, sizeof(g_settings.user_name), false, "chat_user"},
     {"Short Name", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.short_name, sizeof(g_settings.short_name), false, "chat_short"},
-    {"Protocol", settings::ui::SettingType::Enum, kChatProtocolOptions, 4, &g_settings.chat_protocol, nullptr, nullptr, 0, false, "mesh_protocol"},
+    {"Protocol", settings::ui::SettingType::Enum, kChatProtocolOptions, 3, &g_settings.chat_protocol, nullptr, nullptr, 0, false, "mesh_protocol"},
     {"Region", settings::ui::SettingType::Enum, nullptr, 0, &g_settings.chat_region, nullptr, nullptr, 0, false, "chat_region"},
     {"Channel", settings::ui::SettingType::Enum, kChatChannelOptions, 2, &g_settings.chat_channel, nullptr, nullptr, 0, false, "chat_channel"},
     {"Channel Key / PSK", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.chat_psk, sizeof(g_settings.chat_psk), true, "chat_psk"},
@@ -4067,6 +4197,14 @@ static settings::ui::SettingItem kNetworkItems[] = {
      0, &g_settings.net_tx_power, nullptr, nullptr, 0, false, "net_tx_power"},
     {"Hop Limit", settings::ui::SettingType::Enum, kHopLimitOptions, sizeof(kHopLimitOptions) / sizeof(kHopLimitOptions[0]), &g_settings.net_hop_limit, nullptr, nullptr, 0, false, "net_hop_limit"},
     {"TX Enabled", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.net_tx_enabled, nullptr, 0, false, "net_tx_enabled"},
+    {"Reticulum LoRa", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_lora_enabled, nullptr, 0, false, "rt_lora_enabled"},
+    {"Identity Hash", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_identity_hash, sizeof(g_settings.rt_identity_hash), false, "rt_identity_hash"},
+    {"LXMF Address", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_lxmf_address, sizeof(g_settings.rt_lxmf_address), false, "rt_lxmf_address"},
+    {"Wi-Fi Gateway", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_wifi_gateway_enabled, nullptr, 0, false, "rt_wifi_gateway"},
+    {"Gateway Host", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.rt_wifi_gateway_host, sizeof(g_settings.rt_wifi_gateway_host), false, "rt_wifi_host"},
+    {"Gateway Port", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.rt_wifi_gateway_port, sizeof(g_settings.rt_wifi_gateway_port), false, "rt_wifi_port"},
+    {"Auto Wi-Fi", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_wifi_auto_connect, nullptr, 0, false, "rt_wifi_auto"},
+    {"Anonymous Peer", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_anonymous_peer, nullptr, 0, false, "rt_anonymous_peer"},
     {"Override Duty Cycle", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.net_override_duty_cycle, nullptr, 0, false, "net_override_duty"},
     {"Channel Slot", settings::ui::SettingType::Enum, kChannelNumOptions, sizeof(kChannelNumOptions) / sizeof(kChannelNumOptions[0]), &g_settings.net_channel_num, nullptr, nullptr, 0, false, "net_channel_num"},
     {"Freq Offset (MHz)", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.net_freq_offset, sizeof(g_settings.net_freq_offset), false, "net_freq_offset"},
@@ -4306,7 +4444,7 @@ static bool should_show_item(const settings::ui::SettingItem& item)
     }
 
     const bool meshcore = is_meshcore_protocol_selected();
-    const bool rnode = is_rnode_protocol_selected();
+    const bool reticulum = is_reticulum_protocol_selected();
 
     // Relay is currently not implemented as real forwarding in Meshtastic path.
     if (has_pref_key(item, "net_relay"))
@@ -4378,12 +4516,20 @@ static bool should_show_item(const settings::ui::SettingItem& item)
         if (has_pref_key(item, "net_cr")) return false;
         if (has_pref_key(item, "net_tx_power")) return false;
         if (has_pref_key(item, "net_hop_limit")) return false;
+        if (has_pref_key(item, "rt_lora_enabled")) return false;
+        if (has_pref_key(item, "rt_identity_hash")) return false;
+        if (has_pref_key(item, "rt_lxmf_address")) return false;
+        if (has_pref_key(item, "rt_wifi_gateway")) return false;
+        if (has_pref_key(item, "rt_wifi_host")) return false;
+        if (has_pref_key(item, "rt_wifi_port")) return false;
+        if (has_pref_key(item, "rt_wifi_auto")) return false;
+        if (has_pref_key(item, "rt_anonymous_peer")) return false;
         if (has_pref_key(item, "net_override_duty")) return false;
         if (has_pref_key(item, "net_channel_num")) return false;
         if (has_pref_key(item, "net_freq_offset")) return false;
         if (has_pref_key(item, "net_override_freq")) return false;
     }
-    else if (rnode)
+    else if (reticulum)
     {
         if (has_pref_key(item, "chat_region")) return false;
         if (has_pref_key(item, "chat_channel")) return false;
@@ -4415,6 +4561,13 @@ static bool should_show_item(const settings::ui::SettingItem& item)
         if (has_pref_key(item, "mc_channel_slot")) return false;
         if (has_pref_key(item, "mc_channel_name")) return false;
         if (has_pref_key(item, "mc_channel_key")) return false;
+        if ((has_pref_key(item, "rt_wifi_host") ||
+             has_pref_key(item, "rt_wifi_port") ||
+             has_pref_key(item, "rt_wifi_auto")) &&
+            !g_settings.rt_wifi_gateway_enabled)
+        {
+            return false;
+        }
     }
     else
     {
@@ -4434,6 +4587,15 @@ static bool should_show_item(const settings::ui::SettingItem& item)
         if (has_pref_key(item, "mc_channel_slot")) return false;
         if (has_pref_key(item, "mc_channel_name")) return false;
         if (has_pref_key(item, "mc_channel_key")) return false;
+
+        if (has_pref_key(item, "rt_lora_enabled")) return false;
+        if (has_pref_key(item, "rt_identity_hash")) return false;
+        if (has_pref_key(item, "rt_lxmf_address")) return false;
+        if (has_pref_key(item, "rt_wifi_gateway")) return false;
+        if (has_pref_key(item, "rt_wifi_host")) return false;
+        if (has_pref_key(item, "rt_wifi_port")) return false;
+        if (has_pref_key(item, "rt_wifi_auto")) return false;
+        if (has_pref_key(item, "rt_anonymous_peer")) return false;
 
         if (has_pref_key(item, "net_preset"))
         {
@@ -4635,15 +4797,65 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
                 {
                     app_ctx.getConfig().meshcore_config.tx_enabled = *item.bool_value;
                 }
-                else if (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::RNode ||
-                         app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::LXMF)
+                else if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
                 {
-                    app_ctx.getConfig().rnode_config.tx_enabled = *item.bool_value;
+                    app_ctx.getConfig().reticulumConfig().tx_enabled = *item.bool_value;
                 }
                 else
                 {
                     app_ctx.getConfig().meshtastic_config.tx_enabled = *item.bool_value;
                 }
+                app_ctx.saveConfig();
+                app_ctx.applyMeshConfig();
+            }
+            if (item.pref_key && strcmp(item.pref_key, "rt_lora_enabled") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                chat::MeshConfig& rt_cfg = app_ctx.getConfig().reticulumConfig();
+                if (!*item.bool_value && !rt_cfg.reticulum_wifi_gateway_enabled)
+                {
+                    *item.bool_value = true;
+                    g_settings.rt_lora_enabled = true;
+                    update_item_value(widget);
+                    ::ui::feedback::show_notice(::ui::i18n::tr("Keep one Reticulum interface enabled"), 3000);
+                }
+                else
+                {
+                    rt_cfg.reticulum_lora_enabled = *item.bool_value;
+                    app_ctx.saveConfig();
+                    app_ctx.applyMeshConfig();
+                }
+            }
+            if (item.pref_key && strcmp(item.pref_key, "rt_wifi_gateway") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                chat::MeshConfig& rt_cfg = app_ctx.getConfig().reticulumConfig();
+                if (!*item.bool_value && !rt_cfg.reticulum_lora_enabled)
+                {
+                    *item.bool_value = true;
+                    g_settings.rt_wifi_gateway_enabled = true;
+                    update_item_value(widget);
+                    ::ui::feedback::show_notice(::ui::i18n::tr("Keep one Reticulum interface enabled"), 3000);
+                }
+                else
+                {
+                    rt_cfg.reticulum_wifi_gateway_enabled = *item.bool_value;
+                    app_ctx.saveConfig();
+                    app_ctx.applyMeshConfig();
+                    build_item_list();
+                }
+            }
+            if (item.pref_key && strcmp(item.pref_key, "rt_wifi_auto") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                app_ctx.getConfig().reticulumConfig().reticulum_wifi_auto_connect = *item.bool_value;
+                app_ctx.saveConfig();
+                app_ctx.applyMeshConfig();
+            }
+            if (item.pref_key && strcmp(item.pref_key, "rt_anonymous_peer") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                app_ctx.getConfig().reticulumConfig().reticulum_anonymous_peer = *item.bool_value;
                 app_ctx.saveConfig();
                 app_ctx.applyMeshConfig();
             }

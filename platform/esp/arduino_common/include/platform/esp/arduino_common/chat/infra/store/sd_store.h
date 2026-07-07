@@ -54,7 +54,7 @@ class SdStore final : public IChatStore
         uint16_t reserved = 0;
     } __attribute__((packed));
 
-    struct Record
+    struct RecordV2
     {
         uint8_t protocol = 0;
         uint8_t channel = 0;
@@ -67,6 +67,22 @@ class SdStore final : public IChatStore
         char text[kMaxTextLen] = {};
     } __attribute__((packed));
 
+    struct Record
+    {
+        uint8_t protocol = 0;
+        uint8_t channel = 0;
+        uint8_t status = 0;
+        uint8_t flags = 0;
+        uint16_t text_len = 0;
+        uint32_t from = 0;
+        uint32_t peer = 0;
+        uint32_t msg_id = 0;
+        uint32_t timestamp = 0;
+        uint8_t reticulum_destination_hash[kReticulumPeerHashSize] = {};
+        uint8_t reticulum_identity_hash[kReticulumPeerHashSize] = {};
+        char text[kMaxTextLen] = {};
+    } __attribute__((packed));
+
     struct IndexHeader
     {
         uint32_t magic = 0;
@@ -74,7 +90,7 @@ class SdStore final : public IChatStore
         uint16_t count = 0;
     } __attribute__((packed));
 
-    struct IndexEntry
+    struct IndexEntryV2
     {
         uint8_t protocol = 0;
         uint8_t channel = 0;
@@ -88,9 +104,27 @@ class SdStore final : public IChatStore
         char preview[kPreviewLen] = {};
     } __attribute__((packed));
 
+    struct IndexEntry
+    {
+        uint8_t protocol = 0;
+        uint8_t channel = 0;
+        uint8_t status = 0;
+        uint8_t flags = 0;
+        uint16_t unread = 0;
+        uint32_t peer = 0;
+        uint32_t last_msg_id = 0;
+        uint32_t last_timestamp = 0;
+        uint32_t last_from = 0;
+        uint16_t preview_len = 0;
+        uint8_t reticulum_destination_hash[kReticulumPeerHashSize] = {};
+        uint8_t reticulum_identity_hash[kReticulumPeerHashSize] = {};
+        char preview[kPreviewLen] = {};
+    } __attribute__((packed));
+
     static constexpr uint32_t kFileMagic = 0x474F4C43;  // "CLOG"
     static constexpr uint32_t kIndexMagic = 0x54414843; // "CHAT"
-    static constexpr uint16_t kVersion = 2;
+    static constexpr uint16_t kLegacyVersion = 2;
+    static constexpr uint16_t kVersion = 3;
 
     bool ensureFs() const;
     bool ensureDir() const;
@@ -108,7 +142,11 @@ class SdStore final : public IChatStore
     bool loadFileHeader(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
                         FileHeader& header) const;
     bool initFileHeader(::platform::esp::arduino_common::storage::SdRuntimeFile& file) const;
+    bool upgradeConversationFile(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+                                 const char* path,
+                                 FileHeader& header) const;
     bool readRecord(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+                    const FileHeader& header,
                     uint16_t slot,
                     Record& rec) const;
     bool writeRecord(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
@@ -121,6 +159,10 @@ class SdStore final : public IChatStore
     const char* channelName(ChannelId channel) const;
     static ChatMessage messageFromRecord(const Record& rec);
     static Record recordFromMessage(const ChatMessage& msg);
+    static bool indexEntryHasReticulumIdentity(const IndexEntry& entry);
+    static bool indexEntryMatchesConversation(const IndexEntry& entry,
+                                              const ConversationId& conv);
+    static ConversationId conversationFromIndexEntry(const IndexEntry& entry);
     static ConversationMeta metaFromIndexEntry(const IndexEntry& entry);
     static bool hasLogSuffix(const char* name);
 

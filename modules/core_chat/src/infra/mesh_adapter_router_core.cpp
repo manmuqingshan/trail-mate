@@ -90,6 +90,20 @@ MeshSendResult MeshAdapterRouterCore::sendTextDetailed(ChannelId channel, const 
     return backend->sendTextDetailed(channel, text, forced_msg_id, peer);
 }
 
+MeshSendResult MeshAdapterRouterCore::sendTextToReticulumDestination(
+    ChannelId channel,
+    const std::string& text,
+    MessageId forced_msg_id,
+    const ReticulumPeerIdentity& destination)
+{
+    IMeshAdapter* backend = activeBackend();
+    if (!backend)
+    {
+        return MeshSendResult::fail(MeshOperationFailure::NotReady);
+    }
+    return backend->sendTextToReticulumDestination(channel, text, forced_msg_id, destination);
+}
+
 bool MeshAdapterRouterCore::pollIncomingText(MeshIncomingText* out)
 {
     IMeshAdapter* backend = activeBackend();
@@ -117,6 +131,12 @@ bool MeshAdapterRouterCore::requestNodeInfo(NodeId dest, bool want_response)
 {
     IMeshAdapter* backend = activeBackend();
     return backend && backend->requestNodeInfo(dest, want_response);
+}
+
+bool MeshAdapterRouterCore::broadcastSelfIdentity()
+{
+    IMeshAdapter* backend = activeBackend();
+    return backend && backend->broadcastSelfIdentity();
 }
 
 bool MeshAdapterRouterCore::startKeyVerification(NodeId dest)

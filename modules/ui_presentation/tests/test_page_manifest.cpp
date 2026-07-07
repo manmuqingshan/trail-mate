@@ -32,7 +32,7 @@ int main()
 
     const auto* t_display_p4 = ui::presentation::findPageManifest("t_display_p4_touch_manifest");
     assert(t_display_p4 != nullptr);
-    assert(t_display_p4->item_count == 14);
+    assert(t_display_p4->item_count == 13);
     assert(contains(*t_display_p4, ui::presentation::PageId::Dashboard));
     assert(contains(*t_display_p4, ui::presentation::PageId::Chat));
     assert(contains(*t_display_p4, ui::presentation::PageId::Contacts));
@@ -41,7 +41,6 @@ int main()
     assert(contains(*t_display_p4, ui::presentation::PageId::Gps));
     assert(contains(*t_display_p4, ui::presentation::PageId::Team));
     assert(contains(*t_display_p4, ui::presentation::PageId::Tracker));
-    assert(contains(*t_display_p4, ui::presentation::PageId::PcLink));
     assert(contains(*t_display_p4, ui::presentation::PageId::EnergySweep));
     assert(contains(*t_display_p4, ui::presentation::PageId::WalkieTalkie));
     assert(contains(*t_display_p4, ui::presentation::PageId::Sstv));
@@ -68,7 +67,6 @@ int main()
     assert(!contains(*cardputer, ui::presentation::PageId::Gps));
     assert(contains(*cardputer, ui::presentation::PageId::Team));
     assert(contains(*cardputer, ui::presentation::PageId::Tracker));
-    assert(!contains(*cardputer, ui::presentation::PageId::PcLink));
     assert(!contains(*cardputer, ui::presentation::PageId::Sstv));
     assert(!contains(*cardputer, ui::presentation::PageId::EnergySweep));
     assert(contains(*cardputer, ui::presentation::PageId::WalkieTalkie));

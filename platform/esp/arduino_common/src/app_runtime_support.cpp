@@ -234,6 +234,7 @@ bool dispatchEvent(app::IAppFacade& app_context, sys::Event* event)
         update.public_key_present = node_event->has_public_key;
         update.has_key_manually_verified = node_event->has_key_manually_verified_state;
         update.key_manually_verified = node_event->key_manually_verified;
+        update.reticulum_identity = node_event->reticulum_identity;
         update.has_device_metrics = node_event->has_device_metrics;
         if (node_event->has_device_metrics)
         {

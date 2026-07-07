@@ -6,6 +6,7 @@
 #include "ui/screens/contacts/contacts_page_input.h"
 
 #include "ui/components/two_pane_nav.h"
+#include "ui/screens/contacts/contacts_filter_profile.h"
 #include "ui/screens/contacts/contacts_state.h"
 
 namespace
@@ -18,12 +19,33 @@ static ::ui::components::two_pane_nav::Controller s_controller{};
 
 static int mode_to_index(contacts::ui::ContactsMode mode)
 {
+    if (contacts::ui::uses_reticulum_filter_profile())
+    {
+        switch (mode)
+        {
+        case contacts::ui::ContactsMode::Contacts:
+            return 0;
+        case contacts::ui::ContactsMode::Nearby:
+            return 1;
+        case contacts::ui::ContactsMode::Groups:
+            return 2;
+        case contacts::ui::ContactsMode::Ignored:
+            return 3;
+        case contacts::ui::ContactsMode::Broadcast:
+        case contacts::ui::ContactsMode::Public:
+        default:
+            return 0;
+        }
+    }
+
     switch (mode)
     {
     case contacts::ui::ContactsMode::Contacts:
         return 0;
     case contacts::ui::ContactsMode::Nearby:
         return 1;
+    case contacts::ui::ContactsMode::Groups:
+        return 0;
     case contacts::ui::ContactsMode::Ignored:
         return 2;
     case contacts::ui::ContactsMode::Broadcast:
@@ -32,6 +54,8 @@ static int mode_to_index(contacts::ui::ContactsMode mode)
         return 4;
     case contacts::ui::ContactsMode::Discover:
         return 5;
+    case contacts::ui::ContactsMode::Public:
+        return 0;
     }
     return 0;
 }
@@ -50,12 +74,29 @@ static lv_obj_t* get_top_back_button(void* /*ctx*/)
 
 static size_t get_filter_count(void* /*ctx*/)
 {
-    return 6;
+    return contacts::ui::uses_reticulum_filter_profile() ? 4U : 6U;
 }
 
 static lv_obj_t* get_filter_button(void* /*ctx*/, size_t index)
 {
     using namespace contacts::ui;
+    if (uses_reticulum_filter_profile())
+    {
+        switch (index)
+        {
+        case 0:
+            return g_contacts_state.contacts_btn;
+        case 1:
+            return g_contacts_state.nearby_btn;
+        case 2:
+            return g_contacts_state.groups_btn;
+        case 3:
+            return g_contacts_state.ignored_btn;
+        default:
+            return nullptr;
+        }
+    }
+
     switch (index)
     {
     case 0:

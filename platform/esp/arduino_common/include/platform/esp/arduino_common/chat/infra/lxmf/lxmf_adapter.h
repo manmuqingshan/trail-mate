@@ -11,7 +11,7 @@
 #include "chat/ports/i_mesh_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_state.h"
-#include "platform/esp/arduino_common/chat/infra/rnode/rnode_adapter.h"
+#include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
 
 #include <array>
 #include <cstddef>
@@ -32,6 +32,14 @@ class LxmfAdapter : public IMeshAdapter
     MeshCapabilities getCapabilities() const override;
     bool sendText(ChannelId channel, const std::string& text,
                   MessageId* out_msg_id, NodeId peer = 0) override;
+    MeshSendResult sendTextDetailed(ChannelId channel, const std::string& text,
+                                    MessageId forced_msg_id = 0,
+                                    NodeId peer = 0) override;
+    MeshSendResult sendTextToReticulumDestination(
+        ChannelId channel,
+        const std::string& text,
+        MessageId forced_msg_id,
+        const ReticulumPeerIdentity& destination) override;
     bool pollIncomingText(MeshIncomingText* out) override;
     bool sendAppData(ChannelId channel, uint32_t portnum,
                      const uint8_t* payload, size_t len,
@@ -40,7 +48,9 @@ class LxmfAdapter : public IMeshAdapter
                      bool want_response = false) override;
     bool pollIncomingData(MeshIncomingData* out) override;
     bool requestNodeInfo(NodeId dest, bool want_response) override;
+    bool broadcastSelfIdentity() override;
     NodeId getNodeId() const override;
+    bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     bool isReady() const override;
@@ -69,7 +79,8 @@ class LxmfAdapter : public IMeshAdapter
     static constexpr uint32_t kAnnounceIntervalMs = 120000;
     static constexpr uint32_t kInitialAnnounceDelayMs = 1500;
 
-    rnode::RNodeAdapter raw_;
+    reticulum::interfaces::ReticulumInterfaceSet interfaces_;
+    reticulum::interfaces::RxPacket rx_packet_scratch_{};
     LxmfIdentity identity_;
     MeshConfig config_{};
     static constexpr std::size_t kIncomingQueueDepth = 4;
@@ -117,6 +128,11 @@ class LxmfAdapter : public IMeshAdapter
                                   const uint8_t* packed_payload, size_t packed_payload_len,
                                   uint8_t* out_packet, size_t* inout_len,
                                   uint8_t out_message_hash[reticulum::kFullHashSize]);
+    bool buildGroupMessagePacket(
+        const ReticulumPeerIdentity& destination,
+        const uint8_t* packed_payload, size_t packed_payload_len,
+        uint8_t* out_packet, size_t* inout_len,
+        uint8_t out_message_hash[reticulum::kFullHashSize]);
     bool buildEncryptedPacketForPeer(const PeerInfo& peer,
                                      const uint8_t* plaintext, size_t plaintext_len,
                                      uint8_t* out_packet, size_t* inout_len);
@@ -150,6 +166,10 @@ class LxmfAdapter : public IMeshAdapter
                                                     LocalDestinationKind kind);
     PeerInfo* findPeerByNodeId(NodeId node_id);
     const PeerInfo* findPeerByDestinationHash(const uint8_t hash[reticulum::kTruncatedHashSize]) const;
+    const ReticulumGroupDestinationConfig* findConfiguredGroupDestination(
+        const uint8_t hash[reticulum::kTruncatedHashSize]) const;
+    bool isConfiguredGroupDestination(
+        const ReticulumPeerIdentity& destination) const;
     PeerInfo& upsertPeer(const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
     PeerInfo* rememberPeerIdentity(const uint8_t combined_pub[reticulum::kCombinedPublicKeySize],
                                    const char* display_name = nullptr);
@@ -201,11 +221,13 @@ class LxmfAdapter : public IMeshAdapter
                                const reticulum::ParsedPacket& packet);
     bool acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaintext_len,
                                 const uint8_t* raw_packet, size_t raw_len);
-    LinkResourceTransfer* findLinkResource(std::vector<LinkResourceTransfer>& resources,
-                                           const uint8_t resource_hash[reticulum::kFullHashSize]);
-    LinkResourceAssembly* findLinkResourceAssembly(
-        LinkSession& session,
-        const uint8_t original_hash[reticulum::kFullHashSize]);
+    bool acceptVerifiedEnvelopeForDestination(
+        const uint8_t expected_destination_hash[reticulum::kTruncatedHashSize],
+        const ReticulumPeerIdentity& conversation_identity,
+        bool destination_is_group,
+        bool encrypted,
+        const uint8_t* plaintext, size_t plaintext_len,
+        const uint8_t* raw_packet, size_t raw_len);
     bool handleLinkResourceAdvertisement(LinkSession& session,
                                          const uint8_t* plaintext, size_t plaintext_len);
     bool handleLinkResourceRequest(LinkSession& session,
@@ -222,25 +244,8 @@ class LxmfAdapter : public IMeshAdapter
                                   const DecodedLinkRequest& request,
                                   const uint8_t* request_id,
                                   size_t request_id_len);
-    bool acceptPropagatedMessage(const uint8_t* lxmf_data, size_t lxmf_len,
-                                 const uint8_t* remote_propagation_hash);
     bool acceptPropagatedDelivery(const uint8_t* propagated_payload,
                                   size_t propagated_payload_len);
-    PropagationEntry* findPropagationEntry(
-        const uint8_t transient_id[reticulum::kFullHashSize]);
-    const PropagationEntry* findPropagationEntry(
-        const uint8_t transient_id[reticulum::kFullHashSize]) const;
-    PropagationPeerState& upsertPropagationPeer(
-        const uint8_t propagation_hash[reticulum::kTruncatedHashSize],
-        const uint8_t delivery_hash[reticulum::kTruncatedHashSize],
-        const uint8_t identity_hash[reticulum::kTruncatedHashSize]);
-    bool hasSeenPropagationTransient(
-        const uint8_t transient_id[reticulum::kFullHashSize],
-        bool* out_delivered = nullptr) const;
-    void rememberPropagationTransient(
-        const uint8_t transient_id[reticulum::kFullHashSize],
-        bool delivered);
-    void cullPropagationState();
     bool requestNextResourceWindow(LinkSession& session,
                                    LinkResourceTransfer& resource);
     bool advertiseLinkResource(LinkSession& session,

@@ -11,6 +11,7 @@
 #include "../ports/i_mesh_adapter.h"
 #include <array>
 #include <cstddef>
+#include <cstring>
 #include <vector>
 
 namespace chat
@@ -174,14 +175,30 @@ class ChatService
         NodeId from = 0;
         NodeId peer = 0;
         MessageId msg_id = 0;
+        bool has_reticulum_destination = false;
+        uint8_t reticulum_destination_hash[kReticulumPeerHashSize] = {};
 
         bool operator==(const IncomingIdentity& other) const
         {
-            return protocol == other.protocol &&
-                   channel == other.channel &&
-                   from == other.from &&
-                   peer == other.peer &&
-                   msg_id == other.msg_id;
+            if (protocol != other.protocol ||
+                channel != other.channel ||
+                msg_id != other.msg_id)
+            {
+                return false;
+            }
+            if (protocol == MeshProtocol::Reticulum &&
+                has_reticulum_destination &&
+                other.has_reticulum_destination)
+            {
+                return std::memcmp(reticulum_destination_hash,
+                                   other.reticulum_destination_hash,
+                                   kReticulumPeerHashSize) == 0;
+            }
+            if (has_reticulum_destination != other.has_reticulum_destination)
+            {
+                return false;
+            }
+            return from == other.from && peer == other.peer;
         }
     };
 
@@ -214,6 +231,12 @@ class ChatService
 
     [[nodiscard]] bool isDuplicateIncoming(const ChatMessage& msg) const;
     void rememberIncoming(const ChatMessage& msg);
+    MeshSendResult sendTextResolvedDetailed(
+        ChannelId channel,
+        const std::string& text,
+        MessageId forced_msg_id,
+        NodeId peer,
+        const ReticulumPeerIdentity* reticulum_destination);
 };
 
 } // namespace chat

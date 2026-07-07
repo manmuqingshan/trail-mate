@@ -7,8 +7,15 @@
 
 #include "../../internal/blob_store_io.h"
 #include "chat/domain/contact_types.h"
+#include "chat/domain/reticulum_identity.h"
 #include "chat/infra/meshcore/crypto/ed25519/ed_25519.h"
 #include "chat/time_utils.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_runtime.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_link_runtime.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_runtime.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_service_runtime.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_resource_runtime.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_transport_runtime.h"
 #include "sys/event_bus.h"
 
 #include <Arduino.h>
@@ -57,12 +64,6 @@ constexpr uint32_t kPropagationEntryTtlS = 3UL * 24UL * 60UL * 60UL;
 constexpr uint32_t kPropagationTransientTtlS = 3UL * 24UL * 60UL * 60UL;
 constexpr uint32_t kPropagationTransferLimitKb = 64;
 constexpr uint32_t kPropagationSyncLimitKb = 64;
-constexpr const char* kPropagationOfferPath = "/offer";
-constexpr const char* kPropagationGetPath = "/get";
-constexpr uint32_t kPropagationErrorNoIdentity = 0xF0;
-constexpr uint32_t kPropagationErrorNoAccess = 0xF1;
-constexpr uint32_t kPropagationErrorInvalidKey = 0xF3;
-constexpr uint32_t kPropagationErrorInvalidData = 0xF4;
 constexpr uint8_t kLinkModeAes256Cbc = 0x01;
 constexpr size_t kLinkRequestBaseLen = 64;
 constexpr size_t kLinkSignallingLen = 3;
@@ -97,6 +98,56 @@ struct PersistedPeerRecord
 };
 
 static_assert(sizeof(PersistedPeerRecord) == 132, "Unexpected LXMF peer record size");
+
+void formatHashPrefix(const uint8_t* hash, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!hash || out_len < 9)
+    {
+        snprintf(out, out_len, "-");
+        return;
+    }
+    snprintf(out,
+             out_len,
+             "%02X%02X%02X%02X",
+             static_cast<unsigned>(hash[0]),
+             static_cast<unsigned>(hash[1]),
+             static_cast<unsigned>(hash[2]),
+             static_cast<unsigned>(hash[3]));
+}
+
+void formatHashHex(const uint8_t* hash, size_t hash_len, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!hash || hash_len == 0 || out_len < ((hash_len * 2U) + 1U))
+    {
+        snprintf(out, out_len, "-");
+        return;
+    }
+
+    size_t used = 0;
+    for (size_t index = 0; index < hash_len && used + 2U < out_len; ++index)
+    {
+        used += static_cast<size_t>(
+            snprintf(out + used,
+                     out_len - used,
+                     "%02X",
+                     static_cast<unsigned>(hash[index])));
+    }
+}
+
+const char* localDestinationKindLabel(runtime::LocalDestinationKind kind)
+{
+    return kind == runtime::LocalDestinationKind::Propagation ? "propagation" : "delivery";
+}
 
 bool appendMsgpackByte(uint8_t value, uint8_t* out, size_t out_len, size_t& used)
 {
@@ -255,19 +306,6 @@ void destinationHashForAspect(const uint8_t identity_hash[reticulum::kTruncatedH
     reticulum::computeDestinationHash(name_hash, identity_hash, out_hash);
 }
 
-void propagationPathHash(const char* path,
-                         uint8_t out_hash[reticulum::kTruncatedHashSize])
-{
-    if (!path || !out_hash)
-    {
-        return;
-    }
-
-    reticulum::truncatedHash(reinterpret_cast<const uint8_t*>(path),
-                             strlen(path),
-                             out_hash);
-}
-
 void fillRandomBytes(uint8_t* out, size_t len)
 {
     if (!out || len == 0)
@@ -317,6 +355,50 @@ bool hashesEqual(const uint8_t* a, const uint8_t* b, size_t len)
     return true;
 }
 
+bool unpackRnsLxmfEnvelope(const uint8_t expected_destination_hash[reticulum::kTruncatedHashSize],
+                           const uint8_t* payload, size_t payload_len,
+                           DecodedEnvelope* out_envelope,
+                           bool* out_embedded_destination_hash)
+{
+    if (!expected_destination_hash || !payload || payload_len == 0 || !out_envelope)
+    {
+        return false;
+    }
+
+    const size_t full_envelope_min_len =
+        (reticulum::kTruncatedHashSize * 2U) + reticulum::kSignatureSize;
+    if (payload_len >= full_envelope_min_len &&
+        hashesEqual(payload, expected_destination_hash, reticulum::kTruncatedHashSize) &&
+        unpackMessageEnvelope(payload, payload_len, out_envelope))
+    {
+        if (out_embedded_destination_hash)
+        {
+            *out_embedded_destination_hash = true;
+        }
+        return true;
+    }
+
+    const size_t opportunistic_tail_min_len =
+        reticulum::kTruncatedHashSize + reticulum::kSignatureSize;
+    if (payload_len < opportunistic_tail_min_len)
+    {
+        return false;
+    }
+
+    std::vector<uint8_t> full_payload(reticulum::kTruncatedHashSize + payload_len);
+    memcpy(full_payload.data(), expected_destination_hash, reticulum::kTruncatedHashSize);
+    memcpy(full_payload.data() + reticulum::kTruncatedHashSize, payload, payload_len);
+    if (!unpackMessageEnvelope(full_payload.data(), full_payload.size(), out_envelope))
+    {
+        return false;
+    }
+    if (out_embedded_destination_hash)
+    {
+        *out_embedded_destination_hash = false;
+    }
+    return true;
+}
+
 void copyHash(uint8_t* out, const uint8_t* in, size_t len)
 {
     if (!out || !in || len == 0)
@@ -324,6 +406,12 @@ void copyHash(uint8_t* out, const uint8_t* in, size_t len)
         return;
     }
     memcpy(out, in, len);
+}
+
+::chat::ReticulumPeerIdentity reticulumIdentityForPeer(const runtime::PeerInfo& peer)
+{
+    return ::chat::makeReticulumPeerIdentity(peer.destination_hash,
+                                             peer.identity_hash);
 }
 
 void copyCString(char* out, size_t out_len, const char* in)
@@ -536,7 +624,7 @@ bool computeLinkIdFromLinkRequest(const uint8_t* raw_packet, size_t raw_len,
 } // namespace
 
 LxmfAdapter::LxmfAdapter(LoraBoard& board)
-    : raw_(board)
+    : interfaces_(board)
 {
     uint8_t seed[sizeof(next_app_packet_id_)] = {};
     fillRandomBytes(seed, sizeof(seed));
@@ -570,7 +658,9 @@ MeshCapabilities LxmfAdapter::getCapabilities() const
 {
     MeshCapabilities caps;
     caps.supports_unicast_text = true;
+    caps.supports_reticulum_destination_text = true;
     caps.supports_unicast_appdata = true;
+    caps.supports_broadcast_appdata = true;
     caps.provides_appdata_sender = true;
     caps.supports_node_info = true;
     return caps;
@@ -579,26 +669,54 @@ MeshCapabilities LxmfAdapter::getCapabilities() const
 bool LxmfAdapter::sendText(ChannelId channel, const std::string& text,
                            MessageId* out_msg_id, NodeId peer)
 {
+    const MeshSendResult result = sendTextDetailed(channel, text, 0, peer);
+    if (out_msg_id)
+    {
+        *out_msg_id = result.msg_id;
+    }
+    return result.ok;
+}
+
+MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
+                                             const std::string& text,
+                                             MessageId forced_msg_id,
+                                             NodeId peer)
+{
+    (void)forced_msg_id;
+
     processRadioPackets();
 
-    if (channel != ChannelId::PRIMARY || text.empty() || peer == 0 || !isReady())
+    Serial.printf("[LXMF][DirectTX] begin ch=%u peer=%08lX len=%u ready=%u\n",
+                  static_cast<unsigned>(channel),
+                  static_cast<unsigned long>(peer),
+                  static_cast<unsigned>(text.size()),
+                  isReady() ? 1U : 0U);
+
+    if (channel != ChannelId::PRIMARY || text.empty() || peer == 0)
     {
-        if (out_msg_id)
-        {
-            *out_msg_id = 0;
-        }
-        return false;
+        Serial.printf("[LXMF][DirectTX] reject reason=invalid_input ch=%u peer=%08lX len=%u\n",
+                      static_cast<unsigned>(channel),
+                      static_cast<unsigned long>(peer),
+                      static_cast<unsigned>(text.size()));
+        return MeshSendResult::fail(MeshOperationFailure::InvalidInput);
+    }
+
+    if (!isReady())
+    {
+        Serial.printf("[LXMF][DirectTX] reject reason=not_ready peer=%08lX\n",
+                      static_cast<unsigned long>(peer));
+        return MeshSendResult::fail(MeshOperationFailure::NotReady);
     }
 
     PeerInfo* peer_info = findPeerByNodeId(peer);
     if (!peer_info)
     {
-        if (out_msg_id)
-        {
-            *out_msg_id = 0;
-        }
-        return false;
+        Serial.printf("[LXMF][DirectTX] reject reason=peer_key_missing peer=%08lX\n",
+                      static_cast<unsigned long>(peer));
+        return MeshSendResult::fail(MeshOperationFailure::PeerKeyMissing);
     }
+    char peer_hash[12] = {};
+    formatHashPrefix(peer_info->destination_hash, peer_hash, sizeof(peer_hash));
 
     if (shouldRequestPath(*peer_info))
     {
@@ -613,11 +731,7 @@ bool LxmfAdapter::sendText(ChannelId channel, const std::string& text,
                            packed_payload,
                            &packed_payload_len))
     {
-        if (out_msg_id)
-        {
-            *out_msg_id = 0;
-        }
-        return false;
+        return MeshSendResult::fail(MeshOperationFailure::EncodeFailed);
     }
 
     uint8_t message_hash[reticulum::kFullHashSize] = {};
@@ -631,11 +745,7 @@ bool LxmfAdapter::sendText(ChannelId channel, const std::string& text,
                          &signed_part_len,
                          message_hash))
     {
-        if (out_msg_id)
-        {
-            *out_msg_id = 0;
-        }
-        return false;
+        return MeshSendResult::fail(MeshOperationFailure::EncodeFailed);
     }
 
     uint8_t signature[reticulum::kSignatureSize] = {};
@@ -650,16 +760,13 @@ bool LxmfAdapter::sendText(ChannelId channel, const std::string& text,
                      lxmf_message,
                      &lxmf_message_len))
     {
-        if (out_msg_id)
-        {
-            *out_msg_id = 0;
-        }
-        return false;
+        return MeshSendResult::fail(MeshOperationFailure::CryptoFailed);
     }
 
     LinkSession* active_link =
         findActiveLinkSessionByDestination(peer_info->destination_hash, LocalDestinationKind::Delivery);
     bool ok = false;
+    const char* send_path = active_link ? "link" : "opportunistic";
     if (active_link)
     {
         if (lxmf_message_len <= active_link->mdu)
@@ -703,6 +810,7 @@ bool LxmfAdapter::sendText(ChannelId channel, const std::string& text,
                 ensureOutboundLinkSession(*peer_info, LocalDestinationKind::Delivery, &started);
             if (session)
             {
+                send_path = "deferred_link";
                 runtime::DeferredLinkPayload deferred{};
                 deferred.payload.assign(lxmf_message, lxmf_message + lxmf_message_len);
                 session->deferred_payloads.push_back(std::move(deferred));
@@ -716,12 +824,117 @@ bool LxmfAdapter::sendText(ChannelId channel, const std::string& text,
     }
 
     const MessageId message_id = messageIdFromHash(message_hash);
-    if (out_msg_id)
-    {
-        *out_msg_id = message_id;
-    }
+    char message_hash_prefix[12] = {};
+    formatHashPrefix(message_hash, message_hash_prefix, sizeof(message_hash_prefix));
+    Serial.printf("[LXMF][DirectTX] result ok=%u msg=%lu hash=%s peer=%08lX dest=%s path=%s payload_len=%u\n",
+                  ok ? 1U : 0U,
+                  static_cast<unsigned long>(message_id),
+                  message_hash_prefix,
+                  static_cast<unsigned long>(peer_info->node_id),
+                  peer_hash,
+                  send_path,
+                  static_cast<unsigned>(packed_payload_len));
+    MeshSendResult result =
+        ok ? MeshSendResult::success(message_id)
+           : MeshSendResult::fail(MeshOperationFailure::RadioTxFailed, message_id);
+    result.reticulum_identity = reticulumIdentityForPeer(*peer_info);
     sys::EventBus::publish(new sys::ChatSendResultEvent(message_id, ok), 0);
-    return ok;
+    return result;
+}
+
+MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
+    ChannelId channel,
+    const std::string& text,
+    MessageId forced_msg_id,
+    const ReticulumPeerIdentity& destination)
+{
+    processRadioPackets();
+
+    char dest_hash[12] = {};
+    formatHashPrefix(destination.destination_hash, dest_hash, sizeof(dest_hash));
+    Serial.printf("[LXMF][GroupTX] begin ch=%u forced=%lu dest=%s len=%u ready=%u\n",
+                  static_cast<unsigned>(channel),
+                  static_cast<unsigned long>(forced_msg_id),
+                  dest_hash,
+                  static_cast<unsigned>(text.size()),
+                  isReady() ? 1U : 0U);
+
+    if (channel != ChannelId::PRIMARY || text.empty() ||
+        !hasReticulumDestinationIdentity(destination))
+    {
+        Serial.printf("[LXMF][GroupTX] reject reason=invalid_input ch=%u dest=%s len=%u\n",
+                      static_cast<unsigned>(channel),
+                      dest_hash,
+                      static_cast<unsigned>(text.size()));
+        return MeshSendResult::fail(MeshOperationFailure::InvalidInput);
+    }
+
+    if (!isConfiguredGroupDestination(destination))
+    {
+        Serial.printf("[LXMF][GroupTX] reject reason=unconfigured_group dest=%s\n",
+                      dest_hash);
+        return MeshSendResult::fail(MeshOperationFailure::Unsupported);
+    }
+
+    if (!isReady())
+    {
+        Serial.printf("[LXMF][GroupTX] reject reason=not_ready dest=%s\n", dest_hash);
+        return MeshSendResult::fail(MeshOperationFailure::NotReady);
+    }
+
+    uint8_t packed_payload[kMaxLxmfMessageLen] = {};
+    size_t packed_payload_len = sizeof(packed_payload);
+    if (!encodeTextPayload(static_cast<double>(currentTimestampSeconds()),
+                           "",
+                           text.c_str(),
+                           packed_payload,
+                           &packed_payload_len))
+    {
+        Serial.printf("[LXMF][GroupTX] reject reason=encode_failed dest=%s text_len=%u\n",
+                      dest_hash,
+                      static_cast<unsigned>(text.size()));
+        return MeshSendResult::fail(MeshOperationFailure::EncodeFailed);
+    }
+
+    uint8_t packet[kMaxPacketLen] = {};
+    size_t packet_len = sizeof(packet);
+    uint8_t message_hash[reticulum::kFullHashSize] = {};
+    if (!buildGroupMessagePacket(destination,
+                                 packed_payload,
+                                 packed_payload_len,
+                                 packet,
+                                 &packet_len,
+                                 message_hash))
+    {
+        Serial.printf("[LXMF][GroupTX] reject reason=build_packet_failed dest=%s payload_len=%u\n",
+                      dest_hash,
+                      static_cast<unsigned>(packed_payload_len));
+        return MeshSendResult::fail(MeshOperationFailure::CryptoFailed);
+    }
+
+    const MessageId message_id =
+        forced_msg_id != 0 ? forced_msg_id : messageIdFromHash(message_hash);
+    char message_hash_prefix[12] = {};
+    formatHashPrefix(message_hash, message_hash_prefix, sizeof(message_hash_prefix));
+    Serial.printf("[LXMF][GroupTX] packet_ready msg=%lu hash=%s dest=%s payload_len=%u packet_len=%u\n",
+                  static_cast<unsigned long>(message_id),
+                  message_hash_prefix,
+                  dest_hash,
+                  static_cast<unsigned>(packed_payload_len),
+                  static_cast<unsigned>(packet_len));
+    const bool ok = routeAndSendPacket(packet, packet_len, true);
+    Serial.printf("[LXMF][GroupTX] raw_send ok=%u msg=%lu dest=%s packet_len=%u\n",
+                  ok ? 1U : 0U,
+                  static_cast<unsigned long>(message_id),
+                  dest_hash,
+                  static_cast<unsigned>(packet_len));
+    MeshSendResult result =
+        ok ? MeshSendResult::success(message_id)
+           : MeshSendResult::fail(MeshOperationFailure::RadioTxFailed, message_id);
+    result.reticulum_identity =
+        makeReticulumDestinationIdentity(destination.destination_hash);
+    sys::EventBus::publish(new sys::ChatSendResultEvent(message_id, ok), 0);
+    return result;
 }
 
 bool LxmfAdapter::pollIncomingText(MeshIncomingText* out)
@@ -742,8 +955,23 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
 
     processRadioPackets();
 
+    Serial.printf("[LXMF][AppDataTX] begin ch=%u port=%lu dest=%08lX len=%u ready=%u want_ack=%u want_response=%u\n",
+                  static_cast<unsigned>(channel),
+                  static_cast<unsigned long>(portnum),
+                  static_cast<unsigned long>(dest),
+                  static_cast<unsigned>(len),
+                  isReady() ? 1U : 0U,
+                  want_ack ? 1U : 0U,
+                  want_response ? 1U : 0U);
+
     if (channel != ChannelId::PRIMARY || portnum == 0 || (!payload && len != 0) || !isReady())
     {
+        Serial.printf("[LXMF][AppDataTX] reject reason=invalid_input ch=%u port=%lu dest=%08lX len=%u ready=%u\n",
+                      static_cast<unsigned>(channel),
+                      static_cast<unsigned long>(portnum),
+                      static_cast<unsigned long>(dest),
+                      static_cast<unsigned>(len),
+                      isReady() ? 1U : 0U);
         if (packet_id != 0)
         {
             sys::EventBus::publish(new sys::ChatSendResultEvent(packet_id, false), 0);
@@ -790,6 +1018,10 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         PeerInfo* peer_info = findPeerByNodeId(dest);
         if (!peer_info)
         {
+            Serial.printf("[LXMF][AppDataTX] reject reason=peer_key_missing port=%lu dest=%08lX msg=%lu\n",
+                          static_cast<unsigned long>(portnum),
+                          static_cast<unsigned long>(dest),
+                          static_cast<unsigned long>(effective_packet_id));
             sys::EventBus::publish(new sys::ChatSendResultEvent(effective_packet_id, false), 0);
             return false;
         }
@@ -881,6 +1113,7 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
     else
     {
         bool have_peer = false;
+        unsigned fanout_count = 0;
         ok = true;
         // LXMF delivery is single-destination. For device-side team/business
         // traffic we currently treat dest==0 as fan-out to every known peer.
@@ -892,6 +1125,7 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
             }
 
             have_peer = true;
+            ++fanout_count;
             if (shouldRequestPath(peer_info))
             {
                 (void)sendPathRequest(peer_info);
@@ -912,8 +1146,18 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
             }
         }
         ok = have_peer && ok;
+        Serial.printf("[LXMF][AppDataTX] fanout port=%lu msg=%lu peers=%u ok=%u\n",
+                      static_cast<unsigned long>(portnum),
+                      static_cast<unsigned long>(effective_packet_id),
+                      fanout_count,
+                      ok ? 1U : 0U);
     }
 
+    Serial.printf("[LXMF][AppDataTX] end port=%lu msg=%lu dest=%08lX ok=%u\n",
+                  static_cast<unsigned long>(portnum),
+                  static_cast<unsigned long>(effective_packet_id),
+                  static_cast<unsigned long>(dest),
+                  ok ? 1U : 0U);
     sys::EventBus::publish(new sys::ChatSendResultEvent(effective_packet_id, ok), 0);
     return ok;
 }
@@ -930,9 +1174,9 @@ bool LxmfAdapter::requestNodeInfo(NodeId dest, bool want_response)
 {
     (void)want_response;
 
-    processRadioPackets();
-    if (dest != 0)
+    if (dest != 0 && dest != 0xFFFFFFFFUL)
     {
+        processRadioPackets();
         PeerInfo* peer = findPeerByNodeId(dest);
         if (!peer)
         {
@@ -944,6 +1188,18 @@ bool LxmfAdapter::requestNodeInfo(NodeId dest, bool want_response)
             return true;
         }
         return sendPathRequest(*peer);
+    }
+
+    return broadcastSelfIdentity();
+}
+
+bool LxmfAdapter::broadcastSelfIdentity()
+{
+    if (config_.reticulum_anonymous_peer)
+    {
+        Serial.println("[LXMF][AnnounceTX] skip reason=anonymous_peer trigger=broadcast_self");
+        announce_pending_ = false;
+        return false;
     }
 
     announce_pending_ = true;
@@ -962,6 +1218,29 @@ NodeId LxmfAdapter::getNodeId() const
     return identity_.nodeId();
 }
 
+bool LxmfAdapter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
+{
+    if (!out)
+    {
+        return false;
+    }
+    *out = ReticulumLocalIdentityInfo{};
+    out->anonymous_peer = config_.reticulum_anonymous_peer;
+    if (!identity_.isReady())
+    {
+        return false;
+    }
+
+    out->ready = true;
+    out->node_id = identity_.nodeId();
+    std::memcpy(out->identity_hash,
+                identity_.identityHash(),
+                reticulum::kTruncatedHashSize);
+    localDestinationHash(LocalDestinationKind::Delivery, out->lxmf_address);
+    localDestinationHash(LocalDestinationKind::Propagation, out->propagation_address);
+    return true;
+}
+
 void LxmfAdapter::applyConfig(const MeshConfig& config)
 {
     config_ = config;
@@ -969,9 +1248,39 @@ void LxmfAdapter::applyConfig(const MeshConfig& config)
     {
         loadPersistedPeers();
     }
-    raw_.applyConfig(config_);
+    interfaces_.applyConfig(config_);
+    if (identity_.isReady())
+    {
+        uint8_t delivery_hash[reticulum::kTruncatedHashSize] = {};
+        uint8_t propagation_hash[reticulum::kTruncatedHashSize] = {};
+        localDestinationHash(LocalDestinationKind::Delivery, delivery_hash);
+        localDestinationHash(LocalDestinationKind::Propagation, propagation_hash);
+
+        char identity_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+        char delivery_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+        char propagation_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+        formatHashHex(identity_.identityHash(),
+                      reticulum::kTruncatedHashSize,
+                      identity_hex,
+                      sizeof(identity_hex));
+        formatHashHex(delivery_hash,
+                      sizeof(delivery_hash),
+                      delivery_hex,
+                      sizeof(delivery_hex));
+        formatHashHex(propagation_hash,
+                      sizeof(propagation_hash),
+                      propagation_hex,
+                      sizeof(propagation_hex));
+        Serial.printf("[LXMF][Identity] node=%08lX identity=%s delivery=%s propagation=%s anonymous=%d peers=%u\n",
+                      static_cast<unsigned long>(identity_.nodeId()),
+                      identity_hex,
+                      delivery_hex,
+                      propagation_hex,
+                      config_.reticulum_anonymous_peer ? 1 : 0,
+                      static_cast<unsigned>(peers_.size()));
+    }
     last_announce_ms_ = millis();
-    announce_pending_ = true;
+    announce_pending_ = !config_.reticulum_anonymous_peer;
 }
 
 void LxmfAdapter::setUserInfo(const char* long_name, const char* short_name)
@@ -983,7 +1292,7 @@ void LxmfAdapter::setUserInfo(const char* long_name, const char* short_name)
 
 bool LxmfAdapter::isReady() const
 {
-    return identity_.isReady() && raw_.isReady();
+    return identity_.isReady() && interfaces_.hasReadyInterface();
 }
 
 bool LxmfAdapter::pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len)
@@ -996,27 +1305,51 @@ bool LxmfAdapter::pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size
 
 void LxmfAdapter::handleRawPacket(const uint8_t* data, size_t size)
 {
-    raw_.handleRawPacket(data, size);
+    interfaces_.handleRawPacket(data, size);
 }
 
 void LxmfAdapter::setLastRxStats(float rssi, float snr)
 {
-    raw_.setLastRxStats(rssi, snr);
+    interfaces_.setLastRxStats(rssi, snr);
 }
 
 void LxmfAdapter::processRadioPackets()
 {
     cullTransportState();
     cullLinkSessions();
-    cullPropagationState();
+    const runtime::PropagationRuntimeLimits propagation_limits{
+        kMaxPropagationEntries,
+        kMaxPropagationTransients,
+        kMaxPropagationPeers,
+        kPropagationEntryTtlS,
+        kPropagationTransientTtlS,
+        kPropagationEntryTtlS};
+    runtime::cullPropagationRuntime(propagation_,
+                                    currentTimestampSeconds(),
+                                    propagation_limits);
 
-    uint8_t packet[kMaxPacketLen] = {};
-    size_t packet_len = 0;
-    while (raw_.pollIncomingRawPacket(packet, packet_len, sizeof(packet)))
+    while (interfaces_.pollIncomingPacket(&rx_packet_scratch_))
     {
+        const uint8_t* packet = rx_packet_scratch_.data;
+        const size_t packet_len = rx_packet_scratch_.len;
+        const char* iface_label =
+            rx_packet_scratch_.interface_kind == reticulum::interfaces::InterfaceKind::WifiGateway
+                ? "wifi"
+                : "lora";
         reticulum::ParsedPacket parsed{};
         if (reticulum::parsePacket(packet, packet_len, &parsed))
         {
+            char dest_hash[12] = {};
+            formatHashPrefix(parsed.destination_hash, dest_hash, sizeof(dest_hash));
+            Serial.printf("[LXMF][RawRX] packet iface=%s type=%u dest_type=%u context=%u dest=%s raw_len=%u payload_len=%u hops=%u\n",
+                          iface_label,
+                          static_cast<unsigned>(parsed.packet_type),
+                          static_cast<unsigned>(parsed.destination_type),
+                          static_cast<unsigned>(parsed.context),
+                          dest_hash,
+                          static_cast<unsigned>(packet_len),
+                          static_cast<unsigned>(parsed.payload_len),
+                          static_cast<unsigned>(parsed.hops));
             if (parsed.hops < 0xFF)
             {
                 parsed.hops += 1;
@@ -1026,6 +1359,7 @@ void LxmfAdapter::processRadioPackets()
             reticulum::computePacketHash(packet, packet_len, packet_hash);
             if (isDuplicatePacket(packet_hash))
             {
+                Serial.printf("[LXMF][RawRX] drop reason=duplicate dest=%s\n", dest_hash);
                 continue;
             }
             rememberPacket(packet_hash);
@@ -1060,9 +1394,15 @@ void LxmfAdapter::processRadioPackets()
                 (void)maybeForwardTransportPacket(packet, packet_len, parsed);
             }
         }
+        else
+        {
+            Serial.printf("[LXMF][RawRX] drop reason=parse_failed raw_len=%u first=%02X\n",
+                          static_cast<unsigned>(packet_len),
+                          static_cast<unsigned>(packet_len > 0 ? packet[0] : 0));
+        }
 
         MeshIncomingData discarded;
-        while (raw_.pollIncomingData(&discarded))
+        while (interfaces_.pollLegacyIncomingData(&discarded))
         {
         }
     }
@@ -1070,6 +1410,11 @@ void LxmfAdapter::processRadioPackets()
 
 void LxmfAdapter::maybeAnnounce()
 {
+    if (config_.reticulum_anonymous_peer)
+    {
+        announce_pending_ = false;
+        return;
+    }
     if (!announce_pending_ && (millis() - last_announce_ms_) < kAnnounceIntervalMs)
     {
         return;
@@ -1091,6 +1436,14 @@ void LxmfAdapter::maybeAnnounce()
 bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
                                reticulum::PacketContext context)
 {
+    interfaces_.maintain();
+    if (config_.reticulum_anonymous_peer)
+    {
+        Serial.printf("[LXMF][AnnounceTX] skip reason=anonymous_peer kind=%u context=%u\n",
+                      static_cast<unsigned>(kind),
+                      static_cast<unsigned>(context));
+        return false;
+    }
     if (!isReady())
     {
         return false;
@@ -1189,7 +1542,20 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
         return false;
     }
 
-    if (!routeAndSendPacket(packet, packet_len, false))
+    char destination_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+    formatHashHex(destination_hash,
+                  sizeof(destination_hash),
+                  destination_hex,
+                  sizeof(destination_hex));
+    const bool sent = routeAndSendPacket(packet, packet_len, false);
+    Serial.printf("[LXMF][AnnounceTX] kind=%s context=%u dest=%s app_len=%u packet_len=%u ok=%u\n",
+                  localDestinationKindLabel(kind),
+                  static_cast<unsigned>(context),
+                  destination_hex,
+                  static_cast<unsigned>(app_data_len),
+                  static_cast<unsigned>(packet_len),
+                  sent ? 1U : 0U);
+    if (!sent)
     {
         return false;
     }
@@ -1217,6 +1583,14 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     reticulum::ParsedAnnounce announce{};
     if (!reticulum::parseAnnounce(packet, &announce) || !announce.valid)
     {
+        char packet_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+        formatHashHex(packet.destination_hash,
+                      reticulum::kTruncatedHashSize,
+                      packet_hash_hex,
+                      sizeof(packet_hash_hex));
+        Serial.printf("[LXMF][AnnounceRX] drop reason=parse_failed dest=%s payload_len=%u\n",
+                      packet_hash_hex,
+                      static_cast<unsigned>(packet.payload_len));
         return false;
     }
 
@@ -1227,6 +1601,19 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     reticulum::computeDestinationHash(announce.name_hash, identity_hash, expected_destination_hash);
     if (!hashesEqual(expected_destination_hash, packet.destination_hash, reticulum::kTruncatedHashSize))
     {
+        char packet_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+        char expected_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+        formatHashHex(packet.destination_hash,
+                      reticulum::kTruncatedHashSize,
+                      packet_hash_hex,
+                      sizeof(packet_hash_hex));
+        formatHashHex(expected_destination_hash,
+                      sizeof(expected_destination_hash),
+                      expected_hash_hex,
+                      sizeof(expected_hash_hex));
+        Serial.printf("[LXMF][AnnounceRX] drop reason=destination_mismatch packet=%s expected=%s\n",
+                      packet_hash_hex,
+                      expected_hash_hex);
         return false;
     }
 
@@ -1240,6 +1627,11 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     signed_len += reticulum::kNameHashSize;
     memcpy(signed_data + signed_len, announce.random_hash, 10);
     signed_len += 10;
+    if (announce.has_ratchet && announce.ratchet && announce.ratchet_len != 0)
+    {
+        memcpy(signed_data + signed_len, announce.ratchet, announce.ratchet_len);
+        signed_len += announce.ratchet_len;
+    }
     if (announce.app_data_len != 0)
     {
         memcpy(signed_data + signed_len, announce.app_data, announce.app_data_len);
@@ -1249,6 +1641,13 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     const uint8_t* sig_pub = announce.public_key + reticulum::kEncryptionPublicKeySize;
     if (!LxmfIdentity::verify(sig_pub, announce.signature, signed_data, signed_len))
     {
+        char packet_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+        formatHashHex(packet.destination_hash,
+                      reticulum::kTruncatedHashSize,
+                      packet_hash_hex,
+                      sizeof(packet_hash_hex));
+        Serial.printf("[LXMF][AnnounceRX] drop reason=signature_failed dest=%s\n",
+                      packet_hash_hex);
         return false;
     }
 
@@ -1281,20 +1680,48 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
 
     const bool delivery_announce = isLxmfDeliveryAnnounce(announce);
     const bool propagation_announce = isLxmfPropagationAnnounce(announce);
-    const bool local_destination = isLocalDestinationHash(packet.destination_hash, nullptr);
+    LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
+    const bool local_destination = isLocalDestinationHash(packet.destination_hash, &local_kind);
+
+    char packet_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+    char identity_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+    formatHashHex(packet.destination_hash,
+                  reticulum::kTruncatedHashSize,
+                  packet_hash_hex,
+                  sizeof(packet_hash_hex));
+    formatHashHex(identity_hash,
+                  sizeof(identity_hash),
+                  identity_hash_hex,
+                  sizeof(identity_hash_hex));
+    Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u app_len=%u delivery=%u propagation=%u local=%u kind=%s\n",
+                  packet_hash_hex,
+                  identity_hash_hex,
+                  static_cast<unsigned>(packet.hops),
+                  static_cast<unsigned>(packet.context),
+                  static_cast<unsigned>(announce.app_data_len),
+                  delivery_announce ? 1U : 0U,
+                  propagation_announce ? 1U : 0U,
+                  local_destination ? 1U : 0U,
+                  localDestinationKindLabel(local_kind));
 
     if (propagation_announce && !local_destination)
     {
         uint8_t delivery_hash[reticulum::kTruncatedHashSize] = {};
         destinationHashForAspect(identity_hash, "delivery", delivery_hash);
-        PropagationPeerState& propagation_peer = upsertPropagationPeer(packet.destination_hash,
-                                                                       delivery_hash,
-                                                                       identity_hash);
-        propagation_peer.last_seen_s = now_s;
+        PropagationPeerState& propagation_peer =
+            runtime::upsertPropagationPeer(propagation_,
+                                           packet.destination_hash,
+                                           delivery_hash,
+                                           identity_hash,
+                                           kMaxPropagationPeers);
+        runtime::markPropagationPeerSeen(propagation_peer, now_s);
     }
 
     if (!delivery_announce || local_destination)
     {
+        Serial.printf("[LXMF][AnnounceRX] ignore reason=%s dest=%s\n",
+                      local_destination ? "local_destination" : "not_delivery",
+                      packet_hash_hex);
         return true;
     }
 
@@ -1324,6 +1751,12 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
 
     (void)persistPeers();
     publishPeerUpdate(peer);
+    Serial.printf("[LXMF][AnnounceRX] learned peer=%08lX dest=%s identity=%s name=%s peers=%u\n",
+                  static_cast<unsigned long>(peer.node_id),
+                  packet_hash_hex,
+                  identity_hash_hex,
+                  peer.display_name[0] != '\0' ? peer.display_name : "<unnamed>",
+                  static_cast<unsigned>(peers_.size()));
     return true;
 }
 
@@ -1335,16 +1768,71 @@ bool LxmfAdapter::handleDataPacket(const uint8_t* raw_packet, size_t raw_len,
         return false;
     }
 
+    if (packet.destination_type == reticulum::DestinationType::Group)
+    {
+        char dest_hash[12] = {};
+        formatHashPrefix(packet.destination_hash, dest_hash, sizeof(dest_hash));
+        Serial.printf("[LXMF][GroupRX] packet raw_len=%u payload_len=%u dest=%s hops=%u\n",
+                      static_cast<unsigned>(raw_len),
+                      static_cast<unsigned>(packet.payload_len),
+                      dest_hash,
+                      static_cast<unsigned>(packet.hops));
+        const ReticulumGroupDestinationConfig* group =
+            findConfiguredGroupDestination(packet.destination_hash);
+        if (!group || packet.payload_len == 0)
+        {
+            Serial.printf("[LXMF][GroupRX] drop reason=%s dest=%s\n",
+                          group ? "empty_payload" : "unconfigured_group",
+                          dest_hash);
+            return false;
+        }
+        Serial.printf("[LXMF][GroupRX] matched group=%s dest=%s\n",
+                      group->name[0] != '\0' ? group->name : "<unnamed>",
+                      dest_hash);
+        const ReticulumPeerIdentity conversation_identity =
+            makeReticulumDestinationIdentity(packet.destination_hash);
+        return acceptVerifiedEnvelopeForDestination(packet.destination_hash,
+                                                    conversation_identity,
+                                                    true,
+                                                    false,
+                                                    packet.payload,
+                                                    packet.payload_len,
+                                                    raw_packet,
+                                                    raw_len);
+    }
+
     LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
     if (!isLocalDestinationHash(packet.destination_hash, &local_kind))
     {
+        char dest_hash[12] = {};
+        formatHashPrefix(packet.destination_hash, dest_hash, sizeof(dest_hash));
+        Serial.printf("[LXMF][DirectRX] drop reason=not_local dest=%s raw_len=%u payload_len=%u\n",
+                      dest_hash,
+                      static_cast<unsigned>(raw_len),
+                      static_cast<unsigned>(packet.payload_len));
         return false;
     }
     if (packet.destination_type != reticulum::DestinationType::Single ||
         packet.payload_len <= (reticulum::kEncryptionPublicKeySize + reticulum::kTokenOverhead))
     {
+        char dest_hash[12] = {};
+        formatHashPrefix(packet.destination_hash, dest_hash, sizeof(dest_hash));
+        Serial.printf("[LXMF][DirectRX] drop reason=invalid_single_packet kind=%s dest=%s type=%u payload_len=%u\n",
+                      localDestinationKindLabel(local_kind),
+                      dest_hash,
+                      static_cast<unsigned>(packet.destination_type),
+                      static_cast<unsigned>(packet.payload_len));
         return false;
     }
+
+    char dest_hash[12] = {};
+    formatHashPrefix(packet.destination_hash, dest_hash, sizeof(dest_hash));
+    Serial.printf("[LXMF][DirectRX] packet kind=%s dest=%s raw_len=%u payload_len=%u hops=%u\n",
+                  localDestinationKindLabel(local_kind),
+                  dest_hash,
+                  static_cast<unsigned>(raw_len),
+                  static_cast<unsigned>(packet.payload_len),
+                  static_cast<unsigned>(packet.hops));
 
     const uint8_t* peer_ephemeral_pub = packet.payload;
     const uint8_t* token = packet.payload + reticulum::kEncryptionPublicKeySize;
@@ -1369,6 +1857,10 @@ bool LxmfAdapter::handleDataPacket(const uint8_t* raw_packet, size_t raw_len,
     size_t plaintext_len = sizeof(plaintext);
     if (!reticulum::tokenDecrypt(derived_key, token, token_len, plaintext, &plaintext_len))
     {
+        Serial.printf("[LXMF][DirectRX] drop reason=decrypt_failed kind=%s dest=%s token_len=%u\n",
+                      localDestinationKindLabel(local_kind),
+                      dest_hash,
+                      static_cast<unsigned>(token_len));
         return false;
     }
 
@@ -1387,10 +1879,18 @@ bool LxmfAdapter::handleDataPacket(const uint8_t* raw_packet, size_t raw_len,
 
     if (!handled)
     {
+        Serial.printf("[LXMF][DirectRX] drop reason=handler_rejected kind=%s dest=%s plaintext_len=%u\n",
+                      localDestinationKindLabel(local_kind),
+                      dest_hash,
+                      static_cast<unsigned>(plaintext_len));
         return false;
     }
 
-    (void)sendProofForPacket(raw_packet, raw_len);
+    const bool proof_sent = sendProofForPacket(raw_packet, raw_len);
+    Serial.printf("[LXMF][DirectRX] proof kind=%s dest=%s ok=%u\n",
+                  localDestinationKindLabel(local_kind),
+                  dest_hash,
+                  proof_sent ? 1U : 0U);
     return true;
 }
 
@@ -1442,7 +1942,7 @@ bool LxmfAdapter::handleProofPacket(const uint8_t* raw_packet, size_t raw_len,
     }
 
     reverse->created_ms = 0;
-    return raw_.sendAppData(ChannelId::PRIMARY, 0, forward_packet, forward_len);
+    return interfaces_.sendPacket(forward_packet, forward_len);
 }
 
 bool LxmfAdapter::handleLinkRequestPacket(const uint8_t* raw_packet, size_t raw_len,
@@ -1560,7 +2060,7 @@ bool LxmfAdapter::handleLinkRequestPacket(const uint8_t* raw_packet, size_t raw_
             return false;
         }
 
-        return raw_.sendAppData(ChannelId::PRIMARY, 0, forward_packet, forward_len);
+        return interfaces_.sendPacket(forward_packet, forward_len);
     }
 
     uint8_t forward_packet[kMaxPacketLen] = {};
@@ -1580,7 +2080,7 @@ bool LxmfAdapter::handleLinkRequestPacket(const uint8_t* raw_packet, size_t raw_
         return false;
     }
 
-    return raw_.sendAppData(ChannelId::PRIMARY, 0, forward_packet, forward_len);
+    return interfaces_.sendPacket(forward_packet, forward_len);
 }
 
 bool LxmfAdapter::handlePathRequestPacket(const reticulum::ParsedPacket& packet)
@@ -1862,16 +2362,7 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
     {
         if (payload_len == reticulum::kFullHashSize)
         {
-            session.incoming_resources.erase(
-                std::remove_if(session.incoming_resources.begin(),
-                               session.incoming_resources.end(),
-                               [payload_ptr](const LinkResourceTransfer& resource)
-                               {
-                                   return hashesEqual(resource.resource_hash,
-                                                      payload_ptr,
-                                                      reticulum::kFullHashSize);
-                               }),
-                session.incoming_resources.end());
+            (void)runtime::eraseLinkResourceByHash(session.incoming_resources, payload_ptr);
             handled = true;
         }
         should_prove = handled;
@@ -1880,16 +2371,7 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
     {
         if (payload_len == reticulum::kFullHashSize)
         {
-            session.outgoing_resources.erase(
-                std::remove_if(session.outgoing_resources.begin(),
-                               session.outgoing_resources.end(),
-                               [payload_ptr](const LinkResourceTransfer& resource)
-                               {
-                                   return hashesEqual(resource.resource_hash,
-                                                      payload_ptr,
-                                                      reticulum::kFullHashSize);
-                               }),
-                session.outgoing_resources.end());
+            (void)runtime::eraseLinkResourceByHash(session.outgoing_resources, payload_ptr);
             handled = true;
         }
         should_prove = handled;
@@ -1994,45 +2476,6 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
     return false;
 }
 
-LxmfAdapter::LinkResourceTransfer* LxmfAdapter::findLinkResource(
-    std::vector<LinkResourceTransfer>& resources,
-    const uint8_t resource_hash[reticulum::kFullHashSize])
-{
-    if (!resource_hash)
-    {
-        return nullptr;
-    }
-
-    for (auto& resource : resources)
-    {
-        if (hashesEqual(resource.resource_hash, resource_hash, sizeof(resource.resource_hash)))
-        {
-            return &resource;
-        }
-    }
-    return nullptr;
-}
-
-LxmfAdapter::LinkResourceAssembly* LxmfAdapter::findLinkResourceAssembly(
-    LinkSession& session,
-    const uint8_t original_hash[reticulum::kFullHashSize])
-{
-    if (!original_hash)
-    {
-        return nullptr;
-    }
-
-    for (auto& assembly : session.incoming_resource_assemblies)
-    {
-        if (hashesEqual(assembly.original_hash, original_hash, sizeof(assembly.original_hash)))
-        {
-            return &assembly;
-        }
-    }
-
-    return nullptr;
-}
-
 bool LxmfAdapter::handleLinkResourceAdvertisement(LinkSession& session,
                                                   const uint8_t* plaintext, size_t plaintext_len)
 {
@@ -2067,47 +2510,33 @@ bool LxmfAdapter::handleLinkResourceAdvertisement(LinkSession& session,
         return false;
     }
 
-    if (findLinkResource(session.incoming_resources, advertisement.resource_hash))
+    if (runtime::findLinkResource(session.incoming_resources, advertisement.resource_hash))
     {
         return true;
     }
 
     LinkResourceTransfer resource{};
-    memcpy(resource.resource_hash, advertisement.resource_hash, sizeof(resource.resource_hash));
-    memcpy(resource.random_hash, advertisement.random_hash, sizeof(resource.random_hash));
-    memcpy(resource.original_hash, advertisement.original_hash, sizeof(resource.original_hash));
-    resource.request_id = std::move(advertisement.request_id);
-    resource.hashmap = std::move(advertisement.hashmap);
-    resource.data_size = advertisement.data_size;
-    resource.transfer_size = advertisement.transfer_size;
-    resource.part_count = advertisement.part_count;
-    resource.segment_index = advertisement.segment_index;
-    resource.total_segments = advertisement.total_segments;
-    resource.hashmap_height = static_cast<uint32_t>(advertisement.hashmap.size() / kResourceMapHashLen);
-    resource.window_size = kResourceWindowSize;
-    resource.created_ms = millis();
-    resource.last_activity_ms = resource.created_ms;
-    resource.flags = advertisement.flags;
-    resource.incoming = true;
-    resource.encrypted = encrypted;
-    resource.compressed = compressed;
-    resource.has_metadata = has_metadata;
-    resource.split = split || advertisement.total_segments > 1;
-    resource.parts.resize(resource.part_count);
-    resource.received_bitmap.assign(resource.part_count, 0);
-    resource.map_hashes.resize(resource.part_count);
-    resource.map_hash_known.assign(resource.part_count, 0);
-
-    size_t map_index = 0;
-    for (size_t i = 0; i < resource.hashmap.size() && map_index < resource.part_count; i += kResourceMapHashLen)
+    if (!runtime::initialiseIncomingResourceTransfer(resource,
+                                                     advertisement.resource_hash,
+                                                     advertisement.random_hash,
+                                                     advertisement.original_hash,
+                                                     std::move(advertisement.request_id),
+                                                     std::move(advertisement.hashmap),
+                                                     advertisement.data_size,
+                                                     advertisement.transfer_size,
+                                                     advertisement.part_count,
+                                                     advertisement.segment_index,
+                                                     advertisement.total_segments,
+                                                     advertisement.flags,
+                                                     encrypted,
+                                                     compressed,
+                                                     has_metadata,
+                                                     split,
+                                                     millis(),
+                                                     kResourceWindowSize))
     {
-        std::array<uint8_t, kResourceMapHashLen> map_hash{};
-        memcpy(map_hash.data(), resource.hashmap.data() + i, map_hash.size());
-        resource.map_hashes[map_index] = map_hash;
-        resource.map_hash_known[map_index] = 1;
-        ++map_index;
+        return false;
     }
-    resource.waiting_for_hashmap = resource.hashmap_height < resource.part_count;
 
     session.incoming_resources.push_back(std::move(resource));
     return requestNextResourceWindow(session, session.incoming_resources.back());
@@ -2121,66 +2550,36 @@ bool LxmfAdapter::requestNextResourceWindow(LinkSession& session,
         return false;
     }
 
-    std::vector<uint8_t> request_data;
-    request_data.reserve(1 + kResourceMapHashLen + reticulum::kFullHashSize +
-                         (resource.window_size * kResourceMapHashLen));
-
-    const size_t start_index =
-        (resource.consecutive_complete_index >= 0)
-            ? static_cast<size_t>(resource.consecutive_complete_index + 1)
-            : 0;
-
-    uint32_t requested = 0;
-    bool needs_more_hashmap = false;
-    for (size_t index = start_index;
-         index < resource.part_count && requested < resource.window_size;
-         ++index)
-    {
-        if (resource.received_bitmap[index] != 0)
-        {
-            continue;
-        }
-
-        if (index >= resource.map_hash_known.size() || resource.map_hash_known[index] == 0)
-        {
-            needs_more_hashmap = true;
-            break;
-        }
-
-        request_data.insert(request_data.end(),
-                            resource.map_hashes[index].begin(),
-                            resource.map_hashes[index].end());
-        ++requested;
-    }
-
-    if (requested == 0 && !needs_more_hashmap)
+    const runtime::ResourceWindowRequest request =
+        runtime::buildNextResourceWindowRequest(resource);
+    if (!request.valid)
     {
         return false;
     }
 
-    request_data.insert(request_data.begin(),
-                        resource.resource_hash,
-                        resource.resource_hash + reticulum::kFullHashSize);
-
-    if (needs_more_hashmap)
+    std::vector<uint8_t> request_data;
+    request_data.reserve(1 + kResourceMapHashLen + reticulum::kFullHashSize +
+                         (request.requested_hashes.size() * kResourceMapHashLen));
+    if (request.needs_more_hashmap)
     {
-        if (resource.hashmap_height == 0 || resource.hashmap_height > resource.map_hashes.size())
-        {
-            return false;
-        }
-
-        request_data.insert(request_data.begin(),
-                            resource.map_hashes[resource.hashmap_height - 1U].begin(),
-                            resource.map_hashes[resource.hashmap_height - 1U].end());
-        request_data.insert(request_data.begin(), 0xFF);
+        request_data.push_back(0xFF);
+        request_data.insert(request_data.end(),
+                            request.last_known_hash.begin(),
+                            request.last_known_hash.end());
     }
     else
     {
-        request_data.insert(request_data.begin(), 0x00);
+        request_data.push_back(0x00);
+    }
+    request_data.insert(request_data.end(),
+                        resource.resource_hash,
+                        resource.resource_hash + reticulum::kFullHashSize);
+    for (const auto& requested_hash : request.requested_hashes)
+    {
+        request_data.insert(request_data.end(), requested_hash.begin(), requested_hash.end());
     }
 
-    resource.last_activity_ms = millis();
-    resource.waiting_for_hashmap = needs_more_hashmap;
+    runtime::noteResourceWindowRequest(resource, request.needs_more_hashmap, millis());
     return sendLinkPacket(session,
                           reticulum::PacketType::Data,
                           reticulum::PacketContext::ResourceReq,
@@ -2212,7 +2611,7 @@ bool LxmfAdapter::handleLinkResourceRequest(LinkSession& session,
 
     const uint8_t* resource_hash = plaintext + offset;
     offset += reticulum::kFullHashSize;
-    LinkResourceTransfer* resource = findLinkResource(session.outgoing_resources, resource_hash);
+    LinkResourceTransfer* resource = runtime::findLinkResource(session.outgoing_resources, resource_hash);
     if (!resource)
     {
         return false;
@@ -2300,7 +2699,7 @@ bool LxmfAdapter::handleLinkResourceHashmapUpdate(LinkSession& session,
         return false;
     }
 
-    LinkResourceTransfer* resource = findLinkResource(session.incoming_resources, plaintext);
+    LinkResourceTransfer* resource = runtime::findLinkResource(session.incoming_resources, plaintext);
     if (!resource)
     {
         return false;
@@ -2322,23 +2721,14 @@ bool LxmfAdapter::handleLinkResourceHashmapUpdate(LinkSession& session,
         return false;
     }
 
-    const size_t hash_count = update.hashmap.size() / kResourceMapHashLen;
-    const size_t applied = std::min(hash_count, static_cast<size_t>(resource->part_count) - start_index);
-    for (size_t index = 0; index < applied; ++index)
+    if (!runtime::applyResourceHashmapUpdate(*resource,
+                                             update.segment,
+                                             update.hashmap,
+                                             segment_capacity,
+                                             millis()))
     {
-        std::array<uint8_t, kResourceMapHashLen> map_hash{};
-        memcpy(map_hash.data(),
-               update.hashmap.data() + (index * kResourceMapHashLen),
-               map_hash.size());
-        resource->map_hashes[start_index + index] = map_hash;
-        resource->map_hash_known[start_index + index] = 1;
+        return false;
     }
-
-    resource->hashmap_height = std::max<uint32_t>(
-        resource->hashmap_height,
-        static_cast<uint32_t>(start_index + applied));
-    resource->last_activity_ms = millis();
-    resource->waiting_for_hashmap = false;
     (void)requestNextResourceWindow(session, *resource);
     return true;
 }
@@ -2368,45 +2758,16 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
                             hash_material.size(),
                             full_hash);
 
-        size_t matched_index = resource.part_count;
-        for (size_t index = 0;
-             index < resource.map_hashes.size() && index < resource.part_count;
-             ++index)
-        {
-            if (index < resource.map_hash_known.size() &&
-                resource.map_hash_known[index] != 0 &&
-                memcmp(resource.map_hashes[index].data(), full_hash, kResourceMapHashLen) == 0)
-            {
-                matched_index = index;
-                break;
-            }
-        }
-        if (matched_index >= resource.part_count)
+        bool complete = false;
+        if (!runtime::recordResourcePart(resource,
+                                         packet.payload,
+                                         packet.payload_len,
+                                         full_hash,
+                                         millis(),
+                                         nullptr,
+                                         &complete))
         {
             continue;
-        }
-
-        if (resource.received_bitmap[matched_index] == 0)
-        {
-            resource.parts[matched_index].assign(packet.payload, packet.payload + packet.payload_len);
-            resource.received_bitmap[matched_index] = 1;
-        }
-
-        while ((resource.consecutive_complete_index + 1) < static_cast<int32_t>(resource.part_count) &&
-               resource.received_bitmap[static_cast<size_t>(resource.consecutive_complete_index + 1)] != 0)
-        {
-            ++resource.consecutive_complete_index;
-        }
-        resource.last_activity_ms = millis();
-
-        bool complete = true;
-        for (uint8_t received : resource.received_bitmap)
-        {
-            if (received == 0)
-            {
-                complete = false;
-                break;
-            }
         }
 
         if (!complete)
@@ -2499,57 +2860,17 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
                              proof_payload.size(),
                              false);
 
-        resource.complete = true;
+        runtime::markResourceComplete(resource, millis());
 
-        if (resource.split || resource.total_segments > 1)
+        const runtime::ResourceAssemblyResult assembly_result =
+            runtime::appendResourceAssemblySegment(session, resource, payload_data, millis());
+        if (assembly_result == runtime::ResourceAssemblyResult::Rejected)
         {
-            LinkResourceAssembly* assembly =
-                findLinkResourceAssembly(session, resource.original_hash);
-            if (!assembly)
-            {
-                if (resource.segment_index != 1)
-                {
-                    return false;
-                }
-
-                session.incoming_resource_assemblies.push_back(LinkResourceAssembly{});
-                assembly = &session.incoming_resource_assemblies.back();
-                copyHash(assembly->original_hash, resource.original_hash, sizeof(assembly->original_hash));
-                assembly->next_segment_index = 1;
-                assembly->total_segments = resource.total_segments;
-                assembly->flags = resource.flags;
-                assembly->last_activity_ms = millis();
-                assembly->request_id = resource.request_id;
-            }
-
-            if (assembly->next_segment_index != resource.segment_index)
-            {
-                return false;
-            }
-
-            assembly->payload.insert(assembly->payload.end(),
-                                     payload_data.begin(),
-                                     payload_data.end());
-            assembly->next_segment_index = resource.segment_index + 1U;
-            assembly->last_activity_ms = millis();
-
-            if (resource.segment_index < resource.total_segments)
-            {
-                resource.last_activity_ms = 0;
-                return true;
-            }
-
-            payload_data = std::move(assembly->payload);
-            session.incoming_resource_assemblies.erase(
-                std::remove_if(session.incoming_resource_assemblies.begin(),
-                               session.incoming_resource_assemblies.end(),
-                               [&resource](const LinkResourceAssembly& candidate)
-                               {
-                                   return hashesEqual(candidate.original_hash,
-                                                      resource.original_hash,
-                                                      sizeof(candidate.original_hash));
-                               }),
-                session.incoming_resource_assemblies.end());
+            return false;
+        }
+        if (assembly_result == runtime::ResourceAssemblyResult::WaitingForNextSegment)
+        {
+            return true;
         }
 
         const bool is_request = (resource.flags & kResourceFlagRequest) != 0;
@@ -2623,64 +2944,82 @@ bool LxmfAdapter::handleLinkResourceProof(LinkSession& session,
 
     const uint8_t* resource_hash = packet.payload;
     const uint8_t* expected_proof = packet.payload + reticulum::kFullHashSize;
-    LinkResourceTransfer* resource = findLinkResource(session.outgoing_resources, resource_hash);
+    LinkResourceTransfer* resource = runtime::findLinkResource(session.outgoing_resources, resource_hash);
     if (!resource)
     {
         return false;
     }
 
-    if (!hashesEqual(expected_proof,
-                     resource->expected_proof,
-                     reticulum::kFullHashSize))
-    {
-        return false;
-    }
-
-    resource->complete = true;
-    resource->last_activity_ms = millis();
-    return true;
+    return runtime::markResourceProofReceived(*resource, expected_proof, millis());
 }
 
 bool LxmfAdapter::handlePropagationBatch(LinkSession& session,
                                          const uint8_t* plaintext,
                                          size_t plaintext_len)
 {
-    DecodedPropagationBatch batch{};
-    if (!decodePropagationBatch(plaintext, plaintext_len, &batch))
-    {
-        return false;
-    }
-
-    if (!session.propagation_offer_validated && batch.messages.size() > 1)
-    {
-        return false;
-    }
-
-    uint8_t remote_propagation_hash[reticulum::kTruncatedHashSize] = {};
-    uint8_t remote_delivery_hash[reticulum::kTruncatedHashSize] = {};
-    PropagationPeerState* peer_state = nullptr;
+    runtime::PropagationBatchContext batch_context{};
+    batch_context.offer_validated = session.propagation_offer_validated;
+    batch_context.local_delivery_hash_known = true;
+    localDestinationHash(LocalDestinationKind::Delivery, batch_context.local_delivery_hash);
+    batch_context.peer_context.remote_identity_known = session.remote_identity_known;
+    batch_context.now_s = currentTimestampSeconds();
     if (session.remote_identity_known)
     {
-        destinationHashForAspect(session.remote_identity_hash, "propagation", remote_propagation_hash);
-        destinationHashForAspect(session.remote_identity_hash, "delivery", remote_delivery_hash);
-        peer_state = &upsertPropagationPeer(remote_propagation_hash,
-                                            remote_delivery_hash,
-                                            session.remote_identity_hash);
-        peer_state->last_seen_s = currentTimestampSeconds();
+        destinationHashForAspect(session.remote_identity_hash,
+                                 "delivery",
+                                 batch_context.peer_context.remote_delivery_hash);
+        destinationHashForAspect(session.remote_identity_hash,
+                                 "propagation",
+                                 batch_context.peer_context.remote_propagation_hash);
+        copyHash(batch_context.peer_context.remote_identity_hash,
+                 session.remote_identity_hash,
+                 sizeof(batch_context.peer_context.remote_identity_hash));
+    }
+
+    const runtime::PropagationBatchLimits batch_limits{
+        kMaxPropagationEntries,
+        kMaxPropagationTransients,
+        kMaxPropagationPeers,
+        1};
+    runtime::PropagationBatchAcceptance batch_acceptance{};
+    if (!runtime::planPropagationBatchAcceptance(propagation_,
+                                                 plaintext,
+                                                 plaintext_len,
+                                                 batch_context,
+                                                 batch_limits,
+                                                 &batch_acceptance))
+    {
+        return false;
     }
 
     bool handled_any = false;
-    for (const auto& message : batch.messages)
+    for (const auto& message : batch_acceptance.messages)
     {
-        if (acceptPropagatedMessage(message.data(),
-                                    message.size(),
-                                    session.remote_identity_known ? remote_propagation_hash : nullptr))
+        bool handled = false;
+        if (message.action == runtime::PropagationMessageAction::Duplicate ||
+            message.action == runtime::PropagationMessageAction::Stored)
+        {
+            handled = true;
+        }
+        else if (message.action == runtime::PropagationMessageAction::DeliverLocal)
+        {
+            const bool delivered =
+                acceptPropagatedDelivery(message.local_delivery_payload.empty()
+                                             ? nullptr
+                                             : message.local_delivery_payload.data(),
+                                         message.local_delivery_payload.size());
+            runtime::notePropagationLocalDeliveryResult(propagation_,
+                                                        message.transient_id,
+                                                        delivered,
+                                                        currentTimestampSeconds(),
+                                                        kMaxPropagationTransients);
+            handled = delivered;
+        }
+
+        if (handled)
         {
             handled_any = true;
-            if (peer_state)
-            {
-                peer_state->incoming_messages += 1;
-            }
+            runtime::notePropagationBatchMessageHandled(propagation_, batch_acceptance);
         }
     }
 
@@ -2692,310 +3031,51 @@ bool LxmfAdapter::handlePropagationRequest(LinkSession& session,
                                            const uint8_t* request_id,
                                            size_t request_id_len)
 {
-    auto send_uint_response = [&](uint32_t value) -> bool
+    runtime::PropagationServicePeerContext peer_context{};
+    peer_context.remote_identity_known = session.remote_identity_known;
+    if (session.remote_identity_known)
     {
-        uint8_t packed[8] = {};
-        size_t packed_len = sizeof(packed);
-        if (!encodeMsgpackUint(value, packed, &packed_len))
-        {
-            return false;
-        }
-
-        return sendLinkResponse(session,
-                                request_id,
-                                request_id_len,
-                                packed,
-                                packed_len,
-                                false);
-    };
-
-    auto send_bool_response = [&](bool value) -> bool
-    {
-        uint8_t packed[4] = {};
-        size_t packed_len = sizeof(packed);
-        if (!encodeMsgpackBool(value, packed, &packed_len))
-        {
-            return false;
-        }
-
-        return sendLinkResponse(session,
-                                request_id,
-                                request_id_len,
-                                packed,
-                                packed_len,
-                                false);
-    };
-
-    uint8_t offer_path_hash[reticulum::kTruncatedHashSize] = {};
-    uint8_t get_path_hash[reticulum::kTruncatedHashSize] = {};
-    propagationPathHash(kPropagationOfferPath, offer_path_hash);
-    propagationPathHash(kPropagationGetPath, get_path_hash);
-
-    if (!session.remote_identity_known)
-    {
-        return send_uint_response(kPropagationErrorNoIdentity);
+        destinationHashForAspect(session.remote_identity_hash,
+                                 "delivery",
+                                 peer_context.remote_delivery_hash);
+        destinationHashForAspect(session.remote_identity_hash,
+                                 "propagation",
+                                 peer_context.remote_propagation_hash);
+        copyHash(peer_context.remote_identity_hash,
+                 session.remote_identity_hash,
+                 sizeof(peer_context.remote_identity_hash));
     }
 
-    uint8_t remote_delivery_hash[reticulum::kTruncatedHashSize] = {};
-    uint8_t remote_propagation_hash[reticulum::kTruncatedHashSize] = {};
-    destinationHashForAspect(session.remote_identity_hash, "delivery", remote_delivery_hash);
-    destinationHashForAspect(session.remote_identity_hash, "propagation", remote_propagation_hash);
-    PropagationPeerState& peer_state = upsertPropagationPeer(remote_propagation_hash,
-                                                             remote_delivery_hash,
-                                                             session.remote_identity_hash);
-    peer_state.last_seen_s = currentTimestampSeconds();
-
-    if (hashesEqual(request.path_hash, offer_path_hash, sizeof(offer_path_hash)))
-    {
-        if (request.data_is_nil)
-        {
-            return send_uint_response(kPropagationErrorInvalidData);
-        }
-
-        DecodedPropagationOffer offer{};
-        if (!decodePropagationOfferPayload(request.packed_data.data(),
-                                           request.packed_data.size(),
-                                           &offer))
-        {
-            return send_uint_response(kPropagationErrorInvalidData);
-        }
-
-        if (offer.peering_key_is_nil || offer.peering_key.empty())
-        {
-            return send_uint_response(kPropagationErrorInvalidKey);
-        }
-
-        session.propagation_offer_validated = true;
-
-        std::vector<std::vector<uint8_t>> wanted_ids;
-        wanted_ids.reserve(offer.transient_ids.size());
-        for (const auto& transient_id : offer.transient_ids)
-        {
-            if (transient_id.size() != reticulum::kFullHashSize)
-            {
-                continue;
-            }
-
-            if (!findPropagationEntry(transient_id.data()) &&
-                !hasSeenPropagationTransient(transient_id.data(), nullptr))
-            {
-                wanted_ids.push_back(transient_id);
-            }
-        }
-
-        if (wanted_ids.empty())
-        {
-            return send_bool_response(false);
-        }
-
-        if (wanted_ids.size() == offer.transient_ids.size())
-        {
-            return send_bool_response(true);
-        }
-
-        const size_t response_capacity = 4 + (wanted_ids.size() * (reticulum::kFullHashSize + 3));
-        std::vector<uint8_t> packed(response_capacity, 0);
-        size_t packed_len = packed.size();
-        if (!encodePropagationIdListPayload(wanted_ids, packed.data(), &packed_len))
-        {
-            return false;
-        }
-
-        return sendLinkResponse(session,
-                                request_id,
-                                request_id_len,
-                                packed.data(),
-                                packed_len,
-                                false);
-    }
-
-    if (!hashesEqual(request.path_hash, get_path_hash, sizeof(get_path_hash)))
-    {
-        return send_uint_response(kPropagationErrorInvalidData);
-    }
-
-    if (request.data_is_nil)
-    {
-        return send_uint_response(kPropagationErrorInvalidData);
-    }
-
-    DecodedPropagationGetRequest get_request{};
-    if (!decodePropagationGetRequestPayload(request.packed_data.data(),
-                                            request.packed_data.size(),
-                                            &get_request))
-    {
-        return send_uint_response(kPropagationErrorInvalidData);
-    }
-
-    if (!get_request.haves_is_nil)
-    {
-        for (const auto& transient_id : get_request.haves)
-        {
-            if (transient_id.size() != reticulum::kFullHashSize)
-            {
-                continue;
-            }
-
-            propagation_.entries.erase(
-                std::remove_if(propagation_.entries.begin(),
-                               propagation_.entries.end(),
-                               [&](const PropagationEntry& entry)
-                               {
-                                   return hashesEqual(entry.transient_id,
-                                                      transient_id.data(),
-                                                      reticulum::kFullHashSize) &&
-                                          hashesEqual(entry.destination_hash,
-                                                      remote_delivery_hash,
-                                                      reticulum::kTruncatedHashSize);
-                               }),
-                propagation_.entries.end());
-            rememberPropagationTransient(transient_id.data(), true);
-        }
-    }
-
-    std::vector<std::vector<uint8_t>> response_items;
-    if (get_request.wants_is_nil && get_request.haves_is_nil)
-    {
-        response_items.reserve(propagation_.entries.size());
-        for (const auto& entry : propagation_.entries)
-        {
-            if (hashesEqual(entry.destination_hash,
-                            remote_delivery_hash,
-                            reticulum::kTruncatedHashSize))
-            {
-                response_items.emplace_back(entry.transient_id,
-                                            entry.transient_id + reticulum::kFullHashSize);
-            }
-        }
-
-        const size_t response_capacity =
-            4 + (response_items.size() * (reticulum::kFullHashSize + 3));
-        std::vector<uint8_t> packed(response_capacity, 0);
-        size_t packed_len = packed.size();
-        if (!encodePropagationIdListPayload(response_items, packed.data(), &packed_len))
-        {
-            return false;
-        }
-
-        return sendLinkResponse(session,
-                                request_id,
-                                request_id_len,
-                                packed.data(),
-                                packed_len,
-                                false);
-    }
-
-    size_t cumulative_size = 24;
-    const size_t transfer_limit_bytes =
-        get_request.has_transfer_limit ? (static_cast<size_t>(get_request.transfer_limit_kb) * 1000U) : 0U;
-    for (const auto& transient_id : get_request.wants)
-    {
-        if (transient_id.size() != reticulum::kFullHashSize)
-        {
-            continue;
-        }
-
-        PropagationEntry* entry = findPropagationEntry(transient_id.data());
-        if (!entry ||
-            !hashesEqual(entry->destination_hash,
-                         remote_delivery_hash,
-                         reticulum::kTruncatedHashSize))
-        {
-            continue;
-        }
-
-        const size_t next_size = cumulative_size + entry->lxmf_data.size() + 16U;
-        if (transfer_limit_bytes != 0U && next_size > transfer_limit_bytes)
-        {
-            break;
-        }
-
-        response_items.push_back(entry->lxmf_data);
-        cumulative_size = next_size;
-        entry->served_count += 1;
-    }
-
-    peer_state.served_messages += static_cast<uint32_t>(response_items.size());
-    size_t response_capacity = 4;
-    for (const auto& item : response_items)
-    {
-        response_capacity += item.size() + 3;
-    }
-    std::vector<uint8_t> packed(response_capacity, 0);
-    size_t packed_len = packed.size();
-    if (!encodePropagationMessageListPayload(response_items, packed.data(), &packed_len))
+    const runtime::PropagationServiceLimits limits{
+        kMaxPropagationTransients,
+        kMaxPropagationPeers,
+        24,
+        16};
+    runtime::PropagationServiceResponse response{};
+    if (!runtime::planPropagationServiceResponse(propagation_,
+                                                 request,
+                                                 peer_context,
+                                                 currentTimestampSeconds(),
+                                                 limits,
+                                                 &response))
     {
         return false;
     }
-
+    if (response.offer_validated)
+    {
+        session.propagation_offer_validated = true;
+    }
+    if (!response.send_response)
+    {
+        return false;
+    }
     return sendLinkResponse(session,
                             request_id,
                             request_id_len,
-                            packed.data(),
-                            packed_len,
-                            false);
-}
-
-bool LxmfAdapter::acceptPropagatedMessage(const uint8_t* lxmf_data,
-                                          size_t lxmf_len,
-                                          const uint8_t* remote_propagation_hash)
-{
-    if (!lxmf_data || lxmf_len <= reticulum::kTruncatedHashSize)
-    {
-        return false;
-    }
-
-    uint8_t transient_id[reticulum::kFullHashSize] = {};
-    reticulum::fullHash(lxmf_data, lxmf_len, transient_id);
-
-    if (findPropagationEntry(transient_id) ||
-        hasSeenPropagationTransient(transient_id, nullptr))
-    {
-        return true;
-    }
-
-    const uint8_t* destination_hash = lxmf_data;
-    LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
-    if (isLocalDestinationHash(destination_hash, &local_kind) &&
-        local_kind == LocalDestinationKind::Delivery)
-    {
-        const bool delivered = acceptPropagatedDelivery(lxmf_data + reticulum::kTruncatedHashSize,
-                                                        lxmf_len - reticulum::kTruncatedHashSize);
-        if (delivered)
-        {
-            rememberPropagationTransient(transient_id, true);
-        }
-        return delivered;
-    }
-
-    if (propagation_.entries.size() >= kMaxPropagationEntries)
-    {
-        propagation_.entries.erase(propagation_.entries.begin());
-    }
-
-    PropagationEntry entry{};
-    memcpy(entry.transient_id, transient_id, sizeof(entry.transient_id));
-    memcpy(entry.destination_hash, destination_hash, sizeof(entry.destination_hash));
-    entry.lxmf_data.assign(lxmf_data, lxmf_data + lxmf_len);
-    entry.created_s = currentTimestampSeconds();
-    propagation_.entries.push_back(std::move(entry));
-    rememberPropagationTransient(transient_id, false);
-
-    if (remote_propagation_hash)
-    {
-        for (auto& peer : propagation_.peers)
-        {
-            if (hashesEqual(peer.propagation_hash,
-                            remote_propagation_hash,
-                            reticulum::kTruncatedHashSize))
-            {
-                peer.last_seen_s = currentTimestampSeconds();
-                break;
-            }
-        }
-    }
-
-    return true;
+                            response.packed_response.empty() ? nullptr
+                                                             : response.packed_response.data(),
+                            response.packed_response.size(),
+                            response.response_data_is_nil);
 }
 
 bool LxmfAdapter::acceptPropagatedDelivery(const uint8_t* propagated_payload,
@@ -3054,187 +3134,6 @@ bool LxmfAdapter::acceptPropagatedDelivery(const uint8_t* propagated_payload,
     return acceptVerifiedEnvelope(lxmf_message.data(), lxmf_message.size(), nullptr, 0);
 }
 
-LxmfAdapter::PropagationEntry* LxmfAdapter::findPropagationEntry(
-    const uint8_t transient_id[reticulum::kFullHashSize])
-{
-    if (!transient_id)
-    {
-        return nullptr;
-    }
-
-    for (auto& entry : propagation_.entries)
-    {
-        if (hashesEqual(entry.transient_id, transient_id, reticulum::kFullHashSize))
-        {
-            return &entry;
-        }
-    }
-
-    return nullptr;
-}
-
-const LxmfAdapter::PropagationEntry* LxmfAdapter::findPropagationEntry(
-    const uint8_t transient_id[reticulum::kFullHashSize]) const
-{
-    if (!transient_id)
-    {
-        return nullptr;
-    }
-
-    for (const auto& entry : propagation_.entries)
-    {
-        if (hashesEqual(entry.transient_id, transient_id, reticulum::kFullHashSize))
-        {
-            return &entry;
-        }
-    }
-
-    return nullptr;
-}
-
-LxmfAdapter::PropagationPeerState& LxmfAdapter::upsertPropagationPeer(
-    const uint8_t propagation_hash[reticulum::kTruncatedHashSize],
-    const uint8_t delivery_hash[reticulum::kTruncatedHashSize],
-    const uint8_t identity_hash[reticulum::kTruncatedHashSize])
-{
-    for (auto& peer : propagation_.peers)
-    {
-        if (hashesEqual(peer.propagation_hash,
-                        propagation_hash,
-                        reticulum::kTruncatedHashSize))
-        {
-            if (delivery_hash)
-            {
-                copyHash(peer.delivery_hash, delivery_hash, sizeof(peer.delivery_hash));
-            }
-            if (identity_hash)
-            {
-                copyHash(peer.identity_hash, identity_hash, sizeof(peer.identity_hash));
-            }
-            return peer;
-        }
-    }
-
-    if (propagation_.peers.size() >= kMaxPropagationPeers)
-    {
-        propagation_.peers.erase(propagation_.peers.begin());
-    }
-
-    propagation_.peers.push_back(PropagationPeerState{});
-    PropagationPeerState& peer = propagation_.peers.back();
-    if (propagation_hash)
-    {
-        copyHash(peer.propagation_hash, propagation_hash, sizeof(peer.propagation_hash));
-    }
-    if (delivery_hash)
-    {
-        copyHash(peer.delivery_hash, delivery_hash, sizeof(peer.delivery_hash));
-    }
-    if (identity_hash)
-    {
-        copyHash(peer.identity_hash, identity_hash, sizeof(peer.identity_hash));
-    }
-    return peer;
-}
-
-bool LxmfAdapter::hasSeenPropagationTransient(
-    const uint8_t transient_id[reticulum::kFullHashSize],
-    bool* out_delivered) const
-{
-    if (out_delivered)
-    {
-        *out_delivered = false;
-    }
-
-    if (!transient_id)
-    {
-        return false;
-    }
-
-    for (const auto& entry : propagation_.transients)
-    {
-        if (hashesEqual(entry.transient_id, transient_id, reticulum::kFullHashSize))
-        {
-            if (out_delivered)
-            {
-                *out_delivered = entry.delivered;
-            }
-            return true;
-        }
-    }
-
-    return false;
-}
-
-void LxmfAdapter::rememberPropagationTransient(
-    const uint8_t transient_id[reticulum::kFullHashSize],
-    bool delivered)
-{
-    if (!transient_id)
-    {
-        return;
-    }
-
-    for (auto& entry : propagation_.transients)
-    {
-        if (hashesEqual(entry.transient_id, transient_id, reticulum::kFullHashSize))
-        {
-            entry.seen_s = currentTimestampSeconds();
-            entry.delivered = entry.delivered || delivered;
-            return;
-        }
-    }
-
-    if (propagation_.transients.size() >= kMaxPropagationTransients)
-    {
-        propagation_.transients.erase(propagation_.transients.begin());
-    }
-
-    PropagationTransientEntry entry{};
-    memcpy(entry.transient_id, transient_id, sizeof(entry.transient_id));
-    entry.seen_s = currentTimestampSeconds();
-    entry.delivered = delivered;
-    propagation_.transients.push_back(entry);
-}
-
-void LxmfAdapter::cullPropagationState()
-{
-    const uint32_t now_s = currentTimestampSeconds();
-
-    propagation_.entries.erase(
-        std::remove_if(propagation_.entries.begin(),
-                       propagation_.entries.end(),
-                       [now_s](const PropagationEntry& entry)
-                       {
-                           return entry.created_s == 0 ||
-                                  now_s < entry.created_s ||
-                                  (now_s - entry.created_s) > kPropagationEntryTtlS;
-                       }),
-        propagation_.entries.end());
-
-    propagation_.transients.erase(
-        std::remove_if(propagation_.transients.begin(),
-                       propagation_.transients.end(),
-                       [now_s](const PropagationTransientEntry& entry)
-                       {
-                           return entry.seen_s == 0 ||
-                                  now_s < entry.seen_s ||
-                                  (now_s - entry.seen_s) > kPropagationTransientTtlS;
-                       }),
-        propagation_.transients.end());
-
-    propagation_.peers.erase(
-        std::remove_if(propagation_.peers.begin(),
-                       propagation_.peers.end(),
-                       [now_s](const PropagationPeerState& entry)
-                       {
-                           return entry.last_seen_s != 0 &&
-                                  now_s >= entry.last_seen_s &&
-                                  (now_s - entry.last_seen_s) > kPropagationEntryTtlS;
-                       }),
-        propagation_.peers.end());
-}
-
 bool LxmfAdapter::maybeForwardTransportPacket(const uint8_t* raw_packet, size_t raw_len,
                                               const reticulum::ParsedPacket& packet)
 {
@@ -3287,7 +3186,7 @@ bool LxmfAdapter::maybeForwardTransportPacket(const uint8_t* raw_packet, size_t 
             return false;
         }
 
-        return raw_.sendAppData(ChannelId::PRIMARY, 0, forward_packet, forward_len);
+        return interfaces_.sendPacket(forward_packet, forward_len);
     }
 
     uint8_t forward_packet[kMaxPacketLen] = {};
@@ -3307,7 +3206,7 @@ bool LxmfAdapter::maybeForwardTransportPacket(const uint8_t* raw_packet, size_t 
         return false;
     }
 
-    return raw_.sendAppData(ChannelId::PRIMARY, 0, forward_packet, forward_len);
+    return interfaces_.sendPacket(forward_packet, forward_len);
 }
 
 bool LxmfAdapter::maybeForwardLinkPacket(const uint8_t* raw_packet, size_t raw_len,
@@ -3357,7 +3256,7 @@ bool LxmfAdapter::maybeForwardLinkPacket(const uint8_t* raw_packet, size_t raw_l
     }
 
     relay->last_seen_ms = millis();
-    return raw_.sendAppData(ChannelId::PRIMARY, 0, forward_packet, forward_len);
+    return interfaces_.sendPacket(forward_packet, forward_len);
 }
 
 bool LxmfAdapter::sendProofForPacket(const uint8_t* raw_packet, size_t raw_len)
@@ -3506,16 +3405,10 @@ LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
         return nullptr;
     }
 
-    for (auto& session : links_.sessions)
+    if (LinkSession* session =
+            runtime::findOpenLinkSessionByDestination(links_, peer.destination_hash, kind))
     {
-        if (session.state != LinkState::Closed &&
-            session.destination == kind &&
-            hashesEqual(session.remote_destination_hash,
-                        peer.destination_hash,
-                        sizeof(session.remote_destination_hash)))
-        {
-            return &session;
-        }
+        return session;
     }
 
     const PathEntry* path = findPath(peer.destination_hash);
@@ -3528,26 +3421,7 @@ LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
         return nullptr;
     }
 
-    if (links_.sessions.size() >= kMaxLinkSessions)
-    {
-        auto closed = std::find_if(links_.sessions.begin(),
-                                   links_.sessions.end(),
-                                   [](const LinkSession& session)
-                                   {
-                                       return session.state == LinkState::Closed;
-                                   });
-        if (closed != links_.sessions.end())
-        {
-            links_.sessions.erase(closed);
-        }
-        else
-        {
-            links_.sessions.erase(links_.sessions.begin());
-        }
-    }
-
-    links_.sessions.push_back(LinkSession{});
-    LinkSession& session = links_.sessions.back();
+    LinkSession& session = runtime::appendLinkSession(links_, kMaxLinkSessions);
     session.created_ms = millis();
     session.request_ms = session.created_ms;
     session.last_inbound_ms = session.created_ms;
@@ -3677,7 +3551,79 @@ bool LxmfAdapter::buildSignedMessagePacket(const PeerInfo& peer,
         return false;
     }
 
-    return buildEncryptedPacketForPeer(peer, lxmf_message, lxmf_message_len, out_packet, inout_len);
+    if (lxmf_message_len <= reticulum::kTruncatedHashSize)
+    {
+        return false;
+    }
+
+    return buildEncryptedPacketForPeer(peer,
+                                       lxmf_message + reticulum::kTruncatedHashSize,
+                                       lxmf_message_len - reticulum::kTruncatedHashSize,
+                                       out_packet,
+                                       inout_len);
+}
+
+bool LxmfAdapter::buildGroupMessagePacket(
+    const ReticulumPeerIdentity& destination,
+    const uint8_t* packed_payload, size_t packed_payload_len,
+    uint8_t* out_packet, size_t* inout_len,
+    uint8_t out_message_hash[reticulum::kFullHashSize])
+{
+    if (!hasReticulumDestinationIdentity(destination) ||
+        (!packed_payload && packed_payload_len != 0) ||
+        !out_packet ||
+        !inout_len ||
+        !out_message_hash)
+    {
+        return false;
+    }
+
+    uint8_t signed_part[kSignedPartMaxLen] = {};
+    size_t signed_part_len = sizeof(signed_part);
+    if (!buildSignedPart(destination.destination_hash,
+                         identity_.destinationHash(),
+                         packed_payload,
+                         packed_payload_len,
+                         signed_part,
+                         &signed_part_len,
+                         out_message_hash))
+    {
+        return false;
+    }
+
+    uint8_t signature[reticulum::kSignatureSize] = {};
+    if (!identity_.sign(signed_part, signed_part_len, signature))
+    {
+        return false;
+    }
+
+    uint8_t lxmf_message[kMaxLxmfMessageLen] = {};
+    size_t lxmf_message_len = sizeof(lxmf_message);
+    if (!packMessage(destination.destination_hash,
+                     identity_.destinationHash(),
+                     signature,
+                     packed_payload,
+                     packed_payload_len,
+                     lxmf_message,
+                     &lxmf_message_len))
+    {
+        return false;
+    }
+
+    if (lxmf_message_len <= reticulum::kTruncatedHashSize)
+    {
+        return false;
+    }
+
+    return reticulum::buildHeader1Packet(reticulum::PacketType::Data,
+                                         reticulum::DestinationType::Group,
+                                         reticulum::PacketContext::None,
+                                         false,
+                                         destination.destination_hash,
+                                         lxmf_message + reticulum::kTruncatedHashSize,
+                                         lxmf_message_len - reticulum::kTruncatedHashSize,
+                                         out_packet,
+                                         inout_len);
 }
 
 bool LxmfAdapter::buildEncryptedPacketForPeer(const PeerInfo& peer,
@@ -3750,13 +3696,13 @@ bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
 
     if (!allow_transport)
     {
-        return raw_.sendAppData(ChannelId::PRIMARY, 0, raw_packet, raw_len);
+        return interfaces_.sendPacket(raw_packet, raw_len);
     }
 
     reticulum::ParsedPacket parsed{};
     if (!reticulum::parsePacket(raw_packet, raw_len, &parsed) || !parsed.destination_hash)
     {
-        return raw_.sendAppData(ChannelId::PRIMARY, 0, raw_packet, raw_len);
+        return interfaces_.sendPacket(raw_packet, raw_len);
     }
 
     if (parsed.packet_type == reticulum::PacketType::Announce ||
@@ -3764,13 +3710,13 @@ bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
         parsed.destination_type == reticulum::DestinationType::Plain ||
         parsed.destination_type == reticulum::DestinationType::Group)
     {
-        return raw_.sendAppData(ChannelId::PRIMARY, 0, raw_packet, raw_len);
+        return interfaces_.sendPacket(raw_packet, raw_len);
     }
 
     const PathEntry* path = findPath(parsed.destination_hash);
     if (!path || path->hops <= 1 || path->direct)
     {
-        return raw_.sendAppData(ChannelId::PRIMARY, 0, raw_packet, raw_len);
+        return interfaces_.sendPacket(raw_packet, raw_len);
     }
 
     uint8_t routed_packet[kMaxPacketLen] = {};
@@ -3790,7 +3736,7 @@ bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
         return false;
     }
 
-    return raw_.sendAppData(ChannelId::PRIMARY, 0, routed_packet, routed_len);
+    return interfaces_.sendPacket(routed_packet, routed_len);
 }
 
 bool LxmfAdapter::sendCachedAnnounceResponse(const PathEntry& path,
@@ -3825,7 +3771,7 @@ bool LxmfAdapter::sendCachedAnnounceResponse(const PathEntry& path,
         return false;
     }
 
-    return raw_.sendAppData(ChannelId::PRIMARY, 0, packet, packet_len);
+    return interfaces_.sendPacket(packet, packet_len);
 }
 
 bool LxmfAdapter::sendCachedPacketReplay(const uint8_t packet_hash[reticulum::kFullHashSize])
@@ -3843,7 +3789,7 @@ bool LxmfAdapter::sendCachedPacketReplay(const uint8_t packet_hash[reticulum::kF
         }
         if (hashesEqual(path.cached_packet_hash, packet_hash, reticulum::kFullHashSize))
         {
-            return raw_.sendAppData(ChannelId::PRIMARY, 0, path.cached_announce, path.cached_announce_len);
+            return interfaces_.sendPacket(path.cached_announce, path.cached_announce_len);
         }
     }
 
@@ -3895,296 +3841,94 @@ bool LxmfAdapter::rebroadcastAnnounce(const PathEntry& path, const reticulum::Pa
         return false;
     }
 
-    return raw_.sendAppData(ChannelId::PRIMARY, 0, rebroadcast, rebroadcast_len);
+    return interfaces_.sendPacket(rebroadcast, rebroadcast_len);
 }
 
 bool LxmfAdapter::isDuplicatePacket(const uint8_t packet_hash[reticulum::kFullHashSize])
 {
-    if (!packet_hash)
-    {
-        return false;
-    }
-    for (const auto& entry : transport_.packet_filter)
-    {
-        if (entry.seen_ms != 0 &&
-            hashesEqual(entry.packet_hash, packet_hash, reticulum::kFullHashSize))
-        {
-            return true;
-        }
-    }
-    return false;
+    return runtime::isDuplicatePacket(transport_, packet_hash);
 }
 
 void LxmfAdapter::rememberPacket(const uint8_t packet_hash[reticulum::kFullHashSize])
 {
-    if (!packet_hash)
-    {
-        return;
-    }
-
-    if (transport_.packet_filter.size() >= kMaxPacketFilter)
-    {
-        transport_.packet_filter.erase(transport_.packet_filter.begin());
-    }
-
-    PacketFilterEntry entry{};
-    copyHash(entry.packet_hash, packet_hash, sizeof(entry.packet_hash));
-    entry.seen_ms = millis();
-    transport_.packet_filter.push_back(entry);
+    runtime::rememberPacket(transport_, packet_hash, millis(), kMaxPacketFilter);
 }
 
 void LxmfAdapter::rememberReversePath(const uint8_t proof_hash[reticulum::kTruncatedHashSize],
                                       uint8_t expected_hops)
 {
-    if (!proof_hash)
-    {
-        return;
-    }
-
-    for (auto& entry : transport_.reverse_table)
-    {
-        if (hashesEqual(entry.proof_hash, proof_hash, sizeof(entry.proof_hash)))
-        {
-            entry.expected_hops = expected_hops;
-            entry.created_ms = millis();
-            return;
-        }
-    }
-
-    if (transport_.reverse_table.size() >= kMaxReverseEntries)
-    {
-        transport_.reverse_table.erase(transport_.reverse_table.begin());
-    }
-
-    ReverseEntry entry{};
-    copyHash(entry.proof_hash, proof_hash, sizeof(entry.proof_hash));
-    entry.expected_hops = expected_hops;
-    entry.created_ms = millis();
-    transport_.reverse_table.push_back(entry);
+    runtime::rememberReversePath(transport_, proof_hash, expected_hops, millis(), kMaxReverseEntries);
 }
 
 LxmfAdapter::ReverseEntry* LxmfAdapter::findReversePath(
     const uint8_t proof_hash[reticulum::kTruncatedHashSize])
 {
-    if (!proof_hash)
-    {
-        return nullptr;
-    }
-    for (auto& entry : transport_.reverse_table)
-    {
-        if (entry.created_ms != 0 &&
-            hashesEqual(entry.proof_hash, proof_hash, sizeof(entry.proof_hash)))
-        {
-            return &entry;
-        }
-    }
-    return nullptr;
+    return runtime::findReversePath(transport_, proof_hash);
 }
 
 LxmfAdapter::PendingPathRequest* LxmfAdapter::findPendingPathRequest(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize])
 {
-    if (!destination_hash)
-    {
-        return nullptr;
-    }
-
-    for (auto& pending : transport_.pending_path_requests)
-    {
-        if (hashesEqual(pending.destination_hash, destination_hash, sizeof(pending.destination_hash)))
-        {
-            return &pending;
-        }
-    }
-    return nullptr;
+    return runtime::findPendingPathRequest(transport_, destination_hash);
 }
 
 const LxmfAdapter::PendingPathRequest* LxmfAdapter::findPendingPathRequest(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize]) const
 {
-    if (!destination_hash)
-    {
-        return nullptr;
-    }
-
-    for (const auto& pending : transport_.pending_path_requests)
-    {
-        if (hashesEqual(pending.destination_hash, destination_hash, sizeof(pending.destination_hash)))
-        {
-            return &pending;
-        }
-    }
-    return nullptr;
+    return runtime::findPendingPathRequest(transport_, destination_hash);
 }
 
 void LxmfAdapter::notePendingPathRequest(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize],
     uint32_t now_ms)
 {
-    if (!destination_hash)
-    {
-        return;
-    }
-
-    PendingPathRequest* pending = findPendingPathRequest(destination_hash);
-    if (!pending)
-    {
-        if (transport_.pending_path_requests.size() >= kMaxPendingPathRequests)
-        {
-            transport_.pending_path_requests.erase(transport_.pending_path_requests.begin());
-        }
-
-        transport_.pending_path_requests.push_back(PendingPathRequest{});
-        pending = &transport_.pending_path_requests.back();
-        copyHash(pending->destination_hash, destination_hash, sizeof(pending->destination_hash));
-        pending->created_ms = now_ms;
-    }
-
-    pending->last_attempt_ms = now_ms;
-    pending->resolved = false;
-    if (pending->attempts < 0xFFU)
-    {
-        pending->attempts += 1;
-    }
+    runtime::notePendingPathRequest(transport_, destination_hash, now_ms, kMaxPendingPathRequests);
 }
 
 void LxmfAdapter::resolvePendingPathRequest(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize])
 {
-    if (!destination_hash)
-    {
-        return;
-    }
-
-    transport_.pending_path_requests.erase(
-        std::remove_if(transport_.pending_path_requests.begin(),
-                       transport_.pending_path_requests.end(),
-                       [destination_hash](const PendingPathRequest& pending)
-                       {
-                           return hashesEqual(pending.destination_hash,
-                                              destination_hash,
-                                              sizeof(pending.destination_hash));
-                       }),
-        transport_.pending_path_requests.end());
+    runtime::resolvePendingPathRequest(transport_, destination_hash);
 }
 
 void LxmfAdapter::cullTransportState()
 {
-    const uint32_t now_ms = millis();
-
-    transport_.packet_filter.erase(
-        std::remove_if(transport_.packet_filter.begin(), transport_.packet_filter.end(),
-                       [now_ms](const PacketFilterEntry& entry)
-                       {
-                           return entry.seen_ms == 0 || (now_ms - entry.seen_ms) > kPacketFilterTtlMs;
-                       }),
-        transport_.packet_filter.end());
-
-    transport_.reverse_table.erase(
-        std::remove_if(transport_.reverse_table.begin(), transport_.reverse_table.end(),
-                       [now_ms](const ReverseEntry& entry)
-                       {
-                           return entry.created_ms == 0 || (now_ms - entry.created_ms) > kReverseEntryTtlMs;
-                       }),
-        transport_.reverse_table.end());
-
-    transport_.link_relays.erase(
-        std::remove_if(transport_.link_relays.begin(), transport_.link_relays.end(),
-                       [now_ms](const LinkRelayEntry& entry)
-                       {
-                           return entry.last_seen_ms == 0 || (now_ms - entry.last_seen_ms) > kLinkRelayTtlMs;
-                       }),
-        transport_.link_relays.end());
-
-    transport_.pending_path_requests.erase(
-        std::remove_if(transport_.pending_path_requests.begin(),
-                       transport_.pending_path_requests.end(),
-                       [now_ms](const PendingPathRequest& pending)
-                       {
-                           return pending.created_ms == 0 ||
-                                  (now_ms - pending.created_ms) > kPendingPathRequestTtlMs;
-                       }),
-        transport_.pending_path_requests.end());
-
+    const runtime::TransportRuntimeLimits limits{
+        kMaxPaths,
+        kMaxPacketFilter,
+        kMaxReverseEntries,
+        kMaxLinkRelays,
+        kMaxPendingPathRequests,
+        kPacketFilterTtlMs,
+        kPendingPathRequestTtlMs,
+        kReverseEntryTtlMs,
+        kLinkRelayTtlMs};
+    runtime::cullTransportRuntime(transport_, millis(), limits);
     cullLinkSessions();
 }
 
 LxmfAdapter::PathEntry& LxmfAdapter::upsertPath(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize])
 {
-    for (auto& path : transport_.paths)
-    {
-        if (hashesEqual(path.destination_hash, destination_hash, reticulum::kTruncatedHashSize))
-        {
-            return path;
-        }
-    }
-
-    if (transport_.paths.size() >= kMaxPaths)
-    {
-        transport_.paths.erase(transport_.paths.begin());
-    }
-
-    transport_.paths.push_back(PathEntry{});
-    PathEntry& path = transport_.paths.back();
-    copyHash(path.destination_hash, destination_hash, sizeof(path.destination_hash));
-    return path;
+    return runtime::upsertPath(transport_, destination_hash, kMaxPaths);
 }
 
 const LxmfAdapter::PathEntry* LxmfAdapter::findPath(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize]) const
 {
-    if (!destination_hash)
-    {
-        return nullptr;
-    }
-    for (const auto& path : transport_.paths)
-    {
-        if (hashesEqual(path.destination_hash, destination_hash, sizeof(path.destination_hash)))
-        {
-            return &path;
-        }
-    }
-    return nullptr;
+    return runtime::findPath(transport_, destination_hash);
 }
 
 LxmfAdapter::LinkRelayEntry& LxmfAdapter::upsertLinkRelay(
     const uint8_t link_id[reticulum::kTruncatedHashSize])
 {
-    for (auto& relay : transport_.link_relays)
-    {
-        if (hashesEqual(relay.link_id, link_id, sizeof(relay.link_id)))
-        {
-            return relay;
-        }
-    }
-
-    if (transport_.link_relays.size() >= kMaxLinkRelays)
-    {
-        transport_.link_relays.erase(transport_.link_relays.begin());
-    }
-
-    transport_.link_relays.push_back(LinkRelayEntry{});
-    LinkRelayEntry& relay = transport_.link_relays.back();
-    copyHash(relay.link_id, link_id, sizeof(relay.link_id));
-    return relay;
+    return runtime::upsertLinkRelay(transport_, link_id, kMaxLinkRelays);
 }
 
 LxmfAdapter::LinkRelayEntry* LxmfAdapter::findLinkRelay(
     const uint8_t link_id[reticulum::kTruncatedHashSize])
 {
-    if (!link_id)
-    {
-        return nullptr;
-    }
-    for (auto& relay : transport_.link_relays)
-    {
-        if (hashesEqual(relay.link_id, link_id, sizeof(relay.link_id)))
-        {
-            return &relay;
-        }
-    }
-    return nullptr;
+    return runtime::findLinkRelay(transport_, link_id);
 }
 
 void LxmfAdapter::localDestinationHash(LocalDestinationKind kind,
@@ -4395,7 +4139,7 @@ bool LxmfAdapter::sendLinkPacket(LinkSession& session,
         return false;
     }
 
-    const bool ok = raw_.sendAppData(ChannelId::PRIMARY, 0, packet, packet_len);
+    const bool ok = interfaces_.sendPacket(packet, packet_len);
     if (ok)
     {
         session.last_outbound_ms = millis();
@@ -4662,24 +4406,18 @@ bool LxmfAdapter::queueOutgoingResource(LinkSession& session,
     const size_t collision_guard = (kResourceWindowSize * 2U) + segment_capacity;
 
     LinkResourceTransfer resource{};
-    if (request_id_len != 0)
+    if (!runtime::initialiseOutgoingResourceTransfer(resource,
+                                                     request_id,
+                                                     request_id_len,
+                                                     static_cast<uint32_t>(len),
+                                                     static_cast<uint32_t>(encrypted_stream.size()),
+                                                     static_cast<uint32_t>(part_count),
+                                                     flags | kResourceFlagEncrypted,
+                                                     millis(),
+                                                     kResourceWindowSize))
     {
-        resource.request_id.assign(request_id, request_id + request_id_len);
+        return false;
     }
-    resource.data_size = static_cast<uint32_t>(len);
-    resource.transfer_size = static_cast<uint32_t>(encrypted_stream.size());
-    resource.part_count = static_cast<uint32_t>(part_count);
-    resource.hashmap_height = resource.part_count;
-    resource.window_size = kResourceWindowSize;
-    resource.created_ms = millis();
-    resource.last_activity_ms = resource.created_ms;
-    resource.flags = flags | kResourceFlagEncrypted;
-    resource.incoming = false;
-    resource.encrypted = true;
-    resource.parts.resize(part_count);
-    resource.map_hashes.resize(part_count);
-    resource.map_hash_known.assign(part_count, 1);
-    resource.received_bitmap.assign(part_count, 0);
 
     bool mapped = false;
     for (size_t attempt = 0; attempt < 8 && !mapped; ++attempt)
@@ -4763,36 +4501,11 @@ bool LxmfAdapter::queueOutgoingResource(LinkSession& session,
 
 void LxmfAdapter::closeLinkSession(LinkSession& session, LinkCloseReason reason)
 {
-    if (session.state == LinkState::Closed)
+    const bool transitioned = runtime::closeLinkSession(session, reason, millis());
+    if (!transitioned)
     {
-        if (session.close_reason == LinkCloseReason::None)
-        {
-            session.close_reason = reason;
-        }
         return;
     }
-
-    session.pending_requests.clear();
-    session.deferred_payloads.clear();
-    session.incoming_resources.clear();
-    session.incoming_resource_assemblies.clear();
-    session.outgoing_resources.clear();
-    session.propagation_offer_validated = false;
-    session.remote_identity_known = false;
-    session.rtt_s = 0.0f;
-    session.validated = false;
-    session.last_keepalive_ms = 0;
-    memset(session.local_enc_priv, 0, sizeof(session.local_enc_priv));
-    memset(session.local_sig_priv, 0, sizeof(session.local_sig_priv));
-    memset(session.derived_key, 0, sizeof(session.derived_key));
-    memset(session.peer_enc_pub, 0, sizeof(session.peer_enc_pub));
-    memset(session.peer_link_sig_pub, 0, sizeof(session.peer_link_sig_pub));
-    memset(session.peer_identity_sig_pub, 0, sizeof(session.peer_identity_sig_pub));
-
-    session.state = LinkState::Closed;
-    session.close_reason = reason;
-    session.last_inbound_ms = millis();
-    session.last_outbound_ms = session.last_inbound_ms;
 
     transport_.link_relays.erase(
         std::remove_if(transport_.link_relays.begin(),
@@ -4884,159 +4597,58 @@ void LxmfAdapter::expirePath(
 LxmfAdapter::LinkSession* LxmfAdapter::findLinkSession(
     const uint8_t link_id[reticulum::kTruncatedHashSize])
 {
-    if (!link_id)
-    {
-        return nullptr;
-    }
-
-    for (auto& session : links_.sessions)
-    {
-        if (hashesEqual(session.link_id, link_id, sizeof(session.link_id)))
-        {
-            return &session;
-        }
-    }
-    return nullptr;
+    return runtime::findLinkSession(links_, link_id);
 }
 
 LxmfAdapter::LinkSession* LxmfAdapter::findActiveLinkSessionByDestination(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize],
     LocalDestinationKind kind)
 {
-    if (!destination_hash)
-    {
-        return nullptr;
-    }
-
-    for (auto& session : links_.sessions)
-    {
-        if (session.state == LinkState::Active &&
-            session.destination == kind &&
-            hashesEqual(session.remote_destination_hash,
-                        destination_hash,
-                        sizeof(session.remote_destination_hash)))
-        {
-            return &session;
-        }
-    }
-    return nullptr;
+    return runtime::findActiveLinkSessionByDestination(links_, destination_hash, kind);
 }
 
 void LxmfAdapter::cullLinkSessions()
 {
     const uint32_t now_ms = millis();
+    const runtime::LinkRuntimeLimits limits{
+        kMaxLinkSessions,
+        kLinkRequestTtlMs,
+        kLinkHandshakeTimeoutMs,
+        kLinkIdleTimeoutMs,
+        kLinkSessionTtlMs,
+        kLinkStaleGraceMs,
+        kLinkKeepaliveTimeoutFactor,
+        5000};
+    const runtime::ResourceRuntimeLimits resource_limits{kResourceTransferTtlMs};
 
     for (auto& session : links_.sessions)
     {
-        session.pending_requests.erase(
-            std::remove_if(session.pending_requests.begin(),
-                           session.pending_requests.end(),
-                           [now_ms](const LinkPendingRequest& request)
-                           {
-                               return request.created_ms == 0 ||
-                                      (now_ms - request.created_ms) > kLinkRequestTtlMs;
-                           }),
-            session.pending_requests.end());
-
-        auto cull_resources = [now_ms](std::vector<LinkResourceTransfer>& resources)
-        {
-            resources.erase(
-                std::remove_if(resources.begin(),
-                               resources.end(),
-                               [now_ms](const LinkResourceTransfer& resource)
-                               {
-                                   return resource.complete || resource.last_activity_ms == 0 ||
-                                          (now_ms - resource.last_activity_ms) > kResourceTransferTtlMs;
-                               }),
-                resources.end());
-        };
-        cull_resources(session.incoming_resources);
-        cull_resources(session.outgoing_resources);
-        session.incoming_resource_assemblies.erase(
-            std::remove_if(session.incoming_resource_assemblies.begin(),
-                           session.incoming_resource_assemblies.end(),
-                           [now_ms](const LinkResourceAssembly& assembly)
-                           {
-                               return assembly.last_activity_ms == 0 ||
-                                      (now_ms - assembly.last_activity_ms) > kResourceTransferTtlMs;
-                           }),
-            session.incoming_resource_assemblies.end());
-
-        const uint32_t last_activity =
-            std::max(session.last_inbound_ms, session.last_outbound_ms);
-        const uint32_t age_ms =
-            (last_activity == 0) ? (now_ms - session.created_ms) : (now_ms - last_activity);
-        const uint32_t inbound_age_ms =
-            (session.last_inbound_ms == 0) ? (now_ms - session.created_ms) : (now_ms - session.last_inbound_ms);
-
-        if (session.state == LinkState::Pending || session.state == LinkState::Handshake)
-        {
-            if (age_ms > kLinkHandshakeTimeoutMs)
-            {
-                closeLinkSession(session, LinkCloseReason::Timeout);
-            }
-        }
-        else if (session.state == LinkState::Active)
-        {
-            flushDeferredLinkPayloads(session);
-
-            if (session.initiator &&
-                session.keepalive_interval_ms != 0 &&
-                inbound_age_ms >= session.keepalive_interval_ms &&
-                (session.last_keepalive_ms == 0 ||
-                 (now_ms - session.last_keepalive_ms) >= session.keepalive_interval_ms))
-            {
-                (void)sendLinkKeepalive(session);
-            }
-
-            if (session.stale_timeout_ms != 0 && inbound_age_ms >= session.stale_timeout_ms)
-            {
-                session.state = LinkState::Stale;
-            }
-        }
-        else if (session.state == LinkState::Stale)
-        {
-            const uint32_t final_timeout_ms =
-                session.stale_timeout_ms +
-                static_cast<uint32_t>(std::max(0.0f, session.rtt_s) * 1000.0f) *
-                    kLinkKeepaliveTimeoutFactor +
-                kLinkStaleGraceMs;
-            if (inbound_age_ms >= final_timeout_ms)
-            {
-                closeLinkSession(session, LinkCloseReason::Timeout);
-            }
-        }
-        else if (session.state != LinkState::Closed &&
-                 (age_ms > kLinkIdleTimeoutMs || (now_ms - session.created_ms) > kLinkSessionTtlMs))
+        runtime::cullLinkSessionTables(session, now_ms, limits);
+        runtime::cullLinkResources(session, now_ms, resource_limits);
+        const runtime::LinkRuntimeMaintenance maintenance =
+            runtime::advanceLinkSessionLifecycle(session, now_ms, limits);
+        if (maintenance.close_timeout)
         {
             closeLinkSession(session, LinkCloseReason::Timeout);
         }
+        else
+        {
+            if (maintenance.flush_deferred_payloads)
+            {
+                flushDeferredLinkPayloads(session);
+            }
+            if (maintenance.send_keepalive)
+            {
+                (void)sendLinkKeepalive(session);
+            }
+            if (maintenance.marked_stale)
+            {
+                runtime::markLinkSessionStale(session);
+            }
+        }
     }
 
-    links_.sessions.erase(
-        std::remove_if(links_.sessions.begin(), links_.sessions.end(),
-                       [now_ms](const LinkSession& session)
-                       {
-                           const uint32_t last_activity =
-                               std::max(session.last_inbound_ms, session.last_outbound_ms);
-                           const uint32_t age_ms =
-                               (last_activity == 0) ? (now_ms - session.created_ms) : (now_ms - last_activity);
-
-                           if (session.state == LinkState::Closed)
-                           {
-                               return age_ms > 5000;
-                           }
-                           if (session.state == LinkState::Pending || session.state == LinkState::Handshake)
-                           {
-                               return age_ms > kLinkHandshakeTimeoutMs;
-                           }
-                           if (session.state == LinkState::Stale)
-                           {
-                               return age_ms > kLinkIdleTimeoutMs;
-                           }
-                           return age_ms > kLinkIdleTimeoutMs || (now_ms - session.created_ms) > kLinkSessionTtlMs;
-                       }),
-        links_.sessions.end());
+    runtime::removeExpiredLinkSessions(links_, now_ms, limits);
 }
 
 LxmfAdapter::PeerInfo* LxmfAdapter::rememberPeerIdentity(
@@ -5075,29 +4687,89 @@ LxmfAdapter::PeerInfo* LxmfAdapter::rememberPeerIdentity(
 bool LxmfAdapter::acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaintext_len,
                                          const uint8_t* raw_packet, size_t raw_len)
 {
-    (void)raw_packet;
-    (void)raw_len;
+    ReticulumPeerIdentity conversation_identity{};
+    return acceptVerifiedEnvelopeForDestination(identity_.destinationHash(),
+                                                conversation_identity,
+                                                false,
+                                                true,
+                                                plaintext,
+                                                plaintext_len,
+                                                raw_packet,
+                                                raw_len);
+}
 
-    if (!plaintext || plaintext_len == 0)
+bool LxmfAdapter::acceptVerifiedEnvelopeForDestination(
+    const uint8_t expected_destination_hash[reticulum::kTruncatedHashSize],
+    const ReticulumPeerIdentity& conversation_identity,
+    bool destination_is_group,
+    bool encrypted,
+    const uint8_t* plaintext, size_t plaintext_len,
+    const uint8_t* raw_packet, size_t raw_len)
+{
+    (void)raw_packet;
+
+    char expected_hash[12] = {};
+    formatHashPrefix(expected_destination_hash, expected_hash, sizeof(expected_hash));
+    Serial.printf("[LXMF][%sRX] envelope begin dest=%s plaintext_len=%u raw_len=%u encrypted=%u\n",
+                  destination_is_group ? "Group" : "Direct",
+                  expected_hash,
+                  static_cast<unsigned>(plaintext_len),
+                  static_cast<unsigned>(raw_len),
+                  encrypted ? 1U : 0U);
+    if (!expected_destination_hash || !plaintext || plaintext_len == 0)
     {
+        Serial.printf("[LXMF][%sRX] drop reason=invalid_input dest=%s\n",
+                      destination_is_group ? "Group" : "Direct",
+                      expected_hash);
         return false;
     }
 
     DecodedEnvelope envelope{};
-    if (!unpackMessageEnvelope(plaintext, plaintext_len, &envelope))
+    bool embedded_destination_hash = false;
+    if (!unpackRnsLxmfEnvelope(expected_destination_hash,
+                               plaintext,
+                               plaintext_len,
+                               &envelope,
+                               &embedded_destination_hash))
     {
+        Serial.printf("[LXMF][%sRX] drop reason=unpack_envelope_failed dest=%s plaintext_len=%u\n",
+                      destination_is_group ? "Group" : "Direct",
+                      expected_hash,
+                      static_cast<unsigned>(plaintext_len));
         return false;
     }
+    char envelope_dest_hash[12] = {};
+    char source_hash[12] = {};
+    formatHashPrefix(envelope.destination_hash,
+                     envelope_dest_hash,
+                     sizeof(envelope_dest_hash));
+    formatHashPrefix(envelope.source_hash, source_hash, sizeof(source_hash));
+    const char* wire_form = embedded_destination_hash ? "full" : "opportunistic_tail";
+    Serial.printf("[LXMF][%sRX] envelope parsed wire=%s dest=%s source=%s payload_len=%u\n",
+                  destination_is_group ? "Group" : "Direct",
+                  wire_form,
+                  envelope_dest_hash,
+                  source_hash,
+                  static_cast<unsigned>(envelope.packed_payload.size()));
     if (!hashesEqual(envelope.destination_hash,
-                     identity_.destinationHash(),
+                     expected_destination_hash,
                      reticulum::kTruncatedHashSize))
     {
+        Serial.printf("[LXMF][%sRX] drop reason=destination_mismatch expected=%s envelope=%s source=%s\n",
+                      destination_is_group ? "Group" : "Direct",
+                      expected_hash,
+                      envelope_dest_hash,
+                      source_hash);
         return false;
     }
 
     const PeerInfo* peer = findPeerByDestinationHash(envelope.source_hash);
     if (!peer)
     {
+        Serial.printf("[LXMF][%sRX] drop reason=unknown_sender dest=%s source=%s\n",
+                      destination_is_group ? "Group" : "Direct",
+                      expected_hash,
+                      source_hash);
         return false;
     }
 
@@ -5116,6 +4788,11 @@ bool LxmfAdapter::acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaint
                          &signed_part_len,
                          message_hash))
     {
+        Serial.printf("[LXMF][%sRX] drop reason=signed_part_failed dest=%s source=%s payload_len=%u\n",
+                      destination_is_group ? "Group" : "Direct",
+                      expected_hash,
+                      source_hash,
+                      static_cast<unsigned>(envelope.packed_payload.size()));
         return false;
     }
 
@@ -5124,25 +4801,57 @@ bool LxmfAdapter::acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaint
                               signed_part.data(),
                               signed_part_len))
     {
+        Serial.printf("[LXMF][%sRX] drop reason=signature_failed dest=%s source=%s node=%08lX\n",
+                      destination_is_group ? "Group" : "Direct",
+                      expected_hash,
+                      source_hash,
+                      static_cast<unsigned long>(peer->node_id));
         return false;
     }
 
-    DecodedAppData app_payload{};
-    if (decodeAppDataPayload(envelope.packed_payload.data(), envelope.packed_payload.size(), &app_payload))
+    runtime::LxmfDeliveryContext delivery_context{};
+    delivery_context.peer_node_id = peer->node_id;
+    delivery_context.local_node_id = identity_.nodeId();
+    delivery_context.message_id = messageIdFromHash(message_hash);
+    delivery_context.timestamp_s = currentTimestampSeconds();
+    delivery_context.peer_identity = reticulumIdentityForPeer(*peer);
+    delivery_context.conversation_identity =
+        hasReticulumDestinationIdentity(conversation_identity)
+            ? conversation_identity
+            : delivery_context.peer_identity;
+    delivery_context.destination_is_group = destination_is_group;
+    delivery_context.encrypted = encrypted;
+    populateRxMeta(&delivery_context.rx_meta);
+
+    runtime::LxmfVerifiedDelivery delivery{};
+    if (!runtime::materialiseVerifiedLxmfDelivery(envelope.packed_payload.data(),
+                                                  envelope.packed_payload.size(),
+                                                  delivery_context,
+                                                  &delivery))
     {
-        MeshIncomingData incoming;
-        incoming.portnum = app_payload.portnum;
-        incoming.from = peer->node_id;
-        incoming.to = identity_.nodeId();
-        incoming.packet_id = app_payload.packet_id;
-        incoming.request_id = app_payload.request_id;
-        incoming.channel = ChannelId::PRIMARY;
-        incoming.want_response = app_payload.want_response;
-        populateRxMeta(&incoming.rx_meta);
+        Serial.printf("[LXMF][%sRX] drop reason=materialise_failed dest=%s source=%s msg=%lu payload_len=%u\n",
+                      destination_is_group ? "Group" : "Direct",
+                      expected_hash,
+                      source_hash,
+                      static_cast<unsigned long>(delivery_context.message_id),
+                      static_cast<unsigned>(envelope.packed_payload.size()));
+        return false;
+    }
+    Serial.printf("[LXMF][%sRX] verified kind=%u msg=%lu from=%08lX dest=%s source=%s\n",
+                  destination_is_group ? "Group" : "Direct",
+                  static_cast<unsigned>(delivery.kind),
+                  static_cast<unsigned long>(delivery_context.message_id),
+                  static_cast<unsigned long>(peer->node_id),
+                  expected_hash,
+                  source_hash);
+
+    if (delivery.kind == runtime::LxmfDeliveryKind::AppData)
+    {
         ::chat::infra::IncomingQueuePushReport report{};
-        if (data_receive_queue_.push(incoming,
-                                     app_payload.payload.empty() ? nullptr : app_payload.payload.data(),
-                                     app_payload.payload.size(),
+        if (data_receive_queue_.push(delivery.app_data.incoming,
+                                     delivery.app_data.payload.empty() ? nullptr
+                                                                       : delivery.app_data.payload.data(),
+                                     delivery.app_data.payload.size(),
                                      ::chat::infra::IncomingQueuePriority::P1User,
                                      &report))
         {
@@ -5152,34 +4861,33 @@ bool LxmfAdapter::acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaint
                               static_cast<unsigned>(report.dropped_priority),
                               static_cast<unsigned>(data_receive_queue_.size()));
             }
+            Serial.printf("[LXMF][%sRX] queued app_data msg=%lu port=%lu len=%u depth=%u\n",
+                          destination_is_group ? "Group" : "Direct",
+                          static_cast<unsigned long>(delivery_context.message_id),
+                          static_cast<unsigned long>(delivery.app_data.incoming.portnum),
+                          static_cast<unsigned>(delivery.app_data.payload.size()),
+                          static_cast<unsigned>(data_receive_queue_.size()));
             return true;
         }
         Serial.printf("[LXMF] RX data queue drop port=%lu len=%u depth=%u\n",
-                      static_cast<unsigned long>(incoming.portnum),
-                      static_cast<unsigned>(app_payload.payload.size()),
+                      static_cast<unsigned long>(delivery.app_data.incoming.portnum),
+                      static_cast<unsigned>(delivery.app_data.payload.size()),
                       static_cast<unsigned>(data_receive_queue_.size()));
         return true;
     }
 
-    DecodedTextPayload text_payload{};
-    if (!unpackTextPayload(envelope.packed_payload.data(), envelope.packed_payload.size(), &text_payload))
+    if (delivery.kind != runtime::LxmfDeliveryKind::Text)
     {
+        Serial.printf("[LXMF][%sRX] drop reason=unsupported_delivery kind=%u msg=%lu\n",
+                      destination_is_group ? "Group" : "Direct",
+                      static_cast<unsigned>(delivery.kind),
+                      static_cast<unsigned long>(delivery_context.message_id));
         return false;
     }
-
-    MeshIncomingText incoming;
-    incoming.channel = ChannelId::PRIMARY;
-    incoming.from = peer->node_id;
-    incoming.to = identity_.nodeId();
-    incoming.msg_id = messageIdFromHash(message_hash);
-    incoming.timestamp = currentTimestampSeconds();
-    incoming.hop_limit = 0xFF;
-    incoming.encrypted = true;
-    populateRxMeta(&incoming.rx_meta);
     ::chat::infra::IncomingQueuePushReport report{};
-    if (text_receive_queue_.push(incoming,
-                                 text_payload.content.data(),
-                                 text_payload.content.size(),
+    if (text_receive_queue_.push(delivery.text.incoming,
+                                 delivery.text.text.data(),
+                                 delivery.text.text.size(),
                                  ::chat::infra::IncomingQueuePriority::P1User,
                                  &report))
     {
@@ -5189,10 +4897,18 @@ bool LxmfAdapter::acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaint
                           static_cast<unsigned>(report.dropped_priority),
                           static_cast<unsigned>(text_receive_queue_.size()));
         }
+        Serial.printf("[LXMF][%sRX] queued text msg=%lu from=%08lX to=%08lX len=%u depth=%u dest=%s\n",
+                      destination_is_group ? "Group" : "Direct",
+                      static_cast<unsigned long>(delivery_context.message_id),
+                      static_cast<unsigned long>(delivery.text.incoming.from),
+                      static_cast<unsigned long>(delivery.text.incoming.to),
+                      static_cast<unsigned>(delivery.text.text.size()),
+                      static_cast<unsigned>(text_receive_queue_.size()),
+                      expected_hash);
         return true;
     }
     Serial.printf("[LXMF] RX text queue drop len=%u depth=%u\n",
-                  static_cast<unsigned>(text_payload.content.size()),
+                  static_cast<unsigned>(delivery.text.text.size()),
                   static_cast<unsigned>(text_receive_queue_.size()));
     return true;
 }
@@ -5226,6 +4942,37 @@ const LxmfAdapter::PeerInfo* LxmfAdapter::findPeerByDestinationHash(
     return nullptr;
 }
 
+const ReticulumGroupDestinationConfig* LxmfAdapter::findConfiguredGroupDestination(
+    const uint8_t hash[reticulum::kTruncatedHashSize]) const
+{
+    if (!hash)
+    {
+        return nullptr;
+    }
+
+    for (const auto& group : config_.reticulum_groups)
+    {
+        if (!group.enabled || !hasReticulumDestinationIdentity(group.identity))
+        {
+            continue;
+        }
+        if (hashesEqual(group.identity.destination_hash,
+                        hash,
+                        reticulum::kTruncatedHashSize))
+        {
+            return &group;
+        }
+    }
+    return nullptr;
+}
+
+bool LxmfAdapter::isConfiguredGroupDestination(
+    const ReticulumPeerIdentity& destination) const
+{
+    return hasReticulumDestinationIdentity(destination) &&
+           findConfiguredGroupDestination(destination.destination_hash) != nullptr;
+}
+
 LxmfAdapter::PeerInfo& LxmfAdapter::upsertPeer(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize])
 {
@@ -5253,22 +5000,23 @@ void LxmfAdapter::publishPeerUpdate(const PeerInfo& peer) const
     sys::EventBus::publish(new sys::NodeProtocolUpdateEvent(
                                peer.node_id,
                                peer.last_seen_s,
-                               static_cast<uint8_t>(chat::contacts::NodeProtocolType::LXMF)),
+                               static_cast<uint8_t>(chat::contacts::NodeProtocolType::Reticulum)),
                            0);
 
-    sys::EventBus::publish(new sys::NodeInfoUpdateEvent(
-                               peer.node_id,
-                               short_name,
-                               peer.display_name[0] != '\0' ? peer.display_name : short_name,
-                               raw_.lastRxSnr(),
-                               raw_.lastRxRssi(),
-                               peer.last_seen_s,
-                               static_cast<uint8_t>(chat::contacts::NodeProtocolType::LXMF),
-                               static_cast<uint8_t>(chat::contacts::NodeRoleType::Client),
-                               0,
-                               0,
-                               0xFF),
-                           0);
+    auto* node_event = new sys::NodeInfoUpdateEvent(
+        peer.node_id,
+        short_name,
+        peer.display_name[0] != '\0' ? peer.display_name : short_name,
+        interfaces_.lastRxSnr(),
+        interfaces_.lastRxRssi(),
+        peer.last_seen_s,
+        static_cast<uint8_t>(chat::contacts::NodeProtocolType::Reticulum),
+        static_cast<uint8_t>(chat::contacts::NodeRoleType::Client),
+        0,
+        0,
+        0xFF);
+    node_event->reticulum_identity = reticulumIdentityForPeer(peer);
+    sys::EventBus::publish(node_event, 0);
 }
 
 void LxmfAdapter::loadPersistedPeers()
@@ -5455,6 +5203,13 @@ void LxmfAdapter::populateRxMeta(RxMeta* out) const
         return;
     }
 
+    const RxMeta& last_meta = interfaces_.lastRxMeta();
+    if (last_meta.rx_timestamp_ms != 0 || last_meta.rx_timestamp_s != 0)
+    {
+        *out = last_meta;
+        return;
+    }
+
     out->rx_timestamp_ms = millis();
     out->rx_timestamp_s = currentTimestampSeconds();
     out->time_source = is_valid_epoch(out->rx_timestamp_s)
@@ -5463,8 +5218,8 @@ void LxmfAdapter::populateRxMeta(RxMeta* out) const
     out->origin = RxOrigin::Mesh;
     out->direct = true;
     out->from_is = false;
-    out->rssi_dbm_x10 = static_cast<int16_t>(lround(raw_.lastRxRssi() * 10.0f));
-    out->snr_db_x10 = static_cast<int16_t>(lround(raw_.lastRxSnr() * 10.0f));
+    out->rssi_dbm_x10 = static_cast<int16_t>(lround(interfaces_.lastRxRssi() * 10.0f));
+    out->snr_db_x10 = static_cast<int16_t>(lround(interfaces_.lastRxSnr() * 10.0f));
 }
 
 uint32_t LxmfAdapter::messageIdFromHash(const uint8_t hash[reticulum::kFullHashSize])

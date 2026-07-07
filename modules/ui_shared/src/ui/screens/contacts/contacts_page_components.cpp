@@ -12,6 +12,7 @@
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "sys/clock.h"
 #include "team/protocol/team_position.h"
@@ -26,6 +27,7 @@
 #include "ui/screens/chat/chat_conversation_components.h"
 #include "ui/screens/chat/chat_page_shell.h"
 #include "ui/screens/chat/chat_protocol_support.h"
+#include "ui/screens/contacts/contacts_filter_profile.h"
 #include "ui/screens/contacts/contacts_page_input.h"
 #include "ui/screens/contacts/contacts_page_layout.h"
 #include "ui/screens/contacts/contacts_page_styles.h"
@@ -61,6 +63,7 @@ static constexpr int kButtonHeight = 28;
 static constexpr int kBottomBtnMinWidth = 50;
 static constexpr int kBottomBtnPadH = 8;
 static constexpr intptr_t kBackListItemUserData = -2;
+static constexpr intptr_t kAddReticulumGroupUserData = -3;
 
 // UI color tokens (must align with docs/skyplot.md)
 static constexpr uint32_t kColorAmber = 0xEBA341;
@@ -75,6 +78,7 @@ static lv_group_t* s_compose_prev_group = nullptr;
 static uint32_t s_compose_peer_id = 0;
 static chat::ChannelId s_compose_channel = chat::ChannelId::PRIMARY;
 static chat::MeshProtocol s_compose_protocol = chat::MeshProtocol::Meshtastic;
+static chat::ConversationId s_compose_conversation{};
 static bool s_refreshing_ui = false;
 static lv_coord_t page_button_height()
 {
@@ -97,9 +101,76 @@ static std::unique_ptr<::ui::presentation_sources::TeamChatPresentationSource> s
 static team::TeamController* s_team_action_controller = nullptr;
 static std::unique_ptr<contacts::ui::ContactsTeamSnapshotSource> s_team_snapshot_source;
 
+static void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& identity,
+                                         char* out,
+                                         size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!chat::hasReticulumDestinationIdentity(identity) || out_len < 9)
+    {
+        std::snprintf(out, out_len, "-");
+        return;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "%02X%02X%02X%02X",
+                  static_cast<unsigned>(identity.destination_hash[0]),
+                  static_cast<unsigned>(identity.destination_hash[1]),
+                  static_cast<unsigned>(identity.destination_hash[2]),
+                  static_cast<unsigned>(identity.destination_hash[3]));
+}
+
 static bool show_second_column_back()
 {
     return !::ui::components::info_card::use_tdeck_layout();
+}
+
+static bool filter_mode_for_button(lv_obj_t* target, ContactsMode* out_mode)
+{
+    if (!target || !out_mode)
+    {
+        return false;
+    }
+    if (target == g_contacts_state.contacts_btn)
+    {
+        *out_mode = ContactsMode::Contacts;
+        return true;
+    }
+    if (target == g_contacts_state.nearby_btn)
+    {
+        *out_mode = ContactsMode::Nearby;
+        return true;
+    }
+    if (target == g_contacts_state.groups_btn)
+    {
+        *out_mode = ContactsMode::Groups;
+        return true;
+    }
+    if (target == g_contacts_state.ignored_btn)
+    {
+        *out_mode = ContactsMode::Ignored;
+        return true;
+    }
+    if (target == g_contacts_state.broadcast_btn)
+    {
+        *out_mode = ContactsMode::Broadcast;
+        return true;
+    }
+    if (target == g_contacts_state.team_btn)
+    {
+        *out_mode = ContactsMode::Team;
+        return true;
+    }
+    if (target == g_contacts_state.discover_btn)
+    {
+        *out_mode = ContactsMode::Discover;
+        return true;
+    }
+    return false;
 }
 
 lv_style_selector_t selector_for_state(lv_state_t state)
@@ -123,11 +194,13 @@ static void on_action_menu_item_clicked(lv_event_t* e);
 static void on_action_menu_key(lv_event_t* e);
 static lv_obj_t* create_action_menu_button(lv_obj_t* parent, const char* text);
 static const chat::contacts::NodeInfo* get_selected_node();
+static const chat::contacts::NodeInfo* get_selected_reticulum_group();
 static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id);
 struct BroadcastTargetSpec;
 static bool get_selected_broadcast_target(BroadcastTargetSpec* out_spec,
                                           std::string* out_title);
 static void open_add_edit_modal(bool is_edit);
+static void open_reticulum_group_config_modal();
 static void open_delete_confirm_modal();
 static void open_node_info_screen_for_node(uint32_t node_id);
 static void close_node_info_screen();
@@ -138,6 +211,8 @@ static lv_obj_t* create_modal_root(int width, int height);
 static bool is_any_modal_open();
 static void on_add_edit_save_clicked(lv_event_t* e);
 static void on_add_edit_cancel_clicked(lv_event_t* e);
+static void on_reticulum_group_save_clicked(lv_event_t* e);
+static void on_reticulum_group_cancel_clicked(lv_event_t* e);
 static void on_del_confirm_clicked(lv_event_t* e);
 static void on_del_cancel_clicked(lv_event_t* e);
 static void on_discovery_scan_done(lv_timer_t* timer);
@@ -170,16 +245,22 @@ static void refresh_filter_checked_state()
 {
     if (g_contacts_state.contacts_btn == nullptr ||
         g_contacts_state.nearby_btn == nullptr ||
-        g_contacts_state.ignored_btn == nullptr ||
-        g_contacts_state.broadcast_btn == nullptr)
+        g_contacts_state.ignored_btn == nullptr)
     {
         return;
     }
 
     lv_obj_clear_state(g_contacts_state.contacts_btn, LV_STATE_CHECKED);
     lv_obj_clear_state(g_contacts_state.nearby_btn, LV_STATE_CHECKED);
+    if (g_contacts_state.groups_btn)
+    {
+        lv_obj_clear_state(g_contacts_state.groups_btn, LV_STATE_CHECKED);
+    }
     lv_obj_clear_state(g_contacts_state.ignored_btn, LV_STATE_CHECKED);
-    lv_obj_clear_state(g_contacts_state.broadcast_btn, LV_STATE_CHECKED);
+    if (g_contacts_state.broadcast_btn)
+    {
+        lv_obj_clear_state(g_contacts_state.broadcast_btn, LV_STATE_CHECKED);
+    }
     if (g_contacts_state.team_btn)
     {
         lv_obj_clear_state(g_contacts_state.team_btn, LV_STATE_CHECKED);
@@ -201,7 +282,13 @@ static void refresh_filter_checked_state()
     {
         lv_obj_add_state(g_contacts_state.ignored_btn, LV_STATE_CHECKED);
     }
-    else if (g_contacts_state.current_mode == ContactsMode::Broadcast)
+    else if (g_contacts_state.current_mode == ContactsMode::Groups &&
+             g_contacts_state.groups_btn)
+    {
+        lv_obj_add_state(g_contacts_state.groups_btn, LV_STATE_CHECKED);
+    }
+    else if (g_contacts_state.current_mode == ContactsMode::Broadcast &&
+             g_contacts_state.broadcast_btn)
     {
         lv_obj_add_state(g_contacts_state.broadcast_btn, LV_STATE_CHECKED);
     }
@@ -354,23 +441,13 @@ static bool node_protocol_to_mesh(chat::contacts::NodeProtocolType protocol, cha
     {
         return false;
     }
-    switch (protocol)
+    if (!chat::infra::isValidNodeProtocol(protocol) ||
+        protocol == chat::contacts::NodeProtocolType::Unknown)
     {
-    case chat::contacts::NodeProtocolType::LXMF:
-        *out = chat::MeshProtocol::LXMF;
-        return true;
-    case chat::contacts::NodeProtocolType::RNode:
-        *out = chat::MeshProtocol::RNode;
-        return true;
-    case chat::contacts::NodeProtocolType::MeshCore:
-        *out = chat::MeshProtocol::MeshCore;
-        return true;
-    case chat::contacts::NodeProtocolType::Meshtastic:
-        *out = chat::MeshProtocol::Meshtastic;
-        return true;
-    default:
         return false;
     }
+    *out = chat::infra::meshProtocolFromNodeProtocol(protocol);
+    return true;
 }
 
 struct BroadcastTargetSpec
@@ -410,9 +487,9 @@ static const char* broadcast_chat_unavailable_message(const BroadcastTargetSpec&
     {
         return "MT send uses slot 0/1 only";
     }
-    if (spec.protocol == chat::MeshProtocol::RNode)
+    if (chat::infra::isReticulumMeshProtocol(spec.protocol))
     {
-        return "RNode text chat runs on host";
+        return "Reticulum group send unavailable";
     }
     return "Chat unavailable";
 }
@@ -425,7 +502,7 @@ static size_t get_broadcast_target_count()
         return 8U;
     case chat::MeshProtocol::MeshCore:
         return 2U;
-    case chat::MeshProtocol::RNode:
+    case chat::MeshProtocol::Reticulum:
         return 1U;
     default:
         return 0U;
@@ -455,13 +532,13 @@ static bool get_broadcast_target_spec(int index, BroadcastTargetSpec* out)
         return true;
     }
 
-    if (chat_support::active_mesh_protocol() == chat::MeshProtocol::RNode)
+    if (chat::infra::isReticulumMeshProtocol(chat_support::active_mesh_protocol()))
     {
         if (index != 0)
         {
             return false;
         }
-        out->protocol = chat::MeshProtocol::RNode;
+        out->protocol = chat::MeshProtocol::Reticulum;
         out->channel = chat::ChannelId::PRIMARY;
         out->channel_index = 0;
         out->enabled = true;
@@ -498,9 +575,9 @@ static std::string format_broadcast_target_label(const BroadcastTargetSpec& spec
                chat::meshtastic::channelName(app::appFacade().getConfig().meshtastic_config,
                                              spec.channel);
     }
-    if (spec.protocol == chat::MeshProtocol::RNode)
+    if (chat::infra::isReticulumMeshProtocol(spec.protocol))
     {
-        return std::string("[RN] ") + ::ui::i18n::tr("Modem Bridge");
+        return std::string("[RT] ") + ::ui::i18n::tr("Primary Group");
     }
     return std::string("[MC] ") +
            ::ui::i18n::tr((spec.channel == chat::ChannelId::SECONDARY) ? "Secondary" : "Primary");
@@ -525,9 +602,9 @@ static std::string format_broadcast_target_status(const BroadcastTargetSpec& spe
         }
         return spec.chat_supported ? ::ui::i18n::tr("Ready") : ::ui::i18n::tr("Slot");
     }
-    if (spec.protocol == chat::MeshProtocol::RNode)
+    if (chat::infra::isReticulumMeshProtocol(spec.protocol))
     {
-        return ::ui::i18n::tr("Host bridge");
+        return ::ui::i18n::tr("Group destination");
     }
     return ::ui::i18n::tr("Ready");
 }
@@ -706,6 +783,13 @@ static uint32_t current_timestamp_seconds()
     return ts;
 }
 
+static bool is_reticulum_group_conversation(const chat::ConversationId& conversation)
+{
+    return conversation.protocol == chat::MeshProtocol::Reticulum &&
+           conversation.peer == 0 &&
+           chat::hasReticulumDestinationIdentity(conversation.reticulum_identity);
+}
+
 // ---------------- Panel creation (public API) ----------------
 
 void create_filter_panel(lv_obj_t* parent)
@@ -727,6 +811,11 @@ void create_filter_panel(lv_obj_t* parent)
     {
         lv_obj_add_event_cb(g_contacts_state.nearby_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
         lv_obj_add_event_cb(g_contacts_state.nearby_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+    }
+    if (g_contacts_state.groups_btn)
+    {
+        lv_obj_add_event_cb(g_contacts_state.groups_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
+        lv_obj_add_event_cb(g_contacts_state.groups_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
     }
     if (g_contacts_state.ignored_btn)
     {
@@ -760,13 +849,10 @@ static void on_filter_focused(lv_event_t* e)
 {
     lv_obj_t* tgt = (lv_obj_t*)lv_event_get_target(e);
     ContactsMode new_mode = g_contacts_state.current_mode;
-    if (tgt == g_contacts_state.contacts_btn) new_mode = ContactsMode::Contacts;
-    else if (tgt == g_contacts_state.nearby_btn) new_mode = ContactsMode::Nearby;
-    else if (tgt == g_contacts_state.ignored_btn) new_mode = ContactsMode::Ignored;
-    else if (tgt == g_contacts_state.broadcast_btn) new_mode = ContactsMode::Broadcast;
-    else if (tgt == g_contacts_state.team_btn) new_mode = ContactsMode::Team;
-    else if (tgt == g_contacts_state.discover_btn) new_mode = ContactsMode::Discover;
-    else return;
+    if (!filter_mode_for_button(tgt, &new_mode))
+    {
+        return;
+    }
 
     if (new_mode != g_contacts_state.current_mode)
     {
@@ -789,20 +875,15 @@ static void on_filter_focused(lv_event_t* e)
 static void on_filter_clicked(lv_event_t* e)
 {
     lv_obj_t* tgt = (lv_obj_t*)lv_event_get_target(e);
-    if (tgt == g_contacts_state.discover_btn &&
-        g_contacts_state.current_mode != ContactsMode::Discover)
+    ContactsMode new_mode = g_contacts_state.current_mode;
+    if (filter_mode_for_button(tgt, &new_mode) &&
+        new_mode != g_contacts_state.current_mode)
     {
-        g_contacts_state.last_action_mode = g_contacts_state.current_mode;
-        g_contacts_state.current_mode = ContactsMode::Discover;
-        g_contacts_state.current_page = 0;
-        g_contacts_state.selected_index = -1;
-        refresh_contacts_data();
-        refresh_ui();
-    }
-    else if (tgt == g_contacts_state.ignored_btn &&
-             g_contacts_state.current_mode != ContactsMode::Ignored)
-    {
-        g_contacts_state.current_mode = ContactsMode::Ignored;
+        if (new_mode == ContactsMode::Discover)
+        {
+            g_contacts_state.last_action_mode = g_contacts_state.current_mode;
+        }
+        g_contacts_state.current_mode = new_mode;
         g_contacts_state.current_page = 0;
         g_contacts_state.selected_index = -1;
         refresh_contacts_data();
@@ -823,6 +904,12 @@ static void on_list_item_clicked(lv_event_t* e)
         contacts_focus_to_filter();
         return;
     }
+    if (g_contacts_state.current_mode == ContactsMode::Groups &&
+        g_contacts_state.selected_index == static_cast<int>(kAddReticulumGroupUserData))
+    {
+        open_reticulum_group_config_modal();
+        return;
+    }
     if (g_contacts_state.current_mode == ContactsMode::Discover)
     {
         execute_discovery_command(static_cast<uint8_t>(g_contacts_state.selected_index));
@@ -836,6 +923,14 @@ static void on_list_item_clicked(lv_event_t* e)
             ::ui::feedback::show_notice(broadcast_chat_unavailable_message(spec), 2200);
             return;
         }
+    }
+    if (g_contacts_state.current_mode == ContactsMode::Groups &&
+        !chat_support::supports_reticulum_destination_text())
+    {
+        ::ui::feedback::show_notice(
+            chat_support::reticulum_destination_text_unavailable_message(),
+            2200);
+        return;
     }
     open_action_menu_modal();
 }
@@ -896,7 +991,9 @@ static const chat::contacts::NodeInfo* get_selected_node()
 {
     if (g_contacts_state.current_mode == ContactsMode::Broadcast ||
         g_contacts_state.current_mode == ContactsMode::Team ||
-        g_contacts_state.current_mode == ContactsMode::Discover)
+        g_contacts_state.current_mode == ContactsMode::Discover ||
+        g_contacts_state.current_mode == ContactsMode::Groups ||
+        g_contacts_state.current_mode == ContactsMode::Public)
     {
         return nullptr;
     }
@@ -914,6 +1011,21 @@ static const chat::contacts::NodeInfo* get_selected_node()
         return nullptr;
     }
     return &list[g_contacts_state.selected_index];
+}
+
+static const chat::contacts::NodeInfo* get_selected_reticulum_group()
+{
+    if (g_contacts_state.current_mode != ContactsMode::Groups ||
+        g_contacts_state.selected_index < 0)
+    {
+        return nullptr;
+    }
+    if (g_contacts_state.selected_index >=
+        static_cast<int>(g_contacts_state.reticulum_group_list.size()))
+    {
+        return nullptr;
+    }
+    return &g_contacts_state.reticulum_group_list[g_contacts_state.selected_index];
 }
 
 static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id)
@@ -1036,6 +1148,7 @@ static void modal_close(lv_obj_t*& modal_obj)
 static bool is_any_modal_open()
 {
     return g_contacts_state.add_edit_modal != nullptr ||
+           g_contacts_state.reticulum_group_modal != nullptr ||
            g_contacts_state.del_confirm_modal != nullptr ||
            g_contacts_state.action_menu_modal != nullptr ||
            g_contacts_state.discover_modal != nullptr;
@@ -1116,6 +1229,136 @@ static void open_add_edit_modal(bool is_edit)
     lv_group_add_obj(g_contacts_state.modal_group, save_btn);
     lv_group_add_obj(g_contacts_state.modal_group, cancel_btn);
     lv_group_focus_obj(g_contacts_state.add_edit_textarea);
+}
+
+static void show_reticulum_group_error(const char* message)
+{
+    if (!g_contacts_state.reticulum_group_error_label)
+    {
+        return;
+    }
+    ::ui::i18n::set_label_text(g_contacts_state.reticulum_group_error_label,
+                               message ? message : "Save failed");
+    lv_obj_clear_flag(g_contacts_state.reticulum_group_error_label, LV_OBJ_FLAG_HIDDEN);
+}
+
+static bool reticulum_group_storage_ready_for_edit()
+{
+    app::AppConfig& config = app::configFacade().getConfig();
+    const auto status = ::platform::ui::reticulum_groups::load(
+        config.reticulumConfig().reticulum_groups,
+        chat::kReticulumGroupDestinationMaxCount);
+    g_contacts_state.reticulum_group_storage_supported = status.supported;
+    g_contacts_state.reticulum_group_storage_ready = status.sd_present;
+    g_contacts_state.reticulum_group_storage_loaded = status.loaded;
+    std::snprintf(g_contacts_state.reticulum_group_storage_message,
+                  sizeof(g_contacts_state.reticulum_group_storage_message),
+                  "%s",
+                  status.message);
+    std::snprintf(g_contacts_state.reticulum_group_storage_detail,
+                  sizeof(g_contacts_state.reticulum_group_storage_detail),
+                  "%s",
+                  status.detail);
+    return status.supported && status.sd_present;
+}
+
+static void open_reticulum_group_config_modal()
+{
+    if (g_contacts_state.reticulum_group_modal)
+    {
+        return;
+    }
+    if (!reticulum_group_storage_ready_for_edit())
+    {
+        const char* message = g_contacts_state.reticulum_group_storage_message[0] != '\0'
+                                  ? g_contacts_state.reticulum_group_storage_message
+                                  : "SD card required";
+        ::ui::feedback::show_notice(message, 2200);
+        contacts_focus_to_list();
+        return;
+    }
+
+    modal_prepare_group();
+    g_contacts_state.reticulum_group_modal = create_modal_root(280, 210);
+    lv_obj_t* win = lv_obj_get_child(g_contacts_state.reticulum_group_modal, 0);
+    if (!win)
+    {
+        modal_close(g_contacts_state.reticulum_group_modal);
+        return;
+    }
+
+    lv_obj_t* title = lv_label_create(win);
+    apply_primary_text(title);
+    ::ui::i18n::set_label_text(title, "Add Reticulum Group");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+
+    lv_obj_t* name_label = lv_label_create(win);
+    apply_primary_text(name_label);
+    ::ui::i18n::set_label_text(name_label, "Name");
+    lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 28);
+
+    g_contacts_state.reticulum_group_name_textarea = lv_textarea_create(win);
+    lv_textarea_set_one_line(g_contacts_state.reticulum_group_name_textarea, true);
+    lv_textarea_set_max_length(g_contacts_state.reticulum_group_name_textarea,
+                               chat::kReticulumGroupNameMaxLen - 1);
+    lv_obj_set_width(g_contacts_state.reticulum_group_name_textarea, LV_PCT(100));
+    lv_obj_align(g_contacts_state.reticulum_group_name_textarea, LV_ALIGN_TOP_MID, 0, 44);
+
+    lv_obj_t* destination_label = lv_label_create(win);
+    apply_primary_text(destination_label);
+    ::ui::i18n::set_label_text(destination_label, "Destination hash");
+    lv_obj_align(destination_label, LV_ALIGN_TOP_LEFT, 0, 78);
+
+    g_contacts_state.reticulum_group_destination_textarea = lv_textarea_create(win);
+    lv_textarea_set_one_line(g_contacts_state.reticulum_group_destination_textarea, true);
+    lv_textarea_set_max_length(g_contacts_state.reticulum_group_destination_textarea, 48);
+    lv_obj_set_width(g_contacts_state.reticulum_group_destination_textarea, LV_PCT(100));
+    lv_obj_align(g_contacts_state.reticulum_group_destination_textarea, LV_ALIGN_TOP_MID, 0, 94);
+
+    g_contacts_state.reticulum_group_error_label = lv_label_create(win);
+    lv_label_set_text(g_contacts_state.reticulum_group_error_label, "");
+    lv_obj_set_style_text_color(g_contacts_state.reticulum_group_error_label, lv_color_hex(kColorWarn), 0);
+    lv_obj_align(g_contacts_state.reticulum_group_error_label, LV_ALIGN_TOP_MID, 0, 126);
+    lv_obj_add_flag(g_contacts_state.reticulum_group_error_label, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t* btn_row = lv_obj_create(win);
+    lv_obj_set_size(btn_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_align(btn_row, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_EVENLY,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(btn_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(btn_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btn_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* save_btn = lv_btn_create(btn_row);
+    lv_obj_set_size(save_btn,
+                    ::ui::page_profile::resolve_control_button_min_width(),
+                    ::ui::page_profile::resolve_control_button_height());
+    contacts::ui::style::apply_btn_basic(save_btn);
+    lv_obj_t* save_label = lv_label_create(save_btn);
+    apply_primary_text(save_label);
+    ::ui::i18n::set_label_text(save_label, "Save");
+    lv_obj_center(save_label);
+    lv_obj_add_event_cb(save_btn, on_reticulum_group_save_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t* cancel_btn = lv_btn_create(btn_row);
+    lv_obj_set_size(cancel_btn,
+                    ::ui::page_profile::resolve_control_button_min_width(),
+                    ::ui::page_profile::resolve_control_button_height());
+    contacts::ui::style::apply_btn_basic(cancel_btn);
+    lv_obj_t* cancel_label = lv_label_create(cancel_btn);
+    apply_primary_text(cancel_label);
+    ::ui::i18n::set_label_text(cancel_label, "Cancel");
+    lv_obj_center(cancel_label);
+    lv_obj_add_event_cb(cancel_btn, on_reticulum_group_cancel_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_group_add_obj(g_contacts_state.modal_group, g_contacts_state.reticulum_group_name_textarea);
+    lv_group_add_obj(g_contacts_state.modal_group, g_contacts_state.reticulum_group_destination_textarea);
+    lv_group_add_obj(g_contacts_state.modal_group, save_btn);
+    lv_group_add_obj(g_contacts_state.modal_group, cancel_btn);
+    lv_group_focus_obj(g_contacts_state.reticulum_group_name_textarea);
 }
 
 static void open_delete_confirm_modal()
@@ -1351,9 +1594,15 @@ static void open_chat_compose()
         s_compose_from_conversation = false;
     }
     const auto* node = get_selected_node();
+    const auto* group = get_selected_reticulum_group();
     if (g_contacts_state.current_mode != ContactsMode::Broadcast &&
         g_contacts_state.current_mode != ContactsMode::Team &&
+        g_contacts_state.current_mode != ContactsMode::Groups &&
         !node)
+    {
+        return;
+    }
+    if (g_contacts_state.current_mode == ContactsMode::Groups && !group)
     {
         return;
     }
@@ -1377,6 +1626,7 @@ static void open_chat_compose()
     uint32_t peer_id = 0;
     chat::MeshProtocol protocol = chat_support::active_mesh_protocol();
     std::string title;
+    chat::ReticulumPeerIdentity reticulum_destination{};
     if (g_contacts_state.current_mode == ContactsMode::Broadcast)
     {
         BroadcastTargetSpec target_spec{};
@@ -1394,6 +1644,21 @@ static void open_chat_compose()
         channel = target_spec.channel;
         peer_id = 0;
         title = target_title.empty() ? "Broadcast" : target_title;
+    }
+    else if (g_contacts_state.current_mode == ContactsMode::Groups)
+    {
+        if (!chat_support::supports_reticulum_destination_text())
+        {
+            ::ui::feedback::show_notice(
+                chat_support::reticulum_destination_text_unavailable_message(),
+                2200);
+            return;
+        }
+        protocol = chat::MeshProtocol::Reticulum;
+        channel = chat::ChannelId::PRIMARY;
+        peer_id = 0;
+        reticulum_destination = group->reticulum_identity;
+        title = group->display_name.empty() ? "Group" : group->display_name;
     }
     else if (g_contacts_state.current_mode == ContactsMode::Team)
     {
@@ -1444,6 +1709,22 @@ static void open_chat_compose()
     set_default_group(s_compose_group);
 
     chat::ConversationId conv(channel, peer_id, protocol);
+    if (g_contacts_state.current_mode == ContactsMode::Groups)
+    {
+        conv.reticulum_identity = reticulum_destination;
+        char dest_hash[12] = {};
+        format_reticulum_hash_prefix(reticulum_destination, dest_hash, sizeof(dest_hash));
+        std::printf("[Contacts][RTGroup] compose_open title=%s channel=%u peer=%08lX dest=%s\n",
+                    title.c_str(),
+                    static_cast<unsigned>(channel),
+                    static_cast<unsigned long>(peer_id),
+                    dest_hash);
+    }
+    else if (node && protocol == chat::MeshProtocol::Reticulum &&
+             chat::hasReticulumDestinationIdentity(node->reticulum_identity))
+    {
+        conv.reticulum_identity = node->reticulum_identity;
+    }
     g_contacts_state.compose_screen = new chat::ui::ChatComposeScreen(parent, conv);
     g_contacts_state.compose_screen->setActionCallback(on_compose_action, nullptr);
     g_contacts_state.compose_screen->setBackCallback(on_compose_back, nullptr);
@@ -1469,6 +1750,7 @@ static void open_chat_compose()
     s_compose_peer_id = peer_id;
     s_compose_channel = channel;
     s_compose_protocol = protocol;
+    s_compose_conversation = conv;
     s_compose_is_team = (g_contacts_state.current_mode == ContactsMode::Team);
     if (s_compose_is_team)
     {
@@ -1518,6 +1800,7 @@ static void close_chat_compose()
     s_compose_peer_id = 0;
     s_compose_channel = chat::ChannelId::PRIMARY;
     s_compose_protocol = chat::MeshProtocol::Meshtastic;
+    s_compose_conversation = chat::ConversationId{};
     s_compose_is_team = false;
 
     if (s_compose_from_conversation && g_contacts_state.conversation_screen)
@@ -1623,16 +1906,27 @@ static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, 
             return;
         }
 
-        if (s_compose_protocol != chat_support::active_mesh_protocol())
+        if (chat::infra::normalizeMeshProtocol(s_compose_protocol) !=
+            chat::infra::normalizeMeshProtocol(chat_support::active_mesh_protocol()))
         {
             ::ui::feedback::show_notice("Conversation protocol mismatch", 2000);
             close_chat_compose();
             return;
         }
 
-        if (!chat_support::supports_local_text_chat())
+        const bool reticulum_group_send =
+            is_reticulum_group_conversation(s_compose_conversation);
+        const bool send_supported =
+            reticulum_group_send
+                ? chat_support::supports_reticulum_destination_text()
+                : chat_support::supports_local_text_chat();
+        if (!send_supported)
         {
-            ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
+            ::ui::feedback::show_notice(
+                reticulum_group_send
+                    ? chat_support::reticulum_destination_text_unavailable_message()
+                    : chat_support::local_text_chat_unavailable_message(),
+                2200);
             close_chat_compose();
             return;
         }
@@ -1642,11 +1936,26 @@ static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, 
         {
             if (g_contacts_state.chat_service)
             {
+                char dest_hash[12] = {};
+                format_reticulum_hash_prefix(s_compose_conversation.reticulum_identity,
+                                             dest_hash,
+                                             sizeof(dest_hash));
+                std::printf("[Contacts][RTGroup] compose_send begin group=%u protocol=%s ch=%u peer=%08lX dest=%s len=%u\n",
+                            reticulum_group_send ? 1U : 0U,
+                            chat::infra::meshProtocolName(s_compose_protocol),
+                            static_cast<unsigned>(s_compose_channel),
+                            static_cast<unsigned long>(s_compose_peer_id),
+                            dest_hash,
+                            static_cast<unsigned>(text.size()));
                 const chat::MeshSendResult result =
-                    g_contacts_state.chat_service->sendTextDetailed(
-                        s_compose_channel,
-                        text,
-                        s_compose_peer_id);
+                    g_contacts_state.chat_service->sendTextToConversationDetailed(
+                        s_compose_conversation,
+                        text);
+                std::printf("[Contacts][RTGroup] compose_send end ok=%u msg=%lu failure=%u dest=%s\n",
+                            result.ok ? 1U : 0U,
+                            static_cast<unsigned long>(result.msg_id),
+                            static_cast<unsigned>(result.failure),
+                            dest_hash);
                 if (!result.ok || result.msg_id == 0)
                 {
                     ::ui::feedback::show_notice(
@@ -1980,6 +2289,110 @@ static void on_add_edit_cancel_clicked(lv_event_t* /*e*/)
     contacts_focus_to_list();
 }
 
+static void on_reticulum_group_save_clicked(lv_event_t* /*e*/)
+{
+    if (!g_contacts_state.reticulum_group_name_textarea ||
+        !g_contacts_state.reticulum_group_destination_textarea)
+    {
+        return;
+    }
+
+    const char* name = lv_textarea_get_text(g_contacts_state.reticulum_group_name_textarea);
+    const char* destination =
+        lv_textarea_get_text(g_contacts_state.reticulum_group_destination_textarea);
+    if (!name || name[0] == '\0')
+    {
+        show_reticulum_group_error("Name required");
+        return;
+    }
+
+    chat::ReticulumPeerIdentity identity{};
+    char error[96] = {};
+    if (!chat::parseReticulumDestinationHashText(destination,
+                                                 &identity,
+                                                 error,
+                                                 sizeof(error)))
+    {
+        show_reticulum_group_error(error[0] != '\0' ? error : "Invalid destination");
+        return;
+    }
+
+    if (!reticulum_group_storage_ready_for_edit())
+    {
+        show_reticulum_group_error(
+            g_contacts_state.reticulum_group_storage_message[0] != '\0'
+                ? g_contacts_state.reticulum_group_storage_message
+                : "SD card required");
+        return;
+    }
+
+    app::AppConfig& config = app::configFacade().getConfig();
+    chat::MeshConfig& reticulum_config = config.reticulumConfig();
+    int free_slot = -1;
+    for (std::size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
+    {
+        auto& group = reticulum_config.reticulum_groups[index];
+        if (group.enabled && chat::hasReticulumDestinationIdentity(group.identity) &&
+            chat::sameReticulumDestinationHash(group.identity, identity))
+        {
+            show_reticulum_group_error("Group already exists");
+            return;
+        }
+        if (free_slot < 0 &&
+            (!group.enabled || !chat::hasReticulumDestinationIdentity(group.identity)))
+        {
+            free_slot = static_cast<int>(index);
+        }
+    }
+
+    if (free_slot < 0)
+    {
+        show_reticulum_group_error("Group list full");
+        return;
+    }
+
+    auto& group = reticulum_config.reticulum_groups[free_slot];
+    group = chat::ReticulumGroupDestinationConfig{};
+    group.enabled = true;
+    std::snprintf(group.name, sizeof(group.name), "%s", name);
+    group.identity = identity;
+
+    const auto save_status = ::platform::ui::reticulum_groups::save(
+        reticulum_config.reticulum_groups,
+        chat::kReticulumGroupDestinationMaxCount);
+    if (!save_status.saved)
+    {
+        show_reticulum_group_error(save_status.message[0] != '\0'
+                                       ? save_status.message
+                                       : "Save failed");
+        return;
+    }
+
+    app::configFacade().applyMeshConfig();
+
+    g_contacts_state.reticulum_group_name_textarea = nullptr;
+    g_contacts_state.reticulum_group_destination_textarea = nullptr;
+    g_contacts_state.reticulum_group_error_label = nullptr;
+    modal_close(g_contacts_state.reticulum_group_modal);
+
+    g_contacts_state.current_mode = ContactsMode::Groups;
+    g_contacts_state.current_page = 0;
+    g_contacts_state.selected_index = -1;
+    refresh_contacts_data();
+    refresh_ui();
+    contacts_focus_to_list();
+    ::ui::feedback::show_notice("Reticulum group saved", 1600);
+}
+
+static void on_reticulum_group_cancel_clicked(lv_event_t* /*e*/)
+{
+    g_contacts_state.reticulum_group_name_textarea = nullptr;
+    g_contacts_state.reticulum_group_destination_textarea = nullptr;
+    g_contacts_state.reticulum_group_error_label = nullptr;
+    modal_close(g_contacts_state.reticulum_group_modal);
+    contacts_focus_to_list();
+}
+
 static void on_del_confirm_clicked(lv_event_t* /*e*/)
 {
     if (g_contacts_state.contact_service)
@@ -2283,7 +2696,8 @@ static void open_action_menu_modal()
     {
         return;
     }
-    if (g_contacts_state.current_mode == ContactsMode::Discover)
+    if (g_contacts_state.current_mode == ContactsMode::Discover ||
+        g_contacts_state.current_mode == ContactsMode::Public)
     {
         return;
     }
@@ -2300,6 +2714,8 @@ static void open_action_menu_modal()
     const bool allow_chat_action =
         (g_contacts_state.current_mode == ContactsMode::Team)
             ? chat_support::supports_team_chat()
+        : (g_contacts_state.current_mode == ContactsMode::Groups)
+            ? chat_support::supports_reticulum_destination_text()
             : chat_support::supports_local_text_chat();
     int action_count = allow_chat_action ? 2 : 1; // Chat + Cancel
     if (g_contacts_state.current_mode == ContactsMode::Contacts)
@@ -2339,6 +2755,20 @@ static void open_action_menu_modal()
     if (g_contacts_state.current_mode == ContactsMode::Team)
     {
         title = ::ui::i18n::tr("Team Actions");
+    }
+    else if (g_contacts_state.current_mode == ContactsMode::Groups)
+    {
+        title = ::ui::i18n::tr("Group Actions");
+        if (const auto* group = get_selected_reticulum_group())
+        {
+            const std::string name = group->display_name.empty()
+                                         ? std::string(group->long_name)
+                                         : group->display_name;
+            if (!name.empty())
+            {
+                title = ::ui::i18n::format("Actions: %s", name.c_str());
+            }
+        }
     }
     else if (g_contacts_state.current_mode == ContactsMode::Broadcast)
     {
@@ -2475,10 +2905,11 @@ void refresh_ui()
     ::ui::components::air_status_footer::refresh(g_contacts_state.air_status_footer);
 
     bool team_available = is_team_available() && chat_support::supports_team_chat();
-    const bool meshcore_mode = (chat_support::active_mesh_protocol() == chat::MeshProtocol::MeshCore);
+    const bool reticulum_profile = uses_reticulum_filter_profile();
+    const bool meshcore_mode = uses_meshcore_filter_profile();
     if (g_contacts_state.team_btn)
     {
-        if (team_available)
+        if (team_available && !reticulum_profile)
         {
             lv_obj_clear_flag(g_contacts_state.team_btn, LV_OBJ_FLAG_HIDDEN);
         }
@@ -2498,13 +2929,31 @@ void refresh_ui()
             lv_obj_add_flag(g_contacts_state.discover_btn, LV_OBJ_FLAG_HIDDEN);
         }
     }
-    if (!team_available && g_contacts_state.current_mode == ContactsMode::Team)
+    if ((!team_available || reticulum_profile) && g_contacts_state.current_mode == ContactsMode::Team)
     {
         g_contacts_state.current_mode = ContactsMode::Contacts;
         g_contacts_state.current_page = 0;
         g_contacts_state.selected_index = -1;
     }
     if (!meshcore_mode && g_contacts_state.current_mode == ContactsMode::Discover)
+    {
+        g_contacts_state.current_mode = ContactsMode::Contacts;
+        g_contacts_state.current_page = 0;
+        g_contacts_state.selected_index = -1;
+    }
+    if (!reticulum_profile && g_contacts_state.current_mode == ContactsMode::Groups)
+    {
+        g_contacts_state.current_mode = ContactsMode::Contacts;
+        g_contacts_state.current_page = 0;
+        g_contacts_state.selected_index = -1;
+    }
+    if (reticulum_profile && g_contacts_state.current_mode == ContactsMode::Broadcast)
+    {
+        g_contacts_state.current_mode = ContactsMode::Contacts;
+        g_contacts_state.current_page = 0;
+        g_contacts_state.selected_index = -1;
+    }
+    if (g_contacts_state.current_mode == ContactsMode::Public)
     {
         g_contacts_state.current_mode = ContactsMode::Contacts;
         g_contacts_state.current_page = 0;
@@ -2556,6 +3005,10 @@ void refresh_ui()
     {
         current_list = &g_contacts_state.nearby_list;
     }
+    else if (g_contacts_state.current_mode == ContactsMode::Groups)
+    {
+        current_list = &g_contacts_state.reticulum_group_list;
+    }
     else if (g_contacts_state.current_mode == ContactsMode::Ignored)
     {
         current_list = &g_contacts_state.ignored_list;
@@ -2602,22 +3055,27 @@ void refresh_ui()
             target.display_name = format_broadcast_target_label(spec);
             target.protocol = (spec.protocol == chat::MeshProtocol::MeshCore)
                                   ? chat::contacts::NodeProtocolType::MeshCore
-                                  : ((spec.protocol == chat::MeshProtocol::LXMF)
-                                         ? chat::contacts::NodeProtocolType::LXMF
-                                         : ((spec.protocol == chat::MeshProtocol::RNode)
-                                                ? chat::contacts::NodeProtocolType::RNode
-                                                : chat::contacts::NodeProtocolType::Meshtastic));
+                                  : (chat::infra::isReticulumMeshProtocol(spec.protocol)
+                                         ? chat::contacts::NodeProtocolType::Reticulum
+                                         : chat::contacts::NodeProtocolType::Meshtastic);
             target.channel = spec.channel_index;
             broadcast_list.push_back(target);
         }
         current_list = &broadcast_list;
     }
 
+    const bool show_reticulum_group_add_item =
+        g_contacts_state.current_mode == ContactsMode::Groups;
     g_contacts_state.total_items = current_list->size();
+    if (show_reticulum_group_add_item)
+    {
+        g_contacts_state.total_items += 1;
+    }
 
     const bool use_scroll_list =
         (g_contacts_state.current_mode == ContactsMode::Contacts) ||
         (g_contacts_state.current_mode == ContactsMode::Nearby) ||
+        (g_contacts_state.current_mode == ContactsMode::Groups) ||
         (g_contacts_state.current_mode == ContactsMode::Ignored) ||
         (g_contacts_state.current_mode == ContactsMode::Broadcast) ||
         (g_contacts_state.current_mode == ContactsMode::Discover);
@@ -2652,6 +3110,29 @@ void refresh_ui()
         end_idx = static_cast<int>(current_list->size());
     }
 
+    if (show_reticulum_group_add_item)
+    {
+        chat::contacts::NodeInfo add_node{};
+        add_node.protocol = chat::contacts::NodeProtocolType::Reticulum;
+        std::snprintf(add_node.long_name, sizeof(add_node.long_name), "%s", "Add Group");
+        add_node.display_name = add_node.long_name;
+        std::snprintf(add_node.short_name, sizeof(add_node.short_name), "%s", "+");
+        const char* add_status =
+            g_contacts_state.reticulum_group_storage_ready
+                ? "Configure"
+                : (g_contacts_state.reticulum_group_storage_message[0] != '\0'
+                       ? g_contacts_state.reticulum_group_storage_message
+                       : "SD card required");
+        lv_obj_t* add_item = contacts::ui::layout::create_list_item(
+            g_contacts_state.sub_container,
+            add_node,
+            g_contacts_state.current_mode,
+            add_status);
+        lv_obj_set_user_data(add_item, reinterpret_cast<void*>(kAddReticulumGroupUserData));
+        lv_obj_add_event_cb(add_item, on_list_item_clicked, LV_EVENT_CLICKED, nullptr);
+        lv_obj_add_event_cb(add_item, on_list_item_focused, LV_EVENT_FOCUSED, nullptr);
+    }
+
     // Create list items for current page (structure in layout; status string computed here)
     for (int i = start_idx; i < end_idx; ++i)
     {
@@ -2665,6 +3146,12 @@ void refresh_ui()
         else if (g_contacts_state.current_mode == ContactsMode::Nearby)
         {
             status_text = format_nearby_seen_age(node.last_seen);
+        }
+        else if (g_contacts_state.current_mode == ContactsMode::Groups)
+        {
+            status_text = chat_support::supports_reticulum_destination_text()
+                              ? ::ui::i18n::tr("Ready")
+                              : ::ui::i18n::tr("Unavailable");
         }
         else if (g_contacts_state.current_mode == ContactsMode::Ignored)
         {
@@ -2845,6 +3332,14 @@ void cleanup_modals()
     }
     g_contacts_state.add_edit_textarea = nullptr;
     g_contacts_state.add_edit_error_label = nullptr;
+    if (g_contacts_state.reticulum_group_modal != nullptr)
+    {
+        lv_obj_del(g_contacts_state.reticulum_group_modal);
+        g_contacts_state.reticulum_group_modal = nullptr;
+    }
+    g_contacts_state.reticulum_group_name_textarea = nullptr;
+    g_contacts_state.reticulum_group_destination_textarea = nullptr;
+    g_contacts_state.reticulum_group_error_label = nullptr;
     if (g_contacts_state.del_confirm_modal != nullptr)
     {
         lv_obj_del(g_contacts_state.del_confirm_modal);

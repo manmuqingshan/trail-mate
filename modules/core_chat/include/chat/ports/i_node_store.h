@@ -37,6 +37,7 @@ struct NodeEntry
     bool is_ignored = false;
     bool has_public_key = false;
     bool key_manually_verified = false;
+    ReticulumPeerIdentity reticulum_identity{};
     bool has_device_metrics = false;
     NodeDeviceMetrics device_metrics{};
     bool position_valid = false;

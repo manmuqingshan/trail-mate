@@ -52,7 +52,6 @@ void TDisplayP4TouchUxPack::buildScreens(ScreenRegistry& out) const
     (void)out.add({ScreenId::Gps, "GPS", true});
     (void)out.add({ScreenId::Team, "Team", true});
     (void)out.add({ScreenId::Tracker, "Tracker", true});
-    (void)out.add({ScreenId::PcLink, "PC Link", true});
     (void)out.add({ScreenId::EnergySweep, "Energy Sweep", true});
     (void)out.add({ScreenId::WalkieTalkie, "Walkie", true});
     (void)out.add({ScreenId::Sstv, "SSTV", true});

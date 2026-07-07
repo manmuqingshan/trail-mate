@@ -140,6 +140,7 @@ struct NodeInfoUpdateEvent : public Event
     bool has_public_key;
     bool has_key_manually_verified_state;
     bool key_manually_verified;
+    chat::contacts::ReticulumPeerIdentity reticulum_identity;
     bool has_device_metrics;
     chat::contacts::NodeDeviceMetrics device_metrics;
 
@@ -156,7 +157,7 @@ struct NodeInfoUpdateEvent : public Event
           role(r), hops_away(hops), hw_model(hw), channel(ch), has_macaddr(has_mac), macaddr{},
           via_mqtt(via_mqtt_value), is_ignored(is_ignored_value), has_public_key_state(has_pubkey_state),
           has_public_key(has_pubkey), has_key_manually_verified_state(has_key_verified_state),
-          key_manually_verified(key_verified), has_device_metrics(has_metrics), device_metrics{}
+          key_manually_verified(key_verified), reticulum_identity{}, has_device_metrics(has_metrics), device_metrics{}
     {
         if (sname)
         {

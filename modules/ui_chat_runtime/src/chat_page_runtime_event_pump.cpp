@@ -19,7 +19,7 @@ namespace
     case chat::MeshProtocol::Meshtastic:
         return ::ui::key_verification::VerificationProtocol::Meshtastic;
     case chat::MeshProtocol::RNode:
-    case chat::MeshProtocol::LXMF:
+    case chat::MeshProtocol::Reticulum:
     default:
         return ::ui::key_verification::VerificationProtocol::Unknown;
     }

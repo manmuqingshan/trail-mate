@@ -100,6 +100,20 @@ MeshSendResult MeshAdapterRouter::sendTextDetailed(ChannelId channel, const std:
     return core_.sendTextDetailed(channel, text, forced_msg_id, peer);
 }
 
+MeshSendResult MeshAdapterRouter::sendTextToReticulumDestination(
+    ChannelId channel,
+    const std::string& text,
+    MessageId forced_msg_id,
+    const ReticulumPeerIdentity& destination)
+{
+    LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        return MeshSendResult::fail(MeshOperationFailure::Busy);
+    }
+    return core_.sendTextToReticulumDestination(channel, text, forced_msg_id, destination);
+}
+
 bool MeshAdapterRouter::pollIncomingText(MeshIncomingText* out)
 {
     LockGuard lock(mutex_);
@@ -127,6 +141,12 @@ bool MeshAdapterRouter::requestNodeInfo(NodeId dest, bool want_response)
 {
     LockGuard lock(mutex_);
     return lock.locked() && core_.requestNodeInfo(dest, want_response);
+}
+
+bool MeshAdapterRouter::broadcastSelfIdentity()
+{
+    LockGuard lock(mutex_);
+    return lock.locked() && core_.broadcastSelfIdentity();
 }
 
 bool MeshAdapterRouter::startKeyVerification(NodeId dest)

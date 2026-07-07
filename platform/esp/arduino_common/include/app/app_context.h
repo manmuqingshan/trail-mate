@@ -212,11 +212,10 @@ class AppContext final : public IAppBleFacade
             config_.meshcore_config = chat::MeshConfig();
             config_.applyMeshCoreFactoryDefaults();
         }
-        else if (config_.mesh_protocol == chat::MeshProtocol::RNode ||
-                 config_.mesh_protocol == chat::MeshProtocol::LXMF)
+        else if (chat::infra::isReticulumMeshProtocol(config_.mesh_protocol))
         {
-            config_.rnode_config = chat::MeshConfig();
-            config_.applyRNodeFactoryDefaults();
+            config_.reticulumConfig() = chat::MeshConfig();
+            config_.applyReticulumFactoryDefaults();
         }
         else
         {

@@ -32,6 +32,7 @@ struct ProtocolRuntimeSelection
 {
     IProtocolRuntime* meshtastic = nullptr;
     IProtocolRuntime* meshcore = nullptr;
+    IProtocolRuntime* reticulum = nullptr;
 };
 
 struct ProtocolRuntimeBundle
@@ -59,17 +60,22 @@ struct ProtocolRuntimeBundle
     }
 };
 
+inline MeshProtocol protocolRuntimeProductProtocol(MeshProtocol protocol)
+{
+    return protocol == MeshProtocol::RNode ? MeshProtocol::Reticulum : protocol;
+}
+
 inline IProtocolRuntime* selectProtocolRuntime(MeshProtocol protocol,
                                                const ProtocolRuntimeSelection& selection)
 {
-    switch (protocol)
+    switch (protocolRuntimeProductProtocol(protocol))
     {
     case MeshProtocol::Meshtastic:
         return selection.meshtastic;
     case MeshProtocol::MeshCore:
         return selection.meshcore;
-    case MeshProtocol::RNode:
-    case MeshProtocol::LXMF:
+    case MeshProtocol::Reticulum:
+        return selection.reticulum;
     default:
         return nullptr;
     }
@@ -82,7 +88,7 @@ inline ProtocolRuntimeBundle protocolRuntimeFor(
     const IProtocolRuntimeContextProvider& context_provider)
 {
     ProtocolRuntimeBundle bundle{};
-    bundle.protocol = protocol;
+    bundle.protocol = protocolRuntimeProductProtocol(protocol);
     bundle.runtime = selectProtocolRuntime(protocol, selection);
     bundle.executor = &executor;
     bundle.context_provider = &context_provider;

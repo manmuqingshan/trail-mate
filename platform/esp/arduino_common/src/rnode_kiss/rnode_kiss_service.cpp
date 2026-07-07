@@ -116,7 +116,7 @@ bool apply_live_config()
         return false;
     }
 
-    backend->applyConfig(app::appFacade().getConfig().rnode_config);
+    backend->applyConfig(app::appFacade().getConfig().reticulumConfig());
     return true;
 }
 
@@ -233,7 +233,7 @@ void send_ready()
 
 void reply_current_config(uint8_t command)
 {
-    const chat::MeshConfig& cfg = app::appFacade().getConfig().rnode_config;
+    const chat::MeshConfig& cfg = app::appFacade().getConfig().reticulumConfig();
     switch (command)
     {
     case kCmdFrequency:
@@ -328,7 +328,7 @@ void process_command(uint8_t command, const uint8_t* payload, size_t len)
     note_rx();
 
     app::IAppFacade& app_ctx = app::appFacade();
-    chat::MeshConfig& cfg = app_ctx.getConfig().rnode_config;
+    chat::MeshConfig& cfg = app_ctx.getConfig().reticulumConfig();
     chat::rnode::RNodeAdapter* backend = get_backend();
 
     switch (command)

@@ -28,7 +28,6 @@ constexpr PageManifestItem kTDisplayP4TouchItems[] = {
     {PageId::Gps, "gps", true, true},
     {PageId::Team, "team", true, true},
     {PageId::Tracker, "tracker", true, true},
-    {PageId::PcLink, "pc_link", true, true},
     {PageId::EnergySweep, "energy_sweep", true, true},
     {PageId::WalkieTalkie, "walkie_talkie", true, true},
     {PageId::Sstv, "sstv", true, true},

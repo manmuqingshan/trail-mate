@@ -43,10 +43,12 @@ enum class ContactsMode
 {
     Contacts,  // Show contacts (nodes with nicknames)
     Nearby,    // Show nearby nodes (nodes without nicknames)
+    Groups,    // Show Reticulum group destinations
     Ignored,   // Show ignored nodes so they can be managed/unignored
     Broadcast, // Show broadcast channels
     Team,      // Show team (if joined)
-    Discover   // Show MeshCore discover actions
+    Discover,  // Show MeshCore discover actions
+    Public     // Show Reticulum plain/public destinations
 };
 
 struct ContactsPageState
@@ -61,6 +63,7 @@ struct ContactsPageState
     lv_obj_t* filter_panel = nullptr;
     lv_obj_t* contacts_btn = nullptr;
     lv_obj_t* nearby_btn = nullptr;
+    lv_obj_t* groups_btn = nullptr;
     lv_obj_t* ignored_btn = nullptr;
     lv_obj_t* broadcast_btn = nullptr;
     lv_obj_t* team_btn = nullptr;
@@ -85,6 +88,7 @@ struct ContactsPageState
     // Data (using forward declaration, full type in .cpp)
     std::vector<chat::contacts::NodeInfo> contacts_list;
     std::vector<chat::contacts::NodeInfo> nearby_list;
+    std::vector<chat::contacts::NodeInfo> reticulum_group_list;
     std::vector<chat::contacts::NodeInfo> ignored_list;
 
     // Timers
@@ -94,6 +98,10 @@ struct ContactsPageState
     lv_obj_t* add_edit_modal = nullptr;
     lv_obj_t* add_edit_textarea = nullptr;
     lv_obj_t* add_edit_error_label = nullptr;
+    lv_obj_t* reticulum_group_modal = nullptr;
+    lv_obj_t* reticulum_group_name_textarea = nullptr;
+    lv_obj_t* reticulum_group_destination_textarea = nullptr;
+    lv_obj_t* reticulum_group_error_label = nullptr;
     lv_obj_t* del_confirm_modal = nullptr;
     lv_obj_t* action_menu_modal = nullptr;
     lv_obj_t* discover_modal = nullptr;
@@ -101,6 +109,11 @@ struct ContactsPageState
     lv_group_t* prev_group = nullptr;
     uint32_t modal_node_id = 0;
     bool modal_is_edit = false;
+    bool reticulum_group_storage_supported = false;
+    bool reticulum_group_storage_ready = false;
+    bool reticulum_group_storage_loaded = false;
+    char reticulum_group_storage_message[96] = {};
+    char reticulum_group_storage_detail[128] = {};
     lv_timer_t* discover_scan_timer = nullptr;
     size_t discover_scan_start_nearby = 0;
 

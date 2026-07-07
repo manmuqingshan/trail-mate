@@ -43,6 +43,9 @@ They must not depend on concrete implementations under `platform/esp/*`,
   platform storage/network details.
 - `route_storage.h`
   Route file existence, load/save, and listing abstractions.
+- `reticulum_group_config_runtime.h`
+  SD-card Reticulum shared group destination configuration contract used by
+  Contacts and Reticulum runtime apply paths.
 - `screen_runtime.h`
   Screen timeout state, brightness-adjacent sleep policy, and user-activity
   lifecycle hooks.

@@ -743,8 +743,6 @@ const char* stableIdForScreenId(ui::menu::MenuScreenId screen_id)
         return "team";
     case ui::menu::MenuScreenId::Tracker:
         return "tracker";
-    case ui::menu::MenuScreenId::PcLink:
-        return "pc_link";
     case ui::menu::MenuScreenId::EnergySweep:
         return "energy_sweep";
     case ui::menu::MenuScreenId::Settings:

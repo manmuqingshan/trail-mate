@@ -17,6 +17,7 @@ constexpr size_t kNameHashSize = 10;
 constexpr size_t kEncryptionPublicKeySize = 32;
 constexpr size_t kSigningPublicKeySize = 32;
 constexpr size_t kCombinedPublicKeySize = kEncryptionPublicKeySize + kSigningPublicKeySize;
+constexpr size_t kRatchetSize = 32;
 constexpr size_t kSignatureSize = 64;
 constexpr size_t kPacketHeader1Size = 2 + kTruncatedHashSize + 1;
 constexpr size_t kPacketHeader2Size = 2 + kTruncatedHashSize + kTruncatedHashSize + 1;

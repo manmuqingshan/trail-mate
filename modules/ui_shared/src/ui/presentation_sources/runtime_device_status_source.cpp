@@ -143,7 +143,7 @@ bool RuntimeDeviceStatusSource::buildDeviceStatusSnapshot(
     }
     else
     {
-        const chat::MeshConfig& mesh = config.rnode_config;
+        const chat::MeshConfig& mesh = config.reticulumConfig();
         frequency_mhz = mesh.override_frequency_mhz;
         bandwidth_khz = mesh.bandwidth_khz;
         spreading_factor = mesh.spread_factor;

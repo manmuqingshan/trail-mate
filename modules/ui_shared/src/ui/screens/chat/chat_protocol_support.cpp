@@ -22,6 +22,11 @@ bool supports_local_text_chat()
     return active_mesh_capabilities().supports_unicast_text;
 }
 
+bool supports_reticulum_destination_text()
+{
+    return active_mesh_capabilities().supports_reticulum_destination_text;
+}
+
 bool supports_team_chat()
 {
     return active_mesh_capabilities().supports_unicast_appdata;
@@ -29,16 +34,17 @@ bool supports_team_chat()
 
 const char* local_text_chat_unavailable_message()
 {
-    return (active_mesh_protocol() == chat::MeshProtocol::RNode)
-               ? "RNode text chat runs on host"
-               : "Text chat unavailable";
+    return "Text chat unavailable";
+}
+
+const char* reticulum_destination_text_unavailable_message()
+{
+    return "Reticulum group chat unavailable";
 }
 
 const char* team_chat_unavailable_message()
 {
-    return (active_mesh_protocol() == chat::MeshProtocol::RNode)
-               ? "Team chat unavailable in RNode mode"
-               : "Team chat unavailable";
+    return "Team chat unavailable";
 }
 
 } // namespace chat::ui::support

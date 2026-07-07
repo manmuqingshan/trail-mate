@@ -42,6 +42,13 @@ constexpr const char* kChatKeyPrimaryChannelId = "pri_ch_id";
 constexpr const char* kChatKeySecondaryChannelId = "sec_ch_id";
 constexpr const char* kChatKeyPrimaryKeyLen = "pri_key_len";
 constexpr const char* kChatKeySecondaryKeyLen = "sec_key_len";
+constexpr const char* kChatKeyRtLoraEnabled = "rt_lora_en";
+constexpr const char* kChatKeyRtWifiEnabled = "rt_wifi_en";
+constexpr const char* kChatKeyRtWifiAuto = "rt_wifi_auto";
+constexpr const char* kChatKeyRtWifiHost = "rt_wifi_host";
+constexpr const char* kChatKeyRtWifiPort = "rt_wifi_port";
+constexpr const char* kChatKeyRtIfacePolicy = "rt_if_policy";
+constexpr const char* kChatKeyRtAnonPeer = "rt_anon_peer";
 constexpr const char* kGpsKeyInitBaud = "init_baud";
 constexpr const char* kGpsKeyInitProbeMs = "init_probe_ms";
 constexpr const char* kGpsKeyInitProfile = "init_profile";
@@ -659,6 +666,22 @@ void log_config_delta(const AppConfig& before, const AppConfig& after)
                   after.rnode_config.tx_power, any_change);
     log_change_bool("rnode.tx_enabled", before.rnode_config.tx_enabled,
                     after.rnode_config.tx_enabled, any_change);
+    log_change_bool("reticulum.lora_enabled", before.rnode_config.reticulum_lora_enabled,
+                    after.rnode_config.reticulum_lora_enabled, any_change);
+    log_change_bool("reticulum.wifi_enabled", before.rnode_config.reticulum_wifi_gateway_enabled,
+                    after.rnode_config.reticulum_wifi_gateway_enabled, any_change);
+    log_change_bool("reticulum.wifi_auto", before.rnode_config.reticulum_wifi_auto_connect,
+                    after.rnode_config.reticulum_wifi_auto_connect, any_change);
+    log_change_bool("reticulum.anonymous_peer", before.rnode_config.reticulum_anonymous_peer,
+                    after.rnode_config.reticulum_anonymous_peer, any_change);
+    log_change_text("reticulum.wifi_host", before.rnode_config.reticulum_wifi_gateway_host,
+                    after.rnode_config.reticulum_wifi_gateway_host, any_change);
+    log_change_u16("reticulum.wifi_port", before.rnode_config.reticulum_wifi_gateway_port,
+                   after.rnode_config.reticulum_wifi_gateway_port, any_change);
+    log_change_u8("reticulum.if_policy",
+                  static_cast<uint8_t>(before.rnode_config.reticulum_interface_policy),
+                  static_cast<uint8_t>(after.rnode_config.reticulum_interface_policy),
+                  any_change);
 
     log_change_bool("primary_enabled", before.primary_enabled, after.primary_enabled, any_change);
     log_change_bool("secondary_enabled", before.secondary_enabled, after.secondary_enabled, any_change);
@@ -826,6 +849,18 @@ void log_config_summary(const char* phase, const AppConfig& config)
                   bool_label(config.aprs.self_enable),
                   config.aprs.self_callsign,
                   static_cast<unsigned>(config.aprs.node_map_len));
+    Serial.printf("[AppCfg][%s][reticulum_if] lora=%s wifi=%s auto_wifi=%s anonymous=%s host=%s port=%u policy=%u\n",
+                  safe_label(phase),
+                  bool_label(config.rnode_config.reticulum_lora_enabled),
+                  bool_label(config.rnode_config.reticulum_wifi_gateway_enabled),
+                  bool_label(config.rnode_config.reticulum_wifi_auto_connect),
+                  bool_label(config.rnode_config.reticulum_anonymous_peer),
+                  config.rnode_config.reticulum_wifi_gateway_host[0] != '\0'
+                      ? config.rnode_config.reticulum_wifi_gateway_host
+                      : "<unset>",
+                  static_cast<unsigned>(config.rnode_config.reticulum_wifi_gateway_port),
+                  static_cast<unsigned>(static_cast<uint8_t>(
+                      config.rnode_config.reticulum_interface_policy)));
 }
 
 } // namespace
@@ -1005,6 +1040,30 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         rnode_config.coding_rate = get_uchar("rn_cr", rnode_config.coding_rate);
         rnode_config.tx_power = get_char("rn_tx", rnode_config.tx_power);
         rnode_config.tx_enabled = get_bool("rn_tx_en", rnode_config.tx_enabled);
+        rnode_config.reticulum_lora_enabled =
+            get_bool(kChatKeyRtLoraEnabled, rnode_config.reticulum_lora_enabled);
+        rnode_config.reticulum_wifi_gateway_enabled =
+            get_bool(kChatKeyRtWifiEnabled, rnode_config.reticulum_wifi_gateway_enabled);
+        rnode_config.reticulum_wifi_auto_connect =
+            get_bool(kChatKeyRtWifiAuto, rnode_config.reticulum_wifi_auto_connect);
+        rnode_config.reticulum_anonymous_peer =
+            get_bool(kChatKeyRtAnonPeer, rnode_config.reticulum_anonymous_peer);
+        String reticulum_wifi_host =
+            get_string(kChatKeyRtWifiHost, rnode_config.reticulum_wifi_gateway_host);
+        strncpy(rnode_config.reticulum_wifi_gateway_host,
+                reticulum_wifi_host.c_str(),
+                sizeof(rnode_config.reticulum_wifi_gateway_host) - 1);
+        rnode_config.reticulum_wifi_gateway_host[sizeof(rnode_config.reticulum_wifi_gateway_host) - 1] = '\0';
+        rnode_config.reticulum_wifi_gateway_port =
+            get_ushort(kChatKeyRtWifiPort, rnode_config.reticulum_wifi_gateway_port);
+        const uint8_t reticulum_interface_policy =
+            get_uchar(kChatKeyRtIfacePolicy,
+                      static_cast<uint8_t>(rnode_config.reticulum_interface_policy));
+        if (reticulum_interface_policy <= static_cast<uint8_t>(chat::ReticulumInterfacePolicy::WifiGatewayOnly))
+        {
+            rnode_config.reticulum_interface_policy =
+                static_cast<chat::ReticulumInterfacePolicy>(reticulum_interface_policy);
+        }
 
         const uint8_t mesh_protocol_raw = get_uchar("mesh_protocol", 0xFF);
         if (chat::infra::isValidMeshProtocolValue(mesh_protocol_raw))
@@ -1072,6 +1131,10 @@ bool loadAppConfigFromPreferences(AppConfig& config,
     meshtastic_config.tx_power = clamp_tx_power(meshtastic_config.tx_power);
     meshcore_config.tx_power = clamp_tx_power(meshcore_config.tx_power);
     rnode_config.tx_power = clamp_tx_power(rnode_config.tx_power);
+    if (rnode_config.reticulum_wifi_gateway_port == 0)
+    {
+        rnode_config.reticulum_wifi_gateway_port = 4242;
+    }
 
     if (begin_namespace(prefs, "gps", true, "LOAD", emit_logs))
     {
@@ -1363,9 +1426,38 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_uchar("rn_cr", rnode_config.coding_rate);
         put_char("rn_tx", rnode_config.tx_power);
         put_bool("rn_tx_en", rnode_config.tx_enabled);
+        put_bool(kChatKeyRtLoraEnabled, rnode_config.reticulum_lora_enabled);
+        put_bool(kChatKeyRtWifiEnabled, rnode_config.reticulum_wifi_gateway_enabled);
+        put_bool(kChatKeyRtWifiAuto, rnode_config.reticulum_wifi_auto_connect);
+        put_bool(kChatKeyRtAnonPeer, rnode_config.reticulum_anonymous_peer);
+        put_string(kChatKeyRtWifiHost, rnode_config.reticulum_wifi_gateway_host);
+        put_ushort(kChatKeyRtWifiPort,
+                   rnode_config.reticulum_wifi_gateway_port != 0
+                       ? rnode_config.reticulum_wifi_gateway_port
+                       : 4242);
+        put_uchar(kChatKeyRtIfacePolicy,
+                  static_cast<uint8_t>(rnode_config.reticulum_interface_policy));
+        const char* legacy_reticulum_group_suffixes[] = {"en", "name", "dest"};
+        for (size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
+        {
+            for (const char* suffix : legacy_reticulum_group_suffixes)
+            {
+                char legacy_key[16] = {};
+                const int written = snprintf(legacy_key,
+                                             sizeof(legacy_key),
+                                             "rtg%u_%s",
+                                             static_cast<unsigned>(index),
+                                             suffix);
+                if (written > 0 && static_cast<size_t>(written) < sizeof(legacy_key))
+                {
+                    ok = remove_key_logged(prefs, "chat", legacy_key, emit_logs) && ok;
+                }
+            }
+        }
         // Remove first so legacy key type mismatches cannot block updating this value.
         ok = remove_key_logged(prefs, "chat", "mesh_protocol", emit_logs) && ok;
-        put_uchar("mesh_protocol", static_cast<uint8_t>(mesh_protocol));
+        put_uchar("mesh_protocol",
+                  static_cast<uint8_t>(chat::infra::normalizeMeshProtocol(mesh_protocol)));
 
         // Save device name
         put_bytes("node_name", node_name, strlen(node_name));

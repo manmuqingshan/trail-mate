@@ -1,0 +1,76 @@
+{
+  "metadata": {
+    "reference_name": "attermann/microReticulum",
+    "reference_repo": "https://github.com/attermann/microReticulum",
+    "reference_commit": "c02b6e3d985567cced4450fb65902106ebda5a39",
+    "reference_file": "test/test_crypto/test_crypto.cpp",
+    "generated_at": "2026-07-06",
+    "generation_command": "git ls-remote https://github.com/attermann/microReticulum.git HEAD; copied the announce packets exercised by Identity::validate_announce from test/test_crypto/test_crypto.cpp",
+    "canonicality": "secondary",
+    "inputs": [
+      "The source fixture embeds complete raw Reticulum announce packets and expects Identity::validate_announce(packet) to return true."
+    ],
+    "expected_fields": [
+      "raw packet bytes",
+      "announce validation result",
+      "signature validation result",
+      "destination-hash validation result",
+      "rebroadcast flag",
+      "ratchet flag"
+    ],
+    "notes": [
+      "These vectors are not production runtime dependencies.",
+      "These vectors are secondary until cross-checked against Python Reticulum."
+    ]
+  },
+  "vectors": [
+    {
+      "name": "microreticulum_direct_announce",
+      "fixture_type": "announce-vector",
+      "raw_hex": "0100f083a7f4b00d799808c44a4634bba7d7006afd960bf3b01801a2e88b2ce1f7040817dc1b6bffa366b103468f3988e0db7f00dc1fdc15fa7fd31a34a02207cfb4d26e11e57504e43686ec7fad84774bec88fd68805f2ea383c8d6f6c39824652e00698fd5fd1088b38832f247a9daebf017d8bfe641882d9fe9b37cf49a97402b7e3d8bec61b4950d39c0996588dd0288bf6a7a0a4390bb331bd82704b618f107cf8bf2230f",
+      "expected": {
+        "validate_announce": true,
+        "signature_valid": true,
+        "destination_hash_valid": true,
+        "rebroadcast": false,
+        "ratchet": false
+      }
+    },
+    {
+      "name": "microreticulum_rebroadcast_announce",
+      "fixture_type": "announce-vector",
+      "raw_hex": "510139745d39d5108615635d433d6cb14803f083a7f4b00d799808c44a4634bba7d7006afd960bf3b01801a2e88b2ce1f7040817dc1b6bffa366b103468f3988e0db7f00dc1fdc15fa7fd31a34a02207cfb4d26e11e57504e43686ec7fad84774bec88fd68805f2ea383c8d6f6c39824652e00698fd5fd1088b38832f247a9daebf017d8bfe641882d9fe9b37cf49a97402b7e3d8bec61b4950d39c0996588dd0288bf6a7a0a4390bb331bd82704b618f107cf8bf2230f",
+      "expected": {
+        "validate_announce": true,
+        "signature_valid": true,
+        "destination_hash_valid": true,
+        "rebroadcast": true,
+        "ratchet": false
+      }
+    },
+    {
+      "name": "microreticulum_direct_ratchet_announce",
+      "fixture_type": "announce-vector",
+      "raw_hex": "21003dc438c85235151be9a59020807930d200a3dc290f674385c482eeac8da9108c20d5d30b9d20680d2a39bf3d95d6fcb04f1e2bd080869ca0b7f3ca0271205899635b94e19f2463b77e5c4f60e82287ab5e6ec60bc318e2c0f0d9087a321643c100698fd5f11045f113f98185b9f5b01de11f59f21848f7244bcbc54bfe5bad99f3a6e0d2264b78687aa12e62b9ad581161acc9202bcce4978bdc68a73595e908b2396c8152c689d6c3abf99081dd00727f4744caaf76aaf7978c3866e31577c6e6c066830092c40e416e6f6e796d6f75732050656572c0",
+      "expected": {
+        "validate_announce": true,
+        "signature_valid": true,
+        "destination_hash_valid": true,
+        "rebroadcast": false,
+        "ratchet": true
+      }
+    },
+    {
+      "name": "microreticulum_rebroadcast_ratchet_announce",
+      "fixture_type": "announce-vector",
+      "raw_hex": "710139745d39d5108615635d433d6cb148033dc438c85235151be9a59020807930d200a3dc290f674385c482eeac8da9108c20d5d30b9d20680d2a39bf3d95d6fcb04f1e2bd080869ca0b7f3ca0271205899635b94e19f2463b77e5c4f60e82287ab5e6ec60bc318e2c0f0d9087a321643c100698fd5f11045f113f98185b9f5b01de11f59f21848f7244bcbc54bfe5bad99f3a6e0d2264b78687aa12e62b9ad581161acc9202bcce4978bdc68a73595e908b2396c8152c689d6c3abf99081dd00727f4744caaf76aaf7978c3866e31577c6e6c066830092c40e416e6f6e796d6f75732050656572c0",
+      "expected": {
+        "validate_announce": true,
+        "signature_valid": true,
+        "destination_hash_valid": true,
+        "rebroadcast": true,
+        "ratchet": true
+      }
+    }
+  ]
+}

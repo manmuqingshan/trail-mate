@@ -21,11 +21,11 @@ struct FeatureFlags
     bool include_energy_sweep = true;
     bool include_team = true;
     bool include_tracker = true;
-    bool include_pc_link = true;
     bool include_sstv = true;
     bool include_usb = false;
     bool include_settings = true;
     bool include_extensions = true;
+    bool include_network = false;
     bool include_walkie_talkie = false;
     bool include_power_off = false;
 };

@@ -17,7 +17,10 @@ class NodeStoreCore : public INodeStore
   public:
     static constexpr size_t kMaxNodes = 24;
     static constexpr size_t kSerializedEntrySizeV8 = 144;
-    static constexpr uint8_t kPersistVersion = 8;
+    static constexpr size_t kSerializedEntrySizeV9 = 180;
+    static constexpr size_t kSerializedEntrySize = kSerializedEntrySizeV9;
+    static constexpr uint8_t kPersistVersionV8 = 8;
+    static constexpr uint8_t kPersistVersion = 9;
     static constexpr uint32_t kSaveIntervalMs = 5000;
 
     explicit NodeStoreCore(INodeBlobStore& blob_store);

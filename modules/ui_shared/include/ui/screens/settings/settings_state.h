@@ -92,6 +92,14 @@ struct SettingsData
     bool net_relay = true;
     bool net_duty_cycle = true;
     int net_channel_util = 0;
+    bool rt_lora_enabled = true;
+    bool rt_wifi_gateway_enabled = false;
+    bool rt_wifi_auto_connect = true;
+    bool rt_anonymous_peer = false;
+    char rt_identity_hash[36] = "--";
+    char rt_lxmf_address[36] = "--";
+    char rt_wifi_gateway_host[64] = "";
+    char rt_wifi_gateway_port[6] = "4242";
 
     // MeshCore
     int mc_region_preset = 0;
@@ -170,7 +178,7 @@ struct UiState
     ::ui::widgets::TopBar top_bar;
     lv_obj_t* filter_buttons[8]{};
     size_t filter_count = 0;
-    ItemWidget item_widgets[32]{};
+    ItemWidget item_widgets[48]{};
     size_t item_count = 0;
     int current_category = 0;
 

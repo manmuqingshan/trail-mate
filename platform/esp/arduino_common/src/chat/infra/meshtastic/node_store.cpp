@@ -354,7 +354,7 @@ bool NodeStore::loadFromNvs(std::vector<uint8_t>& out)
 
     out.swap(normalized);
     NODE_STORE_LOG("[NodeStore] loaded=%u\n",
-                   static_cast<unsigned>(out.size() / contacts::NodeStoreCore::kSerializedEntrySizeV8));
+                   static_cast<unsigned>(out.size() / contacts::NodeStoreCore::kSerializedEntrySize));
     return true;
 }
 
@@ -498,7 +498,7 @@ NodeStore::LoadResult NodeStore::loadFromSd(std::vector<uint8_t>& out) const
 
     out.swap(normalized);
     NODE_STORE_LOG("[NodeStore] loaded=%u (SD)\n",
-                   static_cast<unsigned>(out.size() / contacts::NodeStoreCore::kSerializedEntrySizeV8));
+                   static_cast<unsigned>(out.size() / contacts::NodeStoreCore::kSerializedEntrySize));
     return LoadResult::Loaded;
 }
 

@@ -21,6 +21,9 @@ namespace
 {
 namespace storage = ::platform::esp::arduino_common::storage;
 
+constexpr uint8_t kRecordHasReticulumIdentityFlag = 0x01U;
+constexpr uint8_t kIndexHasReticulumIdentityFlag = 0x01U;
+
 bool readExact(storage::SdRuntimeFile& file, void* out, size_t len)
 {
     return file.read(out, len) == static_cast<int>(len);
@@ -34,6 +37,55 @@ bool writeExact(storage::SdRuntimeFile& file, const void* data, size_t len)
 const char* protocolTag(MeshProtocol protocol)
 {
     return chat::infra::meshProtocolSlug(protocol);
+}
+
+bool hasReticulumConversationKey(const ConversationId& conv)
+{
+    return conv.protocol == MeshProtocol::Reticulum &&
+           hasReticulumDestinationIdentity(conv.reticulum_identity);
+}
+
+bool sameReticulumDestination(const ReticulumPeerIdentity& identity,
+                              const uint8_t* destination_hash)
+{
+    return sameReticulumDestinationHash(identity, destination_hash);
+}
+
+void copyReticulumIdentityToStorage(uint8_t* destination_hash,
+                                    uint8_t* identity_hash,
+                                    const ReticulumPeerIdentity& identity)
+{
+    if (!destination_hash || !identity_hash)
+    {
+        return;
+    }
+    (void)copyReticulumIdentityHashes(destination_hash, identity_hash, identity);
+}
+
+void readReticulumIdentityFromStorage(ReticulumPeerIdentity& identity,
+                                      const uint8_t* destination_hash,
+                                      const uint8_t* identity_hash)
+{
+    if (!destination_hash || !identity_hash)
+    {
+        return;
+    }
+    identity = makeReticulumPeerIdentity(destination_hash, identity_hash);
+}
+
+void hashToHex(const uint8_t* hash, char* out, size_t out_len)
+{
+    static constexpr char kHex[] = "0123456789abcdef";
+    if (!hash || !out || out_len < (kReticulumPeerHashSize * 2U + 1U))
+    {
+        return;
+    }
+    for (size_t index = 0; index < kReticulumPeerHashSize; ++index)
+    {
+        out[index * 2U] = kHex[(hash[index] >> 4U) & 0x0FU];
+        out[index * 2U + 1U] = kHex[hash[index] & 0x0FU];
+    }
+    out[kReticulumPeerHashSize * 2U] = '\0';
 }
 
 std::string pathInChatDir(const char* name)
@@ -77,7 +129,7 @@ void SdStore::append(const ChatMessage& msg)
         return;
     }
 
-    const ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    const ConversationId conv = conversationIdForMessage(msg);
     storage::SdRuntimeFile file;
     FileHeader header{};
     if (!openConversationForUpdate(conv, file, header))
@@ -146,7 +198,7 @@ std::vector<ChatMessage> SdStore::loadRecent(const ConversationId& conv, size_t 
     {
         const uint16_t slot = static_cast<uint16_t>((start + index) % kMaxMessagesPerConv);
         Record rec{};
-        if (!readRecord(file, slot, rec) || rec.text_len == 0)
+        if (!readRecord(file, header, slot, rec) || rec.text_len == 0)
         {
             continue;
         }
@@ -257,9 +309,7 @@ void SdStore::clearConversation(const ConversationId& conv)
                                  entries.end(),
                                  [&](const IndexEntry& entry)
                                  {
-                                     return entry.peer == conv.peer &&
-                                            entry.channel == static_cast<uint8_t>(conv.channel) &&
-                                            entry.protocol == static_cast<uint8_t>(conv.protocol);
+                                     return indexEntryMatchesConversation(entry, conv);
                                  }),
                   entries.end());
     (void)writeIndex(entries);
@@ -318,9 +368,7 @@ bool SdStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
     bool updated = false;
     for (auto& entry : entries)
     {
-        ConversationId conv(static_cast<ChannelId>(entry.channel),
-                            entry.peer,
-                            static_cast<MeshProtocol>(entry.protocol));
+        const ConversationId conv = conversationFromIndexEntry(entry);
         char path[96]{};
         buildConversationPath(conv, path, sizeof(path));
         if (!storage::sd_exists(path))
@@ -347,7 +395,7 @@ bool SdStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
                 static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
                                       kMaxMessagesPerConv);
             Record rec{};
-            if (!readRecord(file, slot, rec))
+            if (!readRecord(file, header, slot, rec))
             {
                 continue;
             }
@@ -398,9 +446,7 @@ bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
 
     for (const auto& entry : entries)
     {
-        ConversationId conv(static_cast<ChannelId>(entry.channel),
-                            entry.peer,
-                            static_cast<MeshProtocol>(entry.protocol));
+        const ConversationId conv = conversationFromIndexEntry(entry);
         char path[96]{};
         buildConversationPath(conv, path, sizeof(path));
         if (!storage::sd_exists(path))
@@ -427,7 +473,7 @@ bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
                 static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
                                       kMaxMessagesPerConv);
             Record rec{};
-            if (!readRecord(file, slot, rec) || rec.text_len == 0 || rec.msg_id != msg_id)
+            if (!readRecord(file, header, slot, rec) || rec.text_len == 0 || rec.msg_id != msg_id)
             {
                 continue;
             }
@@ -482,15 +528,46 @@ bool SdStore::readIndex(std::vector<IndexEntry>& entries) const
     IndexHeader header{};
     if (!readExact(file, &header, sizeof(header)) ||
         header.magic != kIndexMagic ||
-        header.version != kVersion)
+        (header.version != kVersion && header.version != kLegacyVersion))
     {
         file.close();
         return false;
     }
 
-    entries.resize(header.count);
-    const size_t expected = static_cast<size_t>(header.count) * sizeof(IndexEntry);
-    const bool ok = expected == 0 || readExact(file, entries.data(), expected);
+    entries.reserve(header.count);
+    bool ok = true;
+    for (uint16_t index = 0; ok && index < header.count; ++index)
+    {
+        IndexEntry entry{};
+        if (header.version == kLegacyVersion)
+        {
+            IndexEntryV2 legacy_entry{};
+            ok = readExact(file, &legacy_entry, sizeof(legacy_entry));
+            if (ok)
+            {
+                entry.protocol = legacy_entry.protocol;
+                entry.channel = legacy_entry.channel;
+                entry.status = legacy_entry.status;
+                entry.unread = legacy_entry.unread;
+                entry.peer = legacy_entry.peer;
+                entry.last_msg_id = legacy_entry.last_msg_id;
+                entry.last_timestamp = legacy_entry.last_timestamp;
+                entry.last_from = legacy_entry.last_from;
+                entry.preview_len = legacy_entry.preview_len;
+                std::memcpy(entry.preview,
+                            legacy_entry.preview,
+                            sizeof(entry.preview));
+            }
+        }
+        else
+        {
+            ok = readExact(file, &entry, sizeof(entry));
+        }
+        if (ok)
+        {
+            entries.push_back(entry);
+        }
+    }
     file.close();
     if (!ok)
     {
@@ -575,9 +652,7 @@ bool SdStore::findIndexEntry(const ConversationId& conv,
     for (size_t index = 0; index < entries.size(); ++index)
     {
         const IndexEntry& entry = entries[index];
-        if (entry.peer == conv.peer &&
-            entry.channel == static_cast<uint8_t>(conv.channel) &&
-            entry.protocol == static_cast<uint8_t>(conv.protocol))
+        if (indexEntryMatchesConversation(entry, conv))
         {
             if (out_idx)
             {
@@ -597,7 +672,7 @@ void SdStore::updateIndexForMessage(const ChatMessage& msg)
         entries.clear();
     }
 
-    const ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    const ConversationId conv = conversationIdForMessage(msg);
     size_t index = 0;
     if (!findIndexEntry(conv, entries, &index))
     {
@@ -605,6 +680,13 @@ void SdStore::updateIndexForMessage(const ChatMessage& msg)
         entry.protocol = static_cast<uint8_t>(msg.protocol);
         entry.channel = static_cast<uint8_t>(msg.channel);
         entry.peer = msg.peer;
+        if (hasReticulumConversationKey(conv))
+        {
+            entry.flags |= kIndexHasReticulumIdentityFlag;
+            copyReticulumIdentityToStorage(entry.reticulum_destination_hash,
+                                           entry.reticulum_identity_hash,
+                                           conv.reticulum_identity);
+        }
         entries.push_back(entry);
         index = entries.size() - 1;
     }
@@ -614,6 +696,16 @@ void SdStore::updateIndexForMessage(const ChatMessage& msg)
     entry.channel = static_cast<uint8_t>(msg.channel);
     entry.status = static_cast<uint8_t>(msg.status);
     entry.peer = msg.peer;
+    entry.flags &= static_cast<uint8_t>(~kIndexHasReticulumIdentityFlag);
+    std::memset(entry.reticulum_destination_hash, 0, sizeof(entry.reticulum_destination_hash));
+    std::memset(entry.reticulum_identity_hash, 0, sizeof(entry.reticulum_identity_hash));
+    if (hasReticulumConversationKey(conv))
+    {
+        entry.flags |= kIndexHasReticulumIdentityFlag;
+        copyReticulumIdentityToStorage(entry.reticulum_destination_hash,
+                                       entry.reticulum_identity_hash,
+                                       conv.reticulum_identity);
+    }
     entry.last_msg_id = msg.msg_id;
     entry.last_timestamp = msg.timestamp;
     entry.last_from = msg.from;
@@ -677,7 +769,7 @@ void SdStore::rebuildIndex()
                 static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
                                       kMaxMessagesPerConv);
             Record rec{};
-            if (!readRecord(file, slot, rec) || rec.text_len == 0)
+            if (!readRecord(file, header, slot, rec) || rec.text_len == 0)
             {
                 continue;
             }
@@ -705,6 +797,14 @@ void SdStore::rebuildIndex()
         entry.status = static_cast<uint8_t>(last_msg.status);
         entry.unread = unread;
         entry.peer = last_msg.peer;
+        if (last_msg.protocol == MeshProtocol::Reticulum &&
+            hasReticulumDestinationIdentity(last_msg.reticulum_identity))
+        {
+            entry.flags |= kIndexHasReticulumIdentityFlag;
+            copyReticulumIdentityToStorage(entry.reticulum_destination_hash,
+                                           entry.reticulum_identity_hash,
+                                           last_msg.reticulum_identity);
+        }
         entry.last_msg_id = last_msg.msg_id;
         entry.last_timestamp = last_msg.timestamp;
         entry.last_from = last_msg.from;
@@ -732,7 +832,8 @@ bool SdStore::loadFileHeader(storage::SdRuntimeFile& file, FileHeader& header) c
     {
         return false;
     }
-    return header.magic == kFileMagic && header.version == kVersion &&
+    return header.magic == kFileMagic &&
+           (header.version == kVersion || header.version == kLegacyVersion) &&
            header.head < kMaxMessagesPerConv && header.count <= kMaxMessagesPerConv;
 }
 
@@ -748,18 +849,105 @@ bool SdStore::initFileHeader(storage::SdRuntimeFile& file) const
     return file.flush();
 }
 
-bool SdStore::readRecord(storage::SdRuntimeFile& file, uint16_t slot, Record& rec) const
+bool SdStore::upgradeConversationFile(storage::SdRuntimeFile& file,
+                                      const char* path,
+                                      FileHeader& header) const
+{
+    if (header.version == kVersion)
+    {
+        return true;
+    }
+    if (header.version != kLegacyVersion || !path || path[0] == '\0')
+    {
+        return false;
+    }
+
+    std::vector<Record> records;
+    records.reserve(header.count);
+    for (uint16_t index = 0; index < header.count; ++index)
+    {
+        const uint16_t slot =
+            static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
+                                  kMaxMessagesPerConv);
+        Record rec{};
+        if (readRecord(file, header, slot, rec) && rec.text_len != 0)
+        {
+            records.push_back(rec);
+        }
+    }
+
+    file.close();
+    if (!file.open(path, "w+"))
+    {
+        return false;
+    }
+
+    FileHeader upgraded{};
+    upgraded.magic = kFileMagic;
+    upgraded.version = kVersion;
+    upgraded.count = static_cast<uint16_t>(std::min<size_t>(records.size(), kMaxMessagesPerConv));
+    upgraded.head = static_cast<uint16_t>(upgraded.count % kMaxMessagesPerConv);
+    if (!file.seek(0) || !writeExact(file, &upgraded, sizeof(upgraded)))
+    {
+        file.close();
+        return false;
+    }
+    for (uint16_t index = 0; index < upgraded.count; ++index)
+    {
+        if (!writeRecord(file, index, records[index]))
+        {
+            file.close();
+            return false;
+        }
+    }
+    if (!file.flush())
+    {
+        file.close();
+        return false;
+    }
+    return loadFileHeader(file, header) && header.version == kVersion;
+}
+
+bool SdStore::readRecord(storage::SdRuntimeFile& file,
+                         const FileHeader& header,
+                         uint16_t slot,
+                         Record& rec) const
 {
     if (slot >= kMaxMessagesPerConv)
     {
         return false;
     }
-    const uint64_t offset = sizeof(FileHeader) + static_cast<uint64_t>(slot) * sizeof(Record);
-    if (file.size() < offset + sizeof(Record))
+    const bool legacy_format = header.version == kLegacyVersion;
+    const size_t record_size = legacy_format ? sizeof(RecordV2) : sizeof(Record);
+    const uint64_t offset = sizeof(FileHeader) + static_cast<uint64_t>(slot) * record_size;
+    if (file.size() < offset + record_size)
     {
         return false;
     }
-    return file.seek(offset) && readExact(file, &rec, sizeof(rec));
+    if (!file.seek(offset))
+    {
+        return false;
+    }
+    if (!legacy_format)
+    {
+        return readExact(file, &rec, sizeof(rec));
+    }
+
+    RecordV2 legacy_rec{};
+    if (!readExact(file, &legacy_rec, sizeof(legacy_rec)))
+    {
+        return false;
+    }
+    rec.protocol = legacy_rec.protocol;
+    rec.channel = legacy_rec.channel;
+    rec.status = legacy_rec.status;
+    rec.text_len = legacy_rec.text_len;
+    rec.from = legacy_rec.from;
+    rec.peer = legacy_rec.peer;
+    rec.msg_id = legacy_rec.msg_id;
+    rec.timestamp = legacy_rec.timestamp;
+    std::memcpy(rec.text, legacy_rec.text, sizeof(rec.text));
+    return true;
 }
 
 bool SdStore::writeRecord(storage::SdRuntimeFile& file, uint16_t slot, const Record& rec) const
@@ -781,7 +969,7 @@ bool SdStore::openConversationForUpdate(const ConversationId& conv,
 
     if (storage::sd_exists(path) && file.open(path, "r+"))
     {
-        if (loadFileHeader(file, header))
+        if (loadFileHeader(file, header) && upgradeConversationFile(file, path, header))
         {
             return true;
         }
@@ -804,6 +992,21 @@ void SdStore::buildConversationPath(const ConversationId& conv, char* out, size_
 {
     if (!out || out_len == 0)
     {
+        return;
+    }
+    if (hasReticulumConversationKey(conv))
+    {
+        uint8_t destination_hash[kReticulumPeerHashSize] = {};
+        char destination_key[kReticulumPeerHashSize * 2U + 1U]{};
+        (void)copyReticulumDestinationHash(destination_hash,
+                                           conv.reticulum_identity);
+        hashToHex(destination_hash, destination_key, sizeof(destination_key));
+        std::snprintf(out,
+                      out_len,
+                      "%s/%s_r_%s.log",
+                      kDir,
+                      protocolTag(conv.protocol),
+                      destination_key);
         return;
     }
     if (conv.peer == 0)
@@ -849,6 +1052,12 @@ ChatMessage SdStore::messageFromRecord(const Record& rec)
     msg.timestamp = rec.timestamp;
     msg.text.assign(rec.text, std::min<size_t>(rec.text_len, sizeof(rec.text)));
     msg.status = static_cast<MessageStatus>(rec.status);
+    if ((rec.flags & kRecordHasReticulumIdentityFlag) != 0)
+    {
+        readReticulumIdentityFromStorage(msg.reticulum_identity,
+                                         rec.reticulum_destination_hash,
+                                         rec.reticulum_identity_hash);
+    }
     return msg;
 }
 
@@ -863,6 +1072,14 @@ SdStore::Record SdStore::recordFromMessage(const ChatMessage& msg)
     rec.peer = msg.peer;
     rec.msg_id = msg.msg_id;
     rec.timestamp = msg.timestamp;
+    if (msg.protocol == MeshProtocol::Reticulum &&
+        hasReticulumDestinationIdentity(msg.reticulum_identity))
+    {
+        rec.flags |= kRecordHasReticulumIdentityFlag;
+        copyReticulumIdentityToStorage(rec.reticulum_destination_hash,
+                                       rec.reticulum_identity_hash,
+                                       msg.reticulum_identity);
+    }
     if (rec.text_len > 0)
     {
         std::memcpy(rec.text, msg.text.data(), rec.text_len);
@@ -870,16 +1087,55 @@ SdStore::Record SdStore::recordFromMessage(const ChatMessage& msg)
     return rec;
 }
 
+bool SdStore::indexEntryHasReticulumIdentity(const IndexEntry& entry)
+{
+    return static_cast<MeshProtocol>(entry.protocol) == MeshProtocol::Reticulum &&
+           (entry.flags & kIndexHasReticulumIdentityFlag) != 0;
+}
+
+bool SdStore::indexEntryMatchesConversation(const IndexEntry& entry,
+                                            const ConversationId& conv)
+{
+    if (entry.protocol != static_cast<uint8_t>(conv.protocol) ||
+        entry.channel != static_cast<uint8_t>(conv.channel))
+    {
+        return false;
+    }
+
+    const bool conv_has_reticulum_key = hasReticulumConversationKey(conv);
+    const bool entry_has_reticulum_key = indexEntryHasReticulumIdentity(entry);
+    if (conv_has_reticulum_key || entry_has_reticulum_key)
+    {
+        return conv_has_reticulum_key && entry_has_reticulum_key &&
+               sameReticulumDestination(conv.reticulum_identity,
+                                        entry.reticulum_destination_hash);
+    }
+    return entry.peer == conv.peer;
+}
+
+ConversationId SdStore::conversationFromIndexEntry(const IndexEntry& entry)
+{
+    ConversationId conv(static_cast<ChannelId>(entry.channel),
+                        entry.peer,
+                        static_cast<MeshProtocol>(entry.protocol));
+    if (indexEntryHasReticulumIdentity(entry))
+    {
+        readReticulumIdentityFromStorage(conv.reticulum_identity,
+                                         entry.reticulum_destination_hash,
+                                         entry.reticulum_identity_hash);
+    }
+    return conv;
+}
+
 ConversationMeta SdStore::metaFromIndexEntry(const IndexEntry& entry)
 {
     ConversationMeta meta;
-    meta.id.protocol = static_cast<MeshProtocol>(entry.protocol);
-    meta.id.channel = static_cast<ChannelId>(entry.channel);
-    meta.id.peer = entry.peer;
+    meta.id = conversationFromIndexEntry(entry);
     meta.preview.assign(entry.preview, std::min<size_t>(entry.preview_len, sizeof(entry.preview)));
     meta.last_timestamp = entry.last_timestamp;
     meta.unread = entry.unread;
-    if (entry.peer == 0)
+    meta.reticulum_identity = meta.id.reticulum_identity;
+    if (entry.peer == 0 && !indexEntryHasReticulumIdentity(entry))
     {
         meta.name = "Broadcast";
     }

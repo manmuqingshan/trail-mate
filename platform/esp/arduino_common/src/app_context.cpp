@@ -15,6 +15,7 @@
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/runtime/self_identity_policy.h"
 #include "platform/esp/arduino_common/memory_diag.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "sys/event_bus.h"
 #include "ui/chat_ui_runtime_proxy.h"
 #include "ui/ui_boot.h"
@@ -33,6 +34,25 @@ constexpr UBaseType_t kConfigSaveTaskPriority = 1;
 constexpr TickType_t kConfigSaveMutexWait = pdMS_TO_TICKS(20);
 constexpr TickType_t kConfigSaveDebounceTicks = pdMS_TO_TICKS(250);
 constexpr TickType_t kConfigSaveRetryDelayTicks = pdMS_TO_TICKS(1000);
+
+void sync_reticulum_group_config(AppConfig& config)
+{
+    if (!chat::infra::isReticulumMeshProtocol(
+            chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
+    {
+        return;
+    }
+
+    const auto status = ::platform::ui::reticulum_groups::load(
+        config.reticulumConfig().reticulum_groups,
+        chat::kReticulumGroupDestinationMaxCount);
+    std::printf("[RTGroupConfig] sync sd=%u loaded=%u file=%u message=%s detail=%s\n",
+                status.sd_present ? 1U : 0U,
+                status.loaded ? 1U : 0U,
+                status.file_present ? 1U : 0U,
+                status.message,
+                status.detail);
+}
 } // namespace
 
 AppContext& AppContext::getInstance()
@@ -369,6 +389,7 @@ void AppContext::configSaveTaskEntry(void* context)
 
 void AppContext::applyMeshConfig()
 {
+    sync_reticulum_group_config(config_);
     if (mesh_router_)
     {
         if (mesh_router_->backendProtocol() != config_.mesh_protocol)
@@ -401,7 +422,7 @@ void AppContext::broadcastNodeInfo()
 {
     if (mesh_router_)
     {
-        mesh_router_->requestNodeInfo(0xFFFFFFFF, false);
+        mesh_router_->broadcastSelfIdentity();
     }
 }
 
@@ -449,6 +470,7 @@ bool AppContext::init(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_boa
         ::ui::boot::set_log_line("Loading app config...");
         platform_bindings_.load_app_config(config_);
     }
+    sync_reticulum_group_config(config_);
     platform::esp::arduino_common::memory_diag::logHeapSnapshot("appctx.after_load_config");
     ::ui::boot::set_log_line("Initializing GPS services...");
     initGpsRuntime(disable_hw_init);
@@ -481,19 +503,21 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
         return false;
     }
 
-    if (!chat::infra::isValidMeshProtocol(protocol))
+    const chat::MeshProtocol normalized = chat::infra::normalizeMeshProtocol(protocol);
+    if (!chat::infra::isValidMeshProtocol(normalized))
     {
         return false;
     }
 
-    std::unique_ptr<chat::IMeshAdapter> backend = createMeshBackend(protocol);
+    std::unique_ptr<chat::IMeshAdapter> backend = createMeshBackend(normalized);
     if (!backend)
     {
         return false;
     }
 
     const chat::MeshProtocol previous_protocol = config_.mesh_protocol;
-    config_.mesh_protocol = protocol;
+    config_.mesh_protocol = normalized;
+    sync_reticulum_group_config(config_);
 
     backend->applyConfig(config_.activeMeshConfig());
 
@@ -505,7 +529,7 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
     backend->setNetworkLimits(config_.net_duty_cycle, config_.net_channel_util);
     backend->setPrivacyConfig(config_.privacy_encrypt_mode);
 
-    if (!mesh_router_->installBackend(protocol, std::move(backend)))
+    if (!mesh_router_->installBackend(normalized, std::move(backend)))
     {
         config_.mesh_protocol = previous_protocol;
         return false;
@@ -513,7 +537,7 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
 
     if (chat_service_)
     {
-        chat_service_->setActiveProtocol(protocol);
+        chat_service_->setActiveProtocol(normalized);
     }
 
     if (persist)

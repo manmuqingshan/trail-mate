@@ -1,0 +1,101 @@
+/**
+ * @file lxmf_propagation_runtime.h
+ * @brief Propagation state helpers for the embedded Reticulum/LXMF adapter
+ */
+
+#pragma once
+
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_state.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+namespace chat::lxmf::runtime
+{
+
+struct PropagationRuntimeLimits
+{
+    std::size_t max_entries = 0;
+    std::size_t max_transients = 0;
+    std::size_t max_peers = 0;
+    uint32_t entry_ttl_s = 0;
+    uint32_t transient_ttl_s = 0;
+    uint32_t peer_ttl_s = 0;
+};
+
+struct PropagationMessageSelection
+{
+    std::vector<std::vector<uint8_t>> messages;
+    uint32_t served_count = 0;
+};
+
+PropagationEntry* findPropagationEntry(
+    PropagationRuntime& propagation,
+    const uint8_t transient_id[reticulum::kFullHashSize]);
+const PropagationEntry* findPropagationEntry(
+    const PropagationRuntime& propagation,
+    const uint8_t transient_id[reticulum::kFullHashSize]);
+
+PropagationPeerState* findPropagationPeer(
+    PropagationRuntime& propagation,
+    const uint8_t propagation_hash[reticulum::kTruncatedHashSize]);
+const PropagationPeerState* findPropagationPeer(
+    const PropagationRuntime& propagation,
+    const uint8_t propagation_hash[reticulum::kTruncatedHashSize]);
+
+PropagationPeerState& upsertPropagationPeer(
+    PropagationRuntime& propagation,
+    const uint8_t propagation_hash[reticulum::kTruncatedHashSize],
+    const uint8_t delivery_hash[reticulum::kTruncatedHashSize],
+    const uint8_t identity_hash[reticulum::kTruncatedHashSize],
+    std::size_t max_peers);
+
+void markPropagationPeerSeen(PropagationPeerState& peer, uint32_t now_s);
+void notePropagationPeerIncomingMessage(PropagationPeerState& peer);
+void notePropagationPeerServedMessages(PropagationPeerState& peer,
+                                       uint32_t served_count);
+
+bool hasSeenPropagationTransient(
+    const PropagationRuntime& propagation,
+    const uint8_t transient_id[reticulum::kFullHashSize],
+    bool* out_delivered = nullptr);
+void rememberPropagationTransient(
+    PropagationRuntime& propagation,
+    const uint8_t transient_id[reticulum::kFullHashSize],
+    bool delivered,
+    uint32_t now_s,
+    std::size_t max_transients);
+
+bool rememberPropagationEntry(
+    PropagationRuntime& propagation,
+    const uint8_t transient_id[reticulum::kFullHashSize],
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    const uint8_t* lxmf_data,
+    std::size_t lxmf_len,
+    uint32_t now_s,
+    std::size_t max_entries);
+std::size_t removePropagationEntriesForDestination(
+    PropagationRuntime& propagation,
+    const uint8_t transient_id[reticulum::kFullHashSize],
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
+
+std::vector<std::vector<uint8_t>> collectMissingPropagationTransientIds(
+    const PropagationRuntime& propagation,
+    const std::vector<std::vector<uint8_t>>& transient_ids);
+std::vector<std::vector<uint8_t>> collectPropagationEntryIdsForDestination(
+    const PropagationRuntime& propagation,
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
+PropagationMessageSelection collectPropagationMessagesForWants(
+    PropagationRuntime& propagation,
+    const std::vector<std::vector<uint8_t>>& transient_ids,
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    std::size_t transfer_limit_bytes,
+    std::size_t base_response_size,
+    std::size_t per_message_overhead);
+
+void cullPropagationRuntime(PropagationRuntime& propagation,
+                            uint32_t now_s,
+                            const PropagationRuntimeLimits& limits);
+
+} // namespace chat::lxmf::runtime

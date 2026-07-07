@@ -164,6 +164,7 @@ set(TRAIL_MATE_LINUX_COMMON_SOURCES
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/pack_repository_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/route_storage.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/screen_runtime.cpp"
+    "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/reticulum_group_config_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/settings_backup_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/settings_store.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/sstv_runtime.cpp"
@@ -307,6 +308,7 @@ set(TRAIL_MATE_LINUX_UI_SHELL_SOURCES
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/logo.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/lora_mod_topbar.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/message_topbar.c"
+    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/nomad.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/rally.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/rf.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/room-24px.c"
@@ -429,9 +431,8 @@ set(TRAIL_MATE_LINUX_UI_SHELL_SOURCES
     # node info
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/node_info/node_info_page_components.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/node_info/node_info_page_layout.cpp"
-    # pc link
-    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/pc_link/pc_link_page_runtime.cpp"
-    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/pc_link/pc_link_page_shell.cpp"
+    # network
+    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/network/network_page_shell.cpp"
     # settings
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/settings/settings_page_components.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/settings/settings_page_input.cpp"

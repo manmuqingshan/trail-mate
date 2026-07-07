@@ -8,6 +8,7 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "chat/domain/chat_types.h"
+#include "chat/infra/mesh_protocol_utils.h"
 
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/components/air_status_footer.h"
@@ -15,6 +16,7 @@
 #include "ui/components/two_pane_layout.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/screens/contacts/contacts_filter_profile.h"
 
 using namespace contacts::ui;
 
@@ -28,6 +30,21 @@ namespace layout
 // Layout constants
 static constexpr int kButtonSpacing = 3;
 static constexpr int kPanelGap = 3; // Gap between filter and list columns
+
+static lv_obj_t* create_filter_button(lv_obj_t* parent, const char* label)
+{
+    const auto& profile = ::ui::page_profile::current();
+    lv_obj_t* btn = lv_btn_create(parent);
+    lv_obj_set_size(btn, LV_PCT(100), profile.filter_button_height);
+    ::ui::components::two_pane_layout::make_non_scrollable(btn);
+    style::apply_btn_filter(btn);
+
+    lv_obj_t* text = lv_label_create(btn);
+    ::ui::i18n::set_label_text(text, label);
+    style::apply_label_primary(text);
+    lv_obj_center(text);
+    return btn;
+}
 
 bool is_dense_profile()
 {
@@ -56,19 +73,7 @@ void apply_single_line(lv_obj_t* label)
 
 const char* node_protocol_short_label(chat::contacts::NodeProtocolType protocol)
 {
-    switch (protocol)
-    {
-    case chat::contacts::NodeProtocolType::LXMF:
-        return "LX";
-    case chat::contacts::NodeProtocolType::RNode:
-        return "RN";
-    case chat::contacts::NodeProtocolType::MeshCore:
-        return "MC";
-    case chat::contacts::NodeProtocolType::Meshtastic:
-        return "MT";
-    default:
-        return "";
-    }
+    return chat::infra::nodeProtocolShortName(protocol);
 }
 
 bool should_prefix_node_protocol(ContactsMode mode,
@@ -80,6 +85,7 @@ bool should_prefix_node_protocol(ContactsMode mode,
     }
     return mode == ContactsMode::Contacts ||
            mode == ContactsMode::Nearby ||
+           mode == ContactsMode::Groups ||
            mode == ContactsMode::Ignored;
 }
 
@@ -130,6 +136,7 @@ lv_obj_t* create_content(lv_obj_t* root)
 void create_filter_panel(lv_obj_t* parent)
 {
     const auto& profile = ::ui::page_profile::current();
+    const bool reticulum_profile = uses_reticulum_filter_profile();
     ::ui::components::two_pane_layout::SidePanelSpec panel_spec;
     panel_spec.width = profile.filter_panel_width;
     panel_spec.pad_row = profile.filter_panel_pad_row > 0 ? profile.filter_panel_pad_row : kButtonSpacing;
@@ -139,62 +146,29 @@ void create_filter_panel(lv_obj_t* parent)
 
     style::apply_panel_side(g_contacts_state.filter_panel);
 
-    g_contacts_state.contacts_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.contacts_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.contacts_btn);
-    style::apply_btn_filter(g_contacts_state.contacts_btn);
-    lv_obj_t* contacts_label = lv_label_create(g_contacts_state.contacts_btn);
-    ::ui::i18n::set_label_text(contacts_label, "Contacts");
-    style::apply_label_primary(contacts_label);
-    lv_obj_center(contacts_label);
+    g_contacts_state.contacts_btn = create_filter_button(g_contacts_state.filter_panel, "Contacts");
+    g_contacts_state.nearby_btn = create_filter_button(g_contacts_state.filter_panel, "Nearby");
 
-    g_contacts_state.nearby_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.nearby_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.nearby_btn);
-    style::apply_btn_filter(g_contacts_state.nearby_btn);
-    lv_obj_t* nearby_label = lv_label_create(g_contacts_state.nearby_btn);
-    ::ui::i18n::set_label_text(nearby_label, "Nearby");
-    style::apply_label_primary(nearby_label);
-    lv_obj_center(nearby_label);
+    if (reticulum_profile)
+    {
+        g_contacts_state.groups_btn = create_filter_button(g_contacts_state.filter_panel, "Groups");
+        g_contacts_state.ignored_btn = create_filter_button(g_contacts_state.filter_panel, "Ignored");
+        g_contacts_state.broadcast_btn = nullptr;
+        g_contacts_state.discover_btn = nullptr;
 
-    g_contacts_state.ignored_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.ignored_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.ignored_btn);
-    style::apply_btn_filter(g_contacts_state.ignored_btn);
-    lv_obj_t* ignored_label = lv_label_create(g_contacts_state.ignored_btn);
-    ::ui::i18n::set_label_text(ignored_label, "Ignored");
-    style::apply_label_primary(ignored_label);
-    lv_obj_center(ignored_label);
+        g_contacts_state.team_btn = create_filter_button(g_contacts_state.filter_panel, "Team");
+        lv_obj_add_flag(g_contacts_state.team_btn, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
 
-    g_contacts_state.broadcast_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.broadcast_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.broadcast_btn);
-    style::apply_btn_filter(g_contacts_state.broadcast_btn);
-    lv_obj_t* broadcast_label = lv_label_create(g_contacts_state.broadcast_btn);
-    ::ui::i18n::set_label_text(broadcast_label, "Broadcast");
-    style::apply_label_primary(broadcast_label);
-    lv_obj_center(broadcast_label);
-
-    g_contacts_state.team_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.team_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.team_btn);
-    style::apply_btn_filter(g_contacts_state.team_btn);
-    lv_obj_t* team_label = lv_label_create(g_contacts_state.team_btn);
-    ::ui::i18n::set_label_text(team_label, "Team");
-    style::apply_label_primary(team_label);
-    lv_obj_center(team_label);
+    g_contacts_state.groups_btn = nullptr;
+    g_contacts_state.ignored_btn = create_filter_button(g_contacts_state.filter_panel, "Ignored");
+    g_contacts_state.broadcast_btn = create_filter_button(g_contacts_state.filter_panel, "Broadcast");
+    g_contacts_state.team_btn = create_filter_button(g_contacts_state.filter_panel, "Team");
     lv_obj_add_flag(g_contacts_state.team_btn, LV_OBJ_FLAG_HIDDEN);
 
-    g_contacts_state.discover_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.discover_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.discover_btn);
-    style::apply_btn_filter(g_contacts_state.discover_btn);
-    lv_obj_t* discover_label = lv_label_create(g_contacts_state.discover_btn);
-    ::ui::i18n::set_label_text(discover_label, "Discover");
-    style::apply_label_primary(discover_label);
-    lv_obj_center(discover_label);
-
-    if (app::appFacade().getConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
+    g_contacts_state.discover_btn = create_filter_button(g_contacts_state.filter_panel, "Discover");
+    if (!uses_meshcore_filter_profile())
     {
         lv_obj_add_flag(g_contacts_state.discover_btn, LV_OBJ_FLAG_HIDDEN);
     }

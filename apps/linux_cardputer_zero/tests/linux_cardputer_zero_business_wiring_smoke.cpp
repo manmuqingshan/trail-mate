@@ -76,7 +76,7 @@ int main(int argc, char** argv)
     assert(contains(cardputer_ux, "ScreenId::SkyPlot"));
     assert(contains(cardputer_ux, "\"Sky Plot\""));
     assert(contains(cardputer_ux, "ScreenId::Extensions"));
-    assert(not_contains(cardputer_ux, "ScreenId::PcLink"));
+    assert(not_contains(cardputer_ux, "pc_link"));
     assert(not_contains(cardputer_ux, "ScreenId::EnergySweep"));
     assert(not_contains(cardputer_ux, "ScreenId::Sstv"));
     assert(not_contains(cardputer_ux, "ScreenId::Gps"));

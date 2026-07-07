@@ -3,8 +3,10 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "chat/domain/chat_types.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "ui/app_runtime.h"
 #include "ui/screens/chat/chat_compose_components.h"
 #include "ui/screens/chat/chat_conversation_components.h"
@@ -16,7 +18,9 @@
 #include "ui/widgets/ime/ime_widget.h"
 #include "ui/widgets/top_bar.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #define CONTACTS_DEBUG 0
 #if CONTACTS_DEBUG
@@ -33,6 +37,29 @@ namespace
 using contacts::ui::shell::Host;
 
 const Host* s_host = nullptr;
+
+void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& identity,
+                                  char* out,
+                                  size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!chat::hasReticulumDestinationIdentity(identity) || out_len < 9)
+    {
+        std::snprintf(out, out_len, "-");
+        return;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "%02X%02X%02X%02X",
+                  static_cast<unsigned>(identity.destination_hash[0]),
+                  static_cast<unsigned>(identity.destination_hash[1]),
+                  static_cast<unsigned>(identity.destination_hash[2]),
+                  static_cast<unsigned>(identity.destination_hash[3]));
+}
 
 void request_exit()
 {
@@ -73,16 +100,175 @@ void contacts_top_bar_back(void*)
     request_exit();
 }
 
+void copy_text(char* out, size_t out_len, const char* text)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "%s", text ? text : "");
+}
+
+bool same_reticulum_groups(const chat::ReticulumGroupDestinationConfig* lhs,
+                           const chat::ReticulumGroupDestinationConfig* rhs,
+                           std::size_t count)
+{
+    if (!lhs || !rhs)
+    {
+        return lhs == rhs;
+    }
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        if (lhs[index].enabled != rhs[index].enabled ||
+            std::strncmp(lhs[index].name,
+                         rhs[index].name,
+                         sizeof(lhs[index].name)) != 0 ||
+            !chat::sameReticulumPeerIdentity(lhs[index].identity, rhs[index].identity))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void refresh_reticulum_group_storage_state(const platform::ui::reticulum_groups::Status& status)
+{
+    g_contacts_state.reticulum_group_storage_supported = status.supported;
+    g_contacts_state.reticulum_group_storage_ready = status.sd_present;
+    g_contacts_state.reticulum_group_storage_loaded = status.loaded;
+    copy_text(g_contacts_state.reticulum_group_storage_message,
+              sizeof(g_contacts_state.reticulum_group_storage_message),
+              status.message);
+    copy_text(g_contacts_state.reticulum_group_storage_detail,
+              sizeof(g_contacts_state.reticulum_group_storage_detail),
+              status.detail);
+}
+
+bool node_matches_active_protocol(const chat::contacts::NodeInfo& node)
+{
+    const chat::MeshProtocol active_protocol =
+        chat::infra::normalizeMeshProtocol(
+            app::configFacade().getConfig().mesh_protocol);
+
+    if (chat::infra::isReticulumMeshProtocol(active_protocol))
+    {
+        return chat::infra::isReticulumNodeProtocol(node.protocol);
+    }
+
+    if (node.protocol == chat::contacts::NodeProtocolType::Unknown)
+    {
+        return true;
+    }
+
+    return chat::infra::meshProtocolFromNodeProtocol(
+               node.protocol,
+               active_protocol) == active_protocol;
+}
+
+void filter_to_active_protocol(std::vector<chat::contacts::NodeInfo>& nodes)
+{
+    nodes.erase(std::remove_if(nodes.begin(),
+                               nodes.end(),
+                               [](const chat::contacts::NodeInfo& node)
+                               {
+                                   return !node_matches_active_protocol(node);
+                               }),
+                nodes.end());
+}
+
+void refresh_reticulum_groups_data()
+{
+    g_contacts_state.reticulum_group_list.clear();
+    const chat::MeshProtocol active_protocol =
+        chat::infra::normalizeMeshProtocol(
+            app::configFacade().getConfig().mesh_protocol);
+    if (!chat::infra::isReticulumMeshProtocol(active_protocol))
+    {
+        g_contacts_state.reticulum_group_storage_supported = false;
+        g_contacts_state.reticulum_group_storage_ready = false;
+        g_contacts_state.reticulum_group_storage_loaded = false;
+        g_contacts_state.reticulum_group_storage_message[0] = '\0';
+        g_contacts_state.reticulum_group_storage_detail[0] = '\0';
+        return;
+    }
+
+    app::AppConfig& config = app::configFacade().getConfig();
+    chat::MeshConfig& reticulum_config = config.reticulumConfig();
+    chat::ReticulumGroupDestinationConfig previous[chat::kReticulumGroupDestinationMaxCount] = {};
+    std::memcpy(previous,
+                reticulum_config.reticulum_groups,
+                sizeof(previous));
+    const auto status = platform::ui::reticulum_groups::load(
+        reticulum_config.reticulum_groups,
+        chat::kReticulumGroupDestinationMaxCount);
+    refresh_reticulum_group_storage_state(status);
+    if (!same_reticulum_groups(previous,
+                               reticulum_config.reticulum_groups,
+                               chat::kReticulumGroupDestinationMaxCount))
+    {
+        app::configFacade().applyMeshConfig();
+    }
+
+    const chat::MeshConfig& mesh_config = config.activeMeshConfig();
+    for (std::size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
+    {
+        const chat::ReticulumGroupDestinationConfig& group =
+            mesh_config.reticulum_groups[index];
+        if (!group.enabled ||
+            !chat::hasReticulumDestinationIdentity(group.identity))
+        {
+            continue;
+        }
+
+        chat::contacts::NodeInfo item{};
+        item.node_id = 0;
+        item.protocol = chat::contacts::NodeProtocolType::Reticulum;
+        item.role = chat::contacts::NodeRoleType::Client;
+        item.channel = static_cast<uint8_t>(index);
+        item.reticulum_identity = group.identity;
+        const char* name = group.name[0] != '\0' ? group.name : nullptr;
+        char fallback[chat::kReticulumGroupNameMaxLen] = {};
+        if (!name)
+        {
+            std::snprintf(fallback,
+                          sizeof(fallback),
+                          "Group %u",
+                          static_cast<unsigned>(index + 1));
+            name = fallback;
+        }
+        std::strncpy(item.long_name, name, sizeof(item.long_name) - 1);
+        item.long_name[sizeof(item.long_name) - 1] = '\0';
+        item.display_name = item.long_name;
+        std::snprintf(item.short_name,
+                      sizeof(item.short_name),
+                      "RT%u",
+                      static_cast<unsigned>(index + 1));
+        g_contacts_state.reticulum_group_list.push_back(item);
+
+        char dest_hash[12] = {};
+        format_reticulum_hash_prefix(group.identity, dest_hash, sizeof(dest_hash));
+        std::printf("[Contacts][RTGroup] configured index=%u name=%s dest=%s\n",
+                    static_cast<unsigned>(index),
+                    name,
+                    dest_hash);
+    }
+}
+
 void refresh_contacts_data_impl_internal()
 {
     chat::contacts::ContactService& contact_service = app::messagingFacade().getContactService();
     g_contacts_state.contacts_list = contact_service.getContacts();
     g_contacts_state.nearby_list = contact_service.getNearby();
     g_contacts_state.ignored_list = contact_service.getIgnoredNodes();
+    refresh_reticulum_groups_data();
+    filter_to_active_protocol(g_contacts_state.contacts_list);
+    filter_to_active_protocol(g_contacts_state.nearby_list);
+    filter_to_active_protocol(g_contacts_state.ignored_list);
 
-    CONTACTS_LOG("[Contacts] Data refreshed: %zu contacts, %zu nearby, %zu ignored\n",
+    CONTACTS_LOG("[Contacts] Data refreshed: %zu contacts, %zu nearby, %zu groups, %zu ignored\n",
                  g_contacts_state.contacts_list.size(),
                  g_contacts_state.nearby_list.size(),
+                 g_contacts_state.reticulum_group_list.size(),
                  g_contacts_state.ignored_list.size());
 }
 
@@ -145,9 +331,13 @@ void enter(const shell::Host* host, lv_obj_t* parent)
 
     init_contacts_input();
     refresh_contacts_data();
-    std::printf("[Contacts] open contacts=%u nearby=%u ignored=%u\n",
+    std::printf("[Contacts] open protocol=%s contacts=%u nearby=%u groups=%u ignored=%u\n",
+                chat::infra::meshProtocolName(
+                    chat::infra::normalizeMeshProtocol(
+                        app::configFacade().getConfig().mesh_protocol)),
                 static_cast<unsigned>(g_contacts_state.contacts_list.size()),
                 static_cast<unsigned>(g_contacts_state.nearby_list.size()),
+                static_cast<unsigned>(g_contacts_state.reticulum_group_list.size()),
                 static_cast<unsigned>(g_contacts_state.ignored_list.size()));
     refresh_ui();
 

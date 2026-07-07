@@ -169,7 +169,7 @@ struct AppConfig
         meshcore_config = chat::MeshConfig();
         applyMeshCoreFactoryDefaults();
         rnode_config = chat::MeshConfig();
-        applyRNodeFactoryDefaults();
+        applyReticulumFactoryDefaults();
         mesh_protocol = chat::MeshProtocol::Meshtastic;
         node_name[0] = '\0';
         short_name[0] = '\0';
@@ -255,15 +255,37 @@ struct AppConfig
         rnode_config.override_frequency_mhz = kRNodeDefaultFreqMHz;
     }
 
+    void applyReticulumFactoryDefaults()
+    {
+        applyRNodeFactoryDefaults();
+        rnode_config.reticulum_lora_enabled = true;
+        rnode_config.reticulum_wifi_gateway_enabled = false;
+        rnode_config.reticulum_wifi_auto_connect = true;
+        rnode_config.reticulum_anonymous_peer = false;
+        rnode_config.reticulum_wifi_gateway_host[0] = '\0';
+        rnode_config.reticulum_wifi_gateway_port = 4242;
+        rnode_config.reticulum_interface_policy = chat::ReticulumInterfacePolicy::All;
+    }
+
+    chat::MeshConfig& reticulumConfig()
+    {
+        return rnode_config;
+    }
+
+    const chat::MeshConfig& reticulumConfig() const
+    {
+        return rnode_config;
+    }
+
     chat::MeshConfig& activeMeshConfig()
     {
         switch (mesh_protocol)
         {
         case chat::MeshProtocol::MeshCore:
             return meshcore_config;
-        case chat::MeshProtocol::LXMF:
+        case chat::MeshProtocol::Reticulum:
         case chat::MeshProtocol::RNode:
-            return rnode_config;
+            return reticulumConfig();
         case chat::MeshProtocol::Meshtastic:
         default:
             return meshtastic_config;
@@ -276,9 +298,9 @@ struct AppConfig
         {
         case chat::MeshProtocol::MeshCore:
             return meshcore_config;
-        case chat::MeshProtocol::LXMF:
+        case chat::MeshProtocol::Reticulum:
         case chat::MeshProtocol::RNode:
-            return rnode_config;
+            return reticulumConfig();
         case chat::MeshProtocol::Meshtastic:
         default:
             return meshtastic_config;

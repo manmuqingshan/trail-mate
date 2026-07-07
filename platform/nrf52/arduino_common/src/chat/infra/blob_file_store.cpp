@@ -22,7 +22,7 @@ constexpr const char* kTempSuffix = ".tmp";
 constexpr std::size_t kBlobReadChunkBytes = 128;
 constexpr std::size_t kMaxBlobPayloadBytes =
     ::chat::contacts::NodeStoreCore::kMaxNodes *
-    ::chat::contacts::NodeStoreCore::kSerializedEntrySizeV8;
+    ::chat::contacts::NodeStoreCore::kSerializedEntrySize;
 
 bool writeBytes(Adafruit_LittleFS_Namespace::File& file, const uint8_t* data, std::size_t len)
 {

@@ -18,6 +18,7 @@ class IMeshCoreBleBackend;
 struct MeshCapabilities
 {
     bool supports_unicast_text = false;
+    bool supports_reticulum_destination_text = false;
     bool supports_unicast_appdata = false;
     bool supports_broadcast_appdata = false;
     bool supports_appdata_ack = false;
@@ -38,6 +39,16 @@ struct MeshCapabilities
     bool supports_meshcore_identity_keys = false;
     bool supports_meshcore_peer_secret_derivation = false;
     bool supports_meshcore_rich_trace_projection = false;
+};
+
+struct ReticulumLocalIdentityInfo
+{
+    bool ready = false;
+    bool anonymous_peer = false;
+    NodeId node_id = 0;
+    uint8_t identity_hash[kReticulumPeerHashSize] = {};
+    uint8_t lxmf_address[kReticulumPeerHashSize] = {};
+    uint8_t propagation_address[kReticulumPeerHashSize] = {};
 };
 
 /**
@@ -98,6 +109,27 @@ class IMeshAdapter
     }
 
     /**
+     * @brief Send text to a Reticulum destination-keyed conversation.
+     *
+     * This is intentionally optional so peer-addressed protocols do not inherit
+     * Reticulum group semantics. Adapters that support group/plain destination
+     * delivery should return the same destination identity in MeshSendResult.
+     */
+    virtual MeshSendResult sendTextToReticulumDestination(
+        ChannelId channel,
+        const std::string& text,
+        MessageId forced_msg_id,
+        const ReticulumPeerIdentity& destination)
+    {
+        (void)channel;
+        (void)text;
+        (void)forced_msg_id;
+        return hasReticulumDestinationIdentity(destination)
+                   ? MeshSendResult::fail(MeshOperationFailure::Unsupported)
+                   : MeshSendResult::fail(MeshOperationFailure::InvalidInput);
+    }
+
+    /**
      * @brief Poll for incoming text messages
      * @param out Output message (if available)
      * @return true if message available
@@ -143,6 +175,15 @@ class IMeshAdapter
     }
 
     /**
+     * @brief Broadcast this device's self identity on the active mesh protocol
+     * @return true if the broadcast was queued or sent successfully
+     */
+    virtual bool broadcastSelfIdentity()
+    {
+        return requestNodeInfo(0xFFFFFFFFUL, false);
+    }
+
+    /**
      * @brief Start PKI key verification with a remote node (if supported)
      * @param dest Destination node
      * @return true if started
@@ -174,6 +215,18 @@ class IMeshAdapter
     virtual NodeId getNodeId() const
     {
         return 0;
+    }
+
+    /**
+     * @brief Read local Reticulum/LXMF identity facts for UI display.
+     */
+    virtual bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
+    {
+        if (out)
+        {
+            *out = ReticulumLocalIdentityInfo{};
+        }
+        return false;
     }
 
     /**

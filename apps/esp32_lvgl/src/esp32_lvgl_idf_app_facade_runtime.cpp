@@ -28,6 +28,7 @@
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/radio/meshtastic_radio_adapter.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "platform/ui/tracker_runtime.h"
@@ -78,7 +79,7 @@ constexpr size_t kIdfMaxContactBlobBytes =
 constexpr size_t kIdfMaxNodeFileBytes =
     sizeof(chat::contacts::NodeStoreSdHeader) +
     chat::contacts::NodeStoreCore::kMaxNodes *
-        chat::contacts::NodeStoreCore::kSerializedEntrySizeV8;
+        chat::contacts::NodeStoreCore::kSerializedEntrySize;
 constexpr const char* kIdfTeamTag = "idf-team";
 constexpr size_t kTeamAeadTagBytes = 16;
 constexpr size_t kTeamAeadKeyBytes = 32;
@@ -125,6 +126,25 @@ bool idfSupportsMeshProtocol(chat::MeshProtocol protocol)
     return protocol == chat::MeshProtocol::Meshtastic;
 }
 
+void syncReticulumGroupConfig(app::AppConfig& config)
+{
+    if (!chat::infra::isReticulumMeshProtocol(
+            chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
+    {
+        return;
+    }
+
+    const auto status = platform::ui::reticulum_groups::load(
+        config.reticulumConfig().reticulum_groups,
+        chat::kReticulumGroupDestinationMaxCount);
+    ESP_LOGI(kIdfConfigTag,
+             "reticulum group sync sd=%d loaded=%d file=%d message=%s",
+             status.sd_present ? 1 : 0,
+             status.loaded ? 1 : 0,
+             status.file_present ? 1 : 0,
+             status.message);
+}
+
 void normalizeIdfAppConfig(app::AppConfig& config)
 {
     if (!chat::infra::isValidMeshProtocol(config.mesh_protocol) ||
@@ -145,7 +165,7 @@ void normalizeIdfAppConfig(app::AppConfig& config)
 
     config.meshtastic_config.tx_power = clampTxPower(config.meshtastic_config.tx_power);
     config.meshcore_config.tx_power = clampTxPower(config.meshcore_config.tx_power);
-    config.rnode_config.tx_power = clampTxPower(config.rnode_config.tx_power);
+    config.reticulumConfig().tx_power = clampTxPower(config.reticulumConfig().tx_power);
     if (!chat::meshcore::isValidRegionPresetId(
             config.meshcore_config.meshcore_region_preset))
     {
@@ -1047,6 +1067,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             normalizeIdfAppConfig(config_);
             ESP_LOGI(kIdfConfigTag, "using default app config");
         }
+        syncReticulumGroupConfig(config_);
 
         if (!sys::EventBus::init())
         {
@@ -1103,6 +1124,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     void applyMeshConfig() override
     {
         normalizeIdfAppConfig(config_);
+        syncReticulumGroupConfig(config_);
         meshAdapter().applyConfig(config_.activeMeshConfig());
         if (board_)
         {

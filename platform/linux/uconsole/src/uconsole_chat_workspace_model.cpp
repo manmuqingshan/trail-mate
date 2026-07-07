@@ -12,6 +12,7 @@
 
 #include "app/linux_app_services.h"
 #include "chat/domain/contact_types.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/mesh_adapter_protocol_effect_executor.h"
 #include "chat/runtime/meshtastic_runtime.h"
@@ -28,18 +29,7 @@ namespace
 
 [[nodiscard]] const char* protocolLabel(::chat::MeshProtocol protocol) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::MeshProtocol::Meshtastic:
-        return "Meshtastic";
-    case ::chat::MeshProtocol::MeshCore:
-        return "MeshCore";
-    case ::chat::MeshProtocol::RNode:
-        return "RNode";
-    case ::chat::MeshProtocol::LXMF:
-        return "LXMF";
-    }
-    return "Unknown";
+    return ::chat::infra::meshProtocolName(protocol);
 }
 
 [[nodiscard]] const char* statusLabel(::chat::MessageStatus status) noexcept
@@ -214,40 +204,14 @@ namespace
 [[nodiscard]] const char* contactProtocolLabel(
     ::chat::contacts::NodeProtocolType protocol) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::contacts::NodeProtocolType::Meshtastic:
-        return "Meshtastic";
-    case ::chat::contacts::NodeProtocolType::MeshCore:
-        return "MeshCore";
-    case ::chat::contacts::NodeProtocolType::RNode:
-        return "RNode";
-    case ::chat::contacts::NodeProtocolType::LXMF:
-        return "LXMF";
-    case ::chat::contacts::NodeProtocolType::Unknown:
-    default:
-        return "Unknown";
-    }
+    return ::chat::infra::nodeProtocolName(protocol);
 }
 
 [[nodiscard]] ::chat::MeshProtocol meshProtocolForNode(
     ::chat::contacts::NodeProtocolType protocol,
     ::chat::MeshProtocol fallback) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::contacts::NodeProtocolType::Meshtastic:
-        return ::chat::MeshProtocol::Meshtastic;
-    case ::chat::contacts::NodeProtocolType::MeshCore:
-        return ::chat::MeshProtocol::MeshCore;
-    case ::chat::contacts::NodeProtocolType::RNode:
-        return ::chat::MeshProtocol::RNode;
-    case ::chat::contacts::NodeProtocolType::LXMF:
-        return ::chat::MeshProtocol::LXMF;
-    case ::chat::contacts::NodeProtocolType::Unknown:
-    default:
-        return fallback;
-    }
+    return ::chat::infra::meshProtocolFromNodeProtocol(protocol, fallback);
 }
 
 [[nodiscard]] ::chat::ChannelId channelForNode(
@@ -1644,6 +1608,12 @@ bool UConsoleChatWorkspaceModel::canSendActiveConversation() const
     }
 
     const ::chat::MeshCapabilities capabilities = adapter->getCapabilities();
+    if (active_conversation_.protocol == ::chat::MeshProtocol::Reticulum &&
+        active_conversation_.peer == 0 &&
+        ::chat::hasReticulumDestinationIdentity(active_conversation_.reticulum_identity))
+    {
+        return capabilities.supports_reticulum_destination_text;
+    }
     return capabilities.supports_unicast_text;
 }
 

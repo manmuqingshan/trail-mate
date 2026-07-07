@@ -7,6 +7,7 @@
 
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/ui/gps_runtime.h"
 #include "sys/clock.h"
@@ -1213,19 +1214,7 @@ void format_age_short(uint32_t ts, char* out, size_t out_len)
 
 [[maybe_unused]] const char* protocol_name(chat::contacts::NodeProtocolType protocol)
 {
-    switch (protocol)
-    {
-    case chat::contacts::NodeProtocolType::Meshtastic:
-        return "Meshtastic";
-    case chat::contacts::NodeProtocolType::MeshCore:
-        return "MeshCore";
-    case chat::contacts::NodeProtocolType::RNode:
-        return "RNode";
-    case chat::contacts::NodeProtocolType::LXMF:
-        return "LXMF";
-    default:
-        return "Unknown";
-    }
+    return chat::infra::nodeProtocolName(protocol);
 }
 
 std::string preferred_node_title(const chat::contacts::NodeInfo& node)

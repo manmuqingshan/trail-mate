@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "chat/domain/reticulum_identity.h"
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -13,6 +15,9 @@ namespace chat
 {
 namespace contacts
 {
+
+using ::chat::kReticulumPeerHashSize;
+using ::chat::ReticulumPeerIdentity;
 
 /**
  * @brief Node protocol type
@@ -23,7 +28,8 @@ enum class NodeProtocolType : uint8_t
     Meshtastic = 1,
     MeshCore = 2,
     RNode = 3,
-    LXMF = 4
+    LXMF = 4,
+    Reticulum = LXMF
 };
 
 /**
@@ -126,6 +132,8 @@ struct NodeUpdate
     bool has_key_manually_verified = false;
     bool key_manually_verified = false;
 
+    ReticulumPeerIdentity reticulum_identity{};
+
     bool has_device_metrics = false;
     NodeDeviceMetrics device_metrics{};
 
@@ -158,6 +166,7 @@ struct NodeInfoBase
     bool is_ignored = false;
     bool has_public_key = false;
     bool key_manually_verified = false;
+    ReticulumPeerIdentity reticulum_identity{};
     bool has_device_metrics = false;
     NodeDeviceMetrics device_metrics;
     NodePosition position;

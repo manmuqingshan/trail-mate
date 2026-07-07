@@ -8,6 +8,8 @@
 #include "platform/esp/arduino_common/memory_diag.h"
 #include "ui/ui_boot.h"
 
+#include <cstdio>
+
 namespace platform::esp::arduino_common
 {
 
@@ -43,6 +45,11 @@ bool bootstrapAppContext(app::AppContext& app_context,
                                                                                   app_context.getMeshAdapter());
     memory_diag::logHeapSnapshot("bootstrap.after_background_tasks");
     memory_diag::logTaskSnapshot("bootstrap.after_background_tasks");
+    if (result.background_tasks == BackgroundTaskStartResult::Started)
+    {
+        std::printf("[APP] Startup self identity broadcast requested\n");
+        app_context.broadcastNodeInfo();
+    }
 
     if (out_result)
     {

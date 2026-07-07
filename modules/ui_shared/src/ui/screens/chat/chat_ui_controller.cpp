@@ -502,11 +502,10 @@ void UiController::onRuntimeMessageArrived(chat::MessageId msg_id)
     const ChatMessage* latest = service_.getMessage(msg_id);
     if (latest)
     {
+        const chat::ConversationId latest_conv = chat::conversationIdForMessage(*latest);
         const bool is_current_conversation =
             (state_ == State::Conversation) &&
-            (current_conv_ == chat::ConversationId(latest->channel,
-                                                   latest->peer,
-                                                   latest->protocol));
+            (current_conv_ == latest_conv);
         updateConversationMetaForMessage(*latest, !is_current_conversation);
         if (is_current_conversation)
         {
@@ -1001,18 +1000,20 @@ std::string UiController::resolveConversationDisplayName(const chat::Conversatio
 void UiController::updateConversationMetaForMessage(const chat::ChatMessage& msg,
                                                     const bool increment_unread)
 {
-    if (isTeamConversation(chat::ConversationId(msg.channel, msg.peer, msg.protocol)))
+    const chat::ConversationId message_conv = chat::conversationIdForMessage(msg);
+    if (isTeamConversation(message_conv))
     {
         conversation_list_dirty_ = true;
         return;
     }
 
     chat::ConversationMeta meta;
-    meta.id = chat::ConversationId(msg.channel, msg.peer, msg.protocol);
+    meta.id = message_conv;
     meta.name = base_conversation_name(meta.id);
     meta.preview = msg.text;
     meta.last_timestamp = msg.timestamp;
     meta.unread = (increment_unread && msg.status == chat::MessageStatus::Incoming) ? 1 : 0;
+    meta.reticulum_identity = msg.reticulum_identity;
 
     bool found = false;
     for (auto it = cached_conversations_.begin(); it != cached_conversations_.end(); ++it)
@@ -1042,7 +1043,7 @@ bool UiController::updateConversationViewForIncoming(const chat::ChatMessage& ms
         return false;
     }
 
-    if (!(current_conv_ == chat::ConversationId(msg.channel, msg.peer, msg.protocol)))
+    if (!(current_conv_ == chat::conversationIdForMessage(msg)))
     {
         return false;
     }

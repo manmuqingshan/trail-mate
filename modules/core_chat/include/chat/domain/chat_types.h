@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "chat/domain/reticulum_identity.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -18,6 +19,8 @@ namespace chat
 constexpr std::size_t kMeshCoreChannelKeyLen = 16;
 constexpr std::size_t kMeshtasticChannelKeyDefaultLen = 16;
 constexpr std::size_t kMeshtasticChannelKeyMaxLen = 32;
+constexpr std::size_t kReticulumGroupNameMaxLen = 32;
+constexpr std::size_t kReticulumGroupDestinationMaxCount = 4;
 
 inline bool isAllZeroKeyBytes(const uint8_t* key, std::size_t len)
 {
@@ -96,8 +99,15 @@ enum class MeshProtocol : uint8_t
 {
     Meshtastic = 1,
     MeshCore = 2,
+    // Legacy value 3 now normalizes to the Reticulum runtime. It is retained
+    // only so old settings do not fail to load while RNode is removed from the
+    // user-facing protocol selector.
     RNode = 3,
-    LXMF = 4
+    // Legacy raw value 4 from the earlier LXMF-named runtime.
+    LXMF = 4,
+    // Product and runtime protocol name. It intentionally keeps raw value 4 so
+    // existing persisted LXMF settings load as Reticulum.
+    Reticulum = LXMF
 };
 
 /**
@@ -159,6 +169,7 @@ struct MeshSendResult
     MessageId msg_id = 0;
     MeshOperationFailure failure = MeshOperationFailure::None;
     int detail = 0;
+    ReticulumPeerIdentity reticulum_identity{};
 
     static MeshSendResult success(MessageId id)
     {
@@ -257,6 +268,7 @@ struct ConversationId
     MeshProtocol protocol;
     ChannelId channel;
     NodeId peer; // 0 for broadcast/channel thread
+    ReticulumPeerIdentity reticulum_identity{};
 
     ConversationId(ChannelId ch = ChannelId::PRIMARY,
                    NodeId p = 0,
@@ -273,13 +285,46 @@ struct ConversationId
         {
             return static_cast<uint8_t>(channel) < static_cast<uint8_t>(other.channel);
         }
-        return peer < other.peer;
+        const bool lhs_reticulum = protocol == MeshProtocol::Reticulum &&
+                                   hasReticulumDestinationIdentity(reticulum_identity);
+        const bool rhs_reticulum = other.protocol == MeshProtocol::Reticulum &&
+                                   hasReticulumDestinationIdentity(other.reticulum_identity);
+        if (lhs_reticulum && rhs_reticulum)
+        {
+            return compareReticulumDestinationHash(reticulum_identity,
+                                                   other.reticulum_identity) < 0;
+        }
+        if (peer != other.peer)
+        {
+            return peer < other.peer;
+        }
+        if (lhs_reticulum != rhs_reticulum)
+        {
+            return !lhs_reticulum && rhs_reticulum;
+        }
+        return false;
     }
     bool operator==(const ConversationId& other) const
     {
-        return protocol == other.protocol &&
-               channel == other.channel &&
-               peer == other.peer;
+        if (protocol != other.protocol || channel != other.channel)
+        {
+            return false;
+        }
+
+        const bool lhs_reticulum = protocol == MeshProtocol::Reticulum &&
+                                   hasReticulumDestinationIdentity(reticulum_identity);
+        const bool rhs_reticulum = other.protocol == MeshProtocol::Reticulum &&
+                                   hasReticulumDestinationIdentity(other.reticulum_identity);
+        if (lhs_reticulum && rhs_reticulum)
+        {
+            return sameReticulumDestinationHash(reticulum_identity,
+                                                other.reticulum_identity);
+        }
+        if (lhs_reticulum != rhs_reticulum)
+        {
+            return false;
+        }
+        return peer == other.peer;
     }
 };
 
@@ -310,6 +355,7 @@ struct ChatMessage
     bool has_geo;
     int32_t geo_lat_e7;
     int32_t geo_lon_e7;
+    ReticulumPeerIdentity reticulum_identity{};
     MessageStatus status;
 
     ChatMessage() : protocol(MeshProtocol::Meshtastic),
@@ -322,6 +368,17 @@ struct ChatMessage
                     status(MessageStatus::Incoming) {}
 };
 
+inline ConversationId conversationIdForMessage(const ChatMessage& msg)
+{
+    ConversationId id(msg.channel, msg.peer, msg.protocol);
+    if (msg.protocol == MeshProtocol::Reticulum &&
+        hasReticulumDestinationIdentity(msg.reticulum_identity))
+    {
+        id.reticulum_identity = msg.reticulum_identity;
+    }
+    return id;
+}
+
 /**
  * @brief Conversation metadata for UI
  */
@@ -332,6 +389,7 @@ struct ConversationMeta
     std::string preview;
     uint32_t last_timestamp;
     int unread;
+    ReticulumPeerIdentity reticulum_identity{};
 
     ConversationMeta() : id(), last_timestamp(0), unread(0) {}
 };
@@ -349,6 +407,7 @@ struct MeshIncomingText
     std::string text;
     uint8_t hop_limit; // Remaining hops
     bool encrypted;    // Whether message was encrypted
+    ReticulumPeerIdentity reticulum_identity{};
     RxMeta rx_meta;
 };
 
@@ -389,6 +448,22 @@ enum class MeshCoreForwardProfile : uint8_t
 {
     Any = 0,
     MultibyteOnly = 1,
+};
+
+struct ReticulumGroupDestinationConfig
+{
+    bool enabled = false;
+    char name[kReticulumGroupNameMaxLen] = {};
+    ReticulumPeerIdentity identity{};
+};
+
+constexpr std::size_t kReticulumGatewayHostMaxLen = 63;
+
+enum class ReticulumInterfacePolicy : uint8_t
+{
+    All = 0,
+    LoRaOnly = 1,
+    WifiGatewayOnly = 2,
 };
 
 struct MeshConfig
@@ -437,6 +512,17 @@ struct MeshConfig
     uint8_t meshcore_channel_slot;
     char meshcore_channel_name[32];
 
+    // Reticulum carrier interfaces. The user-facing protocol remains
+    // Reticulum; these switches only select which carriers participate.
+    bool reticulum_lora_enabled;
+    bool reticulum_wifi_gateway_enabled;
+    bool reticulum_wifi_auto_connect;
+    bool reticulum_anonymous_peer;
+    char reticulum_wifi_gateway_host[kReticulumGatewayHostMaxLen + 1];
+    uint16_t reticulum_wifi_gateway_port;
+    ReticulumInterfacePolicy reticulum_interface_policy;
+    ReticulumGroupDestinationConfig reticulum_groups[kReticulumGroupDestinationMaxCount];
+
     MeshConfig()
         : region(0),
           use_preset(true),
@@ -470,7 +556,13 @@ struct MeshConfig
           meshcore_multi_acks(false),
           meshcore_send_profile(MeshCorePayloadSendProfile::AutoPreferV2),
           meshcore_forward_profile(MeshCoreForwardProfile::MultibyteOnly),
-          meshcore_channel_slot(0)
+          meshcore_channel_slot(0),
+          reticulum_lora_enabled(true),
+          reticulum_wifi_gateway_enabled(false),
+          reticulum_wifi_auto_connect(true),
+          reticulum_anonymous_peer(false),
+          reticulum_wifi_gateway_port(4242),
+          reticulum_interface_policy(ReticulumInterfacePolicy::All)
     {
         strncpy(primary_channel_name, "LongFast", sizeof(primary_channel_name) - 1);
         primary_channel_name[sizeof(primary_channel_name) - 1] = '\0';
@@ -479,6 +571,7 @@ struct MeshConfig
         memset(primary_key, 0, sizeof(primary_key));
         memset(secondary_key, 0, sizeof(secondary_key));
         meshcore_channel_name[0] = '\0';
+        reticulum_wifi_gateway_host[0] = '\0';
     }
 };
 

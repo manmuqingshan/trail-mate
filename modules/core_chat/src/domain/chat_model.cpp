@@ -18,13 +18,13 @@ ChatModel::~ChatModel()
 
 void ChatModel::onIncoming(const ChatMessage& msg)
 {
-    ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    ConversationId conv = conversationIdForMessage(msg);
     appendMessage(conv, msg);
 }
 
 void ChatModel::onSendQueued(const ChatMessage& msg)
 {
-    ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    ConversationId conv = conversationIdForMessage(msg);
 
     ChatMessage copy = msg;
     if (copy.msg_id == 0)
@@ -160,6 +160,7 @@ std::vector<ConversationMeta> ChatModel::getConversations() const
         meta.preview = pair.second.preview;
         meta.last_timestamp = pair.second.last_ts;
         meta.unread = pair.second.unread_count;
+        meta.reticulum_identity = pair.second.messages.back().message.reticulum_identity;
         // Naming: broadcast vs peer short id
         if (pair.first.peer == 0)
         {

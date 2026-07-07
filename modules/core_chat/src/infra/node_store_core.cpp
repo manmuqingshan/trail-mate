@@ -117,6 +117,20 @@ TRAILMATE_PACK_POP
 static_assert(sizeof(PersistedNodeEntryV8) == NodeStoreCore::kSerializedEntrySizeV8,
               "PersistedNodeEntryV8 size changed");
 
+TRAILMATE_PACK_PUSH
+struct PersistedNodeEntryV9
+{
+    PersistedNodeEntryV8 base;
+    uint8_t reticulum_identity_valid;
+    uint8_t reticulum_destination_hash[kReticulumPeerHashSize];
+    uint8_t reticulum_identity_hash[kReticulumPeerHashSize];
+    uint8_t reserved_v9[3];
+} TRAILMATE_PACKED;
+TRAILMATE_PACK_POP
+
+static_assert(sizeof(PersistedNodeEntryV9) == NodeStoreCore::kSerializedEntrySizeV9,
+              "PersistedNodeEntryV9 size changed");
+
 void copyCommonFields(NodeEntry& dst,
                       uint32_t node_id,
                       const char short_name[10],
@@ -195,6 +209,16 @@ void copyIntoPersisted(PersistedNodeEntryV8& dst, const NodeEntry& src)
     dst.metrics_uptime_seconds = src.device_metrics.uptime_seconds;
 }
 
+void copyIntoPersisted(PersistedNodeEntryV9& dst, const NodeEntry& src)
+{
+    memset(&dst, 0, sizeof(dst));
+    copyIntoPersisted(dst.base, src);
+    dst.reticulum_identity_valid = src.reticulum_identity.valid ? 1U : 0U;
+    (void)copyReticulumIdentityHashes(dst.reticulum_destination_hash,
+                                      dst.reticulum_identity_hash,
+                                      src.reticulum_identity);
+}
+
 void copyFromPersisted(NodeEntry& dst, const PersistedNodeEntryV8& src)
 {
     copyCommonFields(dst,
@@ -238,6 +262,17 @@ void copyFromPersisted(NodeEntry& dst, const PersistedNodeEntryV8& src)
     dst.device_metrics.air_util_tx = src.metrics_air_util_tx;
     dst.device_metrics.has_uptime_seconds = src.metrics_has_uptime_seconds != 0;
     dst.device_metrics.uptime_seconds = src.metrics_uptime_seconds;
+}
+
+void copyFromPersisted(NodeEntry& dst, const PersistedNodeEntryV9& src)
+{
+    copyFromPersisted(dst, src.base);
+    if (src.reticulum_identity_valid != 0)
+    {
+        dst.reticulum_identity = makeReticulumPeerIdentity(
+            src.reticulum_destination_hash,
+            src.reticulum_identity_hash);
+    }
 }
 
 } // namespace
@@ -364,6 +399,14 @@ void NodeStoreCore::applyUpdate(uint32_t node_id, const NodeUpdate& update)
                 (entry.key_manually_verified != update.key_manually_verified) ||
                 persistent_changed;
             entry.key_manually_verified = update.key_manually_verified;
+        }
+        if (update.reticulum_identity.valid)
+        {
+            persistent_changed =
+                !sameReticulumPeerIdentity(entry.reticulum_identity,
+                                           update.reticulum_identity) ||
+                persistent_changed;
+            entry.reticulum_identity = update.reticulum_identity;
         }
         if (update.has_device_metrics)
         {
@@ -602,6 +645,18 @@ bool NodeStoreCore::decodeBlob(std::vector<NodeEntry>& out, const uint8_t* data,
     out.reserve(count);
     if (persist_version == kPersistVersion)
     {
+        auto* persisted = reinterpret_cast<const PersistedNodeEntryV9*>(data);
+        for (size_t index = 0; index < count; ++index)
+        {
+            NodeEntry entry{};
+            copyFromPersisted(entry, persisted[index]);
+            out.push_back(entry);
+        }
+        return true;
+    }
+
+    if (persist_version == kPersistVersionV8)
+    {
         auto* persisted = reinterpret_cast<const PersistedNodeEntryV8*>(data);
         for (size_t index = 0; index < count; ++index)
         {
@@ -624,13 +679,13 @@ void NodeStoreCore::encodeBlob(std::vector<uint8_t>& out, const std::vector<Node
         return;
     }
 
-    std::vector<PersistedNodeEntryV8> persisted(entries.size());
+    std::vector<PersistedNodeEntryV9> persisted(entries.size());
     for (size_t index = 0; index < entries.size(); ++index)
     {
         copyIntoPersisted(persisted[index], entries[index]);
     }
 
-    out.resize(persisted.size() * sizeof(PersistedNodeEntryV8));
+    out.resize(persisted.size() * sizeof(PersistedNodeEntryV9));
     memcpy(out.data(), persisted.data(), out.size());
 }
 

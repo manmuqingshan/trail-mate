@@ -140,6 +140,10 @@ class ContactService
      */
     const NodeInfo* getNodeInfo(uint32_t node_id) const;
 
+    bool findNodeIdByReticulumDestinationHash(
+        const uint8_t destination_hash[kReticulumPeerHashSize],
+        uint32_t* out_node_id) const;
+
     /**
      * @brief Clear cached node info
      */

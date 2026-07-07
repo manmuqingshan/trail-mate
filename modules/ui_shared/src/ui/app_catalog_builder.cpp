@@ -31,9 +31,7 @@
 #include "ui/screens/extensions/extensions_page_shell.h"
 #include "ui/screens/gnss/gnss_skyplot_page_shell.h"
 #include "ui/screens/gps/gps_page_shell.h"
-#if !defined(GAT562_NO_HOSTLINK) || !GAT562_NO_HOSTLINK
-#include "ui/screens/pc_link/pc_link_page_shell.h"
-#endif
+#include "ui/screens/network/network_page_shell.h"
 #include "ui/screens/settings/settings_page_shell.h"
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
 #include "ui/screens/sstv/sstv_page_runtime.h"
@@ -72,13 +70,11 @@ extern "C"
     extern const lv_image_dsc_t team_icon;
 #endif
     extern const lv_image_dsc_t tracker_icon;
-#if !defined(GAT562_NO_HOSTLINK) || !GAT562_NO_HOSTLINK
-    extern const lv_image_dsc_t rf;
-#endif
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
     extern const lv_image_dsc_t sstv;
 #endif
     extern const lv_image_dsc_t Setting;
+    extern const lv_image_dsc_t nomad;
     extern const lv_image_dsc_t ext;
 #if !defined(GAT562_NO_HOSTLINK) || !GAT562_NO_HOSTLINK
     extern const lv_image_dsc_t img_usb;
@@ -131,12 +127,6 @@ ui::CallbackAppScreen s_tracker_app("tracker", "Tracker", &tracker_icon,
                                     tracker::ui::shell::enter,
                                     tracker::ui::shell::exit,
                                     &s_menu_host);
-#if !defined(GAT562_NO_HOSTLINK) || !GAT562_NO_HOSTLINK
-ui::CallbackAppScreen s_pc_link_app("pc_link", "PC Link", &rf,
-                                    pc_link::ui::shell::enter,
-                                    pc_link::ui::shell::exit,
-                                    &s_menu_host);
-#endif
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
 ui::CallbackAppScreen s_sstv_app("sstv", "SSTV", &sstv,
                                  sstv_page::ui::shell::enter,
@@ -152,6 +142,10 @@ ui::CallbackAppScreen s_usb_app("usb_mass_storage", "USB Disk", &img_usb,
 ui::CallbackAppScreen s_setting_app("settings", "Setting", &Setting,
                                     settings::ui::shell::enter,
                                     settings::ui::shell::exit,
+                                    &s_menu_host);
+ui::CallbackAppScreen s_network_app("network", "Network", &nomad,
+                                    network::ui::shell::enter,
+                                    network::ui::shell::exit,
                                     &s_menu_host);
 ui::CallbackAppScreen s_extensions_app("extensions", "Extensions", &ext,
                                        extensions::ui::shell::enter,
@@ -384,12 +378,6 @@ AppCatalog build(const FeatureFlags& flags)
         {
             add(&s_tracker_app);
         }
-        if (flags.include_pc_link)
-        {
-#if !defined(GAT562_NO_HOSTLINK) || !GAT562_NO_HOSTLINK
-            add(&s_pc_link_app);
-#endif
-        }
         if (flags.profile == CatalogProfile::PioDefault && flags.include_sstv && sstv_available())
         {
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
@@ -419,6 +407,10 @@ AppCatalog build(const FeatureFlags& flags)
         if (flags.include_extensions)
         {
             add(&s_extensions_app);
+        }
+        if (flags.include_network)
+        {
+            add(&s_network_app);
         }
         if (flags.include_power_off)
         {

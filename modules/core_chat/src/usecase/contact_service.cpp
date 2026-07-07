@@ -269,6 +269,28 @@ const NodeInfo* ContactService::getNodeInfo(uint32_t node_id) const
     return nullptr;
 }
 
+bool ContactService::findNodeIdByReticulumDestinationHash(
+    const uint8_t destination_hash[kReticulumPeerHashSize],
+    uint32_t* out_node_id) const
+{
+    if (!destination_hash || !out_node_id)
+    {
+        return false;
+    }
+
+    const auto& entries = node_store_.getEntries();
+    for (const auto& entry : entries)
+    {
+        if (sameReticulumDestinationHash(entry.reticulum_identity,
+                                         destination_hash))
+        {
+            *out_node_id = entry.node_id;
+            return true;
+        }
+    }
+    return false;
+}
+
 void ContactService::clearCache()
 {
     invalidateCache();
@@ -321,6 +343,7 @@ void ContactService::buildCache() const
         info.is_ignored = entry.is_ignored;
         info.has_public_key = entry.has_public_key;
         info.key_manually_verified = entry.key_manually_verified;
+        info.reticulum_identity = entry.reticulum_identity;
         info.has_device_metrics = entry.has_device_metrics;
         info.device_metrics = entry.device_metrics;
         info.position.valid = entry.position_valid;

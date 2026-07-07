@@ -12,6 +12,7 @@
 
 #include "app/linux_app_services.h"
 #include "chat/domain/contact_types.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "chat/linux_raw_lora_mesh_adapter.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
@@ -34,37 +35,13 @@ namespace
 
 [[nodiscard]] const char* protocolLabel(::chat::MeshProtocol protocol) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::MeshProtocol::Meshtastic:
-        return "Meshtastic";
-    case ::chat::MeshProtocol::MeshCore:
-        return "MeshCore";
-    case ::chat::MeshProtocol::RNode:
-        return "RNode";
-    case ::chat::MeshProtocol::LXMF:
-        return "LXMF";
-    }
-    return "Unknown";
+    return ::chat::infra::meshProtocolName(protocol);
 }
 
 [[nodiscard]] const char* nodeProtocolLabel(
     ::chat::contacts::NodeProtocolType protocol) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::contacts::NodeProtocolType::Meshtastic:
-        return "Meshtastic";
-    case ::chat::contacts::NodeProtocolType::MeshCore:
-        return "MeshCore";
-    case ::chat::contacts::NodeProtocolType::RNode:
-        return "RNode";
-    case ::chat::contacts::NodeProtocolType::LXMF:
-        return "LXMF";
-    case ::chat::contacts::NodeProtocolType::Unknown:
-        return "Unknown";
-    }
-    return "Unknown";
+    return ::chat::infra::nodeProtocolName(protocol);
 }
 
 [[nodiscard]] std::string formatNodeId(std::uint32_t node_id)

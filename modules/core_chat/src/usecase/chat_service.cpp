@@ -28,6 +28,91 @@ NodeId normalize_conversation_peer(NodeId peer)
 #define CHAT_SERVICE_LOG(...)
 #endif
 
+#ifndef CHAT_SERVICE_DIAG_LOG_ENABLE
+#define CHAT_SERVICE_DIAG_LOG_ENABLE 1
+#endif
+
+#if CHAT_SERVICE_DIAG_LOG_ENABLE
+#define CHAT_SERVICE_DIAG_LOG(...) std::printf(__VA_ARGS__)
+#else
+#define CHAT_SERVICE_DIAG_LOG(...)
+#endif
+
+const char* failure_name(MeshOperationFailure failure)
+{
+    switch (failure)
+    {
+    case MeshOperationFailure::None:
+        return "none";
+    case MeshOperationFailure::InvalidInput:
+        return "invalid_input";
+    case MeshOperationFailure::Unsupported:
+        return "unsupported";
+    case MeshOperationFailure::NotReady:
+        return "not_ready";
+    case MeshOperationFailure::TxDisabled:
+        return "tx_disabled";
+    case MeshOperationFailure::RadioOffline:
+        return "radio_offline";
+    case MeshOperationFailure::DutyCycleLimited:
+        return "duty_cycle_limited";
+    case MeshOperationFailure::LocalIdentityMissing:
+        return "local_identity_missing";
+    case MeshOperationFailure::PeerKeyMissing:
+        return "peer_key_missing";
+    case MeshOperationFailure::ChannelKeyMissing:
+        return "channel_key_missing";
+    case MeshOperationFailure::EncodeFailed:
+        return "encode_failed";
+    case MeshOperationFailure::CryptoFailed:
+        return "crypto_failed";
+    case MeshOperationFailure::RadioTxFailed:
+        return "radio_tx_failed";
+    case MeshOperationFailure::Busy:
+        return "busy";
+    case MeshOperationFailure::Unknown:
+        return "unknown";
+    }
+    return "unknown";
+}
+
+const char* protocol_name(MeshProtocol protocol)
+{
+    switch (protocol)
+    {
+    case MeshProtocol::Meshtastic:
+        return "Meshtastic";
+    case MeshProtocol::MeshCore:
+        return "MeshCore";
+    case MeshProtocol::Reticulum:
+        return "Reticulum";
+    }
+    return "Unknown";
+}
+
+void format_reticulum_hash_prefix(const ReticulumPeerIdentity* identity,
+                                  char* out,
+                                  size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!identity || !hasReticulumDestinationIdentity(*identity) || out_len < 9)
+    {
+        std::snprintf(out, out_len, "-");
+        return;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "%02X%02X%02X%02X",
+                  static_cast<unsigned>(identity->destination_hash[0]),
+                  static_cast<unsigned>(identity->destination_hash[1]),
+                  static_cast<unsigned>(identity->destination_hash[2]),
+                  static_cast<unsigned>(identity->destination_hash[3]));
+}
+
 ChatService::ChatService(ChatModel& model,
                          IMeshAdapter& adapter,
                          IChatStore& store,
@@ -106,21 +191,72 @@ MeshSendResult ChatService::sendTextToConversationDetailed(
         return MeshSendResult::fail(MeshOperationFailure::Unsupported);
     }
 
-    return sendTextDetailed(conversation.channel, text, conversation.peer);
+    const ReticulumPeerIdentity* reticulum_destination = nullptr;
+    if (conversation.protocol == MeshProtocol::Reticulum &&
+        normalize_conversation_peer(conversation.peer) == 0 &&
+        hasReticulumDestinationIdentity(conversation.reticulum_identity))
+    {
+        reticulum_destination = &conversation.reticulum_identity;
+    }
+
+    return sendTextResolvedDetailed(conversation.channel,
+                                    text,
+                                    0,
+                                    conversation.peer,
+                                    reticulum_destination);
 }
 
 MeshSendResult ChatService::sendTextWithIdDetailed(ChannelId channel, const std::string& text,
                                                    MessageId forced_msg_id, NodeId peer)
+{
+    return sendTextResolvedDetailed(channel, text, forced_msg_id, peer, nullptr);
+}
+
+MeshSendResult ChatService::sendTextResolvedDetailed(
+    ChannelId channel,
+    const std::string& text,
+    MessageId forced_msg_id,
+    NodeId peer,
+    const ReticulumPeerIdentity* reticulum_destination)
 {
     if (text.empty())
     {
         return MeshSendResult::fail(MeshOperationFailure::InvalidInput);
     }
 
-    MeshSendResult result = adapter_.sendTextDetailed(channel, text, forced_msg_id, peer);
+    const bool has_reticulum_destination =
+        reticulum_destination &&
+        hasReticulumDestinationIdentity(*reticulum_destination);
+    char dest_hash[12] = {};
+    format_reticulum_hash_prefix(reticulum_destination, dest_hash, sizeof(dest_hash));
+    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] begin protocol=%s mode=%s ch=%u peer=%08lX forced=%lu dest=%s len=%u\n",
+                          protocol_name(active_protocol_),
+                          has_reticulum_destination ? "reticulum_destination" : "peer",
+                          static_cast<unsigned>(channel),
+                          static_cast<unsigned long>(normalize_conversation_peer(peer)),
+                          static_cast<unsigned long>(forced_msg_id),
+                          dest_hash,
+                          static_cast<unsigned>(text.size()));
+    MeshSendResult result =
+        has_reticulum_destination
+            ? adapter_.sendTextToReticulumDestination(channel,
+                                                      text,
+                                                      forced_msg_id,
+                                                      *reticulum_destination)
+            : adapter_.sendTextDetailed(channel, text, forced_msg_id, peer);
+    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] adapter_result ok=%u msg=%lu failure=%s dest=%s\n",
+                          result.ok ? 1U : 0U,
+                          static_cast<unsigned long>(result.msg_id),
+                          failure_name(result.failure),
+                          dest_hash);
     if (!result.ok && result.msg_id == 0)
     {
         return result;
+    }
+    if (!hasReticulumDestinationIdentity(result.reticulum_identity) &&
+        has_reticulum_destination)
+    {
+        result.reticulum_identity = *reticulum_destination;
     }
 
     ChatMessage msg;
@@ -131,6 +267,7 @@ MeshSendResult ChatService::sendTextWithIdDetailed(ChannelId channel, const std:
     msg.msg_id = result.msg_id;
     msg.timestamp = now_message_timestamp();
     msg.text = text;
+    msg.reticulum_identity = result.reticulum_identity;
     msg.status = result.ok ? MessageStatus::Queued : MessageStatus::Failed;
 
     if (model_enabled_)
@@ -143,18 +280,24 @@ MeshSendResult ChatService::sendTextWithIdDetailed(ChannelId channel, const std:
     }
 
     store_.append(msg);
+    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] stored msg=%lu status=%u peer=%08lX dest=%s\n",
+                          static_cast<unsigned long>(msg.msg_id),
+                          static_cast<unsigned>(msg.status),
+                          static_cast<unsigned long>(msg.peer),
+                          dest_hash);
 
     if (result.ok && result.msg_id != 0)
     {
         MeshIncomingText outgoing{};
         outgoing.channel = channel;
         outgoing.from = adapter_.getNodeId();
-        outgoing.to = (peer != 0) ? peer : 0xFFFFFFFFUL;
+        outgoing.to = has_reticulum_destination ? 0 : ((peer != 0) ? peer : 0xFFFFFFFFUL);
         outgoing.msg_id = result.msg_id;
         outgoing.timestamp = msg.timestamp;
         outgoing.text = text;
         outgoing.hop_limit = 0;
         outgoing.encrypted = false;
+        outgoing.reticulum_identity = result.reticulum_identity;
 
         for (auto* observer : outgoing_text_observers_)
         {
@@ -204,8 +347,32 @@ bool ChatService::resendFailed(MessageId msg_id)
         return false;
     }
 
+    const bool resend_reticulum_destination =
+        msg.protocol == MeshProtocol::Reticulum &&
+        normalize_conversation_peer(msg.peer) == 0 &&
+        hasReticulumDestinationIdentity(msg.reticulum_identity);
+    const ReticulumPeerIdentity* resend_destination =
+        resend_reticulum_destination ? &msg.reticulum_identity : nullptr;
+    char dest_hash[12] = {};
+    format_reticulum_hash_prefix(resend_destination, dest_hash, sizeof(dest_hash));
+    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] resend begin msg=%lu mode=%s peer=%08lX dest=%s len=%u\n",
+                          static_cast<unsigned long>(msg.msg_id),
+                          resend_reticulum_destination ? "reticulum_destination" : "peer",
+                          static_cast<unsigned long>(msg.peer),
+                          dest_hash,
+                          static_cast<unsigned>(msg.text.size()));
     const MeshSendResult result =
-        adapter_.sendTextDetailed(msg.channel, msg.text, msg.msg_id, msg.peer);
+        resend_reticulum_destination
+            ? adapter_.sendTextToReticulumDestination(msg.channel,
+                                                      msg.text,
+                                                      msg.msg_id,
+                                                      msg.reticulum_identity)
+            : adapter_.sendTextDetailed(msg.channel, msg.text, msg.msg_id, msg.peer);
+    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] resend result ok=%u msg=%lu failure=%s dest=%s\n",
+                          result.ok ? 1U : 0U,
+                          static_cast<unsigned long>(result.msg_id),
+                          failure_name(result.failure),
+                          dest_hash);
     if (!result.ok || result.msg_id != msg.msg_id)
     {
         return false;
@@ -269,7 +436,26 @@ void ChatService::processIncoming()
         msg.msg_id = incoming_text.msg_id;
         msg.timestamp = now_message_timestamp();
         msg.text = incoming_text.text;
+        msg.reticulum_identity = incoming_text.reticulum_identity;
         msg.status = MessageStatus::Incoming;
+
+        const ReticulumPeerIdentity* incoming_identity =
+            hasReticulumDestinationIdentity(incoming_text.reticulum_identity)
+                ? &incoming_text.reticulum_identity
+                : nullptr;
+        char incoming_dest_hash[12] = {};
+        format_reticulum_hash_prefix(incoming_identity,
+                                     incoming_dest_hash,
+                                     sizeof(incoming_dest_hash));
+        CHAT_SERVICE_DIAG_LOG("[ChatService][RX] text protocol=%s msg=%lu from=%08lX to=%08lX peer=%08lX dest=%s len=%u encrypted=%u\n",
+                              protocol_name(active_protocol_),
+                              static_cast<unsigned long>(msg.msg_id),
+                              static_cast<unsigned long>(msg.from),
+                              static_cast<unsigned long>(incoming_text.to),
+                              static_cast<unsigned long>(msg.peer),
+                              incoming_dest_hash,
+                              static_cast<unsigned>(msg.text.size()),
+                              incoming_text.encrypted ? 1U : 0U);
 
         CHAT_SERVICE_LOG("[ChatService] incoming text ch=%u from=%08lX to=%08lX peer=%08lX ts=%lu len=%u\n",
                          static_cast<unsigned>(msg.channel),
@@ -353,6 +539,13 @@ bool ChatService::isDuplicateIncoming(const ChatMessage& msg) const
     identity.from = msg.from;
     identity.peer = msg.peer;
     identity.msg_id = msg.msg_id;
+    if (msg.protocol == MeshProtocol::Reticulum &&
+        hasReticulumDestinationIdentity(msg.reticulum_identity))
+    {
+        identity.has_reticulum_destination = copyReticulumDestinationHash(
+            identity.reticulum_destination_hash,
+            msg.reticulum_identity);
+    }
     return recent_incoming_.contains(identity);
 }
 
@@ -369,6 +562,13 @@ void ChatService::rememberIncoming(const ChatMessage& msg)
     identity.from = msg.from;
     identity.peer = msg.peer;
     identity.msg_id = msg.msg_id;
+    if (msg.protocol == MeshProtocol::Reticulum &&
+        hasReticulumDestinationIdentity(msg.reticulum_identity))
+    {
+        identity.has_reticulum_destination = copyReticulumDestinationHash(
+            identity.reticulum_destination_hash,
+            msg.reticulum_identity);
+    }
     recent_incoming_.remember(identity);
 }
 
