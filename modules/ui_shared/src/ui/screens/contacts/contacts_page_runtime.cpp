@@ -1,5 +1,6 @@
 #include "ui/screens/contacts/contacts_page_runtime.h"
 
+#include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "chat/domain/chat_types.h"
 #include "chat/usecase/chat_service.h"
