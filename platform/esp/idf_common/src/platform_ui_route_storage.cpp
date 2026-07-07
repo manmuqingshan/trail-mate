@@ -16,6 +16,7 @@ namespace
 {
 
 constexpr const char* kRouteDir = "/routes";
+constexpr const char* kRouteAssetRoot = "/routes/.trailmate";
 
 bool has_kml_extension(const std::string& name)
 {
@@ -29,12 +30,48 @@ bool has_kml_extension(const std::string& name)
     return lower.compare(lower.size() - 4, 4, ".kml") == 0;
 }
 
+bool is_safe_asset_id(const std::string& asset_id)
+{
+    if (asset_id.empty() || asset_id.size() > 48)
+    {
+        return false;
+    }
+    for (unsigned char ch : asset_id)
+    {
+        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.')
+        {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 bool is_regular_file(const std::string& path)
 {
     struct stat st
     {
     };
     return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+}
+
+bool is_directory(const std::string& path)
+{
+    struct stat st
+    {
+    };
+    return ::stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+std::string mount_path_for(const std::string& logical_path)
+{
+    return std::string(platform::esp::idf_common::bsp_runtime::sdcard_mount_point()) + logical_path;
+}
+
+bool ensure_dir(const std::string& logical_path)
+{
+    const std::string path = mount_path_for(logical_path);
+    return is_directory(path) || ::mkdir(path.c_str(), 0775) == 0 || is_directory(path);
 }
 
 } // namespace
@@ -100,6 +137,48 @@ bool remove_route(const std::string& path)
 const char* route_dir()
 {
     return kRouteDir;
+}
+
+bool ensure_route_asset_dir(const std::string& asset_id, std::string& out_dir)
+{
+    out_dir.clear();
+    if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready() ||
+        !is_safe_asset_id(asset_id))
+    {
+        return false;
+    }
+    if (!ensure_dir(kRouteDir) || !ensure_dir(kRouteAssetRoot))
+    {
+        return false;
+    }
+    out_dir = std::string(kRouteAssetRoot) + "/" + asset_id;
+    if (!ensure_dir(out_dir) || !ensure_dir(out_dir + "/images"))
+    {
+        out_dir.clear();
+        return false;
+    }
+    return true;
+}
+
+bool route_asset_file_exists(const std::string& path)
+{
+    if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready() || path.empty())
+    {
+        return false;
+    }
+    return is_regular_file(mount_path_for(path));
+}
+
+RouteImageDownloadResult download_route_image(const std::string& url,
+                                              const std::string& output_path,
+                                              std::uint32_t max_bytes)
+{
+    (void)url;
+    (void)output_path;
+    (void)max_bytes;
+    RouteImageDownloadResult result{};
+    result.error = "Route image download unsupported on this target";
+    return result;
 }
 
 } // namespace platform::ui::route_storage

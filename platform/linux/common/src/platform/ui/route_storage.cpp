@@ -1,6 +1,7 @@
 #include "platform/ui/route_storage.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -30,6 +31,23 @@ bool ensure_route_dir()
         return false;
     }
     s_route_dir_cache = dir.string();
+    return true;
+}
+
+bool is_safe_asset_id(const std::string& asset_id)
+{
+    if (asset_id.empty() || asset_id.size() > 48)
+    {
+        return false;
+    }
+    for (unsigned char ch : asset_id)
+    {
+        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.')
+        {
+            continue;
+        }
+        return false;
+    }
     return true;
 }
 
@@ -102,6 +120,45 @@ const char* route_dir()
         (void)ensure_route_dir();
     }
     return s_route_dir_cache.c_str();
+}
+
+bool ensure_route_asset_dir(const std::string& asset_id, std::string& out_dir)
+{
+    out_dir.clear();
+    if (!ensure_route_dir() || !is_safe_asset_id(asset_id))
+    {
+        return false;
+    }
+
+    const std::filesystem::path dir = route_dir_path() / ".trailmate" / asset_id;
+    std::error_code ec;
+    std::filesystem::create_directories(dir / "images", ec);
+    if (ec)
+    {
+        return false;
+    }
+    out_dir = dir.string();
+    return true;
+}
+
+bool route_asset_file_exists(const std::string& path)
+{
+    std::error_code ec;
+    return !path.empty() &&
+           std::filesystem::is_regular_file(std::filesystem::path(path), ec) &&
+           !ec;
+}
+
+RouteImageDownloadResult download_route_image(const std::string& url,
+                                              const std::string& output_path,
+                                              std::uint32_t max_bytes)
+{
+    (void)url;
+    (void)output_path;
+    (void)max_bytes;
+    RouteImageDownloadResult result{};
+    result.error = "Route image download unsupported on host";
+    return result;
 }
 
 } // namespace platform::ui::route_storage
