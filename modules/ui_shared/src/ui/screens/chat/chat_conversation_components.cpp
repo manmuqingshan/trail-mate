@@ -663,6 +663,24 @@ void ChatConversationScreen::toggleLocationMap()
     syncLocationMapVisibility();
 }
 
+void ChatConversationScreen::cycleLocationMapLayer()
+{
+    if (!guard_ || !guard_->alive)
+    {
+        return;
+    }
+
+    const auto layers = ::ui::widgets::map::current_layer_state();
+    const uint8_t next_source =
+        static_cast<uint8_t>((layers.map_source + 1U) % 3U);
+    (void)::ui::widgets::map::set_layer_map_source(next_source);
+
+    if (location_map_visible_)
+    {
+        refreshLocationMap();
+    }
+}
+
 bool ChatConversationScreen::usesFloatingLocationMap() const
 {
 #if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)

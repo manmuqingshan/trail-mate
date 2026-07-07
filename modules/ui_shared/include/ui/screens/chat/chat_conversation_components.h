@@ -72,6 +72,7 @@ class ChatConversationScreen
     bool isReplyEnabled() const { return reply_enabled_; }
     void setLocationOverlay(const ::ui::map::MapOverlaySnapshot& overlay);
     void toggleLocationMap();
+    void cycleLocationMapLayer();
     bool isLocationMapVisible() const { return location_map_visible_; }
 
   private:

@@ -21,22 +21,28 @@ constexpr int kEncoderKeyRotateDown = 20;
 constexpr lv_coord_t kScrollStep = 24;
 } // namespace
 
-static bool handle_location_key(ChatConversationScreen* screen,
-                                lv_event_t* e,
-                                uint32_t key)
+static bool handle_map_key(ChatConversationScreen* screen,
+                           lv_event_t* e,
+                           uint32_t key)
 {
-    if (key != 'l' && key != 'L')
-    {
-        return false;
-    }
     if (!screen || !screen->isAlive())
     {
         return false;
     }
 
-    screen->toggleLocationMap();
-    lv_event_stop_processing(e);
-    return true;
+    if (key == 'm' || key == 'M')
+    {
+        screen->toggleLocationMap();
+        lv_event_stop_processing(e);
+        return true;
+    }
+    if (key == 'l' || key == 'L')
+    {
+        screen->cycleLocationMapLayer();
+        lv_event_stop_processing(e);
+        return true;
+    }
+    return false;
 }
 
 static void on_msg_list_key(lv_event_t* e)
@@ -55,7 +61,7 @@ static void on_msg_list_key(lv_event_t* e)
         return;
     }
 
-    if (handle_location_key(screen, e, key))
+    if (handle_map_key(screen, e, key))
     {
         return;
     }
@@ -99,7 +105,7 @@ static void on_backspace_key(lv_event_t* e)
     auto* screen = static_cast<ChatConversationScreen*>(lv_event_get_user_data(e));
     if (!screen || !screen->isAlive()) return;
     uint32_t key = lv_event_get_key(e);
-    if (handle_location_key(screen, e, key))
+    if (handle_map_key(screen, e, key))
     {
         return;
     }
