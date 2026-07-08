@@ -36,6 +36,8 @@ namespace
 
 using contacts::ui::shell::Host;
 
+constexpr uint32_t kContactsRefreshIntervalMs = 2000;
+
 const Host* s_host = nullptr;
 
 void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& identity,
@@ -98,6 +100,31 @@ void contacts_top_bar_back(void*)
         lv_obj_add_flag(g_contacts_state.root, LV_OBJ_FLAG_HIDDEN);
     }
     request_exit();
+}
+
+void contacts_refresh_timer_cb(lv_timer_t* timer)
+{
+    (void)timer;
+    if (g_contacts_state.exiting || g_contacts_state.root == nullptr)
+    {
+        return;
+    }
+
+    const size_t before_contacts = g_contacts_state.contacts_list.size();
+    const size_t before_nearby = g_contacts_state.nearby_list.size();
+    const size_t before_ignored = g_contacts_state.ignored_list.size();
+
+    refresh_contacts_data();
+    if (before_contacts != g_contacts_state.contacts_list.size() ||
+        before_nearby != g_contacts_state.nearby_list.size() ||
+        before_ignored != g_contacts_state.ignored_list.size())
+    {
+        std::printf("[Contacts] refresh source=timer contacts=%u nearby=%u ignored=%u\n",
+                    static_cast<unsigned>(g_contacts_state.contacts_list.size()),
+                    static_cast<unsigned>(g_contacts_state.nearby_list.size()),
+                    static_cast<unsigned>(g_contacts_state.ignored_list.size()));
+    }
+    refresh_ui();
 }
 
 void copy_text(char* out, size_t out_len, const char* text)
@@ -340,6 +367,13 @@ void enter(const shell::Host* host, lv_obj_t* parent)
                 static_cast<unsigned>(g_contacts_state.reticulum_group_list.size()),
                 static_cast<unsigned>(g_contacts_state.ignored_list.size()));
     refresh_ui();
+    g_contacts_state.refresh_timer =
+        lv_timer_create(contacts_refresh_timer_cb, kContactsRefreshIntervalMs, nullptr);
+    if (g_contacts_state.refresh_timer)
+    {
+        std::printf("[Contacts] refresh timer started interval_ms=%u\n",
+                    static_cast<unsigned>(kContactsRefreshIntervalMs));
+    }
 
     g_contacts_state.initialized = true;
     CONTACTS_LOG("[Contacts] Contacts page initialized\n");
