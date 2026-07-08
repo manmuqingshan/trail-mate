@@ -355,6 +355,12 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     g_contacts_state.last_action_mode = ContactsMode::Contacts;
     g_contacts_state.current_page = 0;
     g_contacts_state.selected_index = -1;
+    g_contacts_state.virtual_list_active = false;
+    g_contacts_state.list_window_start_index = 0;
+    g_contacts_state.list_window_end_index = 0;
+    g_contacts_state.list_scroll_y = 0;
+    g_contacts_state.rendered_mode_valid = false;
+    g_contacts_state.rendered_search_query[0] = '\0';
 
     init_contacts_input();
     refresh_contacts_data();

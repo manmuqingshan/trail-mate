@@ -2,9 +2,17 @@
 
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/device_runtime.h"
+#include "platform/ui/screen_runtime.h"
+
+#include <esp_heap_caps.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 
 #include <cstdio>
 #include <cstring>
+#include <new>
 #include <string>
 #include <string_view>
 
@@ -23,12 +31,63 @@ constexpr const char* kLxmfAddressesTempPath = "/trailmate/reticulum/lxmf_addres
 constexpr std::size_t kMaxDirectoryEntries = 100;
 constexpr std::size_t kMaxLineBytes = 4096;
 constexpr std::size_t kMaxTsvFields = 14;
+constexpr std::size_t kLineReadChunkBytes = 256;
+constexpr std::size_t kPendingAnnounceDepth = 16;
+constexpr std::size_t kPendingAddressDepth = 16;
+constexpr std::size_t kPendingRuntimeBlobBytes = 500;
+constexpr TickType_t kAsyncMutexWait = pdMS_TO_TICKS(5);
+constexpr TickType_t kAsyncDebounceDelay = pdMS_TO_TICKS(2500);
+constexpr TickType_t kAsyncActivePollDelay = pdMS_TO_TICKS(5000);
+constexpr TickType_t kAsyncBetweenFlushDelay = pdMS_TO_TICKS(250);
+constexpr uint32_t kAsyncTaskStackBytes = 6 * 1024;
+constexpr UBaseType_t kAsyncTaskPriority = tskIDLE_PRIORITY + 1;
+
+enum class PendingDirectoryKind : uint8_t
+{
+    None = 0,
+    Announce,
+    Address,
+};
 
 struct TsvFields
 {
     std::string_view values[kMaxTsvFields];
     std::size_t count = 0;
 };
+
+struct PendingAnnounce
+{
+    bool occupied = false;
+    uint32_t order = 0;
+    AnnounceRecord record{};
+    uint8_t raw_packet[kPendingRuntimeBlobBytes] = {};
+    uint8_t app_data[kPendingRuntimeBlobBytes] = {};
+};
+
+struct PendingAddress
+{
+    bool occupied = false;
+    uint32_t order = 0;
+    LxmfAddressRecord record{};
+};
+
+struct AsyncDirectoryState
+{
+    SemaphoreHandle_t mutex = nullptr;
+    QueueHandle_t signal = nullptr;
+    TaskHandle_t task = nullptr;
+    uint32_t next_order = 1;
+    PendingAnnounce announces[kPendingAnnounceDepth]{};
+    PendingAddress addresses[kPendingAddressDepth]{};
+    PendingAnnounce active_announce{};
+    PendingAddress active_address{};
+};
+
+AsyncDirectoryState* s_async_state = nullptr;
+
+Status record_announce_sync(const AnnounceRecord& record);
+Status record_lxmf_address_sync(const LxmfAddressRecord& record);
+void async_task_entry(void* context);
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {
@@ -177,37 +236,504 @@ std::string_view trim_view(std::string_view line)
     return line;
 }
 
-bool read_line(SdRuntimeFile& file, std::string& out)
+bool hash_equal(const uint8_t* lhs, const uint8_t* rhs, std::size_t len)
 {
-    out.clear();
-    bool got = false;
-    bool overflow = false;
-    while (true)
+    return lhs && rhs && std::memcmp(lhs, rhs, len) == 0;
+}
+
+class LineReader
+{
+  public:
+    explicit LineReader(SdRuntimeFile& file)
+        : file_(file)
     {
-        const int ch = file.read_byte();
-        if (ch < 0)
-        {
-            break;
-        }
-        got = true;
-        if (ch == '\n')
-        {
-            break;
-        }
-        if (out.size() < kMaxLineBytes)
-        {
-            out.push_back(static_cast<char>(ch));
-        }
-        else
-        {
-            overflow = true;
-        }
     }
-    if (overflow)
+
+    bool read_line(std::string& out)
     {
         out.clear();
+        bool got = false;
+        bool overflow = false;
+        while (true)
+        {
+            if (offset_ >= available_)
+            {
+                available_ = file_.read_bytes(buffer_, sizeof(buffer_));
+                offset_ = 0;
+                if (available_ == 0)
+                {
+                    break;
+                }
+            }
+
+            const char ch = buffer_[offset_++];
+            got = true;
+            if (ch == '\n')
+            {
+                break;
+            }
+            if (out.size() < kMaxLineBytes)
+            {
+                out.push_back(ch);
+            }
+            else
+            {
+                overflow = true;
+            }
+        }
+        if (overflow)
+        {
+            out.clear();
+        }
+        return got;
     }
-    return got;
+
+  private:
+    SdRuntimeFile& file_;
+    char buffer_[kLineReadChunkBytes] = {};
+    std::size_t offset_ = 0;
+    std::size_t available_ = 0;
+};
+
+void bind_pending_payloads(PendingAnnounce& pending)
+{
+    pending.record.raw_packet =
+        pending.record.raw_packet_len != 0 ? pending.raw_packet : nullptr;
+    pending.record.app_data =
+        pending.record.app_data_len != 0 ? pending.app_data : nullptr;
+}
+
+bool maintenance_window()
+{
+    return ::platform::ui::screen::is_sleeping() &&
+           !::platform::ui::screen::is_saver_active();
+}
+
+AsyncDirectoryState* allocate_async_state()
+{
+    void* storage = heap_caps_malloc_prefer(sizeof(AsyncDirectoryState),
+                                            2,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!storage)
+    {
+        storage = ::operator new(sizeof(AsyncDirectoryState), std::nothrow);
+    }
+    return storage ? new (storage) AsyncDirectoryState() : nullptr;
+}
+
+AsyncDirectoryState* ensure_async_worker()
+{
+    if (!s_async_state)
+    {
+        s_async_state = allocate_async_state();
+        if (s_async_state)
+        {
+            std::printf("[Reticulum][Directory] async state allocated bytes=%u\n",
+                        static_cast<unsigned>(sizeof(AsyncDirectoryState)));
+        }
+    }
+    AsyncDirectoryState* state = s_async_state;
+    if (!state)
+    {
+        return nullptr;
+    }
+    if (!state->mutex)
+    {
+        state->mutex = xSemaphoreCreateMutex();
+    }
+    if (!state->signal)
+    {
+        state->signal = xQueueCreate(1, sizeof(uint8_t));
+    }
+    if (!state->task && state->mutex && state->signal)
+    {
+        const BaseType_t ok = xTaskCreate(async_task_entry,
+                                          "rtdir_io",
+                                          kAsyncTaskStackBytes,
+                                          state,
+                                          kAsyncTaskPriority,
+                                          &state->task);
+        if (ok != pdPASS)
+        {
+            std::printf("[Reticulum][Directory] async task_create_failed rc=%ld\n",
+                        static_cast<long>(ok));
+            state->task = nullptr;
+        }
+    }
+    return state->mutex && state->signal && state->task ? state : nullptr;
+}
+
+PendingAnnounce* find_announce_slot(AsyncDirectoryState& state,
+                                    const uint8_t destination_hash[kReticulumHashSize])
+{
+    PendingAnnounce* empty = nullptr;
+    PendingAnnounce* oldest = nullptr;
+    for (auto& pending : state.announces)
+    {
+        if (pending.occupied &&
+            hash_equal(pending.record.destination_hash, destination_hash, kReticulumHashSize))
+        {
+            return &pending;
+        }
+        if (!pending.occupied && !empty)
+        {
+            empty = &pending;
+        }
+        if (pending.occupied && (!oldest || pending.order < oldest->order))
+        {
+            oldest = &pending;
+        }
+    }
+    return empty ? empty : oldest;
+}
+
+PendingAddress* find_address_slot(AsyncDirectoryState& state,
+                                  const uint8_t destination_hash[kReticulumHashSize])
+{
+    PendingAddress* empty = nullptr;
+    PendingAddress* oldest = nullptr;
+    for (auto& pending : state.addresses)
+    {
+        if (pending.occupied &&
+            hash_equal(pending.record.destination_hash, destination_hash, kReticulumHashSize))
+        {
+            return &pending;
+        }
+        if (!pending.occupied && !empty)
+        {
+            empty = &pending;
+        }
+        if (pending.occupied && (!oldest || pending.order < oldest->order))
+        {
+            oldest = &pending;
+        }
+    }
+    return empty ? empty : oldest;
+}
+
+bool has_pending_locked(const AsyncDirectoryState& state)
+{
+    for (const auto& pending : state.announces)
+    {
+        if (pending.occupied)
+        {
+            return true;
+        }
+    }
+    for (const auto& pending : state.addresses)
+    {
+        if (pending.occupied)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool has_pending(AsyncDirectoryState& state)
+{
+    if (xSemaphoreTake(state.mutex, kAsyncMutexWait) != pdTRUE)
+    {
+        return true;
+    }
+    const bool pending = has_pending_locked(state);
+    xSemaphoreGive(state.mutex);
+    return pending;
+}
+
+bool pop_oldest_pending(AsyncDirectoryState& state, PendingDirectoryKind* out_kind)
+{
+    if (!out_kind)
+    {
+        return false;
+    }
+    *out_kind = PendingDirectoryKind::None;
+    if (xSemaphoreTake(state.mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return false;
+    }
+
+    PendingAnnounce* oldest_announce = nullptr;
+    PendingAddress* oldest_address = nullptr;
+    for (auto& pending : state.announces)
+    {
+        if (pending.occupied &&
+            (!oldest_announce || pending.order < oldest_announce->order))
+        {
+            oldest_announce = &pending;
+        }
+    }
+    for (auto& pending : state.addresses)
+    {
+        if (pending.occupied &&
+            (!oldest_address || pending.order < oldest_address->order))
+        {
+            oldest_address = &pending;
+        }
+    }
+
+    if (oldest_announce &&
+        (!oldest_address || oldest_announce->order <= oldest_address->order))
+    {
+        state.active_announce = *oldest_announce;
+        bind_pending_payloads(state.active_announce);
+        *oldest_announce = PendingAnnounce{};
+        *out_kind = PendingDirectoryKind::Announce;
+    }
+    else if (oldest_address)
+    {
+        state.active_address = *oldest_address;
+        *oldest_address = PendingAddress{};
+        *out_kind = PendingDirectoryKind::Address;
+    }
+
+    xSemaphoreGive(state.mutex);
+    return *out_kind != PendingDirectoryKind::None;
+}
+
+void requeue_active_announce(AsyncDirectoryState& state)
+{
+    if (xSemaphoreTake(state.mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return;
+    }
+    PendingAnnounce* slot =
+        find_announce_slot(state, state.active_announce.record.destination_hash);
+    if (slot)
+    {
+        *slot = state.active_announce;
+        slot->occupied = true;
+        slot->order = state.next_order++;
+        bind_pending_payloads(*slot);
+    }
+    xSemaphoreGive(state.mutex);
+}
+
+void requeue_active_address(AsyncDirectoryState& state)
+{
+    if (xSemaphoreTake(state.mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return;
+    }
+    PendingAddress* slot =
+        find_address_slot(state, state.active_address.record.destination_hash);
+    if (slot)
+    {
+        *slot = state.active_address;
+        slot->occupied = true;
+        slot->order = state.next_order++;
+    }
+    xSemaphoreGive(state.mutex);
+}
+
+void signal_async_worker(AsyncDirectoryState& state)
+{
+    const uint8_t signal = 1;
+    (void)xQueueOverwrite(state.signal, &signal);
+}
+
+void async_task_entry(void* context)
+{
+    auto* state = static_cast<AsyncDirectoryState*>(context);
+    if (!state)
+    {
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    uint8_t signal = 0;
+    for (;;)
+    {
+        const TickType_t wait_ticks =
+            has_pending(*state) ? kAsyncActivePollDelay : portMAX_DELAY;
+        (void)xQueueReceive(state->signal, &signal, wait_ticks);
+        if (!has_pending(*state))
+        {
+            continue;
+        }
+        vTaskDelay(kAsyncDebounceDelay);
+        if (!maintenance_window())
+        {
+            continue;
+        }
+
+        PendingDirectoryKind kind = PendingDirectoryKind::None;
+        if (!pop_oldest_pending(*state, &kind))
+        {
+            continue;
+        }
+
+        Status status{};
+        if (kind == PendingDirectoryKind::Announce)
+        {
+            bind_pending_payloads(state->active_announce);
+            status = record_announce_sync(state->active_announce.record);
+            if (status.sd_present && !status.saved)
+            {
+                std::printf("[Reticulum][Directory] announce_flush failed message=%s detail=%s\n",
+                            status.message,
+                            status.detail);
+                requeue_active_announce(*state);
+            }
+        }
+        else if (kind == PendingDirectoryKind::Address)
+        {
+            status = record_lxmf_address_sync(state->active_address.record);
+            if (status.sd_present && !status.saved)
+            {
+                std::printf("[Reticulum][Directory] address_flush failed message=%s detail=%s\n",
+                            status.message,
+                            status.detail);
+                requeue_active_address(*state);
+            }
+        }
+
+        vTaskDelay(kAsyncBetweenFlushDelay);
+        if (has_pending(*state))
+        {
+            signal_async_worker(*state);
+        }
+    }
+}
+
+Status queue_announce_async(const AnnounceRecord& record)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = sd_available();
+    if (!record.valid ||
+        zero_hash(record.destination_hash, kReticulumHashSize) ||
+        zero_hash(record.identity_hash, kReticulumHashSize))
+    {
+        set_status(out, "Invalid Reticulum announce", kAnnouncesPath);
+        return out;
+    }
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kAnnouncesPath);
+        return out;
+    }
+
+    AsyncDirectoryState* state = ensure_async_worker();
+    if (!state)
+    {
+        set_status(out, "Reticulum directory queue unavailable", kAnnouncesPath);
+        return out;
+    }
+    if (xSemaphoreTake(state->mutex, kAsyncMutexWait) != pdTRUE)
+    {
+        set_status(out, "Reticulum directory queue busy", kAnnouncesPath);
+        return out;
+    }
+
+    PendingAnnounce* slot = find_announce_slot(*state, record.destination_hash);
+    const uint32_t previous_first_seen =
+        slot && slot->occupied ? slot->record.first_seen_s : 0;
+    if (slot)
+    {
+        *slot = PendingAnnounce{};
+        slot->occupied = true;
+        slot->order = state->next_order++;
+        slot->record = record;
+        if (previous_first_seen != 0 &&
+            (slot->record.first_seen_s == 0 ||
+             previous_first_seen < slot->record.first_seen_s))
+        {
+            slot->record.first_seen_s = previous_first_seen;
+        }
+        const std::size_t raw_len =
+            record.raw_packet && record.raw_packet_len < kPendingRuntimeBlobBytes
+                ? record.raw_packet_len
+                : (record.raw_packet ? kPendingRuntimeBlobBytes : 0);
+        const std::size_t app_len =
+            record.app_data && record.app_data_len < kPendingRuntimeBlobBytes
+                ? record.app_data_len
+                : (record.app_data ? kPendingRuntimeBlobBytes : 0);
+        if (raw_len != 0)
+        {
+            std::memcpy(slot->raw_packet, record.raw_packet, raw_len);
+        }
+        if (app_len != 0)
+        {
+            std::memcpy(slot->app_data, record.app_data, app_len);
+        }
+        slot->record.raw_packet_len = raw_len;
+        slot->record.app_data_len = app_len;
+        bind_pending_payloads(*slot);
+    }
+    xSemaphoreGive(state->mutex);
+
+    if (!slot)
+    {
+        set_status(out, "Reticulum directory queue full", kAnnouncesPath);
+        return out;
+    }
+    out.saved = true;
+    set_status(out, "Reticulum announce queued", kAnnouncesPath);
+    signal_async_worker(*state);
+    return out;
+}
+
+Status queue_lxmf_address_async(const LxmfAddressRecord& record)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = sd_available();
+    if (!record.valid ||
+        zero_hash(record.destination_hash, kReticulumHashSize) ||
+        zero_hash(record.identity_hash, kReticulumHashSize) ||
+        zero_hash(record.enc_pub, kReticulumPublicKeySize) ||
+        zero_hash(record.sig_pub, kReticulumPublicKeySize))
+    {
+        set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
+        return out;
+    }
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kLxmfAddressesPath);
+        return out;
+    }
+
+    AsyncDirectoryState* state = ensure_async_worker();
+    if (!state)
+    {
+        set_status(out, "Reticulum directory queue unavailable", kLxmfAddressesPath);
+        return out;
+    }
+    if (xSemaphoreTake(state->mutex, kAsyncMutexWait) != pdTRUE)
+    {
+        set_status(out, "Reticulum directory queue busy", kLxmfAddressesPath);
+        return out;
+    }
+
+    PendingAddress* slot = find_address_slot(*state, record.destination_hash);
+    const uint32_t previous_first_seen =
+        slot && slot->occupied ? slot->record.first_seen_s : 0;
+    if (slot)
+    {
+        *slot = PendingAddress{};
+        slot->occupied = true;
+        slot->order = state->next_order++;
+        slot->record = record;
+        if (previous_first_seen != 0 &&
+            (slot->record.first_seen_s == 0 ||
+             previous_first_seen < slot->record.first_seen_s))
+        {
+            slot->record.first_seen_s = previous_first_seen;
+        }
+    }
+    xSemaphoreGive(state->mutex);
+
+    if (!slot)
+    {
+        set_status(out, "Reticulum directory queue full", kLxmfAddressesPath);
+        return out;
+    }
+    out.saved = true;
+    set_status(out, "LXMF address queued", kLxmfAddressesPath);
+    signal_async_worker(*state);
+    return out;
 }
 
 TsvFields split_tsv(std::string_view line)
@@ -400,7 +926,8 @@ uint32_t find_existing_first_seen(const char* path,
         return fallback;
     }
     std::string line;
-    while (read_line(file, line))
+    LineReader reader(file);
+    while (reader.read_line(line))
     {
         const std::string_view view = trim_view(line);
         if (data_line(view) && first_field_matches(view, destination))
@@ -488,7 +1015,8 @@ void preserve_address_flags(const char* path,
         return;
     }
     std::string line;
-    while (read_line(file, line))
+    LineReader reader(file);
+    while (reader.read_line(line))
     {
         const std::string_view view = trim_view(line);
         if (data_line(view) && first_field_matches(view, destination))
@@ -569,7 +1097,8 @@ Status stream_upsert_line(const char* path,
             return out;
         }
         std::string old_line;
-        while (read_line(in_file, old_line) && kept + 1U < kMaxDirectoryEntries)
+        LineReader reader(in_file);
+        while (reader.read_line(old_line) && kept + 1U < kMaxDirectoryEntries)
         {
             const std::string_view view = trim_view(old_line);
             if (data_line(view) && !first_field_matches(view, destination))
@@ -677,19 +1206,7 @@ std::string address_line(const LxmfAddressRecord& record,
     return line;
 }
 
-} // namespace
-
-const char* announces_path()
-{
-    return kAnnouncesPath;
-}
-
-const char* lxmf_addresses_path()
-{
-    return kLxmfAddressesPath;
-}
-
-Status record_announce(const AnnounceRecord& record)
+Status record_announce_sync(const AnnounceRecord& record)
 {
     Status out{};
     out.supported = true;
@@ -719,7 +1236,7 @@ Status record_announce(const AnnounceRecord& record)
                               announce_line(record, first_seen_s));
 }
 
-Status record_lxmf_address(const LxmfAddressRecord& record)
+Status record_lxmf_address_sync(const LxmfAddressRecord& record)
 {
     Status out{};
     out.supported = true;
@@ -755,6 +1272,28 @@ Status record_lxmf_address(const LxmfAddressRecord& record)
                               "LXMF address saved",
                               destination,
                               address_line(record, favorite, ignored, trusted, first_seen_s));
+}
+
+} // namespace
+
+const char* announces_path()
+{
+    return kAnnouncesPath;
+}
+
+const char* lxmf_addresses_path()
+{
+    return kLxmfAddressesPath;
+}
+
+Status record_announce(const AnnounceRecord& record)
+{
+    return queue_announce_async(record);
+}
+
+Status record_lxmf_address(const LxmfAddressRecord& record)
+{
+    return queue_lxmf_address_async(record);
 }
 
 Status load_announces(AnnounceRecord* out_records,
@@ -796,7 +1335,8 @@ Status load_announces(AnnounceRecord* out_records,
 
     std::size_t count = 0;
     std::string line;
-    while (read_line(file, line))
+    LineReader reader(file);
+    while (reader.read_line(line))
     {
         const std::string_view view = trim_view(line);
         if (data_line(view))
@@ -860,7 +1400,8 @@ Status load_lxmf_addresses(LxmfAddressRecord* out_records,
 
     std::size_t count = 0;
     std::string line;
-    while (read_line(file, line))
+    LineReader reader(file);
+    while (reader.read_line(line))
     {
         const std::string_view view = trim_view(line);
         if (data_line(view))

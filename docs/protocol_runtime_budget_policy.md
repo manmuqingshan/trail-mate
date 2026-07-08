@@ -31,12 +31,13 @@ tens of seconds and replayed during an idle or screen-off maintenance window.
   `processSendQueue()` hook because it already runs outside the LVGL loop.
 - LoRa and Wi-Fi Reticulum ingress must share the same public-discovery budget
   rules. Wi-Fi-only discovery throttles are not sufficient.
-- Public discovery persistence must be deferred. `record_announce()`,
-  `record_lxmf_address()`, and peer cache persistence must not run from the
-  screen-on RX hot path for ordinary public announces.
+- Public discovery persistence must be deferred and coalesced.
+  `record_announce()` and `record_lxmf_address()` on ESP Arduino are queueing
+  APIs for runtime RX callers; they must not perform TSV upserts or other SD
+  file I/O on the RX caller task.
 - Peer cache persistence is dirty/coalesced. Code must not force
-  `maybePersistPeers(true)` from RX paths. Maintenance windows decide when the
-  dirty peer cache is written.
+  `maybePersistPeers(true)` from RX paths, and non-forced peer dirty marking
+  must not flush NVS from `mesh_task`.
 - RX hot-path logging must be summary-first. Detailed logs are acceptable for
   local/realtime traffic and diagnostics, but public discovery should normally
   be represented by periodic counters.
@@ -52,12 +53,20 @@ device is sleeping and the saver is not active. During maintenance windows the
 Reticulum runtime may:
 
 - Replay deferred discovery packets under the discovery sample budget.
-- Persist Reticulum announces and LXMF address records to SD.
-- Flush dirty peer cache state to NVS.
+- Let the Reticulum directory worker persist one coalesced announce or LXMF
+  address record to SD per slice.
 - Publish deferred peer projections to the contact store.
 
 The maintenance window still has finite budgets. It must not drain unbounded
 network queues in one cycle.
+
+## UI Projection Budget
+
+Contacts and Network are projections of Reticulum discovery state. They must not
+mount every known announce as a live LVGL object on small ESP targets. Long
+Contacts lists should render a visible window with spacer rows and preserve
+scroll position across timer refreshes. Data snapshots may contain more records
+than the visible UI window, preferably in PSRAM-backed storage when available.
 
 ## Regression Checks
 

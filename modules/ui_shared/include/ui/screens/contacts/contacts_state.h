@@ -79,6 +79,8 @@ struct ContactsPageState
     lv_obj_t* prev_btn = nullptr;         // Optional pager button
     lv_obj_t* next_btn = nullptr;         // Optional pager button
     lv_obj_t* back_btn = nullptr;         // Bottom-row back button for non-scroll modes
+    lv_obj_t* virtual_top_spacer = nullptr;
+    lv_obj_t* virtual_bottom_spacer = nullptr;
 
     // Current state
     ContactsMode current_mode = ContactsMode::Contacts;
@@ -86,6 +88,13 @@ struct ContactsPageState
     int selected_index = -1; // Selected item in list
     int current_page = 0;    // Current page (0-based)
     size_t total_items = 0;  // Total items in current mode
+    bool virtual_list_active = false;
+    int list_window_start_index = 0;
+    int list_window_end_index = 0;
+    int list_scroll_y = 0;
+    bool rendered_mode_valid = false;
+    ContactsMode rendered_mode = ContactsMode::Contacts;
+    char rendered_search_query[32] = {};
 
     // Data (using forward declaration, full type in .cpp)
     std::vector<chat::contacts::NodeInfo> contacts_list;

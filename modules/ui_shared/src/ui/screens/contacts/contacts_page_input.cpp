@@ -135,6 +135,12 @@ static lv_obj_t* get_list_button(void* /*ctx*/, size_t index)
 static int get_preferred_list_index(void* /*ctx*/)
 {
     const int selected = contacts::ui::g_contacts_state.selected_index;
+    if (contacts::ui::g_contacts_state.virtual_list_active)
+    {
+        const int start = contacts::ui::g_contacts_state.list_window_start_index;
+        const int end = contacts::ui::g_contacts_state.list_window_end_index;
+        return selected >= start && selected < end ? selected - start : -1;
+    }
     return selected >= 0 ? selected : -1;
 }
 

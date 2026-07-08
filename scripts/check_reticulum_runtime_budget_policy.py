@@ -13,6 +13,7 @@ LXMF_CPP = REPO_ROOT / "platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_ada
 LXMF_H = REPO_ROOT / "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/lxmf/lxmf_adapter.h"
 RT_CPP = REPO_ROOT / "platform/esp/arduino_common/src/chat/infra/reticulum/reticulum_adapter.cpp"
 RT_H = REPO_ROOT / "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
+RTDIR_CPP = REPO_ROOT / "platform/esp/arduino_common/src/platform_ui_reticulum_directory_runtime.cpp"
 
 LARGE_LOCAL_PATTERN = re.compile(
     r"\buint8_t\s+\w+\s*\[\s*"
@@ -46,6 +47,7 @@ def main() -> int:
     lxmf_h = LXMF_H.read_text(encoding="utf-8")
     rt_cpp = RT_CPP.read_text(encoding="utf-8")
     rt_h = RT_H.read_text(encoding="utf-8")
+    rtdir_cpp = RTDIR_CPP.read_text(encoding="utf-8")
 
     for signature in (
         "bool LxmfAdapter::pollIncomingText",
@@ -58,6 +60,11 @@ def main() -> int:
 
     if "maybePersistPeers(true)" in lxmf_cpp:
         violations.append("Reticulum RX paths must not force maybePersistPeers(true)")
+
+    maybe_persist_body = method_body(lxmf_cpp, "bool LxmfAdapter::maybePersistPeers")
+    non_force_branch = maybe_persist_body.split("const bool ok = persistPeers()", 1)[0]
+    if "if (!force)" not in non_force_branch or "return true;" not in non_force_branch:
+        violations.append("maybePersistPeers(false) must return before persistPeers()")
 
     for stale_name in ("kWifiDiscoverySampleIntervalMs", "consumeWifiDiscoveryBudget"):
         if stale_name in lxmf_cpp or stale_name in lxmf_h:
@@ -81,6 +88,15 @@ def main() -> int:
         gate_pos = announce_body.rfind("if (allow_persistence)", 0, record_pos)
         if gate_pos < 0:
             violations.append("record_announce() must be gated by allow_persistence")
+
+    record_announce_body = method_body(rtdir_cpp, "Status record_announce(")
+    record_address_body = method_body(rtdir_cpp, "Status record_lxmf_address(")
+    if "queue_announce_async(record)" not in record_announce_body:
+        violations.append("record_announce() must queue, not synchronously upsert SD")
+    if "queue_lxmf_address_async(record)" not in record_address_body:
+        violations.append("record_lxmf_address() must queue, not synchronously upsert SD")
+    if "read_byte()" in rtdir_cpp:
+        violations.append("Reticulum directory TSV reads must use chunked LineReader, not read_byte()")
 
     for signature in (
         "bool LxmfAdapter::sendAnnounce",

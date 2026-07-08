@@ -5781,16 +5781,12 @@ bool LxmfAdapter::maybePersistPeers(bool force)
         if (last_peer_persist_ms_ == 0)
         {
             last_peer_persist_ms_ = now_ms;
-            return true;
         }
-        if (!screen_runtime::is_sleeping() || screen_runtime::is_saver_active())
+        else if ((now_ms - last_peer_persist_ms_) >= kPeerPersistSleepIntervalMs)
         {
-            return true;
+            last_peer_persist_ms_ = now_ms;
         }
-        if ((now_ms - last_peer_persist_ms_) < kPeerPersistSleepIntervalMs)
-        {
-            return true;
-        }
+        return true;
     }
 
     const bool ok = persistPeers();
