@@ -2063,6 +2063,20 @@ void on_route_preview_download_clicked(lv_event_t*)
     update_route_preview_download_modal("Downloading Images", detail, 0, total);
     update_route_preview_status();
 
+    if (::ui::widgets::map::widgets(s_preview_map_runtime).root)
+    {
+        ::ui::widgets::map::destroy(s_preview_map_runtime);
+        if (g_tracker_state.route_preview_map_host &&
+            lv_obj_is_valid(g_tracker_state.route_preview_map_host))
+        {
+            lv_obj_clean(g_tracker_state.route_preview_map_host);
+        }
+        update_route_preview_download_modal(
+            "Downloading Images", "Released map cache for HTTPS", 0, total);
+    }
+
+    std::size_t consecutive_connection_failures = 0;
+    bool stopped_for_connection_failure = false;
     for (std::size_t index = 0; index < total; ++index)
     {
         RoutePreviewImage& image = s_preview_images[index];
@@ -2112,10 +2126,19 @@ void on_route_preview_download_clicked(lv_event_t*)
         {
             image.downloaded = true;
             saved_bytes += result.bytes;
+            consecutive_connection_failures = 0;
         }
         else
         {
             ++failed_count;
+            if (result.error == "Open HTTP request failed")
+            {
+                ++consecutive_connection_failures;
+            }
+            else
+            {
+                consecutive_connection_failures = 0;
+            }
         }
         assign_preview_image_paths();
         saved_count = preview_saved_image_count();
@@ -2132,14 +2155,27 @@ void on_route_preview_download_clicked(lv_event_t*)
         {
             std::snprintf(detail,
                           sizeof(detail),
-                          "Image %u failed  saved %u/%u",
+                          "Image %u failed: %.28s",
                           static_cast<unsigned>(index + 1),
-                          static_cast<unsigned>(saved_count),
-                          static_cast<unsigned>(total));
+                          result.error.empty() ? "Download failed" : result.error.c_str());
         }
         s_preview_status_text = detail;
         update_route_preview_status();
         update_route_preview_download_modal("Downloading Images", detail, index + 1, total);
+        if (consecutive_connection_failures >= 3)
+        {
+            stopped_for_connection_failure = true;
+            failed_count += total - index - 1;
+            std::snprintf(detail,
+                          sizeof(detail),
+                          "Connection failed; stopped at %u/%u",
+                          static_cast<unsigned>(index + 1),
+                          static_cast<unsigned>(total));
+            s_preview_status_text = detail;
+            update_route_preview_status();
+            update_route_preview_download_modal("Download Stopped", detail, index + 1, total);
+            break;
+        }
     }
 
     s_preview_download_busy = false;
@@ -2168,7 +2204,8 @@ void on_route_preview_download_clicked(lv_event_t*)
                       static_cast<unsigned>(failed_count));
         s_preview_status_text = detail;
         update_route_preview_download_modal(
-            failed_count == 0 ? "Download Complete" : "Download Finished",
+            stopped_for_connection_failure ? "Download Stopped"
+                                           : (failed_count == 0 ? "Download Complete" : "Download Finished"),
             detail,
             total,
             total);

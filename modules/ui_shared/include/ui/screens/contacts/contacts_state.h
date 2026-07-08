@@ -75,6 +75,7 @@ struct ContactsPageState
     lv_obj_t* sub_container = nullptr;    // Scrollable list content container
     lv_obj_t* bottom_container = nullptr; // Auxiliary bottom row for non-scroll modes
     std::vector<lv_obj_t*> list_items;    // Currently visible list rows
+    lv_obj_t* empty_label = nullptr;      // Non-focusable empty/search result hint
     lv_obj_t* prev_btn = nullptr;         // Optional pager button
     lv_obj_t* next_btn = nullptr;         // Optional pager button
     lv_obj_t* back_btn = nullptr;         // Bottom-row back button for non-scroll modes
@@ -131,6 +132,7 @@ struct ContactsPageState
     lv_obj_t* node_info_root = nullptr;
     lv_group_t* node_info_group = nullptr;
     lv_group_t* node_info_prev_group = nullptr;
+    bool reticulum_node_info_active = false;
 
     // Services (owned by AppContext)
     chat::contacts::ContactService* contact_service = nullptr;

@@ -40,6 +40,7 @@
 #include "ui/team_actions/team_runtime_adapters.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/ime/ime_widget.h"
+#include "ui/widgets/top_bar.h"
 
 #include <cctype>
 #include <cmath>
@@ -104,6 +105,7 @@ static std::unique_ptr<::ui::presentation_sources::TeamChatPresentationSource> s
 static team::TeamController* s_team_action_controller = nullptr;
 static std::unique_ptr<contacts::ui::ContactsTeamSnapshotSource> s_team_snapshot_source;
 static ::ui::components::shortcut_help_modal::State s_help_modal{};
+static ::ui::widgets::TopBar s_reticulum_node_info_top_bar{};
 
 static void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& identity,
                                          char* out,
@@ -126,6 +128,38 @@ static void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& iden
                   static_cast<unsigned>(identity.destination_hash[1]),
                   static_cast<unsigned>(identity.destination_hash[2]),
                   static_cast<unsigned>(identity.destination_hash[3]));
+}
+
+static void format_reticulum_hash_text(const uint8_t* hash, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!hash || out_len < (chat::kReticulumPeerHashSize * 2U + 1U))
+    {
+        std::snprintf(out, out_len, "--");
+        return;
+    }
+    for (std::size_t index = 0; index < chat::kReticulumPeerHashSize; ++index)
+    {
+        out[index * 2U] =
+            chat::reticulumHexDigit(static_cast<uint8_t>(hash[index] >> 4U));
+        out[index * 2U + 1U] = chat::reticulumHexDigit(hash[index]);
+    }
+    out[chat::kReticulumPeerHashSize * 2U] = '\0';
+}
+
+static bool is_reticulum_node(const chat::contacts::NodeInfo& node)
+{
+    return node.protocol == chat::contacts::NodeProtocolType::Reticulum ||
+           chat::hasReticulumDestinationIdentity(node.reticulum_identity);
+}
+
+static std::string node_display_name_for_contacts(const chat::contacts::NodeInfo& node)
+{
+    return contacts::ui::layout::preferred_node_display_name(node);
 }
 
 static bool show_second_column_back()
@@ -213,6 +247,8 @@ static void open_add_edit_modal(bool is_edit);
 static void open_reticulum_group_config_modal();
 static void open_delete_confirm_modal();
 static void open_node_info_screen_for_node(uint32_t node_id);
+static void open_reticulum_node_info_screen(const chat::contacts::NodeInfo& node,
+                                            lv_obj_t* parent);
 static void close_node_info_screen();
 static void modal_close(lv_obj_t*& modal_obj);
 static void modal_prepare_group();
@@ -813,6 +849,11 @@ static bool search_active()
     return g_contacts_state.search_query[0] != '\0';
 }
 
+static void clear_search_query()
+{
+    g_contacts_state.search_query[0] = '\0';
+}
+
 static bool contains_ci(const char* text, const char* query)
 {
     if (!query || query[0] == '\0')
@@ -862,9 +903,24 @@ static bool node_matches_search(const chat::contacts::NodeInfo& node)
     }
 
     const char* query = g_contacts_state.search_query;
+    const std::string display_name = node_display_name_for_contacts(node);
+    char destination_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    char identity_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    if (chat::hasReticulumDestinationIdentity(node.reticulum_identity))
+    {
+        format_reticulum_hash_text(node.reticulum_identity.destination_hash,
+                                   destination_hash,
+                                   sizeof(destination_hash));
+        format_reticulum_hash_text(node.reticulum_identity.identity_hash,
+                                   identity_hash,
+                                   sizeof(identity_hash));
+    }
     return contains_ci(node.long_name, query) ||
            contains_ci(node.display_name.c_str(), query) ||
-           contains_ci(node.short_name, query);
+           contains_ci(display_name.c_str(), query) ||
+           contains_ci(node.short_name, query) ||
+           contains_ci(destination_hash, query) ||
+           contains_ci(identity_hash, query);
 }
 
 static void build_display_list(const std::vector<chat::contacts::NodeInfo>& source)
@@ -981,6 +1037,7 @@ static void on_filter_focused(lv_event_t* e)
         g_contacts_state.current_mode = new_mode;
         g_contacts_state.current_page = 0;
         g_contacts_state.selected_index = -1;
+        clear_search_query();
         refresh_contacts_data();
         refresh_ui(); // When switching filter mode, refresh the list column.
         return;
@@ -1003,6 +1060,7 @@ static void on_filter_clicked(lv_event_t* e)
         g_contacts_state.current_mode = new_mode;
         g_contacts_state.current_page = 0;
         g_contacts_state.selected_index = -1;
+        clear_search_query();
         refresh_contacts_data();
         refresh_ui();
     }
@@ -1615,7 +1673,8 @@ static void open_delete_confirm_modal()
     g_contacts_state.del_confirm_modal = create_modal_root(280, 140);
     lv_obj_t* win = lv_obj_get_child(g_contacts_state.del_confirm_modal, 0);
 
-    const std::string msg = ::ui::i18n::format("Delete contact %s?", node->display_name.c_str());
+    const std::string delete_name = node_display_name_for_contacts(*node);
+    const std::string msg = ::ui::i18n::format("Delete contact %s?", delete_name.c_str());
     lv_obj_t* label = lv_label_create(win);
     apply_primary_text(label);
     ::ui::i18n::set_label_text_raw(label, msg.c_str());
@@ -1653,6 +1712,246 @@ static void open_delete_confirm_modal()
     lv_group_add_obj(g_contacts_state.modal_group, confirm_btn);
     lv_group_add_obj(g_contacts_state.modal_group, cancel_btn);
     lv_group_focus_obj(cancel_btn);
+}
+
+static bool reticulum_hash_is_zero(const uint8_t* hash)
+{
+    if (!hash)
+    {
+        return true;
+    }
+    for (std::size_t index = 0; index < chat::kReticulumPeerHashSize; ++index)
+    {
+        if (hash[index] != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void format_reticulum_hash_or_empty(const uint8_t* hash, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    if (!hash || reticulum_hash_is_zero(hash))
+    {
+        std::snprintf(out, out_len, "--");
+        return;
+    }
+    format_reticulum_hash_text(hash, out, out_len);
+}
+
+static void add_reticulum_detail_row(lv_obj_t* parent,
+                                     const char* label_text,
+                                     const char* value_text)
+{
+    if (!parent)
+    {
+        return;
+    }
+    lv_obj_t* row = lv_obj_create(parent);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(row, 5, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(row, 2, LV_PART_MAIN);
+    lv_obj_set_style_radius(row, 6, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(row, lv_color_hex(kColorPanelBg), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(row, lv_color_hex(kColorLine), LV_PART_MAIN);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* label = lv_label_create(row);
+    ::ui::i18n::set_label_text(label, label_text);
+    contacts::ui::style::apply_label_muted(label);
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(label, ::ui::page_profile::resolve_caption_font(), 0);
+
+    lv_obj_t* value = lv_label_create(row);
+    ::ui::i18n::set_content_label_text_raw(value,
+                                           value_text && value_text[0] != '\0' ? value_text : "--");
+    contacts::ui::style::apply_label_primary(value);
+    lv_obj_set_width(value, LV_PCT(100));
+    lv_label_set_long_mode(value, LV_LABEL_LONG_WRAP);
+}
+
+static const char* reticulum_node_status_text(const chat::contacts::NodeInfo& node,
+                                              char* out,
+                                              size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return "";
+    }
+    const std::string seen = format_time_status(node.last_seen);
+    std::snprintf(out,
+                  out_len,
+                  "%s%s%s",
+                  node.is_contact ? "Contact" : "Nearby",
+                  seen.empty() ? "" : " / ",
+                  seen.empty() ? "" : seen.c_str());
+    return out;
+}
+
+static const char* reticulum_link_text(const chat::contacts::NodeInfo& node,
+                                       char* out,
+                                       size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return "";
+    }
+    std::string text;
+    if (node.hops_away != 0xFF)
+    {
+        text = std::to_string(static_cast<unsigned>(node.hops_away)) + " hops";
+    }
+    else
+    {
+        text = "--";
+    }
+    if (!std::isnan(node.snr))
+    {
+        text += " / SNR ";
+        text += std::to_string(static_cast<int>(std::round(node.snr)));
+    }
+    if (!std::isnan(node.rssi))
+    {
+        text += " / RSSI ";
+        text += std::to_string(static_cast<int>(std::round(node.rssi)));
+        text += " dBm";
+    }
+    std::snprintf(out, out_len, "%s", text.c_str());
+    return out;
+}
+
+static void reticulum_node_info_back_requested(void*)
+{
+    close_node_info_screen();
+}
+
+static void open_reticulum_node_info_screen(const chat::contacts::NodeInfo& node,
+                                            lv_obj_t* parent)
+{
+    if (!parent)
+    {
+        return;
+    }
+
+    g_contacts_state.reticulum_node_info_active = true;
+    s_reticulum_node_info_top_bar = ::ui::widgets::TopBar{};
+
+    lv_obj_t* root = lv_obj_create(parent);
+    g_contacts_state.node_info_root = root;
+    lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_pos(root, 0, 0);
+    lv_obj_add_flag(root, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_bg_color(root, lv_color_hex(0xF6E6C6), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(root, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_move_foreground(root);
+
+    lv_obj_t* header = lv_obj_create(root);
+    lv_obj_set_size(header, LV_PCT(100), ::ui::page_profile::current().top_bar_height);
+    lv_obj_set_style_border_width(header, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(header, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+
+    ::ui::widgets::TopBarConfig cfg{};
+    cfg.height = ::ui::page_profile::current().top_bar_height;
+    ::ui::widgets::top_bar_init(s_reticulum_node_info_top_bar, header, cfg);
+    ::ui::widgets::top_bar_set_title(s_reticulum_node_info_top_bar, ::ui::i18n::tr("Reticulum Peer"));
+    ::ui::widgets::top_bar_set_back_callback(s_reticulum_node_info_top_bar,
+                                             reticulum_node_info_back_requested,
+                                             nullptr);
+    ui_update_top_bar_battery(s_reticulum_node_info_top_bar);
+
+    lv_obj_t* content = lv_obj_create(root);
+    lv_obj_set_width(content, LV_PCT(100));
+    lv_obj_set_height(content, 0);
+    lv_obj_set_flex_grow(content, 1);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(content, 5, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(content, 4, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(content, lv_color_hex(0xFAF0D8), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(content, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(content, 0, LV_PART_MAIN);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_flag(content, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(content, on_node_info_key, LV_EVENT_KEY, nullptr);
+
+    const std::string display_name = node_display_name_for_contacts(node);
+    lv_obj_t* title = lv_label_create(content);
+    ::ui::i18n::set_content_label_text_raw(title, display_name.c_str());
+    contacts::ui::style::apply_label_primary(title);
+    lv_obj_set_width(title, LV_PCT(100));
+    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+
+    char destination_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    char identity_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    if (chat::hasReticulumDestinationIdentity(node.reticulum_identity))
+    {
+        format_reticulum_hash_or_empty(node.reticulum_identity.destination_hash,
+                                       destination_hash,
+                                       sizeof(destination_hash));
+        format_reticulum_hash_or_empty(node.reticulum_identity.identity_hash,
+                                       identity_hash,
+                                       sizeof(identity_hash));
+    }
+    else
+    {
+        std::snprintf(destination_hash, sizeof(destination_hash), "--");
+        std::snprintf(identity_hash, sizeof(identity_hash), "--");
+    }
+
+    char node_id[16] = {};
+    char status[64] = {};
+    char link[80] = {};
+    std::snprintf(node_id, sizeof(node_id), "%08lX", static_cast<unsigned long>(node.node_id));
+
+    add_reticulum_detail_row(content, "Display Name", display_name.c_str());
+    add_reticulum_detail_row(content, "LXMF Address", destination_hash);
+    add_reticulum_detail_row(content, "Identity Hash", identity_hash);
+    add_reticulum_detail_row(content, "Node ID", node_id);
+    add_reticulum_detail_row(content, "Status", reticulum_node_status_text(node, status, sizeof(status)));
+    add_reticulum_detail_row(content, "Link", reticulum_link_text(node, link, sizeof(link)));
+    add_reticulum_detail_row(content, "Protocol", "Reticulum / LXMF");
+
+    if (!g_contacts_state.node_info_group)
+    {
+        g_contacts_state.node_info_group = lv_group_create();
+    }
+    lv_group_remove_all_objs(g_contacts_state.node_info_group);
+    g_contacts_state.node_info_prev_group = lv_group_get_default();
+    set_default_group(g_contacts_state.node_info_group);
+    if (s_reticulum_node_info_top_bar.back_btn)
+    {
+        lv_group_add_obj(g_contacts_state.node_info_group, s_reticulum_node_info_top_bar.back_btn);
+        lv_obj_add_event_cb(s_reticulum_node_info_top_bar.back_btn,
+                            on_node_info_key,
+                            LV_EVENT_KEY,
+                            nullptr);
+        lv_group_focus_obj(s_reticulum_node_info_top_bar.back_btn);
+    }
+    lv_group_add_obj(g_contacts_state.node_info_group, content);
+
+    if (g_contacts_state.root)
+    {
+        lv_obj_add_flag(g_contacts_state.root, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (g_contacts_state.refresh_timer)
+    {
+        lv_timer_pause(g_contacts_state.refresh_timer);
+    }
 }
 
 static void open_node_info_screen_for_node(uint32_t node_id)
@@ -1701,14 +2000,6 @@ static void open_node_info_screen_for_node(uint32_t node_id)
                            static_cast<int>(lv_obj_get_height(parent)),
                            lv_obj_has_flag(parent, LV_OBJ_FLAG_HIDDEN) ? 1 : 0);
 
-    node_info::ui::NodeInfoWidgets widgets = node_info::ui::create(parent);
-    g_contacts_state.node_info_root = widgets.root;
-    CONTACTS_NODE_INFO_LOG("node_info created root=%p header=%p content=%p back_btn=%p\n",
-                           widgets.root,
-                           widgets.header,
-                           widgets.content,
-                           widgets.back_btn);
-
     const chat::contacts::NodeInfo* info = node;
     if (g_contacts_state.contact_service)
     {
@@ -1721,6 +2012,22 @@ static void open_node_info_screen_for_node(uint32_t node_id)
                                    latest->position.valid ? 1 : 0);
         }
     }
+
+    if (is_reticulum_node(*info))
+    {
+        open_reticulum_node_info_screen(*info, parent);
+        CONTACTS_NODE_INFO_LOG("reticulum node_info opened\n");
+        return;
+    }
+
+    node_info::ui::NodeInfoWidgets widgets = node_info::ui::create(parent);
+    g_contacts_state.node_info_root = widgets.root;
+    CONTACTS_NODE_INFO_LOG("node_info created root=%p header=%p content=%p back_btn=%p\n",
+                           widgets.root,
+                           widgets.header,
+                           widgets.content,
+                           widgets.back_btn);
+
     node_info::ui::set_node_info(*info);
     CONTACTS_NODE_INFO_LOG("set_node_info done root=%p hidden=%d size=%dx%d\n",
                            widgets.root,
@@ -1782,7 +2089,19 @@ static void close_node_info_screen()
         return;
     }
 
-    node_info::ui::destroy();
+    if (g_contacts_state.reticulum_node_info_active)
+    {
+        if (g_contacts_state.node_info_root && lv_obj_is_valid(g_contacts_state.node_info_root))
+        {
+            lv_obj_del(g_contacts_state.node_info_root);
+        }
+        s_reticulum_node_info_top_bar = ::ui::widgets::TopBar{};
+        g_contacts_state.reticulum_node_info_active = false;
+    }
+    else
+    {
+        node_info::ui::destroy();
+    }
     g_contacts_state.node_info_root = nullptr;
     CONTACTS_NODE_INFO_LOG("node_info destroyed\n");
 
@@ -1933,7 +2252,7 @@ static void open_chat_compose()
         }
         if (title.empty())
         {
-            title = node->display_name;
+            title = node_display_name_for_contacts(*node);
         }
     }
 
@@ -3013,11 +3332,7 @@ static void open_action_menu_modal()
     }
     else if (const auto* node = get_selected_node())
     {
-        std::string name = node->display_name;
-        if (name.empty())
-        {
-            name = node->short_name;
-        }
+        std::string name = node_display_name_for_contacts(*node);
         if (!name.empty())
         {
             title = ::ui::i18n::format("Actions: %s", name.c_str());
@@ -3219,6 +3534,15 @@ void refresh_ui()
     // Ensure list containers exist (structure handled in layout)
     contacts::ui::layout::ensure_list_subcontainers();
 
+    if (g_contacts_state.empty_label != nullptr)
+    {
+        if (lv_obj_is_valid(g_contacts_state.empty_label))
+        {
+            lv_obj_del(g_contacts_state.empty_label);
+        }
+        g_contacts_state.empty_label = nullptr;
+    }
+
     // Clear existing list items (unchanged)
     for (auto* item : g_contacts_state.list_items)
     {
@@ -3385,13 +3709,12 @@ void refresh_ui()
         search_active() &&
         is_searchable_contacts_mode(g_contacts_state.current_mode))
     {
-        lv_obj_t* empty = lv_label_create(g_contacts_state.sub_container);
-        ::ui::i18n::set_label_text(empty, "No matches");
-        contacts::ui::style::apply_label_muted(empty);
-        lv_obj_set_width(empty, LV_PCT(100));
-        lv_obj_set_style_pad_all(empty, 8, LV_PART_MAIN);
-        lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
-        g_contacts_state.list_items.push_back(empty);
+        g_contacts_state.empty_label = lv_label_create(g_contacts_state.sub_container);
+        ::ui::i18n::set_label_text(g_contacts_state.empty_label, "No matches");
+        contacts::ui::style::apply_label_muted(g_contacts_state.empty_label);
+        lv_obj_set_width(g_contacts_state.empty_label, LV_PCT(100));
+        lv_obj_set_style_pad_all(g_contacts_state.empty_label, 8, LV_PART_MAIN);
+        lv_obj_set_style_text_align(g_contacts_state.empty_label, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
     }
 
     // Create list items for current page (structure in layout; status string computed here)
@@ -3592,6 +3915,14 @@ void refresh_ui()
 void cleanup_modals()
 {
     ::ui::components::floating_search_box::close(g_contacts_state.search_box);
+    if (g_contacts_state.empty_label != nullptr)
+    {
+        if (lv_obj_is_valid(g_contacts_state.empty_label))
+        {
+            lv_obj_del(g_contacts_state.empty_label);
+        }
+        g_contacts_state.empty_label = nullptr;
+    }
     if (g_contacts_state.add_edit_modal != nullptr)
     {
         lv_obj_del(g_contacts_state.add_edit_modal);
@@ -3630,7 +3961,19 @@ void cleanup_modals()
     }
     if (g_contacts_state.node_info_root != nullptr)
     {
-        node_info::ui::destroy();
+        if (g_contacts_state.reticulum_node_info_active)
+        {
+            if (lv_obj_is_valid(g_contacts_state.node_info_root))
+            {
+                lv_obj_del(g_contacts_state.node_info_root);
+            }
+            s_reticulum_node_info_top_bar = ::ui::widgets::TopBar{};
+            g_contacts_state.reticulum_node_info_active = false;
+        }
+        else
+        {
+            node_info::ui::destroy();
+        }
         g_contacts_state.node_info_root = nullptr;
     }
     if (g_contacts_state.node_info_group != nullptr)

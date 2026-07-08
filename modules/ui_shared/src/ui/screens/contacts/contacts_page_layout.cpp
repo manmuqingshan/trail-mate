@@ -61,6 +61,38 @@ lv_coord_t dense_status_width()
     return 52;
 }
 
+static bool same_text(const std::string& lhs, const char* rhs)
+{
+    return rhs && lhs == rhs;
+}
+
+std::string preferred_node_display_name(const chat::contacts::NodeInfo& node)
+{
+    if (node.is_contact && !node.display_name.empty())
+    {
+        return node.display_name;
+    }
+
+    const bool display_is_short = same_text(node.display_name, node.short_name);
+    if (!node.display_name.empty() && !display_is_short)
+    {
+        return node.display_name;
+    }
+    if (node.long_name[0] != '\0')
+    {
+        return node.long_name;
+    }
+    if (!node.display_name.empty())
+    {
+        return node.display_name;
+    }
+    if (node.short_name[0] != '\0')
+    {
+        return node.short_name;
+    }
+    return "--";
+}
+
 void apply_single_line(lv_obj_t* label)
 {
     if (!label)
@@ -245,19 +277,7 @@ lv_obj_t* create_list_item(lv_obj_t* parent,
 
     style::apply_list_item(item);
 
-    std::string display_name;
-    if (node.long_name[0] != '\0')
-    {
-        display_name = node.long_name;
-    }
-    else if (!node.display_name.empty())
-    {
-        display_name = node.display_name;
-    }
-    else
-    {
-        display_name = node.short_name;
-    }
+    std::string display_name = preferred_node_display_name(node);
     const bool show_protocol = should_prefix_node_protocol(mode, node.protocol);
     const char* proto = show_protocol ? node_protocol_short_label(node.protocol) : "";
 

@@ -5,6 +5,7 @@
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace ui::components::floating_search_box
@@ -35,6 +36,20 @@ lv_obj_t* create_button(lv_obj_t* parent,
                     ::ui::page_profile::resolve_control_button_min_width(),
                     ::ui::page_profile::resolve_control_button_height());
     ::ui::components::two_pane_styles::apply_btn_basic(btn);
+    lv_obj_set_style_bg_color(btn,
+                              lv_color_hex(::ui::components::two_pane_styles::kMainPanelBg),
+                              LV_PART_MAIN);
+    lv_obj_set_style_bg_color(btn,
+                              lv_color_hex(::ui::components::two_pane_styles::kAccent),
+                              LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(btn,
+                              lv_color_hex(::ui::components::two_pane_styles::kAccent),
+                              LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_border_color(btn,
+                                  lv_color_hex(::ui::components::two_pane_styles::kBorder),
+                                  LV_PART_MAIN);
+    lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUS_KEY);
 
     lv_obj_t* label = lv_label_create(btn);
     ::ui::i18n::set_label_text(label, text);
@@ -165,7 +180,8 @@ bool open(State& state, lv_obj_t* parent, const Config& config)
         return true;
     }
 
-    lv_obj_t* host = parent ? parent : lv_screen_active();
+    lv_obj_t* screen = lv_screen_active();
+    lv_obj_t* host = screen ? screen : parent;
     if (!host)
     {
         return false;
@@ -181,15 +197,27 @@ bool open(State& state, lv_obj_t* parent, const Config& config)
 
     state.overlay = lv_obj_create(host);
     lv_obj_set_size(state.overlay, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_pos(state.overlay, 0, 0);
+    lv_obj_add_flag(state.overlay, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_set_style_bg_color(state.overlay, lv_color_hex(kScrim), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(state.overlay, LV_OPA_50, LV_PART_MAIN);
     lv_obj_set_style_border_width(state.overlay, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(state.overlay, 0, LV_PART_MAIN);
     lv_obj_add_flag(state.overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(state.overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_move_foreground(state.overlay);
+
+    lv_obj_update_layout(host);
+    const lv_coord_t host_w = lv_obj_get_width(host);
+    const lv_coord_t host_h = lv_obj_get_height(host);
+    const lv_coord_t max_w = host_w > 20 ? host_w - 20 : host_w;
+    const lv_coord_t max_h = host_h > 20 ? host_h - 20 : host_h;
+    const lv_coord_t panel_w = max_w > 0 ? std::min(config.width, max_w) : config.width;
+    const lv_coord_t panel_h = max_h > 0 ? std::min(config.height, max_h) : config.height;
+    const bool compact = panel_h <= 135;
 
     lv_obj_t* panel = lv_obj_create(state.overlay);
-    lv_obj_set_size(panel, config.width, config.height);
+    lv_obj_set_size(panel, panel_w, panel_h);
     lv_obj_center(panel);
     ::ui::components::two_pane_styles::apply_panel_main(panel);
     lv_obj_set_style_border_width(panel, 1, LV_PART_MAIN);
@@ -197,7 +225,7 @@ bool open(State& state, lv_obj_t* parent, const Config& config)
                                   lv_color_hex(::ui::components::two_pane_styles::kBorder),
                                   LV_PART_MAIN);
     lv_obj_set_style_radius(panel, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(panel, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(panel, compact ? 6 : 8, LV_PART_MAIN);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* title = lv_label_create(panel);
@@ -212,7 +240,7 @@ bool open(State& state, lv_obj_t* parent, const Config& config)
                                                                   : kMaxSearchText);
     lv_textarea_set_text(state.textarea, config.initial_text ? config.initial_text : "");
     lv_obj_set_width(state.textarea, LV_PCT(100));
-    lv_obj_align(state.textarea, LV_ALIGN_TOP_MID, 0, 34);
+    lv_obj_align(state.textarea, LV_ALIGN_TOP_MID, 0, compact ? 28 : 34);
     lv_obj_add_event_cb(state.textarea, on_textarea_key, LV_EVENT_KEY, &state);
 
     lv_obj_t* btn_row = lv_obj_create(panel);

@@ -4,6 +4,8 @@
 #include "contacts_state.h"
 #include "lvgl.h"
 
+#include <string>
+
 namespace contacts
 {
 namespace ui
@@ -35,6 +37,8 @@ void create_list_panel(lv_obj_t* parent);
  * sub_container holds the list rows; bottom_container is used only when a mode still needs pager buttons.
  */
 void ensure_list_subcontainers();
+
+std::string preferred_node_display_name(const chat::contacts::NodeInfo& node);
 
 lv_obj_t* create_list_item(lv_obj_t* parent,
                            const chat::contacts::NodeInfo& node,

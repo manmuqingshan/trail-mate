@@ -22,7 +22,8 @@ namespace
 constexpr const char* kRouteDir = "/routes";
 constexpr const char* kRouteAssetRoot = "/routes/.trailmate";
 constexpr const char* kRouteAssetImageSubdir = "images";
-constexpr std::size_t kRouteDownloadBufferSize = 2048;
+constexpr std::size_t kRouteDownloadBufferSize = 1024;
+constexpr int kRouteDownloadTxBufferSize = 512;
 
 bool has_kml_extension(const std::string& name)
 {
@@ -82,7 +83,7 @@ void configure_http_client(esp_http_client_config_t& config, const std::string& 
     config.timeout_ms = 30000;
     config.disable_auto_redirect = false;
     config.buffer_size = static_cast<int>(kRouteDownloadBufferSize);
-    config.buffer_size_tx = 1024;
+    config.buffer_size_tx = kRouteDownloadTxBufferSize;
     config.crt_bundle_attach = esp_crt_bundle_attach;
 }
 
