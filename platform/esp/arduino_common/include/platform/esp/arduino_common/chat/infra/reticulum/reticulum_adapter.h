@@ -63,6 +63,7 @@ class ReticulumAdapter final : public IMeshAdapter
     bool pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len) override;
     void handleRawPacket(const uint8_t* data, size_t size) override;
     void setLastRxStats(float rssi, float snr) override;
+    void processSendQueue() override;
 
   private:
     std::unique_ptr<lxmf::LxmfAdapter> service_;

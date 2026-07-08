@@ -691,8 +691,6 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
 {
     (void)forced_msg_id;
 
-    processRadioPackets();
-
     Serial.printf("[LXMF][DirectTX] begin ch=%u peer=%08lX len=%u ready=%u\n",
                   static_cast<unsigned>(channel),
                   static_cast<unsigned long>(peer),
@@ -855,8 +853,6 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
     MessageId forced_msg_id,
     const ReticulumPeerIdentity& destination)
 {
-    processRadioPackets();
-
     char dest_hash[12] = {};
     formatHashPrefix(destination.destination_hash, dest_hash, sizeof(dest_hash));
     Serial.printf("[LXMF][GroupTX] begin ch=%u forced=%lu dest=%s len=%u ready=%u\n",
@@ -946,9 +942,6 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
 
 bool LxmfAdapter::pollIncomingText(MeshIncomingText* out)
 {
-    processRadioPackets();
-    maybeAnnounce();
-
     return text_receive_queue_.pop(out);
 }
 
@@ -959,8 +952,6 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                               bool want_response)
 {
     (void)want_ack;
-
-    processRadioPackets();
 
     Serial.printf("[LXMF][AppDataTX] begin ch=%u port=%lu dest=%08lX len=%u ready=%u want_ack=%u want_response=%u\n",
                   static_cast<unsigned>(channel),
@@ -1171,9 +1162,6 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
 
 bool LxmfAdapter::pollIncomingData(MeshIncomingData* out)
 {
-    processRadioPackets();
-    maybeAnnounce();
-
     return data_receive_queue_.pop(out);
 }
 
@@ -1183,7 +1171,6 @@ bool LxmfAdapter::requestNodeInfo(NodeId dest, bool want_response)
 
     if (dest != 0 && dest != 0xFFFFFFFFUL)
     {
-        processRadioPackets();
         PeerInfo* peer = findPeerByNodeId(dest);
         if (!peer)
         {
@@ -1325,9 +1312,41 @@ void LxmfAdapter::setLastRxStats(float rssi, float snr)
     interfaces_.setLastRxStats(rssi, snr);
 }
 
-void LxmfAdapter::processRadioPackets()
+void LxmfAdapter::processSendQueue()
 {
-    pumpPendingPeerUpdates();
+    processRuntime();
+}
+
+LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
+{
+    RuntimeBudget budget{};
+    const bool maintenance_window =
+        screen_runtime::is_sleeping() && !screen_runtime::is_saver_active();
+    if (maintenance_window)
+    {
+        budget.live_packet_limit = kMaxIngressPacketsPerPoll;
+        budget.deferred_discovery_limit = 2;
+        budget.allow_public_discovery = true;
+        budget.allow_persistence = true;
+        budget.allow_peer_projection = true;
+        budget.allow_announce_tx = true;
+        budget.phase = "sleep";
+        return budget;
+    }
+
+    budget.live_packet_limit = 1;
+    budget.deferred_discovery_limit = 0;
+    budget.allow_public_discovery = false;
+    budget.allow_persistence = false;
+    budget.allow_peer_projection = false;
+    budget.allow_announce_tx = true;
+    budget.phase = screen_runtime::is_saver_active() ? "saver" : "screen";
+    return budget;
+}
+
+void LxmfAdapter::processRuntime()
+{
+    const RuntimeBudget budget = makeRuntimeBudget();
     cullTransportState();
     cullLinkSessions();
     const runtime::PropagationRuntimeLimits propagation_limits{
@@ -1341,114 +1360,256 @@ void LxmfAdapter::processRadioPackets()
                                     currentTimestampSeconds(),
                                     propagation_limits);
 
+    processRadioPackets(budget);
+    processDeferredDiscoveryPackets(budget);
+
+    if (budget.allow_peer_projection)
+    {
+        pumpPendingPeerUpdates();
+    }
+    if (budget.allow_persistence && peer_persist_dirty_)
+    {
+        (void)maybePersistPeers(false);
+    }
+    if (budget.allow_announce_tx)
+    {
+        maybeAnnounce();
+    }
+}
+
+void LxmfAdapter::processRadioPackets(const RuntimeBudget& budget)
+{
     uint8_t polled_packets = 0;
-    while (polled_packets < kMaxIngressPacketsPerPoll &&
+    while (polled_packets < budget.live_packet_limit &&
            interfaces_.pollIncomingPacket(&rx_packet_scratch_))
     {
         ++polled_packets;
-        const uint8_t* packet = rx_packet_scratch_.data;
-        const size_t packet_len = rx_packet_scratch_.len;
-        const auto ingress_interface = rx_packet_scratch_.interface_kind;
-        const bool ingress_wifi =
-            ingress_interface == reticulum::interfaces::InterfaceKind::WifiGateway;
-        const char* iface_label =
-            ingress_wifi ? "wifi" : "lora";
-        reticulum::ParsedPacket parsed{};
-        if (reticulum::parsePacket(packet, packet_len, &parsed))
+        (void)processOneRadioPacket(rx_packet_scratch_, budget, false);
+    }
+
+    MeshIncomingData discarded;
+    while (interfaces_.pollLegacyIncomingData(&discarded))
+    {
+    }
+}
+
+bool LxmfAdapter::processOneRadioPacket(
+    const reticulum::interfaces::RxPacket& rx_packet,
+    const RuntimeBudget& budget,
+    bool deferred_replay)
+{
+    const uint8_t* packet = rx_packet.data;
+    const size_t packet_len = rx_packet.len;
+    const auto ingress_interface = rx_packet.interface_kind;
+    const bool ingress_wifi =
+        ingress_interface == reticulum::interfaces::InterfaceKind::WifiGateway;
+    const char* iface_label = ingress_wifi ? "wifi" : "lora";
+    active_rx_meta_ = rx_packet.rx_meta;
+    has_active_rx_meta_ = true;
+    struct ActiveRxMetaScope
+    {
+        bool& active;
+        ~ActiveRxMetaScope() { active = false; }
+    } active_rx_meta_scope{has_active_rx_meta_};
+
+    reticulum::ParsedPacket parsed{};
+    if (!reticulum::parsePacket(packet, packet_len, &parsed))
+    {
+        noteRxSummary(false, false, true);
+        if (!ingress_wifi)
         {
-            char dest_hash[12] = {};
-            formatHashPrefix(parsed.destination_hash, dest_hash, sizeof(dest_hash));
-            noteRxSummary();
-            const bool log_detail = shouldLogRxDetail(parsed, ingress_interface);
-            if (log_detail)
-            {
-                Serial.printf("[LXMF][RawRX] packet iface=%s type=%u dest_type=%u context=%u dest=%s raw_len=%u payload_len=%u hops=%u\n",
-                              iface_label,
-                              static_cast<unsigned>(parsed.packet_type),
-                              static_cast<unsigned>(parsed.destination_type),
-                              static_cast<unsigned>(parsed.context),
-                              dest_hash,
-                              static_cast<unsigned>(packet_len),
-                              static_cast<unsigned>(parsed.payload_len),
-                              static_cast<unsigned>(parsed.hops));
-            }
-            if (parsed.hops < 0xFF)
-            {
-                parsed.hops += 1;
-            }
-
-            uint8_t packet_hash[reticulum::kFullHashSize] = {};
-            reticulum::computePacketHash(packet, packet_len, packet_hash);
-            if (isDuplicatePacket(packet_hash))
-            {
-                noteRxSummary(false, true, false);
-                if (!ingress_wifi)
-                {
-                    Serial.printf("[LXMF][RawRX] drop reason=duplicate dest=%s\n", dest_hash);
-                }
-                continue;
-            }
-            rememberPacket(packet_hash);
-
-            if (ingress_wifi && !shouldProcessWifiIngressPacket(parsed))
-            {
-                noteRxSummary(true, false, false);
-                continue;
-            }
-
-            if (parsed.packet_type == reticulum::PacketType::Announce)
-            {
-                handleAnnouncePacket(packet,
-                                     packet_len,
-                                     parsed,
-                                     ingress_interface);
-            }
-            else if (parsed.packet_type == reticulum::PacketType::Proof)
-            {
-                handleProofPacket(packet, packet_len, parsed);
-            }
-            else if (parsed.packet_type == reticulum::PacketType::LinkRequest)
-            {
-                handleLinkRequestPacket(packet, packet_len, parsed);
-            }
-            else if (parsed.packet_type == reticulum::PacketType::Data)
-            {
-                if (!handlePathRequestPacket(parsed) &&
-                    !handleCacheRequestPacket(parsed) &&
-                    !handleLocalLinkPacket(packet, packet_len, parsed) &&
-                    !maybeForwardLinkPacket(packet, packet_len, parsed) &&
-                    !maybeForwardTransportPacket(packet, packet_len, parsed))
-                {
-                    handleDataPacket(packet, packet_len, parsed);
-                }
-            }
-            else
-            {
-                (void)handleLocalLinkPacket(packet, packet_len, parsed);
-                (void)maybeForwardLinkPacket(packet, packet_len, parsed);
-                (void)maybeForwardTransportPacket(packet, packet_len, parsed);
-            }
+            Serial.printf("[LXMF][RawRX] drop reason=parse_failed raw_len=%u first=%02X\n",
+                          static_cast<unsigned>(packet_len),
+                          static_cast<unsigned>(packet_len > 0 ? packet[0] : 0));
         }
-        else
-        {
-            noteRxSummary(false, false, true);
-            if (rx_packet_scratch_.interface_kind != reticulum::interfaces::InterfaceKind::WifiGateway)
-            {
-                Serial.printf("[LXMF][RawRX] drop reason=parse_failed raw_len=%u first=%02X\n",
-                              static_cast<unsigned>(packet_len),
-                              static_cast<unsigned>(packet_len > 0 ? packet[0] : 0));
-            }
-        }
+        return false;
+    }
 
-        MeshIncomingData discarded;
-        while (interfaces_.pollLegacyIncomingData(&discarded))
+    char dest_hash[12] = {};
+    formatHashPrefix(parsed.destination_hash, dest_hash, sizeof(dest_hash));
+    noteRxSummary();
+    const bool log_detail = shouldLogRxDetail(parsed, ingress_interface) && !deferred_replay;
+    if (log_detail)
+    {
+        Serial.printf("[LXMF][RawRX] packet iface=%s type=%u dest_type=%u context=%u dest=%s raw_len=%u payload_len=%u hops=%u phase=%s\n",
+                      iface_label,
+                      static_cast<unsigned>(parsed.packet_type),
+                      static_cast<unsigned>(parsed.destination_type),
+                      static_cast<unsigned>(parsed.context),
+                      dest_hash,
+                      static_cast<unsigned>(packet_len),
+                      static_cast<unsigned>(parsed.payload_len),
+                      static_cast<unsigned>(parsed.hops),
+                      budget.phase);
+    }
+    if (parsed.hops < 0xFF)
+    {
+        parsed.hops += 1;
+    }
+
+    uint8_t packet_hash[reticulum::kFullHashSize] = {};
+    reticulum::computePacketHash(packet, packet_len, packet_hash);
+    if (isDuplicatePacket(packet_hash))
+    {
+        noteRxSummary(false, true, false);
+        if (!ingress_wifi && !deferred_replay)
         {
+            Serial.printf("[LXMF][RawRX] drop reason=duplicate dest=%s\n", dest_hash);
+        }
+        return false;
+    }
+
+    if (shouldDeferDiscoveryPacket(parsed, ingress_interface, budget))
+    {
+        if (!hasDeferredDiscoveryPacket(packet_hash) &&
+            enqueueDeferredDiscoveryPacket(rx_packet, packet_hash))
+        {
+            noteRxSummary(false, false, false, true, false);
+            return true;
+        }
+        noteRxSummary(false, false, false, true, true);
+        return false;
+    }
+
+    rememberPacket(packet_hash);
+
+    if (!deferred_replay && ingress_wifi && !shouldProcessWifiIngressPacket(parsed))
+    {
+        noteRxSummary(true, false, false);
+        return false;
+    }
+
+    if (parsed.packet_type == reticulum::PacketType::Announce)
+    {
+        return handleAnnouncePacket(packet,
+                                    packet_len,
+                                    parsed,
+                                    ingress_interface,
+                                    budget.allow_persistence || deferred_replay);
+    }
+    if (parsed.packet_type == reticulum::PacketType::Proof)
+    {
+        return handleProofPacket(packet, packet_len, parsed);
+    }
+    if (parsed.packet_type == reticulum::PacketType::LinkRequest)
+    {
+        return handleLinkRequestPacket(packet, packet_len, parsed);
+    }
+    if (parsed.packet_type == reticulum::PacketType::Data)
+    {
+        if (!handlePathRequestPacket(parsed) &&
+            !handleCacheRequestPacket(parsed) &&
+            !handleLocalLinkPacket(packet, packet_len, parsed) &&
+            !maybeForwardLinkPacket(packet, packet_len, parsed) &&
+            !maybeForwardTransportPacket(packet, packet_len, parsed))
+        {
+            return handleDataPacket(packet, packet_len, parsed);
+        }
+        return true;
+    }
+
+    const bool handled_local = handleLocalLinkPacket(packet, packet_len, parsed);
+    const bool handled_link = maybeForwardLinkPacket(packet, packet_len, parsed);
+    const bool handled_transport = maybeForwardTransportPacket(packet, packet_len, parsed);
+    return handled_local || handled_link || handled_transport;
+}
+
+bool LxmfAdapter::shouldDeferDiscoveryPacket(
+    const reticulum::ParsedPacket& packet,
+    reticulum::interfaces::InterfaceKind ingress_interface,
+    const RuntimeBudget& budget)
+{
+    if (!isPublicDiscoveryPacket(packet))
+    {
+        return false;
+    }
+    if (!budget.allow_public_discovery)
+    {
+        return true;
+    }
+
+    return !consumeDiscoveryBudget(ingress_interface);
+}
+
+bool LxmfAdapter::isPublicDiscoveryPacket(const reticulum::ParsedPacket& packet) const
+{
+    if (packet.packet_type != reticulum::PacketType::Announce ||
+        !packet.destination_hash)
+    {
+        return false;
+    }
+    if (isLocalDestinationHash(packet.destination_hash, nullptr))
+    {
+        return false;
+    }
+    return packet.context != static_cast<uint8_t>(reticulum::PacketContext::PathResponse) ||
+           !findPendingPathRequest(packet.destination_hash);
+}
+
+bool LxmfAdapter::enqueueDeferredDiscoveryPacket(
+    const reticulum::interfaces::RxPacket& packet,
+    const uint8_t packet_hash[reticulum::kFullHashSize])
+{
+    if (!packet_hash || packet.len == 0 || packet.len > reticulum::kReticulumMtu)
+    {
+        return false;
+    }
+
+    deferred_discovery_scratch_ = DeferredDiscoveryPacket{};
+    DeferredDiscoveryPacket& deferred = deferred_discovery_scratch_;
+    memcpy(deferred.data, packet.data, packet.len);
+    deferred.len = packet.len;
+    deferred.rx_meta = packet.rx_meta;
+    deferred.interface_kind = packet.interface_kind;
+    memcpy(deferred.packet_hash, packet_hash, sizeof(deferred.packet_hash));
+
+    bool dropped = false;
+    deferred_discovery_queue_.pushDropOldest(deferred, &dropped);
+    if (dropped)
+    {
+        noteRxSummary(false, false, false, false, true);
+    }
+    return true;
+}
+
+bool LxmfAdapter::hasDeferredDiscoveryPacket(
+    const uint8_t packet_hash[reticulum::kFullHashSize]) const
+{
+    if (!packet_hash)
+    {
+        return false;
+    }
+    for (std::size_t i = 0; i < deferred_discovery_queue_.size(); ++i)
+    {
+        const DeferredDiscoveryPacket* queued = deferred_discovery_queue_.get(i);
+        if (queued &&
+            hashesEqual(queued->packet_hash, packet_hash, reticulum::kFullHashSize))
+        {
+            return true;
         }
     }
-    pumpPendingPeerUpdates();
-    if (peer_persist_dirty_)
+    return false;
+}
+
+void LxmfAdapter::processDeferredDiscoveryPackets(const RuntimeBudget& budget)
+{
+    if (!budget.allow_public_discovery || budget.deferred_discovery_limit == 0)
     {
-        (void)maybePersistPeers(false);
+        return;
+    }
+
+    uint8_t processed = 0;
+    while (processed < budget.deferred_discovery_limit &&
+           deferred_discovery_queue_.popOldest(&deferred_discovery_scratch_))
+    {
+        rx_packet_scratch_.len = deferred_discovery_scratch_.len;
+        memcpy(rx_packet_scratch_.data,
+               deferred_discovery_scratch_.data,
+               deferred_discovery_scratch_.len);
+        rx_packet_scratch_.rx_meta = deferred_discovery_scratch_.rx_meta;
+        rx_packet_scratch_.interface_kind = deferred_discovery_scratch_.interface_kind;
+        (void)processOneRadioPacket(rx_packet_scratch_, budget, true);
+        ++processed;
     }
 }
 
@@ -1611,7 +1772,8 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
 
 bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len,
                                        const reticulum::ParsedPacket& packet,
-                                       reticulum::interfaces::InterfaceKind ingress_interface)
+                                       reticulum::interfaces::InterfaceKind ingress_interface,
+                                       bool allow_persistence)
 {
     if (!raw_packet || raw_len == 0 || !packet.destination_hash)
     {
@@ -1787,12 +1949,15 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     directory_announce.raw_packet_len = raw_len;
     directory_announce.app_data = announce.app_data;
     directory_announce.app_data_len = announce.app_data_len;
-    const auto announce_store_status = rtdir::record_announce(directory_announce);
-    if (announce_store_status.sd_present && !announce_store_status.saved)
+    if (allow_persistence)
     {
-        Serial.printf("[LXMF][AnnounceRX] directory_save failed message=%s detail=%s\n",
-                      announce_store_status.message,
-                      announce_store_status.detail);
+        const auto announce_store_status = rtdir::record_announce(directory_announce);
+        if (announce_store_status.sd_present && !announce_store_status.saved)
+        {
+            Serial.printf("[LXMF][AnnounceRX] directory_save failed message=%s detail=%s\n",
+                          announce_store_status.message,
+                          announce_store_status.detail);
+        }
     }
 
     const bool log_announce_detail =
@@ -1870,7 +2035,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         identity_changed ||
         display_changed ||
         address_refresh_due;
-    if (should_store_address)
+    if (allow_persistence && should_store_address)
     {
         rtdir::LxmfAddressRecord directory_address{};
         directory_address.valid = true;
@@ -1904,8 +2069,15 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     }
     else
     {
-        publishPeerUpdate(peer);
-        (void)maybePersistPeers(true);
+        if (allow_persistence)
+        {
+            publishPeerUpdate(peer);
+        }
+        else
+        {
+            queuePeerUpdate(peer);
+        }
+        (void)maybePersistPeers(false);
     }
     Serial.printf("[LXMF][AnnounceRX] learned peer=%08lX dest=%s identity=%s name=%s peers=%u\n",
                   static_cast<unsigned long>(peer.node_id),
@@ -4010,8 +4182,7 @@ bool LxmfAdapter::shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& 
             return true;
         }
         return screen_runtime::is_sleeping() &&
-               !screen_runtime::is_saver_active() &&
-               consumeWifiDiscoveryBudget();
+               !screen_runtime::is_saver_active();
     }
 
     return false;
@@ -4041,23 +4212,30 @@ bool LxmfAdapter::shouldLogRxDetail(
     return packet.destination_type == reticulum::DestinationType::Link;
 }
 
-bool LxmfAdapter::consumeWifiDiscoveryBudget()
+bool LxmfAdapter::consumeDiscoveryBudget(
+    reticulum::interfaces::InterfaceKind ingress_interface)
 {
+    uint32_t& last_sample_ms =
+        ingress_interface == reticulum::interfaces::InterfaceKind::WifiGateway
+            ? last_wifi_discovery_sample_ms_
+            : last_lora_discovery_sample_ms_;
     const uint32_t now_ms = millis();
-    if (last_wifi_discovery_sample_ms_ != 0 &&
-        (now_ms - last_wifi_discovery_sample_ms_) < kWifiDiscoverySampleIntervalMs)
+    if (last_sample_ms != 0 &&
+        (now_ms - last_sample_ms) < kDiscoverySampleIntervalMs)
     {
         return false;
     }
-    last_wifi_discovery_sample_ms_ = now_ms;
+    last_sample_ms = now_ms;
     return true;
 }
 
 void LxmfAdapter::noteRxSummary(bool wifi_skipped,
                                 bool duplicate,
-                                bool parse_failed)
+                                bool parse_failed,
+                                bool deferred,
+                                bool deferred_dropped)
 {
-    if (!wifi_skipped && !duplicate && !parse_failed)
+    if (!wifi_skipped && !duplicate && !parse_failed && !deferred && !deferred_dropped)
     {
         ++rx_summary_packets_;
     }
@@ -4073,6 +4251,14 @@ void LxmfAdapter::noteRxSummary(bool wifi_skipped,
     {
         ++rx_summary_parse_failed_;
     }
+    if (deferred)
+    {
+        ++rx_summary_deferred_;
+    }
+    if (deferred_dropped)
+    {
+        ++rx_summary_deferred_dropped_;
+    }
 
     const uint32_t now_ms = millis();
     if (last_rx_summary_ms_ == 0)
@@ -4087,21 +4273,27 @@ void LxmfAdapter::noteRxSummary(bool wifi_skipped,
     if (rx_summary_packets_ == 0 &&
         rx_summary_wifi_skipped_ == 0 &&
         rx_summary_duplicates_ == 0 &&
-        rx_summary_parse_failed_ == 0)
+        rx_summary_parse_failed_ == 0 &&
+        rx_summary_deferred_ == 0 &&
+        rx_summary_deferred_dropped_ == 0)
     {
         last_rx_summary_ms_ = now_ms;
         return;
     }
 
-    Serial.printf("[LXMF][RawRX] stats packets=%u wifi_skipped=%u duplicate=%u parse_failed=%u\n",
+    Serial.printf("[LXMF][RawRX] stats packets=%u wifi_skipped=%u duplicate=%u parse_failed=%u deferred=%u deferred_drop=%u\n",
                   static_cast<unsigned>(rx_summary_packets_),
                   static_cast<unsigned>(rx_summary_wifi_skipped_),
                   static_cast<unsigned>(rx_summary_duplicates_),
-                  static_cast<unsigned>(rx_summary_parse_failed_));
+                  static_cast<unsigned>(rx_summary_parse_failed_),
+                  static_cast<unsigned>(rx_summary_deferred_),
+                  static_cast<unsigned>(rx_summary_deferred_dropped_));
     rx_summary_packets_ = 0;
     rx_summary_wifi_skipped_ = 0;
     rx_summary_duplicates_ = 0;
     rx_summary_parse_failed_ = 0;
+    rx_summary_deferred_ = 0;
+    rx_summary_deferred_dropped_ = 0;
     last_rx_summary_ms_ = now_ms;
 }
 
@@ -5002,31 +5194,36 @@ LxmfAdapter::PeerInfo* LxmfAdapter::rememberPeerIdentity(
     {
         copyCString(peer.display_name, sizeof(peer.display_name), display_name);
     }
-    rtdir::LxmfAddressRecord directory_address{};
-    directory_address.valid = true;
-    copyHash(directory_address.destination_hash,
-             peer.destination_hash,
-             sizeof(directory_address.destination_hash));
-    copyHash(directory_address.identity_hash,
-             peer.identity_hash,
-             sizeof(directory_address.identity_hash));
-    memcpy(directory_address.enc_pub, peer.enc_pub, sizeof(directory_address.enc_pub));
-    memcpy(directory_address.sig_pub, peer.sig_pub, sizeof(directory_address.sig_pub));
-    copyCString(directory_address.display_name,
-                sizeof(directory_address.display_name),
-                peer.display_name);
-    directory_address.source = rtdir::EntrySource::RuntimeRx;
-    directory_address.first_seen_s = peer.last_seen_s;
-    directory_address.last_seen_s = peer.last_seen_s;
-    const auto address_status = rtdir::record_lxmf_address(directory_address);
-    if (address_status.sd_present && !address_status.saved)
+    const bool allow_persistence =
+        screen_runtime::is_sleeping() && !screen_runtime::is_saver_active();
+    if (allow_persistence)
     {
-        Serial.printf("[LXMF][Directory] address_save failed message=%s detail=%s\n",
-                      address_status.message,
-                      address_status.detail);
+        rtdir::LxmfAddressRecord directory_address{};
+        directory_address.valid = true;
+        copyHash(directory_address.destination_hash,
+                 peer.destination_hash,
+                 sizeof(directory_address.destination_hash));
+        copyHash(directory_address.identity_hash,
+                 peer.identity_hash,
+                 sizeof(directory_address.identity_hash));
+        memcpy(directory_address.enc_pub, peer.enc_pub, sizeof(directory_address.enc_pub));
+        memcpy(directory_address.sig_pub, peer.sig_pub, sizeof(directory_address.sig_pub));
+        copyCString(directory_address.display_name,
+                    sizeof(directory_address.display_name),
+                    peer.display_name);
+        directory_address.source = rtdir::EntrySource::RuntimeRx;
+        directory_address.first_seen_s = peer.last_seen_s;
+        directory_address.last_seen_s = peer.last_seen_s;
+        const auto address_status = rtdir::record_lxmf_address(directory_address);
+        if (address_status.sd_present && !address_status.saved)
+        {
+            Serial.printf("[LXMF][Directory] address_save failed message=%s detail=%s\n",
+                          address_status.message,
+                          address_status.detail);
+        }
     }
     publishPeerUpdate(peer);
-    (void)maybePersistPeers(true);
+    (void)maybePersistPeers(false);
     return &peer;
 }
 
@@ -5697,7 +5894,7 @@ void LxmfAdapter::populateRxMeta(RxMeta* out) const
         return;
     }
 
-    const RxMeta& last_meta = interfaces_.lastRxMeta();
+    const RxMeta& last_meta = has_active_rx_meta_ ? active_rx_meta_ : interfaces_.lastRxMeta();
     if (last_meta.rx_timestamp_ms != 0 || last_meta.rx_timestamp_s != 0)
     {
         *out = last_meta;

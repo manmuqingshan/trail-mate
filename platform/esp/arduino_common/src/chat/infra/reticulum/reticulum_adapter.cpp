@@ -118,4 +118,9 @@ void ReticulumAdapter::setLastRxStats(float rssi, float snr)
     service_->setLastRxStats(rssi, snr);
 }
 
+void ReticulumAdapter::processSendQueue()
+{
+    service_->processSendQueue();
+}
+
 } // namespace chat::reticulum

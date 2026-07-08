@@ -12,6 +12,7 @@
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_state.h"
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
+#include "sys/ringbuf.h"
 
 #include <array>
 #include <cstddef>
@@ -57,6 +58,7 @@ class LxmfAdapter : public IMeshAdapter
     bool pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len) override;
     void handleRawPacket(const uint8_t* data, size_t size) override;
     void setLastRxStats(float rssi, float snr) override;
+    void processSendQueue() override;
 
   private:
     using PeerInfo = runtime::PeerInfo;
@@ -79,15 +81,39 @@ class LxmfAdapter : public IMeshAdapter
     static constexpr uint32_t kAnnounceIntervalMs = 120000;
     static constexpr uint32_t kInitialAnnounceDelayMs = 1500;
     static constexpr uint8_t kMaxIngressPacketsPerPoll = 2;
-    static constexpr uint32_t kWifiDiscoverySampleIntervalMs = 10000;
+    static constexpr uint32_t kDiscoverySampleIntervalMs = 10000;
     static constexpr uint32_t kRxSummaryIntervalMs = 5000;
     static constexpr uint32_t kAnnounceRebroadcastIntervalMs = 60000;
     static constexpr uint32_t kPeerProjectionSleepIntervalMs = 250;
     static constexpr std::size_t kPendingPeerProjectionDepth = 24;
     static constexpr uint32_t kPeerPersistSleepIntervalMs = 15000;
+    static constexpr std::size_t kDeferredDiscoveryDepth = 8;
+
+    struct RuntimeBudget
+    {
+        uint8_t live_packet_limit = 1;
+        uint8_t deferred_discovery_limit = 0;
+        bool allow_public_discovery = false;
+        bool allow_persistence = false;
+        bool allow_peer_projection = false;
+        bool allow_announce_tx = true;
+        const char* phase = "screen";
+    };
+
+    struct DeferredDiscoveryPacket
+    {
+        uint8_t data[reticulum::kReticulumMtu] = {};
+        size_t len = 0;
+        RxMeta rx_meta{};
+        reticulum::interfaces::InterfaceKind interface_kind =
+            reticulum::interfaces::InterfaceKind::LoRa;
+        uint8_t packet_hash[reticulum::kFullHashSize] = {};
+    };
 
     reticulum::interfaces::ReticulumInterfaceSet interfaces_;
     reticulum::interfaces::RxPacket rx_packet_scratch_{};
+    sys::RingBuffer<DeferredDiscoveryPacket, kDeferredDiscoveryDepth> deferred_discovery_queue_;
+    DeferredDiscoveryPacket deferred_discovery_scratch_{};
     LxmfIdentity identity_;
     MeshConfig config_{};
     static constexpr std::size_t kIncomingQueueDepth = 4;
@@ -100,6 +126,7 @@ class LxmfAdapter : public IMeshAdapter
     std::string user_long_name_;
     std::string user_short_name_;
     uint32_t last_announce_ms_ = 0;
+    uint32_t last_lora_discovery_sample_ms_ = 0;
     uint32_t last_wifi_discovery_sample_ms_ = 0;
     uint32_t last_rx_summary_ms_ = 0;
     uint32_t last_announce_rebroadcast_ms_ = 0;
@@ -107,6 +134,8 @@ class LxmfAdapter : public IMeshAdapter
     uint32_t rx_summary_wifi_skipped_ = 0;
     uint32_t rx_summary_duplicates_ = 0;
     uint32_t rx_summary_parse_failed_ = 0;
+    uint32_t rx_summary_deferred_ = 0;
+    uint32_t rx_summary_deferred_dropped_ = 0;
     std::array<NodeId, kPendingPeerProjectionDepth> pending_peer_projection_nodes_{};
     std::size_t pending_peer_projection_count_ = 0;
     uint32_t last_peer_projection_ms_ = 0;
@@ -115,14 +144,33 @@ class LxmfAdapter : public IMeshAdapter
     bool announce_pending_ = true;
     bool peers_loaded_ = false;
     bool peer_persist_dirty_ = false;
+    RxMeta active_rx_meta_{};
+    bool has_active_rx_meta_ = false;
 
-    void processRadioPackets();
+    RuntimeBudget makeRuntimeBudget() const;
+    void processRuntime();
+    void processRadioPackets(const RuntimeBudget& budget);
+    bool processOneRadioPacket(const reticulum::interfaces::RxPacket& packet,
+                               const RuntimeBudget& budget,
+                               bool deferred_replay);
+    bool shouldDeferDiscoveryPacket(
+        const reticulum::ParsedPacket& packet,
+        reticulum::interfaces::InterfaceKind ingress_interface,
+        const RuntimeBudget& budget);
+    bool isPublicDiscoveryPacket(const reticulum::ParsedPacket& packet) const;
+    bool enqueueDeferredDiscoveryPacket(
+        const reticulum::interfaces::RxPacket& packet,
+        const uint8_t packet_hash[reticulum::kFullHashSize]);
+    bool hasDeferredDiscoveryPacket(
+        const uint8_t packet_hash[reticulum::kFullHashSize]) const;
+    void processDeferredDiscoveryPackets(const RuntimeBudget& budget);
     void maybeAnnounce();
     bool sendAnnounce(LocalDestinationKind kind = LocalDestinationKind::Delivery,
                       reticulum::PacketContext context = reticulum::PacketContext::None);
     bool handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len,
                               const reticulum::ParsedPacket& packet,
-                              reticulum::interfaces::InterfaceKind ingress_interface);
+                              reticulum::interfaces::InterfaceKind ingress_interface,
+                              bool allow_persistence);
     bool handleDataPacket(const uint8_t* raw_packet, size_t raw_len,
                           const reticulum::ParsedPacket& packet);
     bool handleProofPacket(const uint8_t* raw_packet, size_t raw_len,
@@ -164,10 +212,12 @@ class LxmfAdapter : public IMeshAdapter
     bool shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& packet);
     bool shouldLogRxDetail(const reticulum::ParsedPacket& packet,
                            reticulum::interfaces::InterfaceKind ingress_interface) const;
-    bool consumeWifiDiscoveryBudget();
+    bool consumeDiscoveryBudget(reticulum::interfaces::InterfaceKind ingress_interface);
     void noteRxSummary(bool wifi_skipped = false,
                        bool duplicate = false,
-                       bool parse_failed = false);
+                       bool parse_failed = false,
+                       bool deferred = false,
+                       bool deferred_dropped = false);
     bool shouldRebroadcastAnnounce(
         const reticulum::ParsedPacket& packet,
         reticulum::interfaces::InterfaceKind ingress_interface) const;

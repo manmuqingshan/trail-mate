@@ -24,6 +24,9 @@ jobs:
       - name: Verify Wi-Fi access policy
         run: python3 scripts/check_wifi_access_policy.py
 
+      - name: Verify Reticulum runtime budget policy
+        run: python3 scripts/check_reticulum_runtime_budget_policy.py
+
       - name: Verify track file streaming
         run: python3 scripts/check_track_file_streaming.py
 
