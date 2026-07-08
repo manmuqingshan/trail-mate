@@ -181,4 +181,20 @@ RouteImageDownloadResult download_route_image(const std::string& url,
     return result;
 }
 
+bool start_route_image_download(const std::string& asset_id,
+                                const std::vector<RouteImageDownloadItem>& items,
+                                std::string& out_error)
+{
+    (void)asset_id;
+    (void)items;
+    out_error = "Route image download unsupported on this target";
+    return false;
+}
+
+RouteImageDownloadStatus route_image_download_status()
+{
+    RouteImageDownloadStatus status{};
+    return status;
+}
+
 } // namespace platform::ui::route_storage

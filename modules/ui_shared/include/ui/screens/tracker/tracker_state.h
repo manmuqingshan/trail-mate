@@ -47,6 +47,8 @@ struct TrackerPageState
     lv_obj_t* route_preview_elevation_panel = nullptr;
     lv_obj_t* route_preview_status_label = nullptr;
     lv_obj_t* route_preview_progress = nullptr;
+    lv_obj_t* route_preview_download_btn = nullptr;
+    lv_obj_t* route_preview_load_btn = nullptr;
     lv_obj_t* route_preview_load_label = nullptr;
     lv_obj_t* route_preview_help_modal = nullptr;
     lv_group_t* modal_group = nullptr;

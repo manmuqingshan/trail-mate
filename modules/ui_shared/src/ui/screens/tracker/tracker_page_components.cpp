@@ -15,6 +15,7 @@
 #include "ui/support/lvgl_fs_utils.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/map/map_viewport.h"
+#include "ui/widgets/route_elevation_profile.h"
 
 #include <algorithm>
 #include <cctype>
@@ -25,6 +26,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace tracker
@@ -47,15 +49,10 @@ lv_timer_t* s_record_list_refresh_timer = nullptr;
 
 constexpr std::size_t kPreviewMaxDrawPoints = 96;
 constexpr std::size_t kPreviewMaxImages = 64;
-constexpr lv_coord_t kPreviewElevationHeight = 82;
-constexpr lv_coord_t kPreviewPlotPad = 4;
-constexpr lv_coord_t kPreviewAxisLeft = 42;
-constexpr lv_coord_t kPreviewAxisRight = 6;
-constexpr lv_coord_t kPreviewAxisTop = 8;
-constexpr lv_coord_t kPreviewAxisBottom = 18;
 constexpr lv_coord_t kPreviewButtonGap = 3;
 constexpr lv_coord_t kPreviewButtonWidth = 78;
 constexpr lv_coord_t kPreviewButtonWidthDense = 66;
+constexpr uint32_t kPreviewDownloadPollMs = 350;
 
 struct RoutePreviewPoint
 {
@@ -96,21 +93,18 @@ enum class RoutePreviewDownloadState : uint8_t
 std::vector<RoutePreviewPoint> s_preview_route_points;
 std::vector<RoutePreviewImage> s_preview_images;
 std::vector<lv_point_precise_t> s_preview_map_line_points;
-std::vector<lv_point_precise_t> s_preview_elevation_line_points;
+std::vector<::ui::widgets::route_elevation_profile::Sample> s_preview_elevation_samples;
+::ui::widgets::route_elevation_profile::Widget s_preview_elevation_profile;
 RoutePreviewMetrics s_preview_metrics;
 std::string s_preview_route_name;
 std::string s_preview_asset_id;
 std::string s_preview_status_text;
 RoutePreviewDownloadState s_preview_download_state = RoutePreviewDownloadState::Idle;
 int s_preview_selected_image = 0;
-bool s_preview_elevation_visible = true;
+bool s_preview_elevation_visible = false;
 ::ui::widgets::map::Runtime s_preview_map_runtime;
-lv_obj_t* s_preview_download_modal = nullptr;
-lv_obj_t* s_preview_download_title = nullptr;
-lv_obj_t* s_preview_download_detail = nullptr;
-lv_obj_t* s_preview_download_footer = nullptr;
-lv_obj_t* s_preview_download_bar = nullptr;
-bool s_preview_download_busy = false;
+lv_timer_t* s_preview_download_poll_timer = nullptr;
+bool s_preview_download_refresh_map_on_finish = false;
 
 constexpr uint32_t kPanelBtnBg = 0xFAF0D8;
 constexpr uint32_t kPanelBtnBorder = 0xE7C98F;
@@ -162,11 +156,15 @@ void render_route_preview_page();
 void refresh_route_preview_map();
 void update_route_preview_status();
 void update_route_preview_load_button();
+void update_route_preview_buttons();
+bool preview_selected_route_is_active();
+void sync_route_preview_download_status();
+void ensure_route_preview_download_poll_timer();
+void sync_route_preview_elevation_visibility();
 void toggle_route_preview_elevation();
 void cycle_route_preview_map_layer();
 void open_route_preview_help_modal();
 void close_route_preview_help_modal();
-void close_route_preview_download_modal();
 void on_route_preview_key(lv_event_t* e);
 void on_route_preview_download_clicked(lv_event_t* e);
 void on_route_preview_load_clicked(lv_event_t* e);
@@ -340,8 +338,7 @@ bool is_any_modal_open()
 {
     return g_tracker_state.del_confirm_modal != nullptr ||
            g_tracker_state.action_menu_modal != nullptr ||
-           g_tracker_state.route_preview_help_modal != nullptr ||
-           s_preview_download_modal != nullptr;
+           g_tracker_state.route_preview_help_modal != nullptr;
 }
 
 void init_button_styles()
@@ -896,14 +893,15 @@ void clear_preview_model()
     s_preview_route_points.clear();
     s_preview_images.clear();
     s_preview_map_line_points.clear();
-    s_preview_elevation_line_points.clear();
+    s_preview_elevation_samples.clear();
+    ::ui::widgets::route_elevation_profile::reset(s_preview_elevation_profile);
     s_preview_metrics = RoutePreviewMetrics{};
     s_preview_route_name.clear();
     s_preview_asset_id.clear();
     s_preview_status_text.clear();
     s_preview_download_state = RoutePreviewDownloadState::Idle;
     s_preview_selected_image = 0;
-    s_preview_elevation_visible = true;
+    s_preview_elevation_visible = false;
 }
 
 bool load_route_preview_model(const std::string& route_name)
@@ -1236,7 +1234,7 @@ void draw_preview_map_overlay()
                 {
                     s_preview_selected_image = static_cast<int>(raw - 1);
                     s_preview_status_text.clear();
-                    s_preview_download_state = RoutePreviewDownloadState::Idle;
+                    sync_route_preview_download_status();
                     refresh_route_preview_map();
                     update_route_preview_status();
                 }
@@ -1282,151 +1280,6 @@ void set_plain_panel(lv_obj_t* obj, uint32_t bg)
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 }
 
-void create_axis_rect(lv_obj_t* parent,
-                      lv_coord_t x,
-                      lv_coord_t y,
-                      lv_coord_t w,
-                      lv_coord_t h,
-                      uint32_t color)
-{
-    lv_obj_t* rect = lv_obj_create(parent);
-    lv_obj_set_pos(rect, x, y);
-    lv_obj_set_size(rect, w, h);
-    lv_obj_set_style_bg_color(rect, lv_color_hex(color), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(rect, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(rect, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(rect, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(rect, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(rect, LV_OBJ_FLAG_SCROLLABLE);
-}
-
-void add_axis_label(lv_obj_t* parent,
-                    const char* text,
-                    lv_coord_t x,
-                    lv_coord_t y,
-                    lv_coord_t w,
-                    lv_text_align_t align)
-{
-    lv_obj_t* label = lv_label_create(parent);
-    lv_label_set_text(label, text ? text : "");
-    lv_obj_set_pos(label, x, y);
-    lv_obj_set_width(label, w);
-    lv_obj_set_height(label, 13);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
-    lv_obj_set_style_text_align(label, align, LV_PART_MAIN);
-    lv_obj_set_style_text_line_space(label, 0, LV_PART_MAIN);
-    lv_obj_set_style_text_font(label,
-                               ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()),
-                               LV_PART_MAIN);
-    lv_obj_set_style_text_color(label, lv_color_hex(0x4F3A20), LV_PART_MAIN);
-}
-
-void draw_preview_elevation_chart()
-{
-    lv_obj_t* elevation_box = g_tracker_state.route_preview_elevation_panel;
-    if (!elevation_box)
-    {
-        return;
-    }
-    lv_obj_clean(elevation_box);
-    lv_obj_update_layout(elevation_box);
-    const lv_coord_t width = lv_obj_get_content_width(elevation_box);
-    const lv_coord_t height = lv_obj_get_content_height(elevation_box);
-    const lv_coord_t plot_w =
-        std::max<lv_coord_t>(1, width - kPreviewAxisLeft - kPreviewAxisRight);
-    const lv_coord_t plot_h =
-        std::max<lv_coord_t>(1, height - kPreviewAxisTop - kPreviewAxisBottom);
-    const lv_coord_t x0 = kPreviewAxisLeft;
-    const lv_coord_t y0 = kPreviewAxisTop + plot_h;
-
-    create_axis_rect(elevation_box, x0, kPreviewAxisTop, 1, plot_h, 0x715A36);
-    create_axis_rect(elevation_box, x0, y0, plot_w, 1, 0x715A36);
-    for (int tick = 0; tick <= 2; ++tick)
-    {
-        const lv_coord_t y = kPreviewAxisTop + static_cast<lv_coord_t>((plot_h * tick) / 2);
-        create_axis_rect(elevation_box, x0 - 3, y, 4, 1, 0x715A36);
-    }
-    for (int tick = 0; tick <= 2; ++tick)
-    {
-        const lv_coord_t x = x0 + static_cast<lv_coord_t>((plot_w * tick) / 2);
-        create_axis_rect(elevation_box, x, y0, 1, 4, 0x715A36);
-    }
-
-    if (s_preview_metrics.altitude_count < 2)
-    {
-        add_axis_label(elevation_box, "m", 1, 1, 28, LV_TEXT_ALIGN_LEFT);
-        add_axis_label(elevation_box, "No altitude", x0 + 4, kPreviewAxisTop + 16, plot_w - 8, LV_TEXT_ALIGN_CENTER);
-        return;
-    }
-
-    char max_label[16];
-    char min_label[16];
-    char total_label[24];
-    std::snprintf(max_label, sizeof(max_label), "%.0fm", s_preview_metrics.max_altitude_m);
-    std::snprintf(min_label, sizeof(min_label), "%.0fm", s_preview_metrics.min_altitude_m);
-    std::snprintf(total_label, sizeof(total_label), "%.1fkm", s_preview_metrics.distance_m / 1000.0);
-    add_axis_label(elevation_box, max_label, 1, kPreviewAxisTop - 3, kPreviewAxisLeft - 4, LV_TEXT_ALIGN_RIGHT);
-    add_axis_label(elevation_box, min_label, 1, y0 - 9, kPreviewAxisLeft - 4, LV_TEXT_ALIGN_RIGHT);
-    add_axis_label(elevation_box, "0", x0 - 2, y0 + 4, 24, LV_TEXT_ALIGN_LEFT);
-    add_axis_label(elevation_box, total_label, x0 + plot_w - 54, y0 + 4, 58, LV_TEXT_ALIGN_RIGHT);
-
-    struct ElevationPoint
-    {
-        const RoutePreviewPoint* point = nullptr;
-        double distance_m = 0.0;
-    };
-    std::vector<ElevationPoint> altitude_points;
-    altitude_points.reserve(s_preview_metrics.altitude_count);
-    double distance_m = 0.0;
-    const RoutePreviewPoint* previous = nullptr;
-    for (const auto& point : s_preview_route_points)
-    {
-        if (previous)
-        {
-            const double step = preview_distance_m(*previous, point);
-            if (std::isfinite(step))
-            {
-                distance_m += step;
-            }
-        }
-        previous = &point;
-        if (point.has_altitude && std::isfinite(point.altitude_m))
-        {
-            altitude_points.push_back({&point, distance_m});
-        }
-    }
-    const std::size_t draw_count =
-        std::min<std::size_t>(kPreviewMaxDrawPoints, altitude_points.size());
-    s_preview_elevation_line_points.assign(draw_count, lv_point_precise_t{});
-
-    const double range = std::max(
-        1.0,
-        s_preview_metrics.max_altitude_m - s_preview_metrics.min_altitude_m);
-    const double total_distance = std::max(1.0, s_preview_metrics.distance_m);
-    for (std::size_t index = 0; index < draw_count; ++index)
-    {
-        const std::size_t src_index = draw_count <= 1
-                                          ? 0
-                                          : (index * (altitude_points.size() - 1)) / (draw_count - 1);
-        const auto& sample = altitude_points[src_index];
-        const double x_ratio = sample.distance_m / total_distance;
-        const double y_ratio =
-            (s_preview_metrics.max_altitude_m - sample.point->altitude_m) / range;
-        s_preview_elevation_line_points[index].x =
-            static_cast<float>(x0 + std::lround(x_ratio * plot_w));
-        s_preview_elevation_line_points[index].y =
-            static_cast<float>(kPreviewAxisTop + std::lround(y_ratio * plot_h));
-    }
-
-    lv_obj_t* line = lv_line_create(elevation_box);
-    lv_line_set_points(line,
-                       s_preview_elevation_line_points.data(),
-                       static_cast<std::uint16_t>(s_preview_elevation_line_points.size()));
-    lv_obj_set_style_line_width(line, 2, LV_PART_MAIN);
-    lv_obj_set_style_line_color(line, lv_color_hex(0x2D7F6F), LV_PART_MAIN);
-    lv_obj_set_style_line_rounded(line, true, LV_PART_MAIN);
-}
-
 std::size_t preview_saved_image_count()
 {
     return static_cast<std::size_t>(
@@ -1438,10 +1291,179 @@ std::size_t preview_saved_image_count()
                       }));
 }
 
+bool route_preview_download_status_matches(
+    const platform::ui::route_storage::RouteImageDownloadStatus& status)
+{
+    return !s_preview_asset_id.empty() &&
+           !status.asset_id.empty() &&
+           status.asset_id == s_preview_asset_id;
+}
+
+RoutePreviewDownloadState map_route_preview_download_state(
+    platform::ui::route_storage::RouteImageDownloadPhase phase)
+{
+    using Phase = platform::ui::route_storage::RouteImageDownloadPhase;
+    switch (phase)
+    {
+    case Phase::Downloading:
+        return RoutePreviewDownloadState::Downloading;
+    case Phase::Done:
+        return RoutePreviewDownloadState::Done;
+    case Phase::Failed:
+        return RoutePreviewDownloadState::Failed;
+    case Phase::Idle:
+    default:
+        return RoutePreviewDownloadState::Idle;
+    }
+}
+
+bool route_preview_download_busy_for_current_route()
+{
+    const auto status = platform::ui::route_storage::route_image_download_status();
+    return route_preview_download_status_matches(status) && status.busy;
+}
+
+bool route_preview_all_images_saved()
+{
+    return !s_preview_images.empty() &&
+           preview_saved_image_count() >= s_preview_images.size();
+}
+
+bool route_preview_load_button_disabled()
+{
+    if (preview_selected_route_is_active())
+    {
+        return false;
+    }
+    if (!g_tracker_state.active_route.empty())
+    {
+        return true;
+    }
+
+    const auto status = platform::ui::route_storage::route_image_download_status();
+    if (route_preview_download_status_matches(status))
+    {
+        if (status.busy || status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Done)
+        {
+            return true;
+        }
+        if (status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Failed)
+        {
+            return false;
+        }
+    }
+    return route_preview_all_images_saved();
+}
+
+bool route_preview_download_button_disabled()
+{
+    if (s_preview_images.empty())
+    {
+        return true;
+    }
+    const auto status = platform::ui::route_storage::route_image_download_status();
+    if (route_preview_download_status_matches(status) && status.busy)
+    {
+        return true;
+    }
+    return route_preview_all_images_saved();
+}
+
+void set_button_disabled(lv_obj_t* btn, bool disabled)
+{
+    if (!btn || !lv_obj_is_valid(btn))
+    {
+        return;
+    }
+    if (disabled)
+    {
+        lv_obj_add_state(btn, LV_STATE_DISABLED);
+    }
+    else
+    {
+        lv_obj_clear_state(btn, LV_STATE_DISABLED);
+    }
+}
+
+void update_route_preview_buttons()
+{
+    auto& state = g_tracker_state;
+    set_button_disabled(state.route_preview_download_btn, route_preview_download_button_disabled());
+    set_button_disabled(state.route_preview_load_btn, route_preview_load_button_disabled());
+}
+
+void sync_route_preview_download_status()
+{
+    const auto status = platform::ui::route_storage::route_image_download_status();
+    if (!route_preview_download_status_matches(status))
+    {
+        assign_preview_image_paths();
+        update_route_preview_buttons();
+        if (!status.busy && s_preview_download_poll_timer && !g_tracker_state.route_preview_page)
+        {
+            lv_timer_pause(s_preview_download_poll_timer);
+        }
+        return;
+    }
+
+    const RoutePreviewDownloadState previous_state = s_preview_download_state;
+    s_preview_download_state = map_route_preview_download_state(status.phase);
+    if (status.total > 0)
+    {
+        s_preview_selected_image = static_cast<int>(
+            std::min<std::size_t>(status.current_index, status.total - 1));
+    }
+    s_preview_status_text = !status.message.empty() ? status.message : status.error;
+    assign_preview_image_paths();
+    update_route_preview_status();
+    update_route_preview_buttons();
+
+    if (!status.busy &&
+        previous_state == RoutePreviewDownloadState::Downloading &&
+        s_preview_download_refresh_map_on_finish)
+    {
+        s_preview_download_refresh_map_on_finish = false;
+        if (s_preview_elevation_visible)
+        {
+            sync_route_preview_elevation_visibility();
+        }
+        else
+        {
+            refresh_route_preview_map();
+        }
+    }
+
+    if (!status.busy && s_preview_download_poll_timer && !g_tracker_state.route_preview_page)
+    {
+        lv_timer_pause(s_preview_download_poll_timer);
+    }
+}
+
+void route_preview_download_poll_cb(lv_timer_t*)
+{
+    sync_route_preview_download_status();
+}
+
+void ensure_route_preview_download_poll_timer()
+{
+    if (s_preview_download_poll_timer)
+    {
+        lv_timer_resume(s_preview_download_poll_timer);
+        return;
+    }
+    s_preview_download_poll_timer =
+        lv_timer_create(route_preview_download_poll_cb, kPreviewDownloadPollMs, nullptr);
+    if (s_preview_download_poll_timer)
+    {
+        lv_timer_set_repeat_count(s_preview_download_poll_timer, -1);
+    }
+}
+
 void update_route_preview_status()
 {
     auto& state = g_tracker_state;
     const std::size_t saved_count = preview_saved_image_count();
+    const auto download_status = platform::ui::route_storage::route_image_download_status();
     char status[160];
     if (s_preview_images.empty())
     {
@@ -1485,7 +1507,11 @@ void update_route_preview_status()
     if (state.route_preview_progress)
     {
         int value = 0;
-        if (!s_preview_images.empty())
+        if (route_preview_download_status_matches(download_status) && download_status.total > 0)
+        {
+            value = static_cast<int>((download_status.processed * 100U) / download_status.total);
+        }
+        else if (!s_preview_images.empty())
         {
             value = static_cast<int>((saved_count * 100U) / s_preview_images.size());
         }
@@ -1537,29 +1563,107 @@ void update_route_preview_load_button()
     ::ui::i18n::set_label_text(state.route_preview_load_label,
                                preview_selected_route_is_active() ? "Off" : "Load");
     lv_obj_center(state.route_preview_load_label);
+    update_route_preview_buttons();
+}
+
+::ui::widgets::route_elevation_profile::Config route_preview_elevation_profile_config()
+{
+    ::ui::widgets::route_elevation_profile::Config config{};
+    config.max_points = kPreviewMaxDrawPoints;
+    return config;
+}
+
+::ui::widgets::route_elevation_profile::Metrics route_preview_elevation_metrics()
+{
+    ::ui::widgets::route_elevation_profile::Metrics metrics{};
+    metrics.altitude_count = s_preview_metrics.altitude_count;
+    metrics.min_altitude_m = s_preview_metrics.min_altitude_m;
+    metrics.max_altitude_m = s_preview_metrics.max_altitude_m;
+    metrics.ascent_m = s_preview_metrics.ascent_m;
+    metrics.descent_m = s_preview_metrics.descent_m;
+    metrics.distance_m = s_preview_metrics.distance_m;
+    return metrics;
+}
+
+void ensure_route_preview_elevation_profile()
+{
+    auto& state = g_tracker_state;
+    if (!state.route_preview_map_host ||
+        !lv_obj_is_valid(state.route_preview_map_host))
+    {
+        return;
+    }
+    if (!s_preview_elevation_profile.panel ||
+        !lv_obj_is_valid(s_preview_elevation_profile.panel))
+    {
+        ::ui::widgets::route_elevation_profile::create(
+            state.route_preview_map_host,
+            s_preview_elevation_profile,
+            route_preview_elevation_profile_config());
+    }
+    state.route_preview_elevation_panel = s_preview_elevation_profile.panel;
+}
+
+void rebuild_preview_elevation_samples()
+{
+    s_preview_elevation_samples.clear();
+    s_preview_elevation_samples.reserve(s_preview_route_points.size());
+    double distance_m = 0.0;
+    const RoutePreviewPoint* previous = nullptr;
+    for (const auto& point : s_preview_route_points)
+    {
+        if (previous)
+        {
+            const double step = preview_distance_m(*previous, point);
+            if (std::isfinite(step))
+            {
+                distance_m += step;
+            }
+        }
+        previous = &point;
+        ::ui::widgets::route_elevation_profile::Sample sample{};
+        sample.altitude_m = point.altitude_m;
+        sample.distance_m = distance_m;
+        sample.has_altitude = point.has_altitude;
+        s_preview_elevation_samples.push_back(sample);
+    }
 }
 
 void sync_route_preview_elevation_visibility()
 {
     auto& state = g_tracker_state;
     if (!state.route_preview_page ||
-        !state.route_preview_elevation_panel ||
-        !lv_obj_is_valid(state.route_preview_elevation_panel))
+        !state.route_preview_map_host ||
+        !lv_obj_is_valid(state.route_preview_map_host))
     {
         return;
     }
 
-    if (s_preview_elevation_visible)
+    refresh_route_preview_map();
+    ensure_route_preview_elevation_profile();
+    if (!s_preview_elevation_profile.panel ||
+        !lv_obj_is_valid(s_preview_elevation_profile.panel))
     {
-        lv_obj_clear_flag(state.route_preview_elevation_panel, LV_OBJ_FLAG_HIDDEN);
-        draw_preview_elevation_chart();
+        return;
+    }
+
+    if (!s_preview_elevation_visible || s_preview_metrics.altitude_count < 2)
+    {
+        ::ui::widgets::route_elevation_profile::set_hidden(s_preview_elevation_profile, true);
     }
     else
     {
-        lv_obj_add_flag(state.route_preview_elevation_panel, LV_OBJ_FLAG_HIDDEN);
+        rebuild_preview_elevation_samples();
+        (void)::ui::widgets::route_elevation_profile::update(
+            s_preview_elevation_profile,
+            route_preview_elevation_profile_config(),
+            s_preview_elevation_samples.data(),
+            s_preview_elevation_samples.size(),
+            route_preview_elevation_metrics(),
+            true,
+            4);
     }
     lv_obj_update_layout(state.route_preview_page);
-    refresh_route_preview_map();
 }
 
 void toggle_route_preview_elevation()
@@ -1606,135 +1710,6 @@ void consume_route_preview_key_event(lv_event_t* e)
 void close_route_preview_help_modal()
 {
     modal_close(g_tracker_state.route_preview_help_modal);
-}
-
-void close_route_preview_download_modal()
-{
-    s_preview_download_busy = false;
-    modal_close(s_preview_download_modal);
-    s_preview_download_title = nullptr;
-    s_preview_download_detail = nullptr;
-    s_preview_download_footer = nullptr;
-    s_preview_download_bar = nullptr;
-}
-
-void on_route_preview_download_modal_key(lv_event_t* e)
-{
-    if (!e)
-    {
-        return;
-    }
-    const uint32_t key = lv_event_get_key(e);
-    if (s_preview_download_busy)
-    {
-        consume_route_preview_key_event(e);
-        return;
-    }
-    if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE || key == LV_KEY_ENTER)
-    {
-        consume_route_preview_key_event(e);
-        close_route_preview_download_modal();
-    }
-}
-
-void update_route_preview_download_modal(const char* title,
-                                         const char* detail,
-                                         std::size_t processed,
-                                         std::size_t total)
-{
-    if (!s_preview_download_modal || !lv_obj_is_valid(s_preview_download_modal))
-    {
-        return;
-    }
-    if (s_preview_download_title)
-    {
-        ::ui::i18n::set_label_text_raw(s_preview_download_title, title ? title : "");
-    }
-    if (s_preview_download_detail)
-    {
-        ::ui::i18n::set_label_text_raw(s_preview_download_detail, detail ? detail : "");
-    }
-    if (s_preview_download_footer)
-    {
-        ::ui::i18n::set_label_text_raw(
-            s_preview_download_footer,
-            s_preview_download_busy ? "Please wait" : "Back / Enter to close");
-    }
-    if (s_preview_download_bar)
-    {
-        const int value = total > 0 ? static_cast<int>((processed * 100U) / total) : 0;
-        lv_bar_set_value(s_preview_download_bar, value, LV_ANIM_ON);
-    }
-    lv_timer_handler();
-}
-
-bool open_route_preview_download_modal()
-{
-    if (s_preview_download_modal && lv_obj_is_valid(s_preview_download_modal))
-    {
-        return true;
-    }
-
-    modal_prepare_group();
-    s_preview_download_modal = create_modal_root(292, 128);
-    lv_obj_set_style_bg_color(s_preview_download_modal, lv_color_hex(0x1C1812), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(s_preview_download_modal, LV_OPA_70, LV_PART_MAIN);
-    lv_obj_t* win = lv_obj_get_child(s_preview_download_modal, 0);
-    if (!win)
-    {
-        close_route_preview_download_modal();
-        return false;
-    }
-
-    lv_obj_set_flex_flow(win, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(win, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_bg_color(win, lv_color_hex(0xFFF3DF), LV_PART_MAIN);
-    lv_obj_set_style_border_width(win, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(win, lv_color_hex(0x8A6E43), LV_PART_MAIN);
-    lv_obj_set_style_radius(win, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_left(win, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_right(win, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_top(win, 7, LV_PART_MAIN);
-    lv_obj_set_style_pad_bottom(win, 6, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(win, 5, LV_PART_MAIN);
-    lv_obj_clear_flag(win, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(win, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(win, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-    lv_obj_add_event_cb(win, on_route_preview_download_modal_key, LV_EVENT_KEY, nullptr);
-
-    s_preview_download_title = lv_label_create(win);
-    lv_obj_set_width(s_preview_download_title, LV_PCT(100));
-    lv_obj_set_style_text_font(s_preview_download_title, &lv_font_montserrat_12, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_preview_download_title, lv_color_hex(0x25170D), LV_PART_MAIN);
-    lv_label_set_long_mode(s_preview_download_title, LV_LABEL_LONG_DOT);
-    ::ui::i18n::set_label_text_raw(s_preview_download_title, "Downloading Images");
-
-    s_preview_download_detail = lv_label_create(win);
-    lv_obj_set_width(s_preview_download_detail, LV_PCT(100));
-    lv_obj_set_style_text_font(s_preview_download_detail,
-                               ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()),
-                               LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_preview_download_detail, lv_color_hex(0x3E2B18), LV_PART_MAIN);
-    lv_label_set_long_mode(s_preview_download_detail, LV_LABEL_LONG_DOT);
-    ::ui::i18n::set_label_text_raw(s_preview_download_detail, "Preparing");
-
-    s_preview_download_bar = lv_bar_create(win);
-    lv_obj_set_size(s_preview_download_bar, LV_PCT(100), 10);
-    lv_bar_set_range(s_preview_download_bar, 0, 100);
-    lv_bar_set_value(s_preview_download_bar, 0, LV_ANIM_OFF);
-
-    s_preview_download_footer = lv_label_create(win);
-    lv_obj_set_width(s_preview_download_footer, LV_PCT(100));
-    lv_obj_set_style_text_font(s_preview_download_footer, &lv_font_montserrat_10, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_preview_download_footer, lv_color_hex(kPanelTextMuted), LV_PART_MAIN);
-    lv_label_set_long_mode(s_preview_download_footer, LV_LABEL_LONG_DOT);
-    ::ui::i18n::set_label_text_raw(s_preview_download_footer, "Please wait");
-
-    lv_group_add_obj(g_tracker_state.modal_group, win);
-    lv_group_focus_obj(win);
-    lv_obj_move_foreground(s_preview_download_modal);
-    lv_timer_handler();
-    return true;
 }
 
 void on_route_preview_help_key(lv_event_t* e)
@@ -1898,6 +1873,24 @@ void open_route_preview_help_modal()
 void on_route_preview_load_clicked(lv_event_t*)
 {
     auto& state = g_tracker_state;
+    if (route_preview_load_button_disabled())
+    {
+        if (route_preview_download_busy_for_current_route())
+        {
+            s_preview_status_text = "Download in progress";
+        }
+        else if (route_preview_all_images_saved())
+        {
+            s_preview_status_text = "Images already saved";
+        }
+        else
+        {
+            s_preview_status_text = "Load unavailable";
+        }
+        update_route_preview_status();
+        update_route_preview_buttons();
+        return;
+    }
     if (preview_selected_route_is_active())
     {
         on_route_unload_clicked(nullptr);
@@ -1923,10 +1916,6 @@ void close_route_preview_page()
     {
         modal_close(state.route_preview_help_modal);
     }
-    if (s_preview_download_modal)
-    {
-        close_route_preview_download_modal();
-    }
     ::ui::widgets::map::destroy(s_preview_map_runtime);
     if (state.route_preview_page)
     {
@@ -1937,6 +1926,8 @@ void close_route_preview_page()
     state.route_preview_elevation_panel = nullptr;
     state.route_preview_status_label = nullptr;
     state.route_preview_progress = nullptr;
+    state.route_preview_download_btn = nullptr;
+    state.route_preview_load_btn = nullptr;
     state.route_preview_load_label = nullptr;
     clear_preview_model();
     if (state.filter_panel)
@@ -1999,31 +1990,41 @@ void on_route_preview_download_clicked(lv_event_t*)
         s_preview_status_text = "No route images";
         s_preview_download_state = RoutePreviewDownloadState::Failed;
         update_route_preview_status();
+        update_route_preview_buttons();
         return;
     }
 
     const std::size_t total = s_preview_images.size();
     std::size_t saved_count = preview_saved_image_count();
-    std::size_t failed_count = 0;
-    std::uint32_t saved_bytes = 0;
     char detail[96]{};
+
+    if (route_preview_download_busy_for_current_route())
+    {
+        sync_route_preview_download_status();
+        ensure_route_preview_download_poll_timer();
+        return;
+    }
+
+    if (saved_count >= total)
+    {
+        s_preview_download_state = RoutePreviewDownloadState::Done;
+        std::snprintf(detail,
+                      sizeof(detail),
+                      "Saved all %u images",
+                      static_cast<unsigned>(total));
+        s_preview_status_text = detail;
+        update_route_preview_status();
+        update_route_preview_buttons();
+        return;
+    }
 
     const auto wifi = platform::ui::wifi::status();
     if (!wifi.supported || !wifi.connected)
     {
         s_preview_status_text = "Wi-Fi required";
         s_preview_download_state = RoutePreviewDownloadState::Failed;
-        if (open_route_preview_download_modal())
-        {
-            s_preview_download_busy = false;
-            std::snprintf(detail,
-                          sizeof(detail),
-                          "Wi-Fi required  saved %u/%u",
-                          static_cast<unsigned>(saved_count),
-                          static_cast<unsigned>(total));
-            update_route_preview_download_modal("Download Failed", detail, saved_count, total);
-        }
         update_route_preview_status();
+        update_route_preview_buttons();
         return;
     }
 
@@ -2032,36 +2033,22 @@ void on_route_preview_download_clicked(lv_event_t*)
     {
         s_preview_status_text = "Create image dir failed";
         s_preview_download_state = RoutePreviewDownloadState::Failed;
-        if (open_route_preview_download_modal())
-        {
-            s_preview_download_busy = false;
-            update_route_preview_download_modal("Download Failed", "Create image dir failed", saved_count, total);
-        }
         update_route_preview_status();
+        update_route_preview_buttons();
         return;
     }
 
     assign_preview_image_paths();
-
-    if (!open_route_preview_download_modal())
-    {
-        s_preview_status_text = "Open progress failed";
-        s_preview_download_state = RoutePreviewDownloadState::Failed;
-        update_route_preview_status();
-        return;
-    }
-
     saved_count = preview_saved_image_count();
     s_preview_download_state = RoutePreviewDownloadState::Downloading;
-    s_preview_download_busy = true;
     std::snprintf(detail,
                   sizeof(detail),
                   "Starting  saved %u/%u",
                   static_cast<unsigned>(saved_count),
                   static_cast<unsigned>(total));
     s_preview_status_text = detail;
-    update_route_preview_download_modal("Downloading Images", detail, 0, total);
     update_route_preview_status();
+    update_route_preview_buttons();
 
     if (::ui::widgets::map::widgets(s_preview_map_runtime).root)
     {
@@ -2071,148 +2058,37 @@ void on_route_preview_download_clicked(lv_event_t*)
         {
             lv_obj_clean(g_tracker_state.route_preview_map_host);
         }
-        update_route_preview_download_modal(
-            "Downloading Images", "Released map cache for HTTPS", 0, total);
-    }
-
-    std::size_t consecutive_connection_failures = 0;
-    bool stopped_for_connection_failure = false;
-    for (std::size_t index = 0; index < total; ++index)
-    {
-        RoutePreviewImage& image = s_preview_images[index];
-        s_preview_selected_image = static_cast<int>(index);
-        if (image.downloaded && platform::ui::route_storage::route_asset_file_exists(image.local_path))
-        {
-            saved_count = preview_saved_image_count();
-            std::snprintf(detail,
-                          sizeof(detail),
-                          "Image %u/%u already saved",
-                          static_cast<unsigned>(index + 1),
-                          static_cast<unsigned>(total));
-            s_preview_status_text = detail;
-            update_route_preview_status();
-            update_route_preview_download_modal("Downloading Images", detail, index + 1, total);
-            continue;
-        }
-
-        if (image.url.empty())
-        {
-            ++failed_count;
-            std::snprintf(detail,
-                          sizeof(detail),
-                          "Image %u/%u has no URL",
-                          static_cast<unsigned>(index + 1),
-                          static_cast<unsigned>(total));
-            s_preview_status_text = detail;
-            update_route_preview_status();
-            update_route_preview_download_modal("Downloading Images", detail, index + 1, total);
-            continue;
-        }
-
-        std::snprintf(detail,
-                      sizeof(detail),
-                      "Image %u/%u  saved %u/%u",
-                      static_cast<unsigned>(index + 1),
-                      static_cast<unsigned>(total),
-                      static_cast<unsigned>(saved_count),
-                      static_cast<unsigned>(total));
-        s_preview_status_text = detail;
+        ::ui::widgets::route_elevation_profile::reset(s_preview_elevation_profile);
+        g_tracker_state.route_preview_elevation_panel = nullptr;
+        s_preview_status_text = "Released map cache for HTTPS";
         update_route_preview_status();
-        update_route_preview_download_modal("Downloading Images", detail, index, total);
+    }
 
-        const auto result =
-            platform::ui::route_storage::download_route_image(image.url, image.local_path);
-        if (result.ok)
-        {
-            image.downloaded = true;
-            saved_bytes += result.bytes;
-            consecutive_connection_failures = 0;
-        }
-        else
-        {
-            ++failed_count;
-            if (result.error == "Open HTTP request failed")
-            {
-                ++consecutive_connection_failures;
-            }
-            else
-            {
-                consecutive_connection_failures = 0;
-            }
-        }
-        assign_preview_image_paths();
-        saved_count = preview_saved_image_count();
-        if (result.ok)
-        {
-            std::snprintf(detail,
-                          sizeof(detail),
-                          "Saved %u/%u  %u KB",
-                          static_cast<unsigned>(saved_count),
-                          static_cast<unsigned>(total),
-                          static_cast<unsigned>((saved_bytes + 1023U) / 1024U));
-        }
-        else
-        {
-            std::snprintf(detail,
-                          sizeof(detail),
-                          "Image %u failed: %.28s",
-                          static_cast<unsigned>(index + 1),
-                          result.error.empty() ? "Download failed" : result.error.c_str());
-        }
-        s_preview_status_text = detail;
+    std::vector<platform::ui::route_storage::RouteImageDownloadItem> items;
+    items.reserve(s_preview_images.size());
+    for (const auto& image : s_preview_images)
+    {
+        platform::ui::route_storage::RouteImageDownloadItem item{};
+        item.url = image.url;
+        item.output_path = image.local_path;
+        items.push_back(std::move(item));
+    }
+
+    std::string error;
+    if (!platform::ui::route_storage::start_route_image_download(s_preview_asset_id, items, error))
+    {
+        s_preview_download_state = RoutePreviewDownloadState::Failed;
+        s_preview_status_text = error.empty() ? "Start download failed" : error;
         update_route_preview_status();
-        update_route_preview_download_modal("Downloading Images", detail, index + 1, total);
-        if (consecutive_connection_failures >= 3)
-        {
-            stopped_for_connection_failure = true;
-            failed_count += total - index - 1;
-            std::snprintf(detail,
-                          sizeof(detail),
-                          "Connection failed; stopped at %u/%u",
-                          static_cast<unsigned>(index + 1),
-                          static_cast<unsigned>(total));
-            s_preview_status_text = detail;
-            update_route_preview_status();
-            update_route_preview_download_modal("Download Stopped", detail, index + 1, total);
-            break;
-        }
+        update_route_preview_buttons();
+        return;
     }
 
-    s_preview_download_busy = false;
-    assign_preview_image_paths();
-    saved_count = preview_saved_image_count();
-    if (failed_count == 0 && saved_count >= total)
-    {
-        s_preview_download_state = RoutePreviewDownloadState::Done;
-        std::snprintf(detail,
-                      sizeof(detail),
-                      "Saved all %u images  %u KB",
-                      static_cast<unsigned>(total),
-                      static_cast<unsigned>((saved_bytes + 1023U) / 1024U));
-        s_preview_status_text = detail;
-        update_route_preview_download_modal("Download Complete", detail, total, total);
-    }
-    else
-    {
-        s_preview_download_state = failed_count == 0 ? RoutePreviewDownloadState::Done
-                                                     : RoutePreviewDownloadState::Failed;
-        std::snprintf(detail,
-                      sizeof(detail),
-                      "Saved %u/%u  failed %u",
-                      static_cast<unsigned>(saved_count),
-                      static_cast<unsigned>(total),
-                      static_cast<unsigned>(failed_count));
-        s_preview_status_text = detail;
-        update_route_preview_download_modal(
-            stopped_for_connection_failure ? "Download Stopped"
-                                           : (failed_count == 0 ? "Download Complete" : "Download Finished"),
-            detail,
-            total,
-            total);
-    }
-
-    refresh_route_preview_map();
+    s_preview_download_refresh_map_on_finish = true;
+    ensure_route_preview_download_poll_timer();
+    sync_route_preview_download_status();
     update_route_preview_status();
+    update_route_preview_buttons();
 }
 
 void render_route_preview_page()
@@ -2224,6 +2100,9 @@ void render_route_preview_page()
     }
     ::ui::widgets::map::destroy(s_preview_map_runtime);
     lv_obj_clean(state.route_preview_page);
+    ::ui::widgets::route_elevation_profile::reset(s_preview_elevation_profile);
+    state.route_preview_download_btn = nullptr;
+    state.route_preview_load_btn = nullptr;
     state.route_preview_load_label = nullptr;
     lv_group_t* group = tracker_group();
     if (group)
@@ -2251,11 +2130,7 @@ void render_route_preview_page()
         lv_group_add_obj(group, state.route_preview_map_host);
     }
 
-    state.route_preview_elevation_panel = lv_obj_create(state.route_preview_page);
-    set_plain_panel(state.route_preview_elevation_panel, 0xFFF6E3);
-    lv_obj_set_size(state.route_preview_elevation_panel, LV_PCT(100), kPreviewElevationHeight);
-    lv_obj_set_style_border_width(state.route_preview_elevation_panel, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(state.route_preview_elevation_panel, lv_color_hex(0xD2A868), LV_PART_MAIN);
+    state.route_preview_elevation_panel = nullptr;
 
     state.route_preview_status_label = lv_label_create(state.route_preview_page);
     lv_obj_set_width(state.route_preview_status_label, LV_PCT(100));
@@ -2288,6 +2163,8 @@ void render_route_preview_page()
     const lv_coord_t button_w = std::min<lv_coord_t>(base_button_w, max_button_w);
     lv_obj_t* download_btn = create_preview_page_button(row, "Down", on_route_preview_download_clicked, button_w);
     lv_obj_t* load_btn = create_preview_page_button(row, "Load", on_route_preview_load_clicked, button_w);
+    state.route_preview_download_btn = download_btn;
+    state.route_preview_load_btn = load_btn;
     state.route_preview_load_label = lv_obj_get_child(load_btn, 0);
     update_route_preview_load_button();
 
@@ -2320,18 +2197,15 @@ void render_route_preview_page()
         nullptr);
     lv_group_remove_obj(help_hint);
 
-    if (s_preview_images.empty())
-    {
-        lv_obj_add_state(download_btn, LV_STATE_DISABLED);
-    }
+    update_route_preview_buttons();
     lv_obj_t* focus_obj = s_preview_images.empty() ? load_btn : download_btn;
-    if (!state.active_route.empty() && !preview_selected_route_is_active())
+    if (route_preview_download_button_disabled())
     {
-        lv_obj_add_state(load_btn, LV_STATE_DISABLED);
-        if (focus_obj == load_btn)
-        {
-            focus_obj = state.route_preview_map_host;
-        }
+        focus_obj = load_btn;
+    }
+    if (route_preview_load_button_disabled() && focus_obj == load_btn)
+    {
+        focus_obj = state.route_preview_map_host;
     }
     if (group)
     {
@@ -2340,6 +2214,7 @@ void render_route_preview_page()
 
     lv_obj_update_layout(state.route_preview_page);
     sync_route_preview_elevation_visibility();
+    sync_route_preview_download_status();
     update_route_preview_status();
 }
 
@@ -2395,6 +2270,10 @@ void open_route_preview_page()
     lv_obj_set_style_border_width(state.route_preview_page, 0, LV_PART_MAIN);
     lv_obj_clear_flag(state.route_preview_page, LV_OBJ_FLAG_SCROLLABLE);
     render_route_preview_page();
+    if (route_preview_download_busy_for_current_route())
+    {
+        ensure_route_preview_download_poll_timer();
+    }
 }
 
 lv_group_t* tracker_group()
@@ -3670,9 +3549,10 @@ void cleanup_page()
         lv_obj_del(state.route_preview_help_modal);
         state.route_preview_help_modal = nullptr;
     }
-    if (s_preview_download_modal)
+    if (s_preview_download_poll_timer)
     {
-        close_route_preview_download_modal();
+        lv_timer_del(s_preview_download_poll_timer);
+        s_preview_download_poll_timer = nullptr;
     }
     ::ui::widgets::map::destroy(s_preview_map_runtime);
     if (state.route_preview_page)
@@ -3684,6 +3564,8 @@ void cleanup_page()
     state.route_preview_elevation_panel = nullptr;
     state.route_preview_status_label = nullptr;
     state.route_preview_progress = nullptr;
+    state.route_preview_download_btn = nullptr;
+    state.route_preview_load_btn = nullptr;
     state.route_preview_load_label = nullptr;
     if (state.modal_group)
     {
