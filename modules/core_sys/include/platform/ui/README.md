@@ -46,6 +46,10 @@ They must not depend on concrete implementations under `platform/esp/*`,
 - `reticulum_group_config_runtime.h`
   SD-card Reticulum shared group destination configuration contract used by
   Contacts and Reticulum runtime apply paths.
+- `reticulum_directory_runtime.h`
+  SD-card Reticulum announce and LXMF address directory contract. This is the
+  Reticulum network/address-book source used by protocol runtimes; group TSV
+  remains a narrower shared-destination configuration file.
 - `screen_runtime.h`
   Screen timeout state, brightness-adjacent sleep policy, and user-activity
   lifecycle hooks.

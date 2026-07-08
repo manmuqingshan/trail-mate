@@ -100,6 +100,9 @@ constexpr size_t kTxPowerOptionCapacity =
     static_cast<size_t>(kNetTxPowerMax - kNetTxPowerMin + 1);
 constexpr int kGpsInitProbeMinMs = 250;
 constexpr int kGpsInitProbeMaxMs = 1600;
+constexpr uint32_t kSettingsAmber = 0xEBA341;
+constexpr uint32_t kSettingsAmberDark = 0xC98118;
+constexpr uint32_t kSettingsText = 0x6B4A1E;
 
 struct CategoryDef
 {
@@ -277,6 +280,7 @@ static bool option_labels_use_content_font(const settings::ui::SettingItem& item
 static void apply_locale_preview_font(lv_obj_t* label, const settings::ui::SettingItem& item, int value);
 static void refresh_language_pack_options();
 static void bind_dynamic_option_storage_to_items();
+static void refresh_reticulum_identity_fields_from_runtime();
 
 static void copy_bounded(char* out, size_t out_len, const char* text)
 {
@@ -707,6 +711,7 @@ static void format_manual_datetime_summary(char* out, size_t out_len)
 
 static void refresh_visible_item_values()
 {
+    refresh_reticulum_identity_fields_from_runtime();
     for (size_t index = 0; index < g_state.item_count; ++index)
     {
         update_item_value(g_state.item_widgets[index]);
@@ -1145,6 +1150,16 @@ static void refresh_reticulum_identity_fields(app::IAppFacade& app_ctx,
     bytes_to_wrapped_hash(info.lxmf_address,
                           g_settings.rt_lxmf_address,
                           sizeof(g_settings.rt_lxmf_address));
+}
+
+static void refresh_reticulum_identity_fields_from_runtime()
+{
+    if (!app::hasAppFacade())
+    {
+        return;
+    }
+    app::IAppFacade& app_ctx = app::appFacade();
+    refresh_reticulum_identity_fields(app_ctx, app_ctx.getConfig());
 }
 
 static bool parse_hex_char(char c, uint8_t& out)
@@ -2540,10 +2555,20 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     g_state.modal_root = create_modal_root(resolve_text_modal_width(profile, touch_ime_layout),
                                            resolve_text_modal_height(profile, touch_ime_layout));
     lv_obj_t* win = lv_obj_get_child(g_state.modal_root, 0);
+    lv_obj_clear_flag(win, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(win, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(win,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(win, touch_ime_layout ? 8 : 6, LV_PART_MAIN);
 
     lv_obj_t* title = lv_label_create(win);
     ::ui::i18n::set_label_text(title, item.label);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+    style::apply_label_primary(title);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(title, LV_PCT(100));
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 
     g_state.modal_textarea = lv_textarea_create(win);
     lv_textarea_set_one_line(g_state.modal_textarea, true);
@@ -2553,7 +2578,15 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
         lv_textarea_set_password_mode(g_state.modal_textarea, true);
     }
     lv_obj_set_width(g_state.modal_textarea, LV_PCT(100));
-    lv_obj_align(g_state.modal_textarea, LV_ALIGN_TOP_MID, 0, 28);
+    lv_obj_set_height(g_state.modal_textarea, 36);
+    lv_obj_set_style_border_width(g_state.modal_textarea, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(g_state.modal_textarea,
+                                  lv_color_hex(kSettingsAmber),
+                                  LV_PART_MAIN);
+    lv_obj_set_style_radius(g_state.modal_textarea, 8, LV_PART_MAIN);
+    lv_obj_set_style_text_color(g_state.modal_textarea,
+                                lv_color_hex(kSettingsText),
+                                LV_PART_MAIN);
     if (item.text_value)
     {
         lv_textarea_set_text(g_state.modal_textarea, item.text_value);
@@ -2564,10 +2597,6 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     lv_obj_t* ime_host = lv_obj_create(win);
     lv_obj_set_width(ime_host, LV_PCT(100));
     lv_obj_set_height(ime_host, ime_host_height);
-    lv_obj_align(ime_host,
-                 LV_ALIGN_TOP_MID,
-                 0,
-                 touch_ime_layout ? 72 : 62);
     lv_obj_set_style_pad_all(ime_host, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ime_host, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(ime_host, 0, LV_PART_MAIN);
@@ -2601,8 +2630,7 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     }
 
     lv_obj_t* btn_row = lv_obj_create(win);
-    lv_obj_set_size(btn_row, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_align(btn_row, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_size(btn_row, LV_PCT(100), button_height);
     lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_EVENLY,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -2613,15 +2641,22 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
 
     lv_obj_t* save_btn = lv_btn_create(btn_row);
     lv_obj_set_size(save_btn, ::ui::page_profile::resolve_control_button_min_width(), button_height);
+    style::apply_btn_modal(save_btn);
+    lv_obj_set_style_bg_color(save_btn, lv_color_hex(kSettingsAmber), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(save_btn, lv_color_hex(kSettingsAmberDark), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(save_btn, lv_color_hex(kSettingsAmberDark), LV_PART_MAIN);
     lv_obj_t* save_label = lv_label_create(save_btn);
     ::ui::i18n::set_label_text(save_label, "Save");
+    style::apply_label_primary(save_label);
     lv_obj_center(save_label);
     lv_obj_add_event_cb(save_btn, on_text_save_clicked, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t* cancel_btn = lv_btn_create(btn_row);
     lv_obj_set_size(cancel_btn, ::ui::page_profile::resolve_control_button_min_width(), button_height);
+    style::apply_btn_modal(cancel_btn);
     lv_obj_t* cancel_label = lv_label_create(cancel_btn);
     ::ui::i18n::set_label_text(cancel_label, "Cancel");
+    style::apply_label_primary(cancel_label);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel_btn, on_text_cancel_clicked, LV_EVENT_CLICKED, nullptr);
 

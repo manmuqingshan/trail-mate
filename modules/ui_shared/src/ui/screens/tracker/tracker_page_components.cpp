@@ -105,6 +105,12 @@ RoutePreviewDownloadState s_preview_download_state = RoutePreviewDownloadState::
 int s_preview_selected_image = 0;
 bool s_preview_elevation_visible = true;
 ::ui::widgets::map::Runtime s_preview_map_runtime;
+lv_obj_t* s_preview_download_modal = nullptr;
+lv_obj_t* s_preview_download_title = nullptr;
+lv_obj_t* s_preview_download_detail = nullptr;
+lv_obj_t* s_preview_download_footer = nullptr;
+lv_obj_t* s_preview_download_bar = nullptr;
+bool s_preview_download_busy = false;
 
 constexpr uint32_t kPanelBtnBg = 0xFAF0D8;
 constexpr uint32_t kPanelBtnBorder = 0xE7C98F;
@@ -157,8 +163,10 @@ void refresh_route_preview_map();
 void update_route_preview_status();
 void update_route_preview_load_button();
 void toggle_route_preview_elevation();
+void cycle_route_preview_map_layer();
 void open_route_preview_help_modal();
 void close_route_preview_help_modal();
+void close_route_preview_download_modal();
 void on_route_preview_key(lv_event_t* e);
 void on_route_preview_download_clicked(lv_event_t* e);
 void on_route_preview_load_clicked(lv_event_t* e);
@@ -332,7 +340,8 @@ bool is_any_modal_open()
 {
     return g_tracker_state.del_confirm_modal != nullptr ||
            g_tracker_state.action_menu_modal != nullptr ||
-           g_tracker_state.route_preview_help_modal != nullptr;
+           g_tracker_state.route_preview_help_modal != nullptr ||
+           s_preview_download_modal != nullptr;
 }
 
 void init_button_styles()
@@ -1213,6 +1222,8 @@ void draw_preview_map_overlay()
             LV_PART_MAIN);
         lv_obj_set_style_bg_opa(pin, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_clear_flag(pin, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(pin, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        lv_group_remove_obj(pin);
         lv_obj_set_user_data(pin, reinterpret_cast<void*>(index + 1));
         lv_obj_add_event_cb(
             pin,
@@ -1416,16 +1427,21 @@ void draw_preview_elevation_chart()
     lv_obj_set_style_line_rounded(line, true, LV_PART_MAIN);
 }
 
-void update_route_preview_status()
+std::size_t preview_saved_image_count()
 {
-    auto& state = g_tracker_state;
-    const std::size_t saved_count = static_cast<std::size_t>(
+    return static_cast<std::size_t>(
         std::count_if(s_preview_images.begin(),
                       s_preview_images.end(),
                       [](const RoutePreviewImage& image)
                       {
                           return image.downloaded;
                       }));
+}
+
+void update_route_preview_status()
+{
+    auto& state = g_tracker_state;
+    const std::size_t saved_count = preview_saved_image_count();
     char status[160];
     if (s_preview_images.empty())
     {
@@ -1469,20 +1485,9 @@ void update_route_preview_status()
     if (state.route_preview_progress)
     {
         int value = 0;
-        if (!s_preview_images.empty() &&
-            s_preview_selected_image >= 0 &&
-            s_preview_selected_image < static_cast<int>(s_preview_images.size()) &&
-            s_preview_images[static_cast<std::size_t>(s_preview_selected_image)].downloaded)
+        if (!s_preview_images.empty())
         {
-            value = 100;
-        }
-        if (s_preview_download_state == RoutePreviewDownloadState::Downloading)
-        {
-            value = 45;
-        }
-        else if (s_preview_download_state == RoutePreviewDownloadState::Done)
-        {
-            value = 100;
+            value = static_cast<int>((saved_count * 100U) / s_preview_images.size());
         }
         lv_bar_set_value(state.route_preview_progress, value, LV_ANIM_ON);
     }
@@ -1507,11 +1512,7 @@ lv_obj_t* create_preview_page_button(lv_obj_t* parent,
         lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
     }
     lv_obj_add_event_cb(btn, on_route_preview_key, LV_EVENT_KEY, nullptr);
-    if (g_tracker_state.modal_group)
-    {
-        lv_group_add_obj(g_tracker_state.modal_group, btn);
-    }
-    else if (lv_group_t* group = tracker_group())
+    if (lv_group_t* group = tracker_group())
     {
         lv_group_add_obj(group, btn);
     }
@@ -1569,9 +1570,171 @@ void toggle_route_preview_elevation()
     update_route_preview_status();
 }
 
+void cycle_route_preview_map_layer()
+{
+    const auto layer_state = ::ui::widgets::map::current_layer_state();
+    const uint8_t next_source = static_cast<uint8_t>((layer_state.map_source + 1U) % 3U);
+    ::ui::widgets::map::LayerNotice notice{};
+    (void)::ui::widgets::map::set_layer_map_source(next_source, &notice);
+    if (notice.has_message)
+    {
+        s_preview_status_text = notice.message;
+    }
+    else
+    {
+        char text[40]{};
+        std::snprintf(text,
+                      sizeof(text),
+                      "Base %s",
+                      ::ui::i18n::tr(::ui::widgets::map::layer_map_source_label_key(next_source)));
+        s_preview_status_text = text;
+    }
+    refresh_route_preview_map();
+    update_route_preview_status();
+}
+
+void consume_route_preview_key_event(lv_event_t* e)
+{
+    if (!e)
+    {
+        return;
+    }
+    lv_event_stop_bubbling(e);
+    lv_event_stop_processing(e);
+}
+
 void close_route_preview_help_modal()
 {
     modal_close(g_tracker_state.route_preview_help_modal);
+}
+
+void close_route_preview_download_modal()
+{
+    s_preview_download_busy = false;
+    modal_close(s_preview_download_modal);
+    s_preview_download_title = nullptr;
+    s_preview_download_detail = nullptr;
+    s_preview_download_footer = nullptr;
+    s_preview_download_bar = nullptr;
+}
+
+void on_route_preview_download_modal_key(lv_event_t* e)
+{
+    if (!e)
+    {
+        return;
+    }
+    const uint32_t key = lv_event_get_key(e);
+    if (s_preview_download_busy)
+    {
+        consume_route_preview_key_event(e);
+        return;
+    }
+    if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE || key == LV_KEY_ENTER)
+    {
+        consume_route_preview_key_event(e);
+        close_route_preview_download_modal();
+    }
+}
+
+void update_route_preview_download_modal(const char* title,
+                                         const char* detail,
+                                         std::size_t processed,
+                                         std::size_t total)
+{
+    if (!s_preview_download_modal || !lv_obj_is_valid(s_preview_download_modal))
+    {
+        return;
+    }
+    if (s_preview_download_title)
+    {
+        ::ui::i18n::set_label_text_raw(s_preview_download_title, title ? title : "");
+    }
+    if (s_preview_download_detail)
+    {
+        ::ui::i18n::set_label_text_raw(s_preview_download_detail, detail ? detail : "");
+    }
+    if (s_preview_download_footer)
+    {
+        ::ui::i18n::set_label_text_raw(
+            s_preview_download_footer,
+            s_preview_download_busy ? "Please wait" : "Back / Enter to close");
+    }
+    if (s_preview_download_bar)
+    {
+        const int value = total > 0 ? static_cast<int>((processed * 100U) / total) : 0;
+        lv_bar_set_value(s_preview_download_bar, value, LV_ANIM_ON);
+    }
+    lv_timer_handler();
+}
+
+bool open_route_preview_download_modal()
+{
+    if (s_preview_download_modal && lv_obj_is_valid(s_preview_download_modal))
+    {
+        return true;
+    }
+
+    modal_prepare_group();
+    s_preview_download_modal = create_modal_root(292, 128);
+    lv_obj_set_style_bg_color(s_preview_download_modal, lv_color_hex(0x1C1812), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_preview_download_modal, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_t* win = lv_obj_get_child(s_preview_download_modal, 0);
+    if (!win)
+    {
+        close_route_preview_download_modal();
+        return false;
+    }
+
+    lv_obj_set_flex_flow(win, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(win, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_bg_color(win, lv_color_hex(0xFFF3DF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(win, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(win, lv_color_hex(0x8A6E43), LV_PART_MAIN);
+    lv_obj_set_style_radius(win, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(win, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(win, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(win, 7, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(win, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(win, 5, LV_PART_MAIN);
+    lv_obj_clear_flag(win, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(win, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(win, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_add_event_cb(win, on_route_preview_download_modal_key, LV_EVENT_KEY, nullptr);
+
+    s_preview_download_title = lv_label_create(win);
+    lv_obj_set_width(s_preview_download_title, LV_PCT(100));
+    lv_obj_set_style_text_font(s_preview_download_title, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_preview_download_title, lv_color_hex(0x25170D), LV_PART_MAIN);
+    lv_label_set_long_mode(s_preview_download_title, LV_LABEL_LONG_DOT);
+    ::ui::i18n::set_label_text_raw(s_preview_download_title, "Downloading Images");
+
+    s_preview_download_detail = lv_label_create(win);
+    lv_obj_set_width(s_preview_download_detail, LV_PCT(100));
+    lv_obj_set_style_text_font(s_preview_download_detail,
+                               ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()),
+                               LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_preview_download_detail, lv_color_hex(0x3E2B18), LV_PART_MAIN);
+    lv_label_set_long_mode(s_preview_download_detail, LV_LABEL_LONG_DOT);
+    ::ui::i18n::set_label_text_raw(s_preview_download_detail, "Preparing");
+
+    s_preview_download_bar = lv_bar_create(win);
+    lv_obj_set_size(s_preview_download_bar, LV_PCT(100), 10);
+    lv_bar_set_range(s_preview_download_bar, 0, 100);
+    lv_bar_set_value(s_preview_download_bar, 0, LV_ANIM_OFF);
+
+    s_preview_download_footer = lv_label_create(win);
+    lv_obj_set_width(s_preview_download_footer, LV_PCT(100));
+    lv_obj_set_style_text_font(s_preview_download_footer, &lv_font_montserrat_10, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_preview_download_footer, lv_color_hex(kPanelTextMuted), LV_PART_MAIN);
+    lv_label_set_long_mode(s_preview_download_footer, LV_LABEL_LONG_DOT);
+    ::ui::i18n::set_label_text_raw(s_preview_download_footer, "Please wait");
+
+    lv_group_add_obj(g_tracker_state.modal_group, win);
+    lv_group_focus_obj(win);
+    lv_obj_move_foreground(s_preview_download_modal);
+    lv_timer_handler();
+    return true;
 }
 
 void on_route_preview_help_key(lv_event_t* e)
@@ -1584,7 +1747,28 @@ void on_route_preview_help_key(lv_event_t* e)
     if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE ||
         key == LV_KEY_ENTER || key == 'h' || key == 'H')
     {
+        consume_route_preview_key_event(e);
         close_route_preview_help_modal();
+        return;
+    }
+    if (key == LV_KEY_UP || key == 'w' || key == 'W')
+    {
+        lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+        if (target && lv_obj_is_valid(target))
+        {
+            lv_obj_scroll_by(target, 0, 18, LV_ANIM_OFF);
+        }
+        consume_route_preview_key_event(e);
+        return;
+    }
+    if (key == LV_KEY_DOWN || key == 's' || key == 'S')
+    {
+        lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+        if (target && lv_obj_is_valid(target))
+        {
+            lv_obj_scroll_by(target, 0, -18, LV_ANIM_OFF);
+        }
+        consume_route_preview_key_event(e);
     }
 }
 
@@ -1597,7 +1781,9 @@ void open_route_preview_help_modal()
     }
 
     modal_prepare_group();
-    state.route_preview_help_modal = create_modal_root(260, 170);
+    state.route_preview_help_modal = create_modal_root(304, 176);
+    lv_obj_set_style_bg_color(state.route_preview_help_modal, lv_color_hex(0x1C1812), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(state.route_preview_help_modal, LV_OPA_70, LV_PART_MAIN);
     lv_obj_t* win = lv_obj_get_child(state.route_preview_help_modal, 0);
     if (!win)
     {
@@ -1607,37 +1793,106 @@ void open_route_preview_help_modal()
 
     lv_obj_set_flex_flow(win, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(win, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(win, 5, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(win, lv_color_hex(0xFFF3DF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(win, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(win, lv_color_hex(0x8A6E43), LV_PART_MAIN);
+    lv_obj_set_style_radius(win, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(win, 7, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(win, 7, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(win, 5, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(win, 5, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(win, 2, LV_PART_MAIN);
+    lv_obj_add_flag(win, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(win, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(win, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_flag(win, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(win, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_add_event_cb(win, on_route_preview_help_key, LV_EVENT_KEY, nullptr);
 
     lv_obj_t* title = lv_label_create(win);
     ::ui::i18n::set_label_text(title, "Preview Help");
     lv_obj_set_width(title, LV_PCT(100));
-    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, lv_color_hex(0x25170D), LV_PART_MAIN);
 
-    lv_obj_t* body = lv_label_create(win);
-    ::ui::i18n::set_label_text_raw(
-        body,
-        "D  download image\nL  load/off route\nE  show/hide profile\nH  close help\nTap pins to select image");
-    lv_obj_set_width(body, LV_PCT(100));
-    lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_font(body,
-                               ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()),
-                               LV_PART_MAIN);
-    lv_obj_set_style_text_color(body, lv_color_hex(kPanelTextMuted), LV_PART_MAIN);
+    auto add_keycap = [](lv_obj_t* parent, const char* text, lv_coord_t width)
+    {
+        lv_obj_t* keycap = lv_label_create(parent);
+        lv_obj_set_size(keycap, width, 14);
+        lv_obj_set_style_bg_color(keycap, lv_color_hex(0xF8E6C3), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(keycap, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(keycap, 1, LV_PART_MAIN);
+        lv_obj_set_style_border_color(keycap, lv_color_hex(0x8A6E43), LV_PART_MAIN);
+        lv_obj_set_style_radius(keycap, 3, LV_PART_MAIN);
+        lv_obj_set_style_text_font(keycap, &lv_font_montserrat_10, LV_PART_MAIN);
+        lv_obj_set_style_text_color(keycap, lv_color_hex(0x25170D), LV_PART_MAIN);
+        lv_obj_set_style_text_align(keycap, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_label_set_long_mode(keycap, LV_LABEL_LONG_CLIP);
+        lv_label_set_text(keycap, text ? text : "");
+        return keycap;
+    };
 
-    lv_obj_t* close_btn = create_action_menu_button(win, "Close");
-    lv_obj_set_width(close_btn, modal_button_width());
-    lv_obj_add_event_cb(
-        close_btn,
-        [](lv_event_t*)
+    auto add_help_row = [&](const char* primary,
+                            const char* secondary,
+                            const char* description)
+    {
+        lv_obj_t* row = lv_obj_create(win);
+        lv_obj_set_size(row, LV_PCT(100), 15);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_column(row, 3, LV_PART_MAIN);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t* keys = lv_obj_create(row);
+        lv_obj_set_size(keys, 76, 15);
+        lv_obj_set_flex_flow(keys, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(keys,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_bg_opa(keys, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(keys, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(keys, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_column(keys, 2, LV_PART_MAIN);
+        lv_obj_clear_flag(keys, LV_OBJ_FLAG_SCROLLABLE);
+
+        if (secondary && secondary[0] != '\0')
         {
-            close_route_preview_help_modal();
-        },
-        LV_EVENT_CLICKED,
-        nullptr);
-    lv_obj_add_event_cb(close_btn, on_route_preview_help_key, LV_EVENT_KEY, nullptr);
-    lv_group_add_obj(state.modal_group, close_btn);
-    lv_group_focus_obj(close_btn);
+            const lv_coord_t secondary_width =
+                std::strlen(secondary) > 4 ? 48 : (std::strlen(secondary) > 2 ? 34 : 22);
+            add_keycap(keys, primary, std::strlen(primary) > 2 ? 34 : 22);
+            add_keycap(keys, secondary, secondary_width);
+        }
+        else
+        {
+            add_keycap(keys, primary, 72);
+        }
+
+        lv_obj_t* text = lv_label_create(row);
+        lv_obj_set_width(text, 0);
+        lv_obj_set_flex_grow(text, 1);
+        lv_obj_set_style_text_font(text, &lv_font_montserrat_10, LV_PART_MAIN);
+        lv_obj_set_style_text_color(text, lv_color_hex(0x3E2B18), LV_PART_MAIN);
+        lv_label_set_long_mode(text, LV_LABEL_LONG_DOT);
+        lv_label_set_text(text, description ? description : "");
+    };
+
+    add_help_row("D", nullptr, "Download images");
+    add_help_row("R", nullptr, "Load/off route");
+    add_help_row("L", nullptr, "Change base layer");
+    add_help_row("E", nullptr, "Show/hide profile");
+    add_help_row("Pin", nullptr, "Select image point");
+    add_help_row("H", "Back", "Close help");
+
+    lv_obj_move_foreground(state.route_preview_help_modal);
+    lv_group_add_obj(state.modal_group, win);
+    lv_group_focus_obj(win);
 }
 
 void on_route_preview_load_clicked(lv_event_t*)
@@ -1667,6 +1922,10 @@ void close_route_preview_page()
     if (state.route_preview_help_modal)
     {
         modal_close(state.route_preview_help_modal);
+    }
+    if (s_preview_download_modal)
+    {
+        close_route_preview_download_modal();
     }
     ::ui::widgets::map::destroy(s_preview_map_runtime);
     if (state.route_preview_page)
@@ -1711,9 +1970,14 @@ void on_route_preview_key(lv_event_t* e)
         on_route_preview_download_clicked(nullptr);
         return;
     }
-    if (key == 'l' || key == 'L')
+    if (key == 'r' || key == 'R')
     {
         on_route_preview_load_clicked(nullptr);
+        return;
+    }
+    if (key == 'l' || key == 'L')
+    {
+        cycle_route_preview_map_layer();
         return;
     }
     if (key == 'e' || key == 'E')
@@ -1729,30 +1993,36 @@ void on_route_preview_key(lv_event_t* e)
 
 void on_route_preview_download_clicked(lv_event_t*)
 {
-    if (s_preview_images.empty() ||
-        s_preview_selected_image < 0 ||
-        s_preview_selected_image >= static_cast<int>(s_preview_images.size()))
+    assign_preview_image_paths();
+    if (s_preview_images.empty())
     {
-        s_preview_status_text = "No image selected";
+        s_preview_status_text = "No route images";
         s_preview_download_state = RoutePreviewDownloadState::Failed;
         update_route_preview_status();
         return;
     }
 
-    auto& image = s_preview_images[static_cast<std::size_t>(s_preview_selected_image)];
-    if (image.downloaded && platform::ui::route_storage::route_asset_file_exists(image.local_path))
-    {
-        s_preview_status_text = "Image already saved";
-        s_preview_download_state = RoutePreviewDownloadState::Done;
-        update_route_preview_status();
-        return;
-    }
+    const std::size_t total = s_preview_images.size();
+    std::size_t saved_count = preview_saved_image_count();
+    std::size_t failed_count = 0;
+    std::uint32_t saved_bytes = 0;
+    char detail[96]{};
 
     const auto wifi = platform::ui::wifi::status();
     if (!wifi.supported || !wifi.connected)
     {
         s_preview_status_text = "Wi-Fi required";
         s_preview_download_state = RoutePreviewDownloadState::Failed;
+        if (open_route_preview_download_modal())
+        {
+            s_preview_download_busy = false;
+            std::snprintf(detail,
+                          sizeof(detail),
+                          "Wi-Fi required  saved %u/%u",
+                          static_cast<unsigned>(saved_count),
+                          static_cast<unsigned>(total));
+            update_route_preview_download_modal("Download Failed", detail, saved_count, total);
+        }
         update_route_preview_status();
         return;
     }
@@ -1762,33 +2032,148 @@ void on_route_preview_download_clicked(lv_event_t*)
     {
         s_preview_status_text = "Create image dir failed";
         s_preview_download_state = RoutePreviewDownloadState::Failed;
+        if (open_route_preview_download_modal())
+        {
+            s_preview_download_busy = false;
+            update_route_preview_download_modal("Download Failed", "Create image dir failed", saved_count, total);
+        }
         update_route_preview_status();
         return;
     }
-    assign_preview_image_paths();
-    s_preview_status_text = "Downloading image";
-    s_preview_download_state = RoutePreviewDownloadState::Downloading;
-    update_route_preview_status();
-    lv_timer_handler();
 
-    const auto result =
-        platform::ui::route_storage::download_route_image(image.url, image.local_path);
     assign_preview_image_paths();
-    if (result.ok)
+
+    if (!open_route_preview_download_modal())
     {
-        char text[48];
-        std::snprintf(text,
-                      sizeof(text),
-                      "Saved %u KB",
-                      static_cast<unsigned>((result.bytes + 1023U) / 1024U));
-        s_preview_status_text = text;
+        s_preview_status_text = "Open progress failed";
+        s_preview_download_state = RoutePreviewDownloadState::Failed;
+        update_route_preview_status();
+        return;
+    }
+
+    saved_count = preview_saved_image_count();
+    s_preview_download_state = RoutePreviewDownloadState::Downloading;
+    s_preview_download_busy = true;
+    std::snprintf(detail,
+                  sizeof(detail),
+                  "Starting  saved %u/%u",
+                  static_cast<unsigned>(saved_count),
+                  static_cast<unsigned>(total));
+    s_preview_status_text = detail;
+    update_route_preview_download_modal("Downloading Images", detail, 0, total);
+    update_route_preview_status();
+
+    for (std::size_t index = 0; index < total; ++index)
+    {
+        RoutePreviewImage& image = s_preview_images[index];
+        s_preview_selected_image = static_cast<int>(index);
+        if (image.downloaded && platform::ui::route_storage::route_asset_file_exists(image.local_path))
+        {
+            saved_count = preview_saved_image_count();
+            std::snprintf(detail,
+                          sizeof(detail),
+                          "Image %u/%u already saved",
+                          static_cast<unsigned>(index + 1),
+                          static_cast<unsigned>(total));
+            s_preview_status_text = detail;
+            update_route_preview_status();
+            update_route_preview_download_modal("Downloading Images", detail, index + 1, total);
+            continue;
+        }
+
+        if (image.url.empty())
+        {
+            ++failed_count;
+            std::snprintf(detail,
+                          sizeof(detail),
+                          "Image %u/%u has no URL",
+                          static_cast<unsigned>(index + 1),
+                          static_cast<unsigned>(total));
+            s_preview_status_text = detail;
+            update_route_preview_status();
+            update_route_preview_download_modal("Downloading Images", detail, index + 1, total);
+            continue;
+        }
+
+        std::snprintf(detail,
+                      sizeof(detail),
+                      "Image %u/%u  saved %u/%u",
+                      static_cast<unsigned>(index + 1),
+                      static_cast<unsigned>(total),
+                      static_cast<unsigned>(saved_count),
+                      static_cast<unsigned>(total));
+        s_preview_status_text = detail;
+        update_route_preview_status();
+        update_route_preview_download_modal("Downloading Images", detail, index, total);
+
+        const auto result =
+            platform::ui::route_storage::download_route_image(image.url, image.local_path);
+        if (result.ok)
+        {
+            image.downloaded = true;
+            saved_bytes += result.bytes;
+        }
+        else
+        {
+            ++failed_count;
+        }
+        assign_preview_image_paths();
+        saved_count = preview_saved_image_count();
+        if (result.ok)
+        {
+            std::snprintf(detail,
+                          sizeof(detail),
+                          "Saved %u/%u  %u KB",
+                          static_cast<unsigned>(saved_count),
+                          static_cast<unsigned>(total),
+                          static_cast<unsigned>((saved_bytes + 1023U) / 1024U));
+        }
+        else
+        {
+            std::snprintf(detail,
+                          sizeof(detail),
+                          "Image %u failed  saved %u/%u",
+                          static_cast<unsigned>(index + 1),
+                          static_cast<unsigned>(saved_count),
+                          static_cast<unsigned>(total));
+        }
+        s_preview_status_text = detail;
+        update_route_preview_status();
+        update_route_preview_download_modal("Downloading Images", detail, index + 1, total);
+    }
+
+    s_preview_download_busy = false;
+    assign_preview_image_paths();
+    saved_count = preview_saved_image_count();
+    if (failed_count == 0 && saved_count >= total)
+    {
         s_preview_download_state = RoutePreviewDownloadState::Done;
+        std::snprintf(detail,
+                      sizeof(detail),
+                      "Saved all %u images  %u KB",
+                      static_cast<unsigned>(total),
+                      static_cast<unsigned>((saved_bytes + 1023U) / 1024U));
+        s_preview_status_text = detail;
+        update_route_preview_download_modal("Download Complete", detail, total, total);
     }
     else
     {
-        s_preview_status_text = result.error.empty() ? "Download failed" : result.error;
-        s_preview_download_state = RoutePreviewDownloadState::Failed;
+        s_preview_download_state = failed_count == 0 ? RoutePreviewDownloadState::Done
+                                                     : RoutePreviewDownloadState::Failed;
+        std::snprintf(detail,
+                      sizeof(detail),
+                      "Saved %u/%u  failed %u",
+                      static_cast<unsigned>(saved_count),
+                      static_cast<unsigned>(total),
+                      static_cast<unsigned>(failed_count));
+        s_preview_status_text = detail;
+        update_route_preview_download_modal(
+            failed_count == 0 ? "Download Complete" : "Download Finished",
+            detail,
+            total,
+            total);
     }
+
     refresh_route_preview_map();
     update_route_preview_status();
 }
@@ -1818,6 +2203,16 @@ void render_route_preview_page()
     lv_obj_set_width(state.route_preview_map_host, LV_PCT(100));
     lv_obj_set_height(state.route_preview_map_host, 0);
     lv_obj_set_flex_grow(state.route_preview_map_host, 1);
+    lv_obj_add_flag(state.route_preview_map_host, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(state.route_preview_map_host, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_set_style_border_width(state.route_preview_map_host, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(state.route_preview_map_host, lv_color_hex(0xD2A868), LV_PART_MAIN);
+    lv_obj_set_style_border_color(state.route_preview_map_host, lv_color_hex(kPanelBtnFocused), LV_PART_MAIN | LV_STATE_FOCUSED);
+    lv_obj_add_event_cb(state.route_preview_map_host, on_route_preview_key, LV_EVENT_KEY, nullptr);
+    if (group)
+    {
+        lv_group_add_obj(group, state.route_preview_map_host);
+    }
 
     state.route_preview_elevation_panel = lv_obj_create(state.route_preview_page);
     set_plain_panel(state.route_preview_elevation_panel, 0xFFF6E3);
@@ -1852,36 +2247,58 @@ void render_route_preview_page()
     const lv_coord_t base_button_w =
         page_profile().dense ? kPreviewButtonWidthDense : kPreviewButtonWidth;
     const lv_coord_t max_button_w =
-        std::max<lv_coord_t>(46, (page_w - (kPreviewButtonGap * 5)) / 4);
+        std::max<lv_coord_t>(46, (page_w - (kPreviewButtonGap * 3)) / 2);
     const lv_coord_t button_w = std::min<lv_coord_t>(base_button_w, max_button_w);
     lv_obj_t* download_btn = create_preview_page_button(row, "Down", on_route_preview_download_clicked, button_w);
     lv_obj_t* load_btn = create_preview_page_button(row, "Load", on_route_preview_load_clicked, button_w);
     state.route_preview_load_label = lv_obj_get_child(load_btn, 0);
     update_route_preview_load_button();
-    create_preview_page_button(
-        row, "Help", [](lv_event_t*)
-        { open_route_preview_help_modal(); },
-        button_w);
-    lv_obj_t* close_btn = create_preview_page_button(
-        row,
-        "Close",
-        [](lv_event_t*)
+
+    lv_obj_t* help_hint = lv_label_create(state.route_preview_page);
+    lv_obj_set_size(help_hint, 20, 16);
+    lv_obj_add_flag(help_hint, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_add_flag(help_hint, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(help_hint, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_set_style_bg_color(help_hint, lv_color_hex(0xF8E6C3), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(help_hint, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(help_hint, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(help_hint, lv_color_hex(0x8A6E43), LV_PART_MAIN);
+    lv_obj_set_style_radius(help_hint, 3, LV_PART_MAIN);
+    lv_obj_set_style_text_font(help_hint, &lv_font_montserrat_10, LV_PART_MAIN);
+    lv_obj_set_style_text_color(help_hint, lv_color_hex(0x25170D), LV_PART_MAIN);
+    lv_obj_set_style_text_align(help_hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_label_set_long_mode(help_hint, LV_LABEL_LONG_CLIP);
+    lv_label_set_text(help_hint, "H");
+    lv_obj_align(help_hint, LV_ALIGN_BOTTOM_LEFT, 2, -1);
+    lv_obj_add_event_cb(
+        help_hint,
+        [](lv_event_t* e)
         {
-            close_route_preview_page();
+            if (lv_event_get_code(e) == LV_EVENT_CLICKED)
+            {
+                open_route_preview_help_modal();
+            }
         },
-        button_w);
+        LV_EVENT_CLICKED,
+        nullptr);
+    lv_group_remove_obj(help_hint);
 
     if (s_preview_images.empty())
     {
         lv_obj_add_state(download_btn, LV_STATE_DISABLED);
     }
+    lv_obj_t* focus_obj = s_preview_images.empty() ? load_btn : download_btn;
     if (!state.active_route.empty() && !preview_selected_route_is_active())
     {
         lv_obj_add_state(load_btn, LV_STATE_DISABLED);
+        if (focus_obj == load_btn)
+        {
+            focus_obj = state.route_preview_map_host;
+        }
     }
     if (group)
     {
-        lv_group_focus_obj(s_preview_images.empty() ? close_btn : download_btn);
+        lv_group_focus_obj(focus_obj);
     }
 
     lv_obj_update_layout(state.route_preview_page);
@@ -3215,6 +3632,10 @@ void cleanup_page()
     {
         lv_obj_del(state.route_preview_help_modal);
         state.route_preview_help_modal = nullptr;
+    }
+    if (s_preview_download_modal)
+    {
+        close_route_preview_download_modal();
     }
     ::ui::widgets::map::destroy(s_preview_map_runtime);
     if (state.route_preview_page)

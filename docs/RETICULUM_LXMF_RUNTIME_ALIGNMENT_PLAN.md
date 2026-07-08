@@ -49,6 +49,72 @@ Reticulum feature such as management destinations or full shared-instance
 service parity. The target is complete, system-level behavior for an embedded
 device node.
 
+## Device Role And Ingress Policy
+
+Trail Mate's Reticulum runtime is a **low-frequency terminal ingest runtime**,
+not a desktop Reticulum node, public router, propagation node, or shared-instance
+service endpoint.
+
+This distinction is part of the product specification. A Trail Mate device can
+use LoRa and a Wi-Fi Reticulum TCP gateway at the same time, but the Wi-Fi
+gateway must not make the device behave like a high-throughput desktop node.
+The runtime must continuously fit the real device budget:
+
+- small screen and keypad-first UI
+- ESP-class CPU and task stacks
+- bounded serial logging bandwidth
+- scarce LoRa airtime
+- SD-card write latency and wear
+
+The runtime priority order is:
+
+1. **Chat and local business delivery first.** Local LXMF delivery, configured
+   group destinations, active local links/resources, proofs for local traffic,
+   and Trail Mate appdata such as team position/track are foreground traffic.
+2. **Public discovery as sampled background state.** Announces and path traffic
+   learned from a Wi-Fi gateway are useful for Nearby, Network, and address-book
+   freshness, but they are not a mandate to mirror the public Reticulum network.
+   The runtime may sample, coalesce, summarize, bound, or age out this state.
+3. **Path/announce noise skip-first.** Unknown destinations, unrelated path or
+   cache requests, non-local/non-group packets, and remote transport chatter not
+   tied to a live local session should be skipped or rate-limited before they
+   cause heavy parse work, UI updates, SD writes, LoRa transmissions, or verbose
+   serial logs.
+4. **No implicit Wi-Fi-to-LoRa public relay.** Wi-Fi gateway background traffic
+   must not be blindly rebroadcast over LoRa. Any future full transport/router
+   behavior must be an explicit mode with its own acceptance criteria, power
+   budget, and UI indication.
+
+Required side-effect policy:
+
+- Serial logs must prefer periodic summaries and counters over per-packet logs
+  for background Wi-Fi traffic.
+- SD persistence must be stream-friendly, bounded, and coalesced. Verified
+  announces and LXMF address-book entries may be persisted, but background
+  traffic must not create one SD write per observed packet.
+- UI projections must stay bounded. Network discovery views should project a
+  small latest-first window, currently the newest 100 announce entries, with
+  search/filter support instead of loading the whole directory as screen state.
+- Background maintenance belongs in screen-sleep windows. While the screen is
+  awake, Reticulum must only preserve foreground service: receiving packets
+  addressed to the local device or configured groups, processing proofs/link
+  traffic for active local sessions, processing path responses for user-initiated
+  sends, and sending user/business traffic. Public announce discovery, peer
+  projection, and non-urgent persistence must wait until the screen is sleeping.
+- LoRa TX must be reserved for local product behavior and explicitly throttled
+  protocol needs. Public Wi-Fi background discovery must not consume LoRa airtime
+  by default.
+
+Current ESP policy constants such as a small Wi-Fi socket read budget, a limited
+number of Reticulum ingress packets per poll, a multi-second Wi-Fi discovery
+sample interval, and a long announce-rebroadcast cooldown are implementation
+defaults for this low-frequency terminal mode. They are tuning points, not
+Reticulum wire-conformance rules.
+
+A Reticulum change is not acceptable if ordinary public Wi-Fi gateway traffic can
+make chat noticeably laggy, flood serial output, churn SD storage, or turn the
+device into an accidental LoRa relay.
+
 ## Current Baseline
 
 The current `LxmfAdapter` already implements more than the original phase-1/2

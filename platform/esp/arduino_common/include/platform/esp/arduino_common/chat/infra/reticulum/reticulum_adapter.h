@@ -56,6 +56,7 @@ class ReticulumAdapter final : public IMeshAdapter
     bool requestNodeInfo(NodeId dest, bool want_response) override;
     bool broadcastSelfIdentity() override;
     NodeId getNodeId() const override;
+    bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     bool isReady() const override;

@@ -44,6 +44,7 @@ class MeshAdapterRouterCore : public IMeshAdapter
     bool submitKeyVerificationNumber(NodeId dest, uint64_t nonce, uint32_t number) override;
     NodeId getNodeId() const override;
     bool isPkiReady() const override;
+    bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     bool hasPkiKey(NodeId dest) const override;
     bool triggerDiscoveryAction(MeshDiscoveryAction action) override;
     MeshActionResult triggerDiscoveryActionDetailed(MeshDiscoveryAction action) override;
@@ -63,6 +64,7 @@ class MeshAdapterRouterCore : public IMeshAdapter
 
     std::unique_ptr<IMeshAdapter> meshtastic_backend_;
     std::unique_ptr<IMeshAdapter> meshcore_backend_;
+    std::unique_ptr<IMeshAdapter> reticulum_backend_;
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;
 };
 

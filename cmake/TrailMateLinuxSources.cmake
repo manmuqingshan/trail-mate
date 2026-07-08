@@ -164,6 +164,7 @@ set(TRAIL_MATE_LINUX_COMMON_SOURCES
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/pack_repository_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/route_storage.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/screen_runtime.cpp"
+    "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/reticulum_directory_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/reticulum_group_config_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/settings_backup_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/settings_store.cpp"
@@ -328,6 +329,8 @@ set(TRAIL_MATE_LINUX_UI_SHELL_SOURCES
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/ble_topbar.c"
     # modules/ui_shared �?components
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/components/air_status_footer.cpp"
+    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/components/floating_search_box.cpp"
+    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/components/shortcut_help_modal.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/runtime_device_status_source.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/runtime_mesh_status_source.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/presentation_sources/runtime_settings_source.cpp"

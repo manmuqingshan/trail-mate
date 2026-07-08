@@ -83,6 +83,11 @@ NodeId ReticulumAdapter::getNodeId() const
     return service_->getNodeId();
 }
 
+bool ReticulumAdapter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
+{
+    return service_->getReticulumLocalIdentityInfo(out);
+}
+
 void ReticulumAdapter::applyConfig(const MeshConfig& config)
 {
     service_->applyConfig(config);

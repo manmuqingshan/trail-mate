@@ -7,16 +7,38 @@ namespace
 
 std::unique_ptr<IMeshAdapter>& backendSlot(MeshProtocol protocol,
                                            std::unique_ptr<IMeshAdapter>& meshtastic_backend,
-                                           std::unique_ptr<IMeshAdapter>& meshcore_backend)
+                                           std::unique_ptr<IMeshAdapter>& meshcore_backend,
+                                           std::unique_ptr<IMeshAdapter>& reticulum_backend)
 {
-    return protocol == MeshProtocol::MeshCore ? meshcore_backend : meshtastic_backend;
+    switch (protocol)
+    {
+    case MeshProtocol::MeshCore:
+        return meshcore_backend;
+    case MeshProtocol::RNode:
+    case MeshProtocol::Reticulum:
+        return reticulum_backend;
+    case MeshProtocol::Meshtastic:
+    default:
+        return meshtastic_backend;
+    }
 }
 
 const std::unique_ptr<IMeshAdapter>& backendSlotConst(MeshProtocol protocol,
                                                       const std::unique_ptr<IMeshAdapter>& meshtastic_backend,
-                                                      const std::unique_ptr<IMeshAdapter>& meshcore_backend)
+                                                      const std::unique_ptr<IMeshAdapter>& meshcore_backend,
+                                                      const std::unique_ptr<IMeshAdapter>& reticulum_backend)
 {
-    return protocol == MeshProtocol::MeshCore ? meshcore_backend : meshtastic_backend;
+    switch (protocol)
+    {
+    case MeshProtocol::MeshCore:
+        return meshcore_backend;
+    case MeshProtocol::RNode:
+    case MeshProtocol::Reticulum:
+        return reticulum_backend;
+    case MeshProtocol::Meshtastic:
+    default:
+        return meshtastic_backend;
+    }
 }
 
 } // namespace
@@ -28,7 +50,7 @@ bool MeshAdapterRouterCore::installBackend(MeshProtocol protocol, std::unique_pt
         return false;
     }
 
-    backendSlot(protocol, meshtastic_backend_, meshcore_backend_) = std::move(backend);
+    backendSlot(protocol, meshtastic_backend_, meshcore_backend_, reticulum_backend_) = std::move(backend);
     active_protocol_ = protocol;
     return true;
 }
@@ -50,12 +72,12 @@ MeshProtocol MeshAdapterRouterCore::backendProtocol() const
 
 IMeshAdapter* MeshAdapterRouterCore::backendForProtocol(MeshProtocol protocol)
 {
-    return backendSlot(protocol, meshtastic_backend_, meshcore_backend_).get();
+    return backendSlot(protocol, meshtastic_backend_, meshcore_backend_, reticulum_backend_).get();
 }
 
 const IMeshAdapter* MeshAdapterRouterCore::backendForProtocol(MeshProtocol protocol) const
 {
-    return backendSlotConst(protocol, meshtastic_backend_, meshcore_backend_).get();
+    return backendSlotConst(protocol, meshtastic_backend_, meshcore_backend_, reticulum_backend_).get();
 }
 
 MeshCapabilities MeshAdapterRouterCore::getCapabilities() const
@@ -161,6 +183,20 @@ bool MeshAdapterRouterCore::isPkiReady() const
 {
     const IMeshAdapter* backend = activeBackend();
     return backend && backend->isPkiReady();
+}
+
+bool MeshAdapterRouterCore::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
+{
+    const IMeshAdapter* backend = activeBackend();
+    if (!backend)
+    {
+        if (out)
+        {
+            *out = ReticulumLocalIdentityInfo{};
+        }
+        return false;
+    }
+    return backend->getReticulumLocalIdentityInfo(out);
 }
 
 bool MeshAdapterRouterCore::hasPkiKey(NodeId dest) const

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <lwip/netdb.h>
 
 namespace chat::reticulum::interfaces
 {
@@ -301,10 +302,7 @@ bool WifiGatewayReticulumInterface::pollPacket(RxPacket* out)
 void WifiGatewayReticulumInterface::stop()
 {
 #if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE
-    if (socket_online_ || client_.connected())
-    {
-        client_.stop();
-    }
+    client_.stop();
 #endif
     socket_online_ = false;
 }
@@ -313,6 +311,64 @@ bool WifiGatewayReticulumInterface::connected() const
 {
     return socket_online_;
 }
+
+#if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE
+bool WifiGatewayReticulumInterface::resolveHost(IPAddress* out)
+{
+    if (!out || host_[0] == '\0')
+    {
+        return false;
+    }
+
+    IPAddress parsed{};
+    if (parsed.fromString(host_))
+    {
+        *out = parsed;
+        return true;
+    }
+
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    addrinfo* results = nullptr;
+    const int err = getaddrinfo(host_, nullptr, &hints, &results);
+    if (err != 0 || !results)
+    {
+        Serial.printf("[Reticulum][IF][WiFi] gateway resolve failed host=%s err=%d\n",
+                      host_,
+                      err);
+        if (results)
+        {
+            freeaddrinfo(results);
+        }
+        return false;
+    }
+
+    bool resolved = false;
+    for (addrinfo* item = results; item != nullptr; item = item->ai_next)
+    {
+        if (item->ai_family != AF_INET || !item->ai_addr)
+        {
+            continue;
+        }
+
+        const auto* addr = reinterpret_cast<const sockaddr_in*>(item->ai_addr);
+        uint8_t bytes[4] = {};
+        std::memcpy(bytes, &addr->sin_addr.s_addr, sizeof(bytes));
+        *out = IPAddress(bytes);
+        resolved = true;
+        break;
+    }
+
+    freeaddrinfo(results);
+    if (!resolved)
+    {
+        Serial.printf("[Reticulum][IF][WiFi] gateway resolve no_ipv4 host=%s\n", host_);
+    }
+    return resolved;
+}
+#endif
 
 bool WifiGatewayReticulumInterface::ensureSocket()
 {
@@ -358,19 +414,29 @@ bool WifiGatewayReticulumInterface::ensureSocket()
 
     last_reconnect_ms_ = now_ms;
     client_.stop();
-    client_.setNoDelay(true);
+
+    IPAddress remote_ip{};
+    if (!resolveHost(&remote_ip))
+    {
+        socket_online_ = false;
+        client_.stop();
+        return false;
+    }
+
     Serial.printf("[Reticulum][IF][WiFi] gateway connect host=%s port=%u\n",
                   host_,
                   static_cast<unsigned>(port_));
-    if (!client_.connect(host_, port_))
+    if (!client_.connect(remote_ip, port_, kSocketConnectTimeoutMs))
     {
         socket_online_ = false;
+        client_.stop();
         Serial.printf("[Reticulum][IF][WiFi] gateway connect failed host=%s port=%u\n",
                       host_,
                       static_cast<unsigned>(port_));
         return false;
     }
 
+    client_.setNoDelay(true);
     socket_online_ = true;
     hdlc_in_frame_ = false;
     hdlc_escape_ = false;
@@ -400,8 +466,21 @@ void WifiGatewayReticulumInterface::readAvailable()
     }
 
     int remaining = client_.available();
+    const uint32_t now_ms = millis();
+    if (remaining > 0 &&
+        last_socket_read_ms_ != 0 &&
+        (now_ms - last_socket_read_ms_) < kSocketReadIntervalMs)
+    {
+        ++rx_stats_read_skips_;
+        return;
+    }
+    if (remaining > 0)
+    {
+        last_socket_read_ms_ = now_ms;
+    }
+
     int processed = 0;
-    while (remaining > 0 && processed < 2048)
+    while (remaining > 0 && processed < kSocketReadBudgetBytes)
     {
         const int value = client_.read();
         if (value < 0)
@@ -412,6 +491,7 @@ void WifiGatewayReticulumInterface::readAvailable()
         ++processed;
         --remaining;
     }
+    rx_stats_bytes_ += static_cast<uint32_t>(processed);
 #endif
 }
 
@@ -472,10 +552,29 @@ void WifiGatewayReticulumInterface::enqueueFrame(const uint8_t* data, size_t len
     fillRxMeta(&queued.rx_meta);
     bool dropped = false;
     rx_queue_.append(queued, &dropped);
-    Serial.printf("[Reticulum][IF][WiFi][RX] frame raw_len=%u dropped_oldest=%u depth=%u\n",
-                  static_cast<unsigned>(len),
-                  dropped ? 1U : 0U,
-                  static_cast<unsigned>(rx_queue_.size()));
+
+    ++rx_stats_frames_;
+    if (dropped)
+    {
+        ++rx_stats_drops_;
+    }
+    const uint32_t now_ms = millis();
+    if (rx_stats_last_log_ms_ == 0 ||
+        (now_ms - rx_stats_last_log_ms_) >= kRxStatsLogIntervalMs)
+    {
+        Serial.printf("[Reticulum][IF][WiFi][RX] stats frames=%u drops=%u bytes=%u read_skips=%u depth=%u last_len=%u\n",
+                      static_cast<unsigned>(rx_stats_frames_),
+                      static_cast<unsigned>(rx_stats_drops_),
+                      static_cast<unsigned>(rx_stats_bytes_),
+                      static_cast<unsigned>(rx_stats_read_skips_),
+                      static_cast<unsigned>(rx_queue_.size()),
+                      static_cast<unsigned>(len));
+        rx_stats_last_log_ms_ = now_ms;
+        rx_stats_frames_ = 0;
+        rx_stats_drops_ = 0;
+        rx_stats_bytes_ = 0;
+        rx_stats_read_skips_ = 0;
+    }
 }
 
 void WifiGatewayReticulumInterface::fillRxMeta(RxMeta* out) const

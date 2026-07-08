@@ -173,6 +173,20 @@ bool MeshAdapterRouter::isPkiReady() const
     return lock.locked() && core_.isPkiReady();
 }
 
+bool MeshAdapterRouter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
+{
+    LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        if (out)
+        {
+            *out = ReticulumLocalIdentityInfo{};
+        }
+        return false;
+    }
+    return core_.getReticulumLocalIdentityInfo(out);
+}
+
 bool MeshAdapterRouter::hasPkiKey(NodeId dest) const
 {
     LockGuard lock(mutex_);

@@ -16,6 +16,8 @@
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_service_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_resource_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_transport_runtime.h"
+#include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/screen_runtime.h"
 #include "sys/event_bus.h"
 
 #include <Arduino.h>
@@ -25,12 +27,16 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <memory>
 #include <new>
 
 namespace chat::lxmf
 {
 namespace
 {
+namespace rtdir = ::platform::ui::reticulum_directory;
+namespace screen_runtime = ::platform::ui::screen;
+
 constexpr size_t kMaxPacketLen = reticulum::kReticulumMtu;
 constexpr size_t kMaxLxmfMessageLen = reticulum::kReticulumMtu;
 constexpr size_t kSignedPartMaxLen = reticulum::kReticulumMtu;
@@ -79,6 +85,7 @@ constexpr uint8_t kResourceFlagHasMetadata = 1U << 5U;
 constexpr uint32_t kPacketFilterTtlMs = 30000;
 constexpr uint32_t kReverseEntryTtlMs = 60000;
 constexpr uint32_t kLinkRelayTtlMs = 300000;
+constexpr uint32_t kDirectoryAddressRefreshIntervalS = 300;
 constexpr uint8_t kMaxTransportHops = 128;
 constexpr const char* kPeersPrefsNs = "lxmf_peers";
 constexpr const char* kPeersPrefsKey = "peers";
@@ -1315,6 +1322,7 @@ void LxmfAdapter::setLastRxStats(float rssi, float snr)
 
 void LxmfAdapter::processRadioPackets()
 {
+    pumpPendingPeerUpdates();
     cullTransportState();
     cullLinkSessions();
     const runtime::PropagationRuntimeLimits propagation_limits{
@@ -1328,28 +1336,37 @@ void LxmfAdapter::processRadioPackets()
                                     currentTimestampSeconds(),
                                     propagation_limits);
 
-    while (interfaces_.pollIncomingPacket(&rx_packet_scratch_))
+    uint8_t polled_packets = 0;
+    while (polled_packets < kMaxIngressPacketsPerPoll &&
+           interfaces_.pollIncomingPacket(&rx_packet_scratch_))
     {
+        ++polled_packets;
         const uint8_t* packet = rx_packet_scratch_.data;
         const size_t packet_len = rx_packet_scratch_.len;
+        const auto ingress_interface = rx_packet_scratch_.interface_kind;
+        const bool ingress_wifi =
+            ingress_interface == reticulum::interfaces::InterfaceKind::WifiGateway;
         const char* iface_label =
-            rx_packet_scratch_.interface_kind == reticulum::interfaces::InterfaceKind::WifiGateway
-                ? "wifi"
-                : "lora";
+            ingress_wifi ? "wifi" : "lora";
         reticulum::ParsedPacket parsed{};
         if (reticulum::parsePacket(packet, packet_len, &parsed))
         {
             char dest_hash[12] = {};
             formatHashPrefix(parsed.destination_hash, dest_hash, sizeof(dest_hash));
-            Serial.printf("[LXMF][RawRX] packet iface=%s type=%u dest_type=%u context=%u dest=%s raw_len=%u payload_len=%u hops=%u\n",
-                          iface_label,
-                          static_cast<unsigned>(parsed.packet_type),
-                          static_cast<unsigned>(parsed.destination_type),
-                          static_cast<unsigned>(parsed.context),
-                          dest_hash,
-                          static_cast<unsigned>(packet_len),
-                          static_cast<unsigned>(parsed.payload_len),
-                          static_cast<unsigned>(parsed.hops));
+            noteRxSummary();
+            const bool log_detail = shouldLogRxDetail(parsed, ingress_interface);
+            if (log_detail)
+            {
+                Serial.printf("[LXMF][RawRX] packet iface=%s type=%u dest_type=%u context=%u dest=%s raw_len=%u payload_len=%u hops=%u\n",
+                              iface_label,
+                              static_cast<unsigned>(parsed.packet_type),
+                              static_cast<unsigned>(parsed.destination_type),
+                              static_cast<unsigned>(parsed.context),
+                              dest_hash,
+                              static_cast<unsigned>(packet_len),
+                              static_cast<unsigned>(parsed.payload_len),
+                              static_cast<unsigned>(parsed.hops));
+            }
             if (parsed.hops < 0xFF)
             {
                 parsed.hops += 1;
@@ -1359,14 +1376,27 @@ void LxmfAdapter::processRadioPackets()
             reticulum::computePacketHash(packet, packet_len, packet_hash);
             if (isDuplicatePacket(packet_hash))
             {
-                Serial.printf("[LXMF][RawRX] drop reason=duplicate dest=%s\n", dest_hash);
+                noteRxSummary(false, true, false);
+                if (!ingress_wifi)
+                {
+                    Serial.printf("[LXMF][RawRX] drop reason=duplicate dest=%s\n", dest_hash);
+                }
                 continue;
             }
             rememberPacket(packet_hash);
 
+            if (ingress_wifi && !shouldProcessWifiIngressPacket(parsed))
+            {
+                noteRxSummary(true, false, false);
+                continue;
+            }
+
             if (parsed.packet_type == reticulum::PacketType::Announce)
             {
-                handleAnnouncePacket(packet, packet_len, parsed);
+                handleAnnouncePacket(packet,
+                                     packet_len,
+                                     parsed,
+                                     ingress_interface);
             }
             else if (parsed.packet_type == reticulum::PacketType::Proof)
             {
@@ -1396,15 +1426,24 @@ void LxmfAdapter::processRadioPackets()
         }
         else
         {
-            Serial.printf("[LXMF][RawRX] drop reason=parse_failed raw_len=%u first=%02X\n",
-                          static_cast<unsigned>(packet_len),
-                          static_cast<unsigned>(packet_len > 0 ? packet[0] : 0));
+            noteRxSummary(false, false, true);
+            if (rx_packet_scratch_.interface_kind != reticulum::interfaces::InterfaceKind::WifiGateway)
+            {
+                Serial.printf("[LXMF][RawRX] drop reason=parse_failed raw_len=%u first=%02X\n",
+                              static_cast<unsigned>(packet_len),
+                              static_cast<unsigned>(packet_len > 0 ? packet[0] : 0));
+            }
         }
 
         MeshIncomingData discarded;
         while (interfaces_.pollLegacyIncomingData(&discarded))
         {
         }
+    }
+    pumpPendingPeerUpdates();
+    if (peer_persist_dirty_)
+    {
+        (void)maybePersistPeers(false);
     }
 }
 
@@ -1564,7 +1603,8 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
 }
 
 bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len,
-                                       const reticulum::ParsedPacket& packet)
+                                       const reticulum::ParsedPacket& packet,
+                                       reticulum::interfaces::InterfaceKind ingress_interface)
 {
     if (!raw_packet || raw_len == 0 || !packet.destination_hash)
     {
@@ -1673,7 +1713,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         reticulum::computePacketHash(raw_packet, raw_len, path.cached_packet_hash);
     }
 
-    if (shouldRebroadcastAnnounce(packet))
+    if (shouldRebroadcastAnnounce(packet, ingress_interface))
     {
         (void)rebroadcastAnnounce(path, packet);
     }
@@ -1693,16 +1733,77 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
                   sizeof(identity_hash),
                   identity_hash_hex,
                   sizeof(identity_hash_hex));
-    Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u app_len=%u delivery=%u propagation=%u local=%u kind=%s\n",
-                  packet_hash_hex,
-                  identity_hash_hex,
-                  static_cast<unsigned>(packet.hops),
-                  static_cast<unsigned>(packet.context),
-                  static_cast<unsigned>(announce.app_data_len),
-                  delivery_announce ? 1U : 0U,
-                  propagation_announce ? 1U : 0U,
-                  local_destination ? 1U : 0U,
-                  localDestinationKindLabel(local_kind));
+
+    char announce_display_name[32] = {};
+    bool has_stamp_cost = false;
+    uint8_t stamp_cost = 0;
+    if (delivery_announce && announce.app_data && announce.app_data_len != 0 &&
+        unpackPeerAnnounceAppData(announce.app_data,
+                                  announce.app_data_len,
+                                  announce_display_name,
+                                  sizeof(announce_display_name),
+                                  &has_stamp_cost,
+                                  &stamp_cost))
+    {
+        (void)has_stamp_cost;
+        (void)stamp_cost;
+    }
+
+    rtdir::AnnounceRecord directory_announce{};
+    directory_announce.valid = true;
+    copyHash(directory_announce.destination_hash,
+             packet.destination_hash,
+             sizeof(directory_announce.destination_hash));
+    copyHash(directory_announce.identity_hash,
+             identity_hash,
+             sizeof(directory_announce.identity_hash));
+    directory_announce.aspect =
+        delivery_announce ? rtdir::AnnounceAspect::LxmfDelivery
+                          : (propagation_announce ? rtdir::AnnounceAspect::LxmfPropagation
+                                                  : rtdir::AnnounceAspect::Unknown);
+    directory_announce.source =
+        packet.context == static_cast<uint8_t>(reticulum::PacketContext::PathResponse)
+            ? rtdir::EntrySource::PathResponse
+            : rtdir::EntrySource::RuntimeRx;
+    directory_announce.first_seen_s = now_s;
+    directory_announce.last_seen_s = now_s;
+    directory_announce.hops = packet.hops;
+    directory_announce.path_response =
+        packet.context == static_cast<uint8_t>(reticulum::PacketContext::PathResponse);
+    directory_announce.local_destination = local_destination;
+    directory_announce.delivery = delivery_announce;
+    directory_announce.propagation = propagation_announce;
+    copyCString(directory_announce.display_name,
+                sizeof(directory_announce.display_name),
+                announce_display_name);
+    directory_announce.raw_packet = raw_packet;
+    directory_announce.raw_packet_len = raw_len;
+    directory_announce.app_data = announce.app_data;
+    directory_announce.app_data_len = announce.app_data_len;
+    const auto announce_store_status = rtdir::record_announce(directory_announce);
+    if (announce_store_status.sd_present && !announce_store_status.saved)
+    {
+        Serial.printf("[LXMF][AnnounceRX] directory_save failed message=%s detail=%s\n",
+                      announce_store_status.message,
+                      announce_store_status.detail);
+    }
+
+    const bool log_announce_detail =
+        ingress_interface != reticulum::interfaces::InterfaceKind::WifiGateway ||
+        local_destination;
+    if (log_announce_detail)
+    {
+        Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u app_len=%u delivery=%u propagation=%u local=%u kind=%s\n",
+                      packet_hash_hex,
+                      identity_hash_hex,
+                      static_cast<unsigned>(packet.hops),
+                      static_cast<unsigned>(packet.context),
+                      static_cast<unsigned>(announce.app_data_len),
+                      delivery_announce ? 1U : 0U,
+                      propagation_announce ? 1U : 0U,
+                      local_destination ? 1U : 0U,
+                      localDestinationKindLabel(local_kind));
+    }
 
     if (propagation_announce && !local_destination)
     {
@@ -1719,29 +1820,33 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
 
     if (!delivery_announce || local_destination)
     {
-        Serial.printf("[LXMF][AnnounceRX] ignore reason=%s dest=%s\n",
-                      local_destination ? "local_destination" : "not_delivery",
-                      packet_hash_hex);
+        if (log_announce_detail)
+        {
+            Serial.printf("[LXMF][AnnounceRX] ignore reason=%s dest=%s\n",
+                          local_destination ? "local_destination" : "not_delivery",
+                          packet_hash_hex);
+        }
         return true;
     }
 
     PeerInfo& peer = upsertPeer(packet.destination_hash);
+    const uint32_t previous_seen_s = peer.last_seen_s;
+    const bool identity_changed =
+        isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash)) ||
+        !hashesEqual(peer.identity_hash, identity_hash, sizeof(peer.identity_hash)) ||
+        memcmp(peer.enc_pub, announce.public_key, sizeof(peer.enc_pub)) != 0 ||
+        memcmp(peer.sig_pub, sig_pub, sizeof(peer.sig_pub)) != 0;
+    const bool display_changed =
+        announce_display_name[0] != '\0' &&
+        strncmp(peer.display_name, announce_display_name, sizeof(peer.display_name)) != 0;
     copyHash(peer.identity_hash, identity_hash, sizeof(peer.identity_hash));
     memcpy(peer.enc_pub, announce.public_key, sizeof(peer.enc_pub));
     memcpy(peer.sig_pub, sig_pub, sizeof(peer.sig_pub));
     peer.last_seen_s = now_s;
 
-    char display_name[sizeof(peer.display_name)] = {};
-    bool has_stamp_cost = false;
-    uint8_t stamp_cost = 0;
-    if (announce.app_data && announce.app_data_len != 0 &&
-        unpackPeerAnnounceAppData(announce.app_data, announce.app_data_len,
-                                  display_name, sizeof(display_name),
-                                  &has_stamp_cost, &stamp_cost))
+    if (announce_display_name[0] != '\0')
     {
-        (void)has_stamp_cost;
-        (void)stamp_cost;
-        copyCString(peer.display_name, sizeof(peer.display_name), display_name);
+        copyCString(peer.display_name, sizeof(peer.display_name), announce_display_name);
     }
     else if (peer.display_name[0] == '\0')
     {
@@ -1749,8 +1854,52 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
                  "%08lX", static_cast<unsigned long>(peer.node_id));
     }
 
-    (void)persistPeers();
-    publishPeerUpdate(peer);
+    const bool address_refresh_due =
+        previous_seen_s == 0 ||
+        (now_s >= previous_seen_s &&
+         (now_s - previous_seen_s) >= kDirectoryAddressRefreshIntervalS);
+    const bool should_store_address =
+        ingress_interface != reticulum::interfaces::InterfaceKind::WifiGateway ||
+        identity_changed ||
+        display_changed ||
+        address_refresh_due;
+    if (should_store_address)
+    {
+        rtdir::LxmfAddressRecord directory_address{};
+        directory_address.valid = true;
+        copyHash(directory_address.destination_hash,
+                 peer.destination_hash,
+                 sizeof(directory_address.destination_hash));
+        copyHash(directory_address.identity_hash,
+                 peer.identity_hash,
+                 sizeof(directory_address.identity_hash));
+        memcpy(directory_address.enc_pub, peer.enc_pub, sizeof(directory_address.enc_pub));
+        memcpy(directory_address.sig_pub, peer.sig_pub, sizeof(directory_address.sig_pub));
+        copyCString(directory_address.display_name,
+                    sizeof(directory_address.display_name),
+                    peer.display_name);
+        directory_address.source = directory_announce.source;
+        directory_address.first_seen_s = previous_seen_s != 0 ? previous_seen_s : now_s;
+        directory_address.last_seen_s = now_s;
+        const auto address_store_status = rtdir::record_lxmf_address(directory_address);
+        if (address_store_status.sd_present && !address_store_status.saved)
+        {
+            Serial.printf("[LXMF][AnnounceRX] address_save failed message=%s detail=%s\n",
+                          address_store_status.message,
+                          address_store_status.detail);
+        }
+    }
+
+    if (ingress_interface == reticulum::interfaces::InterfaceKind::WifiGateway)
+    {
+        queuePeerUpdate(peer);
+        (void)maybePersistPeers(false);
+    }
+    else
+    {
+        publishPeerUpdate(peer);
+        (void)maybePersistPeers(true);
+    }
     Serial.printf("[LXMF][AnnounceRX] learned peer=%08lX dest=%s identity=%s name=%s peers=%u\n",
                   static_cast<unsigned long>(peer.node_id),
                   packet_hash_hex,
@@ -3796,8 +3945,167 @@ bool LxmfAdapter::sendCachedPacketReplay(const uint8_t packet_hash[reticulum::kF
     return false;
 }
 
-bool LxmfAdapter::shouldRebroadcastAnnounce(const reticulum::ParsedPacket& packet) const
+bool LxmfAdapter::shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& packet)
 {
+    if (!packet.destination_hash)
+    {
+        return false;
+    }
+
+    if (isLocalDestinationHash(packet.destination_hash, nullptr))
+    {
+        return true;
+    }
+
+    if (packet.transport_id &&
+        hashesEqual(packet.transport_id, identity_.identityHash(), reticulum::kTruncatedHashSize))
+    {
+        return true;
+    }
+
+    if (packet.destination_type == reticulum::DestinationType::Group &&
+        findConfiguredGroupDestination(packet.destination_hash))
+    {
+        return true;
+    }
+
+    if (packet.destination_type == reticulum::DestinationType::Link &&
+        findLinkSession(packet.destination_hash))
+    {
+        return true;
+    }
+
+    if (packet.packet_type == reticulum::PacketType::Proof &&
+        findReversePath(packet.destination_hash))
+    {
+        return true;
+    }
+
+    if (packet.packet_type == reticulum::PacketType::Data &&
+        packet.destination_type == reticulum::DestinationType::Plain &&
+        packet.payload &&
+        packet.payload_len > reticulum::kTruncatedHashSize)
+    {
+        const uint8_t* requested_hash = packet.payload;
+        if (isLocalDestinationHash(requested_hash, nullptr) ||
+            findConfiguredGroupDestination(requested_hash))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    if (packet.packet_type == reticulum::PacketType::Announce)
+    {
+        if (packet.context == static_cast<uint8_t>(reticulum::PacketContext::PathResponse) &&
+            findPendingPathRequest(packet.destination_hash))
+        {
+            return true;
+        }
+        return screen_runtime::is_sleeping() &&
+               !screen_runtime::is_saver_active() &&
+               consumeWifiDiscoveryBudget();
+    }
+
+    return false;
+}
+
+bool LxmfAdapter::shouldLogRxDetail(
+    const reticulum::ParsedPacket& packet,
+    reticulum::interfaces::InterfaceKind ingress_interface) const
+{
+    if (ingress_interface != reticulum::interfaces::InterfaceKind::WifiGateway)
+    {
+        return true;
+    }
+    if (!packet.destination_hash)
+    {
+        return false;
+    }
+    if (isLocalDestinationHash(packet.destination_hash, nullptr))
+    {
+        return true;
+    }
+    if (packet.destination_type == reticulum::DestinationType::Group &&
+        findConfiguredGroupDestination(packet.destination_hash))
+    {
+        return true;
+    }
+    return packet.destination_type == reticulum::DestinationType::Link;
+}
+
+bool LxmfAdapter::consumeWifiDiscoveryBudget()
+{
+    const uint32_t now_ms = millis();
+    if (last_wifi_discovery_sample_ms_ != 0 &&
+        (now_ms - last_wifi_discovery_sample_ms_) < kWifiDiscoverySampleIntervalMs)
+    {
+        return false;
+    }
+    last_wifi_discovery_sample_ms_ = now_ms;
+    return true;
+}
+
+void LxmfAdapter::noteRxSummary(bool wifi_skipped,
+                                bool duplicate,
+                                bool parse_failed)
+{
+    if (!wifi_skipped && !duplicate && !parse_failed)
+    {
+        ++rx_summary_packets_;
+    }
+    if (wifi_skipped)
+    {
+        ++rx_summary_wifi_skipped_;
+    }
+    if (duplicate)
+    {
+        ++rx_summary_duplicates_;
+    }
+    if (parse_failed)
+    {
+        ++rx_summary_parse_failed_;
+    }
+
+    const uint32_t now_ms = millis();
+    if (last_rx_summary_ms_ == 0)
+    {
+        last_rx_summary_ms_ = now_ms;
+        return;
+    }
+    if ((now_ms - last_rx_summary_ms_) < kRxSummaryIntervalMs)
+    {
+        return;
+    }
+    if (rx_summary_packets_ == 0 &&
+        rx_summary_wifi_skipped_ == 0 &&
+        rx_summary_duplicates_ == 0 &&
+        rx_summary_parse_failed_ == 0)
+    {
+        last_rx_summary_ms_ = now_ms;
+        return;
+    }
+
+    Serial.printf("[LXMF][RawRX] stats packets=%u wifi_skipped=%u duplicate=%u parse_failed=%u\n",
+                  static_cast<unsigned>(rx_summary_packets_),
+                  static_cast<unsigned>(rx_summary_wifi_skipped_),
+                  static_cast<unsigned>(rx_summary_duplicates_),
+                  static_cast<unsigned>(rx_summary_parse_failed_));
+    rx_summary_packets_ = 0;
+    rx_summary_wifi_skipped_ = 0;
+    rx_summary_duplicates_ = 0;
+    rx_summary_parse_failed_ = 0;
+    last_rx_summary_ms_ = now_ms;
+}
+
+bool LxmfAdapter::shouldRebroadcastAnnounce(
+    const reticulum::ParsedPacket& packet,
+    reticulum::interfaces::InterfaceKind ingress_interface) const
+{
+    if (ingress_interface == reticulum::interfaces::InterfaceKind::WifiGateway)
+    {
+        return false;
+    }
     if (!packet.destination_hash)
     {
         return false;
@@ -3823,6 +4131,14 @@ bool LxmfAdapter::rebroadcastAnnounce(const PathEntry& path, const reticulum::Pa
     {
         return false;
     }
+
+    const uint32_t now_ms = millis();
+    if (last_announce_rebroadcast_ms_ != 0 &&
+        (now_ms - last_announce_rebroadcast_ms_) < kAnnounceRebroadcastIntervalMs)
+    {
+        return false;
+    }
+    last_announce_rebroadcast_ms_ = now_ms;
 
     uint8_t rebroadcast[kMaxPacketLen] = {};
     size_t rebroadcast_len = sizeof(rebroadcast);
@@ -4679,8 +4995,31 @@ LxmfAdapter::PeerInfo* LxmfAdapter::rememberPeerIdentity(
     {
         copyCString(peer.display_name, sizeof(peer.display_name), display_name);
     }
+    rtdir::LxmfAddressRecord directory_address{};
+    directory_address.valid = true;
+    copyHash(directory_address.destination_hash,
+             peer.destination_hash,
+             sizeof(directory_address.destination_hash));
+    copyHash(directory_address.identity_hash,
+             peer.identity_hash,
+             sizeof(directory_address.identity_hash));
+    memcpy(directory_address.enc_pub, peer.enc_pub, sizeof(directory_address.enc_pub));
+    memcpy(directory_address.sig_pub, peer.sig_pub, sizeof(directory_address.sig_pub));
+    copyCString(directory_address.display_name,
+                sizeof(directory_address.display_name),
+                peer.display_name);
+    directory_address.source = rtdir::EntrySource::RuntimeRx;
+    directory_address.first_seen_s = peer.last_seen_s;
+    directory_address.last_seen_s = peer.last_seen_s;
+    const auto address_status = rtdir::record_lxmf_address(directory_address);
+    if (address_status.sd_present && !address_status.saved)
+    {
+        Serial.printf("[LXMF][Directory] address_save failed message=%s detail=%s\n",
+                      address_status.message,
+                      address_status.detail);
+    }
     publishPeerUpdate(peer);
-    (void)persistPeers();
+    (void)maybePersistPeers(true);
     return &peer;
 }
 
@@ -4991,6 +5330,65 @@ LxmfAdapter::PeerInfo& LxmfAdapter::upsertPeer(
     return peer;
 }
 
+void LxmfAdapter::queuePeerUpdate(const PeerInfo& peer)
+{
+    if (peer.node_id == 0)
+    {
+        return;
+    }
+
+    for (std::size_t index = 0; index < pending_peer_projection_count_; ++index)
+    {
+        if (pending_peer_projection_nodes_[index] == peer.node_id)
+        {
+            return;
+        }
+    }
+
+    if (pending_peer_projection_count_ >= pending_peer_projection_nodes_.size())
+    {
+        return;
+    }
+
+    pending_peer_projection_nodes_[pending_peer_projection_count_] = peer.node_id;
+    ++pending_peer_projection_count_;
+}
+
+void LxmfAdapter::pumpPendingPeerUpdates()
+{
+    if (pending_peer_projection_count_ == 0)
+    {
+        return;
+    }
+
+    const uint32_t now_ms = millis();
+    const bool maintenance_window =
+        screen_runtime::is_sleeping() && !screen_runtime::is_saver_active();
+    if (!maintenance_window)
+    {
+        return;
+    }
+    if (last_peer_projection_ms_ != 0 &&
+        (now_ms - last_peer_projection_ms_) < kPeerProjectionSleepIntervalMs)
+    {
+        return;
+    }
+
+    const NodeId node_id = pending_peer_projection_nodes_[0];
+    for (std::size_t index = 1; index < pending_peer_projection_count_; ++index)
+    {
+        pending_peer_projection_nodes_[index - 1U] = pending_peer_projection_nodes_[index];
+    }
+    --pending_peer_projection_count_;
+    last_peer_projection_ms_ = now_ms;
+
+    const PeerInfo* peer = findPeerByNodeId(node_id);
+    if (peer)
+    {
+        publishPeerUpdate(*peer);
+    }
+}
+
 void LxmfAdapter::publishPeerUpdate(const PeerInfo& peer) const
 {
     char short_name[10] = {};
@@ -5019,9 +5417,67 @@ void LxmfAdapter::publishPeerUpdate(const PeerInfo& peer) const
     sys::EventBus::publish(node_event, 0);
 }
 
+void LxmfAdapter::loadDirectoryPeers()
+{
+    auto records = std::unique_ptr<rtdir::LxmfAddressRecord[]>(
+        new (std::nothrow) rtdir::LxmfAddressRecord[kMaxPersistedPeers]);
+    if (!records)
+    {
+        Serial.printf("[LXMF][Directory] load skipped reason=oom records=%u\n",
+                      static_cast<unsigned>(kMaxPersistedPeers));
+        return;
+    }
+
+    std::size_t count = 0;
+    const auto status =
+        rtdir::load_lxmf_addresses(records.get(), kMaxPersistedPeers, &count);
+    if (status.sd_present && !status.loaded)
+    {
+        Serial.printf("[LXMF][Directory] load failed message=%s detail=%s\n",
+                      status.message,
+                      status.detail);
+        return;
+    }
+
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto& record = records[index];
+        if (!record.valid || record.ignored ||
+            isZeroBytes(record.destination_hash, sizeof(record.destination_hash)) ||
+            isZeroBytes(record.identity_hash, sizeof(record.identity_hash)) ||
+            isZeroBytes(record.enc_pub, sizeof(record.enc_pub)) ||
+            isZeroBytes(record.sig_pub, sizeof(record.sig_pub)))
+        {
+            continue;
+        }
+
+        PeerInfo& peer = upsertPeer(record.destination_hash);
+        copyHash(peer.identity_hash, record.identity_hash, sizeof(peer.identity_hash));
+        memcpy(peer.enc_pub, record.enc_pub, sizeof(peer.enc_pub));
+        memcpy(peer.sig_pub, record.sig_pub, sizeof(peer.sig_pub));
+        peer.last_seen_s = record.last_seen_s;
+        peer.last_path_request_ms = 0;
+        copyCString(peer.display_name, sizeof(peer.display_name), record.display_name);
+        if (peer.display_name[0] == '\0')
+        {
+            snprintf(peer.display_name, sizeof(peer.display_name),
+                     "%08lX", static_cast<unsigned long>(peer.node_id));
+        }
+        queuePeerUpdate(peer);
+    }
+
+    if (status.file_present)
+    {
+        Serial.printf("[LXMF][Directory] loaded addresses=%u file=%s\n",
+                      static_cast<unsigned>(count),
+                      status.detail);
+    }
+}
+
 void LxmfAdapter::loadPersistedPeers()
 {
     peers_loaded_ = true;
+    loadDirectoryPeers();
 
     std::vector<uint8_t> blob;
     chat::infra::PreferencesBlobMetadata meta;
@@ -5091,8 +5547,39 @@ void LxmfAdapter::loadPersistedPeers()
                      "%08lX", static_cast<unsigned long>(peer.node_id));
         }
 
-        publishPeerUpdate(peer);
+        queuePeerUpdate(peer);
     }
+}
+
+bool LxmfAdapter::maybePersistPeers(bool force)
+{
+    peer_persist_dirty_ = true;
+
+    const uint32_t now_ms = millis();
+    if (!force)
+    {
+        if (last_peer_persist_ms_ == 0)
+        {
+            last_peer_persist_ms_ = now_ms;
+            return true;
+        }
+        if (!screen_runtime::is_sleeping() || screen_runtime::is_saver_active())
+        {
+            return true;
+        }
+        if ((now_ms - last_peer_persist_ms_) < kPeerPersistSleepIntervalMs)
+        {
+            return true;
+        }
+    }
+
+    const bool ok = persistPeers();
+    if (ok)
+    {
+        last_peer_persist_ms_ = now_ms;
+        peer_persist_dirty_ = false;
+    }
+    return ok;
 }
 
 bool LxmfAdapter::persistPeers() const

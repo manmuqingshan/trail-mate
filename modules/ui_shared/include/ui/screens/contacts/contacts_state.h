@@ -8,6 +8,7 @@
 #include "chat/domain/contact_types.h"
 #include "lvgl.h"
 #include "ui/components/air_status_footer.h"
+#include "ui/components/floating_search_box.h"
 #include "ui/widgets/top_bar.h"
 #include <vector>
 
@@ -90,11 +91,14 @@ struct ContactsPageState
     std::vector<chat::contacts::NodeInfo> nearby_list;
     std::vector<chat::contacts::NodeInfo> reticulum_group_list;
     std::vector<chat::contacts::NodeInfo> ignored_list;
+    std::vector<chat::contacts::NodeInfo> display_list;
+    char search_query[32] = {};
 
     // Timers
     lv_timer_t* refresh_timer = nullptr;
 
     // Modal windows
+    ::ui::components::floating_search_box::State search_box;
     lv_obj_t* add_edit_modal = nullptr;
     lv_obj_t* add_edit_textarea = nullptr;
     lv_obj_t* add_edit_error_label = nullptr;

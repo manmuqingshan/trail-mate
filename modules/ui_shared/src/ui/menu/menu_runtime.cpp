@@ -12,20 +12,13 @@
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/time_runtime.h"
 #include "platform/ui/walkie_runtime.h"
+#include "ui/components/shortcut_help_modal.h"
 #include "ui/formatters.h"
 #include "ui/menu/menu_layout.h"
 #include "ui/menu/menu_profile.h"
 #include "ui/ui_common.h"
 #include "ui/ui_status.h"
 #include "ui/ui_theme.h"
-
-#if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
-#define lv_font_montserrat_12 lv_font_montserrat_14
-#endif
-
-#if !defined(LV_FONT_MONTSERRAT_10) || !LV_FONT_MONTSERRAT_10
-#define lv_font_montserrat_10 lv_font_montserrat_12
-#endif
 
 namespace ui
 {
@@ -52,7 +45,7 @@ struct RuntimeState
     lv_timer_t* walkie_record_timer = nullptr;
     lv_obj_t* walkie_record_overlay = nullptr;
     lv_obj_t* walkie_record_bars[kWalkieRecordBarCount]{};
-    lv_obj_t* menu_help_modal = nullptr;
+    ::ui::components::shortcut_help_modal::State menu_help_modal{};
     int watch_face_battery = -1;
     bool menu_active = true;
     bool walkie_recording = false;
@@ -215,52 +208,14 @@ bool screenshotShortcutHelpEnabled()
 #endif
 }
 
-void consumeMenuKeyEvent(lv_event_t* e)
-{
-    if (!e)
-    {
-        return;
-    }
-    lv_event_stop_bubbling(e);
-    lv_event_stop_processing(e);
-}
-
 void closeMenuHelpModal()
 {
-    if (!s_runtime.menu_help_modal || !lv_obj_is_valid(s_runtime.menu_help_modal))
-    {
-        s_runtime.menu_help_modal = nullptr;
-        return;
-    }
-    lv_obj_del(s_runtime.menu_help_modal);
-    s_runtime.menu_help_modal = nullptr;
-}
-
-void onMenuHelpModalKey(lv_event_t* e)
-{
-    const uint32_t key = lv_event_get_key(e);
-    if (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC || key == LV_KEY_ENTER ||
-        key == 'h' || key == 'H')
-    {
-        consumeMenuKeyEvent(e);
-        closeMenuHelpModal();
-        return;
-    }
-    consumeMenuKeyEvent(e);
-}
-
-void onMenuHelpCloseClicked(lv_event_t* e)
-{
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED)
-    {
-        return;
-    }
-    closeMenuHelpModal();
+    ::ui::components::shortcut_help_modal::close(s_runtime.menu_help_modal);
 }
 
 void openMenuHelpModal()
 {
-    if (s_runtime.menu_help_modal && lv_obj_is_valid(s_runtime.menu_help_modal))
+    if (::ui::components::shortcut_help_modal::is_open(s_runtime.menu_help_modal))
     {
         closeMenuHelpModal();
         return;
@@ -274,153 +229,37 @@ void openMenuHelpModal()
         return;
     }
 
-    s_runtime.menu_help_modal = lv_obj_create(parent);
-    lv_obj_set_size(s_runtime.menu_help_modal, LV_PCT(100), LV_PCT(100));
-    lv_obj_align(s_runtime.menu_help_modal, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_add_flag(s_runtime.menu_help_modal, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_set_style_bg_color(s_runtime.menu_help_modal, lv_color_hex(0x1C1812), 0);
-    lv_obj_set_style_bg_opa(s_runtime.menu_help_modal, LV_OPA_70, 0);
-    lv_obj_set_style_border_width(s_runtime.menu_help_modal, 0, 0);
-    lv_obj_set_style_pad_all(s_runtime.menu_help_modal, 4, 0);
-    lv_obj_clear_flag(s_runtime.menu_help_modal, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(s_runtime.menu_help_modal, onMenuHelpModalKey, LV_EVENT_KEY, nullptr);
-
-    lv_obj_t* panel = lv_obj_create(s_runtime.menu_help_modal);
-    lv_obj_set_size(panel, 304, 146);
-    lv_obj_center(panel);
-    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_bg_color(panel, lv_color_hex(0xFFF3DF), 0);
-    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(panel, 1, 0);
-    lv_obj_set_style_border_color(panel, lv_color_hex(0x8A6E43), 0);
-    lv_obj_set_style_radius(panel, 4, 0);
-    lv_obj_set_style_pad_left(panel, 7, 0);
-    lv_obj_set_style_pad_right(panel, 7, 0);
-    lv_obj_set_style_pad_top(panel, 5, 0);
-    lv_obj_set_style_pad_bottom(panel, 5, 0);
-    lv_obj_set_style_pad_row(panel, 2, 0);
-    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(panel, onMenuHelpModalKey, LV_EVENT_KEY, nullptr);
-
-    lv_obj_t* title_row = lv_obj_create(panel);
-    lv_obj_set_size(title_row, LV_PCT(100), 20);
-    lv_obj_set_flex_flow(title_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(title_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(title_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(title_row, 0, 0);
-    lv_obj_set_style_pad_all(title_row, 0, 0);
-    lv_obj_clear_flag(title_row, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t* title = lv_label_create(title_row);
-    lv_label_set_text(title, "Main Menu Help");
-    lv_obj_set_width(title, 0);
-    lv_obj_set_flex_grow(title, 1);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0x25170D), 0);
-
-    lv_obj_t* close_btn = lv_btn_create(title_row);
-    lv_obj_set_size(close_btn, 54, 18);
-    lv_obj_set_style_bg_color(close_btn, lv_color_hex(0xF8E6C3), 0);
-    lv_obj_set_style_bg_opa(close_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(close_btn, 1, 0);
-    lv_obj_set_style_border_color(close_btn, lv_color_hex(0x8A6E43), 0);
-    lv_obj_set_style_radius(close_btn, 4, 0);
-    lv_obj_set_style_shadow_width(close_btn, 0, 0);
-    lv_obj_set_style_pad_all(close_btn, 0, 0);
-    lv_obj_add_event_cb(close_btn, onMenuHelpCloseClicked, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t* close_label = lv_label_create(close_btn);
-    lv_label_set_text(close_label, "Close");
-    lv_obj_set_style_text_font(close_label, &lv_font_montserrat_10, 0);
-    lv_obj_set_style_text_color(close_label, lv_color_hex(0x25170D), 0);
-    lv_obj_center(close_label);
-
-    auto add_keycap = [](lv_obj_t* parent, const char* text, lv_coord_t width)
-    {
-        lv_obj_t* keycap = lv_label_create(parent);
-        lv_obj_set_size(keycap, width, 14);
-        lv_obj_set_style_bg_color(keycap, lv_color_hex(0xF8E6C3), 0);
-        lv_obj_set_style_bg_opa(keycap, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(keycap, 1, 0);
-        lv_obj_set_style_border_color(keycap, lv_color_hex(0x8A6E43), 0);
-        lv_obj_set_style_radius(keycap, 3, 0);
-        lv_obj_set_style_text_font(keycap, &lv_font_montserrat_10, 0);
-        lv_obj_set_style_text_color(keycap, lv_color_hex(0x25170D), 0);
-        lv_obj_set_style_text_align(keycap, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_long_mode(keycap, LV_LABEL_LONG_CLIP);
-        lv_label_set_text(keycap, text ? text : "");
-        return keycap;
+    ::ui::components::shortcut_help_modal::Row rows[6] = {
+        {"WASD", nullptr, "Select app"},
+        {"Enter", nullptr, "Open app"},
+        {"K", nullptr, "Cycle keyboard backlight"},
+        {"Space", nullptr, "Walkie PTT when monitor is on"},
+        {"ALT", "ALT", "Save screenshot"},
+        {"H", "Back", "Close help"},
     };
-
-    auto add_help_row = [&](const char* primary,
-                            const char* secondary,
-                            const char* description)
-    {
-        lv_obj_t* row = lv_obj_create(panel);
-        lv_obj_set_size(row, LV_PCT(100), 15);
-        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(row,
-                              LV_FLEX_ALIGN_START,
-                              LV_FLEX_ALIGN_CENTER,
-                              LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
-        lv_obj_set_style_pad_all(row, 0, 0);
-        lv_obj_set_style_pad_column(row, 3, 0);
-        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-
-        lv_obj_t* keys = lv_obj_create(row);
-        lv_obj_set_size(keys, 76, 15);
-        lv_obj_set_flex_flow(keys, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(keys,
-                              LV_FLEX_ALIGN_START,
-                              LV_FLEX_ALIGN_CENTER,
-                              LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_bg_opa(keys, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(keys, 0, 0);
-        lv_obj_set_style_pad_all(keys, 0, 0);
-        lv_obj_set_style_pad_column(keys, 2, 0);
-        lv_obj_clear_flag(keys, LV_OBJ_FLAG_SCROLLABLE);
-
-        if (secondary && secondary[0] != '\0')
-        {
-            add_keycap(keys, primary, std::strlen(primary) > 2 ? 34 : 22);
-            add_keycap(keys, secondary, std::strlen(secondary) > 4 ? 48 : 34);
-        }
-        else
-        {
-            add_keycap(keys, primary, 72);
-        }
-
-        lv_obj_t* text = lv_label_create(row);
-        lv_obj_set_width(text, 0);
-        lv_obj_set_flex_grow(text, 1);
-        lv_obj_set_style_text_font(text, &lv_font_montserrat_10, 0);
-        lv_obj_set_style_text_color(text, lv_color_hex(0x3E2B18), 0);
-        lv_label_set_long_mode(text, LV_LABEL_LONG_DOT);
-        lv_label_set_text(text, description ? description : "");
-    };
-
-    add_help_row("WASD", nullptr, "Select app");
-    add_help_row("Enter", nullptr, "Open app");
+    std::size_t row_count = 2;
     if (pagerMenuKeyboardBacklightShortcutEnabled())
     {
-        add_help_row("K", nullptr, "Cycle keyboard backlight");
+        rows[row_count++] = {"K", nullptr, "Cycle keyboard backlight"};
     }
-    add_help_row("Space", nullptr, "Walkie PTT when monitor is on");
+    rows[row_count++] = {"Space", nullptr, "Walkie PTT when monitor is on"};
     if (screenshotShortcutHelpEnabled())
     {
-        add_help_row("ALT", "ALT", "Save screenshot");
+        rows[row_count++] = {"ALT", "ALT", "Save screenshot"};
     }
-    add_help_row("H", "Back", "Close help");
+    rows[row_count++] = {"H", "Back", "Close help"};
 
-    lv_obj_move_foreground(s_runtime.menu_help_modal);
-    lv_group_t* group = lv_group_get_default();
-    if (group)
-    {
-        lv_group_add_obj(group, panel);
-        lv_group_focus_obj(panel);
-    }
+    ::ui::components::shortcut_help_modal::Config config{};
+    config.title = "Main Menu Help";
+    config.rows = rows;
+    config.row_count = row_count;
+    config.width = 304;
+    config.height = 176;
+    config.restore_group = lv_group_get_default();
+    (void)::ui::components::shortcut_help_modal::open(
+        s_runtime.menu_help_modal,
+        parent,
+        config);
 }
 
 uint8_t nextKeyboardBacklightLevel()

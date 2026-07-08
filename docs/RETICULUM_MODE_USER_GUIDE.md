@@ -37,6 +37,36 @@ Trail Mate prevents disabling both Reticulum LoRa and Reticulum Wi-Fi gateway
 from the device UI, because that would leave Reticulum selected with no carrier
 interface.
 
+## Wi-Fi Gateway Operating Model
+
+Trail Mate uses the Reticulum Wi-Fi gateway as a low-frequency terminal ingest
+path. It is not trying to behave like a desktop Reticulum node, a public router,
+or a propagation server.
+
+In practical terms, the device prioritizes:
+
+- direct and group LXMF chat
+- proofs and link/resource traffic needed for local conversations
+- Trail Mate appdata such as team position and realtime track messages
+- enough announce/path discovery to keep Nearby, Network, and the SD-backed
+  address book useful
+
+Public Wi-Fi Reticulum traffic can be much noisier than a handheld device should
+process at full rate. Trail Mate therefore samples public discovery, summarizes
+background RX logs, keeps the Network view bounded to the newest announce
+entries, and avoids turning unrelated Wi-Fi path/announce traffic into LoRa
+transmissions or high-frequency SD writes.
+
+While the screen is awake, Reticulum Wi-Fi background work is intentionally
+minimal. The device keeps direct/group chat, active local link traffic,
+path responses for messages you send, and local Trail Mate business traffic
+working; public announce discovery and non-urgent storage are deferred until the
+screen is sleeping.
+
+This is expected behavior. Seeing only a partial or slightly stale public
+announce view is preferable to making chat, the keypad UI, LoRa, or SD storage
+unreliable.
+
 ## Reticulum Identity
 
 When the active protocol is `Reticulum`, Settings > Network shows the local
@@ -54,6 +84,17 @@ display wrap, not part of the address.
 When the active protocol is `Reticulum`, the main menu also shows a `Network`
 app with the Nomad-style network icon. That app is the Reticulum network view,
 not the source of truth for local identity addresses.
+
+Current boundary: the `Network` app renders Reticulum status and the latest
+SD-backed announce directory entries. It shows at most the newest 100 announces
+so the UI stays responsive on the device. Use the search shortcut (`/` or `s`)
+or the search button to filter by announce display name, destination hash,
+identity hash, or announce aspect.
+
+The `Network` app is not yet a full NomadNet/MeshChat-style browser. It does
+not yet provide Favorites editing, a manual address bar, hyperlink navigation,
+or Nomad page content rendering. The SD-backed Reticulum directory described
+below is the storage foundation for those features.
 
 ## Anonymous Peer
 
@@ -79,23 +120,37 @@ In Reticulum mode, the Contacts page uses these filters:
 configuration. This matters because a Reticulum shared destination must be known
 before Trail Mate can send to it or accept inbound group packets for it.
 
+Contacts also supports the same floating search interaction used by the Network
+view. Press `/` or `s` while focus is on the Contacts page to search the current
+Contacts, Nearby, Groups, or Ignored list. For normal discovered nodes across
+Meshtastic, MeshCore, and Reticulum, the filter matches `short_name`. The search
+only changes the visible list; it does not modify the SD-backed node store,
+contacts, groups, or ignored state.
+
 ## SD Card Requirement
 
-Reticulum group configuration lives on the SD card.
+Reticulum directory data lives on the SD card.
 
 The firmware ships with zero preconfigured Reticulum groups. Every group shown
 on the device must come from this SD-card file or from the device Add workflow.
 Reticulum groups are not stored in ESP NVS or the normal app settings store;
 that prevents hidden groups from surviving outside the SD-card source of truth.
 
+Discovered Reticulum announces and LXMF delivery addresses are also persisted
+to the SD card with streaming line-based reads and atomic temp-file replacement.
+This lets the device keep Reticulum network discovery and address-book state
+even when the runtime peer cache is rebuilt.
+
 If no SD card is available, Trail Mate must not silently use built-in default
 groups. The Groups list will show an Add row, but tapping Add reports that an
 SD card is required. Internally, the runtime group table is cleared when the SD
 configuration cannot be loaded.
 
-The SD card file path is:
+The SD card Reticulum directory paths are:
 
 ```text
+/trailmate/reticulum/announces.tsv
+/trailmate/reticulum/lxmf_addresses.tsv
 /trailmate/reticulum/groups.tsv
 ```
 
@@ -103,13 +158,57 @@ When editing the card from a computer, create this path relative to the SD card
 root:
 
 ```text
-trailmate/reticulum/groups.tsv
+trailmate/reticulum/
 ```
 
 ## TSV File Format
 
 The file is a UTF-8 text file using tab-separated values. The parser is small on
 purpose so it remains reliable on ESP-class devices.
+
+### Announces
+
+`announces.tsv` is written by the Reticulum/LXMF runtime after an announce has
+been parsed, destination-hash checked, and signature verified. It is a network
+discovery cache, not a user-authored group list.
+
+Each announce line has these fields:
+
+```text
+destination_hash<TAB>identity_hash<TAB>aspect<TAB>source<TAB>first_seen<TAB>last_seen<TAB>hops<TAB>path_response<TAB>local<TAB>delivery<TAB>propagation<TAB>display_name<TAB>raw_packet_hex<TAB>app_data_hex
+```
+
+`aspect` is usually `lxmf.delivery`, `lxmf.propagation`, or `unknown`.
+`source` is usually `runtime_rx` or `path_response`. `raw_packet_hex` stores
+the verified raw Reticulum announce packet so future tooling can inspect what
+was actually received. The runtime keeps the file bounded and updates an
+existing destination line instead of appending duplicates. The Network page
+loads this file as a bounded latest-100 projection rather than treating the
+entire file as UI state.
+
+### LXMF Addresses
+
+`lxmf_addresses.tsv` is the Reticulum LXMF address book. It is populated from
+valid LXMF delivery announces and can later be used by UI flows such as
+Contacts, Nearby, Favorites, Ignored, and Network.
+
+Each LXMF address line has these fields:
+
+```text
+destination_hash<TAB>identity_hash<TAB>enc_pub<TAB>sig_pub<TAB>alias<TAB>favorite<TAB>ignored<TAB>trusted<TAB>source<TAB>first_seen<TAB>last_seen
+```
+
+`destination_hash` is the 16-byte LXMF delivery destination hash shown as 32
+hexadecimal characters. `enc_pub` and `sig_pub` are 32-byte Reticulum identity
+public keys shown as 64 hexadecimal characters. `favorite`, `ignored`, and
+`trusted` are user-side address-book flags. When the runtime refreshes an
+address line from a new announce, it preserves those three flags.
+
+On startup, Reticulum mode loads `lxmf_addresses.tsv` back into the LXMF peer
+cache before also loading the legacy ESP Preferences peer cache. Ignored
+address-book rows are not projected into Nearby.
+
+### Groups
 
 Each group line has exactly three fields:
 

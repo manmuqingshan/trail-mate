@@ -106,6 +106,16 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
         return node_id_;
     }
 
+    bool getReticulumLocalIdentityInfo(chat::ReticulumLocalIdentityInfo* out) const override
+    {
+        if (!out)
+        {
+            return false;
+        }
+        *out = reticulum_info;
+        return reticulum_info_ok;
+    }
+
     chat::NodeId node_id_ = 0;
     bool ready = true;
     bool send_ok = true;
@@ -124,6 +134,8 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
     bool last_node_info_want_response = false;
     std::string last_text;
     chat::ReticulumPeerIdentity last_destination{};
+    bool reticulum_info_ok = false;
+    chat::ReticulumLocalIdentityInfo reticulum_info{};
     chat::MeshDiscoveryAction last_discovery = chat::MeshDiscoveryAction::ScanLocal;
     chat::MeshActionResult discovery_result = chat::MeshActionResult::success();
 };
@@ -195,6 +207,36 @@ int main()
     assert(meshtastic->last_forced_id == 0x1234);
     assert(chat::sameReticulumDestinationHash(meshtastic->last_destination,
                                               group_destination));
+
+    auto reticulum_backend = std::unique_ptr<FakeMeshAdapter>(
+        new FakeMeshAdapter(0x52540001UL));
+    FakeMeshAdapter* reticulum = reticulum_backend.get();
+    reticulum->reticulum_info_ok = true;
+    reticulum->reticulum_info.ready = true;
+    reticulum->reticulum_info.node_id = 0x52540001UL;
+    for (std::size_t index = 0; index < chat::kReticulumPeerHashSize; ++index)
+    {
+        reticulum->reticulum_info.identity_hash[index] =
+            static_cast<std::uint8_t>(0x10U + index);
+        reticulum->reticulum_info.lxmf_address[index] =
+            static_cast<std::uint8_t>(0x40U + index);
+    }
+
+    assert(router.installBackend(chat::MeshProtocol::Reticulum,
+                                 std::move(reticulum_backend)));
+    assert(router.backendProtocol() == chat::MeshProtocol::Reticulum);
+    assert(router.getNodeId() == 0x52540001UL);
+
+    chat::ReticulumLocalIdentityInfo info{};
+    assert(router.getReticulumLocalIdentityInfo(&info));
+    assert(info.ready);
+    assert(info.node_id == 0x52540001UL);
+    assert(info.identity_hash[0] == 0x10U);
+    assert(info.lxmf_address[0] == 0x40U);
+
+    router.setActiveProtocol(chat::MeshProtocol::Meshtastic);
+    assert(router.backendProtocol() == chat::MeshProtocol::Meshtastic);
+    assert(router.getNodeId() == 0x11112222UL);
 
     router.setActiveProtocol(chat::MeshProtocol::MeshCore);
     assert(router.backendProtocol() == chat::MeshProtocol::MeshCore);

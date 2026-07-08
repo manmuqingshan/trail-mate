@@ -86,6 +86,10 @@ class WifiGatewayReticulumInterface
     static constexpr uint8_t kHdlcEscapeMask = 0x20;
     static constexpr uint32_t kReconnectIntervalMs = 10000;
     static constexpr uint32_t kWifiConnectIntervalMs = 60000;
+    static constexpr uint32_t kRxStatsLogIntervalMs = 5000;
+    static constexpr uint32_t kSocketReadIntervalMs = 250;
+    static constexpr int kSocketReadBudgetBytes = 128;
+    static constexpr int32_t kSocketConnectTimeoutMs = 5000;
 
     bool enabled_ = false;
     bool auto_connect_wifi_ = true;
@@ -94,9 +98,15 @@ class WifiGatewayReticulumInterface
     bool socket_online_ = false;
     uint32_t last_reconnect_ms_ = 0;
     uint32_t last_wifi_connect_ms_ = 0;
+    uint32_t last_socket_read_ms_ = 0;
     bool hdlc_in_frame_ = false;
     bool hdlc_escape_ = false;
     size_t hdlc_frame_len_ = 0;
+    uint32_t rx_stats_last_log_ms_ = 0;
+    uint32_t rx_stats_frames_ = 0;
+    uint32_t rx_stats_drops_ = 0;
+    uint32_t rx_stats_bytes_ = 0;
+    uint32_t rx_stats_read_skips_ = 0;
     uint8_t hdlc_frame_[reticulum::kReticulumMtu] = {};
     uint8_t tx_frame_[(reticulum::kReticulumMtu * 2U) + 2U] = {};
     sys::RingBuffer<QueuedPacket, kRxQueueDepth> rx_queue_;
@@ -107,6 +117,9 @@ class WifiGatewayReticulumInterface
 
     void stop();
     bool connected() const;
+#if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE
+    bool resolveHost(IPAddress* out);
+#endif
     bool ensureSocket();
     void readAvailable();
     void feedHdlcByte(uint8_t byte);

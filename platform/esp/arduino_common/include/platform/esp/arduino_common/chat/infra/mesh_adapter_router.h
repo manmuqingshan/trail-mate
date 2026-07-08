@@ -54,6 +54,7 @@ class MeshAdapterRouter : public IMeshAdapter
     bool submitKeyVerificationNumber(NodeId dest, uint64_t nonce, uint32_t number) override;
     NodeId getNodeId() const override;
     bool isPkiReady() const override;
+    bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     bool hasPkiKey(NodeId dest) const override;
     bool triggerDiscoveryAction(MeshDiscoveryAction action) override;
     MeshActionResult triggerDiscoveryActionDetailed(MeshDiscoveryAction action) override;

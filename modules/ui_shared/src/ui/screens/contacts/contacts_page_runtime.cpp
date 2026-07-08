@@ -423,8 +423,8 @@ void exit(lv_obj_t* parent)
         g_contacts_state.refresh_timer = nullptr;
     }
 
-    cleanup_contacts_input();
     cleanup_modals();
+    cleanup_contacts_input();
 
     if (g_contacts_state.root != nullptr)
     {

@@ -130,7 +130,6 @@ void refresh_active_screen()
         return;
     }
     lv_obj_invalidate(active);
-    lv_refr_now(nullptr);
 }
 
 void refresh_screen_saver_locale_labels(int unread)
@@ -426,7 +425,6 @@ void wakeScreenSaver()
     screen_saver_refresh();
     lv_obj_clear_flag(s_screen_saver_layer, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_screen_saver_layer);
-    lv_refr_now(nullptr);
     if (was_sleeping)
     {
         board.exitScreenSleep();

@@ -78,6 +78,13 @@ class LxmfAdapter : public IMeshAdapter
 
     static constexpr uint32_t kAnnounceIntervalMs = 120000;
     static constexpr uint32_t kInitialAnnounceDelayMs = 1500;
+    static constexpr uint8_t kMaxIngressPacketsPerPoll = 2;
+    static constexpr uint32_t kWifiDiscoverySampleIntervalMs = 10000;
+    static constexpr uint32_t kRxSummaryIntervalMs = 5000;
+    static constexpr uint32_t kAnnounceRebroadcastIntervalMs = 60000;
+    static constexpr uint32_t kPeerProjectionSleepIntervalMs = 250;
+    static constexpr std::size_t kPendingPeerProjectionDepth = 24;
+    static constexpr uint32_t kPeerPersistSleepIntervalMs = 15000;
 
     reticulum::interfaces::ReticulumInterfaceSet interfaces_;
     reticulum::interfaces::RxPacket rx_packet_scratch_{};
@@ -93,16 +100,29 @@ class LxmfAdapter : public IMeshAdapter
     std::string user_long_name_;
     std::string user_short_name_;
     uint32_t last_announce_ms_ = 0;
+    uint32_t last_wifi_discovery_sample_ms_ = 0;
+    uint32_t last_rx_summary_ms_ = 0;
+    uint32_t last_announce_rebroadcast_ms_ = 0;
+    uint32_t rx_summary_packets_ = 0;
+    uint32_t rx_summary_wifi_skipped_ = 0;
+    uint32_t rx_summary_duplicates_ = 0;
+    uint32_t rx_summary_parse_failed_ = 0;
+    std::array<NodeId, kPendingPeerProjectionDepth> pending_peer_projection_nodes_{};
+    std::size_t pending_peer_projection_count_ = 0;
+    uint32_t last_peer_projection_ms_ = 0;
+    uint32_t last_peer_persist_ms_ = 0;
     uint32_t next_app_packet_id_ = 1;
     bool announce_pending_ = true;
     bool peers_loaded_ = false;
+    bool peer_persist_dirty_ = false;
 
     void processRadioPackets();
     void maybeAnnounce();
     bool sendAnnounce(LocalDestinationKind kind = LocalDestinationKind::Delivery,
                       reticulum::PacketContext context = reticulum::PacketContext::None);
     bool handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len,
-                              const reticulum::ParsedPacket& packet);
+                              const reticulum::ParsedPacket& packet,
+                              reticulum::interfaces::InterfaceKind ingress_interface);
     bool handleDataPacket(const uint8_t* raw_packet, size_t raw_len,
                           const reticulum::ParsedPacket& packet);
     bool handleProofPacket(const uint8_t* raw_packet, size_t raw_len,
@@ -141,7 +161,16 @@ class LxmfAdapter : public IMeshAdapter
     bool sendCachedAnnounceResponse(const PathEntry& path,
                                     reticulum::PacketContext context);
     bool sendCachedPacketReplay(const uint8_t packet_hash[reticulum::kFullHashSize]);
-    bool shouldRebroadcastAnnounce(const reticulum::ParsedPacket& packet) const;
+    bool shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& packet);
+    bool shouldLogRxDetail(const reticulum::ParsedPacket& packet,
+                           reticulum::interfaces::InterfaceKind ingress_interface) const;
+    bool consumeWifiDiscoveryBudget();
+    void noteRxSummary(bool wifi_skipped = false,
+                       bool duplicate = false,
+                       bool parse_failed = false);
+    bool shouldRebroadcastAnnounce(
+        const reticulum::ParsedPacket& packet,
+        reticulum::interfaces::InterfaceKind ingress_interface) const;
     bool rebroadcastAnnounce(const PathEntry& path, const reticulum::ParsedPacket& packet);
     bool isDuplicatePacket(const uint8_t packet_hash[reticulum::kFullHashSize]);
     void rememberPacket(const uint8_t packet_hash[reticulum::kFullHashSize]);
@@ -173,8 +202,12 @@ class LxmfAdapter : public IMeshAdapter
     PeerInfo& upsertPeer(const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
     PeerInfo* rememberPeerIdentity(const uint8_t combined_pub[reticulum::kCombinedPublicKeySize],
                                    const char* display_name = nullptr);
+    void queuePeerUpdate(const PeerInfo& peer);
+    void pumpPendingPeerUpdates();
     void publishPeerUpdate(const PeerInfo& peer) const;
     void loadPersistedPeers();
+    void loadDirectoryPeers();
+    bool maybePersistPeers(bool force);
     bool persistPeers() const;
     uint32_t currentTimestampSeconds() const;
     const char* effectiveDisplayName() const;

@@ -18,7 +18,9 @@
 #include "team/protocol/team_position.h"
 #include "team/usecase/team_controller.h"
 #include "ui/app_runtime.h"
+#include "ui/components/floating_search_box.h"
 #include "ui/components/info_card.h"
+#include "ui/components/shortcut_help_modal.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/presentation_sources/team_chat_presentation_source.h"
@@ -39,6 +41,7 @@
 #include "ui/ui_common.h"
 #include "ui/widgets/ime/ime_widget.h"
 
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -100,6 +103,7 @@ static std::unique_ptr<::ui::team_actions::TeamActionRuntimeSink> s_team_action_
 static std::unique_ptr<::ui::presentation_sources::TeamChatPresentationSource> s_team_chat_source;
 static team::TeamController* s_team_action_controller = nullptr;
 static std::unique_ptr<contacts::ui::ContactsTeamSnapshotSource> s_team_snapshot_source;
+static ::ui::components::shortcut_help_modal::State s_help_modal{};
 
 static void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& identity,
                                          char* out,
@@ -193,6 +197,12 @@ static void open_action_menu_modal();
 static void on_action_menu_item_clicked(lv_event_t* e);
 static void on_action_menu_key(lv_event_t* e);
 static lv_obj_t* create_action_menu_button(lv_obj_t* parent, const char* text);
+static void open_search_modal();
+static void open_contacts_help_modal();
+static void on_search_apply(const char* text, void* user_data);
+static void on_search_clear(void* user_data);
+static void on_search_cancel(void* user_data);
+static void contacts_handle_page_shortcut(lv_event_t* event);
 static const chat::contacts::NodeInfo* get_selected_node();
 static const chat::contacts::NodeInfo* get_selected_reticulum_group();
 static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id);
@@ -790,6 +800,104 @@ static bool is_reticulum_group_conversation(const chat::ConversationId& conversa
            chat::hasReticulumDestinationIdentity(conversation.reticulum_identity);
 }
 
+static bool is_searchable_contacts_mode(ContactsMode mode)
+{
+    return mode == ContactsMode::Contacts ||
+           mode == ContactsMode::Nearby ||
+           mode == ContactsMode::Groups ||
+           mode == ContactsMode::Ignored;
+}
+
+static bool search_active()
+{
+    return g_contacts_state.search_query[0] != '\0';
+}
+
+static bool contains_ci(const char* text, const char* query)
+{
+    if (!query || query[0] == '\0')
+    {
+        return true;
+    }
+    if (!text)
+    {
+        return false;
+    }
+    const std::size_t query_len = std::strlen(query);
+    const std::size_t text_len = std::strlen(text);
+    if (query_len == 0)
+    {
+        return true;
+    }
+    if (query_len > text_len)
+    {
+        return false;
+    }
+    for (std::size_t start = 0; start + query_len <= text_len; ++start)
+    {
+        bool match = true;
+        for (std::size_t offset = 0; offset < query_len; ++offset)
+        {
+            const auto lhs = static_cast<unsigned char>(text[start + offset]);
+            const auto rhs = static_cast<unsigned char>(query[offset]);
+            if (std::tolower(lhs) != std::tolower(rhs))
+            {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool node_matches_search(const chat::contacts::NodeInfo& node)
+{
+    if (!search_active())
+    {
+        return true;
+    }
+
+    const char* query = g_contacts_state.search_query;
+    return contains_ci(node.long_name, query) ||
+           contains_ci(node.display_name.c_str(), query) ||
+           contains_ci(node.short_name, query);
+}
+
+static void build_display_list(const std::vector<chat::contacts::NodeInfo>& source)
+{
+    g_contacts_state.display_list.clear();
+    g_contacts_state.display_list.reserve(source.size());
+    for (const auto& node : source)
+    {
+        if (node_matches_search(node))
+        {
+            g_contacts_state.display_list.push_back(node);
+        }
+    }
+}
+
+static bool is_search_shortcut_key(uint32_t key)
+{
+    return key == '/' || key == 's' || key == 'S';
+}
+
+static bool is_help_shortcut_key(uint32_t key)
+{
+    return key == 'h' || key == 'H';
+}
+
+static void bind_page_shortcuts(lv_obj_t* obj)
+{
+    if (obj)
+    {
+        lv_obj_add_event_cb(obj, contacts_handle_page_shortcut, LV_EVENT_KEY, nullptr);
+    }
+}
+
 // ---------------- Panel creation (public API) ----------------
 
 void create_filter_panel(lv_obj_t* parent)
@@ -806,37 +914,46 @@ void create_filter_panel(lv_obj_t* parent)
     {
         lv_obj_add_event_cb(g_contacts_state.contacts_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
         lv_obj_add_event_cb(g_contacts_state.contacts_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.contacts_btn);
     }
     if (g_contacts_state.nearby_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.nearby_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
         lv_obj_add_event_cb(g_contacts_state.nearby_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.nearby_btn);
     }
     if (g_contacts_state.groups_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.groups_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
         lv_obj_add_event_cb(g_contacts_state.groups_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.groups_btn);
     }
     if (g_contacts_state.ignored_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.ignored_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
         lv_obj_add_event_cb(g_contacts_state.ignored_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.ignored_btn);
     }
     if (g_contacts_state.broadcast_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.broadcast_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
         lv_obj_add_event_cb(g_contacts_state.broadcast_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.broadcast_btn);
     }
     if (g_contacts_state.team_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.team_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
         lv_obj_add_event_cb(g_contacts_state.team_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.team_btn);
     }
     if (g_contacts_state.discover_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.discover_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
         lv_obj_add_event_cb(g_contacts_state.discover_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.discover_btn);
     }
+    bind_page_shortcuts(g_contacts_state.root);
+    bind_page_shortcuts(g_contacts_state.top_bar.back_btn);
 
     // Keep highlight consistent with mode using CHECKED state
     // (visual-only; does not change behavior)
@@ -1001,11 +1118,7 @@ static const chat::contacts::NodeInfo* get_selected_node()
     {
         return nullptr;
     }
-    const auto& list = (g_contacts_state.current_mode == ContactsMode::Contacts)
-                           ? g_contacts_state.contacts_list
-                       : (g_contacts_state.current_mode == ContactsMode::Nearby)
-                           ? g_contacts_state.nearby_list
-                           : g_contacts_state.ignored_list;
+    const auto& list = g_contacts_state.display_list;
     if (g_contacts_state.selected_index >= static_cast<int>(list.size()))
     {
         return nullptr;
@@ -1021,11 +1134,11 @@ static const chat::contacts::NodeInfo* get_selected_reticulum_group()
         return nullptr;
     }
     if (g_contacts_state.selected_index >=
-        static_cast<int>(g_contacts_state.reticulum_group_list.size()))
+        static_cast<int>(g_contacts_state.display_list.size()))
     {
         return nullptr;
     }
-    return &g_contacts_state.reticulum_group_list[g_contacts_state.selected_index];
+    return &g_contacts_state.display_list[g_contacts_state.selected_index];
 }
 
 static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id)
@@ -1147,11 +1260,135 @@ static void modal_close(lv_obj_t*& modal_obj)
 
 static bool is_any_modal_open()
 {
-    return g_contacts_state.add_edit_modal != nullptr ||
+    return ::ui::components::floating_search_box::is_open(g_contacts_state.search_box) ||
+           g_contacts_state.add_edit_modal != nullptr ||
            g_contacts_state.reticulum_group_modal != nullptr ||
            g_contacts_state.del_confirm_modal != nullptr ||
            g_contacts_state.action_menu_modal != nullptr ||
-           g_contacts_state.discover_modal != nullptr;
+           g_contacts_state.discover_modal != nullptr ||
+           ::ui::components::shortcut_help_modal::is_open(s_help_modal);
+}
+
+static void on_search_apply(const char* text, void* /*user_data*/)
+{
+    std::snprintf(g_contacts_state.search_query,
+                  sizeof(g_contacts_state.search_query),
+                  "%s",
+                  text ? text : "");
+    g_contacts_state.current_page = 0;
+    g_contacts_state.selected_index = -1;
+    refresh_ui();
+    contacts_focus_to_list();
+}
+
+static void on_search_clear(void* /*user_data*/)
+{
+    g_contacts_state.search_query[0] = '\0';
+    g_contacts_state.current_page = 0;
+    g_contacts_state.selected_index = -1;
+    refresh_ui();
+    contacts_focus_to_list();
+}
+
+static void on_search_cancel(void* /*user_data*/)
+{
+    contacts_focus_to_list();
+}
+
+static void open_search_modal()
+{
+    if (::ui::components::floating_search_box::is_open(g_contacts_state.search_box))
+    {
+        ::ui::components::floating_search_box::focus(g_contacts_state.search_box);
+        return;
+    }
+    if (!is_searchable_contacts_mode(g_contacts_state.current_mode))
+    {
+        ::ui::feedback::show_notice("Search current contacts list", 1600);
+        return;
+    }
+    if (is_any_modal_open())
+    {
+        return;
+    }
+
+    ::ui::components::floating_search_box::Config config{};
+    config.title = "Search contacts";
+    config.initial_text = g_contacts_state.search_query;
+    config.max_length = sizeof(g_contacts_state.search_query) - 1U;
+    config.restore_group = contacts_input_get_group();
+    config.callbacks.apply = on_search_apply;
+    config.callbacks.clear = on_search_clear;
+    config.callbacks.cancel = on_search_cancel;
+    (void)::ui::components::floating_search_box::open(
+        g_contacts_state.search_box,
+        g_contacts_state.root ? g_contacts_state.root : lv_screen_active(),
+        config);
+}
+
+static void contacts_handle_page_shortcut(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_KEY)
+    {
+        return;
+    }
+    const uint32_t key = lv_event_get_key(event);
+    if (is_search_shortcut_key(key))
+    {
+        open_search_modal();
+        lv_event_stop_processing(event);
+        return;
+    }
+    if (is_help_shortcut_key(key))
+    {
+        open_contacts_help_modal();
+        lv_event_stop_processing(event);
+        return;
+    }
+}
+
+static void close_contacts_help_modal()
+{
+    ::ui::components::shortcut_help_modal::close(s_help_modal);
+}
+
+static void open_contacts_help_modal()
+{
+    if (::ui::components::shortcut_help_modal::is_open(s_help_modal))
+    {
+        close_contacts_help_modal();
+        return;
+    }
+    if (is_any_modal_open())
+    {
+        return;
+    }
+
+    ::ui::components::shortcut_help_modal::Row rows[5] = {
+        {"S", "/", "Search names"},
+        {"Enter", nullptr, "Open selected item"},
+        {"Back", nullptr, "Return or close"},
+        {"H", nullptr, "Close help"},
+        {"Groups", nullptr, "Add opens group config"},
+    };
+    std::size_t row_count = 4;
+
+    if (uses_reticulum_filter_profile())
+    {
+        row_count = 5;
+    }
+
+    ::ui::components::shortcut_help_modal::Config config{};
+    config.title = "Contacts Help";
+    config.rows = rows;
+    config.row_count = row_count;
+    config.width = 304;
+    config.height = 176;
+    config.restore_group = contacts_input_get_group();
+    (void)::ui::components::shortcut_help_modal::open(
+        s_help_modal,
+        g_contacts_state.root ? g_contacts_state.root : lv_screen_active(),
+        config);
 }
 
 static void open_add_edit_modal(bool is_edit)
@@ -3064,6 +3301,16 @@ void refresh_ui()
         current_list = &broadcast_list;
     }
 
+    if (current_list && is_searchable_contacts_mode(g_contacts_state.current_mode))
+    {
+        build_display_list(*current_list);
+        current_list = &g_contacts_state.display_list;
+    }
+    else
+    {
+        g_contacts_state.display_list.clear();
+    }
+
     const bool show_reticulum_group_add_item =
         g_contacts_state.current_mode == ContactsMode::Groups;
     g_contacts_state.total_items = current_list->size();
@@ -3131,6 +3378,20 @@ void refresh_ui()
         lv_obj_set_user_data(add_item, reinterpret_cast<void*>(kAddReticulumGroupUserData));
         lv_obj_add_event_cb(add_item, on_list_item_clicked, LV_EVENT_CLICKED, nullptr);
         lv_obj_add_event_cb(add_item, on_list_item_focused, LV_EVENT_FOCUSED, nullptr);
+        bind_page_shortcuts(add_item);
+    }
+
+    if (current_list->empty() &&
+        search_active() &&
+        is_searchable_contacts_mode(g_contacts_state.current_mode))
+    {
+        lv_obj_t* empty = lv_label_create(g_contacts_state.sub_container);
+        ::ui::i18n::set_label_text(empty, "No matches");
+        contacts::ui::style::apply_label_muted(empty);
+        lv_obj_set_width(empty, LV_PCT(100));
+        lv_obj_set_style_pad_all(empty, 8, LV_PART_MAIN);
+        lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+        g_contacts_state.list_items.push_back(empty);
     }
 
     // Create list items for current page (structure in layout; status string computed here)
@@ -3204,6 +3465,7 @@ void refresh_ui()
         // Clicking a list row opens the action menu.
         lv_obj_add_event_cb(item, on_list_item_clicked, LV_EVENT_CLICKED, nullptr);
         lv_obj_add_event_cb(item, on_list_item_focused, LV_EVENT_FOCUSED, nullptr);
+        bind_page_shortcuts(item);
     }
 
     if (append_back_item)
@@ -3218,6 +3480,7 @@ void refresh_ui()
         lv_obj_set_user_data(back_item, reinterpret_cast<void*>(kBackListItemUserData));
         lv_obj_add_event_cb(back_item, on_list_item_clicked, LV_EVENT_CLICKED, nullptr);
         lv_obj_add_event_cb(back_item, on_list_item_focused, LV_EVENT_FOCUSED, nullptr);
+        bind_page_shortcuts(back_item);
     }
 
     // Create bottom buttons (create once; width follows label text)
@@ -3228,6 +3491,7 @@ void refresh_ui()
             "Next",
             kColorAmber,
             on_next_clicked);
+        bind_page_shortcuts(g_contacts_state.next_btn);
     }
 
     if (g_contacts_state.prev_btn == nullptr)
@@ -3237,6 +3501,7 @@ void refresh_ui()
             "Prev",
             kColorPanelBg,
             on_prev_clicked);
+        bind_page_shortcuts(g_contacts_state.prev_btn);
     }
 
     if (show_second_column_back() && g_contacts_state.back_btn == nullptr)
@@ -3246,6 +3511,7 @@ void refresh_ui()
             "Back",
             kColorAmber,
             on_back_clicked);
+        bind_page_shortcuts(g_contacts_state.back_btn);
     }
 
     if (g_contacts_state.back_btn)
@@ -3325,6 +3591,7 @@ void refresh_ui()
 
 void cleanup_modals()
 {
+    ::ui::components::floating_search_box::close(g_contacts_state.search_box);
     if (g_contacts_state.add_edit_modal != nullptr)
     {
         lv_obj_del(g_contacts_state.add_edit_modal);
@@ -3355,6 +3622,7 @@ void cleanup_modals()
         lv_obj_del(g_contacts_state.discover_modal);
         g_contacts_state.discover_modal = nullptr;
     }
+    ::ui::components::shortcut_help_modal::close(s_help_modal);
     if (g_contacts_state.discover_scan_timer != nullptr)
     {
         lv_timer_del(g_contacts_state.discover_scan_timer);
