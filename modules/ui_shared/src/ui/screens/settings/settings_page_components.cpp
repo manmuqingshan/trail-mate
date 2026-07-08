@@ -1132,6 +1132,9 @@ static void refresh_reticulum_identity_fields(app::IAppFacade& app_ctx,
     copy_bounded(g_settings.rt_lxmf_address,
                  sizeof(g_settings.rt_lxmf_address),
                  "--");
+    copy_bounded(g_settings.rt_display_name,
+                 sizeof(g_settings.rt_display_name),
+                 "--");
     if (!chat::infra::isReticulumMeshProtocol(cfg.mesh_protocol))
     {
         return;
@@ -1150,6 +1153,9 @@ static void refresh_reticulum_identity_fields(app::IAppFacade& app_ctx,
     bytes_to_wrapped_hash(info.lxmf_address,
                           g_settings.rt_lxmf_address,
                           sizeof(g_settings.rt_lxmf_address));
+    copy_bounded(g_settings.rt_display_name,
+                 sizeof(g_settings.rt_display_name),
+                 info.display_name[0] != '\0' ? info.display_name : "--");
 }
 
 static void refresh_reticulum_identity_fields_from_runtime()
@@ -4453,6 +4459,7 @@ static settings::ui::SettingItem kNetworkItems[] = {
     {"Hop Limit", settings::ui::SettingType::Enum, kHopLimitOptions, sizeof(kHopLimitOptions) / sizeof(kHopLimitOptions[0]), &g_settings.net_hop_limit, nullptr, nullptr, 0, false, "net_hop_limit"},
     {"TX Enabled", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.net_tx_enabled, nullptr, 0, false, "net_tx_enabled"},
     {"Reticulum LoRa", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_lora_enabled, nullptr, 0, false, "rt_lora_enabled"},
+    {"Display Name", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_display_name, sizeof(g_settings.rt_display_name), false, "rt_display_name"},
     {"Identity Hash", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_identity_hash, sizeof(g_settings.rt_identity_hash), false, "rt_identity_hash"},
     {"LXMF Address", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_lxmf_address, sizeof(g_settings.rt_lxmf_address), false, "rt_lxmf_address"},
     {"Wi-Fi Gateway", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_wifi_gateway_enabled, nullptr, 0, false, "rt_wifi_gateway"},
@@ -4813,6 +4820,7 @@ static bool should_show_item(const settings::ui::SettingItem& item)
         if (has_pref_key(item, "net_tx_power")) return false;
         if (has_pref_key(item, "net_hop_limit")) return false;
         if (has_pref_key(item, "rt_lora_enabled")) return false;
+        if (has_pref_key(item, "rt_display_name")) return false;
         if (has_pref_key(item, "rt_identity_hash")) return false;
         if (has_pref_key(item, "rt_lxmf_address")) return false;
         if (has_pref_key(item, "rt_wifi_gateway")) return false;
@@ -4885,6 +4893,7 @@ static bool should_show_item(const settings::ui::SettingItem& item)
         if (has_pref_key(item, "mc_channel_key")) return false;
 
         if (has_pref_key(item, "rt_lora_enabled")) return false;
+        if (has_pref_key(item, "rt_display_name")) return false;
         if (has_pref_key(item, "rt_identity_hash")) return false;
         if (has_pref_key(item, "rt_lxmf_address")) return false;
         if (has_pref_key(item, "rt_wifi_gateway")) return false;

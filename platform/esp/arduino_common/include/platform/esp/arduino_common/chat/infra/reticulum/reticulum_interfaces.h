@@ -87,8 +87,6 @@ class WifiGatewayReticulumInterface
     static constexpr uint32_t kReconnectIntervalMs = 10000;
     static constexpr uint32_t kWifiConnectIntervalMs = 60000;
     static constexpr uint32_t kRxStatsLogIntervalMs = 5000;
-    static constexpr uint32_t kSocketReadIntervalMs = 250;
-    static constexpr int kSocketReadBudgetBytes = 128;
     static constexpr int32_t kSocketConnectTimeoutMs = 5000;
 
     bool enabled_ = false;

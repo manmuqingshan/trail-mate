@@ -34,6 +34,10 @@ They must not depend on concrete implementations under `platform/esp/*`,
   GPS support/state, snapshots, and GNSS-facing UI data access.
 - `hostlink_runtime.h`
   Host-link session lifecycle and status.
+- `http_client_runtime.h`
+  Unified Wi-Fi HTTP/TLS byte-stream access contract. ESP implementations own
+  the concrete HTTP client and must be reached through the Wi-Fi access policy
+  instead of product features opening HTTP clients directly.
 - `lora_runtime.h`
   LoRa receive-mode acquisition/configuration and instant RSSI access for UI.
 - `orientation_runtime.h`
@@ -82,6 +86,10 @@ They must not depend on concrete implementations under `platform/esp/*`,
   power rail, I2C/SPI bus, GPS, and audio ownership across Linux and IDF.
 - `wifi_runtime.h`
   Wi-Fi config persistence, scan/connect lifecycle, and status.
+- `wifi_access_runtime.h`
+  Wi-Fi business access coordination for HTTP, OTA, MQTT, and Reticulum gateway
+  users. It owns connection gating, screen/wake policy, exclusivity, and
+  traffic budgets above the lower-level Wi-Fi control plane.
 
 ## Missing-contract smell
 

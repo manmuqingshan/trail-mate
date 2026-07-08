@@ -6,6 +6,7 @@
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
 
 #include "chat/time_utils.h"
+#include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 
 #include <Arduino.h>
@@ -233,6 +234,13 @@ bool WifiGatewayReticulumInterface::sendPacket(const uint8_t* data, size_t len)
     {
         return false;
     }
+    const auto budget = platform::ui::wifi_access::traffic_budget(
+        platform::ui::wifi_access::Client::ReticulumGateway,
+        platform::ui::wifi_access::Priority::Messaging);
+    if (!budget.allow_write || budget.tx_byte_budget == 0)
+    {
+        return false;
+    }
 
     size_t tx_len = 0;
     tx_frame_[tx_len++] = kHdlcFlag;
@@ -391,17 +399,28 @@ bool WifiGatewayReticulumInterface::ensureSocket()
     if (!wifi_status.connected)
     {
         if (auto_connect_wifi_ &&
-            wifi_status.supported &&
-            wifi_status.enabled &&
-            wifi_status.has_credentials &&
             (last_wifi_connect_ms_ == 0 ||
              (now_ms - last_wifi_connect_ms_) >= kWifiConnectIntervalMs))
         {
             last_wifi_connect_ms_ = now_ms;
-            Serial.printf("[Reticulum][IF][WiFi] connecting station before gateway host=%s:%u\n",
+            Serial.printf("[Reticulum][IF][WiFi] requesting station before gateway host=%s:%u\n",
                           host_,
                           static_cast<unsigned>(port_));
-            (void)platform::ui::wifi::connect();
+            platform::ui::wifi_access::Request request{};
+            request.client = platform::ui::wifi_access::Client::ReticulumGateway;
+            request.kind = platform::ui::wifi_access::AccessKind::WifiConnect;
+            request.priority = platform::ui::wifi_access::Priority::Messaging;
+            request.allow_connect = true;
+            request.reason = "reticulum_gateway";
+            platform::ui::wifi_access::Decision decision =
+                platform::ui::wifi_access::Decision::Granted;
+            if (!platform::ui::wifi_access::ensure_connected(request, &decision))
+            {
+                Serial.printf("[Reticulum][IF][WiFi] station denied decision=%s host=%s:%u\n",
+                              platform::ui::wifi_access::decision_name(decision),
+                              host_,
+                              static_cast<unsigned>(port_));
+            }
             wifi_status = platform::ui::wifi::status();
         }
 
@@ -420,6 +439,23 @@ bool WifiGatewayReticulumInterface::ensureSocket()
     {
         socket_online_ = false;
         client_.stop();
+        return false;
+    }
+
+    platform::ui::wifi_access::Request socket_request{};
+    socket_request.client = platform::ui::wifi_access::Client::ReticulumGateway;
+    socket_request.kind = platform::ui::wifi_access::AccessKind::LongLivedSocket;
+    socket_request.priority = platform::ui::wifi_access::Priority::Messaging;
+    socket_request.reason = "reticulum_gateway_socket";
+    const auto lease = platform::ui::wifi_access::acquire(socket_request);
+    if (!lease.granted)
+    {
+        socket_online_ = false;
+        client_.stop();
+        Serial.printf("[Reticulum][IF][WiFi] gateway connect deferred decision=%s host=%s port=%u\n",
+                      platform::ui::wifi_access::decision_name(lease.decision),
+                      host_,
+                      static_cast<unsigned>(port_));
         return false;
     }
 
@@ -467,9 +503,20 @@ void WifiGatewayReticulumInterface::readAvailable()
 
     int remaining = client_.available();
     const uint32_t now_ms = millis();
+    const auto budget = platform::ui::wifi_access::traffic_budget(
+        platform::ui::wifi_access::Client::ReticulumGateway,
+        platform::ui::wifi_access::Priority::Messaging);
+    if (!budget.allow_read || budget.rx_byte_budget == 0)
+    {
+        if (remaining > 0)
+        {
+            ++rx_stats_read_skips_;
+        }
+        return;
+    }
     if (remaining > 0 &&
         last_socket_read_ms_ != 0 &&
-        (now_ms - last_socket_read_ms_) < kSocketReadIntervalMs)
+        (now_ms - last_socket_read_ms_) < budget.min_read_interval_ms)
     {
         ++rx_stats_read_skips_;
         return;
@@ -480,7 +527,7 @@ void WifiGatewayReticulumInterface::readAvailable()
     }
 
     int processed = 0;
-    while (remaining > 0 && processed < kSocketReadBudgetBytes)
+    while (remaining > 0 && processed < static_cast<int>(budget.rx_byte_budget))
     {
         const int value = client_.read();
         if (value < 0)

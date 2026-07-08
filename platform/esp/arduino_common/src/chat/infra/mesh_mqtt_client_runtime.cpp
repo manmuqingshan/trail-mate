@@ -8,6 +8,7 @@
 #include "meshtastic/mqtt.pb.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/meshtastic/mt_adapter.h"
+#include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "sys/event_bus.h"
 
@@ -44,8 +45,6 @@ constexpr int32_t kMqttSocketConnectTimeoutMs = 5000;
 constexpr std::size_t kTxBufferSize = 512;
 constexpr std::size_t kRxBufferSize = 512;
 constexpr std::size_t kMeshCoreFrameBufferSize = 255;
-constexpr std::size_t kMaxPacketsPerPump = 4;
-constexpr std::size_t kMaxBytesPerPump = 2048;
 constexpr const char* kDefaultMeshtasticMqttRoot =
     app::AppConfig::kDefaultMeshtasticMqttRoot;
 constexpr const char* kDefaultMeshCoreMqttRoot =
@@ -671,19 +670,29 @@ class PlainMqttRuntime
             return false;
         }
         last_wifi_connect_ms_ = now_ms;
-        std::printf("[%s][MQTT] connecting Wi-Fi for MQTT ssid=%s\n",
+        std::printf("[%s][MQTT] requesting Wi-Fi access for MQTT ssid=%s\n",
                     protocolTag(),
                     status.ssid[0] ? status.ssid : "<unset>");
         logWifiGate(status, WifiGateState::WaitingForConnection);
-        if (platform::ui::wifi::connect(nullptr))
+
+        platform::ui::wifi_access::Request request{};
+        request.client = platform::ui::wifi_access::Client::MeshMqtt;
+        request.kind = platform::ui::wifi_access::AccessKind::WifiConnect;
+        request.priority = platform::ui::wifi_access::Priority::Messaging;
+        request.allow_connect = true;
+        request.reason = "mqtt";
+        platform::ui::wifi_access::Decision decision =
+            platform::ui::wifi_access::Decision::Granted;
+        if (platform::ui::wifi_access::ensure_connected(request, &decision))
         {
             status = platform::ui::wifi::status();
             logWifiGate(status, WifiGateState::Ready);
             return true;
         }
         status = platform::ui::wifi::status();
-        std::printf("[%s][MQTT] Wi-Fi connect failed state=%u message='%s'\n",
+        std::printf("[%s][MQTT] Wi-Fi access denied decision=%s state=%u message='%s'\n",
                     protocolTag(),
+                    platform::ui::wifi_access::decision_name(decision),
                     static_cast<unsigned>(status.state),
                     status.message);
         logWifiGate(status, WifiGateState::WaitingForConnection);
@@ -731,6 +740,9 @@ class PlainMqttRuntime
 #if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
         return false;
 #else
+        const auto budget = platform::ui::wifi_access::traffic_budget(
+            platform::ui::wifi_access::Client::MeshMqtt,
+            platform::ui::wifi_access::Priority::Messaging);
         if (client_.connected() && mqtt_ready_)
         {
             return true;
@@ -743,11 +755,29 @@ class PlainMqttRuntime
         {
             return false;
         }
+        if (!budget.allow_connect)
+        {
+            return false;
+        }
 
         last_mqtt_reconnect_ms_ = now_ms;
         resetConnectionState();
         if (config_.host[0] == '\0')
         {
+            return false;
+        }
+
+        platform::ui::wifi_access::Request request{};
+        request.client = platform::ui::wifi_access::Client::MeshMqtt;
+        request.kind = platform::ui::wifi_access::AccessKind::LongLivedSocket;
+        request.priority = platform::ui::wifi_access::Priority::Messaging;
+        request.reason = "mqtt_socket";
+        const auto lease = platform::ui::wifi_access::acquire(request);
+        if (!lease.granted)
+        {
+            std::printf("[%s][MQTT] socket connect deferred decision=%s\n",
+                        protocolTag(),
+                        platform::ui::wifi_access::decision_name(lease.decision));
             return false;
         }
 
@@ -1013,10 +1043,17 @@ class PlainMqttRuntime
         {
             return;
         }
+        const auto budget = platform::ui::wifi_access::traffic_budget(
+            platform::ui::wifi_access::Client::MeshMqtt,
+            platform::ui::wifi_access::Priority::Messaging);
+        if (!budget.allow_write || budget.tx_packet_budget == 0)
+        {
+            return;
+        }
 
         if (config_.protocol == RuntimeProtocol::MeshCore)
         {
-            flushMeshCorePublishQueue(mc);
+            flushMeshCorePublishQueue(mc, budget.tx_packet_budget);
             return;
         }
         if (!mt)
@@ -1024,7 +1061,7 @@ class PlainMqttRuntime
             return;
         }
 
-        for (std::size_t sent = 0; sent < kMaxPacketsPerPump; ++sent)
+        for (std::size_t sent = 0; sent < budget.tx_packet_budget; ++sent)
         {
             std::memset(&mt_proxy_, 0, sizeof(mt_proxy_));
             if (!mt->pollMqttProxyMessage(&mt_proxy_))
@@ -1044,7 +1081,8 @@ class PlainMqttRuntime
         }
     }
 
-    void flushMeshCorePublishQueue(chat::meshcore::MeshCoreAdapter* mc)
+    void flushMeshCorePublishQueue(chat::meshcore::MeshCoreAdapter* mc,
+                                   std::size_t packet_budget)
     {
         if (!mc || !config_.uplink_enabled)
         {
@@ -1060,7 +1098,7 @@ class PlainMqttRuntime
                       "%s/raw/%s",
                       config_.root[0] ? config_.root : kDefaultMeshCoreMqttRoot,
                       config_.client_id[0] ? config_.client_id : "trail-mate");
-        for (std::size_t sent = 0; sent < kMaxPacketsPerPump; ++sent)
+        for (std::size_t sent = 0; sent < packet_budget; ++sent)
         {
             size_t frame_len = 0;
             if (!mc->pollMqttBridgePacket(rx_.data(),
@@ -1089,6 +1127,13 @@ class PlainMqttRuntime
         {
             return;
         }
+        const auto budget = platform::ui::wifi_access::traffic_budget(
+            platform::ui::wifi_access::Client::MeshMqtt,
+            platform::ui::wifi_access::Priority::Messaging);
+        if (!budget.allow_write)
+        {
+            return;
+        }
         std::size_t pos = 0;
         if (beginPacket(0xC0, 0, pos) && writePacket(pos, "ping"))
         {
@@ -1109,13 +1154,22 @@ class PlainMqttRuntime
             stop("socket");
             return;
         }
+        const auto budget = platform::ui::wifi_access::traffic_budget(
+            platform::ui::wifi_access::Client::MeshMqtt,
+            platform::ui::wifi_access::Priority::Messaging);
+        if (!budget.allow_read ||
+            budget.rx_packet_budget == 0 ||
+            budget.rx_byte_budget == 0)
+        {
+            return;
+        }
 
         std::size_t packets = 0;
         std::size_t bytes = 0;
         while (client_.connected() &&
                client_.available() > 0 &&
-               packets < kMaxPacketsPerPump &&
-               bytes < kMaxBytesPerPump)
+               packets < budget.rx_packet_budget &&
+               bytes < budget.rx_byte_budget)
         {
             switch (rx_state_)
             {

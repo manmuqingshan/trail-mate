@@ -3,6 +3,8 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <memory>
 #include <string>
 
@@ -214,6 +216,9 @@ int main()
     reticulum->reticulum_info_ok = true;
     reticulum->reticulum_info.ready = true;
     reticulum->reticulum_info.node_id = 0x52540001UL;
+    std::snprintf(reticulum->reticulum_info.display_name,
+                  sizeof(reticulum->reticulum_info.display_name),
+                  "vic uconsole");
     for (std::size_t index = 0; index < chat::kReticulumPeerHashSize; ++index)
     {
         reticulum->reticulum_info.identity_hash[index] =
@@ -231,6 +236,7 @@ int main()
     assert(router.getReticulumLocalIdentityInfo(&info));
     assert(info.ready);
     assert(info.node_id == 0x52540001UL);
+    assert(std::strcmp(info.display_name, "vic uconsole") == 0);
     assert(info.identity_hash[0] == 0x10U);
     assert(info.lxmf_address[0] == 0x40U);
 

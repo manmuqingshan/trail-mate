@@ -2,17 +2,12 @@
 
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/device_runtime.h"
-
-#include "esp_err.h"
-#include "esp_http_client.h"
+#include "platform/ui/http_client_runtime.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
-#include <new>
 #include <vector>
-
-extern "C" esp_err_t esp_crt_bundle_attach(void* conf);
 
 namespace platform::ui::route_storage
 {
@@ -73,18 +68,6 @@ bool ensure_parent_dir(const std::string& path)
         return false;
     }
     return ensure_dir(path.substr(0, slash).c_str());
-}
-
-void configure_http_client(esp_http_client_config_t& config, const std::string& url)
-{
-    config = esp_http_client_config_t{};
-    config.url = url.c_str();
-    config.method = HTTP_METHOD_GET;
-    config.timeout_ms = 30000;
-    config.disable_auto_redirect = false;
-    config.buffer_size = static_cast<int>(kRouteDownloadBufferSize);
-    config.buffer_size_tx = kRouteDownloadTxBufferSize;
-    config.crt_bundle_attach = esp_crt_bundle_attach;
 }
 
 } // namespace
@@ -205,84 +188,32 @@ RouteImageDownloadResult download_route_image(const std::string& url,
         return result;
     }
 
-    esp_http_client_config_t config{};
-    configure_http_client(config, url);
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == nullptr)
-    {
-        out.close();
-        (void)::platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
-        result.error = "Create HTTP client failed";
-        return result;
-    }
+    platform::ui::http_client::Request request{};
+    request.url = url.c_str();
+    request.client = platform::ui::wifi_access::Client::RouteStorage;
+    request.access_kind = platform::ui::wifi_access::AccessKind::HttpDownload;
+    request.priority = platform::ui::wifi_access::Priority::UserForeground;
+    request.reason = "route_image";
+    request.buffer_size = static_cast<int>(kRouteDownloadBufferSize);
+    request.tx_buffer_size = kRouteDownloadTxBufferSize;
+    request.max_bytes = max_bytes;
 
-    bool ok = false;
-    esp_err_t open_err = esp_http_client_open(client, 0);
-    if (open_err != ESP_OK)
-    {
-        result.error = "Open HTTP request failed";
-    }
-    else if (esp_http_client_fetch_headers(client) < 0)
-    {
-        result.error = "Fetch HTTP headers failed";
-    }
-    else
-    {
-        result.http_status = esp_http_client_get_status_code(client);
-        const int64_t content_length = esp_http_client_get_content_length(client);
-        if (result.http_status < 200 || result.http_status >= 300)
+    platform::ui::http_client::TransferStats stats{};
+    const bool ok = platform::ui::http_client::download(
+        request,
+        [](const std::uint8_t* data, std::size_t len, void* context)
         {
-            char text[48];
-            std::snprintf(text, sizeof(text), "HTTP %d", result.http_status);
-            result.error = text;
-        }
-        else if (content_length > 0 && static_cast<std::uint64_t>(content_length) > max_bytes)
-        {
-            result.error = "Image too large";
-        }
-        else
-        {
-            std::vector<std::uint8_t> buffer(kRouteDownloadBufferSize);
-            if (buffer.empty())
-            {
-                result.error = "No download buffer";
-            }
-            while (result.error.empty())
-            {
-                const int read = esp_http_client_read(
-                    client,
-                    reinterpret_cast<char*>(buffer.data()),
-                    static_cast<int>(buffer.size()));
-                if (read < 0)
-                {
-                    result.error = "Read image failed";
-                    break;
-                }
-                if (read == 0)
-                {
-                    ok = true;
-                    break;
-                }
-                if (result.bytes + static_cast<std::uint32_t>(read) > max_bytes)
-                {
-                    result.error = "Image too large";
-                    break;
-                }
-                const std::size_t written = out.write(buffer.data(), static_cast<std::size_t>(read));
-                if (written != static_cast<std::size_t>(read))
-                {
-                    result.error = "Write image failed";
-                    break;
-                }
-                result.bytes += static_cast<std::uint32_t>(read);
-            }
-        }
-    }
+            auto* file = static_cast<::platform::esp::arduino_common::storage::SdRuntimeFile*>(context);
+            return file && file->write(data, len) == len;
+        },
+        &out,
+        result.error,
+        &stats);
+    result.http_status = stats.http_status;
+    result.bytes = stats.bytes;
 
     (void)out.flush();
     out.close();
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
 
     if (!ok)
     {

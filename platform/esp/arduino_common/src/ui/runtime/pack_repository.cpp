@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "platform/ui/device_runtime.h"
+#include "platform/ui/http_client_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "ui/localization.h"
 #include "ui/runtime/memory_profile.h"
@@ -29,13 +30,10 @@
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
 
 #include "cJSON.h"
-#include "esp_err.h"
 #include "esp_heap_caps.h"
-#include "esp_http_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
 #ifdef INADDR_NONE
 #undef INADDR_NONE
@@ -47,10 +45,6 @@
 #else
 #error "A compatible miniz header is required for pack_repository.cpp"
 #endif
-
-#define UI_PACKS_HAVE_CRT_BUNDLE 1
-
-extern "C" esp_err_t esp_crt_bundle_attach(void* conf);
 
 #if defined(ARDUINO)
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
@@ -97,7 +91,7 @@ constexpr const char* kInstallStorage = kStorageSd;
 #endif
 constexpr int kHttpBufferSize = 1024;
 constexpr int kHttpTxBufferSize = 512;
-constexpr std::size_t kTlsLargeAllocThresholdBytes = 4096;
+constexpr std::size_t kLargeScratchThresholdBytes = 4096;
 constexpr std::size_t kFileWriteChunkBytes = 4096;
 constexpr std::size_t kFileReadChunkBytes = 4096;
 constexpr std::size_t kMaxInstalledIndexTokenBytes = 512;
@@ -190,7 +184,7 @@ void* allocate_pack_scratch(std::size_t bytes)
 
     const bool prefer_psram =
         heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 &&
-        bytes > kTlsLargeAllocThresholdBytes;
+        bytes > kLargeScratchThresholdBytes;
     const uint32_t primary_caps = prefer_psram ? (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
                                                : (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     const uint32_t secondary_caps = prefer_psram ? (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
@@ -284,71 +278,6 @@ void install_worker_task_entry(void* param)
                 ok ? 1 : 0,
                 error.empty() ? "<none>" : error.c_str());
     vTaskDelete(nullptr);
-}
-
-void log_pack_memory_snapshot(const char* stage)
-{
-    std::printf("[Packs][TLS] %s ram_free=%u ram_largest=%u psram_free=%u psram_largest=%u\n",
-                stage ? stage : "state",
-                static_cast<unsigned>(
-                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(
-                    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
-                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
-}
-
-// Arduino's prebuilt mbedTLS keeps 16 KB TLS record buffers, which can exhaust
-// internal RAM on ESP32 UI builds. Route large allocations to PSRAM first while
-// leaving small control allocations in internal RAM for lower latency.
-void* mbedtls_calloc_prefer_psram(std::size_t count, std::size_t size)
-{
-    if (count == 0 || size == 0)
-    {
-        return nullptr;
-    }
-    if (count > (static_cast<std::size_t>(-1) / size))
-    {
-        return nullptr;
-    }
-
-    const std::size_t bytes = count * size;
-    const bool prefer_psram =
-        heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 &&
-        bytes >= kTlsLargeAllocThresholdBytes;
-
-    const uint32_t primary_caps = prefer_psram ? (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-                                               : (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    const uint32_t secondary_caps = prefer_psram ? (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
-                                                 : (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-
-    return heap_caps_calloc_prefer(count, size, 2, primary_caps, secondary_caps);
-}
-
-void mbedtls_free_prefer_psram(void* ptr)
-{
-    heap_caps_free(ptr);
-}
-
-bool ensure_tls_allocator_configured()
-{
-    static bool attempted = false;
-    static bool configured = false;
-
-    if (attempted)
-    {
-        return configured;
-    }
-
-    attempted = true;
-    log_pack_memory_snapshot("before allocator config");
-    configured = mbedtls_platform_set_calloc_free(&mbedtls_calloc_prefer_psram,
-                                                  &mbedtls_free_prefer_psram) == 0;
-    std::printf("[Packs][TLS] allocator configured=%d threshold=%lu\n",
-                configured ? 1 : 0,
-                static_cast<unsigned long>(kTlsLargeAllocThresholdBytes));
-    log_pack_memory_snapshot("after allocator config");
-    return configured;
 }
 
 std::string lowercase_ascii(std::string value)
@@ -1781,98 +1710,25 @@ std::uint32_t read_le32(const std::uint8_t* ptr)
            (static_cast<std::uint32_t>(ptr[3]) << 24);
 }
 
-void configure_http_client(esp_http_client_config_t& config, const std::string& url)
-{
-    (void)ensure_tls_allocator_configured();
-    config = esp_http_client_config_t{};
-    config.url = url.c_str();
-    config.method = HTTP_METHOD_GET;
-    config.timeout_ms = 30000;
-    config.disable_auto_redirect = false;
-    config.buffer_size = kHttpBufferSize;
-    config.buffer_size_tx = kHttpTxBufferSize;
-#if UI_PACKS_HAVE_CRT_BUNDLE
-    config.crt_bundle_attach = esp_crt_bundle_attach;
-#endif
-}
-
-bool http_get_text(const std::string& url, std::string& out, std::string& out_error)
+bool fetch_catalog_text(const std::string& url, std::string& out, std::string& out_error)
 {
     out.clear();
     out_error.clear();
 
-    esp_http_client_config_t config{};
-    configure_http_client(config, url);
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == nullptr)
-    {
-        out_error = "Create HTTP client failed";
-        return false;
-    }
-
-    bool ok = false;
-    if (esp_http_client_open(client, 0) == ESP_OK)
-    {
-        if (esp_http_client_fetch_headers(client) >= 0)
-        {
-            const int status_code = esp_http_client_get_status_code(client);
-            if (status_code < 200 || status_code >= 300)
-            {
-                char buffer[64];
-                std::snprintf(buffer, sizeof(buffer), "Catalog HTTP %d", status_code);
-                out_error = buffer;
-            }
-            else
-            {
-                ScopedPackScratch buffer(kHttpBufferSize);
-                if (!buffer)
-                {
-                    out_error = "Allocate catalog buffer failed";
-                }
-                while (true)
-                {
-                    if (!buffer)
-                    {
-                        break;
-                    }
-                    const int read = esp_http_client_read(client,
-                                                          reinterpret_cast<char*>(buffer.bytes()),
-                                                          static_cast<int>(buffer.size()));
-                    if (read < 0)
-                    {
-                        out_error = "Read catalog failed";
-                        break;
-                    }
-                    if (read == 0)
-                    {
-                        ok = true;
-                        break;
-                    }
-                    out.append(reinterpret_cast<const char*>(buffer.bytes()),
-                               static_cast<std::size_t>(read));
-                }
-            }
-        }
-        else
-        {
-            out_error = "Fetch catalog headers failed";
-        }
-    }
-    else
-    {
-        log_pack_memory_snapshot("catalog open failed");
-        out_error = "Open catalog request failed";
-    }
-
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    return ok;
+    platform::ui::http_client::Request request{};
+    request.url = url.c_str();
+    request.client = platform::ui::wifi_access::Client::PackRepository;
+    request.access_kind = platform::ui::wifi_access::AccessKind::HttpMetadata;
+    request.priority = platform::ui::wifi_access::Priority::UserForeground;
+    request.reason = "pack_catalog";
+    request.buffer_size = kHttpBufferSize;
+    request.tx_buffer_size = kHttpTxBufferSize;
+    return platform::ui::http_client::get_text(request, out, out_error);
 }
 
-bool http_download_file(const std::string& url,
-                        const std::string& logical_path,
-                        std::string& out_error)
+bool download_package_archive(const std::string& url,
+                              const std::string& logical_path,
+                              std::string& out_error)
 {
     out_error.clear();
 
@@ -1893,77 +1749,25 @@ bool http_download_file(const std::string& url,
         return false;
     }
 
-    esp_http_client_config_t config{};
-    configure_http_client(config, url);
+    platform::ui::http_client::Request request{};
+    request.url = url.c_str();
+    request.client = platform::ui::wifi_access::Client::PackRepository;
+    request.access_kind = platform::ui::wifi_access::AccessKind::HttpDownload;
+    request.priority = platform::ui::wifi_access::Priority::UserForeground;
+    request.reason = "pack_install";
+    request.buffer_size = kHttpBufferSize;
+    request.tx_buffer_size = kHttpTxBufferSize;
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == nullptr)
-    {
-        file.close();
-        out_error = "Create download client failed";
-        return false;
-    }
-
-    bool ok = false;
-    if (esp_http_client_open(client, 0) == ESP_OK)
-    {
-        if (esp_http_client_fetch_headers(client) >= 0)
+    bool ok = platform::ui::http_client::download(
+        request,
+        [](const std::uint8_t* data, std::size_t len, void* context)
         {
-            const int status_code = esp_http_client_get_status_code(client);
-            if (status_code < 200 || status_code >= 300)
-            {
-                char buffer[64];
-                std::snprintf(buffer, sizeof(buffer), "Download HTTP %d", status_code);
-                out_error = buffer;
-            }
-            else
-            {
-                ScopedPackScratch buffer(kHttpBufferSize);
-                if (!buffer)
-                {
-                    out_error = "Allocate download buffer failed";
-                }
-                while (true)
-                {
-                    if (!buffer)
-                    {
-                        break;
-                    }
-                    const int read = esp_http_client_read(client,
-                                                          reinterpret_cast<char*>(buffer.bytes()),
-                                                          static_cast<int>(buffer.size()));
-                    if (read < 0)
-                    {
-                        out_error = "Download read failed";
-                        break;
-                    }
-                    if (read == 0)
-                    {
-                        ok = true;
-                        break;
-                    }
-                    if (!file.write(buffer.bytes(), static_cast<std::size_t>(read)))
-                    {
-                        out_error = "Write download file failed";
-                        break;
-                    }
-                }
-            }
-        }
-        else
-        {
-            out_error = "Fetch download headers failed";
-        }
-    }
-    else
-    {
-        log_pack_memory_snapshot("download open failed");
-        out_error = "Open download request failed";
-    }
-
+            auto* target = static_cast<SequentialWriteFile*>(context);
+            return target && target->write(data, len);
+        },
+        &file,
+        out_error);
     file.close();
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
 
     if (!ok)
     {
@@ -3364,7 +3168,7 @@ bool fetch_catalog(std::vector<PackageRecord>& out_packages, std::string& out_er
     }
 
     std::string text;
-    if (!http_get_text(kCatalogUrl, text, out_error))
+    if (!fetch_catalog_text(kCatalogUrl, text, out_error))
     {
         return false;
     }
@@ -3602,7 +3406,7 @@ bool install_package_impl(const PackageRecord& package,
 
     const std::string temp_zip_path = std::string(kTempDir) + "/" + package.id + "-" + package.version + ".zip";
     std::printf("[Packs][Install] download temp=%s\n", temp_zip_path.c_str());
-    if (!http_download_file(package.download_url, temp_zip_path, out_error))
+    if (!download_package_archive(package.download_url, temp_zip_path, out_error))
     {
         std::printf("[Packs][Install] download failed error=%s\n", out_error.c_str());
         return false;

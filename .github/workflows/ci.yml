@@ -21,6 +21,9 @@ jobs:
       - name: Verify ESP stack hygiene
         run: python3 scripts/check_esp_stack_hygiene.py
 
+      - name: Verify Wi-Fi access policy
+        run: python3 scripts/check_wifi_access_policy.py
+
       - name: Verify track file streaming
         run: python3 scripts/check_track_file_streaming.py
 

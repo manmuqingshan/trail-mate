@@ -96,6 +96,7 @@ struct SettingsData
     bool rt_wifi_gateway_enabled = false;
     bool rt_wifi_auto_connect = true;
     bool rt_anonymous_peer = false;
+    char rt_display_name[32] = "--";
     char rt_identity_hash[36] = "--";
     char rt_lxmf_address[36] = "--";
     char rt_wifi_gateway_host[64] = "";

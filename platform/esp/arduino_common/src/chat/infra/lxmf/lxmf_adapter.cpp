@@ -1233,6 +1233,11 @@ bool LxmfAdapter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out)
     }
     *out = ReticulumLocalIdentityInfo{};
     out->anonymous_peer = config_.reticulum_anonymous_peer;
+    const char* display_name = effectiveDisplayName();
+    if (display_name && display_name[0] != '\0')
+    {
+        copyCString(out->display_name, sizeof(out->display_name), display_name);
+    }
     if (!identity_.isReady())
     {
         return false;
@@ -1587,10 +1592,12 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
                   destination_hex,
                   sizeof(destination_hex));
     const bool sent = routeAndSendPacket(packet, packet_len, false);
-    Serial.printf("[LXMF][AnnounceTX] kind=%s context=%u dest=%s app_len=%u packet_len=%u ok=%u\n",
+    const char* display_name = effectiveDisplayName();
+    Serial.printf("[LXMF][AnnounceTX] kind=%s context=%u dest=%s name=%s app_len=%u packet_len=%u ok=%u\n",
                   localDestinationKindLabel(kind),
                   static_cast<unsigned>(context),
                   destination_hex,
+                  (display_name && display_name[0] != '\0') ? display_name : "<none>",
                   static_cast<unsigned>(app_data_len),
                   static_cast<unsigned>(packet_len),
                   sent ? 1U : 0U);

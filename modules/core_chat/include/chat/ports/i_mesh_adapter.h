@@ -46,6 +46,7 @@ struct ReticulumLocalIdentityInfo
     bool ready = false;
     bool anonymous_peer = false;
     NodeId node_id = 0;
+    char display_name[32] = {};
     uint8_t identity_hash[kReticulumPeerHashSize] = {};
     uint8_t lxmf_address[kReticulumPeerHashSize] = {};
     uint8_t propagation_address[kReticulumPeerHashSize] = {};
