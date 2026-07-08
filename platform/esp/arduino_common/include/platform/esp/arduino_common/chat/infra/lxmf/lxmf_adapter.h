@@ -112,6 +112,10 @@ class LxmfAdapter : public IMeshAdapter
 
     reticulum::interfaces::ReticulumInterfaceSet interfaces_;
     reticulum::interfaces::RxPacket rx_packet_scratch_{};
+    uint8_t announce_tx_signed_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t announce_tx_payload_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t announce_tx_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t announce_rx_signed_scratch_[reticulum::kReticulumMtu] = {};
     sys::RingBuffer<DeferredDiscoveryPacket, kDeferredDiscoveryDepth> deferred_discovery_queue_;
     DeferredDiscoveryPacket deferred_discovery_scratch_{};
     LxmfIdentity identity_;

@@ -294,15 +294,15 @@ bool WifiGatewayReticulumInterface::pollPacket(RxPacket* out)
     }
     maintain();
 
-    QueuedPacket queued{};
-    if (!rx_queue_.popOldest(&queued))
+    poll_scratch_ = QueuedPacket{};
+    if (!rx_queue_.popOldest(&poll_scratch_))
     {
         return false;
     }
 
-    std::memcpy(out->data, queued.data, queued.len);
-    out->len = queued.len;
-    out->rx_meta = queued.rx_meta;
+    std::memcpy(out->data, poll_scratch_.data, poll_scratch_.len);
+    out->len = poll_scratch_.len;
+    out->rx_meta = poll_scratch_.rx_meta;
     out->interface_kind = InterfaceKind::WifiGateway;
     return true;
 }
@@ -593,12 +593,12 @@ void WifiGatewayReticulumInterface::enqueueFrame(const uint8_t* data, size_t len
         return;
     }
 
-    QueuedPacket queued{};
-    std::memcpy(queued.data, data, len);
-    queued.len = len;
-    fillRxMeta(&queued.rx_meta);
+    enqueue_scratch_ = QueuedPacket{};
+    std::memcpy(enqueue_scratch_.data, data, len);
+    enqueue_scratch_.len = len;
+    fillRxMeta(&enqueue_scratch_.rx_meta);
     bool dropped = false;
-    rx_queue_.append(queued, &dropped);
+    rx_queue_.append(enqueue_scratch_, &dropped);
 
     ++rx_stats_frames_;
     if (dropped)

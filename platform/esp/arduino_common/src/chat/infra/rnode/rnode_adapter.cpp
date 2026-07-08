@@ -111,7 +111,8 @@ bool RNodeAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         return false;
     }
 
-    EncodedAirPacketSet air_packets{};
+    tx_air_packets_scratch_ = EncodedAirPacketSet{};
+    EncodedAirPacketSet& air_packets = tx_air_packets_scratch_;
     const uint8_t sequence = static_cast<uint8_t>(((packet_id != 0 ? packet_id : next_sequence_) & 0x0FU));
     next_sequence_ = static_cast<uint8_t>((sequence + 1U) & 0x0FU);
     if (!encodeAirPacketSet(payload, len, sequence, &air_packets))
@@ -227,10 +228,9 @@ void RNodeAdapter::handleRawPacket(const uint8_t* data, size_t size)
         return;
     }
 
-    uint8_t payload[chat::rnode::kRNodeMaxPayloadSize] = {};
-    size_t payload_len = sizeof(payload);
+    size_t payload_len = sizeof(rx_payload_scratch_);
     bool complete = false;
-    if (!feedAirPacket(&reassembly_, data, size, payload, &payload_len, &complete) || !complete)
+    if (!feedAirPacket(&reassembly_, data, size, rx_payload_scratch_, &payload_len, &complete) || !complete)
     {
         Serial.printf("[RNode][RX] air_len=%u complete=%u accepted=0\n",
                       static_cast<unsigned>(size),
@@ -238,13 +238,13 @@ void RNodeAdapter::handleRawPacket(const uint8_t* data, size_t size)
         return;
     }
 
-    memcpy(last_raw_packet_.data, payload, payload_len);
+    memcpy(last_raw_packet_.data, rx_payload_scratch_, payload_len);
     last_raw_packet_.len = payload_len;
     has_pending_raw_packet_ = true;
     Serial.printf("[RNode][RX] air_len=%u raw_len=%u complete=1\n",
                   static_cast<unsigned>(size),
                   static_cast<unsigned>(payload_len));
-    enqueueIncomingData(payload, payload_len);
+    enqueueIncomingData(rx_payload_scratch_, payload_len);
 }
 
 void RNodeAdapter::startRadioReceive()

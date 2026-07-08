@@ -40,6 +40,10 @@ tens of seconds and replayed during an idle or screen-off maintenance window.
 - RX hot-path logging must be summary-first. Detailed logs are acceptable for
   local/realtime traffic and diagnostics, but public discovery should normally
   be represented by periodic counters.
+- Reticulum runtime code executed by `mesh_task` must not allocate MTU-sized
+  packet buffers or queued packet records as automatic locals. Carrier packet
+  scratch storage belongs in adapter/interface members, and `mesh_task` needs
+  enough stack headroom for Reticulum parsing and crypto call frames.
 
 ## Maintenance Windows
 
@@ -64,3 +68,5 @@ boundaries:
 - Reticulum RX paths must not force peer persistence.
 - Discovery budget names and helpers must not regress to Wi-Fi-only concepts.
 - The Reticulum product adapter must forward the periodic runtime pump.
+- Announce RX/TX hot paths must not allocate Reticulum packet buffers on the
+  `mesh_task` stack.

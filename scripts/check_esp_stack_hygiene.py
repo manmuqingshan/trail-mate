@@ -18,6 +18,8 @@ IMPLEMENTATION_SUFFIXES = {".c", ".cc", ".cpp", ".cxx"}
 
 HOT_PATH_PREFIXES = (
     "platform/esp/arduino_common/src/chat/infra/meshtastic/",
+    "platform/esp/arduino_common/src/chat/infra/reticulum/",
+    "platform/esp/arduino_common/src/chat/infra/rnode/",
     "modules/core_phone/src/meshtastic/",
 )
 
@@ -27,6 +29,8 @@ HOT_PATH_FILES = {
 
 HOT_HEADER_PREFIXES = (
     "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/meshtastic/",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/reticulum/",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/rnode/",
     "modules/core_phone/include/phone/meshtastic/",
 )
 
@@ -49,6 +53,9 @@ HIGH_RISK_PROTOCOL_TYPES = (
     "meshtastic_AdminMessage",
     "meshtastic_MqttClientProxyMessage",
     "meshtastic_ServiceEnvelope",
+    "EncodedAirPacketSet",
+    "chat::rnode::EncodedAirPacketSet",
+    "QueuedPacket",
 )
 
 HIGH_RISK_CONFIG_TYPES = (
@@ -67,6 +74,9 @@ LARGE_ARRAY_SIZE_TOKENS = (
     "kMaxEncoded",
     "MAX_PACKET_SIZE",
     "TM_C6_MAX_PAYLOAD",
+    "reticulum::kReticulumMtu",
+    "chat::rnode::kRNodeMaxPayloadSize",
+    "chat::rnode::kRNodeSingleAirPacketSize",
 )
 
 

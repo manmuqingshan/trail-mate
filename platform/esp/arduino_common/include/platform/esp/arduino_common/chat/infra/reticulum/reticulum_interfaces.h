@@ -107,6 +107,8 @@ class WifiGatewayReticulumInterface
     uint32_t rx_stats_read_skips_ = 0;
     uint8_t hdlc_frame_[reticulum::kReticulumMtu] = {};
     uint8_t tx_frame_[(reticulum::kReticulumMtu * 2U) + 2U] = {};
+    QueuedPacket poll_scratch_{};
+    QueuedPacket enqueue_scratch_{};
     sys::RingBuffer<QueuedPacket, kRxQueueDepth> rx_queue_;
 
 #if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE

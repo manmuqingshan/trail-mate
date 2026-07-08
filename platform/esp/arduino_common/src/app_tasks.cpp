@@ -31,6 +31,8 @@ namespace
 constexpr TickType_t kRadioPollDelay = pdMS_TO_TICKS(10);
 constexpr TickType_t kRadioDisplayPressurePollDelay = pdMS_TO_TICKS(50);
 constexpr uint32_t kRadioDisplayPressureWindowMs = 300;
+constexpr uint32_t kRadioTaskStackBytes = 3 * 1024;
+constexpr uint32_t kMeshTaskStackBytes = 6 * 1024;
 
 bool display_spi_pressure_for_radio()
 {
@@ -234,7 +236,7 @@ bool AppTasks::init(LoraBoard& board, chat::IMeshAdapter* adapter)
     BaseType_t result = xTaskCreate(
         radioTask,
         "radio_task",
-        3 * 1024, // Stack size
+        kRadioTaskStackBytes,
         nullptr,
         10, // High priority
         &radio_task_handle_);
@@ -248,7 +250,7 @@ bool AppTasks::init(LoraBoard& board, chat::IMeshAdapter* adapter)
     result = xTaskCreate(
         meshTask,
         "mesh_task",
-        4 * 1024, // Stack size
+        kMeshTaskStackBytes,
         nullptr,
         5, // Medium priority
         &mesh_task_handle_);

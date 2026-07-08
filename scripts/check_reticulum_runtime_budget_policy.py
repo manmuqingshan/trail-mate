@@ -14,6 +14,12 @@ LXMF_H = REPO_ROOT / "platform/esp/arduino_common/include/platform/esp/arduino_c
 RT_CPP = REPO_ROOT / "platform/esp/arduino_common/src/chat/infra/reticulum/reticulum_adapter.cpp"
 RT_H = REPO_ROOT / "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
 
+LARGE_LOCAL_PATTERN = re.compile(
+    r"\buint8_t\s+\w+\s*\[\s*"
+    r"(?:kMaxPacketLen|kMaxLxmfMessageLen|kSignedPartMaxLen|kMaxTokenPlaintextLen)"
+    r"\s*\]"
+)
+
 
 def method_body(text: str, signature: str) -> str:
     start = text.find(signature)
@@ -75,6 +81,14 @@ def main() -> int:
         gate_pos = announce_body.rfind("if (allow_persistence)", 0, record_pos)
         if gate_pos < 0:
             violations.append("record_announce() must be gated by allow_persistence")
+
+    for signature in (
+        "bool LxmfAdapter::sendAnnounce",
+        "bool LxmfAdapter::handleAnnouncePacket",
+    ):
+        body = method_body(lxmf_cpp, signature)
+        if LARGE_LOCAL_PATTERN.search(body):
+            violations.append(f"{signature} must not allocate Reticulum packet buffers on the mesh_task stack")
 
     if violations:
         print("Reticulum runtime budget policy check failed:")

@@ -1700,7 +1700,7 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
     random_hash[8] = static_cast<uint8_t>((now_s >> 8) & 0xFFU);
     random_hash[9] = static_cast<uint8_t>(now_s & 0xFFU);
 
-    uint8_t signed_data[kMaxPacketLen] = {};
+    uint8_t* signed_data = announce_tx_signed_scratch_;
     size_t signed_len = 0;
     memcpy(signed_data + signed_len, destination_hash, reticulum::kTruncatedHashSize);
     signed_len += reticulum::kTruncatedHashSize;
@@ -1710,6 +1710,10 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
     signed_len += sizeof(name_hash);
     memcpy(signed_data + signed_len, random_hash, sizeof(random_hash));
     signed_len += sizeof(random_hash);
+    if (signed_len + app_data_len > reticulum::kReticulumMtu)
+    {
+        return false;
+    }
     memcpy(signed_data + signed_len, app_data, app_data_len);
     signed_len += app_data_len;
 
@@ -1719,7 +1723,7 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
         return false;
     }
 
-    uint8_t announce_payload[kMaxPacketLen] = {};
+    uint8_t* announce_payload = announce_tx_payload_scratch_;
     size_t announce_payload_len = 0;
     memcpy(announce_payload + announce_payload_len, combined_pub, sizeof(combined_pub));
     announce_payload_len += sizeof(combined_pub);
@@ -1729,11 +1733,15 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
     announce_payload_len += sizeof(random_hash);
     memcpy(announce_payload + announce_payload_len, signature, sizeof(signature));
     announce_payload_len += sizeof(signature);
+    if (announce_payload_len + app_data_len > reticulum::kReticulumMtu)
+    {
+        return false;
+    }
     memcpy(announce_payload + announce_payload_len, app_data, app_data_len);
     announce_payload_len += app_data_len;
 
-    uint8_t packet[kMaxPacketLen] = {};
-    size_t packet_len = sizeof(packet);
+    uint8_t* packet = announce_tx_packet_scratch_;
+    size_t packet_len = reticulum::kReticulumMtu;
     if (!reticulum::buildHeader1Packet(reticulum::PacketType::Announce,
                                        reticulum::DestinationType::Single,
                                        context,
@@ -1826,7 +1834,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         return false;
     }
 
-    uint8_t signed_data[kMaxPacketLen] = {};
+    uint8_t* signed_data = announce_rx_signed_scratch_;
     size_t signed_len = 0;
     memcpy(signed_data + signed_len, packet.destination_hash, reticulum::kTruncatedHashSize);
     signed_len += reticulum::kTruncatedHashSize;
@@ -1838,11 +1846,19 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     signed_len += 10;
     if (announce.has_ratchet && announce.ratchet && announce.ratchet_len != 0)
     {
+        if (signed_len + announce.ratchet_len > reticulum::kReticulumMtu)
+        {
+            return false;
+        }
         memcpy(signed_data + signed_len, announce.ratchet, announce.ratchet_len);
         signed_len += announce.ratchet_len;
     }
     if (announce.app_data_len != 0)
     {
+        if (signed_len + announce.app_data_len > reticulum::kReticulumMtu)
+        {
+            return false;
+        }
         memcpy(signed_data + signed_len, announce.app_data, announce.app_data_len);
         signed_len += announce.app_data_len;
     }

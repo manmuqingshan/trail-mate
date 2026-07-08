@@ -65,6 +65,8 @@ class RNodeAdapter : public IMeshAdapter
     uint8_t next_sequence_ = 0;
     chat::rnode::ReassemblyState reassembly_;
     PendingRawPacket last_raw_packet_;
+    chat::rnode::EncodedAirPacketSet tx_air_packets_scratch_{};
+    uint8_t rx_payload_scratch_[chat::rnode::kRNodeMaxPayloadSize] = {};
     bool has_pending_raw_packet_ = false;
     static constexpr std::size_t kIncomingQueueDepth = 4;
     ::chat::infra::IncomingDataQueue<kIncomingQueueDepth, chat::rnode::kRNodeMaxPayloadSize> app_receive_queue_;
