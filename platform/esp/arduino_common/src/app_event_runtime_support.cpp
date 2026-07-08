@@ -1,6 +1,7 @@
 #include "platform/esp/arduino_common/app_event_runtime_support.h"
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "app/app_facades.h"
@@ -203,10 +204,25 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
     case sys::EventType::ChatNewMessage:
     {
         auto* msg_event = static_cast<sys::ChatNewMessageEvent*>(event);
-        if (messageAlertsEnabled())
+        const bool alerts_enabled = messageAlertsEnabled();
+        std::printf("[UI][event] chat_new_message msg=%lu ch=%u len=%u origin=%u alerts=%u text='%s'\n",
+                    static_cast<unsigned long>(msg_event->msg_id),
+                    static_cast<unsigned>(msg_event->channel),
+                    static_cast<unsigned>(std::strlen(msg_event->text)),
+                    static_cast<unsigned>(msg_event->rx_meta.origin),
+                    alerts_enabled ? 1U : 0U,
+                    msg_event->text);
+        if (alerts_enabled)
         {
             triggerMessageFeedback(app_context);
             ::ui::feedback::show_notice(msg_event->text, 3000);
+            std::printf("[UI][notice] chat_new_message msg=%lu shown=1\n",
+                        static_cast<unsigned long>(msg_event->msg_id));
+        }
+        else
+        {
+            std::printf("[UI][notice] chat_new_message msg=%lu shown=0 reason=alerts_disabled\n",
+                        static_cast<unsigned long>(msg_event->msg_id));
         }
         break;
     }
@@ -286,6 +302,13 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
     chat::ui::IChatUiRuntime* chat_ui_runtime = app_context.getChatUiRuntime();
     if (chat_ui_runtime)
     {
+        if (event->type == sys::EventType::ChatNewMessage)
+        {
+            auto* msg_event = static_cast<sys::ChatNewMessageEvent*>(event);
+            std::printf("[UI][chat_runtime] dispatch chat_new_message msg=%lu ch=%u\n",
+                        static_cast<unsigned long>(msg_event->msg_id),
+                        static_cast<unsigned>(msg_event->channel));
+        }
         chat_ui_runtime->onChatEvent(event);
         return true;
     }

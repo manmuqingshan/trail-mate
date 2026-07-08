@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include <cstdio>
 #include <esp_heap_caps.h>
 #include <memory>
 #include <new>
@@ -25,7 +26,24 @@ namespace
 constexpr const char* kChatKeyMeshOverrideDuty = "mesh_ovr_dc";
 constexpr const char* kChatKeyMeshFreqOverride = "mesh_freq_ovr";
 constexpr const char* kChatKeyMeshIgnoreMqtt = "mesh_ign_mqtt";
+constexpr const char* kChatKeyMtMqttEnabled = "mt_mqtt_en";
+constexpr const char* kChatKeyMtMqttUplink = "mt_mqtt_up";
+constexpr const char* kChatKeyMtMqttDownlink = "mt_mqtt_down";
+constexpr const char* kChatKeyMtMqttHost = "mt_mqtt_host";
+constexpr const char* kChatKeyMtMqttPort = "mt_mqtt_port";
+constexpr const char* kChatKeyMtMqttRoot = "mt_mqtt_root";
+constexpr const char* kChatKeyMtMqttUser = "mt_mqtt_user";
+constexpr const char* kChatKeyMtMqttPass = "mt_mqtt_pass";
+constexpr const char* kLegacyMeshtasticMqttRoot = "msh";
 constexpr const char* kChatKeyMcRegionPreset = "mc_reg_preset";
+constexpr const char* kChatKeyMcMqttEnabled = "mc_mqtt_en";
+constexpr const char* kChatKeyMcMqttUplink = "mc_mqtt_up";
+constexpr const char* kChatKeyMcMqttDownlink = "mc_mqtt_down";
+constexpr const char* kChatKeyMcMqttHost = "mc_mqtt_host";
+constexpr const char* kChatKeyMcMqttPort = "mc_mqtt_port";
+constexpr const char* kChatKeyMcMqttRoot = "mc_mqtt_root";
+constexpr const char* kChatKeyMcMqttUser = "mc_mqtt_user";
+constexpr const char* kChatKeyMcMqttPass = "mc_mqtt_pass";
 constexpr const char* kChatKeySecondaryEnabled = "sec_enabled";
 constexpr const char* kChatKeyPrimaryDownlink = "pri_downlink";
 constexpr const char* kChatKeySecondaryUplink = "sec_uplink";
@@ -1006,6 +1024,32 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         meshtastic_config.secondary_channel_name[sizeof(meshtastic_config.secondary_channel_name) - 1] = '\0';
         meshtastic_config.primary_channel_id = get_uint(kChatKeyPrimaryChannelId, 0);
         meshtastic_config.secondary_channel_id = get_uint(kChatKeySecondaryChannelId, 0);
+        config.meshtastic_mqtt_enabled =
+            get_bool(kChatKeyMtMqttEnabled, config.meshtastic_mqtt_enabled);
+        config.meshtastic_mqtt_uplink_enabled =
+            get_bool(kChatKeyMtMqttUplink, config.meshtastic_mqtt_uplink_enabled);
+        config.meshtastic_mqtt_downlink_enabled =
+            get_bool(kChatKeyMtMqttDownlink, config.meshtastic_mqtt_downlink_enabled);
+        String mt_mqtt_host = get_string(kChatKeyMtMqttHost, config.meshtastic_mqtt_host);
+        strncpy(config.meshtastic_mqtt_host, mt_mqtt_host.c_str(),
+                sizeof(config.meshtastic_mqtt_host) - 1);
+        config.meshtastic_mqtt_host[sizeof(config.meshtastic_mqtt_host) - 1] = '\0';
+        config.meshtastic_mqtt_port =
+            get_ushort(kChatKeyMtMqttPort, config.meshtastic_mqtt_port);
+        String mt_mqtt_root = get_string(kChatKeyMtMqttRoot, config.meshtastic_mqtt_root);
+        strncpy(config.meshtastic_mqtt_root, mt_mqtt_root.c_str(),
+                sizeof(config.meshtastic_mqtt_root) - 1);
+        config.meshtastic_mqtt_root[sizeof(config.meshtastic_mqtt_root) - 1] = '\0';
+        String mt_mqtt_user =
+            get_string(kChatKeyMtMqttUser, config.meshtastic_mqtt_username);
+        strncpy(config.meshtastic_mqtt_username, mt_mqtt_user.c_str(),
+                sizeof(config.meshtastic_mqtt_username) - 1);
+        config.meshtastic_mqtt_username[sizeof(config.meshtastic_mqtt_username) - 1] = '\0';
+        String mt_mqtt_pass =
+            get_string(kChatKeyMtMqttPass, config.meshtastic_mqtt_password);
+        strncpy(config.meshtastic_mqtt_password, mt_mqtt_pass.c_str(),
+                sizeof(config.meshtastic_mqtt_password) - 1);
+        config.meshtastic_mqtt_password[sizeof(config.meshtastic_mqtt_password) - 1] = '\0';
 
         // Load meshcore profile (protocol-specific keys)
         meshcore_config.meshcore_freq_mhz = get_float("mc_freq", meshcore_config.meshcore_freq_mhz);
@@ -1033,6 +1077,30 @@ bool loadAppConfigFromPreferences(AppConfig& config,
                 sizeof(meshcore_config.meshcore_channel_name) - 1);
         meshcore_config.meshcore_channel_name[sizeof(meshcore_config.meshcore_channel_name) - 1] = '\0';
         get_bytes("mc_ch_key", meshcore_config.secondary_key, sizeof(meshcore_config.secondary_key));
+        meshcore_config.meshcore_mqtt_enabled =
+            get_bool(kChatKeyMcMqttEnabled, meshcore_config.meshcore_mqtt_enabled);
+        meshcore_config.meshcore_mqtt_uplink_enabled =
+            get_bool(kChatKeyMcMqttUplink, meshcore_config.meshcore_mqtt_uplink_enabled);
+        meshcore_config.meshcore_mqtt_downlink_enabled =
+            get_bool(kChatKeyMcMqttDownlink, meshcore_config.meshcore_mqtt_downlink_enabled);
+        String mc_mqtt_host = get_string(kChatKeyMcMqttHost, meshcore_config.meshcore_mqtt_host);
+        strncpy(meshcore_config.meshcore_mqtt_host, mc_mqtt_host.c_str(),
+                sizeof(meshcore_config.meshcore_mqtt_host) - 1);
+        meshcore_config.meshcore_mqtt_host[sizeof(meshcore_config.meshcore_mqtt_host) - 1] = '\0';
+        meshcore_config.meshcore_mqtt_port =
+            get_ushort(kChatKeyMcMqttPort, meshcore_config.meshcore_mqtt_port);
+        String mc_mqtt_root = get_string(kChatKeyMcMqttRoot, meshcore_config.meshcore_mqtt_root);
+        strncpy(meshcore_config.meshcore_mqtt_root, mc_mqtt_root.c_str(),
+                sizeof(meshcore_config.meshcore_mqtt_root) - 1);
+        meshcore_config.meshcore_mqtt_root[sizeof(meshcore_config.meshcore_mqtt_root) - 1] = '\0';
+        String mc_mqtt_user = get_string(kChatKeyMcMqttUser, meshcore_config.meshcore_mqtt_username);
+        strncpy(meshcore_config.meshcore_mqtt_username, mc_mqtt_user.c_str(),
+                sizeof(meshcore_config.meshcore_mqtt_username) - 1);
+        meshcore_config.meshcore_mqtt_username[sizeof(meshcore_config.meshcore_mqtt_username) - 1] = '\0';
+        String mc_mqtt_pass = get_string(kChatKeyMcMqttPass, meshcore_config.meshcore_mqtt_password);
+        strncpy(meshcore_config.meshcore_mqtt_password, mc_mqtt_pass.c_str(),
+                sizeof(meshcore_config.meshcore_mqtt_password) - 1);
+        meshcore_config.meshcore_mqtt_password[sizeof(meshcore_config.meshcore_mqtt_password) - 1] = '\0';
 
         rnode_config.override_frequency_mhz = get_float("rn_freq", rnode_config.override_frequency_mhz);
         rnode_config.bandwidth_khz = get_float("rn_bw", rnode_config.bandwidth_khz);
@@ -1131,6 +1199,39 @@ bool loadAppConfigFromPreferences(AppConfig& config,
     meshtastic_config.tx_power = clamp_tx_power(meshtastic_config.tx_power);
     meshcore_config.tx_power = clamp_tx_power(meshcore_config.tx_power);
     rnode_config.tx_power = clamp_tx_power(rnode_config.tx_power);
+    if (config.meshtastic_mqtt_port == 0)
+    {
+        config.meshtastic_mqtt_port = 1883;
+    }
+    if (strcmp(config.meshtastic_mqtt_root, kLegacyMeshtasticMqttRoot) == 0 &&
+        strcmp(config.meshtastic_mqtt_root, AppConfig::kDefaultMeshtasticMqttRoot) != 0)
+    {
+        strncpy(config.meshtastic_mqtt_root, AppConfig::kDefaultMeshtasticMqttRoot,
+                sizeof(config.meshtastic_mqtt_root) - 1);
+        config.meshtastic_mqtt_root[sizeof(config.meshtastic_mqtt_root) - 1] = '\0';
+        if (emit_logs)
+        {
+            std::printf("[AppCfg][MIGRATE] mt_mqtt_root old=%s new=%s\n",
+                        kLegacyMeshtasticMqttRoot,
+                        config.meshtastic_mqtt_root);
+        }
+    }
+    if (config.meshtastic_mqtt_root[0] == '\0')
+    {
+        strncpy(config.meshtastic_mqtt_root, AppConfig::kDefaultMeshtasticMqttRoot,
+                sizeof(config.meshtastic_mqtt_root) - 1);
+        config.meshtastic_mqtt_root[sizeof(config.meshtastic_mqtt_root) - 1] = '\0';
+    }
+    if (meshcore_config.meshcore_mqtt_port == 0)
+    {
+        meshcore_config.meshcore_mqtt_port = 1883;
+    }
+    if (meshcore_config.meshcore_mqtt_root[0] == '\0')
+    {
+        strncpy(meshcore_config.meshcore_mqtt_root, AppConfig::kDefaultMeshCoreMqttRoot,
+                sizeof(meshcore_config.meshcore_mqtt_root) - 1);
+        meshcore_config.meshcore_mqtt_root[sizeof(meshcore_config.meshcore_mqtt_root) - 1] = '\0';
+    }
     if (rnode_config.reticulum_wifi_gateway_port == 0)
     {
         rnode_config.reticulum_wifi_gateway_port = 4242;
@@ -1400,6 +1501,17 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_string(kChatKeySecondaryChannelName, meshtastic_config.secondary_channel_name);
         put_uint(kChatKeyPrimaryChannelId, meshtastic_config.primary_channel_id);
         put_uint(kChatKeySecondaryChannelId, meshtastic_config.secondary_channel_id);
+        put_bool(kChatKeyMtMqttEnabled, config.meshtastic_mqtt_enabled);
+        put_bool(kChatKeyMtMqttUplink, config.meshtastic_mqtt_uplink_enabled);
+        put_bool(kChatKeyMtMqttDownlink, config.meshtastic_mqtt_downlink_enabled);
+        put_string(kChatKeyMtMqttHost, config.meshtastic_mqtt_host);
+        put_ushort(kChatKeyMtMqttPort,
+                   config.meshtastic_mqtt_port != 0
+                       ? config.meshtastic_mqtt_port
+                       : 1883);
+        put_string(kChatKeyMtMqttRoot, config.meshtastic_mqtt_root);
+        put_string(kChatKeyMtMqttUser, config.meshtastic_mqtt_username);
+        put_string(kChatKeyMtMqttPass, config.meshtastic_mqtt_password);
 
         // Save meshcore profile
         put_float("mc_freq", meshcore_config.meshcore_freq_mhz);
@@ -1419,6 +1531,17 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_bool("mc_tx_en", meshcore_config.tx_enabled);
         put_string("mc_ch_name", meshcore_config.meshcore_channel_name);
         put_bytes("mc_ch_key", meshcore_config.secondary_key, sizeof(meshcore_config.secondary_key));
+        put_bool(kChatKeyMcMqttEnabled, meshcore_config.meshcore_mqtt_enabled);
+        put_bool(kChatKeyMcMqttUplink, meshcore_config.meshcore_mqtt_uplink_enabled);
+        put_bool(kChatKeyMcMqttDownlink, meshcore_config.meshcore_mqtt_downlink_enabled);
+        put_string(kChatKeyMcMqttHost, meshcore_config.meshcore_mqtt_host);
+        put_ushort(kChatKeyMcMqttPort,
+                   meshcore_config.meshcore_mqtt_port != 0
+                       ? meshcore_config.meshcore_mqtt_port
+                       : 1883);
+        put_string(kChatKeyMcMqttRoot, meshcore_config.meshcore_mqtt_root);
+        put_string(kChatKeyMcMqttUser, meshcore_config.meshcore_mqtt_username);
+        put_string(kChatKeyMcMqttPass, meshcore_config.meshcore_mqtt_password);
 
         put_float("rn_freq", rnode_config.override_frequency_mhz);
         put_float("rn_bw", rnode_config.bandwidth_khz);

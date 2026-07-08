@@ -1252,6 +1252,11 @@ static bool is_meshcore_protocol_selected()
     return selected_protocol() == chat::MeshProtocol::MeshCore;
 }
 
+static bool is_meshtastic_protocol_selected()
+{
+    return selected_protocol() == chat::MeshProtocol::Meshtastic;
+}
+
 static bool is_reticulum_protocol_selected()
 {
     return chat::infra::isReticulumMeshProtocol(selected_protocol());
@@ -1262,6 +1267,7 @@ static void reset_mesh_settings()
     app::IAppFacade& app_ctx = app::appFacade();
     app_ctx.getConfig().meshtastic_config = chat::MeshConfig();
     app_ctx.getConfig().meshtastic_config.region = app::AppConfig::kDefaultRegionCode;
+    app_ctx.getConfig().applyMeshtasticMqttFactoryDefaults();
     app_ctx.getConfig().meshcore_config = chat::MeshConfig();
     app_ctx.getConfig().applyMeshCoreFactoryDefaults();
     app_ctx.getConfig().reticulumConfig() = chat::MeshConfig();
@@ -1285,14 +1291,49 @@ static void reset_mesh_settings()
     g_settings.net_relay = app_ctx.getConfig().meshtastic_config.enable_relay;
     g_settings.net_duty_cycle = true;
     g_settings.net_channel_util = 0;
+    g_settings.mt_mqtt_enabled = app_ctx.getConfig().meshtastic_mqtt_enabled;
+    g_settings.mt_mqtt_uplink = app_ctx.getConfig().meshtastic_mqtt_uplink_enabled;
+    g_settings.mt_mqtt_downlink = app_ctx.getConfig().meshtastic_mqtt_downlink_enabled;
+    copy_bounded(g_settings.mt_mqtt_host,
+                 sizeof(g_settings.mt_mqtt_host),
+                 app_ctx.getConfig().meshtastic_mqtt_host);
+    std::snprintf(g_settings.mt_mqtt_port,
+                  sizeof(g_settings.mt_mqtt_port),
+                  "%u",
+                  static_cast<unsigned>(app_ctx.getConfig().meshtastic_mqtt_port));
+    copy_bounded(g_settings.mt_mqtt_root,
+                 sizeof(g_settings.mt_mqtt_root),
+                 app_ctx.getConfig().meshtastic_mqtt_root);
+    copy_bounded(g_settings.mt_mqtt_user,
+                 sizeof(g_settings.mt_mqtt_user),
+                 app_ctx.getConfig().meshtastic_mqtt_username);
+    copy_bounded(g_settings.mt_mqtt_pass,
+                 sizeof(g_settings.mt_mqtt_pass),
+                 app_ctx.getConfig().meshtastic_mqtt_password);
     g_settings.mc_region_preset = app_ctx.getConfig().meshcore_config.meshcore_region_preset;
 
     static const char* kResetKeys[] = {
         "mesh_protocol",
         "chat_channel",
         "chat_psk",
+        "mt_mqtt_enabled",
+        "mt_mqtt_uplink",
+        "mt_mqtt_downlink",
+        "mt_mqtt_host",
+        "mt_mqtt_port",
+        "mt_mqtt_root",
+        "mt_mqtt_user",
+        "mt_mqtt_pass",
         "mc_channel_name",
         "mc_channel_key",
+        "mc_mqtt_enabled",
+        "mc_mqtt_uplink",
+        "mc_mqtt_downlink",
+        "mc_mqtt_host",
+        "mc_mqtt_port",
+        "mc_mqtt_root",
+        "mc_mqtt_user",
+        "mc_mqtt_pass",
         "mc_ch_name",
         "mc_ch_key",
         "net_preset",
@@ -1565,6 +1606,30 @@ static void settings_load()
     float_to_text(mt_cfg.frequency_offset_mhz, g_settings.net_freq_offset, sizeof(g_settings.net_freq_offset), 3);
     g_settings.net_duty_cycle = cfg.net_duty_cycle;
     g_settings.net_channel_util = cfg.net_channel_util;
+    g_settings.mt_mqtt_enabled = cfg.meshtastic_mqtt_enabled;
+    g_settings.mt_mqtt_uplink = cfg.meshtastic_mqtt_uplink_enabled;
+    g_settings.mt_mqtt_downlink = cfg.meshtastic_mqtt_downlink_enabled;
+    copy_bounded(g_settings.mt_mqtt_host,
+                 sizeof(g_settings.mt_mqtt_host),
+                 cfg.meshtastic_mqtt_host);
+    std::snprintf(g_settings.mt_mqtt_port,
+                  sizeof(g_settings.mt_mqtt_port),
+                  "%u",
+                  static_cast<unsigned>(
+                      cfg.meshtastic_mqtt_port != 0
+                          ? cfg.meshtastic_mqtt_port
+                          : 1883));
+    copy_bounded(g_settings.mt_mqtt_root,
+                 sizeof(g_settings.mt_mqtt_root),
+                 cfg.meshtastic_mqtt_root[0]
+                     ? cfg.meshtastic_mqtt_root
+                     : app::AppConfig::kDefaultMeshtasticMqttRoot);
+    copy_bounded(g_settings.mt_mqtt_user,
+                 sizeof(g_settings.mt_mqtt_user),
+                 cfg.meshtastic_mqtt_username);
+    copy_bounded(g_settings.mt_mqtt_pass,
+                 sizeof(g_settings.mt_mqtt_pass),
+                 cfg.meshtastic_mqtt_password);
 
     if (chat::meshcore::isValidRegionPresetId(mc_cfg.meshcore_region_preset))
     {
@@ -1601,6 +1666,30 @@ static void settings_load()
         bytes_to_hex(mc_cfg.secondary_key, chat::kMeshCoreChannelKeyLen,
                      g_settings.mc_channel_key, sizeof(g_settings.mc_channel_key));
     }
+    g_settings.mc_mqtt_enabled = mc_cfg.meshcore_mqtt_enabled;
+    g_settings.mc_mqtt_uplink = mc_cfg.meshcore_mqtt_uplink_enabled;
+    g_settings.mc_mqtt_downlink = mc_cfg.meshcore_mqtt_downlink_enabled;
+    copy_bounded(g_settings.mc_mqtt_host,
+                 sizeof(g_settings.mc_mqtt_host),
+                 mc_cfg.meshcore_mqtt_host);
+    std::snprintf(g_settings.mc_mqtt_port,
+                  sizeof(g_settings.mc_mqtt_port),
+                  "%u",
+                  static_cast<unsigned>(
+                      mc_cfg.meshcore_mqtt_port != 0
+                          ? mc_cfg.meshcore_mqtt_port
+                          : 1883));
+    copy_bounded(g_settings.mc_mqtt_root,
+                 sizeof(g_settings.mc_mqtt_root),
+                 mc_cfg.meshcore_mqtt_root[0]
+                     ? mc_cfg.meshcore_mqtt_root
+                     : app::AppConfig::kDefaultMeshCoreMqttRoot);
+    copy_bounded(g_settings.mc_mqtt_user,
+                 sizeof(g_settings.mc_mqtt_user),
+                 mc_cfg.meshcore_mqtt_username);
+    copy_bounded(g_settings.mc_mqtt_pass,
+                 sizeof(g_settings.mc_mqtt_pass),
+                 mc_cfg.meshcore_mqtt_password);
 
     g_settings.privacy_encrypt_mode = cfg.privacy_encrypt_mode;
 
@@ -2297,6 +2386,121 @@ static void on_text_save_clicked(lv_event_t* e)
                           sizeof(g_settings.rt_wifi_gateway_port),
                           "%u",
                           static_cast<unsigned>(value));
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mt_mqtt_host") == 0)
+        {
+            app::IAppFacade& app_ctx = app::appFacade();
+            copy_bounded(app_ctx.getConfig().meshtastic_mqtt_host,
+                         sizeof(app_ctx.getConfig().meshtastic_mqtt_host),
+                         g_state.editing_item->text_value);
+            app_ctx.saveConfig();
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mt_mqtt_port") == 0)
+        {
+            char* end = nullptr;
+            long value = strtol(g_state.editing_item->text_value, &end, 10);
+            if (end == g_state.editing_item->text_value || (end && *end != '\0') ||
+                value <= 0 || value > 65535)
+            {
+                ::ui::feedback::show_notice(::ui::i18n::tr("Invalid MQTT port"), 3000);
+                modal_close();
+                return;
+            }
+            app::IAppFacade& app_ctx = app::appFacade();
+            app_ctx.getConfig().meshtastic_mqtt_port =
+                static_cast<uint16_t>(value);
+            app_ctx.saveConfig();
+            std::snprintf(g_settings.mt_mqtt_port,
+                          sizeof(g_settings.mt_mqtt_port),
+                          "%u",
+                          static_cast<unsigned>(value));
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mt_mqtt_root") == 0)
+        {
+            app::IAppFacade& app_ctx = app::appFacade();
+            const char* root =
+                g_state.editing_item->text_value[0] != '\0'
+                    ? g_state.editing_item->text_value
+                    : app::AppConfig::kDefaultMeshtasticMqttRoot;
+            copy_bounded(app_ctx.getConfig().meshtastic_mqtt_root,
+                         sizeof(app_ctx.getConfig().meshtastic_mqtt_root),
+                         root);
+            copy_bounded(g_settings.mt_mqtt_root, sizeof(g_settings.mt_mqtt_root), root);
+            app_ctx.saveConfig();
+            std::printf("[Settings][MQTT] mt root saved root=%s\n", root);
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mt_mqtt_user") == 0)
+        {
+            app::IAppFacade& app_ctx = app::appFacade();
+            copy_bounded(app_ctx.getConfig().meshtastic_mqtt_username,
+                         sizeof(app_ctx.getConfig().meshtastic_mqtt_username),
+                         g_state.editing_item->text_value);
+            app_ctx.saveConfig();
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mt_mqtt_pass") == 0)
+        {
+            app::IAppFacade& app_ctx = app::appFacade();
+            copy_bounded(app_ctx.getConfig().meshtastic_mqtt_password,
+                         sizeof(app_ctx.getConfig().meshtastic_mqtt_password),
+                         g_state.editing_item->text_value);
+            app_ctx.saveConfig();
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mc_mqtt_host") == 0)
+        {
+            app::IAppFacade& app_ctx = app::appFacade();
+            copy_bounded(app_ctx.getConfig().meshcore_config.meshcore_mqtt_host,
+                         sizeof(app_ctx.getConfig().meshcore_config.meshcore_mqtt_host),
+                         g_state.editing_item->text_value);
+            app_ctx.saveConfig();
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mc_mqtt_port") == 0)
+        {
+            char* end = nullptr;
+            long value = strtol(g_state.editing_item->text_value, &end, 10);
+            if (end == g_state.editing_item->text_value || (end && *end != '\0') ||
+                value <= 0 || value > 65535)
+            {
+                ::ui::feedback::show_notice(::ui::i18n::tr("Invalid MQTT port"), 3000);
+                modal_close();
+                return;
+            }
+            app::IAppFacade& app_ctx = app::appFacade();
+            app_ctx.getConfig().meshcore_config.meshcore_mqtt_port =
+                static_cast<uint16_t>(value);
+            app_ctx.saveConfig();
+            std::snprintf(g_settings.mc_mqtt_port,
+                          sizeof(g_settings.mc_mqtt_port),
+                          "%u",
+                          static_cast<unsigned>(value));
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mc_mqtt_root") == 0)
+        {
+            app::IAppFacade& app_ctx = app::appFacade();
+            const char* root =
+                g_state.editing_item->text_value[0] != '\0'
+                    ? g_state.editing_item->text_value
+                    : app::AppConfig::kDefaultMeshCoreMqttRoot;
+            copy_bounded(app_ctx.getConfig().meshcore_config.meshcore_mqtt_root,
+                         sizeof(app_ctx.getConfig().meshcore_config.meshcore_mqtt_root),
+                         root);
+            copy_bounded(g_settings.mc_mqtt_root, sizeof(g_settings.mc_mqtt_root), root);
+            app_ctx.saveConfig();
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mc_mqtt_user") == 0)
+        {
+            app::IAppFacade& app_ctx = app::appFacade();
+            copy_bounded(app_ctx.getConfig().meshcore_config.meshcore_mqtt_username,
+                         sizeof(app_ctx.getConfig().meshcore_config.meshcore_mqtt_username),
+                         g_state.editing_item->text_value);
+            app_ctx.saveConfig();
+        }
+        if (g_state.editing_item->pref_key && strcmp(g_state.editing_item->pref_key, "mc_mqtt_pass") == 0)
+        {
+            app::IAppFacade& app_ctx = app::appFacade();
+            copy_bounded(app_ctx.getConfig().meshcore_config.meshcore_mqtt_password,
+                         sizeof(app_ctx.getConfig().meshcore_config.meshcore_mqtt_password),
+                         g_state.editing_item->text_value);
+            app_ctx.saveConfig();
         }
         if (g_state.editing_item->pref_key &&
             (strcmp(g_state.editing_item->pref_key, "wifi_ssid") == 0 ||
@@ -4176,6 +4380,22 @@ static settings::ui::SettingItem kChatItems[] = {
     {"User Name", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.user_name, sizeof(g_settings.user_name), false, "chat_user"},
     {"Short Name", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.short_name, sizeof(g_settings.short_name), false, "chat_short"},
     {"Protocol", settings::ui::SettingType::Enum, kChatProtocolOptions, 3, &g_settings.chat_protocol, nullptr, nullptr, 0, false, "mesh_protocol"},
+    {"MT MQTT", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mt_mqtt_enabled, nullptr, 0, false, "mt_mqtt_enabled"},
+    {"MT MQTT Host", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mt_mqtt_host, sizeof(g_settings.mt_mqtt_host), false, "mt_mqtt_host"},
+    {"MT MQTT Port", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mt_mqtt_port, sizeof(g_settings.mt_mqtt_port), false, "mt_mqtt_port"},
+    {"MT MQTT Root", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mt_mqtt_root, sizeof(g_settings.mt_mqtt_root), false, "mt_mqtt_root"},
+    {"MT MQTT User", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mt_mqtt_user, sizeof(g_settings.mt_mqtt_user), false, "mt_mqtt_user"},
+    {"MT MQTT Pass", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mt_mqtt_pass, sizeof(g_settings.mt_mqtt_pass), true, "mt_mqtt_pass"},
+    {"MT MQTT Uplink", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mt_mqtt_uplink, nullptr, 0, false, "mt_mqtt_uplink"},
+    {"MT MQTT Downlink", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mt_mqtt_downlink, nullptr, 0, false, "mt_mqtt_downlink"},
+    {"MC MQTT", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mc_mqtt_enabled, nullptr, 0, false, "mc_mqtt_enabled"},
+    {"MC MQTT Host", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_mqtt_host, sizeof(g_settings.mc_mqtt_host), false, "mc_mqtt_host"},
+    {"MC MQTT Port", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_mqtt_port, sizeof(g_settings.mc_mqtt_port), false, "mc_mqtt_port"},
+    {"MC MQTT Root", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_mqtt_root, sizeof(g_settings.mc_mqtt_root), false, "mc_mqtt_root"},
+    {"MC MQTT User", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_mqtt_user, sizeof(g_settings.mc_mqtt_user), false, "mc_mqtt_user"},
+    {"MC MQTT Pass", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_mqtt_pass, sizeof(g_settings.mc_mqtt_pass), true, "mc_mqtt_pass"},
+    {"MC MQTT Uplink", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mc_mqtt_uplink, nullptr, 0, false, "mc_mqtt_uplink"},
+    {"MC MQTT Downlink", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mc_mqtt_downlink, nullptr, 0, false, "mc_mqtt_downlink"},
     {"Region", settings::ui::SettingType::Enum, nullptr, 0, &g_settings.chat_region, nullptr, nullptr, 0, false, "chat_region"},
     {"Channel", settings::ui::SettingType::Enum, kChatChannelOptions, 2, &g_settings.chat_channel, nullptr, nullptr, 0, false, "chat_channel"},
     {"Channel Key / PSK", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.chat_psk, sizeof(g_settings.chat_psk), true, "chat_psk"},
@@ -4361,6 +4581,30 @@ static bool has_pref_key(const settings::ui::SettingItem& item, const char* key)
     return item.pref_key && key && strcmp(item.pref_key, key) == 0;
 }
 
+static bool is_meshtastic_mqtt_setting(const settings::ui::SettingItem& item)
+{
+    return has_pref_key(item, "mt_mqtt_enabled") ||
+           has_pref_key(item, "mt_mqtt_host") ||
+           has_pref_key(item, "mt_mqtt_port") ||
+           has_pref_key(item, "mt_mqtt_root") ||
+           has_pref_key(item, "mt_mqtt_user") ||
+           has_pref_key(item, "mt_mqtt_pass") ||
+           has_pref_key(item, "mt_mqtt_uplink") ||
+           has_pref_key(item, "mt_mqtt_downlink");
+}
+
+static bool is_meshcore_mqtt_setting(const settings::ui::SettingItem& item)
+{
+    return has_pref_key(item, "mc_mqtt_enabled") ||
+           has_pref_key(item, "mc_mqtt_host") ||
+           has_pref_key(item, "mc_mqtt_port") ||
+           has_pref_key(item, "mc_mqtt_root") ||
+           has_pref_key(item, "mc_mqtt_user") ||
+           has_pref_key(item, "mc_mqtt_pass") ||
+           has_pref_key(item, "mc_mqtt_uplink") ||
+           has_pref_key(item, "mc_mqtt_downlink");
+}
+
 static bool option_labels_are_translated(const settings::ui::SettingItem& item)
 {
     return !has_pref_key(item, "display_locale") &&
@@ -4443,8 +4687,25 @@ static bool should_show_item(const settings::ui::SettingItem& item)
         return false;
     }
 
+    const bool meshtastic = is_meshtastic_protocol_selected();
     const bool meshcore = is_meshcore_protocol_selected();
     const bool reticulum = is_reticulum_protocol_selected();
+
+    if (is_meshtastic_mqtt_setting(item))
+    {
+        if (!meshtastic)
+        {
+            return false;
+        }
+    }
+
+    if (is_meshcore_mqtt_setting(item))
+    {
+        if (!meshcore)
+        {
+            return false;
+        }
+    }
 
     // Relay is currently not implemented as real forwarding in Meshtastic path.
     if (has_pref_key(item, "net_relay"))
@@ -4880,6 +5141,44 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
                 app_ctx.getConfig().meshcore_config.meshcore_multi_acks = *item.bool_value;
                 app_ctx.saveConfig();
                 app_ctx.applyMeshConfig();
+            }
+            if (item.pref_key && strcmp(item.pref_key, "mt_mqtt_enabled") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                app_ctx.getConfig().meshtastic_mqtt_enabled = *item.bool_value;
+                app_ctx.saveConfig();
+                build_item_list();
+            }
+            if (item.pref_key && strcmp(item.pref_key, "mt_mqtt_uplink") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                app_ctx.getConfig().meshtastic_mqtt_uplink_enabled = *item.bool_value;
+                app_ctx.saveConfig();
+            }
+            if (item.pref_key && strcmp(item.pref_key, "mt_mqtt_downlink") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                app_ctx.getConfig().meshtastic_mqtt_downlink_enabled = *item.bool_value;
+                app_ctx.saveConfig();
+            }
+            if (item.pref_key && strcmp(item.pref_key, "mc_mqtt_enabled") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                app_ctx.getConfig().meshcore_config.meshcore_mqtt_enabled = *item.bool_value;
+                app_ctx.saveConfig();
+                build_item_list();
+            }
+            if (item.pref_key && strcmp(item.pref_key, "mc_mqtt_uplink") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                app_ctx.getConfig().meshcore_config.meshcore_mqtt_uplink_enabled = *item.bool_value;
+                app_ctx.saveConfig();
+            }
+            if (item.pref_key && strcmp(item.pref_key, "mc_mqtt_downlink") == 0)
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                app_ctx.getConfig().meshcore_config.meshcore_mqtt_downlink_enabled = *item.bool_value;
+                app_ctx.saveConfig();
             }
             if (item.pref_key && strcmp(item.pref_key, "ble_enabled") == 0)
             {

@@ -101,6 +101,16 @@ struct SettingsData
     char rt_wifi_gateway_host[64] = "";
     char rt_wifi_gateway_port[6] = "4242";
 
+    // Meshtastic MQTT
+    bool mt_mqtt_enabled = false;
+    bool mt_mqtt_uplink = true;
+    bool mt_mqtt_downlink = true;
+    char mt_mqtt_host[64] = "mqtt.meshtastic.org";
+    char mt_mqtt_port[6] = "1883";
+    char mt_mqtt_root[64] = "msh/CN";
+    char mt_mqtt_user[64] = "meshdev";
+    char mt_mqtt_pass[64] = "large4cats";
+
     // MeshCore
     int mc_region_preset = 0;
     char mc_freq[16] = "915.0";
@@ -118,6 +128,14 @@ struct SettingsData
     int mc_channel_slot = 0;
     char mc_channel_name[32] = "Public";
     char mc_channel_key[65] = {};
+    bool mc_mqtt_enabled = false;
+    bool mc_mqtt_uplink = true;
+    bool mc_mqtt_downlink = true;
+    char mc_mqtt_host[64] = "";
+    char mc_mqtt_port[6] = "1883";
+    char mc_mqtt_root[64] = "meshcore";
+    char mc_mqtt_user[64] = "";
+    char mc_mqtt_pass[64] = "";
 
     // Chat/privacy controls
     int privacy_encrypt_mode = 1;
@@ -178,7 +196,7 @@ struct UiState
     ::ui::widgets::TopBar top_bar;
     lv_obj_t* filter_buttons[8]{};
     size_t filter_count = 0;
-    ItemWidget item_widgets[48]{};
+    ItemWidget item_widgets[64]{};
     size_t item_count = 0;
     int current_category = 0;
 

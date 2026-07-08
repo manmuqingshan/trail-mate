@@ -336,6 +336,9 @@ int main()
     msg = onlyMessage(service, conv);
     assert(msg->msg_id == 42);
     assert(msg->status == chat::MessageStatus::Sent);
+    service.handleSendResult(42, false);
+    msg = onlyMessage(service, conv);
+    assert(msg->status == chat::MessageStatus::Sent);
 
     mesh.next_send_ok = false;
     mesh.next_msg_id = 77;

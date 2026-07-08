@@ -1,5 +1,6 @@
 #include "platform/esp/arduino_common/app_runtime_support.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <string>
 
@@ -11,10 +12,12 @@
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_tasks.h"
+#include "platform/esp/arduino_common/chat/infra/mesh_mqtt_client_runtime.h"
 #include "platform/esp/arduino_common/device_identity.h"
 #include "platform/esp/arduino_common/hostlink/hostlink_service.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/tracker_runtime.h"
+#include "sys/clock.h"
 #include "sys/event_bus.h"
 #include "team/usecase/team_pairing_service.h"
 #include "team/usecase/team_service.h"
@@ -45,6 +48,36 @@ constexpr const char* kContactAlertsKey = "chat_contact_alerts";
 constexpr int kContactAlertsNone = 0;
 constexpr int kContactAlertsContacts = 1;
 constexpr int kContactAlertsAll = 2;
+constexpr uint32_t kContactAlertModeCacheMs = 10000;
+
+int contactAlertMode()
+{
+    static int cached_mode = -1;
+    static uint32_t cached_at_ms = 0;
+    static bool cache_valid = false;
+
+    const uint32_t now_ms = sys::millis_now();
+    if (cache_valid &&
+        cached_mode >= kContactAlertsNone &&
+        cached_mode <= kContactAlertsAll &&
+        (now_ms - cached_at_ms) < kContactAlertModeCacheMs)
+    {
+        return cached_mode;
+    }
+
+    int alert_mode = platform::ui::settings_store::get_int(kSettingsNs,
+                                                           kContactAlertsKey,
+                                                           kContactAlertsContacts);
+    if (alert_mode < kContactAlertsNone || alert_mode > kContactAlertsAll)
+    {
+        alert_mode = kContactAlertsContacts;
+    }
+
+    cached_mode = alert_mode;
+    cached_at_ms = now_ms;
+    cache_valid = true;
+    return cached_mode;
+}
 
 void triggerNodeInfoFeedback(app::IAppFacade& app_context)
 {
@@ -92,13 +125,7 @@ void notifyNodeInfoUpdate(app::IAppFacade& app_context, const sys::NodeInfoUpdat
         return;
     }
 
-    int alert_mode = platform::ui::settings_store::get_int(kSettingsNs,
-                                                           kContactAlertsKey,
-                                                           kContactAlertsContacts);
-    if (alert_mode < kContactAlertsNone || alert_mode > kContactAlertsAll)
-    {
-        alert_mode = kContactAlertsContacts;
-    }
+    const int alert_mode = contactAlertMode();
     if (alert_mode == kContactAlertsNone)
     {
         return;
@@ -146,6 +173,8 @@ void tickBoundLifecycle(std::size_t max_events)
 
 void tickRuntime(app::IAppFacade& app_context)
 {
+    mesh_mqtt::update(app_context);
+
     ble::BleManager* ble_manager = app_context.getBleManager();
     if (ble_manager)
     {
@@ -301,9 +330,14 @@ bool dispatchEvent(app::IAppFacade& app_context, sys::Event* event)
 std::unique_ptr<ble::BleManager> createBleManager(app::IAppBleFacade& app_facade)
 {
     std::unique_ptr<ble::BleManager> ble_manager(new ble::BleManager(app_facade));
-    if (app_facade.getConfig().ble_enabled)
+    if (app_facade.getConfig().ble_enabled &&
+        !mesh_mqtt::wantsStandaloneMode(app_facade))
     {
         ble_manager->setEnabled(true);
+    }
+    else if (app_facade.getConfig().ble_enabled)
+    {
+        std::printf("[MQTT] BLE startup skipped for standalone mesh MQTT mode\n");
     }
     return ble_manager;
 }

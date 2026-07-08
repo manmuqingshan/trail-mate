@@ -458,6 +458,10 @@ struct ReticulumGroupDestinationConfig
 };
 
 constexpr std::size_t kReticulumGatewayHostMaxLen = 63;
+constexpr std::size_t kMeshCoreMqttHostMaxLen = 63;
+constexpr std::size_t kMeshCoreMqttRootMaxLen = 63;
+constexpr std::size_t kMeshCoreMqttUsernameMaxLen = 63;
+constexpr std::size_t kMeshCoreMqttPasswordMaxLen = 63;
 
 enum class ReticulumInterfacePolicy : uint8_t
 {
@@ -511,6 +515,14 @@ struct MeshConfig
     MeshCoreForwardProfile meshcore_forward_profile;
     uint8_t meshcore_channel_slot;
     char meshcore_channel_name[32];
+    bool meshcore_mqtt_enabled;
+    bool meshcore_mqtt_uplink_enabled;
+    bool meshcore_mqtt_downlink_enabled;
+    char meshcore_mqtt_host[kMeshCoreMqttHostMaxLen + 1];
+    uint16_t meshcore_mqtt_port;
+    char meshcore_mqtt_root[kMeshCoreMqttRootMaxLen + 1];
+    char meshcore_mqtt_username[kMeshCoreMqttUsernameMaxLen + 1];
+    char meshcore_mqtt_password[kMeshCoreMqttPasswordMaxLen + 1];
 
     // Reticulum carrier interfaces. The user-facing protocol remains
     // Reticulum; these switches only select which carriers participate.
@@ -557,6 +569,10 @@ struct MeshConfig
           meshcore_send_profile(MeshCorePayloadSendProfile::AutoPreferV2),
           meshcore_forward_profile(MeshCoreForwardProfile::MultibyteOnly),
           meshcore_channel_slot(0),
+          meshcore_mqtt_enabled(false),
+          meshcore_mqtt_uplink_enabled(true),
+          meshcore_mqtt_downlink_enabled(true),
+          meshcore_mqtt_port(1883),
           reticulum_lora_enabled(true),
           reticulum_wifi_gateway_enabled(false),
           reticulum_wifi_auto_connect(true),
@@ -571,6 +587,11 @@ struct MeshConfig
         memset(primary_key, 0, sizeof(primary_key));
         memset(secondary_key, 0, sizeof(secondary_key));
         meshcore_channel_name[0] = '\0';
+        meshcore_mqtt_host[0] = '\0';
+        strncpy(meshcore_mqtt_root, "meshcore", sizeof(meshcore_mqtt_root) - 1);
+        meshcore_mqtt_root[sizeof(meshcore_mqtt_root) - 1] = '\0';
+        meshcore_mqtt_username[0] = '\0';
+        meshcore_mqtt_password[0] = '\0';
         reticulum_wifi_gateway_host[0] = '\0';
     }
 };

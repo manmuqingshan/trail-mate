@@ -79,6 +79,14 @@ int main()
     assert(record.state == ::chat::delivery::DeliveryState::Sent);
     assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
     assert(record.updated_at_ms == 1234);
+    ::sys::ChatSendResultEvent late_failed_event(sent_id, false);
+    late_failed_event.timestamp = 1300;
+    projection_adapter.onChatSendResult(late_failed_event);
+    assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
+                           record));
+    assert(record.state == ::chat::delivery::DeliveryState::Sent);
+    assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
+    assert(record.updated_at_ms == 1234);
 
     const auto failed_id =
         service.sendText(::chat::ChannelId::PRIMARY, "fail", 0);

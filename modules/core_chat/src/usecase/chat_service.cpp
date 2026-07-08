@@ -679,6 +679,13 @@ void ChatService::handleSendResult(MessageId msg_id, bool ok)
     {
         return;
     }
+    const ChatMessage* current = getMessage(msg_id);
+    if (!ok && current && current->status == MessageStatus::Sent)
+    {
+        CHAT_SERVICE_DIAG_LOG("[ChatService][TX] ignore failed result for sent msg=%lu\n",
+                              static_cast<unsigned long>(msg_id));
+        return;
+    }
     if (model_enabled_)
     {
         model_.onSendResult(msg_id, ok);

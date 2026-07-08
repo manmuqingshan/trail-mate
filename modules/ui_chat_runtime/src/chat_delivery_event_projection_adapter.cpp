@@ -19,6 +19,12 @@ ChatDeliveryEventProjectionAdapter::ChatDeliveryEventProjectionAdapter(
 void ChatDeliveryEventProjectionAdapter::onChatSendResult(
     const ::sys::ChatSendResultEvent& event)
 {
+    const ::chat::ChatMessage* message = chat_service_.getMessage(event.msg_id);
+    if (!event.success && message != nullptr &&
+        message->status == ::chat::MessageStatus::Sent)
+    {
+        return;
+    }
     const auto failure = event.success
                              ? ::chat::delivery::SendFailureKind::None
                              : ::chat::delivery::SendFailureKind::Unknown;

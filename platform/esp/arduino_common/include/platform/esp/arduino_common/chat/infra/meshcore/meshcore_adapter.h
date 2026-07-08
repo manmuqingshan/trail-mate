@@ -97,6 +97,9 @@ class MeshCoreAdapter : public IMeshAdapter,
      * @return true if raw packet data is available
      */
     bool pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len) override;
+    bool pollMqttBridgePacket(uint8_t* out_data, size_t& out_len, size_t max_len);
+    void handleMqttBridgePacket(const uint8_t* data, size_t size);
+    void setMqttBridgeEnabled(bool enabled);
 
     /**
      * @brief Handle raw packet data (from radio task)
@@ -235,6 +238,7 @@ class MeshCoreAdapter : public IMeshAdapter,
     static constexpr size_t kMaxScheduledFrames = 24;
     static constexpr size_t kMaxSeenPackets = 128;
     static constexpr size_t kScheduledFrameMaxLen = 255;
+    static constexpr size_t kMqttBridgeQueueDepth = 3;
 
     struct PersistedPeerPubKeyEntryV1
     {
@@ -258,6 +262,26 @@ class MeshCoreAdapter : public IMeshAdapter,
         size_t bytes_len = 0;
         uint32_t due_ms = 0;
         bool defer_during_discover = false;
+
+        bool assign(const uint8_t* data, size_t len)
+        {
+            if ((len > 0 && !data) || len > bytes.size())
+            {
+                return false;
+            }
+            if (len > 0)
+            {
+                memcpy(bytes.data(), data, len);
+            }
+            bytes_len = len;
+            return true;
+        }
+    };
+
+    struct MqttBridgeFrame
+    {
+        std::array<uint8_t, kScheduledFrameMaxLen> bytes{};
+        size_t bytes_len = 0;
 
         bool assign(const uint8_t* data, size_t len)
         {
@@ -639,6 +663,10 @@ class MeshCoreAdapter : public IMeshAdapter,
     uint8_t last_raw_packet_[256];
     size_t last_raw_packet_len_;
     bool has_pending_raw_packet_;
+    std::array<MqttBridgeFrame, kMqttBridgeQueueDepth> mqtt_bridge_queue_{};
+    size_t mqtt_bridge_read_index_ = 0;
+    size_t mqtt_bridge_count_ = 0;
+    bool mqtt_bridge_enabled_ = false;
     ScheduledFrameQueue scheduled_tx_;
     SeenSignatureTable seen_recent_;
     EventQueue events_;
@@ -731,6 +759,7 @@ class MeshCoreAdapter : public IMeshAdapter,
     bool selfHash(PayloadProfile profile, uint8_t* out_hash, size_t out_cap) const;
     void pruneSeen(uint32_t now_ms);
     bool hasSeenSignature(uint32_t signature, uint32_t now_ms);
+    void queueMqttBridgePacket(const uint8_t* data, size_t len);
     void handleRawPacketInternal(const uint8_t* data, size_t size, bool allow_duplicate);
     void prunePendingAppAcks(uint32_t now_ms);
     void trackPendingAppAck(uint32_t signature, NodeId dest, uint32_t portnum, uint32_t now_ms);

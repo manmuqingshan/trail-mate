@@ -1996,14 +1996,21 @@ MeshActionResult MeshCoreAdapter::transmitFrameNowDetailed(const uint8_t* data, 
     if (state == RADIOLIB_ERR_NONE)
     {
         ParsedPacket parsed;
-        if (parsePacket(data, len, &parsed) && isSupportedPayloadVersion(parsed.payload_ver))
+        const bool parsed_ok = parsePacket(data, len, &parsed);
+        const bool bridge_candidate = parsed_ok && isSupportedPayloadVersion(parsed.payload_ver);
+        bool bridge_already_seen = false;
+        if (bridge_candidate)
         {
             const uint32_t packet_sig = packetSignature(parsed.payload_type, parsed.path_len,
                                                         parsed.payload, parsed.payload_len);
-            hasSeenSignature(packet_sig, now_ms);
+            bridge_already_seen = hasSeenSignature(packet_sig, now_ms);
         }
         last_tx_ms_ = now_ms;
         tx_airtime_ms_ = saturatingAddU32(tx_airtime_ms_, air_ms);
+        if (bridge_candidate && !bridge_already_seen)
+        {
+            queueMqttBridgePacket(data, len);
+        }
         int rx_state = board_.startRadioReceive();
         if (rx_state != RADIOLIB_ERR_NONE)
         {
@@ -2086,6 +2093,28 @@ bool MeshCoreAdapter::hasSeenSignature(uint32_t signature, uint32_t now_ms)
     entry.seen_ms = now_ms;
     seen_recent_.appendDropOldest(entry);
     return false;
+}
+
+void MeshCoreAdapter::queueMqttBridgePacket(const uint8_t* data, size_t len)
+{
+    if (!mqtt_bridge_enabled_ || !data || len == 0 || len > kScheduledFrameMaxLen)
+    {
+        return;
+    }
+
+    if (mqtt_bridge_count_ >= mqtt_bridge_queue_.size())
+    {
+        mqtt_bridge_queue_[mqtt_bridge_read_index_].bytes_len = 0;
+        mqtt_bridge_read_index_ = (mqtt_bridge_read_index_ + 1U) % mqtt_bridge_queue_.size();
+        --mqtt_bridge_count_;
+    }
+
+    const size_t write_index =
+        (mqtt_bridge_read_index_ + mqtt_bridge_count_) % mqtt_bridge_queue_.size();
+    if (mqtt_bridge_queue_[write_index].assign(data, len))
+    {
+        ++mqtt_bridge_count_;
+    }
 }
 
 void MeshCoreAdapter::prunePendingAppAcks(uint32_t now_ms)
@@ -4085,6 +4114,52 @@ bool MeshCoreAdapter::pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, 
     out_len = copy_len;
     has_pending_raw_packet_ = false;
     return true;
+}
+
+bool MeshCoreAdapter::pollMqttBridgePacket(uint8_t* out_data, size_t& out_len, size_t max_len)
+{
+    if (!out_data || max_len == 0 || mqtt_bridge_count_ == 0)
+    {
+        return false;
+    }
+
+    MqttBridgeFrame& frame = mqtt_bridge_queue_[mqtt_bridge_read_index_];
+    if (frame.bytes_len == 0 || frame.bytes_len > max_len)
+    {
+        mqtt_bridge_read_index_ = (mqtt_bridge_read_index_ + 1U) % mqtt_bridge_queue_.size();
+        --mqtt_bridge_count_;
+        return false;
+    }
+
+    memcpy(out_data, frame.bytes.data(), frame.bytes_len);
+    out_len = frame.bytes_len;
+    frame.bytes_len = 0;
+    mqtt_bridge_read_index_ = (mqtt_bridge_read_index_ + 1U) % mqtt_bridge_queue_.size();
+    --mqtt_bridge_count_;
+    return true;
+}
+
+void MeshCoreAdapter::handleMqttBridgePacket(const uint8_t* data, size_t size)
+{
+    MESHCORE_LOG("[MC][MQTT] downlink local rx begin bytes=%u\n",
+                 static_cast<unsigned>(size));
+    handleRawPacketInternal(data, size, false);
+    MESHCORE_LOG("[MC][MQTT] downlink local rx complete bytes=%u\n",
+                 static_cast<unsigned>(size));
+}
+
+void MeshCoreAdapter::setMqttBridgeEnabled(bool enabled)
+{
+    mqtt_bridge_enabled_ = enabled;
+    if (!enabled)
+    {
+        mqtt_bridge_read_index_ = 0;
+        mqtt_bridge_count_ = 0;
+        for (MqttBridgeFrame& frame : mqtt_bridge_queue_)
+        {
+            frame.bytes_len = 0;
+        }
+    }
 }
 
 void MeshCoreAdapter::handleRawPacket(const uint8_t* data, size_t size)

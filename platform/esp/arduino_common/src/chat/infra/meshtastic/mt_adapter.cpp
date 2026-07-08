@@ -850,6 +850,7 @@ meshtastic_Routing_Error MtAdapter::getLastRoutingError() const
 
 void MtAdapter::setMqttProxySettings(const MqttProxySettings& settings)
 {
+    const bool root_changed = mqtt_proxy_settings_.root != settings.root;
     const bool changed = mqtt_proxy_settings_.enabled != settings.enabled ||
                          mqtt_proxy_settings_.proxy_to_client_enabled != settings.proxy_to_client_enabled ||
                          mqtt_proxy_settings_.encryption_enabled != settings.encryption_enabled ||
@@ -860,6 +861,15 @@ void MtAdapter::setMqttProxySettings(const MqttProxySettings& settings)
                          mqtt_proxy_settings_.root != settings.root ||
                          mqtt_proxy_settings_.primary_channel_id != settings.primary_channel_id ||
                          mqtt_proxy_settings_.secondary_channel_id != settings.secondary_channel_id;
+    if (root_changed && !mqtt_proxy_queue_.empty())
+    {
+        const size_t dropped = mqtt_proxy_queue_.size();
+        mqtt_proxy_queue_.clear();
+        LORA_LOG("[MQTT] settings root changed drop queued=%u old_root=%s new_root=%s\n",
+                 static_cast<unsigned>(dropped),
+                 mqtt_proxy_settings_.root.c_str(),
+                 settings.root.c_str());
+    }
     mqtt_proxy_settings_ = settings;
     if (changed)
     {
@@ -1235,6 +1245,8 @@ bool MtAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
     }
 
     processReceivedPacket(wire_buffer, wire_size);
+    LORA_LOG("[MQTT] downlink local rx complete id=%08lX origin=mqtt\n",
+             (unsigned long)tx_header->id);
     return true;
 }
 
@@ -1315,7 +1327,8 @@ bool MtAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
 
     bool dropped = false;
     mqtt_proxy_queue_.pushDropOldest(proxy, &dropped);
-    LORA_LOG("[MQTT] uplink queue topic='%s' bytes=%u q=%u\n",
+    LORA_LOG("[MQTT] uplink queue root='%s' topic='%s' bytes=%u q=%u\n",
+             root.c_str(),
              proxy.topic,
              static_cast<unsigned>(proxy.payload_variant.data.size),
              static_cast<unsigned>(mqtt_proxy_queue_.size()));

@@ -1,0 +1,1551 @@
+#include "platform/esp/arduino_common/chat/infra/mesh_mqtt_client_runtime.h"
+
+#include "app/app_config.h"
+#include "app/app_facades.h"
+#include "ble/ble_manager.h"
+#include "chat/infra/meshtastic/mt_radio_config.h"
+#include "meshtastic/mesh.pb.h"
+#include "meshtastic/mqtt.pb.h"
+#include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
+#include "platform/esp/arduino_common/chat/infra/meshtastic/mt_adapter.h"
+#include "platform/ui/wifi_runtime.h"
+#include "sys/event_bus.h"
+
+#include <Arduino.h>
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <lwip/netdb.h>
+#include <pb_decode.h>
+
+#if __has_include(<WiFi.h>)
+#include <WiFi.h>
+#define TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT 1
+#else
+#define TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT 0
+#endif
+
+namespace platform::esp::arduino_common::mesh_mqtt
+{
+namespace
+{
+
+constexpr uint16_t kDefaultMqttPort = 1883;
+constexpr uint16_t kMqttKeepaliveSeconds = 60;
+constexpr uint32_t kConfigRefreshMs = 5000;
+constexpr uint32_t kWifiConnectIntervalMs = 30000;
+constexpr uint32_t kMqttReconnectIntervalMs = 15000;
+constexpr uint32_t kMqttPingIntervalMs = 30000;
+constexpr int32_t kMqttSocketConnectTimeoutMs = 5000;
+constexpr std::size_t kTxBufferSize = 512;
+constexpr std::size_t kRxBufferSize = 512;
+constexpr std::size_t kMeshCoreFrameBufferSize = 255;
+constexpr std::size_t kMaxPacketsPerPump = 4;
+constexpr std::size_t kMaxBytesPerPump = 2048;
+constexpr const char* kDefaultMeshtasticMqttRoot =
+    app::AppConfig::kDefaultMeshtasticMqttRoot;
+constexpr const char* kDefaultMeshCoreMqttRoot =
+    app::AppConfig::kDefaultMeshCoreMqttRoot;
+
+constexpr std::size_t kMaxMtMqttTopicLen =
+    sizeof(((meshtastic_MqttClientProxyMessage*)nullptr)->topic) - 1U;
+constexpr std::size_t kMaxMtMqttPayloadLen =
+    sizeof(((meshtastic_MqttClientProxyMessage*)nullptr)->payload_variant.data.bytes);
+constexpr std::size_t kMaxMtMqttPublishRemaining =
+    2U + kMaxMtMqttTopicLen + kMaxMtMqttPayloadLen;
+static_assert(kTxBufferSize >= 1U + 2U + kMaxMtMqttPublishRemaining,
+              "MQTT tx buffer must fit the largest Meshtastic proxy PUBLISH");
+static_assert(kRxBufferSize >= kMaxMtMqttPublishRemaining,
+              "MQTT rx buffer must fit the largest Meshtastic proxy PUBLISH payload");
+static_assert(kRxBufferSize >= kMeshCoreFrameBufferSize,
+              "MQTT rx buffer must fit one MeshCore raw bridge frame");
+
+void copyBounded(char* dst, std::size_t dst_len, const char* src)
+{
+    if (!dst || dst_len == 0)
+    {
+        return;
+    }
+    if (!src)
+    {
+        dst[0] = '\0';
+        return;
+    }
+    std::strncpy(dst, src, dst_len - 1);
+    dst[dst_len - 1] = '\0';
+}
+
+bool elapsed(uint32_t now_ms, uint32_t last_ms, uint32_t interval_ms)
+{
+    return last_ms == 0 || (now_ms - last_ms) >= interval_ms;
+}
+
+bool isDigits(const char* text)
+{
+    if (!text || text[0] == '\0')
+    {
+        return false;
+    }
+    for (const char* p = text; *p; ++p)
+    {
+        if (!std::isdigit(static_cast<unsigned char>(*p)))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+chat::meshtastic::MtAdapter* meshtasticBackend(app::IAppFacade& app_context)
+{
+    auto* adapter = app_context.getMeshAdapter();
+    if (!adapter || adapter->backendProtocol() != chat::MeshProtocol::Meshtastic)
+    {
+        return nullptr;
+    }
+    auto* backend = adapter->backendForProtocol(chat::MeshProtocol::Meshtastic);
+    return static_cast<chat::meshtastic::MtAdapter*>(backend);
+}
+
+chat::meshcore::MeshCoreAdapter* meshCoreBackend(app::IAppFacade& app_context)
+{
+    auto* adapter = app_context.getMeshAdapter();
+    if (!adapter || adapter->backendProtocol() != chat::MeshProtocol::MeshCore)
+    {
+        return nullptr;
+    }
+    auto* backend = adapter->backendForProtocol(chat::MeshProtocol::MeshCore);
+    return static_cast<chat::meshcore::MeshCoreAdapter*>(backend);
+}
+
+bool meshCoreMqttConfigured(const chat::MeshConfig& config)
+{
+    return config.meshcore_mqtt_enabled && config.meshcore_mqtt_host[0] != '\0';
+}
+
+bool meshtasticMqttConfigured(const app::AppConfig& config)
+{
+    return config.meshtastic_mqtt_enabled && config.meshtastic_mqtt_host[0] != '\0';
+}
+
+enum class RuntimeProtocol : uint8_t
+{
+    None,
+    Meshtastic,
+    MeshCore,
+};
+
+struct EffectiveConfig
+{
+    RuntimeProtocol protocol = RuntimeProtocol::None;
+    bool configured = false;
+    bool tls_requested = false;
+    bool encrypted_payload_requested = false;
+    bool uplink_enabled = true;
+    bool downlink_enabled = true;
+    char host[65] = {};
+    uint16_t port = kDefaultMqttPort;
+    char username[65] = {};
+    char password[65] = {};
+    char root[65] = {};
+    char client_id[32] = {};
+};
+
+bool sameConfig(const EffectiveConfig& lhs, const EffectiveConfig& rhs)
+{
+    return lhs.protocol == rhs.protocol &&
+           lhs.configured == rhs.configured &&
+           lhs.tls_requested == rhs.tls_requested &&
+           lhs.encrypted_payload_requested == rhs.encrypted_payload_requested &&
+           lhs.uplink_enabled == rhs.uplink_enabled &&
+           lhs.downlink_enabled == rhs.downlink_enabled &&
+           lhs.port == rhs.port &&
+           std::strcmp(lhs.host, rhs.host) == 0 &&
+           std::strcmp(lhs.username, rhs.username) == 0 &&
+           std::strcmp(lhs.password, rhs.password) == 0 &&
+           std::strcmp(lhs.root, rhs.root) == 0 &&
+           std::strcmp(lhs.client_id, rhs.client_id) == 0;
+}
+
+class PlainMqttRuntime
+{
+  public:
+    bool wantsStandaloneMode(app::IAppFacade& app_context)
+    {
+        if (app_context.getMeshProtocol() == chat::MeshProtocol::Meshtastic)
+        {
+            return meshtasticMqttConfigured(app_context.getConfig());
+        }
+        if (app_context.getMeshProtocol() == chat::MeshProtocol::MeshCore)
+        {
+            return meshCoreMqttConfigured(app_context.getConfig().meshcore_config);
+        }
+        return false;
+    }
+
+    void update(app::IAppFacade& app_context)
+    {
+        const uint32_t now_ms = millis();
+        const chat::MeshProtocol protocol = app_context.getMeshProtocol();
+        if (protocol != chat::MeshProtocol::Meshtastic &&
+            protocol != chat::MeshProtocol::MeshCore)
+        {
+            stop("protocol");
+            have_config_ = false;
+            return;
+        }
+
+        if (!have_config_ || elapsed(now_ms, last_config_refresh_ms_, kConfigRefreshMs))
+        {
+            refreshConfig(app_context, now_ms);
+        }
+
+        if (!config_.configured)
+        {
+            stop("disabled");
+            syncAdapterDisabled(app_context);
+            return;
+        }
+
+        forceBleOff(app_context);
+
+        auto* mt = meshtasticBackend(app_context);
+        auto* mc = meshCoreBackend(app_context);
+        if (config_.protocol == RuntimeProtocol::Meshtastic && !mt)
+        {
+            stop("adapter");
+            syncAdapterDisabled(app_context);
+            return;
+        }
+        if (config_.protocol == RuntimeProtocol::MeshCore && !mc)
+        {
+            stop("adapter");
+            syncAdapterDisabled(app_context);
+            return;
+        }
+
+        if (config_.tls_requested)
+        {
+            if (!logged_tls_unsupported_)
+            {
+                std::printf("[%s][MQTT] direct client disabled reason=tls_unsupported host=%s\n",
+                            protocolTag(),
+                            config_.host);
+                logged_tls_unsupported_ = true;
+            }
+            stop("tls");
+            return;
+        }
+
+        if (config_.encrypted_payload_requested && !logged_plaintext_forced_)
+        {
+            std::printf("[MT][MQTT] direct client forcing plaintext service envelopes\n");
+            logged_plaintext_forced_ = true;
+        }
+
+        if (!ensureWifi(now_ms))
+        {
+            syncAdapterDisabled(app_context);
+            return;
+        }
+
+        if (mt)
+        {
+            syncAdapterSettings(app_context, *mt);
+        }
+        if (mc)
+        {
+            mc->setMqttBridgeEnabled(config_.configured && config_.uplink_enabled);
+        }
+
+        if (!ensureMqtt(now_ms))
+        {
+            return;
+        }
+
+        pumpNetwork(mt, mc);
+        flushPublishQueue(mt, mc);
+        maybePing(now_ms);
+    }
+
+  private:
+    enum class RxState : uint8_t
+    {
+        FixedHeader,
+        RemainingLength,
+        Payload,
+        Discard,
+    };
+
+    enum class WifiGateState : uint8_t
+    {
+        Unknown,
+        Ready,
+        Unsupported,
+        Disabled,
+        NoCredentials,
+        WaitingForConnection,
+    };
+
+    EffectiveConfig config_{};
+    bool have_config_ = false;
+    bool adapter_synced_disabled_ = false;
+    bool mqtt_ready_ = false;
+    bool subscribed_ = false;
+    bool logged_tls_unsupported_ = false;
+    bool logged_plaintext_forced_ = false;
+    uint16_t packet_id_ = 1;
+    uint32_t last_config_refresh_ms_ = 0;
+    uint32_t last_wifi_connect_ms_ = 0;
+    uint32_t last_mqtt_reconnect_ms_ = 0;
+    uint32_t last_io_ms_ = 0;
+    char address_scratch_[80] = {};
+    char subscribe_topic_[96] = {};
+    char publish_topic_[96] = {};
+    std::array<uint8_t, kTxBufferSize> tx_{};
+    std::array<uint8_t, kRxBufferSize> rx_{};
+    std::array<uint8_t, 32> discard_{};
+    meshtastic_MqttClientProxyMessage mt_proxy_ = meshtastic_MqttClientProxyMessage_init_zero;
+    meshtastic_MeshPacket mt_publish_ack_packet_ = meshtastic_MeshPacket_init_zero;
+    RxState rx_state_ = RxState::FixedHeader;
+    uint8_t rx_header_ = 0;
+    std::size_t rx_remaining_len_ = 0;
+    std::size_t rx_multiplier_ = 1;
+    std::size_t rx_payload_pos_ = 0;
+    std::size_t rx_discard_remaining_ = 0;
+    uint8_t rx_remaining_bytes_ = 0;
+    WifiGateState last_wifi_gate_state_ = WifiGateState::Unknown;
+
+#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+    WiFiClient client_;
+#endif
+
+    const char* protocolTag() const
+    {
+        return config_.protocol == RuntimeProtocol::MeshCore ? "MC" : "MT";
+    }
+
+    bool decodePublishedMeshtasticPacket(const meshtastic_MqttClientProxyMessage& msg,
+                                         meshtastic_MeshPacket* out_packet)
+    {
+        if (!out_packet ||
+            msg.which_payload_variant != meshtastic_MqttClientProxyMessage_data_tag ||
+            msg.payload_variant.data.size == 0)
+        {
+            return false;
+        }
+
+        std::memset(out_packet, 0, sizeof(*out_packet));
+        pb_istream_t stream = pb_istream_from_buffer(msg.payload_variant.data.bytes,
+                                                     msg.payload_variant.data.size);
+        while (stream.bytes_left > 0)
+        {
+            pb_wire_type_t wire_type = PB_WT_VARINT;
+            uint32_t tag = 0;
+            bool eof = false;
+            if (!pb_decode_tag(&stream, &wire_type, &tag, &eof))
+            {
+                return false;
+            }
+            if (eof)
+            {
+                break;
+            }
+
+            if (tag == meshtastic_ServiceEnvelope_packet_tag)
+            {
+                if (wire_type != PB_WT_STRING)
+                {
+                    return false;
+                }
+                pb_istream_t substream;
+                if (!pb_make_string_substream(&stream, &substream))
+                {
+                    return false;
+                }
+                const bool ok = pb_decode(&substream,
+                                          meshtastic_MeshPacket_fields,
+                                          out_packet);
+                pb_close_string_substream(&stream, &substream);
+                return ok;
+            }
+            if (!pb_skip_field(&stream, wire_type))
+            {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    bool isPublishedLocalTextPacket(chat::meshtastic::MtAdapter& mt,
+                                    const meshtastic_MqttClientProxyMessage& msg,
+                                    uint32_t* out_msg_id)
+    {
+        if (!out_msg_id)
+        {
+            return false;
+        }
+        *out_msg_id = 0;
+        if (!decodePublishedMeshtasticPacket(msg, &mt_publish_ack_packet_))
+        {
+            return false;
+        }
+
+        const auto& packet = mt_publish_ack_packet_;
+        if (packet.id == 0 || packet.from != mt.getNodeId() ||
+            packet.which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+        {
+            return false;
+        }
+        if (packet.decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP &&
+            packet.decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP)
+        {
+            return false;
+        }
+
+        *out_msg_id = packet.id;
+        return true;
+    }
+
+    void notifyMeshtasticPublishSuccess(chat::meshtastic::MtAdapter& mt,
+                                        const meshtastic_MqttClientProxyMessage& msg)
+    {
+        uint32_t msg_id = 0;
+        if (!isPublishedLocalTextPacket(mt, msg, &msg_id))
+        {
+            return;
+        }
+        sys::EventBus::publish(new sys::ChatSendResultEvent(msg_id, true), 0);
+        std::printf("[MT][MQTT] publish ack msg=%08lX\n",
+                    static_cast<unsigned long>(msg_id));
+    }
+
+    void refreshConfig(app::IAppFacade& app_context, uint32_t now_ms)
+    {
+        last_config_refresh_ms_ = now_ms;
+
+        EffectiveConfig next{};
+        buildEffectiveConfig(app_context, next);
+        if (!have_config_ || !sameConfig(config_, next))
+        {
+            const bool was_configured = config_.configured;
+            config_ = next;
+            have_config_ = true;
+            logged_tls_unsupported_ = false;
+            logged_plaintext_forced_ = false;
+            stop("config");
+            if (config_.configured || was_configured)
+            {
+                std::printf("[%s][MQTT] config enabled=%u host=%s port=%u root=%s tls=%u enc_requested=%u up=%u down=%u\n",
+                            protocolTag(),
+                            config_.configured ? 1U : 0U,
+                            config_.host[0] ? config_.host : "<unset>",
+                            static_cast<unsigned>(config_.port),
+                            config_.root[0] ? config_.root : "<unset>",
+                            config_.tls_requested ? 1U : 0U,
+                            config_.encrypted_payload_requested ? 1U : 0U,
+                            config_.uplink_enabled ? 1U : 0U,
+                            config_.downlink_enabled ? 1U : 0U);
+            }
+        }
+    }
+
+    void buildEffectiveConfig(app::IAppFacade& app_context, EffectiveConfig& out)
+    {
+        out = EffectiveConfig{};
+        const chat::MeshProtocol protocol = app_context.getMeshProtocol();
+        if (protocol == chat::MeshProtocol::MeshCore)
+        {
+            buildMeshCoreEffectiveConfig(app_context, out);
+            return;
+        }
+
+        if (protocol != chat::MeshProtocol::Meshtastic)
+        {
+            return;
+        }
+        buildMeshtasticEffectiveConfig(app_context, out);
+    }
+
+    void buildMeshtasticEffectiveConfig(app::IAppFacade& app_context, EffectiveConfig& out)
+    {
+        const app::AppConfig& config = app_context.getConfig();
+        if (!meshtasticMqttConfigured(config))
+        {
+            return;
+        }
+
+        out.protocol = RuntimeProtocol::Meshtastic;
+        out.configured = true;
+        out.tls_requested = false;
+        out.encrypted_payload_requested = false;
+        out.uplink_enabled = config.meshtastic_mqtt_uplink_enabled;
+        out.downlink_enabled = config.meshtastic_mqtt_downlink_enabled;
+        out.port = config.meshtastic_mqtt_port != 0 ? config.meshtastic_mqtt_port : kDefaultMqttPort;
+        parseConfiguredAddress(config.meshtastic_mqtt_host,
+                               out.host,
+                               sizeof(out.host),
+                               &out.port);
+        copyBounded(out.username, sizeof(out.username), config.meshtastic_mqtt_username);
+        copyBounded(out.password, sizeof(out.password), config.meshtastic_mqtt_password);
+        copyBounded(out.root,
+                    sizeof(out.root),
+                    config.meshtastic_mqtt_root[0] ? config.meshtastic_mqtt_root
+                                                   : kDefaultMeshtasticMqttRoot);
+        std::snprintf(out.client_id,
+                      sizeof(out.client_id),
+                      "tm-%08lx",
+                      static_cast<unsigned long>(app_context.getSelfNodeId()));
+    }
+
+    void buildMeshCoreEffectiveConfig(app::IAppFacade& app_context, EffectiveConfig& out)
+    {
+        const chat::MeshConfig& config = app_context.getConfig().meshcore_config;
+        if (!meshCoreMqttConfigured(config))
+        {
+            return;
+        }
+
+        out.protocol = RuntimeProtocol::MeshCore;
+        out.configured = true;
+        out.tls_requested = false;
+        out.uplink_enabled = config.meshcore_mqtt_uplink_enabled;
+        out.downlink_enabled = config.meshcore_mqtt_downlink_enabled;
+        out.port = config.meshcore_mqtt_port != 0 ? config.meshcore_mqtt_port : kDefaultMqttPort;
+        parseConfiguredAddress(config.meshcore_mqtt_host,
+                               out.host,
+                               sizeof(out.host),
+                               &out.port);
+        copyBounded(out.username, sizeof(out.username), config.meshcore_mqtt_username);
+        copyBounded(out.password, sizeof(out.password), config.meshcore_mqtt_password);
+        copyBounded(out.root,
+                    sizeof(out.root),
+                    config.meshcore_mqtt_root[0] ? config.meshcore_mqtt_root
+                                                 : kDefaultMeshCoreMqttRoot);
+        std::snprintf(out.client_id,
+                      sizeof(out.client_id),
+                      "tm-mc-%08lx",
+                      static_cast<unsigned long>(app_context.getSelfNodeId()));
+    }
+
+    void parseConfiguredAddress(const char* address,
+                                char* out_host,
+                                std::size_t out_host_len,
+                                uint16_t* out_port)
+    {
+        if (!out_host || out_host_len == 0 || !out_port)
+        {
+            return;
+        }
+        out_host[0] = '\0';
+        if (!address || address[0] == '\0')
+        {
+            return;
+        }
+
+        copyBounded(address_scratch_, sizeof(address_scratch_), address);
+        char* start = address_scratch_;
+        if (std::strncmp(start, "mqtt://", 7) == 0)
+        {
+            start += 7;
+        }
+        else if (std::strncmp(start, "tcp://", 6) == 0)
+        {
+            start += 6;
+        }
+
+        char* colon = std::strrchr(start, ':');
+        if (colon && isDigits(colon + 1))
+        {
+            const unsigned long parsed = std::strtoul(colon + 1, nullptr, 10);
+            if (parsed > 0 && parsed <= 65535)
+            {
+                *out_port = static_cast<uint16_t>(parsed);
+                *colon = '\0';
+            }
+        }
+        copyBounded(out_host, out_host_len, start);
+    }
+
+    void forceBleOff(app::IAppFacade& app_context)
+    {
+        if (app_context.isBleEnabled())
+        {
+            std::printf("[%s][MQTT] disabling BLE for standalone MQTT mode\n",
+                        protocolTag());
+            app_context.setBleEnabled(false);
+            return;
+        }
+        if (auto* ble_manager = app_context.getBleManager())
+        {
+            if (ble_manager->isEnabled())
+            {
+                std::printf("[%s][MQTT] stopping active BLE service for standalone MQTT mode\n",
+                            protocolTag());
+                ble_manager->setEnabled(false);
+            }
+        }
+    }
+
+    void syncAdapterDisabled(app::IAppFacade& app_context)
+    {
+        if (auto* mc = meshCoreBackend(app_context))
+        {
+            mc->setMqttBridgeEnabled(false);
+        }
+        if (adapter_synced_disabled_)
+        {
+            return;
+        }
+        if (auto* mt = meshtasticBackend(app_context))
+        {
+            chat::meshtastic::MtAdapter::MqttProxySettings settings;
+            mt->setMqttProxySettings(settings);
+            adapter_synced_disabled_ = true;
+        }
+    }
+
+    void syncAdapterSettings(app::IAppFacade& app_context,
+                             chat::meshtastic::MtAdapter& mt)
+    {
+        chat::meshtastic::MtAdapter::MqttProxySettings settings;
+        const app::AppConfig& config = app_context.getConfig();
+        settings.enabled = config_.configured;
+        settings.proxy_to_client_enabled = config_.configured;
+        settings.encryption_enabled = false;
+        settings.primary_uplink_enabled =
+            config_.uplink_enabled && config.primary_enabled;
+        settings.primary_downlink_enabled =
+            config_.downlink_enabled && config.primary_enabled;
+        settings.secondary_uplink_enabled =
+            config_.uplink_enabled && config.secondary_enabled;
+        settings.secondary_downlink_enabled =
+            config_.downlink_enabled && config.secondary_enabled;
+        settings.root = config_.root[0] ? config_.root : kDefaultMeshtasticMqttRoot;
+        settings.primary_channel_id =
+            chat::meshtastic::channelName(config.meshtastic_config,
+                                          chat::ChannelId::PRIMARY);
+        settings.secondary_channel_id =
+            chat::meshtastic::channelName(config.meshtastic_config,
+                                          chat::ChannelId::SECONDARY);
+        mt.setMqttProxySettings(settings);
+        adapter_synced_disabled_ = false;
+    }
+
+    bool ensureWifi(uint32_t now_ms)
+    {
+        auto status = platform::ui::wifi::status();
+        if (!status.supported)
+        {
+            stop("wifi_unsupported");
+            logWifiGate(status, WifiGateState::Unsupported);
+            return false;
+        }
+        if (!status.enabled)
+        {
+            stop("wifi_disabled");
+            last_wifi_connect_ms_ = 0;
+            logWifiGate(status, WifiGateState::Disabled);
+            return false;
+        }
+        if (!status.has_credentials)
+        {
+            stop("wifi_no_credentials");
+            last_wifi_connect_ms_ = 0;
+            logWifiGate(status, WifiGateState::NoCredentials);
+            return false;
+        }
+        if (status.connected)
+        {
+            logWifiGate(status, WifiGateState::Ready);
+            return true;
+        }
+
+        if (!elapsed(now_ms, last_wifi_connect_ms_, kWifiConnectIntervalMs))
+        {
+            logWifiGate(status, WifiGateState::WaitingForConnection);
+            return false;
+        }
+        last_wifi_connect_ms_ = now_ms;
+        std::printf("[%s][MQTT] connecting Wi-Fi for MQTT ssid=%s\n",
+                    protocolTag(),
+                    status.ssid[0] ? status.ssid : "<unset>");
+        logWifiGate(status, WifiGateState::WaitingForConnection);
+        if (platform::ui::wifi::connect(nullptr))
+        {
+            status = platform::ui::wifi::status();
+            logWifiGate(status, WifiGateState::Ready);
+            return true;
+        }
+        status = platform::ui::wifi::status();
+        std::printf("[%s][MQTT] Wi-Fi connect failed state=%u message='%s'\n",
+                    protocolTag(),
+                    static_cast<unsigned>(status.state),
+                    status.message);
+        logWifiGate(status, WifiGateState::WaitingForConnection);
+        return false;
+    }
+
+    const char* wifiGateStateName(WifiGateState state) const
+    {
+        switch (state)
+        {
+        case WifiGateState::Ready:
+            return "ready";
+        case WifiGateState::Unsupported:
+            return "unsupported";
+        case WifiGateState::Disabled:
+            return "disabled";
+        case WifiGateState::NoCredentials:
+            return "no_credentials";
+        case WifiGateState::WaitingForConnection:
+            return "waiting_for_connection";
+        case WifiGateState::Unknown:
+        default:
+            return "unknown";
+        }
+    }
+
+    void logWifiGate(const platform::ui::wifi::Status& status, WifiGateState state)
+    {
+        if (last_wifi_gate_state_ == state)
+        {
+            return;
+        }
+        last_wifi_gate_state_ = state;
+        std::printf("[%s][MQTT] wifi gate state=%s enabled=%u connected=%u creds=%u ssid=%s\n",
+                    protocolTag(),
+                    wifiGateStateName(state),
+                    status.enabled ? 1U : 0U,
+                    status.connected ? 1U : 0U,
+                    status.has_credentials ? 1U : 0U,
+                    status.ssid[0] ? status.ssid : "<unset>");
+    }
+
+    bool ensureMqtt(uint32_t now_ms)
+    {
+#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+        return false;
+#else
+        if (client_.connected() && mqtt_ready_)
+        {
+            return true;
+        }
+        if (client_.connected() && !mqtt_ready_)
+        {
+            return true;
+        }
+        if (!elapsed(now_ms, last_mqtt_reconnect_ms_, kMqttReconnectIntervalMs))
+        {
+            return false;
+        }
+
+        last_mqtt_reconnect_ms_ = now_ms;
+        resetConnectionState();
+        if (config_.host[0] == '\0')
+        {
+            return false;
+        }
+
+        IPAddress remote_ip{};
+        if (!resolveHost(&remote_ip))
+        {
+            return false;
+        }
+
+        client_.stop();
+        client_.setNoDelay(true);
+        std::printf("[%s][MQTT] broker connect host=%s port=%u client=%s\n",
+                    protocolTag(),
+                    config_.host,
+                    static_cast<unsigned>(config_.port),
+                    config_.client_id);
+        if (!client_.connect(remote_ip, config_.port, kMqttSocketConnectTimeoutMs))
+        {
+            std::printf("[%s][MQTT] broker connect failed host=%s port=%u\n",
+                        protocolTag(),
+                        config_.host,
+                        static_cast<unsigned>(config_.port));
+            client_.stop();
+            return false;
+        }
+
+        if (!sendConnect())
+        {
+            client_.stop();
+            resetConnectionState();
+            return false;
+        }
+        last_io_ms_ = now_ms;
+        return true;
+#endif
+    }
+
+#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+    bool resolveHost(IPAddress* out)
+    {
+        if (!out || config_.host[0] == '\0')
+        {
+            return false;
+        }
+
+        IPAddress parsed{};
+        if (parsed.fromString(config_.host))
+        {
+            *out = parsed;
+            return true;
+        }
+
+        addrinfo hints{};
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+
+        addrinfo* results = nullptr;
+        const int err = getaddrinfo(config_.host, nullptr, &hints, &results);
+        if (err != 0 || !results)
+        {
+            std::printf("[%s][MQTT] broker resolve failed host=%s err=%d\n",
+                        protocolTag(),
+                        config_.host,
+                        err);
+            if (results)
+            {
+                freeaddrinfo(results);
+            }
+            return false;
+        }
+
+        bool resolved = false;
+        for (addrinfo* item = results; item != nullptr; item = item->ai_next)
+        {
+            if (item->ai_family != AF_INET || !item->ai_addr)
+            {
+                continue;
+            }
+
+            const auto* addr = reinterpret_cast<const sockaddr_in*>(item->ai_addr);
+            uint8_t bytes[4] = {};
+            std::memcpy(bytes, &addr->sin_addr.s_addr, sizeof(bytes));
+            *out = IPAddress(bytes);
+            resolved = true;
+            break;
+        }
+
+        freeaddrinfo(results);
+        if (!resolved)
+        {
+            std::printf("[%s][MQTT] broker resolve no_ipv4 host=%s\n",
+                        protocolTag(),
+                        config_.host);
+        }
+        return resolved;
+    }
+#endif
+
+    void stop(const char* reason)
+    {
+#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+        if (client_.connected())
+        {
+            std::printf("[%s][MQTT] broker stop reason=%s\n",
+                        protocolTag(),
+                        reason ? reason : "unknown");
+            client_.stop();
+        }
+#else
+        (void)reason;
+#endif
+        resetConnectionState();
+    }
+
+    void resetConnectionState()
+    {
+        mqtt_ready_ = false;
+        subscribed_ = false;
+        rx_state_ = RxState::FixedHeader;
+        rx_header_ = 0;
+        rx_remaining_len_ = 0;
+        rx_multiplier_ = 1;
+        rx_payload_pos_ = 0;
+        rx_discard_remaining_ = 0;
+        rx_remaining_bytes_ = 0;
+    }
+
+    bool sendConnect()
+    {
+        const bool has_pass = config_.password[0] != '\0';
+        const bool has_user = config_.username[0] != '\0' || has_pass;
+        const std::size_t remaining_len =
+            10U +
+            mqttStringSize(config_.client_id) +
+            (has_user ? mqttStringSize(config_.username) : 0U) +
+            (has_pass ? mqttStringSize(config_.password) : 0U);
+
+        std::size_t pos = 0;
+        if (!beginPacket(0x10, remaining_len, pos))
+        {
+            return false;
+        }
+        if (!appendMqttString("MQTT", pos) ||
+            !appendByte(4, pos))
+        {
+            return false;
+        }
+        uint8_t flags = 0x02;
+        if (has_pass)
+        {
+            flags |= 0x40;
+        }
+        if (has_user)
+        {
+            flags |= 0x80;
+        }
+        if (!appendByte(flags, pos) ||
+            !appendU16(kMqttKeepaliveSeconds, pos) ||
+            !appendMqttString(config_.client_id, pos))
+        {
+            return false;
+        }
+        if (has_user && !appendMqttString(config_.username, pos))
+        {
+            return false;
+        }
+        if (has_pass && !appendMqttString(config_.password, pos))
+        {
+            return false;
+        }
+        return writePacket(pos, "connect");
+    }
+
+    bool sendSubscribe()
+    {
+        if (subscribed_)
+        {
+            return true;
+        }
+        if (!config_.downlink_enabled)
+        {
+            subscribed_ = true;
+            return true;
+        }
+        if (config_.protocol == RuntimeProtocol::MeshCore)
+        {
+            std::snprintf(subscribe_topic_,
+                          sizeof(subscribe_topic_),
+                          "%s/raw/#",
+                          config_.root[0] ? config_.root : kDefaultMeshCoreMqttRoot);
+        }
+        else
+        {
+            std::snprintf(subscribe_topic_,
+                          sizeof(subscribe_topic_),
+                          "%s/2/e/#",
+                          config_.root[0] ? config_.root : kDefaultMeshtasticMqttRoot);
+        }
+        const uint16_t packet_id = nextPacketId();
+        const std::size_t remaining_len = 2U + mqttStringSize(subscribe_topic_) + 1U;
+        std::size_t pos = 0;
+        if (!beginPacket(0x82, remaining_len, pos) ||
+            !appendU16(packet_id, pos) ||
+            !appendMqttString(subscribe_topic_, pos) ||
+            !appendByte(0, pos))
+        {
+            return false;
+        }
+        if (!writePacket(pos, "subscribe"))
+        {
+            return false;
+        }
+        subscribed_ = true;
+        std::printf("[%s][MQTT] subscribed topic=%s\n",
+                    protocolTag(),
+                    subscribe_topic_);
+        return true;
+    }
+
+    bool sendPublish(const meshtastic_MqttClientProxyMessage& msg)
+    {
+        if (msg.which_payload_variant != meshtastic_MqttClientProxyMessage_data_tag ||
+            msg.topic[0] == '\0')
+        {
+            return false;
+        }
+        const std::size_t topic_len = std::strlen(msg.topic);
+        const std::size_t payload_len = msg.payload_variant.data.size;
+        const std::size_t remaining_len = 2U + topic_len + payload_len;
+        std::size_t pos = 0;
+        const uint8_t header = static_cast<uint8_t>(0x30 | (msg.retained ? 0x01 : 0));
+        if (!beginPacket(header, remaining_len, pos) ||
+            !appendMqttString(msg.topic, pos) ||
+            !appendBytes(msg.payload_variant.data.bytes, payload_len, pos))
+        {
+            return false;
+        }
+        return writePacket(pos, "publish");
+    }
+
+    bool sendPublishRaw(const char* topic, const uint8_t* payload, std::size_t payload_len)
+    {
+        if (!topic || topic[0] == '\0' || (!payload && payload_len > 0))
+        {
+            return false;
+        }
+        const std::size_t topic_len = std::strlen(topic);
+        const std::size_t remaining_len = 2U + topic_len + payload_len;
+        std::size_t pos = 0;
+        if (!beginPacket(0x30, remaining_len, pos) ||
+            !appendMqttString(topic, pos) ||
+            !appendBytes(payload, payload_len, pos))
+        {
+            return false;
+        }
+        return writePacket(pos, "publish_raw");
+    }
+
+    void flushPublishQueue(chat::meshtastic::MtAdapter* mt,
+                           chat::meshcore::MeshCoreAdapter* mc)
+    {
+        if (!mqtt_ready_)
+        {
+            return;
+        }
+
+        if (config_.protocol == RuntimeProtocol::MeshCore)
+        {
+            flushMeshCorePublishQueue(mc);
+            return;
+        }
+        if (!mt)
+        {
+            return;
+        }
+
+        for (std::size_t sent = 0; sent < kMaxPacketsPerPump; ++sent)
+        {
+            std::memset(&mt_proxy_, 0, sizeof(mt_proxy_));
+            if (!mt->pollMqttProxyMessage(&mt_proxy_))
+            {
+                return;
+            }
+            if (!sendPublish(mt_proxy_))
+            {
+                std::printf("[MT][MQTT] publish failed topic=%s\n", mt_proxy_.topic);
+                stop("publish");
+                return;
+            }
+            std::printf("[MT][MQTT] publish topic=%s bytes=%u\n",
+                        mt_proxy_.topic,
+                        static_cast<unsigned>(mt_proxy_.payload_variant.data.size));
+            notifyMeshtasticPublishSuccess(*mt, mt_proxy_);
+        }
+    }
+
+    void flushMeshCorePublishQueue(chat::meshcore::MeshCoreAdapter* mc)
+    {
+        if (!mc || !config_.uplink_enabled)
+        {
+            return;
+        }
+        if (rx_state_ != RxState::FixedHeader)
+        {
+            return;
+        }
+
+        std::snprintf(publish_topic_,
+                      sizeof(publish_topic_),
+                      "%s/raw/%s",
+                      config_.root[0] ? config_.root : kDefaultMeshCoreMqttRoot,
+                      config_.client_id[0] ? config_.client_id : "trail-mate");
+        for (std::size_t sent = 0; sent < kMaxPacketsPerPump; ++sent)
+        {
+            size_t frame_len = 0;
+            if (!mc->pollMqttBridgePacket(rx_.data(),
+                                          frame_len,
+                                          kMeshCoreFrameBufferSize))
+            {
+                return;
+            }
+            if (!sendPublishRaw(publish_topic_, rx_.data(), frame_len))
+            {
+                std::printf("[MC][MQTT] publish failed topic=%s bytes=%u\n",
+                            publish_topic_,
+                            static_cast<unsigned>(frame_len));
+                stop("publish");
+                return;
+            }
+            std::printf("[MC][MQTT] publish topic=%s bytes=%u\n",
+                        publish_topic_,
+                        static_cast<unsigned>(frame_len));
+        }
+    }
+
+    void maybePing(uint32_t now_ms)
+    {
+        if (!mqtt_ready_ || !elapsed(now_ms, last_io_ms_, kMqttPingIntervalMs))
+        {
+            return;
+        }
+        std::size_t pos = 0;
+        if (beginPacket(0xC0, 0, pos) && writePacket(pos, "ping"))
+        {
+            return;
+        }
+        stop("ping");
+    }
+
+    void pumpNetwork(chat::meshtastic::MtAdapter* mt,
+                     chat::meshcore::MeshCoreAdapter* mc)
+    {
+#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+        (void)mt;
+        (void)mc;
+#else
+        if (!client_.connected())
+        {
+            stop("socket");
+            return;
+        }
+
+        std::size_t packets = 0;
+        std::size_t bytes = 0;
+        while (client_.connected() &&
+               client_.available() > 0 &&
+               packets < kMaxPacketsPerPump &&
+               bytes < kMaxBytesPerPump)
+        {
+            switch (rx_state_)
+            {
+            case RxState::FixedHeader:
+            {
+                const int value = client_.read();
+                if (value < 0)
+                {
+                    return;
+                }
+                rx_header_ = static_cast<uint8_t>(value);
+                rx_remaining_len_ = 0;
+                rx_multiplier_ = 1;
+                rx_remaining_bytes_ = 0;
+                rx_state_ = RxState::RemainingLength;
+                ++bytes;
+                break;
+            }
+            case RxState::RemainingLength:
+                if (!readRemainingLength(bytes))
+                {
+                    return;
+                }
+                break;
+            case RxState::Payload:
+                if (readPayload(bytes, packets, mt, mc))
+                {
+                    ++packets;
+                }
+                break;
+            case RxState::Discard:
+                readDiscard(bytes);
+                break;
+            }
+        }
+        if (!client_.connected())
+        {
+            stop("socket");
+        }
+#endif
+    }
+
+    bool readRemainingLength(std::size_t& bytes)
+    {
+#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+        (void)bytes;
+        return false;
+#else
+        while (client_.available() > 0)
+        {
+            const int value = client_.read();
+            if (value < 0)
+            {
+                return false;
+            }
+            const uint8_t encoded = static_cast<uint8_t>(value);
+            rx_remaining_len_ += (encoded & 0x7FU) * rx_multiplier_;
+            rx_multiplier_ *= 128U;
+            ++rx_remaining_bytes_;
+            ++bytes;
+            if (rx_remaining_bytes_ > 4)
+            {
+                stop("bad_remaining_length");
+                return false;
+            }
+            if ((encoded & 0x80U) == 0)
+            {
+                if (rx_remaining_len_ > rx_.size())
+                {
+                    std::printf("[%s][MQTT] drop packet reason=too_large type=0x%02X len=%u\n",
+                                protocolTag(),
+                                rx_header_,
+                                static_cast<unsigned>(rx_remaining_len_));
+                    rx_discard_remaining_ = rx_remaining_len_;
+                    rx_state_ = RxState::Discard;
+                }
+                else if (rx_remaining_len_ == 0)
+                {
+                    rx_payload_pos_ = 0;
+                    rx_state_ = RxState::FixedHeader;
+                }
+                else
+                {
+                    rx_payload_pos_ = 0;
+                    rx_state_ = RxState::Payload;
+                }
+                return true;
+            }
+        }
+        return false;
+#endif
+    }
+
+    bool readPayload(std::size_t& bytes,
+                     std::size_t& packets,
+                     chat::meshtastic::MtAdapter* mt,
+                     chat::meshcore::MeshCoreAdapter* mc)
+    {
+        (void)packets;
+#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+        (void)bytes;
+        (void)mt;
+        (void)mc;
+        return false;
+#else
+        const std::size_t remaining = rx_remaining_len_ - rx_payload_pos_;
+        const std::size_t want = std::min<std::size_t>(
+            remaining,
+            static_cast<std::size_t>(client_.available()));
+        if (want == 0)
+        {
+            return false;
+        }
+
+        const int read = client_.read(rx_.data() + rx_payload_pos_, want);
+        if (read <= 0)
+        {
+            return false;
+        }
+        rx_payload_pos_ += static_cast<std::size_t>(read);
+        bytes += static_cast<std::size_t>(read);
+        if (rx_payload_pos_ < rx_remaining_len_)
+        {
+            return false;
+        }
+
+        handlePacket(mt, mc);
+        rx_state_ = RxState::FixedHeader;
+        rx_remaining_len_ = 0;
+        rx_payload_pos_ = 0;
+        last_io_ms_ = millis();
+        return true;
+#endif
+    }
+
+    void readDiscard(std::size_t& bytes)
+    {
+#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+        const std::size_t want = std::min<std::size_t>(
+            rx_discard_remaining_,
+            std::min<std::size_t>(discard_.size(),
+                                  static_cast<std::size_t>(client_.available())));
+        if (want == 0)
+        {
+            return;
+        }
+        const int read = client_.read(discard_.data(), want);
+        if (read <= 0)
+        {
+            return;
+        }
+        rx_discard_remaining_ -= static_cast<std::size_t>(read);
+        bytes += static_cast<std::size_t>(read);
+        if (rx_discard_remaining_ == 0)
+        {
+            rx_state_ = RxState::FixedHeader;
+        }
+#else
+        (void)bytes;
+#endif
+    }
+
+    void handlePacket(chat::meshtastic::MtAdapter* mt,
+                      chat::meshcore::MeshCoreAdapter* mc)
+    {
+        const uint8_t packet_type = rx_header_ & 0xF0U;
+        switch (packet_type)
+        {
+        case 0x20:
+            handleConnack();
+            break;
+        case 0x30:
+            handlePublish(mt, mc);
+            break;
+        case 0x90:
+            break;
+        case 0xD0:
+            break;
+        default:
+            break;
+        }
+    }
+
+    void handleConnack()
+    {
+        if (rx_remaining_len_ < 2)
+        {
+            stop("connack_short");
+            return;
+        }
+        const uint8_t rc = rx_[1];
+        if (rc != 0)
+        {
+            std::printf("[%s][MQTT] connack rejected rc=%u\n",
+                        protocolTag(),
+                        static_cast<unsigned>(rc));
+            stop("connack");
+            return;
+        }
+        mqtt_ready_ = true;
+        std::printf("[%s][MQTT] broker connected\n", protocolTag());
+        (void)sendSubscribe();
+    }
+
+    void handlePublish(chat::meshtastic::MtAdapter* mt,
+                       chat::meshcore::MeshCoreAdapter* mc)
+    {
+        const uint8_t qos = (rx_header_ >> 1U) & 0x03U;
+        if (qos != 0)
+        {
+            std::printf("[%s][MQTT] inbound drop reason=qos%u\n",
+                        protocolTag(),
+                        static_cast<unsigned>(qos));
+            return;
+        }
+        if (rx_remaining_len_ < 2)
+        {
+            return;
+        }
+
+        const std::size_t topic_len =
+            (static_cast<std::size_t>(rx_[0]) << 8U) | rx_[1];
+        if (2U + topic_len > rx_remaining_len_)
+        {
+            std::printf("[%s][MQTT] inbound drop reason=topic_len len=%u\n",
+                        protocolTag(),
+                        static_cast<unsigned>(topic_len));
+            return;
+        }
+
+        const std::size_t payload_offset = 2U + topic_len;
+        const std::size_t payload_len = rx_remaining_len_ - payload_offset;
+        if (config_.protocol == RuntimeProtocol::MeshCore)
+        {
+            handleMeshCorePublish(mc, payload_offset, payload_len, topic_len);
+            return;
+        }
+        if (!mt)
+        {
+            return;
+        }
+        if (topic_len >= sizeof(mt_proxy_.topic))
+        {
+            std::printf("[MT][MQTT] inbound drop reason=topic_len len=%u\n",
+                        static_cast<unsigned>(topic_len));
+            return;
+        }
+        if (payload_len > sizeof(mt_proxy_.payload_variant.data.bytes))
+        {
+            std::printf("[MT][MQTT] inbound drop reason=payload_len len=%u\n",
+                        static_cast<unsigned>(payload_len));
+            return;
+        }
+
+        std::memset(&mt_proxy_, 0, sizeof(mt_proxy_));
+        std::memcpy(mt_proxy_.topic, rx_.data() + 2U, topic_len);
+        mt_proxy_.topic[topic_len] = '\0';
+        mt_proxy_.which_payload_variant = meshtastic_MqttClientProxyMessage_data_tag;
+        mt_proxy_.payload_variant.data.size = static_cast<pb_size_t>(payload_len);
+        if (payload_len > 0)
+        {
+            std::memcpy(mt_proxy_.payload_variant.data.bytes,
+                        rx_.data() + payload_offset,
+                        payload_len);
+        }
+        mt_proxy_.retained = (rx_header_ & 0x01U) != 0;
+        const bool ok = mt->handleMqttProxyMessage(mt_proxy_);
+        std::printf("[MT][MQTT] inbound topic=%s bytes=%u ok=%u retained=%u\n",
+                    mt_proxy_.topic,
+                    static_cast<unsigned>(payload_len),
+                    ok ? 1U : 0U,
+                    mt_proxy_.retained ? 1U : 0U);
+    }
+
+    void handleMeshCorePublish(chat::meshcore::MeshCoreAdapter* mc,
+                               std::size_t payload_offset,
+                               std::size_t payload_len,
+                               std::size_t topic_len)
+    {
+        if (!config_.downlink_enabled)
+        {
+            return;
+        }
+        if (!mc)
+        {
+            return;
+        }
+        if ((rx_header_ & 0x01U) != 0)
+        {
+            std::printf("[MC][MQTT] inbound drop reason=retained topic_len=%u bytes=%u\n",
+                        static_cast<unsigned>(topic_len),
+                        static_cast<unsigned>(payload_len));
+            return;
+        }
+        if (payload_len == 0 || payload_len > kMeshCoreFrameBufferSize)
+        {
+            std::printf("[MC][MQTT] inbound drop reason=payload_len topic_len=%u bytes=%u\n",
+                        static_cast<unsigned>(topic_len),
+                        static_cast<unsigned>(payload_len));
+            return;
+        }
+        mc->handleMqttBridgePacket(rx_.data() + payload_offset, payload_len);
+        std::printf("[MC][MQTT] inbound raw bytes=%u retained=%u\n",
+                    static_cast<unsigned>(payload_len),
+                    (rx_header_ & 0x01U) != 0 ? 1U : 0U);
+    }
+
+    std::size_t mqttStringSize(const char* text) const
+    {
+        return 2U + (text ? std::strlen(text) : 0U);
+    }
+
+    uint16_t nextPacketId()
+    {
+        ++packet_id_;
+        if (packet_id_ == 0)
+        {
+            packet_id_ = 1;
+        }
+        return packet_id_;
+    }
+
+    bool beginPacket(uint8_t header, std::size_t remaining_len, std::size_t& pos)
+    {
+        pos = 0;
+        if (!appendByte(header, pos))
+        {
+            return false;
+        }
+        do
+        {
+            uint8_t encoded = remaining_len % 128U;
+            remaining_len /= 128U;
+            if (remaining_len > 0)
+            {
+                encoded |= 0x80U;
+            }
+            if (!appendByte(encoded, pos))
+            {
+                return false;
+            }
+        } while (remaining_len > 0);
+        return true;
+    }
+
+    bool appendByte(uint8_t value, std::size_t& pos)
+    {
+        if (pos >= tx_.size())
+        {
+            return false;
+        }
+        tx_[pos++] = value;
+        return true;
+    }
+
+    bool appendU16(uint16_t value, std::size_t& pos)
+    {
+        return appendByte(static_cast<uint8_t>((value >> 8U) & 0xFFU), pos) &&
+               appendByte(static_cast<uint8_t>(value & 0xFFU), pos);
+    }
+
+    bool appendBytes(const uint8_t* data, std::size_t len, std::size_t& pos)
+    {
+        if (len == 0)
+        {
+            return true;
+        }
+        if (!data || pos + len > tx_.size())
+        {
+            return false;
+        }
+        std::memcpy(tx_.data() + pos, data, len);
+        pos += len;
+        return true;
+    }
+
+    bool appendMqttString(const char* text, std::size_t& pos)
+    {
+        const std::size_t len = text ? std::strlen(text) : 0U;
+        if (len > 65535U)
+        {
+            return false;
+        }
+        return appendU16(static_cast<uint16_t>(len), pos) &&
+               appendBytes(reinterpret_cast<const uint8_t*>(text), len, pos);
+    }
+
+    bool writePacket(std::size_t len, const char* op)
+    {
+#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+        (void)len;
+        (void)op;
+        return false;
+#else
+        if (!client_.connected())
+        {
+            return false;
+        }
+        const std::size_t written = client_.write(tx_.data(), len);
+        if (written != len)
+        {
+            std::printf("[%s][MQTT] write failed op=%s len=%u written=%u\n",
+                        protocolTag(),
+                        op ? op : "packet",
+                        static_cast<unsigned>(len),
+                        static_cast<unsigned>(written));
+            return false;
+        }
+        last_io_ms_ = millis();
+        return true;
+#endif
+    }
+};
+
+PlainMqttRuntime& runtime()
+{
+    static PlainMqttRuntime instance;
+    return instance;
+}
+
+} // namespace
+
+bool wantsStandaloneMode(app::IAppFacade& app_context)
+{
+    return runtime().wantsStandaloneMode(app_context);
+}
+
+void update(app::IAppFacade& app_context)
+{
+    runtime().update(app_context);
+}
+
+} // namespace platform::esp::arduino_common::mesh_mqtt

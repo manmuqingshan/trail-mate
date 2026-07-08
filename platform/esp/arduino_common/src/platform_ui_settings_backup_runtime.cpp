@@ -53,6 +53,9 @@ constexpr ExtraKey kExtraKeys[] = {
     {"settings", "screen_brightness", "screen_bright", ValueType::Int},
     {"settings", "speaker_volume", "speaker_volume", ValueType::Int},
     {"settings", "vibration_enabled", "vibe_enabled", ValueType::Bool},
+    {"settings", "wifi_enabled", "wifi_enabled", ValueType::Bool},
+    {"settings", "wifi_ssid", "wifi_ssid", ValueType::String},
+    {"settings", "wifi_password", "wifi_password", ValueType::String},
     {"settings", "display_locale", "disp_locale", ValueType::String},
     {"settings", "enabled_imes", "enabled_imes", ValueType::String},
     {"settings", "timezone_offset", "timezone_offset", ValueType::Int},
@@ -336,6 +339,65 @@ void restore_chat_policy(cJSON* object, chat::ChatPolicy& policy)
         json_int(object, "max_channels", policy.max_channels));
 }
 
+void add_mqtt_client_config(cJSON* parent,
+                            const char* key,
+                            bool enabled,
+                            bool uplink_enabled,
+                            bool downlink_enabled,
+                            const char* host,
+                            uint16_t port,
+                            const char* root,
+                            const char* username,
+                            const char* password)
+{
+    cJSON* object = add_object(parent, key);
+    if (!object)
+    {
+        return;
+    }
+    add_bool(object, "enabled", enabled);
+    add_bool(object, "uplink_enabled", uplink_enabled);
+    add_bool(object, "downlink_enabled", downlink_enabled);
+    add_string(object, "host", host);
+    add_int(object, "port", port != 0 ? port : 1883);
+    add_string(object, "root", root);
+    add_string(object, "username", username);
+    add_string(object, "password", password);
+}
+
+void restore_mqtt_client_config(cJSON* object,
+                                bool& enabled,
+                                bool& uplink_enabled,
+                                bool& downlink_enabled,
+                                char* host,
+                                std::size_t host_len,
+                                uint16_t& port,
+                                char* root,
+                                std::size_t root_len,
+                                char* username,
+                                std::size_t username_len,
+                                char* password,
+                                std::size_t password_len)
+{
+    if (!cJSON_IsObject(object))
+    {
+        return;
+    }
+
+    enabled = json_bool(object, "enabled", enabled);
+    uplink_enabled = json_bool(object, "uplink_enabled", uplink_enabled);
+    downlink_enabled = json_bool(object, "downlink_enabled", downlink_enabled);
+    copy_json_string(object, "host", host, host_len);
+    const int restored_port = json_int(object, "port", port != 0 ? port : 1883);
+    if (restored_port > 0 && restored_port <= 65535)
+    {
+        port = static_cast<uint16_t>(restored_port);
+    }
+    copy_json_string(object, "root", root, root_len);
+    copy_json_string(object, "username", username, username_len);
+    copy_json_string(object, "password", password, password_len);
+}
+
 void add_mesh_config(cJSON* parent,
                      const char* key,
                      const chat::MeshConfig& config,
@@ -390,6 +452,16 @@ void add_mesh_config(cJSON* parent,
         add_int(object, "meshcore_channel_slot", config.meshcore_channel_slot);
         add_string(object, "meshcore_channel_name", config.meshcore_channel_name);
         add_blob_hex(object, "meshcore_channel_key", config.secondary_key, chat::kMeshCoreChannelKeyLen);
+        add_mqtt_client_config(object,
+                               "meshcore_mqtt",
+                               config.meshcore_mqtt_enabled,
+                               config.meshcore_mqtt_uplink_enabled,
+                               config.meshcore_mqtt_downlink_enabled,
+                               config.meshcore_mqtt_host,
+                               config.meshcore_mqtt_port,
+                               config.meshcore_mqtt_root,
+                               config.meshcore_mqtt_username,
+                               config.meshcore_mqtt_password);
     }
     if (include_reticulum_fields)
     {
@@ -467,6 +539,19 @@ void restore_mesh_config(cJSON* object,
             json_int(object, "meshcore_channel_slot", config.meshcore_channel_slot));
         copy_json_string(object, "meshcore_channel_name", config.meshcore_channel_name, sizeof(config.meshcore_channel_name));
         copy_json_blob(object, "meshcore_channel_key", config.secondary_key, sizeof(config.secondary_key));
+        restore_mqtt_client_config(cJSON_GetObjectItemCaseSensitive(object, "meshcore_mqtt"),
+                                   config.meshcore_mqtt_enabled,
+                                   config.meshcore_mqtt_uplink_enabled,
+                                   config.meshcore_mqtt_downlink_enabled,
+                                   config.meshcore_mqtt_host,
+                                   sizeof(config.meshcore_mqtt_host),
+                                   config.meshcore_mqtt_port,
+                                   config.meshcore_mqtt_root,
+                                   sizeof(config.meshcore_mqtt_root),
+                                   config.meshcore_mqtt_username,
+                                   sizeof(config.meshcore_mqtt_username),
+                                   config.meshcore_mqtt_password,
+                                   sizeof(config.meshcore_mqtt_password));
     }
     if (include_reticulum_fields)
     {
@@ -567,6 +652,16 @@ cJSON* create_app_config_json(const app::AppConfig& config)
     add_mesh_config(object, "meshtastic", config.meshtastic_config, false, false);
     add_mesh_config(object, "meshcore", config.meshcore_config, true, false);
     add_mesh_config(object, "reticulum", config.reticulumConfig(), false, true);
+    add_mqtt_client_config(object,
+                           "meshtastic_mqtt",
+                           config.meshtastic_mqtt_enabled,
+                           config.meshtastic_mqtt_uplink_enabled,
+                           config.meshtastic_mqtt_downlink_enabled,
+                           config.meshtastic_mqtt_host,
+                           config.meshtastic_mqtt_port,
+                           config.meshtastic_mqtt_root,
+                           config.meshtastic_mqtt_username,
+                           config.meshtastic_mqtt_password);
     add_int(object, "mesh_protocol", static_cast<int>(config.mesh_protocol));
     add_string(object, "node_name", config.node_name);
     add_string(object, "short_name", config.short_name);
@@ -637,6 +732,19 @@ void restore_app_config_json(cJSON* object, app::AppConfig& config)
     {
         config.mesh_protocol = chat::infra::meshProtocolFromRaw(static_cast<uint8_t>(protocol));
     }
+    restore_mqtt_client_config(cJSON_GetObjectItemCaseSensitive(object, "meshtastic_mqtt"),
+                               config.meshtastic_mqtt_enabled,
+                               config.meshtastic_mqtt_uplink_enabled,
+                               config.meshtastic_mqtt_downlink_enabled,
+                               config.meshtastic_mqtt_host,
+                               sizeof(config.meshtastic_mqtt_host),
+                               config.meshtastic_mqtt_port,
+                               config.meshtastic_mqtt_root,
+                               sizeof(config.meshtastic_mqtt_root),
+                               config.meshtastic_mqtt_username,
+                               sizeof(config.meshtastic_mqtt_username),
+                               config.meshtastic_mqtt_password,
+                               sizeof(config.meshtastic_mqtt_password));
     copy_json_string(object, "node_name", config.node_name, sizeof(config.node_name));
     copy_json_string(object, "short_name", config.short_name, sizeof(config.short_name));
     config.ble_enabled = json_bool(object, "ble_enabled", config.ble_enabled);
