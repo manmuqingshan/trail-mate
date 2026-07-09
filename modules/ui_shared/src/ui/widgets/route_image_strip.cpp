@@ -51,12 +51,12 @@ lv_coord_t outer_item_height(const Widget& widget)
 
 lv_coord_t thumbnail_width_for_slot(const SlotMetrics& metrics)
 {
-    return std::max<lv_coord_t>(48, metrics.width - 4);
+    return std::max<lv_coord_t>(48, metrics.width);
 }
 
 lv_coord_t thumbnail_height_for_slot(const SlotMetrics& metrics)
 {
-    return std::max<lv_coord_t>(36, metrics.height - 18);
+    return std::max<lv_coord_t>(36, metrics.height);
 }
 
 Widget* widget_from_event(lv_event_t* e)
@@ -77,11 +77,6 @@ bool selected_image_saved(const Widget& widget)
 {
     return widget.selected_index < widget.image_sources.size() &&
            !widget.image_sources[widget.selected_index].empty();
-}
-
-void set_obj_x(void* obj, int32_t x)
-{
-    lv_obj_set_x(static_cast<lv_obj_t*>(obj), x);
 }
 
 void close_fullscreen(Widget& widget)
@@ -199,8 +194,8 @@ void apply_button_style(lv_obj_t* button,
                                   selected ? lv_color_hex(0xF2A13A)
                                            : lv_color_hex(0x8A6E43),
                                   0);
-    lv_obj_set_style_pad_all(button, 2, 0);
-    lv_obj_set_style_pad_row(button, 1, 0);
+    lv_obj_set_style_pad_all(button, 0, 0);
+    lv_obj_set_style_pad_row(button, 0, 0);
     lv_obj_set_style_text_color(button,
                                 selected ? lv_color_hex(0xFFF3DF)
                                          : lv_color_hex(0xFFF3DF),
@@ -232,11 +227,18 @@ void add_caption(lv_obj_t* button,
                       downloaded ? "" : " off");
     }
     lv_obj_t* caption = lv_label_create(button);
-    lv_obj_set_width(caption, LV_PCT(100));
+    lv_obj_add_flag(caption, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(caption, selected ? 46 : 32, 13);
+    lv_obj_set_style_bg_color(caption, lv_color_hex(0x17130F), 0);
+    lv_obj_set_style_bg_opa(caption, LV_OPA_70, 0);
+    lv_obj_set_style_radius(caption, 3, 0);
+    lv_obj_set_style_pad_all(caption, 1, 0);
     lv_label_set_long_mode(caption, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_font(caption, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_color(caption, lv_color_hex(0xFFF3DF), 0);
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(caption, text);
+    lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -2);
 }
 
 void add_placeholder(lv_obj_t* button,
@@ -244,9 +246,11 @@ void add_placeholder(lv_obj_t* button,
                      std::size_t index)
 {
     lv_obj_t* placeholder = lv_obj_create(button);
+    lv_obj_add_flag(placeholder, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_set_size(placeholder,
                     thumbnail_width_for_slot(metrics),
                     thumbnail_height_for_slot(metrics));
+    lv_obj_set_pos(placeholder, 0, 0);
     lv_obj_set_style_bg_color(placeholder, lv_color_hex(0x3A2B1E), 0);
     lv_obj_set_style_bg_opa(placeholder, LV_OPA_70, 0);
     lv_obj_set_style_border_width(placeholder, 1, 0);
@@ -276,11 +280,14 @@ void add_thumbnail(lv_obj_t* button,
     }
 
     lv_obj_t* image = lv_image_create(button);
+    lv_obj_add_flag(image, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_set_size(image,
                     thumbnail_width_for_slot(metrics),
                     thumbnail_height_for_slot(metrics));
-    lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CONTAIN);
     lv_image_set_src(image, widget.image_sources[index].c_str());
+    lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
+    lv_image_set_antialias(image, false);
+    lv_obj_set_pos(image, 0, 0);
     lv_obj_clear_flag(image, LV_OBJ_FLAG_SCROLLABLE);
 }
 
@@ -404,11 +411,6 @@ void render_slot(Widget& widget,
     lv_obj_add_flag(button, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_set_size(button, metrics.width, metrics.height);
     lv_obj_set_pos(button, x, y);
-    lv_obj_set_flex_flow(button, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(button,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_user_data(button, reinterpret_cast<void*>(index + 1));
     lv_obj_add_event_cb(button, item_clicked_cb, LV_EVENT_CLICKED, &widget);
@@ -532,7 +534,6 @@ void create(lv_obj_t* parent, Widget& widget, const Config& config)
     {
         lv_obj_set_size(widget.root, width, LV_PCT(100));
         lv_obj_set_style_bg_opa(widget.root, widget.config.opacity, 0);
-        render_items(widget);
         return;
     }
 
@@ -560,8 +561,6 @@ void create(lv_obj_t* parent, Widget& widget, const Config& config)
     lv_obj_set_style_radius(widget.list, 0, 0);
     lv_obj_set_style_pad_all(widget.list, 0, 0);
     lv_obj_clear_flag(widget.list, LV_OBJ_FLAG_SCROLLABLE);
-
-    render_items(widget);
 }
 
 void set_selection_callback(Widget& widget, SelectionCallback callback, void* user_data)
@@ -593,7 +592,10 @@ void set_items(Widget& widget, const Item* items, std::size_t item_count)
             widget.image_sources.emplace_back();
         }
     }
-    render_items(widget);
+    if (is_visible(widget))
+    {
+        render_items(widget);
+    }
 }
 
 void set_selected(Widget& widget, std::size_t index, bool notify)
@@ -637,18 +639,10 @@ void set_hidden(Widget& widget, bool hidden)
         return;
     }
 
-    const lv_coord_t width = panel_width(widget);
     lv_obj_clear_flag(widget.root, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_x(widget.root, -width);
+    lv_obj_set_x(widget.root, 0);
     render_items(widget);
     lv_obj_move_foreground(widget.root);
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, widget.root);
-    lv_anim_set_values(&anim, -width, 0);
-    lv_anim_set_duration(&anim, 180);
-    lv_anim_set_exec_cb(&anim, set_obj_x);
-    lv_anim_start(&anim);
 }
 
 bool is_visible(const Widget& widget)
