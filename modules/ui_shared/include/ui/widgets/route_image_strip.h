@@ -12,6 +12,8 @@ namespace ui::widgets::route_image_strip
 struct Item
 {
     std::string local_path{};
+    std::string preview_path{};
+    std::string view_path{};
     bool downloaded = false;
 };
 
@@ -37,6 +39,7 @@ struct Widget
     Config config{};
     std::vector<Item> items{};
     std::vector<std::string> image_sources{};
+    std::vector<std::string> fullscreen_sources{};
     std::vector<lv_obj_t*> item_buttons{};
     std::string rendered_source{};
     std::string fullscreen_source{};

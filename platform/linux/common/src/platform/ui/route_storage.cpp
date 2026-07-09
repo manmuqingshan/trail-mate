@@ -252,6 +252,14 @@ bool ensure_route_asset_dir(const std::string& asset_id, std::string& out_dir)
     const std::filesystem::path dir = route_dir_path() / ".trailmate" / asset_id;
     std::error_code ec;
     std::filesystem::create_directories(dir / "images", ec);
+    if (!ec)
+    {
+        std::filesystem::create_directories(dir / "thumbs", ec);
+    }
+    if (!ec)
+    {
+        std::filesystem::create_directories(dir / "views", ec);
+    }
     if (ec)
     {
         return false;
@@ -344,6 +352,16 @@ bool start_route_image_download(const std::string& asset_id,
         out_error = s_image_batch_status.message;
         return false;
     }
+}
+
+bool start_route_image_cache_build(const std::string& asset_id,
+                                   const std::vector<RouteImageCacheItem>& items,
+                                   std::string& out_error)
+{
+    (void)asset_id;
+    (void)items;
+    out_error = "Route image cache unsupported on host";
+    return false;
 }
 
 RouteImageDownloadStatus route_image_download_status()

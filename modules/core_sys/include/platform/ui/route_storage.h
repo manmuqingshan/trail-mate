@@ -20,12 +20,22 @@ struct RouteImageDownloadItem
 {
     std::string url{};
     std::string output_path{};
+    std::string preview_path{};
+    std::string view_path{};
+};
+
+struct RouteImageCacheItem
+{
+    std::string source_path{};
+    std::string preview_path{};
+    std::string view_path{};
 };
 
 enum class RouteImageDownloadPhase : uint8_t
 {
     Idle = 0,
     Downloading,
+    Caching,
     Done,
     Failed,
 };
@@ -57,6 +67,9 @@ RouteImageDownloadResult download_route_image(const std::string& url,
 bool start_route_image_download(const std::string& asset_id,
                                 const std::vector<RouteImageDownloadItem>& items,
                                 std::string& out_error);
+bool start_route_image_cache_build(const std::string& asset_id,
+                                   const std::vector<RouteImageCacheItem>& items,
+                                   std::string& out_error);
 RouteImageDownloadStatus route_image_download_status();
 
 } // namespace platform::ui::route_storage

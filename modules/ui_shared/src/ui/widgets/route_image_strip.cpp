@@ -99,8 +99,8 @@ std::size_t clamp_index(const Widget& widget, std::size_t index)
 
 bool selected_image_saved(const Widget& widget)
 {
-    return widget.selected_index < widget.image_sources.size() &&
-           !widget.image_sources[widget.selected_index].empty();
+    return widget.selected_index < widget.fullscreen_sources.size() &&
+           !widget.fullscreen_sources[widget.selected_index].empty();
 }
 
 void delete_obj(lv_obj_t*& obj)
@@ -195,7 +195,7 @@ void open_fullscreen(Widget& widget)
 
     if (selected_image_saved(widget))
     {
-        widget.fullscreen_source = widget.image_sources[widget.selected_index];
+        widget.fullscreen_source = widget.fullscreen_sources[widget.selected_index];
         lv_obj_t* image = lv_image_create(widget.fullscreen_root);
         lv_obj_set_size(image, LV_PCT(100), LV_PCT(100));
         lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CONTAIN);
@@ -594,6 +594,7 @@ void reset(Widget& widget)
     widget.config = Config{};
     widget.items.clear();
     widget.image_sources.clear();
+    widget.fullscreen_sources.clear();
     widget.item_buttons.clear();
     widget.rendered_source.clear();
     widget.fullscreen_source.clear();
@@ -670,6 +671,7 @@ void set_items(Widget& widget, const Item* items, std::size_t item_count)
 {
     widget.items.clear();
     widget.image_sources.clear();
+    widget.fullscreen_sources.clear();
     widget.item_buttons.clear();
     if (items && item_count > 0)
     {
@@ -678,15 +680,22 @@ void set_items(Widget& widget, const Item* items, std::size_t item_count)
     widget.selected_index = clamp_index(widget, widget.selected_index);
 
     widget.image_sources.reserve(widget.items.size());
+    widget.fullscreen_sources.reserve(widget.items.size());
     for (const auto& item : widget.items)
     {
         if (item.downloaded && !item.local_path.empty())
         {
-            widget.image_sources.push_back(::ui::fs::normalize_path(item.local_path.c_str()));
+            const std::string preview_path =
+                !item.preview_path.empty() ? item.preview_path : item.local_path;
+            const std::string view_path =
+                !item.view_path.empty() ? item.view_path : item.local_path;
+            widget.image_sources.push_back(::ui::fs::normalize_path(preview_path.c_str()));
+            widget.fullscreen_sources.push_back(::ui::fs::normalize_path(view_path.c_str()));
         }
         else
         {
             widget.image_sources.emplace_back();
+            widget.fullscreen_sources.emplace_back();
         }
     }
     if (is_visible(widget))

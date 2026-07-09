@@ -152,7 +152,10 @@ bool ensure_route_asset_dir(const std::string& asset_id, std::string& out_dir)
         return false;
     }
     out_dir = std::string(kRouteAssetRoot) + "/" + asset_id;
-    if (!ensure_dir(out_dir) || !ensure_dir(out_dir + "/images"))
+    if (!ensure_dir(out_dir) ||
+        !ensure_dir(out_dir + "/images") ||
+        !ensure_dir(out_dir + "/thumbs") ||
+        !ensure_dir(out_dir + "/views"))
     {
         out_dir.clear();
         return false;
@@ -188,6 +191,16 @@ bool start_route_image_download(const std::string& asset_id,
     (void)asset_id;
     (void)items;
     out_error = "Route image download unsupported on this target";
+    return false;
+}
+
+bool start_route_image_cache_build(const std::string& asset_id,
+                                   const std::vector<RouteImageCacheItem>& items,
+                                   std::string& out_error)
+{
+    (void)asset_id;
+    (void)items;
+    out_error = "Route image cache unsupported on this target";
     return false;
 }
 
