@@ -7,6 +7,7 @@
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/components/floating_search_box.h"
+#include "ui/components/shortcut_help_modal.h"
 #include "ui/components/two_pane_layout.h"
 #include "ui/components/two_pane_styles.h"
 #include "ui/localization.h"
@@ -101,6 +102,7 @@ struct NetworkPageState
     lv_obj_t* directory_tabs = nullptr;
     lv_obj_t* favourites_tab = nullptr;
     lv_obj_t* announces_tab = nullptr;
+    lv_obj_t* directory_search_btn = nullptr;
     lv_obj_t* directory_list = nullptr;
     lv_obj_t* browser_panel = nullptr;
     lv_obj_t* browser_toolbar = nullptr;
@@ -112,6 +114,7 @@ struct NetworkPageState
     lv_obj_t* viewport = nullptr;
     ::ui::widgets::TopBar top_bar;
     ::ui::components::floating_search_box::State search_box;
+    ::ui::components::shortcut_help_modal::State help_modal;
     std::vector<rtdir::AnnounceRecord> announces;
     std::vector<rtdir::LxmfAddressRecord> addresses;
     std::array<DirectoryRowContext, kMaxDirectoryRows> row_contexts{};
@@ -125,6 +128,7 @@ struct NetworkPageState
     std::size_t history_pos = 0;
     DirectoryMode directory_mode = DirectoryMode::Announces;
     bool immersive = false;
+    bool directory_collapsed = false;
     bool suppress_history = false;
     rtdir::Status announce_status{};
     rtdir::Status address_status{};
@@ -556,6 +560,187 @@ std::size_t favourite_count()
 void render_current_page();
 void render_directory_list();
 void page_shortcut_event_cb(lv_event_t* event);
+void rebuild_focus_group(lv_obj_t* preferred = nullptr);
+void focus_browser_viewport();
+void focus_directory_panel();
+void apply_layout_state();
+void open_network_help_modal();
+void close_network_help_modal();
+
+bool object_in_subtree(lv_obj_t* root, lv_obj_t* obj)
+{
+    if (!root || !obj || !lv_obj_is_valid(root) || !lv_obj_is_valid(obj))
+    {
+        return false;
+    }
+    for (lv_obj_t* cursor = obj; cursor; cursor = lv_obj_get_parent(cursor))
+    {
+        if (cursor == root)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool object_visible(lv_obj_t* obj)
+{
+    if (!obj || !lv_obj_is_valid(obj))
+    {
+        return false;
+    }
+    for (lv_obj_t* cursor = obj; cursor; cursor = lv_obj_get_parent(cursor))
+    {
+        if (lv_obj_has_flag(cursor, LV_OBJ_FLAG_HIDDEN))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void add_visible_to_group(lv_obj_t* obj)
+{
+    if (app_g && object_visible(obj))
+    {
+        lv_group_add_obj(app_g, obj);
+    }
+}
+
+void add_directory_focusables()
+{
+    if (g_state.immersive || g_state.directory_collapsed)
+    {
+        return;
+    }
+    add_visible_to_group(g_state.favourites_tab);
+    add_visible_to_group(g_state.announces_tab);
+    add_visible_to_group(g_state.directory_search_btn);
+    if (!g_state.directory_list || !lv_obj_is_valid(g_state.directory_list))
+    {
+        return;
+    }
+    const uint32_t child_count = lv_obj_get_child_count(g_state.directory_list);
+    for (uint32_t index = 0; index < child_count; ++index)
+    {
+        lv_obj_t* child = lv_obj_get_child(g_state.directory_list, index);
+        if (child && lv_obj_has_flag(child, LV_OBJ_FLAG_CLICKABLE))
+        {
+            add_visible_to_group(child);
+        }
+    }
+}
+
+void add_viewport_links_to_group()
+{
+    if (!g_state.viewport || !lv_obj_is_valid(g_state.viewport))
+    {
+        return;
+    }
+    const uint32_t child_count = lv_obj_get_child_count(g_state.viewport);
+    for (uint32_t index = 0; index < child_count; ++index)
+    {
+        lv_obj_t* child = lv_obj_get_child(g_state.viewport, index);
+        if (child && lv_obj_has_flag(child, LV_OBJ_FLAG_CLICKABLE))
+        {
+            add_visible_to_group(child);
+        }
+    }
+}
+
+void add_browser_focusables()
+{
+    if (!g_state.immersive)
+    {
+        add_visible_to_group(g_state.browser_back_btn);
+        add_visible_to_group(g_state.home_btn);
+        add_visible_to_group(g_state.refresh_btn);
+        add_visible_to_group(g_state.address_area);
+        add_visible_to_group(g_state.go_btn);
+    }
+    add_visible_to_group(g_state.viewport);
+    add_viewport_links_to_group();
+}
+
+bool focus_preferred_or_fallback(lv_obj_t* preferred, lv_obj_t* previous)
+{
+    lv_obj_t* target = nullptr;
+    if (object_visible(preferred))
+    {
+        target = preferred;
+    }
+    else if (object_visible(previous))
+    {
+        target = previous;
+    }
+    else if (object_visible(g_state.viewport))
+    {
+        target = g_state.viewport;
+    }
+
+    if (!target || !app_g)
+    {
+        return false;
+    }
+    lv_group_focus_obj(target);
+    return true;
+}
+
+void rebuild_focus_group(lv_obj_t* preferred)
+{
+    if (!app_g ||
+        ::ui::components::floating_search_box::is_open(g_state.search_box) ||
+        ::ui::components::shortcut_help_modal::is_open(g_state.help_modal))
+    {
+        return;
+    }
+
+    lv_obj_t* previous = lv_group_get_focused(app_g);
+    lv_group_remove_all_objs(app_g);
+
+    if (!g_state.immersive)
+    {
+        add_visible_to_group(g_state.top_bar.back_btn);
+    }
+    add_directory_focusables();
+    add_browser_focusables();
+    set_default_group(app_g);
+    (void)focus_preferred_or_fallback(preferred, previous);
+}
+
+void focus_browser_viewport()
+{
+    rebuild_focus_group(g_state.viewport);
+}
+
+void focus_directory_panel()
+{
+    if (g_state.directory_collapsed)
+    {
+        return;
+    }
+    lv_obj_t* target = nullptr;
+    if (g_state.directory_list && lv_obj_is_valid(g_state.directory_list))
+    {
+        const uint32_t child_count = lv_obj_get_child_count(g_state.directory_list);
+        for (uint32_t index = 0; index < child_count; ++index)
+        {
+            lv_obj_t* child = lv_obj_get_child(g_state.directory_list, index);
+            if (child && lv_obj_has_flag(child, LV_OBJ_FLAG_CLICKABLE))
+            {
+                target = child;
+                break;
+            }
+        }
+    }
+    if (!target)
+    {
+        target = g_state.directory_mode == DirectoryMode::Favourites
+                     ? g_state.favourites_tab
+                     : g_state.announces_tab;
+    }
+    rebuild_focus_group(target);
+}
 
 void navigate_to_address(const char* address, bool push)
 {
@@ -566,6 +751,7 @@ void navigate_to_address(const char* address, bool push)
     }
     set_current_address(target);
     render_current_page();
+    rebuild_focus_group(g_state.viewport);
 }
 
 void resolve_link_target(const char* target, char* out, std::size_t out_len)
@@ -993,6 +1179,13 @@ void set_directory_mode(DirectoryMode mode)
 
 void directory_tab_event_cb(lv_event_t* event)
 {
+    if (event && lv_event_get_code(event) == LV_EVENT_KEY &&
+        lv_event_get_key(event) == LV_KEY_RIGHT)
+    {
+        focus_browser_viewport();
+        lv_event_stop_processing(event);
+        return;
+    }
     if (!activation_event(event))
     {
         return;
@@ -1035,6 +1228,13 @@ void directory_row_event_cb(lv_event_t* event)
 {
     if (!event)
     {
+        return;
+    }
+    if (lv_event_get_code(event) == LV_EVENT_KEY &&
+        lv_event_get_key(event) == LV_KEY_RIGHT)
+    {
+        focus_browser_viewport();
+        lv_event_stop_processing(event);
         return;
     }
     if (lv_event_get_code(event) == LV_EVENT_FOCUSED)
@@ -1203,6 +1403,7 @@ void render_directory_list()
                                                                       ? "No favourites"
                                                                       : "No announces"));
     }
+    rebuild_focus_group(nullptr);
 }
 
 void refresh_all()
@@ -1210,6 +1411,7 @@ void refresh_all()
     refresh_directory_data();
     render_directory_list();
     render_current_page();
+    rebuild_focus_group(nullptr);
 }
 
 void browser_back_event_cb(lv_event_t* event)
@@ -1307,6 +1509,10 @@ void open_search_modal()
         ::ui::components::floating_search_box::focus(g_state.search_box);
         return;
     }
+    if (::ui::components::shortcut_help_modal::is_open(g_state.help_modal))
+    {
+        return;
+    }
 
     ::ui::components::floating_search_box::Config config{};
     config.title = "Search";
@@ -1325,6 +1531,13 @@ void open_search_modal()
 
 void search_button_event_cb(lv_event_t* event)
 {
+    if (event && lv_event_get_code(event) == LV_EVENT_KEY &&
+        lv_event_get_key(event) == LV_KEY_RIGHT)
+    {
+        focus_browser_viewport();
+        lv_event_stop_processing(event);
+        return;
+    }
     if (!activation_event(event))
     {
         return;
@@ -1333,9 +1546,10 @@ void search_button_event_cb(lv_event_t* event)
     lv_event_stop_processing(event);
 }
 
-void apply_immersive_state()
+void apply_layout_state()
 {
     const bool immersive = g_state.immersive;
+    const bool hide_directory = immersive || g_state.directory_collapsed;
     if (g_state.header)
     {
         immersive ? lv_obj_add_flag(g_state.header, LV_OBJ_FLAG_HIDDEN)
@@ -1343,8 +1557,8 @@ void apply_immersive_state()
     }
     if (g_state.directory_panel)
     {
-        immersive ? lv_obj_add_flag(g_state.directory_panel, LV_OBJ_FLAG_HIDDEN)
-                  : lv_obj_clear_flag(g_state.directory_panel, LV_OBJ_FLAG_HIDDEN);
+        hide_directory ? lv_obj_add_flag(g_state.directory_panel, LV_OBJ_FLAG_HIDDEN)
+                       : lv_obj_clear_flag(g_state.directory_panel, LV_OBJ_FLAG_HIDDEN);
     }
     if (g_state.browser_toolbar)
     {
@@ -1357,7 +1571,7 @@ void apply_immersive_state()
         lv_obj_set_style_pad_right(g_state.content, immersive ? 0 : 2, LV_PART_MAIN);
         lv_obj_set_style_pad_top(g_state.content, immersive ? 0 : 2, LV_PART_MAIN);
         lv_obj_set_style_pad_bottom(g_state.content, immersive ? 0 : 2, LV_PART_MAIN);
-        lv_obj_set_style_pad_column(g_state.content, immersive ? 0 : 4, LV_PART_MAIN);
+        lv_obj_set_style_pad_column(g_state.content, hide_directory ? 0 : 4, LV_PART_MAIN);
     }
     if (g_state.browser_panel)
     {
@@ -1374,12 +1588,87 @@ void apply_immersive_state()
             lv_group_focus_obj(g_state.viewport);
         }
     }
+    rebuild_focus_group(g_state.viewport);
 }
 
 void toggle_immersive()
 {
     g_state.immersive = !g_state.immersive;
-    apply_immersive_state();
+    apply_layout_state();
+}
+
+void toggle_directory_panel()
+{
+    if (g_state.immersive)
+    {
+        g_state.immersive = false;
+    }
+    g_state.directory_collapsed = !g_state.directory_collapsed;
+    apply_layout_state();
+    ::ui::feedback::show_notice(g_state.directory_collapsed ? safe_tr("Directory hidden")
+                                                            : safe_tr("Directory shown"),
+                                1200);
+    if (g_state.directory_collapsed)
+    {
+        focus_browser_viewport();
+    }
+    else
+    {
+        focus_directory_panel();
+    }
+}
+
+bool is_help_shortcut_key(uint32_t key)
+{
+    return key == 'h' || key == 'H';
+}
+
+bool is_directory_toggle_shortcut_key(uint32_t key)
+{
+    return key == 'c' || key == 'C';
+}
+
+void close_network_help_modal()
+{
+    ::ui::components::shortcut_help_modal::close(g_state.help_modal);
+}
+
+void open_network_help_modal()
+{
+    if (::ui::components::shortcut_help_modal::is_open(g_state.help_modal))
+    {
+        close_network_help_modal();
+        return;
+    }
+    if (::ui::components::floating_search_box::is_open(g_state.search_box))
+    {
+        return;
+    }
+
+    ::ui::components::shortcut_help_modal::Row rows[10] = {};
+    std::size_t row_count = 0;
+    rows[row_count++] = {"S", "/", "Search announces"};
+    rows[row_count++] = {"C", nullptr, "Show or hide left column"};
+    rows[row_count++] = {"I", nullptr, "Immersive browser"};
+    rows[row_count++] = {"Left", "Right", "Switch pane focus"};
+    rows[row_count++] = {"Enter", nullptr, "Open selected item"};
+    rows[row_count++] = {"R", nullptr, "Refresh network"};
+    rows[row_count++] = {"F", nullptr, "Favourites"};
+    rows[row_count++] = {"A", nullptr, "Announces"};
+    rows[row_count++] = {"Back", nullptr, "Return or exit immersive"};
+    rows[row_count++] = {"H", nullptr, "Close help"};
+
+    ::ui::components::shortcut_help_modal::Config config{};
+    config.title = "Network Help";
+    config.rows = rows;
+    config.row_count = row_count;
+    config.width = 304;
+    config.height = 176;
+    config.restore_group = app_g;
+    (void)::ui::components::shortcut_help_modal::open(
+        g_state.help_modal,
+        g_state.root ? g_state.root : lv_screen_active(),
+        config);
 }
 
 void page_shortcut_event_cb(lv_event_t* event)
@@ -1389,6 +1678,32 @@ void page_shortcut_event_cb(lv_event_t* event)
         return;
     }
     const uint32_t key = lv_event_get_key(event);
+    lv_obj_t* target = lv_event_get_target_obj(event);
+    if (is_help_shortcut_key(key))
+    {
+        open_network_help_modal();
+        lv_event_stop_processing(event);
+        return;
+    }
+    if (is_directory_toggle_shortcut_key(key))
+    {
+        toggle_directory_panel();
+        lv_event_stop_processing(event);
+        return;
+    }
+    if (key == LV_KEY_RIGHT && object_in_subtree(g_state.directory_panel, target))
+    {
+        focus_browser_viewport();
+        lv_event_stop_processing(event);
+        return;
+    }
+    if (key == LV_KEY_LEFT && object_in_subtree(g_state.browser_panel, target) &&
+        !g_state.directory_collapsed)
+    {
+        focus_directory_panel();
+        lv_event_stop_processing(event);
+        return;
+    }
     if (key == 'i' || key == 'I')
     {
         toggle_immersive();
@@ -1398,7 +1713,7 @@ void page_shortcut_event_cb(lv_event_t* event)
     if (g_state.immersive && (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE))
     {
         g_state.immersive = false;
-        apply_immersive_state();
+        apply_layout_state();
         lv_event_stop_processing(event);
         return;
     }
@@ -1439,7 +1754,7 @@ void top_bar_back_requested(void* /*user_data*/)
     if (g_state.immersive)
     {
         g_state.immersive = false;
-        apply_immersive_state();
+        apply_layout_state();
         return;
     }
     request_exit();
@@ -1560,15 +1875,24 @@ void create_directory_panel(lv_obj_t* parent)
                                               DirectoryMode::Announces,
                                               profile.dense ? 22 : 26);
 
-    lv_obj_t* search_btn = lv_btn_create(g_state.directory_panel);
-    lv_obj_set_size(search_btn, LV_PCT(100), profile.dense ? 22 : 26);
-    style_chrome_button(search_btn, false);
-    lv_obj_add_event_cb(search_btn, search_button_event_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_add_event_cb(search_btn, search_button_event_cb, LV_EVENT_KEY, nullptr);
-    lv_obj_add_event_cb(search_btn, page_shortcut_event_cb, LV_EVENT_KEY, nullptr);
-    add_to_group(search_btn);
+    g_state.directory_search_btn = lv_btn_create(g_state.directory_panel);
+    lv_obj_set_size(g_state.directory_search_btn, LV_PCT(100), profile.dense ? 22 : 26);
+    style_chrome_button(g_state.directory_search_btn, false);
+    lv_obj_add_event_cb(g_state.directory_search_btn,
+                        search_button_event_cb,
+                        LV_EVENT_CLICKED,
+                        nullptr);
+    lv_obj_add_event_cb(g_state.directory_search_btn,
+                        search_button_event_cb,
+                        LV_EVENT_KEY,
+                        nullptr);
+    lv_obj_add_event_cb(g_state.directory_search_btn,
+                        page_shortcut_event_cb,
+                        LV_EVENT_KEY,
+                        nullptr);
+    add_to_group(g_state.directory_search_btn);
 
-    lv_obj_t* search_label = lv_label_create(search_btn);
+    lv_obj_t* search_label = lv_label_create(g_state.directory_search_btn);
     set_label(search_label, LV_SYMBOL_SEARCH, kText, caption_font());
     lv_obj_center(search_label);
 
@@ -1735,6 +2059,7 @@ void enter(void* /*user_data*/, lv_obj_t* parent)
 void exit(void* /*user_data*/, lv_obj_t* /*parent*/)
 {
     ::ui::components::floating_search_box::close(g_state.search_box);
+    close_network_help_modal();
     if (g_state.root && lv_obj_is_valid(g_state.root))
     {
         lv_obj_del(g_state.root);

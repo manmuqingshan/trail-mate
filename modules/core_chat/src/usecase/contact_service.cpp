@@ -71,6 +71,18 @@ std::string preferred_node_name(const NodeInfo& node)
     return preferred_node_name(node.short_name, node.long_name);
 }
 
+bool is_reticulum_node(const NodeInfo& node)
+{
+    return node.protocol == NodeProtocolType::Reticulum ||
+           hasReticulumDestinationIdentity(node.reticulum_identity);
+}
+
+bool is_reticulum_entry(const NodeEntry& entry)
+{
+    return static_cast<NodeProtocolType>(entry.protocol) == NodeProtocolType::Reticulum ||
+           hasReticulumDestinationIdentity(entry.reticulum_identity);
+}
+
 } // namespace
 
 ContactService::ContactService(INodeStore& node_store, IContactStore& contact_store)
@@ -193,6 +205,14 @@ std::string ContactService::getReticulumContactName(
         }
 
         const std::string nickname = contact_store_.getNickname(node.node_id);
+        if (is_reticulum_node(node))
+        {
+            const std::string name = preferred_node_name(node);
+            if (!name.empty())
+            {
+                return name;
+            }
+        }
         if (!nickname.empty())
         {
             return nickname;
@@ -209,6 +229,15 @@ std::string ContactService::getReticulumContactName(
         }
 
         const std::string nickname = contact_store_.getNickname(entry.node_id);
+        if (is_reticulum_entry(entry))
+        {
+            const std::string name =
+                preferred_node_name(entry.short_name, entry.long_name);
+            if (!name.empty())
+            {
+                return name;
+            }
+        }
         if (!nickname.empty())
         {
             return nickname;
@@ -457,7 +486,16 @@ void ContactService::buildCache() const
 
         const std::string nickname =
             info.is_contact ? contact_store_.getNickname(entry.node_id) : std::string();
-        if (!nickname.empty())
+        const bool reticulum_node = is_reticulum_node(info);
+        if (reticulum_node)
+        {
+            info.display_name = preferred_node_name(info.short_name, info.long_name);
+            if (info.display_name.empty() && !nickname.empty())
+            {
+                info.display_name = nickname;
+            }
+        }
+        else if (!nickname.empty())
         {
             info.display_name = nickname;
         }

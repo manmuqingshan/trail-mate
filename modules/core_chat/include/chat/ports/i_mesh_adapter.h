@@ -278,6 +278,23 @@ class IMeshAdapter
     }
 
     /**
+     * @brief Persist a known Reticulum peer into the SD-backed LXMF address book.
+     *
+     * This is a user-action path, not a runtime RX path. Reticulum adapters may
+     * perform synchronous durable writes here so adding a contact survives an
+     * immediate reboot. Other protocols keep the default Unsupported result.
+     */
+    virtual MeshActionResult persistReticulumPeer(
+        const ReticulumPeerIdentity& destination,
+        bool favorite)
+    {
+        (void)favorite;
+        return hasReticulumDestinationIdentity(destination)
+                   ? MeshActionResult::fail(MeshOperationFailure::Unsupported)
+                   : MeshActionResult::fail(MeshOperationFailure::InvalidInput);
+    }
+
+    /**
      * @brief Apply mesh configuration
      * @param config Configuration to apply
      */

@@ -752,7 +752,7 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
         return MeshSendResult::fail(MeshOperationFailure::NotReady);
     }
 
-    PeerInfo* peer_info = findPeerByNodeId(peer);
+    PeerInfo* peer_info = findOrLoadPeerByNodeId(peer);
     if (!peer_info)
     {
         Serial.printf("[LXMF][DirectTX] reject reason=peer_key_missing peer=%08lX\n",
@@ -1052,7 +1052,7 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
     bool ok = false;
     if (dest != 0)
     {
-        PeerInfo* peer_info = findPeerByNodeId(dest);
+        PeerInfo* peer_info = findOrLoadPeerByNodeId(dest);
         if (!peer_info)
         {
             Serial.printf("[LXMF][AppDataTX] reject reason=peer_key_missing port=%lu dest=%08lX msg=%lu\n",
@@ -1210,7 +1210,7 @@ bool LxmfAdapter::requestNodeInfo(NodeId dest, bool want_response)
 
     if (dest != 0 && dest != 0xFFFFFFFFUL)
     {
-        PeerInfo* peer = findPeerByNodeId(dest);
+        PeerInfo* peer = findOrLoadPeerByNodeId(dest);
         if (!peer)
         {
             return false;
@@ -1304,7 +1304,7 @@ MeshActionResult LxmfAdapter::startReticulumAudioCall(
         return MeshActionResult::fail(MeshOperationFailure::NotReady);
     }
 
-    const PeerInfo* peer = findPeerByDestinationHash(destination.destination_hash);
+    const PeerInfo* peer = findOrLoadPeerByDestinationHash(destination.destination_hash);
     if (!peer && !isZeroBytes(destination.identity_hash, sizeof(destination.identity_hash)))
     {
         peer = findPeerByIdentityHash(destination.identity_hash);
@@ -1408,6 +1408,36 @@ MeshActionResult LxmfAdapter::startReticulumAudioCall(
     (void)::platform::ui::reticulum_call::begin_outgoing(call_peer);
 
     return MeshActionResult::success();
+}
+
+MeshActionResult LxmfAdapter::persistReticulumPeer(
+    const ReticulumPeerIdentity& destination,
+    bool favorite)
+{
+    if (!chat::hasReticulumDestinationIdentity(destination))
+    {
+        return MeshActionResult::fail(MeshOperationFailure::InvalidInput);
+    }
+
+    PeerInfo* peer = findOrLoadPeerByDestinationHash(destination.destination_hash);
+    if (!peer && !isZeroBytes(destination.identity_hash, sizeof(destination.identity_hash)))
+    {
+        if (const PeerInfo* by_identity = findPeerByIdentityHash(destination.identity_hash))
+        {
+            peer = findOrLoadPeerByDestinationHash(by_identity->destination_hash);
+        }
+    }
+    if (!peer)
+    {
+        return MeshActionResult::fail(MeshOperationFailure::PeerKeyMissing);
+    }
+
+    const MeshActionResult result = persistPeerAddressNow(*peer, favorite);
+    if (result.ok)
+    {
+        publishPeerUpdate(*peer);
+    }
+    return result;
 }
 
 void LxmfAdapter::applyConfig(const MeshConfig& config)
@@ -6117,6 +6147,153 @@ LxmfAdapter::PeerInfo& LxmfAdapter::upsertPeer(
     return peer;
 }
 
+LxmfAdapter::PeerInfo* LxmfAdapter::upsertPeerFromAddressRecord(
+    const rtdir::LxmfAddressRecord& record,
+    bool queue_update)
+{
+    if (!record.valid || record.ignored ||
+        isZeroBytes(record.destination_hash, sizeof(record.destination_hash)) ||
+        isZeroBytes(record.identity_hash, sizeof(record.identity_hash)) ||
+        isZeroBytes(record.enc_pub, sizeof(record.enc_pub)) ||
+        isZeroBytes(record.sig_pub, sizeof(record.sig_pub)))
+    {
+        return nullptr;
+    }
+
+    PeerInfo& peer = upsertPeer(record.destination_hash);
+    copyHash(peer.identity_hash, record.identity_hash, sizeof(peer.identity_hash));
+    memcpy(peer.enc_pub, record.enc_pub, sizeof(peer.enc_pub));
+    memcpy(peer.sig_pub, record.sig_pub, sizeof(peer.sig_pub));
+    peer.last_seen_s = record.last_seen_s != 0 ? record.last_seen_s : currentTimestampSeconds();
+    peer.last_path_request_ms = 0;
+    copyCString(peer.display_name, sizeof(peer.display_name), record.display_name);
+    if (peer.display_name[0] == '\0')
+    {
+        snprintf(peer.display_name, sizeof(peer.display_name),
+                 "%08lX", static_cast<unsigned long>(peer.node_id));
+    }
+    if (queue_update)
+    {
+        queuePeerUpdate(peer);
+    }
+    return &peer;
+}
+
+LxmfAdapter::PeerInfo* LxmfAdapter::findOrLoadPeerByNodeId(NodeId node_id)
+{
+    if (node_id == 0)
+    {
+        return nullptr;
+    }
+    if (PeerInfo* peer = findPeerByNodeId(node_id))
+    {
+        return peer;
+    }
+
+    rtdir::LxmfAddressRecord record{};
+    const auto status = rtdir::find_lxmf_address_by_node_id(node_id, &record);
+    if (!status.loaded || !record.valid)
+    {
+        Serial.printf("[LXMF][Directory] peer_lookup miss node=%08lX message=%s detail=%s\n",
+                      static_cast<unsigned long>(node_id),
+                      status.message,
+                      status.detail);
+        return nullptr;
+    }
+    PeerInfo* peer = upsertPeerFromAddressRecord(record, true);
+    if (peer)
+    {
+        Serial.printf("[LXMF][Directory] peer_lookup loaded node=%08lX name=%s\n",
+                      static_cast<unsigned long>(node_id),
+                      peer->display_name[0] != '\0' ? peer->display_name : "<unnamed>");
+    }
+    return peer;
+}
+
+LxmfAdapter::PeerInfo* LxmfAdapter::findOrLoadPeerByDestinationHash(
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize])
+{
+    if (!destination_hash)
+    {
+        return nullptr;
+    }
+    for (auto& peer : peers_)
+    {
+        if (hashesEqual(peer.destination_hash,
+                        destination_hash,
+                        reticulum::kTruncatedHashSize))
+        {
+            return &peer;
+        }
+    }
+
+    rtdir::LxmfAddressRecord record{};
+    const auto status =
+        rtdir::find_lxmf_address_by_destination(destination_hash, &record);
+    if (!status.loaded || !record.valid)
+    {
+        char dest[12] = {};
+        formatHashPrefix(destination_hash, dest, sizeof(dest));
+        Serial.printf("[LXMF][Directory] peer_lookup miss dest=%s message=%s detail=%s\n",
+                      dest,
+                      status.message,
+                      status.detail);
+        return nullptr;
+    }
+    PeerInfo* peer = upsertPeerFromAddressRecord(record, true);
+    if (peer)
+    {
+        char dest[12] = {};
+        formatHashPrefix(peer->destination_hash, dest, sizeof(dest));
+        Serial.printf("[LXMF][Directory] peer_lookup loaded dest=%s name=%s\n",
+                      dest,
+                      peer->display_name[0] != '\0' ? peer->display_name : "<unnamed>");
+    }
+    return peer;
+}
+
+MeshActionResult LxmfAdapter::persistPeerAddressNow(const PeerInfo& peer,
+                                                    bool favorite) const
+{
+    if (isZeroBytes(peer.destination_hash, sizeof(peer.destination_hash)) ||
+        isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash)) ||
+        isZeroBytes(peer.enc_pub, sizeof(peer.enc_pub)) ||
+        isZeroBytes(peer.sig_pub, sizeof(peer.sig_pub)))
+    {
+        return MeshActionResult::fail(MeshOperationFailure::PeerKeyMissing);
+    }
+
+    rtdir::LxmfAddressRecord record{};
+    record.valid = true;
+    copyHash(record.destination_hash,
+             peer.destination_hash,
+             sizeof(record.destination_hash));
+    copyHash(record.identity_hash,
+             peer.identity_hash,
+             sizeof(record.identity_hash));
+    memcpy(record.enc_pub, peer.enc_pub, sizeof(record.enc_pub));
+    memcpy(record.sig_pub, peer.sig_pub, sizeof(record.sig_pub));
+    copyCString(record.display_name, sizeof(record.display_name), peer.display_name);
+    record.favorite = favorite;
+    record.source = rtdir::EntrySource::Manual;
+    record.first_seen_s = peer.last_seen_s != 0 ? peer.last_seen_s : currentTimestampSeconds();
+    record.last_seen_s = currentTimestampSeconds();
+
+    const auto status = rtdir::record_lxmf_address_now(record);
+    if (!status.sd_present)
+    {
+        return MeshActionResult::fail(MeshOperationFailure::NotReady);
+    }
+    if (!status.saved)
+    {
+        Serial.printf("[LXMF][Directory] address_save_now failed message=%s detail=%s\n",
+                      status.message,
+                      status.detail);
+        return MeshActionResult::fail(MeshOperationFailure::Unknown);
+    }
+    return MeshActionResult::success();
+}
+
 void LxmfAdapter::queuePeerUpdate(const PeerInfo& peer)
 {
     if (peer.node_id == 0)
@@ -6228,28 +6405,7 @@ void LxmfAdapter::loadDirectoryPeers()
     for (std::size_t index = 0; index < count; ++index)
     {
         const auto& record = records[index];
-        if (!record.valid || record.ignored ||
-            isZeroBytes(record.destination_hash, sizeof(record.destination_hash)) ||
-            isZeroBytes(record.identity_hash, sizeof(record.identity_hash)) ||
-            isZeroBytes(record.enc_pub, sizeof(record.enc_pub)) ||
-            isZeroBytes(record.sig_pub, sizeof(record.sig_pub)))
-        {
-            continue;
-        }
-
-        PeerInfo& peer = upsertPeer(record.destination_hash);
-        copyHash(peer.identity_hash, record.identity_hash, sizeof(peer.identity_hash));
-        memcpy(peer.enc_pub, record.enc_pub, sizeof(peer.enc_pub));
-        memcpy(peer.sig_pub, record.sig_pub, sizeof(peer.sig_pub));
-        peer.last_seen_s = record.last_seen_s;
-        peer.last_path_request_ms = 0;
-        copyCString(peer.display_name, sizeof(peer.display_name), record.display_name);
-        if (peer.display_name[0] == '\0')
-        {
-            snprintf(peer.display_name, sizeof(peer.display_name),
-                     "%08lX", static_cast<unsigned long>(peer.node_id));
-        }
-        queuePeerUpdate(peer);
+        (void)upsertPeerFromAddressRecord(record, true);
     }
 
     if (status.file_present)

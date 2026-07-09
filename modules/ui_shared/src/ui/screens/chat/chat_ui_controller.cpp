@@ -10,6 +10,7 @@
 #include "chat/infra/meshtastic/mt_radio_config.h"
 #include "chat/usecase/contact_service.h"
 #include "chat_presentation_adapters/chat_conversation_mapper.h"
+#include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "sys/event_bus.h"
 #include "ui/app_runtime.h"
@@ -50,6 +51,7 @@ namespace ui
 namespace
 {
 namespace chat_support = chat::ui::support;
+namespace rtdir = ::platform::ui::reticulum_directory;
 
 constexpr uint8_t kTeamChatChannelRaw = 2;
 constexpr chat::ChannelId kTeamChatChannel =
@@ -107,9 +109,24 @@ std::string reticulum_contact_display_name(const chat::ConversationId& conv)
     {
         return std::string();
     }
-    return app::messagingFacade()
-        .getContactService()
-        .getReticulumContactName(conv.reticulum_identity);
+    std::string name = app::messagingFacade()
+                           .getContactService()
+                           .getReticulumContactName(conv.reticulum_identity);
+    if (!name.empty())
+    {
+        return name;
+    }
+
+    rtdir::LxmfAddressRecord record{};
+    const auto status =
+        rtdir::find_lxmf_address_by_destination(
+            conv.reticulum_identity.destination_hash,
+            &record);
+    if (status.loaded && record.valid && record.display_name[0] != '\0')
+    {
+        return record.display_name;
+    }
+    return std::string();
 }
 
 bool same_conversation_party(const chat::ConversationId& lhs,

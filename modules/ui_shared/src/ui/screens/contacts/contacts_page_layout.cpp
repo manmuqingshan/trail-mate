@@ -68,6 +68,21 @@ static bool same_text(const std::string& lhs, const char* rhs)
 
 std::string preferred_node_display_name(const chat::contacts::NodeInfo& node)
 {
+    const bool reticulum_node =
+        node.protocol == chat::contacts::NodeProtocolType::Reticulum ||
+        chat::hasReticulumDestinationIdentity(node.reticulum_identity);
+    if (reticulum_node)
+    {
+        if (node.long_name[0] != '\0' && !same_text(node.long_name, node.short_name))
+        {
+            return node.long_name;
+        }
+        if (!node.display_name.empty() && !same_text(node.display_name, node.short_name))
+        {
+            return node.display_name;
+        }
+    }
+
     if (node.is_contact && !node.display_name.empty())
     {
         return node.display_name;

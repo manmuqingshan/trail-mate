@@ -83,6 +83,8 @@ class ChatService
     MeshActionResult triggerDiscoveryActionDetailed(MeshDiscoveryAction action);
     MeshActionResult startReticulumAudioCall(
         const ReticulumPeerIdentity& destination);
+    MeshActionResult persistReticulumPeer(const ReticulumPeerIdentity& destination,
+                                          bool favorite);
 
     /**
      * @brief Switch to channel

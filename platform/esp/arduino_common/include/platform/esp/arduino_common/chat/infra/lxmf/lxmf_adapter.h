@@ -18,6 +18,11 @@
 #include <cstddef>
 #include <vector>
 
+namespace platform::ui::reticulum_directory
+{
+struct LxmfAddressRecord;
+}
+
 namespace chat::lxmf
 {
 
@@ -54,6 +59,9 @@ class LxmfAdapter : public IMeshAdapter
     bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     MeshActionResult startReticulumAudioCall(
         const ReticulumPeerIdentity& destination) override;
+    MeshActionResult persistReticulumPeer(
+        const ReticulumPeerIdentity& destination,
+        bool favorite) override;
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     bool isReady() const override;
@@ -269,6 +277,13 @@ class LxmfAdapter : public IMeshAdapter
     bool isConfiguredGroupDestination(
         const ReticulumPeerIdentity& destination) const;
     PeerInfo& upsertPeer(const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
+    PeerInfo* upsertPeerFromAddressRecord(
+        const ::platform::ui::reticulum_directory::LxmfAddressRecord& record,
+        bool queue_update);
+    PeerInfo* findOrLoadPeerByNodeId(NodeId node_id);
+    PeerInfo* findOrLoadPeerByDestinationHash(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
+    MeshActionResult persistPeerAddressNow(const PeerInfo& peer, bool favorite) const;
     PeerInfo* rememberPeerIdentity(const uint8_t combined_pub[reticulum::kCombinedPublicKeySize],
                                    const char* display_name = nullptr);
     void queuePeerUpdate(const PeerInfo& peer);

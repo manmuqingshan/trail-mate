@@ -28,7 +28,7 @@ constexpr const char* kAnnouncesPath = "/trailmate/reticulum/announces.tsv";
 constexpr const char* kAnnouncesTempPath = "/trailmate/reticulum/announces.tmp";
 constexpr const char* kLxmfAddressesPath = "/trailmate/reticulum/lxmf_addresses.tsv";
 constexpr const char* kLxmfAddressesTempPath = "/trailmate/reticulum/lxmf_addresses.tmp";
-constexpr std::size_t kMaxDirectoryEntries = 100;
+constexpr std::size_t kMaxDirectoryEntries = 1024;
 constexpr std::size_t kMaxLineBytes = 4096;
 constexpr std::size_t kMaxTsvFields = 14;
 constexpr std::size_t kLineReadChunkBytes = 256;
@@ -791,6 +791,70 @@ bool truthy(std::string_view text)
     return text == "1" || text == "true" || text == "yes" || text == "enabled";
 }
 
+char lower_ascii(char ch)
+{
+    if (ch >= 'A' && ch <= 'Z')
+    {
+        return static_cast<char>(ch - 'A' + 'a');
+    }
+    return ch;
+}
+
+bool contains_ci(std::string_view text, std::string_view query)
+{
+    if (query.empty())
+    {
+        return true;
+    }
+    if (query.size() > text.size())
+    {
+        return false;
+    }
+    for (std::size_t start = 0; start + query.size() <= text.size(); ++start)
+    {
+        bool match = true;
+        for (std::size_t offset = 0; offset < query.size(); ++offset)
+        {
+            if (lower_ascii(text[start + offset]) != lower_ascii(query[offset]))
+            {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool address_line_matches_query(std::string_view line, std::string_view query)
+{
+    const std::string_view trimmed_query = trim_view(query);
+    if (trimmed_query.empty())
+    {
+        return true;
+    }
+    const TsvFields fields = split_tsv(line);
+    return (fields.count > 0 && contains_ci(fields.values[0], trimmed_query)) ||
+           (fields.count > 1 && contains_ci(fields.values[1], trimmed_query)) ||
+           (fields.count > 4 && contains_ci(fields.values[4], trimmed_query));
+}
+
+uint32_t node_id_from_destination_hash(
+    const uint8_t destination_hash[kReticulumHashSize])
+{
+    if (!destination_hash)
+    {
+        return 0;
+    }
+    return (static_cast<uint32_t>(destination_hash[12]) << 24) |
+           (static_cast<uint32_t>(destination_hash[13]) << 16) |
+           (static_cast<uint32_t>(destination_hash[14]) << 8) |
+           static_cast<uint32_t>(destination_hash[15]);
+}
+
 std::string bool_text(bool value)
 {
     return value ? "1" : "0";
@@ -1091,7 +1155,36 @@ Status stream_upsert_line(const char* path,
               write_text(out_file, title) &&
               write_text(out_file, "\nversion\t1\n");
 
+    std::size_t existing_data_lines = 0;
+    if (ok && out.file_present)
+    {
+        SdRuntimeFile count_file;
+        if (!count_file.open(path, "r"))
+        {
+            out_file.close();
+            ::platform::esp::arduino_common::storage::sd_remove(temp_path);
+            set_status(out, "Cannot read Reticulum directory", path);
+            return out;
+        }
+        std::string old_line;
+        LineReader reader(count_file);
+        while (reader.read_line(old_line))
+        {
+            const std::string_view view = trim_view(old_line);
+            if (data_line(view) && !first_field_matches(view, destination))
+            {
+                ++existing_data_lines;
+            }
+        }
+        count_file.close();
+    }
+
+    const std::size_t skip_oldest =
+        existing_data_lines + 1U > kMaxDirectoryEntries
+            ? (existing_data_lines + 1U - kMaxDirectoryEntries)
+            : 0;
     std::size_t kept = 0;
+    std::size_t skipped = 0;
     if (ok && out.file_present)
     {
         SdRuntimeFile in_file;
@@ -1104,11 +1197,16 @@ Status stream_upsert_line(const char* path,
         }
         std::string old_line;
         LineReader reader(in_file);
-        while (reader.read_line(old_line) && kept + 1U < kMaxDirectoryEntries)
+        while (reader.read_line(old_line))
         {
             const std::string_view view = trim_view(old_line);
             if (data_line(view) && !first_field_matches(view, destination))
             {
+                if (skipped < skip_oldest)
+                {
+                    ++skipped;
+                    continue;
+                }
                 ok = write_line(out_file, view);
                 if (!ok)
                 {
@@ -1258,6 +1356,9 @@ Status record_lxmf_address_sync(const LxmfAddressRecord& record)
     }
 
     const std::string destination = hex_text(record.destination_hash, kReticulumHashSize);
+    const bool requested_favorite = record.favorite;
+    const bool requested_ignored = record.ignored;
+    const bool requested_trusted = record.trusted;
     bool favorite = record.favorite;
     bool ignored = record.ignored;
     bool trusted = record.trusted;
@@ -1271,6 +1372,9 @@ Status record_lxmf_address_sync(const LxmfAddressRecord& record)
                                &trusted,
                                &first_seen_s);
     }
+    favorite = favorite || requested_favorite;
+    ignored = ignored || requested_ignored;
+    trusted = trusted || requested_trusted;
 
     return stream_upsert_line(kLxmfAddressesPath,
                               kLxmfAddressesTempPath,
@@ -1300,6 +1404,52 @@ Status record_announce(const AnnounceRecord& record)
 Status record_lxmf_address(const LxmfAddressRecord& record)
 {
     return queue_lxmf_address_async(record);
+}
+
+Status record_lxmf_address_now(const LxmfAddressRecord& record)
+{
+    return record_lxmf_address_sync(record);
+}
+
+Status set_lxmf_address_favorite_now(
+    const uint8_t destination_hash[kReticulumHashSize],
+    bool favorite)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = sd_available();
+    if (!destination_hash || zero_hash(destination_hash, kReticulumHashSize))
+    {
+        set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
+        return out;
+    }
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kLxmfAddressesPath);
+        return out;
+    }
+
+    LxmfAddressRecord record{};
+    Status find_status = find_lxmf_address_by_destination(destination_hash, &record);
+    out.file_present = find_status.file_present;
+    if (!find_status.loaded || !record.valid)
+    {
+        set_status(out, "LXMF address not found", kLxmfAddressesPath);
+        return out;
+    }
+
+    record.favorite = favorite;
+    const std::string destination = hex_text(record.destination_hash, kReticulumHashSize);
+    return stream_upsert_line(kLxmfAddressesPath,
+                              kLxmfAddressesTempPath,
+                              "LXMF addresses",
+                              "LXMF address saved",
+                              destination,
+                              address_line(record,
+                                           record.favorite,
+                                           record.ignored,
+                                           record.trusted,
+                                           record.first_seen_s));
 }
 
 Status load_announces(AnnounceRecord* out_records,
@@ -1428,6 +1578,195 @@ Status load_lxmf_addresses(LxmfAddressRecord* out_records,
     }
     out.loaded = true;
     set_status(out, count == 0 ? "No LXMF addresses" : "LXMF addresses loaded",
+               kLxmfAddressesPath);
+    return out;
+}
+
+Status load_lxmf_addresses_matching(const char* query,
+                                    LxmfAddressRecord* out_records,
+                                    std::size_t max_records,
+                                    std::size_t* out_count)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = sd_available();
+    if (out_count)
+    {
+        *out_count = 0;
+    }
+    if (!query || trim_view(query).empty())
+    {
+        return load_lxmf_addresses(out_records, max_records, out_count);
+    }
+    if (!out_records || max_records == 0)
+    {
+        set_status(out, "LXMF address storage unavailable", kLxmfAddressesPath);
+        return out;
+    }
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kLxmfAddressesPath);
+        return out;
+    }
+
+    out.file_present = ::platform::esp::arduino_common::storage::sd_exists(kLxmfAddressesPath);
+    if (!out.file_present)
+    {
+        out.loaded = true;
+        set_status(out, "No LXMF addresses", kLxmfAddressesPath);
+        return out;
+    }
+
+    SdRuntimeFile file;
+    if (!file.open(kLxmfAddressesPath, "r"))
+    {
+        set_status(out, "Cannot read LXMF addresses", kLxmfAddressesPath);
+        return out;
+    }
+
+    std::size_t count = 0;
+    std::string line;
+    LineReader reader(file);
+    while (reader.read_line(line))
+    {
+        const std::string_view view = trim_view(line);
+        if (data_line(view) && address_line_matches_query(view, query))
+        {
+            LxmfAddressRecord parsed{};
+            if (parse_address_line(view, parsed))
+            {
+                append_latest_record(out_records, max_records, count, parsed);
+            }
+        }
+    }
+    file.close();
+
+    reverse_records(out_records, count);
+    if (out_count)
+    {
+        *out_count = count;
+    }
+    out.loaded = true;
+    set_status(out, count == 0 ? "No LXMF address matches" : "LXMF address matches loaded",
+               kLxmfAddressesPath);
+    return out;
+}
+
+Status find_lxmf_address_by_destination(
+    const uint8_t destination_hash[kReticulumHashSize],
+    LxmfAddressRecord* out_record)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = sd_available();
+    if (out_record)
+    {
+        *out_record = LxmfAddressRecord{};
+    }
+    if (!destination_hash || !out_record ||
+        zero_hash(destination_hash, kReticulumHashSize))
+    {
+        set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
+        return out;
+    }
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kLxmfAddressesPath);
+        return out;
+    }
+
+    out.file_present = ::platform::esp::arduino_common::storage::sd_exists(kLxmfAddressesPath);
+    if (!out.file_present)
+    {
+        out.loaded = true;
+        set_status(out, "No LXMF addresses", kLxmfAddressesPath);
+        return out;
+    }
+
+    SdRuntimeFile file;
+    if (!file.open(kLxmfAddressesPath, "r"))
+    {
+        set_status(out, "Cannot read LXMF addresses", kLxmfAddressesPath);
+        return out;
+    }
+
+    const std::string destination = hex_text(destination_hash, kReticulumHashSize);
+    std::string line;
+    LineReader reader(file);
+    while (reader.read_line(line))
+    {
+        const std::string_view view = trim_view(line);
+        if (data_line(view) && first_field_matches(view, destination))
+        {
+            out.loaded = parse_address_line(view, *out_record);
+            break;
+        }
+    }
+    file.close();
+    set_status(out,
+               out.loaded ? "LXMF address loaded" : "LXMF address not found",
+               kLxmfAddressesPath);
+    return out;
+}
+
+Status find_lxmf_address_by_node_id(uint32_t node_id,
+                                    LxmfAddressRecord* out_record)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = sd_available();
+    if (out_record)
+    {
+        *out_record = LxmfAddressRecord{};
+    }
+    if (node_id == 0 || !out_record)
+    {
+        set_status(out, "Invalid LXMF node", kLxmfAddressesPath);
+        return out;
+    }
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kLxmfAddressesPath);
+        return out;
+    }
+
+    out.file_present = ::platform::esp::arduino_common::storage::sd_exists(kLxmfAddressesPath);
+    if (!out.file_present)
+    {
+        out.loaded = true;
+        set_status(out, "No LXMF addresses", kLxmfAddressesPath);
+        return out;
+    }
+
+    SdRuntimeFile file;
+    if (!file.open(kLxmfAddressesPath, "r"))
+    {
+        set_status(out, "Cannot read LXMF addresses", kLxmfAddressesPath);
+        return out;
+    }
+
+    std::string line;
+    LineReader reader(file);
+    bool found = false;
+    while (reader.read_line(line))
+    {
+        const std::string_view view = trim_view(line);
+        if (!data_line(view))
+        {
+            continue;
+        }
+        LxmfAddressRecord parsed{};
+        if (parse_address_line(view, parsed) &&
+            node_id_from_destination_hash(parsed.destination_hash) == node_id)
+        {
+            *out_record = parsed;
+            found = true;
+        }
+    }
+    file.close();
+    out.loaded = found;
+    set_status(out,
+               found ? "LXMF address loaded" : "LXMF address not found",
                kLxmfAddressesPath);
     return out;
 }

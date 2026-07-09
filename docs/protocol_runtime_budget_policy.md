@@ -39,6 +39,11 @@ for SD or NVS persistence.
   `record_announce()` and `record_lxmf_address()` on ESP Arduino are queueing
   APIs for runtime RX callers; they must not perform TSV upserts or other SD
   file I/O on the RX caller task.
+- Explicit user address-book actions are the exception to RX-path deferral.
+  Adding or removing a Reticulum contact may synchronously update
+  `lxmf_addresses.tsv` because the user is already waiting for that action to
+  complete. These paths must stay bounded, must not run from packet RX, and
+  should use a blocking UI affordance if real hardware shows visible SD delay.
 - Peer-name projection is not persistence. It may run while the screen is on,
   but it must be queue-backed and rate-limited; it must not trigger SD, TSV, or
   NVS writes.
@@ -75,6 +80,8 @@ mount every known announce as a live LVGL object on small ESP targets. Long
 Contacts lists should render a visible window with spacer rows and preserve
 scroll position across timer refreshes. Data snapshots may contain more records
 than the visible UI window, preferably in PSRAM-backed storage when available.
+Reticulum Contacts search may stream over the SD address book, but the UI must
+still cap the number of projected rows.
 
 ## Regression Checks
 

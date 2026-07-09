@@ -29,11 +29,16 @@ struct Widget
 {
     lv_obj_t* root = nullptr;
     lv_obj_t* list = nullptr;
+    lv_obj_t* slot_button = nullptr;
+    lv_obj_t* slot_image = nullptr;
+    lv_obj_t* slot_placeholder = nullptr;
+    lv_obj_t* slot_caption = nullptr;
     lv_obj_t* fullscreen_root = nullptr;
     Config config{};
     std::vector<Item> items{};
     std::vector<std::string> image_sources{};
     std::vector<lv_obj_t*> item_buttons{};
+    std::string rendered_source{};
     std::string fullscreen_source{};
     std::size_t selected_index = 0;
     bool visible = false;

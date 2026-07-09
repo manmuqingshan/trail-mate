@@ -14,6 +14,7 @@
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "sys/clock.h"
@@ -41,6 +42,7 @@
 #include "ui/team_actions/team_action_runtime_sink.h"
 #include "ui/team_actions/team_runtime_adapters.h"
 #include "ui/ui_common.h"
+#include "ui/widgets/busy_overlay.h"
 #include "ui/widgets/ime/ime_widget.h"
 #include "ui/widgets/top_bar.h"
 
@@ -63,6 +65,7 @@
 
 using namespace contacts::ui;
 namespace chat_support = chat::ui::support;
+namespace rtdir = ::platform::ui::reticulum_directory;
 
 static constexpr int kItemsPerPage = 4;
 static constexpr int kButtonHeight = 28;
@@ -1089,6 +1092,88 @@ static void build_display_list(const std::vector<chat::contacts::NodeInfo>& sour
     }
 }
 
+static const char* reticulum_address_save_failure_message(
+    chat::MeshOperationFailure failure)
+{
+    switch (failure)
+    {
+    case chat::MeshOperationFailure::PeerKeyMissing:
+        return "Address pending";
+    case chat::MeshOperationFailure::NotReady:
+        return "SD unavailable";
+    case chat::MeshOperationFailure::InvalidInput:
+        return "Invalid peer";
+    case chat::MeshOperationFailure::Unsupported:
+        return "Address save unsupported";
+    default:
+        break;
+    }
+    return "Address save failed";
+}
+
+static chat::MeshActionResult persist_reticulum_contact_peer(
+    const chat::ReticulumPeerIdentity& identity,
+    bool favorite)
+{
+    if (!g_contacts_state.chat_service ||
+        !chat::hasReticulumDestinationIdentity(identity))
+    {
+        return chat::MeshActionResult::fail(chat::MeshOperationFailure::InvalidInput);
+    }
+    return g_contacts_state.chat_service->persistReticulumPeer(identity, favorite);
+}
+
+static void present_busy_overlay_now()
+{
+    static bool s_presenting = false;
+    if (s_presenting)
+    {
+        return;
+    }
+    s_presenting = true;
+    if (lv_obj_t* top = lv_layer_top())
+    {
+        lv_obj_invalidate(top);
+    }
+    lv_timer_handler();
+    lv_refr_now(nullptr);
+    s_presenting = false;
+}
+
+class ScopedReticulumContactSaveOverlay
+{
+  public:
+    explicit ScopedReticulumContactSaveOverlay(bool active,
+                                               const char* detail = nullptr)
+        : active_(active)
+    {
+        if (!active_)
+        {
+            return;
+        }
+        ::ui::widgets::busy_overlay::show("Saving contact...", detail);
+        present_busy_overlay_now();
+    }
+
+    ~ScopedReticulumContactSaveOverlay()
+    {
+        if (!active_)
+        {
+            return;
+        }
+        ::ui::widgets::busy_overlay::hide();
+        present_busy_overlay_now();
+    }
+
+    ScopedReticulumContactSaveOverlay(const ScopedReticulumContactSaveOverlay&) =
+        delete;
+    ScopedReticulumContactSaveOverlay& operator=(
+        const ScopedReticulumContactSaveOverlay&) = delete;
+
+  private:
+    bool active_ = false;
+};
+
 static bool is_search_shortcut_key(uint32_t key)
 {
     return key == '/' || key == 's' || key == 'S';
@@ -1624,6 +1709,18 @@ static void on_lxmf_address_apply(const char* text, void* /*user_data*/)
         return;
     }
 
+    rtdir::LxmfAddressRecord address_record{};
+    const auto address_lookup =
+        rtdir::find_lxmf_address_by_destination(identity.destination_hash,
+                                                &address_record);
+    const bool has_full_address =
+        address_lookup.loaded && address_record.valid;
+    if (has_full_address)
+    {
+        identity = chat::makeReticulumPeerIdentity(address_record.destination_hash,
+                                                   address_record.identity_hash);
+    }
+
     uint32_t node_id = 0;
     if (!g_contacts_state.contact_service->findNodeIdByReticulumDestinationHash(
             identity.destination_hash,
@@ -1639,7 +1736,15 @@ static void on_lxmf_address_apply(const char* text, void* /*user_data*/)
     make_lxmf_short_name(identity, node_id, short_name, sizeof(short_name));
     make_lxmf_contact_nickname(identity, generated_nickname, sizeof(generated_nickname));
     std::snprintf(nickname, sizeof(nickname), "%s", generated_nickname);
-    if (existing_node)
+    const char* address_display_name =
+        has_full_address && address_record.display_name[0] != '\0'
+            ? address_record.display_name
+            : nullptr;
+    if (address_display_name && std::strlen(address_display_name) <= 12U)
+    {
+        std::snprintf(nickname, sizeof(nickname), "%s", address_display_name);
+    }
+    else if (existing_node)
     {
         const std::string existing_name = node_display_name_for_contacts(*existing_node);
         if (!existing_name.empty() && existing_name.size() <= 12U)
@@ -1650,8 +1755,16 @@ static void on_lxmf_address_apply(const char* text, void* /*user_data*/)
 
     chat::contacts::NodeUpdate update{};
     update.short_name = short_name;
-    char fallback_long_name[13] = {};
-    if (!existing_node || existing_node->long_name[0] == '\0')
+    char fallback_long_name[32] = {};
+    if (address_display_name)
+    {
+        std::snprintf(fallback_long_name,
+                      sizeof(fallback_long_name),
+                      "%s",
+                      address_display_name);
+        update.long_name = fallback_long_name;
+    }
+    else if (!existing_node || existing_node->long_name[0] == '\0')
     {
         std::snprintf(fallback_long_name, sizeof(fallback_long_name), "%s", nickname);
         update.long_name = fallback_long_name;
@@ -1663,6 +1776,10 @@ static void on_lxmf_address_apply(const char* text, void* /*user_data*/)
     update.has_role = true;
     update.role = static_cast<uint8_t>(chat::contacts::NodeRoleType::Client);
     update.reticulum_identity = identity;
+
+    ScopedReticulumContactSaveOverlay save_overlay(
+        true,
+        has_full_address ? "Updating SD address book" : "Saving local contact");
     g_contacts_state.contact_service->applyNodeUpdate(node_id, update);
 
     refresh_contacts_data();
@@ -1679,13 +1796,31 @@ static void on_lxmf_address_apply(const char* text, void* /*user_data*/)
         return;
     }
 
+    bool favorite_saved = false;
+    if (has_full_address)
+    {
+        const auto favorite_status =
+            rtdir::set_lxmf_address_favorite_now(identity.destination_hash, true);
+        favorite_saved = favorite_status.saved;
+        if (!favorite_saved)
+        {
+            std::printf("[Contacts][RT] favorite_save failed message=%s detail=%s\n",
+                        favorite_status.message,
+                        favorite_status.detail);
+        }
+    }
+
     clear_search_query();
     g_contacts_state.current_mode = ContactsMode::Contacts;
     g_contacts_state.current_page = 0;
     g_contacts_state.selected_index = -1;
     refresh_contacts_data();
     refresh_ui();
-    ::ui::feedback::show_notice("Contact added", 1400);
+    ::ui::feedback::show_notice(
+        has_full_address
+            ? (favorite_saved ? "Contact saved" : "Contact added; SD pending")
+            : "Contact added; wait announce",
+        1800);
     contacts_focus_to_list();
 }
 
@@ -3151,6 +3286,22 @@ static void on_add_edit_save_clicked(lv_event_t* /*e*/)
     {
         return;
     }
+    chat::ReticulumPeerIdentity reticulum_identity{};
+    bool add_reticulum_contact = false;
+    if (!g_contacts_state.modal_is_edit)
+    {
+        if (const auto* node = find_node_by_id(g_contacts_state.modal_node_id))
+        {
+            add_reticulum_contact =
+                is_reticulum_node(*node) &&
+                chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+            if (add_reticulum_contact)
+            {
+                reticulum_identity = node->reticulum_identity;
+            }
+        }
+    }
+
     auto contacts = g_contacts_state.contact_service->getContacts();
     for (const auto& c : contacts)
     {
@@ -3166,6 +3317,9 @@ static void on_add_edit_save_clicked(lv_event_t* /*e*/)
         }
     }
 
+    ScopedReticulumContactSaveOverlay save_overlay(
+        !g_contacts_state.modal_is_edit && add_reticulum_contact,
+        "Updating SD address book");
     bool ok = false;
     if (g_contacts_state.modal_is_edit)
     {
@@ -3174,6 +3328,19 @@ static void on_add_edit_save_clicked(lv_event_t* /*e*/)
     else
     {
         ok = g_contacts_state.contact_service->addContact(g_contacts_state.modal_node_id, nickname);
+    }
+
+    chat::MeshActionResult reticulum_persist_result{};
+    bool reticulum_persist_attempted = false;
+    if (!g_contacts_state.modal_is_edit && add_reticulum_contact)
+    {
+        reticulum_persist_attempted = true;
+        reticulum_persist_result =
+            persist_reticulum_contact_peer(reticulum_identity, true);
+        if (reticulum_persist_result.ok)
+        {
+            ok = true;
+        }
     }
 
     if (!ok)
@@ -3195,6 +3362,16 @@ static void on_add_edit_save_clicked(lv_event_t* /*e*/)
     g_contacts_state.selected_index = -1;
     refresh_contacts_data();
     refresh_ui();
+    if (reticulum_persist_attempted && !reticulum_persist_result.ok)
+    {
+        ::ui::feedback::show_notice(
+            reticulum_address_save_failure_message(reticulum_persist_result.failure),
+            1800);
+    }
+    else if (reticulum_persist_attempted)
+    {
+        ::ui::feedback::show_notice("Contact saved", 1400);
+    }
     contacts_focus_to_list();
 }
 
@@ -3312,9 +3489,35 @@ static void on_reticulum_group_cancel_clicked(lv_event_t* /*e*/)
 
 static void on_del_confirm_clicked(lv_event_t* /*e*/)
 {
+    chat::ReticulumPeerIdentity reticulum_identity{};
+    bool reticulum_contact = false;
+    if (const auto* node = find_node_by_id(g_contacts_state.modal_node_id))
+    {
+        reticulum_contact =
+            is_reticulum_node(*node) &&
+            chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+        if (reticulum_contact)
+        {
+            reticulum_identity = node->reticulum_identity;
+        }
+    }
+
+    ScopedReticulumContactSaveOverlay save_overlay(reticulum_contact,
+                                                   "Updating SD address book");
     if (g_contacts_state.contact_service)
     {
         g_contacts_state.contact_service->removeContact(g_contacts_state.modal_node_id);
+    }
+    if (reticulum_contact)
+    {
+        const auto favorite_status =
+            rtdir::set_lxmf_address_favorite_now(reticulum_identity.destination_hash, false);
+        if (favorite_status.sd_present && !favorite_status.saved)
+        {
+            std::printf("[Contacts][RT] favorite_clear failed message=%s detail=%s\n",
+                        favorite_status.message,
+                        favorite_status.detail);
+        }
     }
 
     modal_close(g_contacts_state.del_confirm_modal);

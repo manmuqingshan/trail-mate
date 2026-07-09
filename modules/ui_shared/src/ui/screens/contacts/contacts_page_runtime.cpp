@@ -4,8 +4,10 @@
 #include "app/app_facade_access.h"
 #include "chat/domain/chat_types.h"
 #include "chat/infra/mesh_protocol_utils.h"
+#include "chat/infra/reticulum/reticulum_wire.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
+#include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "ui/app_runtime.h"
 #include "ui/screens/chat/chat_compose_components.h"
@@ -21,6 +23,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <limits>
+#include <memory>
+#include <new>
+#include <string>
 
 #define CONTACTS_DEBUG 0
 #if CONTACTS_DEBUG
@@ -35,8 +41,10 @@ namespace
 {
 
 using contacts::ui::shell::Host;
+namespace rtdir = ::platform::ui::reticulum_directory;
 
 constexpr uint32_t kContactsRefreshIntervalMs = 2000;
+constexpr std::size_t kReticulumDirectoryProjectionLimit = 100;
 
 const Host* s_host = nullptr;
 
@@ -199,6 +207,177 @@ void filter_to_active_protocol(std::vector<chat::contacts::NodeInfo>& nodes)
                 nodes.end());
 }
 
+uint32_t reticulum_node_id_from_destination_hash(
+    const uint8_t destination_hash[chat::kReticulumPeerHashSize])
+{
+    return chat::reticulum::nodeIdFromDestinationHash(destination_hash);
+}
+
+void copy_node_text(char* out, std::size_t out_len, const char* text)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "%s", text ? text : "");
+}
+
+std::string reticulum_record_fallback_name(
+    const chat::ReticulumPeerIdentity& identity)
+{
+    char prefix[12] = {};
+    format_reticulum_hash_prefix(identity, prefix, sizeof(prefix));
+    return prefix[0] != '\0' && std::strcmp(prefix, "-") != 0
+               ? std::string(prefix)
+               : std::string("Reticulum");
+}
+
+chat::contacts::NodeInfo node_from_lxmf_address(
+    const rtdir::LxmfAddressRecord& record,
+    bool as_contact)
+{
+    chat::contacts::NodeInfo item{};
+    item.node_id = reticulum_node_id_from_destination_hash(record.destination_hash);
+    item.last_seen = record.last_seen_s;
+    item.snr = std::numeric_limits<float>::quiet_NaN();
+    item.rssi = std::numeric_limits<float>::quiet_NaN();
+    item.hops_away = 0xFF;
+    item.channel = 0xFF;
+    item.is_contact = as_contact || record.favorite;
+    item.protocol = chat::contacts::NodeProtocolType::Reticulum;
+    item.role = chat::contacts::NodeRoleType::Client;
+    item.is_ignored = record.ignored;
+    item.has_public_key = true;
+    item.key_manually_verified = record.trusted;
+    item.reticulum_identity =
+        chat::makeReticulumPeerIdentity(record.destination_hash,
+                                        record.identity_hash);
+
+    std::snprintf(item.short_name,
+                  sizeof(item.short_name),
+                  "%04lX",
+                  static_cast<unsigned long>(item.node_id & 0xFFFFUL));
+    const std::string display =
+        record.display_name[0] != '\0'
+            ? std::string(record.display_name)
+            : reticulum_record_fallback_name(item.reticulum_identity);
+    copy_node_text(item.long_name, sizeof(item.long_name), display.c_str());
+    item.display_name = display;
+    return item;
+}
+
+bool same_reticulum_node(const chat::contacts::NodeInfo& lhs,
+                         const chat::contacts::NodeInfo& rhs)
+{
+    if (chat::hasReticulumDestinationIdentity(lhs.reticulum_identity) &&
+        chat::hasReticulumDestinationIdentity(rhs.reticulum_identity))
+    {
+        return chat::sameReticulumDestinationHash(lhs.reticulum_identity,
+                                                  rhs.reticulum_identity);
+    }
+    return lhs.node_id != 0 && lhs.node_id == rhs.node_id;
+}
+
+void upsert_reticulum_projection(std::vector<chat::contacts::NodeInfo>& nodes,
+                                 const chat::contacts::NodeInfo& projection,
+                                 bool force_contact)
+{
+    for (auto& existing : nodes)
+    {
+        if (!same_reticulum_node(existing, projection))
+        {
+            continue;
+        }
+        existing.protocol = chat::contacts::NodeProtocolType::Reticulum;
+        existing.reticulum_identity = projection.reticulum_identity;
+        existing.last_seen =
+            projection.last_seen != 0 ? projection.last_seen : existing.last_seen;
+        existing.is_ignored = projection.is_ignored;
+        existing.has_public_key = existing.has_public_key || projection.has_public_key;
+        existing.key_manually_verified =
+            existing.key_manually_verified || projection.key_manually_verified;
+        existing.is_contact = existing.is_contact || force_contact || projection.is_contact;
+        if (projection.long_name[0] != '\0')
+        {
+            copy_node_text(existing.long_name,
+                           sizeof(existing.long_name),
+                           projection.long_name);
+            existing.display_name = projection.display_name;
+        }
+        return;
+    }
+
+    chat::contacts::NodeInfo inserted = projection;
+    inserted.is_contact = inserted.is_contact || force_contact;
+    nodes.push_back(inserted);
+}
+
+void merge_reticulum_directory_projection()
+{
+    const chat::MeshProtocol active_protocol =
+        chat::infra::normalizeMeshProtocol(
+            app::configFacade().getConfig().mesh_protocol);
+    if (!chat::infra::isReticulumMeshProtocol(active_protocol))
+    {
+        return;
+    }
+
+    auto records = std::unique_ptr<rtdir::LxmfAddressRecord[]>(
+        new (std::nothrow) rtdir::LxmfAddressRecord[kReticulumDirectoryProjectionLimit]);
+    if (!records)
+    {
+        std::printf("[Contacts][RTDirectory] load skipped reason=oom records=%u\n",
+                    static_cast<unsigned>(kReticulumDirectoryProjectionLimit));
+        return;
+    }
+
+    std::size_t count = 0;
+    const bool search_active = g_contacts_state.search_query[0] != '\0';
+    const auto status =
+        search_active
+            ? rtdir::load_lxmf_addresses_matching(g_contacts_state.search_query,
+                                                  records.get(),
+                                                  kReticulumDirectoryProjectionLimit,
+                                                  &count)
+            : rtdir::load_lxmf_addresses(records.get(),
+                                         kReticulumDirectoryProjectionLimit,
+                                         &count);
+    if (!status.loaded)
+    {
+        if (status.sd_present)
+        {
+            std::printf("[Contacts][RTDirectory] load failed message=%s detail=%s\n",
+                        status.message,
+                        status.detail);
+        }
+        return;
+    }
+
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto& record = records[index];
+        if (!record.valid)
+        {
+            continue;
+        }
+
+        const chat::contacts::NodeInfo item =
+            node_from_lxmf_address(record, record.favorite);
+        if (record.favorite)
+        {
+            upsert_reticulum_projection(g_contacts_state.contacts_list, item, true);
+        }
+        if (record.ignored)
+        {
+            upsert_reticulum_projection(g_contacts_state.ignored_list, item, false);
+        }
+        else
+        {
+            upsert_reticulum_projection(g_contacts_state.nearby_list, item, false);
+        }
+    }
+}
+
 void refresh_reticulum_groups_data()
 {
     g_contacts_state.reticulum_group_list.clear();
@@ -287,6 +466,7 @@ void refresh_contacts_data_impl_internal()
     filter_to_active_protocol(g_contacts_state.contacts_list);
     filter_to_active_protocol(g_contacts_state.nearby_list);
     filter_to_active_protocol(g_contacts_state.ignored_list);
+    merge_reticulum_directory_projection();
 
     CONTACTS_LOG("[Contacts] Data refreshed: %zu contacts, %zu nearby, %zu groups, %zu ignored\n",
                  g_contacts_state.contacts_list.size(),

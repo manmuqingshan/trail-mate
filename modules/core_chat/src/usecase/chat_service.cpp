@@ -331,6 +331,17 @@ MeshActionResult ChatService::startReticulumAudioCall(
     return adapter_.startReticulumAudioCall(destination);
 }
 
+MeshActionResult ChatService::persistReticulumPeer(
+    const ReticulumPeerIdentity& destination,
+    bool favorite)
+{
+    if (active_protocol_ != MeshProtocol::Reticulum)
+    {
+        return MeshActionResult::fail(MeshOperationFailure::Unsupported);
+    }
+    return adapter_.persistReticulumPeer(destination, favorite);
+}
+
 void ChatService::switchChannel(ChannelId channel)
 {
     current_channel_ = channel;

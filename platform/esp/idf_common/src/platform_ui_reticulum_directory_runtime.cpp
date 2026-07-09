@@ -56,6 +56,16 @@ Status record_lxmf_address(const LxmfAddressRecord&)
     return unsupported("LXMF address storage unsupported", kLxmfAddressesPath);
 }
 
+Status record_lxmf_address_now(const LxmfAddressRecord&)
+{
+    return unsupported("LXMF address storage unsupported", kLxmfAddressesPath);
+}
+
+Status set_lxmf_address_favorite_now(const uint8_t*, bool)
+{
+    return unsupported("LXMF address storage unsupported", kLxmfAddressesPath);
+}
+
 Status load_announces(AnnounceRecord*, std::size_t, std::size_t* out_count)
 {
     if (out_count)
@@ -70,6 +80,36 @@ Status load_lxmf_addresses(LxmfAddressRecord*, std::size_t, std::size_t* out_cou
     if (out_count)
     {
         *out_count = 0;
+    }
+    return unsupported("LXMF address storage unsupported", kLxmfAddressesPath);
+}
+
+Status load_lxmf_addresses_matching(const char*,
+                                    LxmfAddressRecord*,
+                                    std::size_t,
+                                    std::size_t* out_count)
+{
+    if (out_count)
+    {
+        *out_count = 0;
+    }
+    return unsupported("LXMF address storage unsupported", kLxmfAddressesPath);
+}
+
+Status find_lxmf_address_by_destination(const uint8_t*, LxmfAddressRecord* out_record)
+{
+    if (out_record)
+    {
+        *out_record = LxmfAddressRecord{};
+    }
+    return unsupported("LXMF address storage unsupported", kLxmfAddressesPath);
+}
+
+Status find_lxmf_address_by_node_id(uint32_t, LxmfAddressRecord* out_record)
+{
+    if (out_record)
+    {
+        *out_record = LxmfAddressRecord{};
     }
     return unsupported("LXMF address storage unsupported", kLxmfAddressesPath);
 }

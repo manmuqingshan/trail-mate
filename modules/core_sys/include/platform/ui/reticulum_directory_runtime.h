@@ -80,11 +80,24 @@ const char* lxmf_addresses_path();
 
 Status record_announce(const AnnounceRecord& record);
 Status record_lxmf_address(const LxmfAddressRecord& record);
+Status record_lxmf_address_now(const LxmfAddressRecord& record);
+Status set_lxmf_address_favorite_now(
+    const uint8_t destination_hash[kReticulumHashSize],
+    bool favorite);
 Status load_announces(AnnounceRecord* out_records,
                       std::size_t max_records,
                       std::size_t* out_count);
 Status load_lxmf_addresses(LxmfAddressRecord* out_records,
                            std::size_t max_records,
                            std::size_t* out_count);
+Status load_lxmf_addresses_matching(const char* query,
+                                    LxmfAddressRecord* out_records,
+                                    std::size_t max_records,
+                                    std::size_t* out_count);
+Status find_lxmf_address_by_destination(
+    const uint8_t destination_hash[kReticulumHashSize],
+    LxmfAddressRecord* out_record);
+Status find_lxmf_address_by_node_id(uint32_t node_id,
+                                    LxmfAddressRecord* out_record);
 
 } // namespace platform::ui::reticulum_directory

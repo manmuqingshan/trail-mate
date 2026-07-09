@@ -141,9 +141,9 @@ In Reticulum mode, the Contacts page uses these filters:
 - `Ignored`: nodes hidden from the normal contact lists.
 
 For Reticulum peers, the list title follows the same model MeshChat exposes:
-saved nickname first, then the LXMF announce display name, then the short
-hash fallback. Identity hash and LXMF address are identity/address details, not
-the primary contact-list name.
+the LXMF announce display name first, then a local nickname/remark if no
+announce display name is known, then the short hash fallback. Identity hash and
+LXMF address are identity/address details, not the primary contact-list name.
 
 `Groups` are not discovered from the Reticulum network. They are explicit local
 configuration. This matters because a Reticulum shared destination must be known
@@ -165,9 +165,12 @@ In Reticulum mode, press `a` in Contacts to add a peer by LXMF Address. The
 dialog accepts either a plain 32-character destination hash or the MeshChat-style
 `lxmf@...` form; spaces, `:`, `-`, and `_` inside the hash are ignored. Because
 this manual entry only contains the delivery destination hash, Trail Mate stores
-it as a local contact/node projection first. A full `lxmf_addresses.tsv` row is
-only written after a real LXMF delivery announce or path response provides the
-identity hash and public keys needed for a verifiable address-book record.
+it as a local contact/node projection first. If the address already exists in
+`lxmf_addresses.tsv`, the Add flow synchronously marks that address as a saved
+contact so it survives reboot. If the full address is not known yet, a complete
+`lxmf_addresses.tsv` row is written only after a real LXMF delivery announce or
+path response provides the identity hash and public keys needed for a
+verifiable address-book record.
 
 In Chat, press `/` or `s` to search conversation/contact names in the current
 Direct, Broadcast, or Team list. The Chat search is a conversation-list filter;
@@ -237,7 +240,8 @@ the verified raw Reticulum announce packet so future tooling can inspect what
 was actually received. The runtime keeps the file bounded and updates an
 existing destination line instead of appending duplicates. The Network page
 loads this file as a bounded latest-100 projection rather than treating the
-entire file as UI state.
+entire file as UI state. The SD cache itself is larger than the UI projection
+so older entries can still be found by search.
 
 ### LXMF Addresses
 
@@ -257,9 +261,13 @@ public keys shown as 64 hexadecimal characters. `favorite`, `ignored`, and
 `trusted` are user-side address-book flags. When the runtime refreshes an
 address line from a new announce, it preserves those three flags.
 
-On startup, Reticulum mode loads `lxmf_addresses.tsv` back into the LXMF peer
-cache before also loading the legacy ESP Preferences peer cache. Ignored
-address-book rows are not projected into Nearby.
+The runtime keeps the file bounded and updates an existing destination line
+instead of appending duplicates. On startup, Reticulum mode loads
+`lxmf_addresses.tsv` back into the LXMF peer cache before also loading the
+legacy ESP Preferences peer cache. Contacts and Nearby project a bounded latest
+view of this file, and active search scans the file streamingly so older saved
+or discovered peers can still be found without mounting the entire address book
+as LVGL objects. Ignored address-book rows are not projected into Nearby.
 
 ### Groups
 

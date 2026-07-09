@@ -59,6 +59,30 @@ lv_coord_t thumbnail_height_for_slot(const SlotMetrics& metrics)
     return std::max<lv_coord_t>(36, metrics.height);
 }
 
+uint32_t scale_for_axis(lv_coord_t target, int32_t source)
+{
+    if (target <= 0 || source <= 0)
+    {
+        return LV_SCALE_NONE;
+    }
+    const int64_t numerator =
+        static_cast<int64_t>(target) * LV_SCALE_NONE + source - 1;
+    const int64_t scale = numerator / source;
+    return static_cast<uint32_t>(std::max<int64_t>(1, scale));
+}
+
+lv_coord_t scaled_axis(int32_t source, uint32_t scale)
+{
+    if (source <= 0 || scale == 0)
+    {
+        return 0;
+    }
+    const int64_t value =
+        static_cast<int64_t>(source) * scale + LV_SCALE_NONE - 1;
+    return static_cast<lv_coord_t>(
+        std::max<int64_t>(1, value / LV_SCALE_NONE));
+}
+
 Widget* widget_from_event(lv_event_t* e)
 {
     return e ? static_cast<Widget*>(lv_event_get_user_data(e)) : nullptr;
@@ -77,6 +101,25 @@ bool selected_image_saved(const Widget& widget)
 {
     return widget.selected_index < widget.image_sources.size() &&
            !widget.image_sources[widget.selected_index].empty();
+}
+
+void delete_obj(lv_obj_t*& obj)
+{
+    if (valid_obj(obj))
+    {
+        lv_obj_del(obj);
+    }
+    obj = nullptr;
+}
+
+void clear_slot_refs(Widget& widget)
+{
+    widget.slot_button = nullptr;
+    widget.slot_image = nullptr;
+    widget.slot_placeholder = nullptr;
+    widget.slot_caption = nullptr;
+    widget.item_buttons.clear();
+    widget.rendered_source.clear();
 }
 
 void close_fullscreen(Widget& widget)
@@ -202,11 +245,11 @@ void apply_button_style(lv_obj_t* button,
                                 0);
 }
 
-void add_caption(lv_obj_t* button,
-                 std::size_t index,
-                 std::size_t total,
-                 bool downloaded,
-                 bool selected)
+lv_obj_t* add_caption(lv_obj_t* button,
+                      std::size_t index,
+                      std::size_t total,
+                      bool downloaded,
+                      bool selected)
 {
     char text[20]{};
     if (selected)
@@ -239,11 +282,12 @@ void add_caption(lv_obj_t* button,
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(caption, text);
     lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -2);
+    return caption;
 }
 
-void add_placeholder(lv_obj_t* button,
-                     const SlotMetrics& metrics,
-                     std::size_t index)
+lv_obj_t* add_placeholder(lv_obj_t* button,
+                          const SlotMetrics& metrics,
+                          std::size_t index)
 {
     lv_obj_t* placeholder = lv_obj_create(button);
     lv_obj_add_flag(placeholder, LV_OBJ_FLAG_IGNORE_LAYOUT);
@@ -266,29 +310,74 @@ void add_placeholder(lv_obj_t* button,
     lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(0xFFF3DF), 0);
     lv_obj_center(label);
+    return placeholder;
 }
 
-void add_thumbnail(lv_obj_t* button,
-                   const Widget& widget,
-                   const SlotMetrics& metrics,
-                   std::size_t index)
+void update_thumbnail(Widget& widget,
+                      lv_obj_t* button,
+                      const SlotMetrics& metrics,
+                      std::size_t index)
 {
     if (index >= widget.image_sources.size() || widget.image_sources[index].empty())
     {
-        add_placeholder(button, metrics, index);
+        delete_obj(widget.slot_image);
+        widget.rendered_source.clear();
+        delete_obj(widget.slot_placeholder);
+        widget.slot_placeholder = add_placeholder(button, metrics, index);
         return;
     }
 
-    lv_obj_t* image = lv_image_create(button);
-    lv_obj_add_flag(image, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_set_size(image,
-                    thumbnail_width_for_slot(metrics),
-                    thumbnail_height_for_slot(metrics));
-    lv_image_set_src(image, widget.image_sources[index].c_str());
-    lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
-    lv_image_set_antialias(image, false);
-    lv_obj_set_pos(image, 0, 0);
-    lv_obj_clear_flag(image, LV_OBJ_FLAG_SCROLLABLE);
+    const lv_coord_t thumbnail_width = thumbnail_width_for_slot(metrics);
+    const lv_coord_t thumbnail_height = thumbnail_height_for_slot(metrics);
+    const std::string& source = widget.image_sources[index];
+
+    delete_obj(widget.slot_placeholder);
+    if (!valid_obj(widget.slot_image))
+    {
+        widget.slot_image = lv_image_create(button);
+        lv_obj_add_flag(widget.slot_image, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_clear_flag(widget.slot_image, LV_OBJ_FLAG_SCROLLABLE);
+        widget.rendered_source.clear();
+    }
+    if (widget.rendered_source != source)
+    {
+        lv_image_set_src(widget.slot_image, source.c_str());
+        widget.rendered_source = source;
+    }
+
+    const int32_t source_width = lv_image_get_src_width(widget.slot_image);
+    const int32_t source_height = lv_image_get_src_height(widget.slot_image);
+    if (source_width <= 0 || source_height <= 0)
+    {
+        delete_obj(widget.slot_image);
+        widget.rendered_source.clear();
+        widget.slot_placeholder = add_placeholder(button, metrics, index);
+        return;
+    }
+
+    const uint32_t scale = scale_for_axis(thumbnail_width, source_width);
+    const lv_coord_t scaled_height = scaled_axis(source_height, scale);
+    const lv_coord_t image_height =
+        std::max<lv_coord_t>(1, std::min(thumbnail_height, scaled_height));
+    lv_obj_set_size(widget.slot_image, thumbnail_width, image_height);
+    lv_image_set_inner_align(widget.slot_image, LV_IMAGE_ALIGN_COVER);
+    lv_image_set_scale(widget.slot_image, scale);
+    lv_image_set_antialias(widget.slot_image, true);
+    lv_obj_set_pos(widget.slot_image, 0, (thumbnail_height - image_height) / 2);
+}
+
+void update_caption(Widget& widget,
+                    lv_obj_t* button,
+                    std::size_t index,
+                    bool selected)
+{
+    delete_obj(widget.slot_caption);
+    widget.slot_caption =
+        add_caption(button,
+                    index,
+                    widget.items.size(),
+                    index < widget.items.size() ? widget.items[index].downloaded : false,
+                    selected);
 }
 
 SlotMetrics slot_metrics_for_offset(const Widget& widget,
@@ -407,21 +496,24 @@ void render_slot(Widget& widget,
     }
 
     const bool selected = offset == 0;
-    lv_obj_t* button = lv_btn_create(widget.list);
-    lv_obj_add_flag(button, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    if (!valid_obj(widget.slot_button))
+    {
+        lv_obj_clean(widget.list);
+        clear_slot_refs(widget);
+        widget.slot_button = lv_btn_create(widget.list);
+        lv_obj_add_flag(widget.slot_button, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_clear_flag(widget.slot_button, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_event_cb(widget.slot_button, item_clicked_cb, LV_EVENT_CLICKED, &widget);
+        widget.item_buttons.push_back(widget.slot_button);
+    }
+
+    lv_obj_t* button = widget.slot_button;
     lv_obj_set_size(button, metrics.width, metrics.height);
     lv_obj_set_pos(button, x, y);
-    lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_user_data(button, reinterpret_cast<void*>(index + 1));
-    lv_obj_add_event_cb(button, item_clicked_cb, LV_EVENT_CLICKED, &widget);
     apply_button_style(button, selected, metrics.opacity);
-    add_thumbnail(button, widget, metrics, index);
-    add_caption(button,
-                index,
-                widget.items.size(),
-                index < widget.items.size() ? widget.items[index].downloaded : false,
-                selected);
-    widget.item_buttons.push_back(button);
+    update_thumbnail(widget, button, metrics, index);
+    update_caption(widget, button, index, selected);
 }
 
 void render_items(Widget& widget)
@@ -431,10 +523,10 @@ void render_items(Widget& widget)
         return;
     }
 
-    lv_obj_clean(widget.list);
-    widget.item_buttons.clear();
     if (widget.items.empty())
     {
+        lv_obj_clean(widget.list);
+        clear_slot_refs(widget);
         lv_obj_t* label = lv_label_create(widget.list);
         lv_obj_set_width(label, LV_PCT(100));
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
@@ -494,11 +586,16 @@ void reset(Widget& widget)
 {
     widget.root = nullptr;
     widget.list = nullptr;
+    widget.slot_button = nullptr;
+    widget.slot_image = nullptr;
+    widget.slot_placeholder = nullptr;
+    widget.slot_caption = nullptr;
     widget.fullscreen_root = nullptr;
     widget.config = Config{};
     widget.items.clear();
     widget.image_sources.clear();
     widget.item_buttons.clear();
+    widget.rendered_source.clear();
     widget.fullscreen_source.clear();
     widget.selected_index = 0;
     widget.visible = false;
@@ -516,7 +613,7 @@ void destroy(Widget& widget)
     }
     widget.root = nullptr;
     widget.list = nullptr;
-    widget.item_buttons.clear();
+    clear_slot_refs(widget);
     widget.visible = false;
 }
 
