@@ -207,6 +207,58 @@ bool parse_hex(std::string_view text, uint8_t* out, std::size_t out_len)
     return true;
 }
 
+bool copy_text_app_data_display_name_from_hex(std::string_view text,
+                                              char* out,
+                                              std::size_t out_len)
+{
+    if (!out || out_len == 0 || text.empty() || (text.size() % 2U) != 0)
+    {
+        return false;
+    }
+    const std::size_t byte_count = text.size() / 2U;
+    if (byte_count > 96)
+    {
+        return false;
+    }
+
+    std::size_t used = 0;
+    bool has_visible = false;
+    for (std::size_t index = 0; index < byte_count; ++index)
+    {
+        const uint8_t hi = hex_nibble(text[index * 2U]);
+        const uint8_t lo = hex_nibble(text[(index * 2U) + 1U]);
+        if (hi == 0xFF || lo == 0xFF)
+        {
+            out[0] = '\0';
+            return false;
+        }
+        uint8_t byte = static_cast<uint8_t>((hi << 4U) | lo);
+        if (byte == '\t' || byte == '\r' || byte == '\n')
+        {
+            byte = ' ';
+        }
+        else if (byte == 0 || byte < 0x20 || byte == 0x7F)
+        {
+            out[0] = '\0';
+            return false;
+        }
+        if (used + 1U < out_len)
+        {
+            out[used++] = static_cast<char>(byte);
+        }
+        if (byte != ' ')
+        {
+            has_visible = true;
+        }
+    }
+    while (used != 0 && out[used - 1U] == ' ')
+    {
+        --used;
+    }
+    out[used] = '\0';
+    return has_visible && used != 0;
+}
+
 std::string sanitize_field(const char* text)
 {
     std::string out = text ? text : "";
@@ -1063,6 +1115,12 @@ bool parse_announce_line(std::string_view line, AnnounceRecord& out)
     parsed.delivery = truthy(fields.values[9]);
     parsed.propagation = truthy(fields.values[10]);
     copy_view(parsed.display_name, sizeof(parsed.display_name), fields.values[11]);
+    if (parsed.display_name[0] == '\0' && fields.count >= 14)
+    {
+        (void)copy_text_app_data_display_name_from_hex(fields.values[13],
+                                                       parsed.display_name,
+                                                       sizeof(parsed.display_name));
+    }
     parsed.valid = true;
     out = parsed;
     return true;

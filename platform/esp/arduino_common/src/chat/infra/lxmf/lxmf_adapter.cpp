@@ -464,6 +464,48 @@ void copyCString(char* out, size_t out_len, const char* in)
     out[out_len - 1] = '\0';
 }
 
+bool copyTextAppDataDisplayName(const uint8_t* data,
+                                size_t len,
+                                char* out,
+                                size_t out_len)
+{
+    if (!data || len == 0 || len > 96 || !out || out_len == 0)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    bool has_visible = false;
+    for (size_t index = 0; index < len; ++index)
+    {
+        uint8_t byte = data[index];
+        if (byte == '\t' || byte == '\r' || byte == '\n')
+        {
+            byte = ' ';
+        }
+        else if (byte == 0 || byte < 0x20 || byte == 0x7F)
+        {
+            out[0] = '\0';
+            return false;
+        }
+
+        if (used + 1U < out_len)
+        {
+            out[used++] = static_cast<char>(byte);
+        }
+        if (byte != ' ')
+        {
+            has_visible = true;
+        }
+    }
+    while (used != 0 && out[used - 1U] == ' ')
+    {
+        --used;
+    }
+    out[used] = '\0';
+    return has_visible && used != 0;
+}
+
 uint32_t fnv1a32(const uint8_t* data, size_t len)
 {
     uint32_t hash = 2166136261UL;
@@ -2236,6 +2278,14 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     {
         (void)has_stamp_cost;
         (void)stamp_cost;
+    }
+    else if (!(delivery_announce || propagation_announce || call_audio_announce) &&
+             announce.app_data && announce.app_data_len != 0)
+    {
+        (void)copyTextAppDataDisplayName(announce.app_data,
+                                         announce.app_data_len,
+                                         announce_display_name,
+                                         sizeof(announce_display_name));
     }
 
     rtdir::AnnounceRecord directory_announce{};

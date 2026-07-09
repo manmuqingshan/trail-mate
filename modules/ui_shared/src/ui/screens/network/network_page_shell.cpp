@@ -129,6 +129,7 @@ struct NetworkPageState
     DirectoryMode directory_mode = DirectoryMode::Announces;
     bool immersive = false;
     bool directory_collapsed = false;
+    bool browser_collapsed = false;
     bool suppress_history = false;
     rtdir::Status announce_status{};
     rtdir::Status address_status{};
@@ -564,6 +565,7 @@ void rebuild_focus_group(lv_obj_t* preferred = nullptr);
 void focus_browser_viewport();
 void focus_directory_panel();
 void apply_layout_state();
+lv_coord_t resolve_directory_width();
 void open_network_help_modal();
 void close_network_help_modal();
 
@@ -650,6 +652,10 @@ void add_viewport_links_to_group()
 
 void add_browser_focusables()
 {
+    if (g_state.browser_collapsed && !g_state.immersive)
+    {
+        return;
+    }
     if (!g_state.immersive)
     {
         add_visible_to_group(g_state.browser_back_btn);
@@ -1550,6 +1556,7 @@ void apply_layout_state()
 {
     const bool immersive = g_state.immersive;
     const bool hide_directory = immersive || g_state.directory_collapsed;
+    const bool hide_browser = !immersive && g_state.browser_collapsed;
     if (g_state.header)
     {
         immersive ? lv_obj_add_flag(g_state.header, LV_OBJ_FLAG_HIDDEN)
@@ -1559,6 +1566,14 @@ void apply_layout_state()
     {
         hide_directory ? lv_obj_add_flag(g_state.directory_panel, LV_OBJ_FLAG_HIDDEN)
                        : lv_obj_clear_flag(g_state.directory_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(g_state.directory_panel,
+                         hide_browser ? LV_PCT(100) : resolve_directory_width());
+        lv_obj_set_flex_grow(g_state.directory_panel, hide_browser ? 1 : 0);
+    }
+    if (g_state.browser_panel)
+    {
+        hide_browser ? lv_obj_add_flag(g_state.browser_panel, LV_OBJ_FLAG_HIDDEN)
+                     : lv_obj_clear_flag(g_state.browser_panel, LV_OBJ_FLAG_HIDDEN);
     }
     if (g_state.browser_toolbar)
     {
@@ -1571,7 +1586,9 @@ void apply_layout_state()
         lv_obj_set_style_pad_right(g_state.content, immersive ? 0 : 2, LV_PART_MAIN);
         lv_obj_set_style_pad_top(g_state.content, immersive ? 0 : 2, LV_PART_MAIN);
         lv_obj_set_style_pad_bottom(g_state.content, immersive ? 0 : 2, LV_PART_MAIN);
-        lv_obj_set_style_pad_column(g_state.content, hide_directory ? 0 : 4, LV_PART_MAIN);
+        lv_obj_set_style_pad_column(g_state.content,
+                                    (hide_directory || hide_browser) ? 0 : 4,
+                                    LV_PART_MAIN);
     }
     if (g_state.browser_panel)
     {
@@ -1583,12 +1600,12 @@ void apply_layout_state()
     {
         lv_obj_set_style_radius(g_state.viewport, immersive ? 0 : 8, LV_PART_MAIN);
         lv_obj_set_style_border_width(g_state.viewport, immersive ? 0 : 1, LV_PART_MAIN);
-        if (app_g)
+        if (app_g && !hide_browser)
         {
             lv_group_focus_obj(g_state.viewport);
         }
     }
-    rebuild_focus_group(g_state.viewport);
+    rebuild_focus_group(hide_browser ? g_state.directory_list : g_state.viewport);
 }
 
 void toggle_immersive()
@@ -1603,7 +1620,12 @@ void toggle_directory_panel()
     {
         g_state.immersive = false;
     }
-    g_state.directory_collapsed = !g_state.directory_collapsed;
+    const bool hide_directory = !g_state.directory_collapsed;
+    g_state.directory_collapsed = hide_directory;
+    if (hide_directory)
+    {
+        g_state.browser_collapsed = false;
+    }
     apply_layout_state();
     ::ui::feedback::show_notice(g_state.directory_collapsed ? safe_tr("Directory hidden")
                                                             : safe_tr("Directory shown"),
@@ -1618,6 +1640,32 @@ void toggle_directory_panel()
     }
 }
 
+void toggle_browser_panel()
+{
+    if (g_state.immersive)
+    {
+        g_state.immersive = false;
+    }
+    const bool hide_browser = !g_state.browser_collapsed;
+    g_state.browser_collapsed = hide_browser;
+    if (hide_browser)
+    {
+        g_state.directory_collapsed = false;
+    }
+    apply_layout_state();
+    ::ui::feedback::show_notice(g_state.browser_collapsed ? safe_tr("Browser hidden")
+                                                          : safe_tr("Browser shown"),
+                                1200);
+    if (g_state.browser_collapsed)
+    {
+        focus_directory_panel();
+    }
+    else
+    {
+        focus_browser_viewport();
+    }
+}
+
 bool is_help_shortcut_key(uint32_t key)
 {
     return key == 'h' || key == 'H';
@@ -1626,6 +1674,11 @@ bool is_help_shortcut_key(uint32_t key)
 bool is_directory_toggle_shortcut_key(uint32_t key)
 {
     return key == 'c' || key == 'C';
+}
+
+bool is_browser_toggle_shortcut_key(uint32_t key)
+{
+    return key == 'b' || key == 'B';
 }
 
 void close_network_help_modal()
@@ -1645,10 +1698,11 @@ void open_network_help_modal()
         return;
     }
 
-    ::ui::components::shortcut_help_modal::Row rows[10] = {};
+    ::ui::components::shortcut_help_modal::Row rows[11] = {};
     std::size_t row_count = 0;
     rows[row_count++] = {"S", "/", "Search announces"};
     rows[row_count++] = {"C", nullptr, "Show or hide left column"};
+    rows[row_count++] = {"B", nullptr, "Show or hide browser"};
     rows[row_count++] = {"I", nullptr, "Immersive browser"};
     rows[row_count++] = {"Left", "Right", "Switch pane focus"};
     rows[row_count++] = {"Enter", nullptr, "Open selected item"};
@@ -1691,15 +1745,30 @@ void page_shortcut_event_cb(lv_event_t* event)
         lv_event_stop_processing(event);
         return;
     }
+    if (is_browser_toggle_shortcut_key(key))
+    {
+        toggle_browser_panel();
+        lv_event_stop_processing(event);
+        return;
+    }
     if (key == LV_KEY_RIGHT && object_in_subtree(g_state.directory_panel, target))
     {
+        if (g_state.browser_collapsed)
+        {
+            g_state.browser_collapsed = false;
+            apply_layout_state();
+        }
         focus_browser_viewport();
         lv_event_stop_processing(event);
         return;
     }
-    if (key == LV_KEY_LEFT && object_in_subtree(g_state.browser_panel, target) &&
-        !g_state.directory_collapsed)
+    if (key == LV_KEY_LEFT && object_in_subtree(g_state.browser_panel, target))
     {
+        if (g_state.directory_collapsed)
+        {
+            g_state.directory_collapsed = false;
+            apply_layout_state();
+        }
         focus_directory_panel();
         lv_event_stop_processing(event);
         return;
