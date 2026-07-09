@@ -187,6 +187,7 @@ set(TRAILMATE_ESP_IDF_UI_SHARED_SOURCES
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/components/air_status_footer.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/components/floating_search_box.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/components/info_card.cpp"
+    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/components/screen_saver_overlay.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/components/shortcut_help_modal.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/components/two_pane_layout.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/components/two_pane_nav.cpp"

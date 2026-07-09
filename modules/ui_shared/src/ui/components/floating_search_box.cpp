@@ -238,6 +238,10 @@ bool open(State& state, lv_obj_t* parent, const Config& config)
     lv_textarea_set_max_length(state.textarea,
                                config.max_length < kMaxSearchText ? config.max_length
                                                                   : kMaxSearchText);
+    if (config.accepted_chars)
+    {
+        lv_textarea_set_accepted_chars(state.textarea, config.accepted_chars);
+    }
     lv_textarea_set_text(state.textarea, config.initial_text ? config.initial_text : "");
     lv_obj_set_width(state.textarea, LV_PCT(100));
     lv_obj_align(state.textarea, LV_ALIGN_TOP_MID, 0, compact ? 28 : 34);

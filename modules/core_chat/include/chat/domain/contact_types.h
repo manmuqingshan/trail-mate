@@ -155,7 +155,7 @@ struct NodeInfoBase
     uint8_t hops_away = 0xFF; // 0xFF = unknown
     uint8_t channel = 0xFF;   // Meshtastic channel index, 0xFF = unknown
     bool is_contact;          // true if user has assigned a nickname
-    std::string display_name; // nickname if contact, short_name otherwise
+    std::string display_name; // nickname, announce/long name, then short_name fallback
     NodeProtocolType protocol;
     NodeRoleType role;
     uint8_t hw_model = 0;

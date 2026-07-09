@@ -22,6 +22,7 @@ struct Config
 {
     const char* title = "Search";
     const char* initial_text = "";
+    const char* accepted_chars = nullptr;
     uint16_t max_length = 31;
     lv_coord_t width = 280;
     lv_coord_t height = 150;

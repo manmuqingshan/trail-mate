@@ -95,10 +95,6 @@ void contacts_top_bar_back(void*)
         lv_timer_del(g_contacts_state.discover_scan_timer);
         g_contacts_state.discover_scan_timer = nullptr;
     }
-    if (g_contacts_state.root)
-    {
-        lv_obj_add_flag(g_contacts_state.root, LV_OBJ_FLAG_HIDDEN);
-    }
     request_exit();
 }
 

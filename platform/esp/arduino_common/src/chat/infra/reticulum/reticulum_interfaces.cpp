@@ -671,6 +671,7 @@ bool ReticulumInterfaceSet::hasReadyInterface() const
 
 bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
 {
+    last_tx_result_ = {};
     if (!data || len == 0)
     {
         return false;
@@ -678,22 +679,29 @@ bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
 
     maintain();
 
-    bool lora_ok = false;
-    bool wifi_ok = false;
-    if (loraAllowed() && lora_.isReady())
+    last_tx_result_.lora_required = loraAllowed();
+    last_tx_result_.lora_ready = last_tx_result_.lora_required && lora_.isReady();
+    last_tx_result_.wifi_required = wifiAllowed() && wifi_.isConfigured();
+    last_tx_result_.wifi_ready = last_tx_result_.wifi_required && wifi_.isReady();
+
+    if (last_tx_result_.lora_ready)
     {
-        lora_ok = lora_.sendPacket(data, len);
+        last_tx_result_.lora_ok = lora_.sendPacket(data, len);
     }
-    if (wifiAllowed() && wifi_.isReady())
+    if (last_tx_result_.wifi_ready)
     {
-        wifi_ok = wifi_.sendPacket(data, len);
+        last_tx_result_.wifi_ok = wifi_.sendPacket(data, len);
     }
 
-    const bool sent = lora_ok || wifi_ok;
-    Serial.printf("[Reticulum][IF][TX] raw_len=%u lora=%u wifi=%u sent=%u\n",
+    const bool sent = last_tx_result_.sent();
+    Serial.printf("[Reticulum][IF][TX] raw_len=%u lora_req=%u lora_ready=%u lora=%u wifi_req=%u wifi_ready=%u wifi=%u sent=%u\n",
                   static_cast<unsigned>(len),
-                  lora_ok ? 1U : 0U,
-                  wifi_ok ? 1U : 0U,
+                  last_tx_result_.lora_required ? 1U : 0U,
+                  last_tx_result_.lora_ready ? 1U : 0U,
+                  last_tx_result_.lora_ok ? 1U : 0U,
+                  last_tx_result_.wifi_required ? 1U : 0U,
+                  last_tx_result_.wifi_ready ? 1U : 0U,
+                  last_tx_result_.wifi_ok ? 1U : 0U,
                   sent ? 1U : 0U);
     return sent;
 }

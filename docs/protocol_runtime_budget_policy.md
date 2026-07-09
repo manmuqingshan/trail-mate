@@ -19,6 +19,10 @@ When the screen is on, realtime processing is limited to:
 Ordinary public announces and public discovery traffic are not realtime while
 the user is interacting with the device. They may be delayed for seconds or
 tens of seconds and replayed during an idle or screen-off maintenance window.
+The exception is lightweight peer-name projection: verified LXMF delivery
+announces may publish one coalesced contact-store update at a low awake-screen
+rate so Contacts and Chat can show the sender's display name without waiting
+for SD or NVS persistence.
 
 ## Required Boundaries
 
@@ -35,6 +39,9 @@ tens of seconds and replayed during an idle or screen-off maintenance window.
   `record_announce()` and `record_lxmf_address()` on ESP Arduino are queueing
   APIs for runtime RX callers; they must not perform TSV upserts or other SD
   file I/O on the RX caller task.
+- Peer-name projection is not persistence. It may run while the screen is on,
+  but it must be queue-backed and rate-limited; it must not trigger SD, TSV, or
+  NVS writes.
 - Peer cache persistence is dirty/coalesced. Code must not force
   `maybePersistPeers(true)` from RX paths, and non-forced peer dirty marking
   must not flush NVS from `mesh_task`.
@@ -55,7 +62,8 @@ Reticulum runtime may:
 - Replay deferred discovery packets under the discovery sample budget.
 - Let the Reticulum directory worker persist one coalesced announce or LXMF
   address record to SD per slice.
-- Publish deferred peer projections to the contact store.
+- Publish deferred peer projections to the contact store at the faster
+  maintenance-window rate.
 
 The maintenance window still has finite budgets. It must not drain unbounded
 network queues in one cycle.

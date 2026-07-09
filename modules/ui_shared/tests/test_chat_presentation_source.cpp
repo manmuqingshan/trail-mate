@@ -315,6 +315,17 @@ int main()
     ::chat::contacts::ContactService contacts(node_store, contact_store);
     setNodePosition(contacts, mesh.self_node_id, 312345678, 1219876543);
     setNodePosition(contacts, 1234, 313000000, 1220000000);
+    contacts.updateNodeInfo(1234,
+                            "04D2",
+                            "Ada Mesh",
+                            0.0f,
+                            0.0f,
+                            1700000000U,
+                            0,
+                            ::chat::contacts::kNodeRoleUnknown,
+                            0xFF,
+                            0,
+                            0xFF);
 
     ui::presentation_sources::RuntimeChatActionSink sink(service);
     ui::presentation_sources::ChatPresentationSource source(
@@ -362,7 +373,7 @@ int main()
     assert(snapshot.conversations[0].id == ada);
     assert(snapshot.conversations[0].selected);
     assert(snapshot.conversations[0].last_timestamp != 0);
-    assert(std::strcmp(snapshot.conversations[0].title.c_str(), "04D2") == 0);
+    assert(std::strcmp(snapshot.conversations[0].title.c_str(), "Ada Mesh") == 0);
     assert(snapshot.message_count == 1);
     assert(snapshot.messages[0].conversation == ada);
     assert(snapshot.messages[0].outgoing);
@@ -431,6 +442,17 @@ int main()
     incoming.to = 0xFFFFFFFFUL;
     incoming.msg_id = 900;
     incoming.text = "broadcast hello";
+    contacts.updateNodeInfo(0x648144D4,
+                            "44D4",
+                            "Mother",
+                            0.0f,
+                            0.0f,
+                            1700000000U,
+                            0,
+                            ::chat::contacts::kNodeRoleUnknown,
+                            0xFF,
+                            0,
+                            0xFF);
     mesh.incoming.push_back(incoming);
     service.processIncoming();
 
@@ -442,7 +464,7 @@ int main()
     assert(snapshot.messages[0].conversation == broadcast);
     assert(!snapshot.messages[0].outgoing);
     assert(snapshot.messages[0].sender_node_id == 0x648144D4);
-    assert(std::strcmp(snapshot.messages[0].sender_label.c_str(), "44D4") == 0);
+    assert(std::strcmp(snapshot.messages[0].sender_label.c_str(), "Mother") == 0);
 
     service.setActiveProtocol(::chat::MeshProtocol::MeshCore);
     ::chat::MeshIncomingText unknown_meshcore_incoming{};

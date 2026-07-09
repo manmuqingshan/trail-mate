@@ -748,14 +748,6 @@ void showWatchFace()
     updateWatchFaceTime();
 }
 
-void onWakeFromSleep()
-{
-#if defined(ESP_PLATFORM)
-    ESP_LOGI(kTag, "onWakeFromSleep");
-#endif
-    showWatchFace();
-}
-
 void setMenuActive(bool active)
 {
     s_runtime.menu_active = active;

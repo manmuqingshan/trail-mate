@@ -22,13 +22,17 @@ namespace platform::esp::idf_common::ui_dispatcher
 enum class Event : std::uint8_t
 {
     None = 0,
-    WakeFromSleep, // → onWakeFromSleep → showWatchFace
-    ShowMainMenu,  // → showMainMenu
+    WakeFromSleep,   // → show_screen_saver/on_wake_from_sleep
+    ShowScreenSaver, // → show_screen_saver
+    HideScreenSaver, // → hide_screen_saver
+    ShowMainMenu,    // → showMainMenu
 };
 
 struct Hooks
 {
     void (*on_wake_from_sleep)() = nullptr;
+    void (*show_screen_saver)() = nullptr;
+    void (*hide_screen_saver)() = nullptr;
     void (*show_main_menu)() = nullptr;
 };
 

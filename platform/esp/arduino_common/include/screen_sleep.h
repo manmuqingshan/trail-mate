@@ -14,6 +14,9 @@ struct ScreenSleepHooks
     int (*read_unread_count)() = nullptr;
     void (*show_main_menu)() = nullptr;
     void (*on_wake_from_sleep)() = nullptr;
+    void (*show_screen_saver)() = nullptr;
+    void (*hide_screen_saver)() = nullptr;
+    void (*present_screen_saver)() = nullptr;
 };
 
 /** Clamp timeout into the allowed persisted range. Values below the minimum fall back to the default. */

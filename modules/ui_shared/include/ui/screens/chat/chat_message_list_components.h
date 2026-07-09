@@ -13,6 +13,7 @@
 #include "chat_message_list_input.h"
 #include "lvgl.h"
 #include "ui/components/air_status_footer.h"
+#include "ui/components/floating_search_box.h"
 #include "ui/widgets/top_bar.h"
 #include <string>
 #include <vector>
@@ -58,6 +59,7 @@ class ChatMessageListScreen
     size_t getItemCount() const { return items_.size(); }
     lv_obj_t* getItemButton(size_t index) const;
     int getSelectedIndex() const { return selected_index_; }
+    bool isFilterPanelVisible() const { return filter_panel_visible_; }
 
   private:
     enum class TimerDomain
@@ -109,6 +111,9 @@ class ChatMessageListScreen
 
     int selected_index_ = -1;
     FilterMode filter_mode_ = FilterMode::Direct;
+    bool filter_panel_visible_ = true;
+    char search_query_[32] = {};
+    ::ui::components::floating_search_box::State search_box_{};
 
     void (*action_cb_)(ActionIntent intent,
                        const chat::ConversationId& conv,
@@ -138,12 +143,22 @@ class ChatMessageListScreen
     void updateListItem(size_t index, const chat::ConversationMeta& conv);
     void updateFilterHighlight();
     void setFilterMode(FilterMode mode);
+    bool searchActive() const;
+    bool conversationMatchesSearch(const chat::ConversationMeta& conv) const;
+    void buildFilteredConversations(std::vector<chat::ConversationMeta>& out) const;
+    void openSearchModal();
+    void toggleFilterPanel();
+    void applyFilterPanelVisibility();
 
     static void item_event_cb(lv_event_t* e);
     static void list_back_event_cb(lv_event_t* e);
     static void item_focused_cb(lv_event_t* e);
     static void filter_focus_cb(lv_event_t* e);
     static void filter_click_cb(lv_event_t* e);
+    static void page_shortcut_cb(lv_event_t* e);
+    static void search_apply_cb(const char* text, void* user_data);
+    static void search_clear_cb(void* user_data);
+    static void search_cancel_cb(void* user_data);
     static void debug_touch_event_cb(lv_event_t* e);
     static void async_action_cb(void* user_data);
     static void on_root_deleted(lv_event_t* e);

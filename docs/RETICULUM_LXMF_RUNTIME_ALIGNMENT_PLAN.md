@@ -104,6 +104,12 @@ Required side-effect policy:
 - LoRa TX must be reserved for local product behavior and explicitly throttled
   protocol needs. Public Wi-Fi background discovery must not consume LoRa airtime
   by default.
+- Local LXMF identity announces are product discoverability traffic. When LoRa
+  and a Wi-Fi gateway are both enabled, a successful announce attempt may be
+  sent on any available carrier, but the pending announce state is not complete
+  until every enabled/configured carrier has accepted the delivery and
+  propagation announces. If one carrier is not ready, retry at a low frequency
+  instead of treating the first carrier's success as full discoverability.
 
 Current ESP policy constants such as a small Wi-Fi socket read budget, a limited
 number of Reticulum ingress packets per poll, a multi-second Wi-Fi discovery

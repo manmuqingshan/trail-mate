@@ -39,8 +39,8 @@ constexpr uint32_t kScreenTimeoutMaxMs = 300000;
 constexpr uint32_t kScreenTimeoutDefaultMs = 60000;
 constexpr uint32_t kScreenTimeoutMaxBleSecs = 900;
 constexpr uint32_t kTaskPeriodMs = 250;
+constexpr uint32_t kScreenSaverDurationMs = 3000;
 
-ScreenSleepHooks s_hooks{};
 SemaphoreHandle_t s_mutex = nullptr;
 TaskHandle_t s_task = nullptr;
 uint32_t s_timeout_ms = kScreenTimeoutDefaultMs;
@@ -49,6 +49,7 @@ uint32_t s_last_user_activity_ms = 0;
 bool s_screen_sleeping = false;
 bool s_screen_sleep_disabled = false;
 bool s_screen_saver_active = false;
+uint32_t s_screen_saver_started_ms = 0;
 uint8_t s_saved_screen_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
 
 bool auto_sleep_supported()
@@ -95,13 +96,27 @@ void load_timeout_if_needed_locked()
     s_timeout_loaded = true;
 }
 
-void wake_display_locked()
+void restore_display_hardware_locked()
 {
     platform::ui::device::set_screen_brightness(s_saved_screen_brightness);
     s_last_user_activity_ms = now_ms();
+    ESP_LOGI(kTag, "Display wake");
+}
+
+void wake_screen_saver_locked()
+{
+    restore_display_hardware_locked();
+    s_screen_sleeping = true;
+    s_screen_saver_active = true;
+    s_screen_saver_started_ms = now_ms();
+}
+
+void enter_ui_locked()
+{
+    restore_display_hardware_locked();
     s_screen_sleeping = false;
     s_screen_saver_active = false;
-    ESP_LOGI(kTag, "Display wake");
+    s_screen_saver_started_ms = 0;
 }
 
 void sleep_display_locked()
@@ -121,6 +136,12 @@ void notify_wake()
         platform::esp::idf_common::ui_dispatcher::Event::WakeFromSleep);
 }
 
+void notify_hide_saver()
+{
+    platform::esp::idf_common::ui_dispatcher::post(
+        platform::esp::idf_common::ui_dispatcher::Event::HideScreenSaver);
+}
+
 bool wake_requested_by_touch_irq_locked()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
@@ -137,23 +158,32 @@ void screen_sleep_task(void*)
     while (true)
     {
         bool should_notify_wake = false;
+        bool should_hide_saver = false;
         ensure_mutex();
         if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
         {
             load_timeout_if_needed_locked();
-            const uint32_t elapsed = now_ms() - s_last_user_activity_ms;
+            const uint32_t now = now_ms();
+            const uint32_t elapsed = now - s_last_user_activity_ms;
+            const bool saver_expired =
+                s_screen_saver_active && (now - s_screen_saver_started_ms >= kScreenSaverDurationMs);
             if (s_screen_sleep_disabled)
             {
-                if (s_screen_sleeping)
+                if (s_screen_sleeping && !s_screen_saver_active)
                 {
-                    wake_display_locked();
+                    wake_screen_saver_locked();
                     should_notify_wake = true;
                 }
             }
-            else if (wake_requested_by_touch_irq_locked())
+            else if (saver_expired)
+            {
+                sleep_display_locked();
+                should_hide_saver = true;
+            }
+            else if (!s_screen_saver_active && wake_requested_by_touch_irq_locked())
             {
                 ESP_LOGI(kTag, "Display wake requested by board touch interrupt");
-                wake_display_locked();
+                wake_screen_saver_locked();
                 should_notify_wake = true;
             }
             else if (auto_sleep_supported() && (s_screen_sleeping == false) && elapsed >= s_timeout_ms)
@@ -165,6 +195,10 @@ void screen_sleep_task(void*)
         if (should_notify_wake)
         {
             notify_wake();
+        }
+        if (should_hide_saver)
+        {
+            notify_hide_saver();
         }
         vTaskDelay(pdMS_TO_TICKS(kTaskPeriodMs));
     }
@@ -218,12 +252,13 @@ void initScreenSleepRuntime(const ScreenSleepHooks& hooks)
     {
         platform::esp::idf_common::ui_dispatcher::Hooks dispatch_hooks{};
         dispatch_hooks.on_wake_from_sleep = hooks.on_wake_from_sleep;
+        dispatch_hooks.show_screen_saver = hooks.show_screen_saver;
+        dispatch_hooks.hide_screen_saver = hooks.hide_screen_saver;
         dispatch_hooks.show_main_menu = hooks.show_main_menu;
         platform::esp::idf_common::ui_dispatcher::init(dispatch_hooks);
         (void)platform::esp::idf_common::ui_dispatcher::ensure_drain_timer();
     }
 
-    s_hooks = hooks;
     ensure_mutex();
 
     if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
@@ -287,12 +322,30 @@ bool isScreenSaverActive()
 }
 void wakeScreenSaver()
 {
-    updateUserActivity();
+    bool should_notify_wake = false;
+    ensure_mutex();
+    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        wake_screen_saver_locked();
+        should_notify_wake = true;
+        xSemaphoreGive(s_mutex);
+    }
+    if (should_notify_wake)
+    {
+        notify_wake();
+    }
 }
 
 void enterFromScreenSaver()
 {
-    updateUserActivity();
+    ensure_mutex();
+    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        enter_ui_locked();
+        xSemaphoreGive(s_mutex);
+    }
+    platform::esp::idf_common::ui_dispatcher::post(
+        platform::esp::idf_common::ui_dispatcher::Event::HideScreenSaver);
     platform::esp::idf_common::ui_dispatcher::post(
         platform::esp::idf_common::ui_dispatcher::Event::ShowMainMenu);
 }
@@ -306,7 +359,7 @@ void updateUserActivity()
         s_last_user_activity_ms = now_ms();
         if (s_screen_sleeping || s_screen_saver_active)
         {
-            wake_display_locked();
+            wake_screen_saver_locked();
             woke_from_sleep = true;
         }
         xSemaphoreGive(s_mutex);
@@ -327,7 +380,7 @@ void disableScreenSleep()
         s_last_user_activity_ms = now_ms();
         if (s_screen_sleeping)
         {
-            wake_display_locked();
+            wake_screen_saver_locked();
             woke = true;
         }
         xSemaphoreGive(s_mutex);
@@ -367,6 +420,9 @@ ScreenSleepHooks adapt_hooks(const Hooks& hooks)
     adapted.read_unread_count = hooks.read_unread_count;
     adapted.show_main_menu = hooks.show_main_menu;
     adapted.on_wake_from_sleep = hooks.on_wake_from_sleep;
+    adapted.show_screen_saver = hooks.show_screen_saver;
+    adapted.hide_screen_saver = hooks.hide_screen_saver;
+    adapted.present_screen_saver = hooks.present_screen_saver;
     return adapted;
 }
 

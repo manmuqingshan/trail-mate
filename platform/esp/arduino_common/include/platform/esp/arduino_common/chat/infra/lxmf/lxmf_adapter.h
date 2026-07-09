@@ -80,10 +80,12 @@ class LxmfAdapter : public IMeshAdapter
 
     static constexpr uint32_t kAnnounceIntervalMs = 120000;
     static constexpr uint32_t kInitialAnnounceDelayMs = 1500;
+    static constexpr uint32_t kPendingAnnounceRetryMs = 30000;
     static constexpr uint8_t kMaxIngressPacketsPerPoll = 2;
     static constexpr uint32_t kDiscoverySampleIntervalMs = 10000;
     static constexpr uint32_t kRxSummaryIntervalMs = 5000;
     static constexpr uint32_t kAnnounceRebroadcastIntervalMs = 60000;
+    static constexpr uint32_t kPeerProjectionScreenIntervalMs = 2000;
     static constexpr uint32_t kPeerProjectionSleepIntervalMs = 250;
     static constexpr std::size_t kPendingPeerProjectionDepth = 24;
     static constexpr uint32_t kPeerPersistSleepIntervalMs = 15000;
@@ -130,6 +132,7 @@ class LxmfAdapter : public IMeshAdapter
     std::string user_long_name_;
     std::string user_short_name_;
     uint32_t last_announce_ms_ = 0;
+    uint32_t last_announce_attempt_ms_ = 0;
     uint32_t last_lora_discovery_sample_ms_ = 0;
     uint32_t last_wifi_discovery_sample_ms_ = 0;
     uint32_t last_rx_summary_ms_ = 0;
@@ -171,6 +174,7 @@ class LxmfAdapter : public IMeshAdapter
     void maybeAnnounce();
     bool sendAnnounce(LocalDestinationKind kind = LocalDestinationKind::Delivery,
                       reticulum::PacketContext context = reticulum::PacketContext::None);
+    bool lastAnnounceTxReachedRequiredInterfaces(bool sent) const;
     bool handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len,
                               const reticulum::ParsedPacket& packet,
                               reticulum::interfaces::InterfaceKind ingress_interface,

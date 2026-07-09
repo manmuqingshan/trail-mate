@@ -74,6 +74,10 @@ static lv_obj_t* get_top_back_button(void* /*ctx*/)
 
 static size_t get_filter_count(void* /*ctx*/)
 {
+    if (!contacts::ui::g_contacts_state.filter_panel_visible)
+    {
+        return 0;
+    }
     return contacts::ui::uses_reticulum_filter_profile() ? 4U : 6U;
 }
 
@@ -118,6 +122,10 @@ static lv_obj_t* get_filter_button(void* /*ctx*/, size_t index)
 
 static int get_preferred_filter_index(void* /*ctx*/)
 {
+    if (!contacts::ui::g_contacts_state.filter_panel_visible)
+    {
+        return -1;
+    }
     return mode_to_index(contacts::ui::g_contacts_state.current_mode);
 }
 

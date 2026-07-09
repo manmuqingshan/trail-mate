@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <string>
 
 namespace ui::presentation_sources
 {
@@ -24,18 +25,92 @@ void copyString(ui::FixedText<N>& out, const std::string& text)
     ui::copyText(out, text.c_str());
 }
 
-void copyNodeLabel(ui::FixedText<32>& out, ::chat::NodeId node_id)
+std::string formatNodeLabel(::chat::NodeId node_id)
 {
     if (node_id == 0)
     {
-        ui::copyText(out, "Unknown");
-        return;
+        return std::string("Unknown");
     }
 
     char buffer[16]{};
     std::snprintf(buffer, sizeof(buffer), "%04lX",
                   static_cast<unsigned long>(node_id & 0xFFFFU));
-    ui::copyText(out, buffer);
+    return std::string(buffer);
+}
+
+void copyNodeLabel(ui::FixedText<32>& out, ::chat::NodeId node_id)
+{
+    const std::string label = formatNodeLabel(node_id);
+    ui::copyText(out, label.c_str());
+}
+
+std::string contactDisplayName(const ::chat::contacts::ContactService* contacts,
+                               ::chat::NodeId node_id)
+{
+    if (node_id == 0)
+    {
+        return std::string("Unknown");
+    }
+
+    if (contacts != nullptr)
+    {
+        const auto* node = contacts->getNodeInfo(node_id);
+        if (node != nullptr)
+        {
+            if (!node->display_name.empty())
+            {
+                return node->display_name;
+            }
+            if (node->long_name[0] != '\0')
+            {
+                return std::string(node->long_name);
+            }
+            if (node->short_name[0] != '\0')
+            {
+                return std::string(node->short_name);
+            }
+        }
+
+        const std::string contact = contacts->getContactName(node_id);
+        if (!contact.empty())
+        {
+            return contact;
+        }
+    }
+
+    return formatNodeLabel(node_id);
+}
+
+std::string conversationTitle(const ::chat::ConversationMeta& meta,
+                              const ::chat::contacts::ContactService* contacts)
+{
+    if (meta.id.peer != 0)
+    {
+        return contactDisplayName(contacts, meta.id.peer);
+    }
+
+    ::chat::ReticulumPeerIdentity identity = meta.reticulum_identity;
+    if (!::chat::hasReticulumDestinationIdentity(identity))
+    {
+        identity = meta.id.reticulum_identity;
+    }
+    if (contacts != nullptr &&
+        ::chat::hasReticulumDestinationIdentity(identity))
+    {
+        ::chat::NodeId node_id = 0;
+        if (contacts->findNodeIdByReticulumDestinationHash(
+                identity.destination_hash,
+                &node_id))
+        {
+            return contactDisplayName(contacts, node_id);
+        }
+    }
+
+    if (!meta.name.empty())
+    {
+        return meta.name;
+    }
+    return formatNodeLabel(meta.id.peer);
 }
 
 bool isValidCoordinate(double lat, double lon)
@@ -57,12 +132,9 @@ void copyParticipantLabel(ui::FixedText<32>& out,
     }
     if (contacts != nullptr)
     {
-        const std::string contact = contacts->getContactName(node_id);
-        if (!contact.empty())
-        {
-            ui::copyText(out, contact.c_str());
-            return;
-        }
+        const std::string contact = contactDisplayName(contacts, node_id);
+        ui::copyText(out, contact.c_str());
+        return;
     }
     copyNodeLabel(out, node_id);
 }
@@ -336,7 +408,7 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
         row.unread_count = meta.unread < 0 ? 0U : static_cast<uint16_t>(meta.unread);
         row.last_timestamp = meta.last_timestamp;
         row.selected = row.id == request.selected;
-        copyString(row.title, meta.name);
+        copyString(row.title, conversationTitle(meta, contact_service_));
         copyString(row.subtitle, meta.preview);
     }
 
@@ -401,15 +473,8 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
             else if (contact_service_ != nullptr)
             {
                 const std::string contact =
-                    contact_service_->getContactName(message.from);
-                if (!contact.empty())
-                {
-                    ui::copyText(row.sender_label, contact.c_str());
-                }
-                else
-                {
-                    copyNodeLabel(row.sender_label, message.from);
-                }
+                    contactDisplayName(contact_service_, message.from);
+                ui::copyText(row.sender_label, contact.c_str());
             }
             else
             {

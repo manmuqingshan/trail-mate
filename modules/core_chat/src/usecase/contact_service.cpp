@@ -27,6 +27,52 @@ namespace contacts
 #define CONTACT_SERVICE_LOG(...)
 #endif
 
+namespace
+{
+
+bool has_text(const char* text)
+{
+    return text && text[0] != '\0';
+}
+
+bool same_text(const char* lhs, const char* rhs)
+{
+    if (!lhs || !rhs)
+    {
+        return lhs == rhs;
+    }
+    return std::strcmp(lhs, rhs) == 0;
+}
+
+std::string preferred_node_name(const char* short_name, const char* long_name)
+{
+    if (has_text(long_name) && !same_text(long_name, short_name))
+    {
+        return std::string(long_name);
+    }
+    if (has_text(short_name))
+    {
+        return std::string(short_name);
+    }
+    if (has_text(long_name))
+    {
+        return std::string(long_name);
+    }
+    return std::string();
+}
+
+std::string preferred_node_name(const NodeInfo& node)
+{
+    if (!node.display_name.empty() &&
+        !same_text(node.display_name.c_str(), node.short_name))
+    {
+        return node.display_name;
+    }
+    return preferred_node_name(node.short_name, node.long_name);
+}
+
+} // namespace
+
 ContactService::ContactService(INodeStore& node_store, IContactStore& contact_store)
     : node_store_(node_store), contact_store_(contact_store), cache_timestamp_(0)
 {
@@ -114,7 +160,7 @@ std::string ContactService::getContactName(uint32_t node_id) const
     {
         if (node.node_id == node_id)
         {
-            return std::string(node.short_name);
+            return preferred_node_name(node);
         }
     }
 
@@ -123,7 +169,7 @@ std::string ContactService::getContactName(uint32_t node_id) const
     {
         if (entry.node_id == node_id)
         {
-            return std::string(entry.short_name);
+            return preferred_node_name(entry.short_name, entry.long_name);
         }
     }
 
@@ -366,17 +412,15 @@ void ContactService::buildCache() const
 
         info.is_contact = std::find(contact_ids.begin(), contact_ids.end(), entry.node_id) != contact_ids.end();
 
-        if (info.is_contact)
+        const std::string nickname =
+            info.is_contact ? contact_store_.getNickname(entry.node_id) : std::string();
+        if (!nickname.empty())
         {
-            info.display_name = contact_store_.getNickname(entry.node_id);
-            if (info.display_name.empty())
-            {
-                info.display_name = std::string(info.short_name);
-            }
+            info.display_name = nickname;
         }
         else
         {
-            info.display_name = std::string(info.short_name);
+            info.display_name = preferred_node_name(info.short_name, info.long_name);
         }
 
         cached_nodes_.push_back(info);

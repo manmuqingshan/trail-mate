@@ -8,11 +8,13 @@
 #include "platform/ui/time_runtime.h"
 #include "sys/clock.h"
 #include "ui/app_runtime.h"
+#include "ui/components/screen_saver_overlay.h"
 #include "ui/localization.h"
 #include "ui/menu/menu_layout.h"
 #include "ui/menu/menu_runtime.h"
 #include "ui/runtime/ui_feedback.h"
 #include "ui/ui_boot.h"
+#include "ui/ui_status.h"
 #include "ui_lvgl_ux_packs/ux/ux_menu_provider.h"
 
 namespace ui::startup_ui_shell
@@ -24,11 +26,7 @@ bool s_shell_initialized = false;
 ui::menu::MenuModel s_ux_menu_model;
 
 #ifndef TRAIL_MATE_BOOT_UI_SYNC_PRESENT
-#if defined(ARDUINO)
-#define TRAIL_MATE_BOOT_UI_SYNC_PRESENT 0
-#else
 #define TRAIL_MATE_BOOT_UI_SYNC_PRESENT 1
-#endif
 #endif
 
 #if TRAIL_MATE_BOOT_UI_SYNC_PRESENT
@@ -115,6 +113,14 @@ ui::menu_runtime::Hooks build_menu_runtime_hooks()
     return hooks;
 }
 
+void init_screen_saver_overlay()
+{
+    ui::components::screen_saver_overlay::Hooks overlay_hooks{};
+    overlay_hooks.format_time = format_menu_time;
+    overlay_hooks.read_unread_count = ui::status::get_total_unread;
+    ui::components::screen_saver_overlay::init(overlay_hooks);
+}
+
 bool lock_ui(const Hooks& hooks)
 {
     return hooks.lock_ui ? hooks.lock_ui(hooks.lock_timeout_ms) : true;
@@ -184,6 +190,7 @@ bool initializeMenuSkeleton(const Hooks& hooks)
     ui::menu_layout::init(options);
     ui::menu_runtime::init(
         lv_screen_active(), main_screen, ui::menu_layout::menuPanel(), build_menu_runtime_hooks());
+    init_screen_saver_overlay();
 
     s_shell_initialized = true;
     unlock_ui(hooks);

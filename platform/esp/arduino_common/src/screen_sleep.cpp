@@ -5,9 +5,6 @@
 
 #include "screen_sleep.h"
 
-#include <cstdio>
-#include <string>
-
 #include "board/BoardBase.h"
 #include "display/DisplayConfig.h"
 #include "freertos/FreeRTOS.h"
@@ -15,7 +12,6 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "platform/ui/settings_store.h"
-#include "ui/localization.h"
 
 namespace
 {
@@ -41,10 +37,6 @@ uint32_t s_screen_sleep_disable_depth = 0;
 uint8_t s_saved_screen_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
 uint8_t s_saved_keyboard_brightness = 127;
 bool s_screen_saver_active = false;
-lv_obj_t* s_screen_saver_layer = nullptr;
-lv_obj_t* s_screen_saver_time_label = nullptr;
-lv_obj_t* s_screen_saver_unread_label = nullptr;
-lv_obj_t* s_screen_saver_hint_label = nullptr;
 lv_timer_t* s_screen_saver_timer = nullptr;
 
 uint32_t readPersistedScreenTimeoutMs()
@@ -83,22 +75,36 @@ uint32_t cachedScreenTimeoutMs()
     return timeout_ms;
 }
 
-bool formatScreenSaverTime(char* out, size_t out_len)
+void screen_saver_timer_cb(lv_timer_t* timer);
+
+void show_screen_saver_layer()
 {
-    if (s_hooks.format_time)
+    if (s_hooks.show_screen_saver)
     {
-        return s_hooks.format_time(out, out_len);
+        s_hooks.show_screen_saver();
     }
-    return false;
 }
 
-int readUnreadCount()
+void present_screen_saver_layer()
 {
-    if (s_hooks.read_unread_count)
+    if (s_hooks.present_screen_saver)
     {
-        return s_hooks.read_unread_count();
+        s_hooks.present_screen_saver();
     }
-    return 0;
+}
+
+void restart_screen_saver_timer()
+{
+    if (s_screen_saver_timer == nullptr)
+    {
+        s_screen_saver_timer = lv_timer_create(screen_saver_timer_cb, kScreenSaverDurationMs, nullptr);
+    }
+    else
+    {
+        lv_timer_set_period(s_screen_saver_timer, kScreenSaverDurationMs);
+        lv_timer_reset(s_screen_saver_timer);
+        lv_timer_resume(s_screen_saver_timer);
+    }
 }
 
 void notifyWakeFromSleep()
@@ -111,11 +117,7 @@ void notifyWakeFromSleep()
 
 void hide_screen_saver_layer()
 {
-    if (!s_screen_saver_layer)
-    {
-        return;
-    }
-    lv_obj_add_flag(s_screen_saver_layer, LV_OBJ_FLAG_HIDDEN);
+    if (s_hooks.hide_screen_saver) s_hooks.hide_screen_saver();
     if (s_screen_saver_timer)
     {
         lv_timer_pause(s_screen_saver_timer);
@@ -130,37 +132,6 @@ void refresh_active_screen()
         return;
     }
     lv_obj_invalidate(active);
-}
-
-void refresh_screen_saver_locale_labels(int unread)
-{
-    if (s_screen_saver_unread_label != nullptr)
-    {
-        ::ui::i18n::set_label_text_fmt(s_screen_saver_unread_label, "Unread: %d", unread);
-    }
-
-    if (s_screen_saver_hint_label != nullptr)
-    {
-        ::ui::i18n::set_label_text(s_screen_saver_hint_label, "Press SPACE to resume");
-    }
-}
-
-void screen_saver_refresh()
-{
-    if (!s_screen_saver_layer || !s_screen_saver_time_label || !s_screen_saver_unread_label)
-    {
-        return;
-    }
-
-    char time_buf[16] = "--:--";
-    if (!formatScreenSaverTime(time_buf, sizeof(time_buf)))
-    {
-        snprintf(time_buf, sizeof(time_buf), "--:--");
-    }
-    lv_label_set_text(s_screen_saver_time_label, time_buf);
-
-    const int unread = readUnreadCount();
-    refresh_screen_saver_locale_labels(unread);
 }
 
 void screen_saver_timer_cb(lv_timer_t* /*timer*/)
@@ -183,43 +154,6 @@ void screen_saver_timer_cb(lv_timer_t* /*timer*/)
     board.enterScreenSleep();
 }
 
-void init_screen_saver()
-{
-    if (s_screen_saver_layer)
-    {
-        return;
-    }
-
-    s_screen_saver_layer = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_screen_saver_layer, LV_PCT(100), LV_PCT(100));
-    lv_obj_align(s_screen_saver_layer, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_bg_color(s_screen_saver_layer, lv_color_hex(0xF6E6C6), 0);
-    lv_obj_set_style_bg_opa(s_screen_saver_layer, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_screen_saver_layer, 0, 0);
-    lv_obj_clear_flag(s_screen_saver_layer, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(s_screen_saver_layer, LV_OBJ_FLAG_CLICKABLE);
-
-    s_screen_saver_time_label = lv_label_create(s_screen_saver_layer);
-    lv_obj_set_style_text_color(s_screen_saver_time_label, lv_color_hex(0x6B4A1E), 0);
-    lv_obj_set_style_text_font(s_screen_saver_time_label, &lv_font_montserrat_36, 0);
-    lv_label_set_text(s_screen_saver_time_label, "--:--");
-    lv_obj_align(s_screen_saver_time_label, LV_ALIGN_CENTER, 0, -26);
-
-    s_screen_saver_unread_label = lv_label_create(s_screen_saver_layer);
-    lv_obj_set_style_text_color(s_screen_saver_unread_label, lv_color_hex(0x6B4A1E), 0);
-    lv_obj_set_style_text_font(s_screen_saver_unread_label, &lv_font_montserrat_20, 0);
-    lv_obj_align(s_screen_saver_unread_label, LV_ALIGN_CENTER, 0, 10);
-
-    s_screen_saver_hint_label = lv_label_create(s_screen_saver_layer);
-    lv_obj_set_style_text_color(s_screen_saver_hint_label, lv_color_hex(0x8A6A3A), 0);
-    lv_obj_set_style_text_font(s_screen_saver_hint_label, &lv_font_montserrat_14, 0);
-    lv_obj_align(s_screen_saver_hint_label, LV_ALIGN_CENTER, 0, 40);
-
-    refresh_screen_saver_locale_labels(0);
-
-    lv_obj_add_flag(s_screen_saver_layer, LV_OBJ_FLAG_HIDDEN);
-}
-
 void screenSleepTask(void* pvParameters)
 {
     (void)pvParameters;
@@ -239,7 +173,7 @@ void screenSleepTask(void* pvParameters)
                 const bool sleep_disabled = s_screen_sleep_disable_depth > 0;
                 if (sleep_disabled)
                 {
-                    if (s_screen_sleeping)
+                    if (s_screen_sleeping && !s_screen_saver_active)
                     {
                         s_screen_sleeping = false;
                         board.exitScreenSleep();
@@ -265,7 +199,8 @@ void screenSleepTask(void* pvParameters)
                         board.setBrightness(0);
                         board.enterScreenSleep();
                     }
-                    else if (s_screen_sleeping && time_since_activity < current_timeout)
+                    else if (s_screen_sleeping && !s_screen_saver_active &&
+                             time_since_activity < current_timeout)
                     {
                         s_screen_sleeping = false;
                         board.exitScreenSleep();
@@ -329,7 +264,6 @@ void setScreenSleepTimeout(uint32_t timeout_ms)
 void initScreenSleepRuntime(const ScreenSleepHooks& hooks)
 {
     s_hooks = hooks;
-    init_screen_saver();
 
     if (s_activity_mutex == nullptr)
     {
@@ -401,11 +335,6 @@ void wakeScreenSaver()
         return;
     }
 
-    if (!s_screen_saver_layer)
-    {
-        return;
-    }
-
     bool was_sleeping = false;
     if (s_activity_mutex != nullptr)
     {
@@ -422,34 +351,32 @@ void wakeScreenSaver()
         }
     }
 
-    screen_saver_refresh();
-    lv_obj_clear_flag(s_screen_saver_layer, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(s_screen_saver_layer);
     if (was_sleeping)
     {
         board.exitScreenSleep();
+        board.setBrightness(0);
+        if (board.hasKeyboard())
+        {
+            board.keyboardSetBrightness(0);
+        }
+    }
+    else
+    {
+        s_saved_screen_brightness = board.getBrightness();
+    }
+    show_screen_saver_layer();
+    present_screen_saver_layer();
+
+    if (was_sleeping)
+    {
         board.setBrightness(s_saved_screen_brightness);
         if (board.hasKeyboard())
         {
             board.keyboardSetBrightness(s_saved_keyboard_brightness);
         }
     }
-    else
-    {
-        s_saved_screen_brightness = board.getBrightness();
-        board.setBrightness(s_saved_screen_brightness);
-    }
 
-    if (s_screen_saver_timer == nullptr)
-    {
-        s_screen_saver_timer = lv_timer_create(screen_saver_timer_cb, kScreenSaverDurationMs, nullptr);
-    }
-    else
-    {
-        lv_timer_set_period(s_screen_saver_timer, kScreenSaverDurationMs);
-        lv_timer_reset(s_screen_saver_timer);
-        lv_timer_resume(s_screen_saver_timer);
-    }
+    restart_screen_saver_timer();
 }
 
 void enterFromScreenSaver()
@@ -561,7 +488,7 @@ void updateUserActivity()
             }
             if (s_screen_sleeping)
             {
-                s_screen_sleeping = false;
+                s_screen_saver_active = true;
                 woke_from_sleep = true;
                 restore_sleep_state = true;
             }
@@ -585,5 +512,7 @@ void updateUserActivity()
     if (woke_from_sleep)
     {
         notifyWakeFromSleep();
+        present_screen_saver_layer();
+        restart_screen_saver_timer();
     }
 }

@@ -36,7 +36,6 @@ struct Hooks
 
 void init(lv_obj_t* screen_root, lv_obj_t* main_screen, lv_obj_t* menu_panel, const Hooks& hooks);
 void showWatchFace();
-void onWakeFromSleep();
 void setMenuActive(bool active);
 bool handleWalkieKey(char key, int state);
 bool handleShortcutKey(char key, int state);

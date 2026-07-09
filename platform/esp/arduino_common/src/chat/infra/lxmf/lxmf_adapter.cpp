@@ -1198,12 +1198,15 @@ bool LxmfAdapter::broadcastSelfIdentity()
 
     announce_pending_ = true;
     const bool delivery_ok = sendAnnounce(LocalDestinationKind::Delivery);
+    const bool delivery_complete = lastAnnounceTxReachedRequiredInterfaces(delivery_ok);
     const bool propagation_ok = sendAnnounce(LocalDestinationKind::Propagation);
+    const bool propagation_complete = lastAnnounceTxReachedRequiredInterfaces(propagation_ok);
     if (delivery_ok || propagation_ok)
     {
         last_announce_ms_ = millis();
     }
-    announce_pending_ = !(delivery_ok && propagation_ok);
+    last_announce_attempt_ms_ = millis();
+    announce_pending_ = !(delivery_complete && propagation_complete);
     return delivery_ok || propagation_ok;
 }
 
@@ -1279,6 +1282,7 @@ void LxmfAdapter::applyConfig(const MeshConfig& config)
                       static_cast<unsigned>(peers_.size()));
     }
     last_announce_ms_ = millis();
+    last_announce_attempt_ms_ = 0;
     announce_pending_ = !config_.reticulum_anonymous_peer;
 }
 
@@ -1286,6 +1290,7 @@ void LxmfAdapter::setUserInfo(const char* long_name, const char* short_name)
 {
     user_long_name_ = (long_name && long_name[0] != '\0') ? long_name : "";
     user_short_name_ = (short_name && short_name[0] != '\0') ? short_name : "";
+    last_announce_attempt_ms_ = 0;
     announce_pending_ = true;
 }
 
@@ -1338,7 +1343,7 @@ LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
     budget.deferred_discovery_limit = 0;
     budget.allow_public_discovery = false;
     budget.allow_persistence = false;
-    budget.allow_peer_projection = false;
+    budget.allow_peer_projection = !screen_runtime::is_saver_active();
     budget.allow_announce_tx = true;
     budget.phase = screen_runtime::is_saver_active() ? "saver" : "screen";
     return budget;
@@ -1618,24 +1623,39 @@ void LxmfAdapter::maybeAnnounce()
     if (config_.reticulum_anonymous_peer)
     {
         announce_pending_ = false;
+        last_announce_attempt_ms_ = 0;
         return;
     }
-    if (!announce_pending_ && (millis() - last_announce_ms_) < kAnnounceIntervalMs)
+    const uint32_t now_ms = millis();
+    if (!announce_pending_ && (now_ms - last_announce_ms_) < kAnnounceIntervalMs)
     {
         return;
     }
-    if (announce_pending_ && (millis() - last_announce_ms_) < kInitialAnnounceDelayMs)
+    if (announce_pending_)
     {
-        return;
+        const bool first_attempt = last_announce_attempt_ms_ == 0;
+        const uint32_t wait_ms = first_attempt ? kInitialAnnounceDelayMs : kPendingAnnounceRetryMs;
+        const uint32_t basis_ms = first_attempt ? last_announce_ms_ : last_announce_attempt_ms_;
+        if ((now_ms - basis_ms) < wait_ms)
+        {
+            return;
+        }
     }
 
     const bool delivery_ok = sendAnnounce(LocalDestinationKind::Delivery);
+    const bool delivery_complete = lastAnnounceTxReachedRequiredInterfaces(delivery_ok);
     const bool propagation_ok = sendAnnounce(LocalDestinationKind::Propagation);
+    const bool propagation_complete = lastAnnounceTxReachedRequiredInterfaces(propagation_ok);
+    last_announce_attempt_ms_ = now_ms;
     if (delivery_ok || propagation_ok)
     {
-        last_announce_ms_ = millis();
+        last_announce_ms_ = now_ms;
     }
-    announce_pending_ = !(delivery_ok && propagation_ok);
+    announce_pending_ = !(delivery_complete && propagation_complete);
+    if (!announce_pending_)
+    {
+        last_announce_attempt_ms_ = 0;
+    }
 }
 
 bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
@@ -1761,21 +1781,36 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
                   destination_hex,
                   sizeof(destination_hex));
     const bool sent = routeAndSendPacket(packet, packet_len, false);
+    const auto& tx_result = interfaces_.lastTxResult();
     const char* display_name = effectiveDisplayName();
-    Serial.printf("[LXMF][AnnounceTX] kind=%s context=%u dest=%s name=%s app_len=%u packet_len=%u ok=%u\n",
+    Serial.printf("[LXMF][AnnounceTX] kind=%s context=%u dest=%s name=%s app_len=%u packet_len=%u ok=%u complete=%u lora=%u/%u wifi=%u/%u\n",
                   localDestinationKindLabel(kind),
                   static_cast<unsigned>(context),
                   destination_hex,
                   (display_name && display_name[0] != '\0') ? display_name : "<none>",
                   static_cast<unsigned>(app_data_len),
                   static_cast<unsigned>(packet_len),
-                  sent ? 1U : 0U);
+                  sent ? 1U : 0U,
+                  tx_result.reachedRequiredInterfaces() ? 1U : 0U,
+                  tx_result.lora_ok ? 1U : 0U,
+                  tx_result.lora_required ? 1U : 0U,
+                  tx_result.wifi_ok ? 1U : 0U,
+                  tx_result.wifi_required ? 1U : 0U);
     if (!sent)
     {
         return false;
     }
 
     return true;
+}
+
+bool LxmfAdapter::lastAnnounceTxReachedRequiredInterfaces(bool sent) const
+{
+    if (!sent)
+    {
+        return false;
+    }
+    return interfaces_.lastTxResult().reachedRequiredInterfaces();
 }
 
 bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len,
@@ -5584,12 +5619,11 @@ void LxmfAdapter::pumpPendingPeerUpdates()
     const uint32_t now_ms = millis();
     const bool maintenance_window =
         screen_runtime::is_sleeping() && !screen_runtime::is_saver_active();
-    if (!maintenance_window)
-    {
-        return;
-    }
+    const uint32_t interval_ms = maintenance_window
+                                     ? kPeerProjectionSleepIntervalMs
+                                     : kPeerProjectionScreenIntervalMs;
     if (last_peer_projection_ms_ != 0 &&
-        (now_ms - last_peer_projection_ms_) < kPeerProjectionSleepIntervalMs)
+        (now_ms - last_peer_projection_ms_) < interval_ms)
     {
         return;
     }

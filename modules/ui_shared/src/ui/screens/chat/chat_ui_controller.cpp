@@ -931,7 +931,10 @@ void UiController::normalizeConversationNames(std::vector<chat::ConversationMeta
             continue;
         }
 
-        conv.name = base_conversation_name(conv.id);
+        if (conv.name.empty())
+        {
+            conv.name = base_conversation_name(conv.id);
+        }
     }
 
     for (auto& conv : convs)

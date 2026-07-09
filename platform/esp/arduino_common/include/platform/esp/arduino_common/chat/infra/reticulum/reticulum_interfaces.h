@@ -38,6 +38,24 @@ struct RxPacket
     InterfaceKind interface_kind = InterfaceKind::LoRa;
 };
 
+struct TxResult
+{
+    bool lora_required = false;
+    bool lora_ready = false;
+    bool lora_ok = false;
+    bool wifi_required = false;
+    bool wifi_ready = false;
+    bool wifi_ok = false;
+
+    bool sent() const { return lora_ok || wifi_ok; }
+    bool reachedRequiredInterfaces() const
+    {
+        return sent() &&
+               (!lora_required || lora_ok) &&
+               (!wifi_required || wifi_ok);
+    }
+};
+
 class LoRaReticulumInterface
 {
   public:
@@ -143,12 +161,14 @@ class ReticulumInterfaceSet
     float lastRxRssi() const;
     float lastRxSnr() const;
     const RxMeta& lastRxMeta() const { return last_rx_meta_; }
+    const TxResult& lastTxResult() const { return last_tx_result_; }
 
   private:
     LoRaReticulumInterface lora_;
     WifiGatewayReticulumInterface wifi_;
     MeshConfig config_{};
     RxMeta last_rx_meta_{};
+    TxResult last_tx_result_{};
     bool has_last_rx_meta_ = false;
     uint8_t next_poll_index_ = 0;
 

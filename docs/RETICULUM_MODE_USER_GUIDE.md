@@ -116,16 +116,38 @@ In Reticulum mode, the Contacts page uses these filters:
 - `Groups`: locally configured Reticulum shared group destinations.
 - `Ignored`: nodes hidden from the normal contact lists.
 
+For Reticulum peers, the list title follows the same model MeshChat exposes:
+saved nickname first, then the LXMF announce display name, then the short
+hash fallback. Identity hash and LXMF address are identity/address details, not
+the primary contact-list name.
+
 `Groups` are not discovered from the Reticulum network. They are explicit local
 configuration. This matters because a Reticulum shared destination must be known
 before Trail Mate can send to it or accept inbound group packets for it.
 
 Contacts also supports the same floating search interaction used by the Network
 view. Press `/` or `s` while focus is on the Contacts page to search the current
-Contacts, Nearby, Groups, or Ignored list. For normal discovered nodes across
-Meshtastic, MeshCore, and Reticulum, the filter matches `short_name`. The search
-only changes the visible list; it does not modify the SD-backed node store,
-contacts, groups, or ignored state.
+Contacts, Nearby, Groups, or Ignored list. Meshtastic and MeshCore searches
+match node short names; Reticulum searches also match the visible display name,
+LXMF destination hash, and identity hash. The search only changes the visible
+list; it does not modify the SD-backed node store, contacts, groups, or ignored
+state.
+
+Press `f` in Contacts or Chat to hide or show the filter column. This is useful
+on the small screen when Reticulum display names are longer than the default
+list column can comfortably show.
+
+In Reticulum mode, press `a` in Contacts to add a peer by LXMF Address. The
+dialog accepts either a plain 32-character destination hash or the MeshChat-style
+`lxmf@...` form; spaces, `:`, `-`, and `_` inside the hash are ignored. Because
+this manual entry only contains the delivery destination hash, Trail Mate stores
+it as a local contact/node projection first. A full `lxmf_addresses.tsv` row is
+only written after a real LXMF delivery announce or path response provides the
+identity hash and public keys needed for a verifiable address-book record.
+
+In Chat, press `/` or `s` to search conversation/contact names in the current
+Direct, Broadcast, or Team list. The Chat search is a conversation-list filter;
+it does not search message body history.
 
 ## SD Card Requirement
 

@@ -95,6 +95,7 @@ struct ContactsPageState
     bool rendered_mode_valid = false;
     ContactsMode rendered_mode = ContactsMode::Contacts;
     char rendered_search_query[32] = {};
+    bool filter_panel_visible = true;
 
     // Data (using forward declaration, full type in .cpp)
     std::vector<chat::contacts::NodeInfo> contacts_list;
@@ -109,6 +110,7 @@ struct ContactsPageState
 
     // Modal windows
     ::ui::components::floating_search_box::State search_box;
+    ::ui::components::floating_search_box::State lxmf_address_box;
     lv_obj_t* add_edit_modal = nullptr;
     lv_obj_t* add_edit_textarea = nullptr;
     lv_obj_t* add_edit_error_label = nullptr;

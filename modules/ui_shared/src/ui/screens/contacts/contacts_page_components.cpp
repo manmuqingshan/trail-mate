@@ -6,8 +6,10 @@
 #include "ui/screens/contacts/contacts_page_components.h"
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
+#include "chat/domain/reticulum_identity.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
+#include "chat/infra/reticulum/reticulum_wire.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
@@ -289,10 +291,16 @@ static void on_action_menu_item_clicked(lv_event_t* e);
 static void on_action_menu_key(lv_event_t* e);
 static lv_obj_t* create_action_menu_button(lv_obj_t* parent, const char* text);
 static void open_search_modal();
+static void open_lxmf_address_modal();
 static void open_contacts_help_modal();
 static void on_search_apply(const char* text, void* user_data);
 static void on_search_clear(void* user_data);
 static void on_search_cancel(void* user_data);
+static void on_lxmf_address_apply(const char* text, void* user_data);
+static void on_lxmf_address_clear(void* user_data);
+static void on_lxmf_address_cancel(void* user_data);
+static void apply_filter_panel_visibility();
+static void toggle_filter_panel_visibility();
 static void contacts_handle_page_shortcut(lv_event_t* event);
 static const chat::contacts::NodeInfo* get_selected_node();
 static const chat::contacts::NodeInfo* get_selected_reticulum_group();
@@ -911,6 +919,94 @@ static void clear_search_query()
     g_contacts_state.search_query[0] = '\0';
 }
 
+static constexpr const char* kLxmfAddressAcceptedChars =
+    "0123456789abcdefABCDEFlxmfLXMF@:-_ \t\r\n";
+
+static const char* trim_left(const char* text)
+{
+    if (!text)
+    {
+        return "";
+    }
+    while (*text == ' ' || *text == '\t' || *text == '\r' || *text == '\n')
+    {
+        ++text;
+    }
+    return text;
+}
+
+static const char* skip_lxmf_prefix(const char* text)
+{
+    const char* cursor = trim_left(text);
+    if ((cursor[0] == 'l' || cursor[0] == 'L') &&
+        (cursor[1] == 'x' || cursor[1] == 'X') &&
+        (cursor[2] == 'm' || cursor[2] == 'M') &&
+        (cursor[3] == 'f' || cursor[3] == 'F') &&
+        cursor[4] == '@')
+    {
+        return cursor + 5;
+    }
+    return cursor;
+}
+
+static void make_lxmf_contact_nickname(const chat::ReticulumPeerIdentity& identity,
+                                       char* out,
+                                       size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!chat::hasReticulumDestinationIdentity(identity) || out_len < 12)
+    {
+        std::snprintf(out, out_len, "RT-UNKNOWN");
+        return;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "RT-%02X%02X%02X%02X",
+                  static_cast<unsigned>(identity.destination_hash[0]),
+                  static_cast<unsigned>(identity.destination_hash[1]),
+                  static_cast<unsigned>(identity.destination_hash[2]),
+                  static_cast<unsigned>(identity.destination_hash[3]));
+}
+
+static void make_lxmf_short_name(const chat::ReticulumPeerIdentity& identity,
+                                 uint32_t node_id,
+                                 char* out,
+                                 size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    if (chat::hasReticulumDestinationIdentity(identity) && out_len >= 9)
+    {
+        std::snprintf(out,
+                      out_len,
+                      "%02X%02X%02X%02X",
+                      static_cast<unsigned>(identity.destination_hash[0]),
+                      static_cast<unsigned>(identity.destination_hash[1]),
+                      static_cast<unsigned>(identity.destination_hash[2]),
+                      static_cast<unsigned>(identity.destination_hash[3]));
+        return;
+    }
+    std::snprintf(out, out_len, "%04X", static_cast<unsigned>(node_id & 0xFFFF));
+}
+
+static bool existing_contact_matches(uint32_t node_id)
+{
+    for (const auto& node : g_contacts_state.contacts_list)
+    {
+        if (node.node_id == node_id && node.is_contact)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool contains_ci(const char* text, const char* query)
 {
     if (!query || query[0] == '\0')
@@ -998,6 +1094,16 @@ static bool is_search_shortcut_key(uint32_t key)
     return key == '/' || key == 's' || key == 'S';
 }
 
+static bool is_add_lxmf_shortcut_key(uint32_t key)
+{
+    return key == 'a' || key == 'A';
+}
+
+static bool is_filter_toggle_shortcut_key(uint32_t key)
+{
+    return key == 'f' || key == 'F';
+}
+
 static bool is_help_shortcut_key(uint32_t key)
 {
     return key == 'h' || key == 'H';
@@ -1011,12 +1117,37 @@ static void bind_page_shortcuts(lv_obj_t* obj)
     }
 }
 
+static void apply_filter_panel_visibility()
+{
+    if (!g_contacts_state.filter_panel)
+    {
+        return;
+    }
+    if (g_contacts_state.filter_panel_visible)
+    {
+        lv_obj_clear_flag(g_contacts_state.filter_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(g_contacts_state.filter_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    contacts_input_on_ui_refreshed();
+}
+
+static void toggle_filter_panel_visibility()
+{
+    g_contacts_state.filter_panel_visible = !g_contacts_state.filter_panel_visible;
+    apply_filter_panel_visibility();
+    contacts_focus_to_list();
+}
+
 // ---------------- Panel creation (public API) ----------------
 
 void create_filter_panel(lv_obj_t* parent)
 {
     // Structure + styles handled in layout/styles
     contacts::ui::layout::create_filter_panel(parent);
+    g_contacts_state.filter_panel_visible = true;
 
     // Bind events:
     // - Rotate in Filter column triggers FOCUSED -> switch mode + refresh
@@ -1071,6 +1202,7 @@ void create_filter_panel(lv_obj_t* parent)
     // Keep highlight consistent with mode using CHECKED state
     // (visual-only; does not change behavior)
     refresh_filter_checked_state();
+    apply_filter_panel_visibility();
 }
 
 // ---------------- Filter handlers (unchanged behavior) ----------------
@@ -1403,6 +1535,7 @@ static void modal_close(lv_obj_t*& modal_obj)
 static bool is_any_modal_open()
 {
     return ::ui::components::floating_search_box::is_open(g_contacts_state.search_box) ||
+           ::ui::components::floating_search_box::is_open(g_contacts_state.lxmf_address_box) ||
            g_contacts_state.add_edit_modal != nullptr ||
            g_contacts_state.reticulum_group_modal != nullptr ||
            g_contacts_state.del_confirm_modal != nullptr ||
@@ -1468,6 +1601,136 @@ static void open_search_modal()
         config);
 }
 
+static void on_lxmf_address_apply(const char* text, void* /*user_data*/)
+{
+    if (!g_contacts_state.contact_service)
+    {
+        ::ui::feedback::show_notice("Contacts unavailable", 1800);
+        contacts_focus_to_list();
+        return;
+    }
+
+    chat::ReticulumPeerIdentity identity{};
+    char error[64] = {};
+    const char* address_text = skip_lxmf_prefix(text);
+    if (!chat::parseReticulumDestinationHashText(address_text,
+                                                 &identity,
+                                                 error,
+                                                 sizeof(error)))
+    {
+        ::ui::feedback::show_notice(error[0] != '\0' ? error : "Invalid LXMF address",
+                                    2200);
+        contacts_focus_to_list();
+        return;
+    }
+
+    uint32_t node_id = 0;
+    if (!g_contacts_state.contact_service->findNodeIdByReticulumDestinationHash(
+            identity.destination_hash,
+            &node_id))
+    {
+        node_id = chat::reticulum::nodeIdFromDestinationHash(identity.destination_hash);
+    }
+
+    const chat::contacts::NodeInfo* existing_node = find_node_by_id(node_id);
+    char short_name[10] = {};
+    char nickname[13] = {};
+    char generated_nickname[13] = {};
+    make_lxmf_short_name(identity, node_id, short_name, sizeof(short_name));
+    make_lxmf_contact_nickname(identity, generated_nickname, sizeof(generated_nickname));
+    std::snprintf(nickname, sizeof(nickname), "%s", generated_nickname);
+    if (existing_node)
+    {
+        const std::string existing_name = node_display_name_for_contacts(*existing_node);
+        if (!existing_name.empty() && existing_name.size() <= 12U)
+        {
+            std::snprintf(nickname, sizeof(nickname), "%s", existing_name.c_str());
+        }
+    }
+
+    chat::contacts::NodeUpdate update{};
+    update.short_name = short_name;
+    char fallback_long_name[13] = {};
+    if (!existing_node || existing_node->long_name[0] == '\0')
+    {
+        std::snprintf(fallback_long_name, sizeof(fallback_long_name), "%s", nickname);
+        update.long_name = fallback_long_name;
+    }
+    update.has_last_seen = true;
+    update.last_seen = current_timestamp_seconds();
+    update.has_protocol = true;
+    update.protocol = static_cast<uint8_t>(chat::contacts::NodeProtocolType::Reticulum);
+    update.has_role = true;
+    update.role = static_cast<uint8_t>(chat::contacts::NodeRoleType::Client);
+    update.reticulum_identity = identity;
+    g_contacts_state.contact_service->applyNodeUpdate(node_id, update);
+
+    refresh_contacts_data();
+    const bool was_contact = existing_contact_matches(node_id);
+    bool added = was_contact || g_contacts_state.contact_service->addContact(node_id, nickname);
+    if (!added && std::strcmp(nickname, generated_nickname) != 0)
+    {
+        added = g_contacts_state.contact_service->addContact(node_id, generated_nickname);
+    }
+    if (!added)
+    {
+        ::ui::feedback::show_notice("Contact save failed", 2200);
+        contacts_focus_to_list();
+        return;
+    }
+
+    clear_search_query();
+    g_contacts_state.current_mode = ContactsMode::Contacts;
+    g_contacts_state.current_page = 0;
+    g_contacts_state.selected_index = -1;
+    refresh_contacts_data();
+    refresh_ui();
+    ::ui::feedback::show_notice("Contact added", 1400);
+    contacts_focus_to_list();
+}
+
+static void on_lxmf_address_clear(void* /*user_data*/)
+{
+    contacts_focus_to_list();
+}
+
+static void on_lxmf_address_cancel(void* /*user_data*/)
+{
+    contacts_focus_to_list();
+}
+
+static void open_lxmf_address_modal()
+{
+    if (::ui::components::floating_search_box::is_open(g_contacts_state.lxmf_address_box))
+    {
+        ::ui::components::floating_search_box::focus(g_contacts_state.lxmf_address_box);
+        return;
+    }
+    if (!uses_reticulum_filter_profile())
+    {
+        ::ui::feedback::show_notice("LXMF address is Reticulum only", 1800);
+        return;
+    }
+    if (is_any_modal_open())
+    {
+        return;
+    }
+
+    ::ui::components::floating_search_box::Config config{};
+    config.title = "Add LXMF Address";
+    config.initial_text = "";
+    config.accepted_chars = kLxmfAddressAcceptedChars;
+    config.max_length = chat::kReticulumPeerHashSize * 2U + 5U;
+    config.restore_group = contacts_input_get_group();
+    config.callbacks.apply = on_lxmf_address_apply;
+    config.callbacks.clear = on_lxmf_address_clear;
+    config.callbacks.cancel = on_lxmf_address_cancel;
+    (void)::ui::components::floating_search_box::open(
+        g_contacts_state.lxmf_address_box,
+        g_contacts_state.root ? g_contacts_state.root : lv_screen_active(),
+        config);
+}
+
 static void contacts_handle_page_shortcut(lv_event_t* event)
 {
     if (!event || lv_event_get_code(event) != LV_EVENT_KEY)
@@ -1478,6 +1741,18 @@ static void contacts_handle_page_shortcut(lv_event_t* event)
     if (is_search_shortcut_key(key))
     {
         open_search_modal();
+        lv_event_stop_processing(event);
+        return;
+    }
+    if (is_add_lxmf_shortcut_key(key))
+    {
+        open_lxmf_address_modal();
+        lv_event_stop_processing(event);
+        return;
+    }
+    if (is_filter_toggle_shortcut_key(key))
+    {
+        toggle_filter_panel_visibility();
         lv_event_stop_processing(event);
         return;
     }
@@ -1506,18 +1781,20 @@ static void open_contacts_help_modal()
         return;
     }
 
-    ::ui::components::shortcut_help_modal::Row rows[5] = {
-        {"S", "/", "Search names"},
-        {"Enter", nullptr, "Open selected item"},
-        {"Back", nullptr, "Return or close"},
-        {"H", nullptr, "Close help"},
-        {"Groups", nullptr, "Add opens group config"},
-    };
-    std::size_t row_count = 4;
-
+    ::ui::components::shortcut_help_modal::Row rows[7] = {};
+    std::size_t row_count = 0;
+    rows[row_count++] = {"S", "/", "Search names"};
     if (uses_reticulum_filter_profile())
     {
-        row_count = 5;
+        rows[row_count++] = {"A", nullptr, "Add LXMF address"};
+    }
+    rows[row_count++] = {"F", nullptr, "Show or hide filters"};
+    rows[row_count++] = {"Enter", nullptr, "Open selected item"};
+    rows[row_count++] = {"Back", nullptr, "Return or close"};
+    rows[row_count++] = {"H", nullptr, "Close help"};
+    if (uses_reticulum_filter_profile())
+    {
+        rows[row_count++] = {"Groups", nullptr, "Add opens group config"};
     }
 
     ::ui::components::shortcut_help_modal::Config config{};
@@ -4073,6 +4350,7 @@ void refresh_ui()
 void cleanup_modals()
 {
     ::ui::components::floating_search_box::close(g_contacts_state.search_box);
+    ::ui::components::floating_search_box::close(g_contacts_state.lxmf_address_box);
     if (g_contacts_state.empty_label != nullptr)
     {
         if (lv_obj_is_valid(g_contacts_state.empty_label))

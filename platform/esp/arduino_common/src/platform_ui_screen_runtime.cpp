@@ -12,6 +12,9 @@ ScreenSleepHooks adapt_hooks(const platform::ui::screen::Hooks& hooks)
     adapted.read_unread_count = hooks.read_unread_count;
     adapted.show_main_menu = hooks.show_main_menu;
     adapted.on_wake_from_sleep = hooks.on_wake_from_sleep;
+    adapted.show_screen_saver = hooks.show_screen_saver;
+    adapted.hide_screen_saver = hooks.hide_screen_saver;
+    adapted.present_screen_saver = hooks.present_screen_saver;
     return adapted;
 }
 

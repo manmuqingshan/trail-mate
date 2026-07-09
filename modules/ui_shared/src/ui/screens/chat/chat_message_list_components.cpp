@@ -16,8 +16,10 @@
 #include "ui/ui_common.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdio>
+#include <cstring>
 
 #ifndef CHAT_MESSAGE_LIST_LOG_ENABLE
 #define CHAT_MESSAGE_LIST_LOG_ENABLE 1
@@ -102,6 +104,57 @@ static bool conversation_identity_list_equal(const std::vector<chat::Conversatio
         }
     }
     return true;
+}
+
+static bool contains_ci(const char* text, const char* query)
+{
+    if (!query || query[0] == '\0')
+    {
+        return true;
+    }
+    if (!text)
+    {
+        return false;
+    }
+    const std::size_t query_len = std::strlen(query);
+    const std::size_t text_len = std::strlen(text);
+    if (query_len == 0)
+    {
+        return true;
+    }
+    if (query_len > text_len)
+    {
+        return false;
+    }
+    for (std::size_t start = 0; start + query_len <= text_len; ++start)
+    {
+        bool match = true;
+        for (std::size_t offset = 0; offset < query_len; ++offset)
+        {
+            const auto lhs = static_cast<unsigned char>(text[start + offset]);
+            const auto rhs = static_cast<unsigned char>(query[offset]);
+            if (std::tolower(lhs) != std::tolower(rhs))
+            {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool is_search_shortcut_key(uint32_t key)
+{
+    return key == '/' || key == 's' || key == 'S';
+}
+
+static bool is_filter_toggle_shortcut_key(uint32_t key)
+{
+    return key == 'f' || key == 'F';
 }
 
 static const char* touch_event_name(lv_event_code_t code)
@@ -284,10 +337,12 @@ ChatMessageListScreen::ChatMessageListScreen(lv_obj_t* parent)
     if (container_)
     {
         lv_obj_add_event_cb(container_, on_root_deleted, LV_EVENT_DELETE, this);
+        lv_obj_add_event_cb(container_, page_shortcut_cb, LV_EVENT_KEY, this);
         lv_obj_add_event_cb(container_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
         lv_obj_add_event_cb(container_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
         if (list_panel_)
         {
+            lv_obj_add_event_cb(list_panel_, page_shortcut_cb, LV_EVENT_KEY, this);
             lv_obj_add_event_cb(list_panel_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
             lv_obj_add_event_cb(list_panel_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
         }
@@ -302,6 +357,7 @@ ChatMessageListScreen::ChatMessageListScreen(lv_obj_t* parent)
             lv_obj_add_event_cb(direct_btn_, filter_focus_cb, LV_EVENT_FOCUSED, this);
         }
         lv_obj_add_event_cb(direct_btn_, filter_click_cb, LV_EVENT_CLICKED, this);
+        lv_obj_add_event_cb(direct_btn_, page_shortcut_cb, LV_EVENT_KEY, this);
         lv_obj_add_event_cb(direct_btn_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
         lv_obj_add_event_cb(direct_btn_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
         lv_obj_add_event_cb(direct_btn_, debug_touch_event_cb, LV_EVENT_FOCUSED, this);
@@ -314,6 +370,7 @@ ChatMessageListScreen::ChatMessageListScreen(lv_obj_t* parent)
             lv_obj_add_event_cb(broadcast_btn_, filter_focus_cb, LV_EVENT_FOCUSED, this);
         }
         lv_obj_add_event_cb(broadcast_btn_, filter_click_cb, LV_EVENT_CLICKED, this);
+        lv_obj_add_event_cb(broadcast_btn_, page_shortcut_cb, LV_EVENT_KEY, this);
         lv_obj_add_event_cb(broadcast_btn_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
         lv_obj_add_event_cb(broadcast_btn_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
         lv_obj_add_event_cb(broadcast_btn_, debug_touch_event_cb, LV_EVENT_FOCUSED, this);
@@ -326,12 +383,14 @@ ChatMessageListScreen::ChatMessageListScreen(lv_obj_t* parent)
             lv_obj_add_event_cb(team_btn_, filter_focus_cb, LV_EVENT_FOCUSED, this);
         }
         lv_obj_add_event_cb(team_btn_, filter_click_cb, LV_EVENT_CLICKED, this);
+        lv_obj_add_event_cb(team_btn_, page_shortcut_cb, LV_EVENT_KEY, this);
         lv_obj_add_event_cb(team_btn_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
         lv_obj_add_event_cb(team_btn_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
         lv_obj_add_event_cb(team_btn_, debug_touch_event_cb, LV_EVENT_FOCUSED, this);
         lv_obj_add_event_cb(team_btn_, debug_touch_event_cb, LV_EVENT_DEFOCUSED, this);
     }
     updateFilterHighlight();
+    applyFilterPanelVisibility();
     disable_touch_click_focus_recursive(container_);
 
     if (container_ && !lv_obj_is_valid(container_))
@@ -370,6 +429,7 @@ ChatMessageListScreen::ChatMessageListScreen(lv_obj_t* parent)
 
 ChatMessageListScreen::~ChatMessageListScreen()
 {
+    ::ui::components::floating_search_box::close(search_box_);
     if (container_ && lv_obj_is_valid(container_))
     {
         lv_obj_del(container_);
@@ -550,6 +610,161 @@ void ChatMessageListScreen::updateBatteryFromBoard()
     ui_update_top_bar_battery(top_bar_);
 }
 
+bool ChatMessageListScreen::searchActive() const
+{
+    return search_query_[0] != '\0';
+}
+
+bool ChatMessageListScreen::conversationMatchesSearch(
+    const chat::ConversationMeta& conv) const
+{
+    if (!searchActive())
+    {
+        return true;
+    }
+
+    char peer_hex[16] = {};
+    std::snprintf(peer_hex,
+                  sizeof(peer_hex),
+                  "%08lX",
+                  static_cast<unsigned long>(conv.id.peer));
+    return contains_ci(conv.name.c_str(), search_query_) ||
+           contains_ci(peer_hex, search_query_);
+}
+
+void ChatMessageListScreen::buildFilteredConversations(
+    std::vector<chat::ConversationMeta>& out) const
+{
+    out.clear();
+    out.reserve(convs_.size());
+    for (const auto& conv : convs_)
+    {
+        bool mode_match = false;
+        if (is_team_conversation(conv.id))
+        {
+            mode_match = filter_mode_ == FilterMode::Team;
+        }
+        else if (filter_mode_ == FilterMode::Direct && conv.id.peer != 0)
+        {
+            mode_match = true;
+        }
+        else if (filter_mode_ == FilterMode::Broadcast && conv.id.peer == 0)
+        {
+            mode_match = true;
+        }
+
+        if (mode_match && conversationMatchesSearch(conv))
+        {
+            out.push_back(conv);
+        }
+    }
+}
+
+void ChatMessageListScreen::applyFilterPanelVisibility()
+{
+    if (!filter_panel_)
+    {
+        return;
+    }
+    if (filter_panel_visible_)
+    {
+        lv_obj_clear_flag(filter_panel_, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(filter_panel_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (use_group_navigation())
+    {
+        chat::ui::message_list::input::on_ui_refreshed(&input_controller_);
+    }
+}
+
+void ChatMessageListScreen::toggleFilterPanel()
+{
+    if (!guard_ || !guard_->alive)
+    {
+        return;
+    }
+    filter_panel_visible_ = !filter_panel_visible_;
+    applyFilterPanelVisibility();
+    if (use_group_navigation())
+    {
+        chat::ui::message_list::input::focus_list(&input_controller_);
+    }
+}
+
+void ChatMessageListScreen::search_apply_cb(const char* text, void* user_data)
+{
+    auto* screen = static_cast<ChatMessageListScreen*>(user_data);
+    if (!screen || !screen->guard_ || !screen->guard_->alive)
+    {
+        return;
+    }
+    std::snprintf(screen->search_query_,
+                  sizeof(screen->search_query_),
+                  "%s",
+                  text ? text : "");
+    screen->selected_index_ = -1;
+    screen->rebuildList();
+    if (use_group_navigation())
+    {
+        chat::ui::message_list::input::focus_list(&screen->input_controller_);
+    }
+}
+
+void ChatMessageListScreen::search_clear_cb(void* user_data)
+{
+    auto* screen = static_cast<ChatMessageListScreen*>(user_data);
+    if (!screen || !screen->guard_ || !screen->guard_->alive)
+    {
+        return;
+    }
+    screen->search_query_[0] = '\0';
+    screen->selected_index_ = -1;
+    screen->rebuildList();
+    if (use_group_navigation())
+    {
+        chat::ui::message_list::input::focus_list(&screen->input_controller_);
+    }
+}
+
+void ChatMessageListScreen::search_cancel_cb(void* user_data)
+{
+    auto* screen = static_cast<ChatMessageListScreen*>(user_data);
+    if (!screen || !screen->guard_ || !screen->guard_->alive)
+    {
+        return;
+    }
+    if (use_group_navigation())
+    {
+        chat::ui::message_list::input::focus_list(&screen->input_controller_);
+    }
+}
+
+void ChatMessageListScreen::openSearchModal()
+{
+    if (::ui::components::floating_search_box::is_open(search_box_))
+    {
+        ::ui::components::floating_search_box::focus(search_box_);
+        return;
+    }
+
+    ::ui::components::floating_search_box::Config config{};
+    config.title = "Search contacts";
+    config.initial_text = search_query_;
+    config.max_length = sizeof(search_query_) - 1U;
+    config.restore_group = input_controller_.group();
+    config.callbacks.apply = search_apply_cb;
+    config.callbacks.clear = search_clear_cb;
+    config.callbacks.cancel = search_cancel_cb;
+    config.callbacks.user_data = this;
+    (void)::ui::components::floating_search_box::open(
+        search_box_,
+        container_ ? container_ : lv_screen_active(),
+        config);
+}
+
 // ------------------------------------------------
 // Core logic: rebuild list (behavior unchanged)
 // ------------------------------------------------
@@ -575,26 +790,7 @@ void ChatMessageListScreen::rebuildList()
     selected_index_ = -1;
 
     std::vector<chat::ConversationMeta> filtered;
-    filtered.reserve(convs_.size());
-    for (const auto& conv : convs_)
-    {
-        if (is_team_conversation(conv.id))
-        {
-            if (filter_mode_ == FilterMode::Team)
-            {
-                filtered.push_back(conv);
-            }
-            continue;
-        }
-        if (filter_mode_ == FilterMode::Direct && conv.id.peer != 0)
-        {
-            filtered.push_back(conv);
-        }
-        else if (filter_mode_ == FilterMode::Broadcast && conv.id.peer == 0)
-        {
-            filtered.push_back(conv);
-        }
-    }
+    buildFilteredConversations(filtered);
 
     for (const auto& conv : filtered)
     {
@@ -632,6 +828,7 @@ void ChatMessageListScreen::rebuildList()
 
         // ----- Events (unchanged) -----
         lv_obj_add_event_cb(item.btn, item_event_cb, LV_EVENT_CLICKED, this);
+        lv_obj_add_event_cb(item.btn, page_shortcut_cb, LV_EVENT_KEY, this);
         if (use_group_navigation())
         {
             lv_obj_add_event_cb(item.btn, item_focused_cb, LV_EVENT_FOCUSED, this);
@@ -657,7 +854,7 @@ void ChatMessageListScreen::rebuildList()
     {
         lv_obj_t* placeholder = chat::ui::layout::create_placeholder(list_panel_);
         chat::ui::message_list::styles::apply_label_placeholder(placeholder);
-        ::ui::i18n::set_label_text(placeholder, "No messages");
+        ::ui::i18n::set_label_text(placeholder, searchActive() ? "No matches" : "No messages");
         ::ui::fonts::apply_localized_font(placeholder, lv_label_get_text(placeholder), ::ui::fonts::ui_chrome_font());
     }
 
@@ -689,6 +886,7 @@ void ChatMessageListScreen::rebuildList()
         chat::ui::message_list::styles::apply_label_name(back_label);
         lv_obj_center(back_label);
         lv_obj_add_event_cb(list_back_btn_, list_back_event_cb, LV_EVENT_CLICKED, this);
+        lv_obj_add_event_cb(list_back_btn_, page_shortcut_cb, LV_EVENT_KEY, this);
         if (use_group_navigation())
         {
             lv_obj_add_event_cb(list_back_btn_, item_focused_cb, LV_EVENT_FOCUSED, this);
@@ -729,26 +927,7 @@ bool ChatMessageListScreen::updateListInPlace(const std::vector<chat::Conversati
     }
 
     std::vector<chat::ConversationMeta> filtered;
-    filtered.reserve(convs.size());
-    for (const auto& conv : convs)
-    {
-        if (is_team_conversation(conv.id))
-        {
-            if (filter_mode_ == FilterMode::Team)
-            {
-                filtered.push_back(conv);
-            }
-            continue;
-        }
-        if (filter_mode_ == FilterMode::Direct && conv.id.peer != 0)
-        {
-            filtered.push_back(conv);
-        }
-        else if (filter_mode_ == FilterMode::Broadcast && conv.id.peer == 0)
-        {
-            filtered.push_back(conv);
-        }
-    }
+    buildFilteredConversations(filtered);
 
     if (filtered.size() != items_.size())
     {
@@ -906,6 +1085,34 @@ void ChatMessageListScreen::filter_click_cb(lv_event_t* e)
     if (use_group_navigation() && !event_input_is_pointer(e))
     {
         chat::ui::message_list::input::focus_list(&screen->input_controller_);
+    }
+}
+
+void ChatMessageListScreen::page_shortcut_cb(lv_event_t* e)
+{
+    auto* screen = static_cast<ChatMessageListScreen*>(lv_event_get_user_data(e));
+    if (!screen || !screen->guard_ || !screen->guard_->alive ||
+        lv_event_get_code(e) != LV_EVENT_KEY)
+    {
+        return;
+    }
+    if (::ui::components::floating_search_box::is_open(screen->search_box_))
+    {
+        return;
+    }
+
+    const uint32_t key = lv_event_get_key(e);
+    if (is_search_shortcut_key(key))
+    {
+        screen->openSearchModal();
+        lv_event_stop_processing(e);
+        return;
+    }
+    if (is_filter_toggle_shortcut_key(key))
+    {
+        screen->toggleFilterPanel();
+        lv_event_stop_processing(e);
+        return;
     }
 }
 
@@ -1075,6 +1282,7 @@ void ChatMessageListScreen::handle_root_deleted()
     action_cb_ = nullptr;
     action_cb_user_data_ = nullptr;
 
+    ::ui::components::floating_search_box::close(search_box_);
     if (use_group_navigation())
     {
         chat::ui::message_list::input::cleanup(&input_controller_);

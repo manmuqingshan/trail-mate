@@ -9,6 +9,7 @@
 #include "platform/ui/time_runtime.h"
 #include "sys/clock.h"
 #include "ui/app_runtime.h"
+#include "ui/components/screen_saver_overlay.h"
 #include "ui/localization.h"
 #include "ui/menu/menu_layout.h"
 #include "ui/menu/menu_runtime.h"
@@ -21,17 +22,16 @@
 
 namespace ui::startup_shell
 {
+
+bool format_menu_time(char* out, size_t out_len);
+
 namespace
 {
 
 ui::menu::MenuModel s_ux_menu_model;
 
 #ifndef TRAIL_MATE_BOOT_UI_SYNC_PRESENT
-#if defined(ARDUINO)
-#define TRAIL_MATE_BOOT_UI_SYNC_PRESENT 0
-#else
 #define TRAIL_MATE_BOOT_UI_SYNC_PRESENT 1
-#endif
 #endif
 
 #if TRAIL_MATE_BOOT_UI_SYNC_PRESENT
@@ -90,6 +90,19 @@ void present_boot_overlay_now()
         lv_obj_invalidate(top);
     }
 #endif
+}
+
+void present_screen_saver_now()
+{
+    ui::components::screen_saver_overlay::present_now();
+}
+
+void initScreenSaverOverlay()
+{
+    ui::components::screen_saver_overlay::Hooks overlay_hooks{};
+    overlay_hooks.format_time = format_menu_time;
+    overlay_hooks.read_unread_count = ui::status::get_total_unread;
+    ui::components::screen_saver_overlay::init(overlay_hooks);
 }
 
 } // namespace
@@ -165,7 +178,10 @@ platform::ui::screen::Hooks buildScreenSleepHooks(const Hooks& hooks)
     runtime_hooks.format_time = format_menu_time;
     runtime_hooks.read_unread_count = ui::status::get_total_unread;
     runtime_hooks.show_main_menu = hooks.show_main_menu;
-    runtime_hooks.on_wake_from_sleep = ui::menu_runtime::onWakeFromSleep;
+    runtime_hooks.on_wake_from_sleep = ui::components::screen_saver_overlay::show;
+    runtime_hooks.show_screen_saver = ui::components::screen_saver_overlay::show;
+    runtime_hooks.hide_screen_saver = ui::components::screen_saver_overlay::hide;
+    runtime_hooks.present_screen_saver = present_screen_saver_now;
     return runtime_hooks;
 }
 
@@ -213,6 +229,7 @@ void initializeShell(const Hooks& hooks)
 
     ui::menu_runtime::init(
         lv_screen_active(), main_screen, ui::menu_layout::menuPanel(), buildMenuRuntimeHooks(hooks));
+    initScreenSaverOverlay();
 
     if (hooks.set_max_brightness)
     {
