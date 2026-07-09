@@ -26,17 +26,17 @@ bool valid_obj(lv_obj_t* obj)
 
 lv_coord_t panel_width(const Widget& widget)
 {
-    return std::max<lv_coord_t>(42, std::min<lv_coord_t>(80, widget.config.width));
+    return std::max<lv_coord_t>(80, std::min<lv_coord_t>(200, widget.config.width));
 }
 
 lv_coord_t content_width(const Widget& widget)
 {
-    return std::max<lv_coord_t>(28, panel_width(widget) - (widget.config.inset * 2));
+    return std::max<lv_coord_t>(60, panel_width(widget) - (widget.config.inset * 2));
 }
 
 lv_coord_t center_item_height(const Widget& widget)
 {
-    return std::max<lv_coord_t>(34, widget.config.item_height);
+    return std::max<lv_coord_t>(54, widget.config.item_height);
 }
 
 lv_coord_t side_item_height(const Widget& widget)
@@ -51,12 +51,12 @@ lv_coord_t outer_item_height(const Widget& widget)
 
 lv_coord_t thumbnail_width_for_slot(const SlotMetrics& metrics)
 {
-    return std::max<lv_coord_t>(22, std::min<lv_coord_t>(80, metrics.width - 4));
+    return std::max<lv_coord_t>(48, metrics.width - 4);
 }
 
 lv_coord_t thumbnail_height_for_slot(const SlotMetrics& metrics)
 {
-    return std::max<lv_coord_t>(18, metrics.height - 14);
+    return std::max<lv_coord_t>(36, metrics.height - 18);
 }
 
 Widget* widget_from_event(lv_event_t* e)
@@ -190,19 +190,19 @@ void apply_button_style(lv_obj_t* button,
     }
     lv_obj_set_style_radius(button, selected ? 5 : 4, 0);
     lv_obj_set_style_bg_color(button,
-                              selected ? lv_color_hex(0xF2A13A)
+                              selected ? lv_color_hex(0x17130F)
                                        : lv_color_hex(0x1C1812),
                               0);
     lv_obj_set_style_bg_opa(button, opacity, 0);
     lv_obj_set_style_border_width(button, selected ? 2 : 1, 0);
     lv_obj_set_style_border_color(button,
-                                  selected ? lv_color_hex(0xFFF3DF)
+                                  selected ? lv_color_hex(0xF2A13A)
                                            : lv_color_hex(0x8A6E43),
                                   0);
     lv_obj_set_style_pad_all(button, 2, 0);
     lv_obj_set_style_pad_row(button, 1, 0);
     lv_obj_set_style_text_color(button,
-                                selected ? lv_color_hex(0x25170D)
+                                selected ? lv_color_hex(0xFFF3DF)
                                          : lv_color_hex(0xFFF3DF),
                                 0);
 }
@@ -300,8 +300,9 @@ SlotMetrics slot_metrics_for_offset(const Widget& widget,
     if (offset == 0)
     {
         metrics.width = full_width;
-        metrics.height = center_h;
-        metrics.center_y = center_y;
+        metrics.height =
+            std::min<lv_coord_t>(center_h, std::max<lv_coord_t>(36, viewport_height - 2));
+        metrics.center_y = std::max<lv_coord_t>(metrics.height / 2 + 1, viewport_height / 2);
         metrics.opacity = LV_OPA_90;
         return metrics;
     }
@@ -445,18 +446,11 @@ void render_items(Widget& widget)
 
     widget.selected_index = clamp_index(widget, widget.selected_index);
     lv_obj_update_layout(widget.root);
+    const lv_coord_t content_height = lv_obj_get_content_height(widget.list);
     const lv_coord_t viewport_height =
-        std::max<lv_coord_t>(center_item_height(widget), lv_obj_get_content_height(widget.list));
+        content_height > 0 ? content_height : center_item_height(widget);
 
-    for (int offset = -2; offset <= 2; ++offset)
-    {
-        const int raw_index = static_cast<int>(widget.selected_index) + offset;
-        if (raw_index < 0 || raw_index >= static_cast<int>(widget.items.size()))
-        {
-            continue;
-        }
-        render_slot(widget, static_cast<std::size_t>(raw_index), offset, viewport_height);
-    }
+    render_slot(widget, widget.selected_index, 0, viewport_height);
 }
 
 void select_item(Widget& widget,
@@ -604,6 +598,11 @@ void set_items(Widget& widget, const Item* items, std::size_t item_count)
 
 void set_selected(Widget& widget, std::size_t index, bool notify)
 {
+    const std::size_t next = clamp_index(widget, index);
+    if (!notify && next == widget.selected_index)
+    {
+        return;
+    }
     select_item(widget, index, notify);
 }
 

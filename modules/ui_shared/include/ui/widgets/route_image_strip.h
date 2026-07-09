@@ -17,8 +17,8 @@ struct Item
 
 struct Config
 {
-    lv_coord_t width = 78;
-    lv_coord_t item_height = 58;
+    lv_coord_t width = 200;
+    lv_coord_t item_height = 120;
     lv_coord_t inset = 2;
     lv_opa_t opacity = LV_OPA_70;
 };

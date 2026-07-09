@@ -881,7 +881,7 @@ void refresh_preview_metrics()
     }
 }
 
-void assign_preview_image_paths()
+void assign_preview_image_paths(bool refresh_downloaded = true)
 {
     const std::string asset_root = route_asset_root_for_id(s_preview_asset_id);
     for (std::size_t index = 0; index < s_preview_images.size(); ++index)
@@ -889,8 +889,43 @@ void assign_preview_image_paths()
         char name[32];
         std::snprintf(name, sizeof(name), "/images/img-%04u.jpg", static_cast<unsigned>(index + 1));
         s_preview_images[index].local_path = asset_root + name;
-        s_preview_images[index].downloaded =
-            platform::ui::route_storage::route_asset_file_exists(s_preview_images[index].local_path);
+        if (refresh_downloaded)
+        {
+            s_preview_images[index].downloaded =
+                platform::ui::route_storage::route_asset_file_exists(s_preview_images[index].local_path);
+        }
+    }
+}
+
+void apply_route_preview_download_status_to_images(
+    const platform::ui::route_storage::RouteImageDownloadStatus& status)
+{
+    assign_preview_image_paths(false);
+    if (s_preview_asset_id.empty() ||
+        status.asset_id.empty() ||
+        status.asset_id != s_preview_asset_id)
+    {
+        return;
+    }
+
+    if (status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Done &&
+        status.saved >= s_preview_images.size())
+    {
+        for (auto& image : s_preview_images)
+        {
+            image.downloaded = true;
+        }
+        return;
+    }
+
+    if (status.busy && status.failed == 0 && status.saved > 0)
+    {
+        const std::size_t confirmed =
+            std::min<std::size_t>(status.saved, s_preview_images.size());
+        for (std::size_t index = 0; index < confirmed; ++index)
+        {
+            s_preview_images[index].downloaded = true;
+        }
     }
 }
 
@@ -1292,8 +1327,8 @@ void set_plain_panel(lv_obj_t* obj, uint32_t bg)
 ::ui::widgets::route_image_strip::Config route_preview_image_strip_config()
 {
     ::ui::widgets::route_image_strip::Config config{};
-    config.width = page_profile().dense ? 72 : 78;
-    config.item_height = page_profile().dense ? 54 : 58;
+    config.width = 200;
+    config.item_height = page_profile().dense ? 104 : 120;
     config.opacity = LV_OPA_70;
     return config;
 }
@@ -1374,7 +1409,7 @@ void sync_route_preview_image_strip()
 
 void toggle_route_preview_image_strip()
 {
-    assign_preview_image_paths();
+    assign_preview_image_paths(false);
     if (s_preview_images.empty())
     {
         s_preview_status_text = "No route images";
@@ -1507,7 +1542,7 @@ void sync_route_preview_download_status()
     const auto status = platform::ui::route_storage::route_image_download_status();
     if (!route_preview_download_status_matches(status))
     {
-        assign_preview_image_paths();
+        assign_preview_image_paths(false);
         sync_route_preview_image_strip();
         update_route_preview_buttons();
         if (!status.busy && s_preview_download_poll_timer && !g_tracker_state.route_preview_page)
@@ -1525,7 +1560,16 @@ void sync_route_preview_download_status()
             std::min<std::size_t>(status.current_index, status.total - 1));
     }
     s_preview_status_text = !status.message.empty() ? status.message : status.error;
-    assign_preview_image_paths();
+    const bool download_just_finished =
+        previous_state == RoutePreviewDownloadState::Downloading && !status.busy;
+    if (download_just_finished)
+    {
+        assign_preview_image_paths(true);
+    }
+    else
+    {
+        apply_route_preview_download_status_to_images(status);
+    }
     sync_route_preview_image_strip();
     update_route_preview_status();
     update_route_preview_buttons();
