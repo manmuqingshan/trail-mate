@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 
 #include "esp_rom_tjpgd.h"
+#include <esp_heap_caps.h>
 
 #include <algorithm>
 #include <cctype>
@@ -37,6 +38,8 @@ constexpr uint16_t kRouteThumbWidth = 200;
 constexpr uint16_t kRouteThumbHeight = 120;
 constexpr uint16_t kRouteViewWidth = 320;
 constexpr uint16_t kRouteViewHeight = 180;
+constexpr std::size_t kRouteCacheInternalReserveBytes = 96 * 1024;
+constexpr std::size_t kRouteCacheInternalSlackBytes = 8 * 1024;
 
 enum class RouteImageBatchKind : uint8_t
 {
@@ -162,10 +165,100 @@ void put_le32(uint8_t* out, uint32_t value)
     out[3] = static_cast<uint8_t>((value >> 24) & 0xFFU);
 }
 
+class HeapCapsBuffer
+{
+  public:
+    HeapCapsBuffer() = default;
+    ~HeapCapsBuffer()
+    {
+        reset();
+    }
+
+    HeapCapsBuffer(const HeapCapsBuffer&) = delete;
+    HeapCapsBuffer& operator=(const HeapCapsBuffer&) = delete;
+
+    bool allocate(std::size_t bytes)
+    {
+        reset();
+        if (bytes == 0)
+        {
+            return false;
+        }
+
+        data_ = static_cast<uint8_t*>(
+            heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!data_)
+        {
+            const std::size_t internal_free =
+                heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            const std::size_t internal_largest =
+                heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (internal_free < bytes + kRouteCacheInternalReserveBytes ||
+                internal_largest < bytes + kRouteCacheInternalSlackBytes)
+            {
+                return false;
+            }
+            data_ = static_cast<uint8_t*>(
+                heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        }
+        if (!data_)
+        {
+            return false;
+        }
+        size_ = bytes;
+        std::memset(data_, 0, size_);
+        return true;
+    }
+
+    void reset()
+    {
+        if (data_)
+        {
+            heap_caps_free(data_);
+            data_ = nullptr;
+        }
+        size_ = 0;
+    }
+
+    uint8_t* data()
+    {
+        return data_;
+    }
+
+    const uint8_t* data() const
+    {
+        return data_;
+    }
+
+    std::size_t size() const
+    {
+        return size_;
+    }
+
+  private:
+    uint8_t* data_ = nullptr;
+    std::size_t size_ = 0;
+};
+
+void log_cache_memory_skip(const char* label, std::size_t bytes)
+{
+    std::printf("[RouteImage][cache] skip %s bytes=%u internal_free=%u "
+                "internal_largest=%u psram_largest=%u\n",
+                label ? label : "-",
+                static_cast<unsigned>(bytes),
+                static_cast<unsigned>(
+                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+}
+
 struct RouteJpegCacheContext
 {
     ::platform::esp::arduino_common::storage::SdRuntimeFile input{};
-    std::vector<uint8_t> pixels{};
+    uint8_t* pixels = nullptr;
+    std::size_t pixel_bytes = 0;
     double crop_x = 0.0;
     double crop_y = 0.0;
     double crop_w = 0.0;
@@ -199,7 +292,7 @@ uint32_t jpeg_output_cb(esp_rom_tjpgd_dec_t* dec,
 {
     auto* ctx = dec ? static_cast<RouteJpegCacheContext*>(dec->device) : nullptr;
     auto* rgb = static_cast<const uint8_t*>(bitmap);
-    if (!ctx || !rgb || !rect || ctx->pixels.empty() ||
+    if (!ctx || !rgb || !rect || !ctx->pixels ||
         ctx->crop_w <= 0.0 || ctx->crop_h <= 0.0 ||
         ctx->target_w == 0 || ctx->target_h == 0)
     {
@@ -274,6 +367,10 @@ uint32_t jpeg_output_cb(esp_rom_tjpgd_dec_t* dec,
                 (static_cast<std::size_t>(dy) * ctx->target_w +
                  static_cast<std::size_t>(dx)) *
                 3U;
+            if (dst_offset + 2U >= ctx->pixel_bytes)
+            {
+                continue;
+            }
             ctx->pixels[dst_offset + 0] = rgb[src_offset + 2];
             ctx->pixels[dst_offset + 1] = rgb[src_offset + 1];
             ctx->pixels[dst_offset + 2] = rgb[src_offset + 0];
@@ -305,12 +402,14 @@ void configure_cover_crop(RouteJpegCacheContext& ctx)
 }
 
 bool write_bmp_24(const std::string& path,
-                  const std::vector<uint8_t>& pixels,
+                  const uint8_t* pixels,
+                  std::size_t pixel_size,
                   uint16_t width,
                   uint16_t height)
 {
     if (path.empty() || width == 0 || height == 0 ||
-        pixels.size() < static_cast<std::size_t>(width) * height * 3U)
+        !pixels ||
+        pixel_size < static_cast<std::size_t>(width) * height * 3U)
     {
         return false;
     }
@@ -353,7 +452,7 @@ bool write_bmp_24(const std::string& path,
     for (uint16_t row_index = 0; row_index < height; ++row_index)
     {
         const uint16_t source_y = static_cast<uint16_t>(height - 1U - row_index);
-        const uint8_t* src = pixels.data() +
+        const uint8_t* src = pixels +
                              static_cast<std::size_t>(source_y) * src_row_bytes;
         std::memcpy(row.data(), src, src_row_bytes);
         if (out.write(row.data(), row.size()) != row.size())
@@ -389,20 +488,28 @@ bool generate_route_image_bmp_cache(const std::string& source_path,
     RouteJpegCacheContext ctx{};
     ctx.target_w = width;
     ctx.target_h = height;
-    ctx.pixels.assign(static_cast<std::size_t>(width) * height * 3U, 0);
+    HeapCapsBuffer pixels;
+    const std::size_t pixel_bytes = static_cast<std::size_t>(width) * height * 3U;
+    if (!pixels.allocate(pixel_bytes))
+    {
+        log_cache_memory_skip("pixel_alloc", pixel_bytes);
+        return false;
+    }
+    ctx.pixels = pixels.data();
+    ctx.pixel_bytes = pixels.size();
     if (!ctx.input.open(source_path.c_str(), "r"))
     {
         return false;
     }
 
     constexpr uint8_t kDecodeScale = 1;
-    std::vector<uint8_t> work(3100, 0);
+    uint8_t work[3100]{};
     esp_rom_tjpgd_dec_t decoder{};
     esp_rom_tjpgd_result_t result =
         esp_rom_tjpgd_prepare(&decoder,
                               jpeg_input_cb,
-                              work.data(),
-                              static_cast<uint32_t>(work.size()),
+                              work,
+                              static_cast<uint32_t>(sizeof(work)),
                               &ctx);
     if (result != JDR_OK || decoder.width == 0 || decoder.height == 0)
     {
@@ -424,7 +531,7 @@ bool generate_route_image_bmp_cache(const std::string& source_path,
 
     const std::string temp_path = output_path + ".tmp";
     (void)::platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
-    if (!write_bmp_24(temp_path, ctx.pixels, width, height))
+    if (!write_bmp_24(temp_path, pixels.data(), pixels.size(), width, height))
     {
         (void)::platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
         return false;
@@ -445,8 +552,7 @@ bool route_image_cache_ready(const RouteImageCacheItem& item)
 {
     return !item.source_path.empty() &&
            route_asset_file_exists(item.source_path) &&
-           (item.preview_path.empty() || route_asset_file_exists(item.preview_path)) &&
-           (item.view_path.empty() || route_asset_file_exists(item.view_path));
+           (item.preview_path.empty() || route_asset_file_exists(item.preview_path));
 }
 
 bool ensure_route_image_cache(const RouteImageCacheItem& item)
@@ -470,25 +576,18 @@ bool ensure_route_image_cache(const RouteImageCacheItem& item)
                  kRouteThumbHeight) &&
              ok;
     }
+    if (!ok)
+    {
+        return false;
+    }
     if (!item.view_path.empty() && !route_asset_file_exists(item.view_path))
     {
-        ok = generate_route_image_bmp_cache(
-                 item.source_path,
-                 item.view_path,
-                 kRouteViewWidth,
-                 kRouteViewHeight) &&
-             ok;
+        (void)generate_route_image_bmp_cache(item.source_path,
+                                             item.view_path,
+                                             kRouteViewWidth,
+                                             kRouteViewHeight);
     }
-    return ok && route_image_cache_ready(item);
-}
-
-RouteImageCacheItem cache_item_from_download(const RouteImageDownloadItem& item)
-{
-    RouteImageCacheItem cache{};
-    cache.source_path = item.output_path;
-    cache.preview_path = item.preview_path;
-    cache.view_path = item.view_path;
-    return cache;
+    return route_image_cache_ready(item);
 }
 
 void set_batch_status_locked(RouteImageDownloadPhase phase,
@@ -689,7 +788,6 @@ void route_image_worker_task(void* param)
         for (std::size_t index = 0; index < total; ++index)
         {
             const RouteImageDownloadItem& item = download_items[index];
-            const RouteImageCacheItem cache_item = cache_item_from_download(item);
             bool original_available = false;
             std::snprintf(detail,
                           sizeof(detail),
@@ -734,12 +832,6 @@ void route_image_worker_task(void* param)
                     original_available = true;
                     bytes += result.bytes;
                     consecutive_connection_failures = 0;
-                    std::snprintf(detail,
-                                  sizeof(detail),
-                                  "Saved %u/%u  %u KB",
-                                  static_cast<unsigned>(saved),
-                                  static_cast<unsigned>(total),
-                                  static_cast<unsigned>((bytes + 1023U) / 1024U));
                 }
                 else
                 {
@@ -762,43 +854,17 @@ void route_image_worker_task(void* param)
 
             if (original_available)
             {
+                ++saved;
                 std::snprintf(detail,
                               sizeof(detail),
-                              "Preparing %u/%u",
-                              static_cast<unsigned>(index + 1),
-                              static_cast<unsigned>(total));
-                update_batch_status(RouteImageDownloadPhase::Caching,
-                                    true,
-                                    asset_id,
-                                    total,
-                                    processed,
-                                    saved,
-                                    failed,
-                                    index,
-                                    bytes,
-                                    detail);
-                if (ensure_route_image_cache(cache_item))
-                {
-                    ++saved;
-                    std::snprintf(detail,
-                                  sizeof(detail),
-                                  "Ready %u/%u",
-                                  static_cast<unsigned>(saved),
-                                  static_cast<unsigned>(total));
-                }
-                else
-                {
-                    ++failed;
-                    std::snprintf(detail,
-                                  sizeof(detail),
-                                  "Image %u cache failed",
-                                  static_cast<unsigned>(index + 1));
-                }
+                              "Saved %u/%u  %u KB",
+                              static_cast<unsigned>(saved),
+                              static_cast<unsigned>(total),
+                              static_cast<unsigned>((bytes + 1023U) / 1024U));
             }
             ++processed;
 
-            update_batch_status(original_available ? RouteImageDownloadPhase::Caching
-                                                   : RouteImageDownloadPhase::Downloading,
+            update_batch_status(RouteImageDownloadPhase::Downloading,
                                 true,
                                 asset_id,
                                 total,

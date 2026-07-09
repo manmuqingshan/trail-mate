@@ -924,22 +924,24 @@ void apply_route_preview_download_status_to_images(
         return;
     }
 
-    if (status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Done &&
-        status.saved >= s_preview_images.size())
+    if (status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Done ||
+        status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Failed ||
+        status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Caching)
     {
         assign_preview_image_paths(true);
         return;
     }
 
-    if (status.busy && status.failed == 0 && status.saved > 0)
+    if (status.busy &&
+        status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Downloading &&
+        status.failed == 0 &&
+        status.saved > 0)
     {
         const std::size_t confirmed =
             std::min<std::size_t>(status.saved, s_preview_images.size());
         for (std::size_t index = 0; index < confirmed; ++index)
         {
             s_preview_images[index].downloaded = true;
-            s_preview_images[index].preview_ready = true;
-            s_preview_images[index].view_ready = true;
         }
     }
 }
@@ -1463,8 +1465,7 @@ bool route_preview_image_cache_ready(const RoutePreviewImage& image)
     {
         return false;
     }
-    return (image.preview_path.empty() || image.preview_ready) &&
-           (image.view_path.empty() || image.view_ready);
+    return image.preview_path.empty() || image.preview_ready;
 }
 
 std::size_t preview_cached_image_count()
@@ -1630,6 +1631,9 @@ void sync_route_preview_download_status()
     s_preview_status_text = !status.message.empty() ? status.message : status.error;
     const bool download_just_finished =
         previous_state == RoutePreviewDownloadState::Downloading && !status.busy;
+    const bool should_start_cache_after_download =
+        download_just_finished &&
+        status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Done;
     if (download_just_finished)
     {
         assign_preview_image_paths(true);
@@ -1655,6 +1659,14 @@ void sync_route_preview_download_status()
         {
             refresh_route_preview_map();
         }
+    }
+
+    if (should_start_cache_after_download &&
+        route_preview_all_images_saved() &&
+        !route_preview_all_image_caches_ready())
+    {
+        ensure_route_preview_image_cache_build();
+        return;
     }
 
     if (!status.busy && s_preview_download_poll_timer && !g_tracker_state.route_preview_page)
