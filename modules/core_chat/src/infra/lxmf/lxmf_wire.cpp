@@ -145,6 +145,29 @@ bool appendBin(const uint8_t* data, size_t len, uint8_t* out, size_t out_len, si
     return false;
 }
 
+bool appendString(const uint8_t* data, size_t len, uint8_t* out, size_t out_len, size_t& used)
+{
+    if (len <= 0x1FU)
+    {
+        return appendByte(static_cast<uint8_t>(0xA0U | (len & 0x1FU)), out, out_len, used) &&
+               appendBytes(data, len, out, out_len, used);
+    }
+    if (len <= 0xFFU)
+    {
+        return appendByte(0xD9, out, out_len, used) &&
+               appendByte(static_cast<uint8_t>(len), out, out_len, used) &&
+               appendBytes(data, len, out, out_len, used);
+    }
+    if (len <= 0xFFFFU)
+    {
+        return appendByte(0xDA, out, out_len, used) &&
+               appendByte(static_cast<uint8_t>((len >> 8) & 0xFFU), out, out_len, used) &&
+               appendByte(static_cast<uint8_t>(len & 0xFFU), out, out_len, used) &&
+               appendBytes(data, len, out, out_len, used);
+    }
+    return false;
+}
+
 bool readByte(Cursor& cursor, uint8_t* out)
 {
     if (!out || !cursor.data || cursor.pos >= cursor.len)
@@ -387,6 +410,16 @@ bool readBinary(Cursor& cursor, std::vector<uint8_t>* out_data)
         }
         len = len8;
     }
+    else if (tag == 0xDA)
+    {
+        uint8_t hi = 0;
+        uint8_t lo = 0;
+        if (!readByte(cursor, &hi) || !readByte(cursor, &lo))
+        {
+            return false;
+        }
+        len = static_cast<size_t>((static_cast<uint16_t>(hi) << 8) | lo);
+    }
     else
     {
         return false;
@@ -561,7 +594,7 @@ bool packPeerAnnounceAppData(const char* display_name,
             return false;
         }
     }
-    else if (!appendBin(name_bytes, name_len, out_data, *inout_len, used))
+    else if (!appendString(name_bytes, name_len, out_data, *inout_len, used))
     {
         return false;
     }

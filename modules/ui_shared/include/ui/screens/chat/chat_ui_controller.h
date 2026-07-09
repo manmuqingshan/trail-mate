@@ -86,6 +86,8 @@ class UiController : public IChatUiRefreshSink
     bool isTeamConversationActive() const { return team_conv_active_; }
     lv_obj_t* getParent() const { return parent_; }
     void onChannelClicked(chat::ConversationId conv);
+    void handleMessageListAction(ChatMessageListScreen::ActionIntent intent,
+                                 const chat::ConversationId& conv);
     void onRuntimeMessageArrived(chat::MessageId msg_id) override;
     void onRuntimeSendResult(chat::MessageId msg_id) override;
     void onRuntimeUnreadChanged() override;
@@ -118,6 +120,9 @@ class UiController : public IChatUiRefreshSink
     bool team_conv_active_ = false;
     lv_timer_t* team_conv_timer_ = nullptr;
     bool exiting_ = false;
+    lv_obj_t* conversation_info_modal_ = nullptr;
+    lv_group_t* conversation_info_group_ = nullptr;
+    lv_group_t* conversation_info_prev_group_ = nullptr;
     ExitRequestCallback exit_request_ = nullptr;
     void* exit_request_user_data_ = nullptr;
 
@@ -125,6 +130,11 @@ class UiController : public IChatUiRefreshSink
     void switchToConversation(chat::ConversationId conv);
     void switchToCompose(chat::ConversationId conv);
     void handleChannelSelected(const chat::ConversationId& conv);
+    void handleDeleteConversation(const chat::ConversationId& conv);
+    void openConversationInfoModal(const chat::ConversationId& conv);
+    void closeConversationInfoModal(bool restore_group);
+    void prepareConversationInfoGroup();
+    void restoreConversationInfoGroup();
     void handleSendMessage(const std::string& text);
     void handleComposeSendDone(bool ok, bool timeout);
     void refreshUnreadCounts();
@@ -172,6 +182,8 @@ class UiController : public IChatUiRefreshSink
     static void key_verify_submit_event_cb(lv_event_t* e);
     static void key_verify_close_event_cb(lv_event_t* e);
     static void key_verify_trust_event_cb(lv_event_t* e);
+    static void conversation_info_close_event_cb(lv_event_t* e);
+    static void conversation_info_key_event_cb(lv_event_t* e);
 };
 
 } // namespace ui

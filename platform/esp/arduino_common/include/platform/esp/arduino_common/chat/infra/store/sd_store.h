@@ -67,12 +67,29 @@ class SdStore final : public IChatStore
         char text[kMaxTextLen] = {};
     } __attribute__((packed));
 
+    struct RecordV3
+    {
+        uint8_t protocol = 0;
+        uint8_t channel = 0;
+        uint8_t status = 0;
+        uint8_t flags = 0;
+        uint16_t text_len = 0;
+        uint32_t from = 0;
+        uint32_t peer = 0;
+        uint32_t msg_id = 0;
+        uint32_t timestamp = 0;
+        uint8_t reticulum_destination_hash[kReticulumPeerHashSize] = {};
+        uint8_t reticulum_identity_hash[kReticulumPeerHashSize] = {};
+        char text[kMaxTextLen] = {};
+    } __attribute__((packed));
+
     struct Record
     {
         uint8_t protocol = 0;
         uint8_t channel = 0;
         uint8_t status = 0;
         uint8_t flags = 0;
+        uint8_t rx_origin = 0;
         uint16_t text_len = 0;
         uint32_t from = 0;
         uint32_t peer = 0;
@@ -124,7 +141,9 @@ class SdStore final : public IChatStore
     static constexpr uint32_t kFileMagic = 0x474F4C43;  // "CLOG"
     static constexpr uint32_t kIndexMagic = 0x54414843; // "CHAT"
     static constexpr uint16_t kLegacyVersion = 2;
-    static constexpr uint16_t kVersion = 3;
+    static constexpr uint16_t kReticulumIdentityVersion = 3;
+    static constexpr uint16_t kFileVersion = 4;
+    static constexpr uint16_t kIndexVersion = 3;
 
     bool ensureFs() const;
     bool ensureDir() const;

@@ -153,7 +153,10 @@ class ReticulumInterfaceSet
     void applyConfig(const MeshConfig& config);
     void maintain();
     bool hasReadyInterface() const;
+    bool hasReadyWifiGateway() const;
+    bool wifiGatewayConfigured() const;
     bool sendPacket(const uint8_t* data, size_t len);
+    bool sendPacketWifiOnly(const uint8_t* data, size_t len);
     bool pollIncomingPacket(RxPacket* out);
     bool pollLegacyIncomingData(MeshIncomingData* out);
     void handleRawPacket(const uint8_t* data, size_t size);

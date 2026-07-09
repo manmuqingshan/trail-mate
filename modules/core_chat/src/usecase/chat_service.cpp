@@ -321,6 +321,16 @@ MeshActionResult ChatService::triggerDiscoveryActionDetailed(MeshDiscoveryAction
     return adapter_.triggerDiscoveryActionDetailed(action);
 }
 
+MeshActionResult ChatService::startReticulumAudioCall(
+    const ReticulumPeerIdentity& destination)
+{
+    if (active_protocol_ != MeshProtocol::Reticulum)
+    {
+        return MeshActionResult::fail(MeshOperationFailure::Unsupported);
+    }
+    return adapter_.startReticulumAudioCall(destination);
+}
+
 void ChatService::switchChannel(ChannelId channel)
 {
     current_channel_ = channel;
@@ -417,6 +427,13 @@ void ChatService::clearAllMessages()
     recent_incoming_.clear();
 }
 
+void ChatService::clearConversation(const ConversationId& conv)
+{
+    model_.clearConversation(conv);
+    store_.clearConversation(conv);
+    recent_incoming_.clear();
+}
+
 void ChatService::markConversationRead(const ConversationId& conv)
 {
     model_.markRead(conv);
@@ -437,6 +454,7 @@ void ChatService::processIncoming()
         msg.timestamp = now_message_timestamp();
         msg.text = incoming_text.text;
         msg.reticulum_identity = incoming_text.reticulum_identity;
+        msg.rx_origin = incoming_text.rx_meta.origin;
         msg.status = MessageStatus::Incoming;
 
         const ReticulumPeerIdentity* incoming_identity =

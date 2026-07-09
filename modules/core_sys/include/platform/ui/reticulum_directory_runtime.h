@@ -15,6 +15,7 @@ enum class AnnounceAspect : uint8_t
     Unknown = 0,
     LxmfDelivery = 1,
     LxmfPropagation = 2,
+    CallAudio = 3,
 };
 
 enum class EntrySource : uint8_t

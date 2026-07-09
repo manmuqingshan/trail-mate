@@ -176,6 +176,49 @@ std::string ContactService::getContactName(uint32_t node_id) const
     return std::string();
 }
 
+std::string ContactService::getReticulumContactName(
+    const ReticulumPeerIdentity& identity) const
+{
+    if (!hasReticulumDestinationIdentity(identity))
+    {
+        return std::string();
+    }
+
+    buildCache();
+    for (const auto& node : cached_nodes_)
+    {
+        if (!sameReticulumDestinationHash(node.reticulum_identity, identity))
+        {
+            continue;
+        }
+
+        const std::string nickname = contact_store_.getNickname(node.node_id);
+        if (!nickname.empty())
+        {
+            return nickname;
+        }
+        return preferred_node_name(node);
+    }
+
+    const auto& entries = node_store_.getEntries();
+    for (const auto& entry : entries)
+    {
+        if (!sameReticulumDestinationHash(entry.reticulum_identity, identity))
+        {
+            continue;
+        }
+
+        const std::string nickname = contact_store_.getNickname(entry.node_id);
+        if (!nickname.empty())
+        {
+            return nickname;
+        }
+        return preferred_node_name(entry.short_name, entry.long_name);
+    }
+
+    return std::string();
+}
+
 std::vector<NodeInfo> ContactService::getContacts() const
 {
     buildCache();

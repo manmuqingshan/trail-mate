@@ -119,6 +119,14 @@ class FakeNodeStore final : public ::chat::contacts::INodeStore
         {
             entry->last_seen = update.last_seen;
         }
+        if (update.has_protocol)
+        {
+            entry->protocol = update.protocol;
+        }
+        if (update.reticulum_identity.valid)
+        {
+            entry->reticulum_identity = update.reticulum_identity;
+        }
         if (update.has_position)
         {
             updatePosition(node_id, update.position);
@@ -442,6 +450,7 @@ int main()
     incoming.to = 0xFFFFFFFFUL;
     incoming.msg_id = 900;
     incoming.text = "broadcast hello";
+    incoming.rx_meta.origin = ::chat::RxOrigin::LoRa;
     contacts.updateNodeInfo(0x648144D4,
                             "44D4",
                             "Mother",
@@ -463,6 +472,8 @@ int main()
     assert(snapshot.message_count == 1);
     assert(snapshot.messages[0].conversation == broadcast);
     assert(!snapshot.messages[0].outgoing);
+    assert(snapshot.messages[0].ingress_transport ==
+           ui::chat::MessageIngressTransport::LoRa);
     assert(snapshot.messages[0].sender_node_id == 0x648144D4);
     assert(std::strcmp(snapshot.messages[0].sender_label.c_str(), "Mother") == 0);
 

@@ -1,5 +1,6 @@
 #include "platform/ui/wifi_access_runtime.h"
 
+#include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "sys/clock.h"
@@ -111,6 +112,11 @@ bool ota_active_for_other(const Request& request)
 
 bool acquire_http(const Request& request, ScreenPhase phase, Lease& out)
 {
+    if (::platform::ui::reticulum_call::realtime_mode_active())
+    {
+        out.decision = Decision::CallExclusive;
+        return false;
+    }
     if (phase == ScreenPhase::WakeProtected)
     {
         out.decision = Decision::DeferredForWake;
@@ -159,6 +165,12 @@ bool long_lived_allowed(const Request& request, ScreenPhase phase, Lease& out)
         out.decision = Decision::InvalidRequest;
         return false;
     }
+    if (::platform::ui::reticulum_call::realtime_mode_active() &&
+        request.client != Client::ReticulumGateway)
+    {
+        out.decision = Decision::CallExclusive;
+        return false;
+    }
     if (ota_active_for_other(request))
     {
         out.decision = Decision::OtaExclusive;
@@ -174,6 +186,22 @@ TrafficBudget base_budget(Client client, ScreenPhase phase)
 {
     TrafficBudget budget{};
     budget.screen_phase = phase;
+
+    if (::platform::ui::reticulum_call::realtime_mode_active())
+    {
+        if (client == Client::ReticulumGateway)
+        {
+            budget.allow_connect = true;
+            budget.allow_read = true;
+            budget.allow_write = true;
+            budget.rx_packet_budget = 0;
+            budget.tx_packet_budget = 8;
+            budget.rx_byte_budget = 768;
+            budget.tx_byte_budget = 1024;
+            budget.min_read_interval_ms = 0;
+        }
+        return budget;
+    }
 
     if (phase == ScreenPhase::WakeProtected)
     {
@@ -227,6 +255,11 @@ bool ensure_connected(const Request& request, Decision* out_decision)
     else if (ota_active_for_other(request))
     {
         decision = Decision::OtaExclusive;
+    }
+    else if (::platform::ui::reticulum_call::realtime_mode_active() &&
+             request.client != Client::ReticulumGateway)
+    {
+        decision = Decision::CallExclusive;
     }
     else
     {
@@ -501,6 +534,8 @@ const char* decision_name(Decision decision)
         return "deferred_for_screen_on";
     case Decision::OtaExclusive:
         return "ota_exclusive";
+    case Decision::CallExclusive:
+        return "call_exclusive";
     default:
         return "unknown";
     }

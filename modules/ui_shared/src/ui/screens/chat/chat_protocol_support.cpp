@@ -27,6 +27,11 @@ bool supports_reticulum_destination_text()
     return active_mesh_capabilities().supports_reticulum_destination_text;
 }
 
+bool supports_reticulum_audio_call()
+{
+    return active_mesh_capabilities().supports_reticulum_audio_call;
+}
+
 bool supports_team_chat()
 {
     return active_mesh_capabilities().supports_unicast_appdata;

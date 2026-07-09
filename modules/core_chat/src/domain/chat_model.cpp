@@ -144,6 +144,27 @@ void ChatModel::clearAll()
     next_sequence_ = 1;
 }
 
+void ChatModel::clearConversation(const ConversationId& conv)
+{
+    auto it = conversations_.find(conv);
+    if (it == conversations_.end())
+    {
+        return;
+    }
+
+    const size_t removed_count = it->second.messages.size();
+    conversations_.erase(it);
+    total_message_count_ -= std::min(total_message_count_, removed_count);
+    failed_messages_.erase(
+        std::remove_if(failed_messages_.begin(),
+                       failed_messages_.end(),
+                       [&](const ChatMessage& failed)
+                       {
+                           return conversationIdForMessage(failed) == conv;
+                       }),
+        failed_messages_.end());
+}
+
 std::vector<ConversationMeta> ChatModel::getConversations() const
 {
     std::vector<ConversationMeta> list;

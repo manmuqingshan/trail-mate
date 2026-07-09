@@ -14,7 +14,9 @@
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/chat/infra/mesh_mqtt_client_runtime.h"
 #include "platform/esp/arduino_common/device_identity.h"
-#include "platform/esp/arduino_common/hostlink/hostlink_service.h"
+#include "platform/esp/arduino_common/reticulum_call_audio_runtime.h"
+#include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/tracker_runtime.h"
 #include "sys/clock.h"
@@ -49,6 +51,24 @@ constexpr int kContactAlertsNone = 0;
 constexpr int kContactAlertsContacts = 1;
 constexpr int kContactAlertsAll = 2;
 constexpr uint32_t kContactAlertModeCacheMs = 10000;
+
+bool s_call_realtime_resources_held = false;
+
+bool applyCallRealtimeResourceGuard()
+{
+    const bool active = ::platform::ui::reticulum_call::realtime_mode_active();
+    if (active && !s_call_realtime_resources_held)
+    {
+        ::platform::ui::gps::suspend_runtime();
+        s_call_realtime_resources_held = true;
+    }
+    else if (!active && s_call_realtime_resources_held)
+    {
+        ::platform::ui::gps::resume_runtime();
+        s_call_realtime_resources_held = false;
+    }
+    return active;
+}
 
 int contactAlertMode()
 {
@@ -173,6 +193,11 @@ void tickBoundLifecycle(std::size_t max_events)
 
 void tickRuntime(app::IAppFacade& app_context)
 {
+    ensureReticulumCallAudioRuntimeRegistered();
+    if (applyCallRealtimeResourceGuard())
+    {
+        return;
+    }
     mesh_mqtt::update(app_context);
 
     ble::BleManager* ble_manager = app_context.getBleManager();
@@ -184,7 +209,10 @@ void tickRuntime(app::IAppFacade& app_context)
 
 void updateCoreServices(app::IAppFacade& app_context)
 {
-    hostlink::process_pending_commands();
+    if (::platform::ui::reticulum_call::realtime_mode_active())
+    {
+        return;
+    }
 
     platform::ui::tracker::poll();
 

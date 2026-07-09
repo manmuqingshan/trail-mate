@@ -29,6 +29,20 @@ void messageStatusesMapToFailureKinds()
            ui::chat::MessageFailureKind::Unknown);
 }
 
+void rxOriginsMapToIngressTransport()
+{
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::Unknown) ==
+           ui::chat::MessageIngressTransport::Unknown);
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::Mesh) ==
+           ui::chat::MessageIngressTransport::LoRa);
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::LoRa) ==
+           ui::chat::MessageIngressTransport::LoRa);
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::External) ==
+           ui::chat::MessageIngressTransport::WiFi);
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::WiFi) ==
+           ui::chat::MessageIngressTransport::WiFi);
+}
+
 void incomingMessageMapsToRemoteStoredRef()
 {
     chat::ChatMessage message;
@@ -82,6 +96,7 @@ int main()
 {
     messageStatusesMapToDeliveryStates();
     messageStatusesMapToFailureKinds();
+    rxOriginsMapToIngressTransport();
     incomingMessageMapsToRemoteStoredRef();
     queuedMessageMapsToLocalPendingRef();
     storedLocalMessageMapsToLocalStoredRef();

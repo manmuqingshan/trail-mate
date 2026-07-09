@@ -67,6 +67,20 @@ std::string format_team_rich_payload_text(
     return out;
 }
 
+const char* message_ingress_label(::ui::chat::MessageIngressTransport transport)
+{
+    switch (transport)
+    {
+    case ::ui::chat::MessageIngressTransport::LoRa:
+        return "LoRa";
+    case ::ui::chat::MessageIngressTransport::WiFi:
+        return "Wi-Fi";
+    case ::ui::chat::MessageIngressTransport::Unknown:
+        break;
+    }
+    return nullptr;
+}
+
 bool sender_token_is_valid(const std::string& sender)
 {
     if (sender.empty() || sender.size() > kMaxPrefixedSenderLen)
@@ -268,6 +282,14 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     else
     {
         display_text = body_text;
+    }
+    const char* ingress_label =
+        !row.outgoing ? message_ingress_label(row.ingress_transport) : nullptr;
+    if (ingress_label && ingress_label[0] != '\0')
+    {
+        display_text += " [";
+        display_text += ingress_label;
+        display_text += "]";
     }
 
     item.text_label = lv_label_create(item.container);

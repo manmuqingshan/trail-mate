@@ -221,6 +221,17 @@ MeshActionResult MeshAdapterRouterCore::triggerDiscoveryActionDetailed(MeshDisco
     return backend->triggerDiscoveryActionDetailed(action);
 }
 
+MeshActionResult MeshAdapterRouterCore::startReticulumAudioCall(
+    const ReticulumPeerIdentity& destination)
+{
+    IMeshAdapter* backend = activeBackend();
+    if (!backend)
+    {
+        return MeshActionResult::fail(MeshOperationFailure::NotReady);
+    }
+    return backend->startReticulumAudioCall(destination);
+}
+
 void MeshAdapterRouterCore::applyConfig(const MeshConfig& config)
 {
     IMeshAdapter* backend = activeBackend();

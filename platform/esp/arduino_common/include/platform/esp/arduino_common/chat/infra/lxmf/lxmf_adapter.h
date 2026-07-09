@@ -52,6 +52,8 @@ class LxmfAdapter : public IMeshAdapter
     bool broadcastSelfIdentity() override;
     NodeId getNodeId() const override;
     bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
+    MeshActionResult startReticulumAudioCall(
+        const ReticulumPeerIdentity& destination) override;
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     bool isReady() const override;
@@ -182,19 +184,26 @@ class LxmfAdapter : public IMeshAdapter
     bool handleDataPacket(const uint8_t* raw_packet, size_t raw_len,
                           const reticulum::ParsedPacket& packet);
     bool handleProofPacket(const uint8_t* raw_packet, size_t raw_len,
-                           const reticulum::ParsedPacket& packet);
-    bool handleLinkRequestPacket(const uint8_t* raw_packet, size_t raw_len,
-                                 const reticulum::ParsedPacket& packet);
+                           const reticulum::ParsedPacket& packet,
+                           reticulum::interfaces::InterfaceKind ingress_interface);
+    bool handleLinkRequestPacket(
+        const uint8_t* raw_packet, size_t raw_len,
+        const reticulum::ParsedPacket& packet,
+        reticulum::interfaces::InterfaceKind ingress_interface);
     bool handlePathRequestPacket(const reticulum::ParsedPacket& packet);
     bool handleCacheRequestPacket(const reticulum::ParsedPacket& packet);
     bool maybeForwardTransportPacket(const uint8_t* raw_packet, size_t raw_len,
                                      const reticulum::ParsedPacket& packet);
     bool maybeForwardLinkPacket(const uint8_t* raw_packet, size_t raw_len,
                                 const reticulum::ParsedPacket& packet);
-    bool handleLocalLinkPacket(const uint8_t* raw_packet, size_t raw_len,
-                               const reticulum::ParsedPacket& packet);
+    bool handleLocalLinkPacket(
+        const uint8_t* raw_packet, size_t raw_len,
+        const reticulum::ParsedPacket& packet,
+        reticulum::interfaces::InterfaceKind ingress_interface);
     bool sendProofForPacket(const uint8_t* raw_packet, size_t raw_len);
     bool sendPathRequest(PeerInfo& peer);
+    bool sendPathRequestForDestination(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
     bool shouldRequestPath(const PeerInfo& peer) const;
     LinkSession* ensureOutboundLinkSession(PeerInfo& peer,
                                            LocalDestinationKind kind,
@@ -213,7 +222,8 @@ class LxmfAdapter : public IMeshAdapter
                                      const uint8_t* plaintext, size_t plaintext_len,
                                      uint8_t* out_packet, size_t* inout_len);
     bool routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
-                            bool allow_transport);
+                            bool allow_transport,
+                            bool wifi_only = false);
     bool sendCachedAnnounceResponse(const PathEntry& path,
                                     reticulum::PacketContext context);
     bool sendCachedPacketReplay(const uint8_t packet_hash[reticulum::kFullHashSize]);
@@ -253,6 +263,7 @@ class LxmfAdapter : public IMeshAdapter
                                                     LocalDestinationKind kind);
     PeerInfo* findPeerByNodeId(NodeId node_id);
     const PeerInfo* findPeerByDestinationHash(const uint8_t hash[reticulum::kTruncatedHashSize]) const;
+    const PeerInfo* findPeerByIdentityHash(const uint8_t hash[reticulum::kTruncatedHashSize]) const;
     const ReticulumGroupDestinationConfig* findConfiguredGroupDestination(
         const uint8_t hash[reticulum::kTruncatedHashSize]) const;
     bool isConfiguredGroupDestination(
@@ -298,8 +309,10 @@ class LxmfAdapter : public IMeshAdapter
     bool sendLinkRtt(LinkSession& session);
     bool sendLinkKeepalive(LinkSession& session);
     bool sendLinkKeepaliveAck(LinkSession& session);
+    bool sendLinkIdentify(LinkSession& session);
     bool sendLinkPacketProof(LinkSession& session,
                              const uint8_t* raw_packet, size_t raw_len);
+    void pumpReticulumAudioCall();
     void closeLinkSession(LinkSession& session,
                           LinkCloseReason reason = LinkCloseReason::LocalClose);
     void flushDeferredLinkPayloads(LinkSession& session);

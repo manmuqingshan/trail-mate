@@ -88,6 +88,12 @@ bool ReticulumAdapter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo*
     return service_->getReticulumLocalIdentityInfo(out);
 }
 
+MeshActionResult ReticulumAdapter::startReticulumAudioCall(
+    const ReticulumPeerIdentity& destination)
+{
+    return service_->startReticulumAudioCall(destination);
+}
+
 void ReticulumAdapter::applyConfig(const MeshConfig& config)
 {
     service_->applyConfig(config);

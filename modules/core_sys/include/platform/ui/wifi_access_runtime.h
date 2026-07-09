@@ -55,6 +55,7 @@ enum class Decision : std::uint8_t
     DeferredForWake,
     DeferredForScreenOn,
     OtaExclusive,
+    CallExclusive,
 };
 
 struct Request

@@ -55,11 +55,34 @@ Trail Mate is a low-frequency terminal, not a desktop router node.
 | Screen off | MQTT may connect and normally send/receive. | Gateway may connect and receive with expanded terminal budget. | Queued maintenance/background work may run, one transaction at a time. |
 | HTTP active | MQTT and Reticulum are reduced to minimal messaging budget. | Reduced to minimal gateway budget. | Exactly one HTTP transaction owns the HTTP resource. |
 | OTA active | Protocol pump budget is suspended. | Protocol pump budget is suspended. | OTA is exclusive. |
+| Reticulum call active | Suspended. MQTT sockets must not connect, pump, publish, or consume RX budget. | Exclusive `call.audio` link traffic only. Discovery, public announce ingest, route/path background noise, and non-call link work are deferred. | Denied. No HTTP, OTA, catalog, pack, language, image, or route download may start. |
 
 The wake-protected phase shields the path from screen sleep to screen wake to
 entering the UI. It is intentionally short and prevents reconnect storms, TLS
 allocation, route image downloads, and catalog/update checks from causing
 visible UI stalls.
+
+## Reticulum Call Realtime Mode
+
+Reticulum calls are a realtime resource mode, not a Contacts-page feature. When
+a MeshChat-compatible `call.audio` link is dialing, ringing, active, or closing,
+the device must protect the audio path first:
+
+- Wi-Fi access grants budget only to the Reticulum gateway client, and only for
+  the call link's Reticulum packets.
+- LoRa polling, GPS collection, BLE runtime updates, public Reticulum discovery,
+  periodic announces, MQTT, HTTP, OTA, route/image downloads, language-pack
+  downloads, catalog refreshes, and SD-backed discovery persistence are paused,
+  denied, or coalesced.
+- Codec2/ES8311 media owns the audio hardware for the call. Other background
+  hardware users must not start while the call overlay is active.
+- Incoming calls may wake the screen and show the call overlay, but they must
+  not trigger unrelated Wi-Fi reconnect storms, SD scans, or UI-heavy refreshes.
+
+After hangup, the runtime may flush deferred SD/cache work and resume normal
+low-frequency terminal budgets. Hangup signalling itself remains inside the
+call realtime mode so the LinkClose packet can be sent before other Wi-Fi users
+resume.
 
 ## Enforcement
 

@@ -8,6 +8,7 @@
 #include "platform/esp/boards/board_runtime.h"
 #include "ui/app_runtime.h"
 #include "ui/loop_shell.h"
+#include "ui/widgets/reticulum_call_overlay.h"
 
 #ifndef MAIN_TIMING_DEBUG
 #define MAIN_TIMING_DEBUG 0
@@ -75,6 +76,7 @@ void tick()
     { delay(ms); };
     hooks.overlay_sleep_ms = 10;
     hooks.idle_sleep_ms = 2;
+    ui::widgets::reticulum_call_overlay::tick();
     ui::loop_shell::tick(hooks);
 }
 

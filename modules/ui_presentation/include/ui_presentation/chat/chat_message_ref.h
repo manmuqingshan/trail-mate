@@ -40,6 +40,13 @@ enum class MessageDeliveryState : uint8_t
     Unknown,
 };
 
+enum class MessageIngressTransport : uint8_t
+{
+    Unknown,
+    LoRa,
+    WiFi,
+};
+
 enum class MessageFailureKind : uint8_t
 {
     None,

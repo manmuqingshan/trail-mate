@@ -350,6 +350,8 @@ const char* aspect_label(rtdir::AnnounceAspect aspect)
         return "LXMF";
     case rtdir::AnnounceAspect::LxmfPropagation:
         return "Prop";
+    case rtdir::AnnounceAspect::CallAudio:
+        return "Call";
     case rtdir::AnnounceAspect::Unknown:
     default:
         return "Node";

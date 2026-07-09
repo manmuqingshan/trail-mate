@@ -26,6 +26,22 @@ ui::chat::MessageFailureKind mapMessageFailure(chat::MessageStatus status)
                : ui::chat::MessageFailureKind::None;
 }
 
+ui::chat::MessageIngressTransport mapMessageIngressTransport(chat::RxOrigin origin)
+{
+    switch (origin)
+    {
+    case chat::RxOrigin::Mesh:
+    case chat::RxOrigin::LoRa:
+        return ui::chat::MessageIngressTransport::LoRa;
+    case chat::RxOrigin::External:
+    case chat::RxOrigin::WiFi:
+        return ui::chat::MessageIngressTransport::WiFi;
+    case chat::RxOrigin::Unknown:
+        break;
+    }
+    return ui::chat::MessageIngressTransport::Unknown;
+}
+
 ui::chat::MessageRef toUiMessageRef(const chat::ChatMessage& message)
 {
     ui::chat::MessageRef out;

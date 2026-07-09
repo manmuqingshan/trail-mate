@@ -14,7 +14,9 @@
 #include "sys/event_bus.h"
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
+#include "ui/components/two_pane_styles.h"
 #include "ui/localization.h"
+#include "ui/page/page_profile.h"
 #include "ui/runtime/ui_feedback.h"
 #include "ui/screens/chat/chat_protocol_support.h"
 #include "ui/screens/chat/chat_team_workflow.h"
@@ -75,8 +77,79 @@ const char* channel_display_name(chat::MeshProtocol protocol, chat::ChannelId ch
     }
 }
 
+bool has_reticulum_destination(const chat::ConversationId& conv)
+{
+    return conv.protocol == chat::MeshProtocol::Reticulum &&
+           chat::hasReticulumDestinationIdentity(conv.reticulum_identity);
+}
+
+std::string reticulum_destination_label(const chat::ReticulumPeerIdentity& identity)
+{
+    if (!chat::hasReticulumDestinationIdentity(identity))
+    {
+        return std::string();
+    }
+
+    char buf[9] = {};
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "%02X%02X%02X%02X",
+                  static_cast<unsigned>(identity.destination_hash[0]),
+                  static_cast<unsigned>(identity.destination_hash[1]),
+                  static_cast<unsigned>(identity.destination_hash[2]),
+                  static_cast<unsigned>(identity.destination_hash[3]));
+    return buf;
+}
+
+std::string reticulum_contact_display_name(const chat::ConversationId& conv)
+{
+    if (!has_reticulum_destination(conv))
+    {
+        return std::string();
+    }
+    return app::messagingFacade()
+        .getContactService()
+        .getReticulumContactName(conv.reticulum_identity);
+}
+
+bool same_conversation_party(const chat::ConversationId& lhs,
+                             const chat::ConversationId& rhs)
+{
+    if (lhs.protocol != rhs.protocol)
+    {
+        return false;
+    }
+
+    const bool lhs_reticulum = has_reticulum_destination(lhs);
+    const bool rhs_reticulum = has_reticulum_destination(rhs);
+    if (lhs_reticulum || rhs_reticulum)
+    {
+        return lhs_reticulum && rhs_reticulum &&
+               chat::sameReticulumDestinationHash(lhs.reticulum_identity,
+                                                  rhs.reticulum_identity);
+    }
+
+    return lhs.peer == rhs.peer;
+}
+
 std::string base_conversation_name(const chat::ConversationId& conv)
 {
+    const std::string reticulum_name = reticulum_contact_display_name(conv);
+    if (!reticulum_name.empty())
+    {
+        return reticulum_name;
+    }
+
+    if (has_reticulum_destination(conv))
+    {
+        const std::string destination_label =
+            reticulum_destination_label(conv.reticulum_identity);
+        if (!destination_label.empty())
+        {
+            return destination_label;
+        }
+    }
+
     if (conv.peer == 0)
     {
         return ::ui::i18n::tr("Broadcast");
@@ -91,6 +164,177 @@ std::string base_conversation_name(const chat::ConversationId& conv)
     char buf[16] = {};
     std::snprintf(buf, sizeof(buf), "%08lX", static_cast<unsigned long>(conv.peer));
     return buf;
+}
+
+void format_reticulum_hash(const uint8_t* hash, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!hash)
+    {
+        std::snprintf(out, out_len, "--");
+        return;
+    }
+
+    bool any = false;
+    size_t used = 0;
+    for (size_t index = 0;
+         index < chat::kReticulumPeerHashSize && used + 2U < out_len;
+         ++index)
+    {
+        any = any || hash[index] != 0;
+        const int written = std::snprintf(out + used,
+                                          out_len - used,
+                                          "%02X",
+                                          static_cast<unsigned>(hash[index]));
+        if (written != 2)
+        {
+            break;
+        }
+        used += 2U;
+    }
+    out[used < out_len ? used : out_len - 1U] = '\0';
+    if (!any)
+    {
+        std::snprintf(out, out_len, "--");
+    }
+}
+
+const chat::ReticulumPeerIdentity& conversation_reticulum_identity(
+    const chat::ConversationId& conv,
+    const chat::contacts::NodeInfo* node)
+{
+    if (chat::hasReticulumDestinationIdentity(conv.reticulum_identity))
+    {
+        return conv.reticulum_identity;
+    }
+    if (node && chat::hasReticulumDestinationIdentity(node->reticulum_identity))
+    {
+        return node->reticulum_identity;
+    }
+    return conv.reticulum_identity;
+}
+
+std::string node_display_name_for_info(const chat::ConversationId& conv,
+                                       const chat::contacts::NodeInfo* node)
+{
+    if (node)
+    {
+        if (!node->display_name.empty())
+        {
+            return node->display_name;
+        }
+        if (node->long_name[0] != '\0')
+        {
+            return node->long_name;
+        }
+        if (node->short_name[0] != '\0')
+        {
+            return node->short_name;
+        }
+    }
+    return base_conversation_name(conv);
+}
+
+void apply_info_label(lv_obj_t* label, bool muted = false)
+{
+    if (!label)
+    {
+        return;
+    }
+    ::ui::components::two_pane_styles::init_once();
+    if (muted)
+    {
+        ::ui::components::two_pane_styles::apply_label_muted(label);
+    }
+    else
+    {
+        ::ui::components::two_pane_styles::apply_label_primary(label);
+    }
+    ::ui::fonts::apply_localized_font(label,
+                                      lv_label_get_text(label),
+                                      ::ui::fonts::ui_chrome_font());
+}
+
+void add_info_row(lv_obj_t* parent, const char* label, const char* value)
+{
+    lv_obj_t* row = lv_obj_create(parent);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_bg_color(row,
+                              lv_color_hex(::ui::components::two_pane_styles::kMainPanelBg),
+                              LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(row,
+                                  lv_color_hex(::ui::components::two_pane_styles::kBorder),
+                                  LV_PART_MAIN);
+    lv_obj_set_style_radius(row, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(row, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(row, 1, LV_PART_MAIN);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* key = lv_label_create(row);
+    ::ui::i18n::set_label_text(key, label);
+    apply_info_label(key, true);
+    lv_obj_set_width(key, LV_PCT(100));
+    lv_label_set_long_mode(key, LV_LABEL_LONG_DOT);
+
+    lv_obj_t* val = lv_label_create(row);
+    ::ui::i18n::set_label_text_raw(val, value && value[0] != '\0' ? value : "--");
+    apply_info_label(val, false);
+    lv_obj_set_width(val, LV_PCT(100));
+    lv_label_set_long_mode(val, LV_LABEL_LONG_DOT);
+}
+
+lv_obj_t* create_info_modal_root(lv_obj_t* parent, int width, int height)
+{
+    lv_obj_t* root_parent = parent ? parent : lv_screen_active();
+    if (!root_parent)
+    {
+        return nullptr;
+    }
+
+    lv_obj_t* bg = lv_obj_create(root_parent);
+    lv_obj_set_size(bg, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_pos(bg, 0, 0);
+    lv_obj_set_style_bg_color(bg,
+                              lv_color_hex(::ui::components::two_pane_styles::kTextPrimary),
+                              LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(bg, LV_OPA_50, LV_PART_MAIN);
+    lv_obj_set_style_border_width(bg, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(bg, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(bg, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(bg, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_move_foreground(bg);
+
+    const auto resolved = ::ui::page_profile::resolve_modal_size(width, height, root_parent);
+    lv_obj_t* win = lv_obj_create(bg);
+    lv_obj_set_size(win, resolved.width, resolved.height);
+    lv_obj_center(win);
+    lv_obj_set_flex_flow(win, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(win,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_START);
+    lv_obj_set_style_bg_color(win,
+                              lv_color_hex(::ui::components::two_pane_styles::kSidePanelBg),
+                              LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(win, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(win, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(win,
+                                  lv_color_hex(::ui::components::two_pane_styles::kBorder),
+                                  LV_PART_MAIN);
+    lv_obj_set_style_radius(win, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(win, ::ui::page_profile::resolve_modal_pad(), LV_PART_MAIN);
+    lv_obj_set_style_pad_row(win, 4, LV_PART_MAIN);
+    lv_obj_clear_flag(win, LV_OBJ_FLAG_SCROLLABLE);
+    return bg;
 }
 
 chat::ConversationId teamConversationId()
@@ -298,15 +542,7 @@ void handle_message_list_action(chat::ui::ChatMessageListScreen::ActionIntent in
     {
         return;
     }
-    if (intent == chat::ui::ChatMessageListScreen::ActionIntent::SelectConversation)
-    {
-        controller->onChannelClicked(conv);
-        return;
-    }
-    if (intent == chat::ui::ChatMessageListScreen::ActionIntent::Back)
-    {
-        controller->exitToMenu();
-    }
+    controller->handleMessageListAction(intent, conv);
 }
 
 void handle_conversation_action(chat::ui::ChatConversationScreen::ActionIntent intent, void* user_data)
@@ -385,6 +621,7 @@ UiController::~UiController()
     closeTeamPositionPicker(false);
     team_position_picker_.reset();
     closeKeyVerificationModal(false);
+    closeConversationInfoModal(false);
     stopTeamConversationTimer();
     service_.setModelEnabled(false);
     channel_list_.reset();
@@ -441,6 +678,28 @@ void UiController::onChannelClicked(chat::ConversationId conv)
     }
 }
 
+void UiController::handleMessageListAction(
+    ChatMessageListScreen::ActionIntent intent,
+    const chat::ConversationId& conv)
+{
+    switch (intent)
+    {
+    case ChatMessageListScreen::ActionIntent::SelectConversation:
+        onChannelClicked(conv);
+        break;
+    case ChatMessageListScreen::ActionIntent::ShowInfo:
+        openConversationInfoModal(conv);
+        break;
+    case ChatMessageListScreen::ActionIntent::DeleteConversation:
+        handleDeleteConversation(conv);
+        break;
+    case ChatMessageListScreen::ActionIntent::Back:
+    default:
+        exitToMenu();
+        break;
+    }
+}
+
 void UiController::backToList()
 {
     switchToChannelList();
@@ -460,11 +719,7 @@ void UiController::onInput(const sys::InputEvent& event)
         {
             if (channel_list_)
             {
-                chat::ConversationId selected_conv{};
-                if (channel_list_->tryGetSelectedConversation(&selected_conv))
-                {
-                    handleChannelSelected(selected_conv);
-                }
+                (void)channel_list_->openSelectedActionMenu();
             }
         }
         else if (event.input_type == sys::InputEvent::KeyPress && event.value == 27)
@@ -548,6 +803,7 @@ void UiController::showKeyVerification(
 
 void UiController::switchToChannelList()
 {
+    closeConversationInfoModal(true);
     closeTeamPositionPicker(true);
     state_ = State::ChannelList;
     stopTeamConversationTimer();
@@ -587,6 +843,7 @@ void UiController::switchToChannelList()
 
 void UiController::switchToConversation(chat::ConversationId conv)
 {
+    closeConversationInfoModal(true);
     closeTeamPositionPicker(true);
     state_ = State::Conversation;
     current_channel_ = conv.channel;
@@ -713,6 +970,7 @@ void UiController::switchToConversation(chat::ConversationId conv)
 
 void UiController::switchToCompose(chat::ConversationId conv)
 {
+    closeConversationInfoModal(true);
     closeTeamPositionPicker(true);
     const bool is_team_conv = isTeamConversation(conv);
     if (!is_team_conv && conv.protocol != chat_support::active_mesh_protocol())
@@ -842,6 +1100,215 @@ void UiController::handleChannelSelected(const chat::ConversationId& conv)
     switchToConversation(conv);
 }
 
+void UiController::handleDeleteConversation(const chat::ConversationId& conv)
+{
+    closeConversationInfoModal(true);
+    service_.clearConversation(conv);
+    conversation_list_dirty_ = true;
+    syncConversationListFromStore();
+    applyConversationListToUi();
+    ::ui::feedback::show_notice("Chat deleted", 1400);
+}
+
+void UiController::prepareConversationInfoGroup()
+{
+    if (!conversation_info_group_)
+    {
+        conversation_info_group_ = lv_group_create();
+    }
+    lv_group_remove_all_objs(conversation_info_group_);
+    conversation_info_prev_group_ = lv_group_get_default();
+    set_default_group(conversation_info_group_);
+}
+
+void UiController::restoreConversationInfoGroup()
+{
+    if (conversation_info_prev_group_)
+    {
+        set_default_group(conversation_info_prev_group_);
+    }
+    conversation_info_prev_group_ = nullptr;
+}
+
+void UiController::closeConversationInfoModal(bool restore_group)
+{
+    if (conversation_info_modal_)
+    {
+        lv_obj_del(conversation_info_modal_);
+        conversation_info_modal_ = nullptr;
+    }
+    if (restore_group)
+    {
+        restoreConversationInfoGroup();
+    }
+    else if (conversation_info_prev_group_)
+    {
+        set_default_group(conversation_info_prev_group_);
+        conversation_info_prev_group_ = nullptr;
+    }
+    if (conversation_info_group_ && !restore_group)
+    {
+        lv_group_del(conversation_info_group_);
+        conversation_info_group_ = nullptr;
+        conversation_info_prev_group_ = nullptr;
+    }
+}
+
+void UiController::conversation_info_close_event_cb(lv_event_t* e)
+{
+    auto* controller = static_cast<UiController*>(lv_event_get_user_data(e));
+    if (!controller)
+    {
+        return;
+    }
+    controller->closeConversationInfoModal(true);
+}
+
+void UiController::conversation_info_key_event_cb(lv_event_t* e)
+{
+    auto* controller = static_cast<UiController*>(lv_event_get_user_data(e));
+    if (!controller || lv_event_get_code(e) != LV_EVENT_KEY)
+    {
+        return;
+    }
+    const uint32_t key = lv_event_get_key(e);
+    if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE)
+    {
+        controller->closeConversationInfoModal(true);
+        lv_event_stop_processing(e);
+    }
+}
+
+void UiController::openConversationInfoModal(const chat::ConversationId& conv)
+{
+    if (conversation_info_modal_)
+    {
+        closeConversationInfoModal(true);
+    }
+
+    auto& contact_service = app::messagingFacade().getContactService();
+    uint32_t node_id = conv.peer;
+    const chat::contacts::NodeInfo* node = nullptr;
+    if (has_reticulum_destination(conv))
+    {
+        uint32_t resolved_node_id = 0;
+        if (contact_service.findNodeIdByReticulumDestinationHash(
+                conv.reticulum_identity.destination_hash,
+                &resolved_node_id))
+        {
+            node_id = resolved_node_id;
+        }
+    }
+    if (node_id != 0)
+    {
+        node = contact_service.getNodeInfo(node_id);
+    }
+
+    const std::string display_name = node_display_name_for_info(conv, node);
+    const chat::ReticulumPeerIdentity& identity =
+        conversation_reticulum_identity(conv, node);
+
+    char node_id_text[16] = {};
+    std::snprintf(node_id_text,
+                  sizeof(node_id_text),
+                  "%08lX",
+                  static_cast<unsigned long>(node_id));
+
+    char peer_text[16] = {};
+    std::snprintf(peer_text,
+                  sizeof(peer_text),
+                  "%08lX",
+                  static_cast<unsigned long>(conv.peer));
+
+    char destination_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    char identity_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    format_reticulum_hash(identity.destination_hash,
+                          destination_hash,
+                          sizeof(destination_hash));
+    format_reticulum_hash(identity.identity_hash,
+                          identity_hash,
+                          sizeof(identity_hash));
+
+    prepareConversationInfoGroup();
+    conversation_info_modal_ = create_info_modal_root(parent_, 288, 214);
+    lv_obj_t* win = conversation_info_modal_ ? lv_obj_get_child(conversation_info_modal_, 0) : nullptr;
+    if (!win)
+    {
+        closeConversationInfoModal(true);
+        return;
+    }
+    lv_obj_add_event_cb(conversation_info_modal_,
+                        conversation_info_key_event_cb,
+                        LV_EVENT_KEY,
+                        this);
+
+    lv_obj_t* title = lv_label_create(win);
+    ::ui::i18n::set_label_text_raw(title, display_name.c_str());
+    apply_info_label(title, false);
+    lv_obj_set_width(title, LV_PCT(100));
+    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+
+    lv_obj_t* content = lv_obj_create(win);
+    lv_obj_set_width(content, LV_PCT(100));
+    lv_obj_set_height(content, 0);
+    lv_obj_set_flex_grow(content, 1);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(content, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(content, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(content, 3, LV_PART_MAIN);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_event_cb(content, conversation_info_key_event_cb, LV_EVENT_KEY, this);
+
+    add_info_row(content, "Display Name", display_name.c_str());
+    add_info_row(content, "Protocol", protocol_short_label(conv.protocol));
+    if (has_reticulum_destination(conv) ||
+        chat::hasReticulumDestinationIdentity(identity))
+    {
+        add_info_row(content, "LXMF Address", destination_hash);
+        add_info_row(content, "Identity Hash", identity_hash);
+        add_info_row(content, "Node ID", node_id != 0 ? node_id_text : "--");
+        if (node && node->hops_away != 0xFF)
+        {
+            char hops[16] = {};
+            std::snprintf(hops, sizeof(hops), "%u", static_cast<unsigned>(node->hops_away));
+            add_info_row(content, "Hops", hops);
+        }
+    }
+    else
+    {
+        add_info_row(content, "Peer", peer_text);
+        add_info_row(content, "Node ID", node_id != 0 ? node_id_text : "--");
+    }
+
+    lv_obj_t* close_btn = lv_btn_create(win);
+    lv_obj_set_size(close_btn,
+                    ::ui::page_profile::resolve_control_button_min_width(),
+                    ::ui::page_profile::resolve_control_button_height());
+    ::ui::components::two_pane_styles::apply_btn_basic(close_btn);
+    lv_obj_set_style_bg_color(close_btn,
+                              lv_color_hex(::ui::components::two_pane_styles::kAccent),
+                              LV_PART_MAIN);
+    lv_obj_t* close_label = lv_label_create(close_btn);
+    ::ui::i18n::set_label_text(close_label, "Close");
+    apply_info_label(close_label, false);
+    lv_obj_center(close_label);
+    lv_obj_add_event_cb(close_btn,
+                        conversation_info_close_event_cb,
+                        LV_EVENT_CLICKED,
+                        this);
+    lv_obj_add_event_cb(close_btn,
+                        conversation_info_key_event_cb,
+                        LV_EVENT_KEY,
+                        this);
+
+    lv_group_add_obj(conversation_info_group_, content);
+    lv_group_add_obj(conversation_info_group_, close_btn);
+    lv_group_focus_obj(close_btn);
+}
+
 void UiController::handleSendMessage(const std::string& text)
 {
     if (text.empty())
@@ -931,7 +1398,13 @@ void UiController::normalizeConversationNames(std::vector<chat::ConversationMeta
             continue;
         }
 
-        if (conv.name.empty())
+        const std::string reticulum_name =
+            reticulum_contact_display_name(conv.id);
+        if (!reticulum_name.empty())
+        {
+            conv.name = reticulum_name;
+        }
+        else if (conv.name.empty())
         {
             conv.name = base_conversation_name(conv.id);
         }
@@ -955,7 +1428,7 @@ void UiController::normalizeConversationNames(std::vector<chat::ConversationMeta
             {
                 continue;
             }
-            if (other.id.peer != conv.id.peer)
+            if (!same_conversation_party(other.id, conv.id))
             {
                 continue;
             }
@@ -993,7 +1466,9 @@ std::string UiController::resolveConversationDisplayName(const chat::Conversatio
     {
         if (item.id == conv && !item.name.empty())
         {
-            return item.name;
+            const std::string reticulum_name =
+                reticulum_contact_display_name(conv);
+            return reticulum_name.empty() ? item.name : reticulum_name;
         }
     }
 
@@ -1473,6 +1948,7 @@ void UiController::exitToMenu()
         return;
     }
     closeTeamPositionPicker(false);
+    closeConversationInfoModal(false);
     exiting_ = true;
     stopTeamConversationTimer();
     team_conv_active_ = false;

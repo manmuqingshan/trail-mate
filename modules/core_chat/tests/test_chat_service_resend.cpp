@@ -364,6 +364,52 @@ int main()
     assert(mesh.send_count == before_cross_protocol_retry);
 
     {
+        chat::ChatModel clear_model;
+        FakeMeshAdapter clear_mesh;
+        chat::RamStore clear_store;
+        chat::ChatService clear_service(clear_model, clear_mesh, clear_store);
+
+        clear_mesh.next_send_ok = false;
+        clear_mesh.next_msg_id = 900;
+        const chat::MeshSendResult failed_clear_target =
+            clear_service.sendTextDetailed(chat::ChannelId::PRIMARY,
+                                           "remove me",
+                                           0x01020304);
+        assert(!failed_clear_target.ok);
+
+        clear_mesh.next_send_ok = true;
+        clear_mesh.next_msg_id = 901;
+        const chat::MeshSendResult kept_send =
+            clear_service.sendTextDetailed(chat::ChannelId::PRIMARY,
+                                           "keep me",
+                                           0x05060708);
+        assert(kept_send.ok);
+
+        const chat::ConversationId remove_conv(chat::ChannelId::PRIMARY,
+                                               0x01020304,
+                                               chat::MeshProtocol::Meshtastic);
+        const chat::ConversationId keep_conv(chat::ChannelId::PRIMARY,
+                                             0x05060708,
+                                             chat::MeshProtocol::Meshtastic);
+
+        assert(clear_service.getRecentMessages(remove_conv, 10).size() == 1);
+        assert(clear_service.getRecentMessages(keep_conv, 10).size() == 1);
+        assert(clear_model.getFailedMessages().size() == 1);
+
+        clear_service.clearConversation(remove_conv);
+        assert(clear_service.getRecentMessages(remove_conv, 10).empty());
+        assert(clear_service.getRecentMessages(keep_conv, 10).size() == 1);
+        assert(clear_model.getFailedMessages().empty());
+
+        size_t total_after_clear = 0;
+        const auto remaining =
+            clear_service.getConversations(0, 0, &total_after_clear);
+        assert(total_after_clear == 1);
+        assert(remaining.size() == 1);
+        assert(remaining.front().id == keep_conv);
+    }
+
+    {
         chat::ChatModel incoming_model;
         FakeMeshAdapter incoming_mesh;
         chat::RamStore incoming_store;

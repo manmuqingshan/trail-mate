@@ -39,6 +39,7 @@ struct MeshCapabilities
     bool supports_meshcore_identity_keys = false;
     bool supports_meshcore_peer_secret_derivation = false;
     bool supports_meshcore_rich_trace_projection = false;
+    bool supports_reticulum_audio_call = false;
 };
 
 struct ReticulumLocalIdentityInfo
@@ -264,6 +265,16 @@ class IMeshAdapter
         return triggerDiscoveryAction(action)
                    ? MeshActionResult::success()
                    : MeshActionResult::fail(MeshOperationFailure::Unsupported);
+    }
+
+    /**
+     * @brief Start a MeshChat-compatible Reticulum call.audio Link call.
+     */
+    virtual MeshActionResult startReticulumAudioCall(
+        const ReticulumPeerIdentity& destination)
+    {
+        (void)destination;
+        return MeshActionResult::fail(MeshOperationFailure::Unsupported);
     }
 
     /**

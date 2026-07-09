@@ -92,7 +92,7 @@ class InternalFsStore final : public ::chat::IChatStore
         char text[220] = {};
     } __attribute__((packed));
 
-    struct MessageRecord
+    struct MessageRecordV3
     {
         uint8_t protocol = 0;
         uint8_t channel = 0;
@@ -112,9 +112,31 @@ class InternalFsStore final : public ::chat::IChatStore
         char text[220] = {};
     } __attribute__((packed));
 
+    struct MessageRecord
+    {
+        uint8_t protocol = 0;
+        uint8_t channel = 0;
+        uint8_t status = 0;
+        uint8_t flags = 0;
+        uint8_t rx_origin = 0;
+        uint32_t from = 0;
+        uint32_t peer = 0;
+        uint32_t msg_id = 0;
+        uint32_t timestamp = 0;
+        uint32_t sequence = 0;
+        uint8_t team_location_icon = 0;
+        int32_t geo_lat_e7 = 0;
+        int32_t geo_lon_e7 = 0;
+        uint16_t text_len = 0;
+        uint8_t reticulum_destination_hash[::chat::kReticulumPeerHashSize] = {};
+        uint8_t reticulum_identity_hash[::chat::kReticulumPeerHashSize] = {};
+        char text[220] = {};
+    } __attribute__((packed));
+
     static constexpr uint32_t kMagic = 0x54534D43; // CMST
     static constexpr uint16_t kLegacyVersion = 2;
-    static constexpr uint16_t kVersion = 3;
+    static constexpr uint16_t kReticulumIdentityVersion = 3;
+    static constexpr uint16_t kVersion = 4;
 
     bool ensureFs() const;
     bool loadFromFs();

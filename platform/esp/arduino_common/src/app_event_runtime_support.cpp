@@ -9,7 +9,6 @@
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_runtime_support.h"
-#include "platform/esp/arduino_common/hostlink/hostlink_bridge_radio.h"
 #include "platform/ui/settings_store.h"
 #include "sys/event_bus.h"
 #include "team/protocol/team_chat.h"
@@ -192,8 +191,6 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
         return true;
     }
 
-    hostlink::bridge::on_event(*event);
-
     switch (event->type)
     {
     case sys::EventType::ChatSendResult:
@@ -291,10 +288,6 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
     if (team_runtime_event || event->type == sys::EventType::SystemTick)
     {
         team::ui::shell::handle_event(nullptr, event);
-        if (team_runtime_event)
-        {
-            hostlink::bridge::on_team_state_changed();
-        }
         delete event;
         return true;
     }

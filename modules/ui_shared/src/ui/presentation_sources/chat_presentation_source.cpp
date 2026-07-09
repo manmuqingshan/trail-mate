@@ -450,6 +450,11 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
                 chat_presentation_adapters::mapMessageStatus(message.status);
             row.failure =
                 chat_presentation_adapters::mapMessageFailure(message.status);
+            row.ingress_transport =
+                message.status == ::chat::MessageStatus::Incoming
+                    ? chat_presentation_adapters::mapMessageIngressTransport(
+                          message.rx_origin)
+                    : ui::chat::MessageIngressTransport::Unknown;
             if (delivery_read_model_ != nullptr)
             {
                 ::chat::delivery::ChatDeliveryRecord delivery{};

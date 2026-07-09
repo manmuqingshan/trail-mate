@@ -81,6 +81,8 @@ class ChatService
      */
     bool triggerDiscoveryAction(MeshDiscoveryAction action);
     MeshActionResult triggerDiscoveryActionDetailed(MeshDiscoveryAction action);
+    MeshActionResult startReticulumAudioCall(
+        const ReticulumPeerIdentity& destination);
 
     /**
      * @brief Switch to channel
@@ -118,6 +120,11 @@ class ChatService
      * @brief Clear all stored messages and model state
      */
     void clearAllMessages();
+
+    /**
+     * @brief Clear one conversation from model and backing store
+     */
+    void clearConversation(const ConversationId& conv);
 
     /**
      * @brief Process incoming messages (call from mesh task)

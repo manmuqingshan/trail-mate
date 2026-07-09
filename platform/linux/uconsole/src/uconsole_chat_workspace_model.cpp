@@ -733,6 +733,22 @@ void sortConversations(std::vector<::chat::ConversationMeta>& conversations,
     return out;
 }
 
+[[nodiscard]] const char* ingressTransportLabel(::chat::RxOrigin origin)
+{
+    switch (origin)
+    {
+    case ::chat::RxOrigin::Mesh:
+    case ::chat::RxOrigin::LoRa:
+        return "LoRa";
+    case ::chat::RxOrigin::External:
+    case ::chat::RxOrigin::WiFi:
+        return "Wi-Fi";
+    case ::chat::RxOrigin::Unknown:
+        break;
+    }
+    return nullptr;
+}
+
 [[nodiscard]] ChatMessageItem makeMessageItem(
     const ::chat::ChatMessage& message,
     ::chat::NodeId self_node,
@@ -747,6 +763,13 @@ void sortConversations(std::vector<::chat::ConversationMeta>& conversations,
     item.meta = statusLabel(message.status);
     item.meta += " / ";
     item.meta += formatAge(message.timestamp);
+    const char* ingress_label =
+        !item.outgoing ? ingressTransportLabel(message.rx_origin) : nullptr;
+    if (ingress_label && ingress_label[0] != '\0')
+    {
+        item.meta += " / ";
+        item.meta += ingress_label;
+    }
     if (message.msg_id != 0)
     {
         char buffer[32] = {};

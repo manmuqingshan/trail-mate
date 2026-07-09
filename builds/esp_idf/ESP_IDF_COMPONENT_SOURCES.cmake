@@ -20,19 +20,13 @@ set(TRAILMATE_ESP_IDF_PRODUCT_COMPOSITION_SOURCES
     "${TRAILMATE_ROOT}/modules/product_composition/src/target_build_binding.cpp"
     "${TRAILMATE_ROOT}/modules/product_composition/src/target_ux_binding.cpp")
 
-set(TRAILMATE_ESP_IDF_CORE_HOSTLINK_SOURCES
+set(TRAILMATE_ESP_IDF_C6_HOSTLINK_SOURCES
     "${TRAILMATE_ROOT}/modules/core_hostlink/src/c6_frame_codec_c.c"
-    "${TRAILMATE_ROOT}/modules/core_hostlink/src/c6_frame_codec.cpp"
-    "${TRAILMATE_ROOT}/modules/core_hostlink/src/hostlink_app_data_codec.cpp"
-    "${TRAILMATE_ROOT}/modules/core_hostlink/src/hostlink_codec.cpp"
-    "${TRAILMATE_ROOT}/modules/core_hostlink/src/hostlink_config_codec.cpp"
-    "${TRAILMATE_ROOT}/modules/core_hostlink/src/hostlink_event_codec.cpp"
-    "${TRAILMATE_ROOT}/modules/core_hostlink/src/hostlink_frame_router.cpp"
-    "${TRAILMATE_ROOT}/modules/core_hostlink/src/hostlink_service_codec.cpp"
-    "${TRAILMATE_ROOT}/modules/core_hostlink/src/hostlink_session.cpp")
+    "${TRAILMATE_ROOT}/modules/core_hostlink/src/c6_frame_codec.cpp")
 
 set(TRAILMATE_ESP_IDF_CORE_SYS_SOURCES
     "${TRAILMATE_ROOT}/modules/core_sys/src/app/app_facade_access.cpp"
+    "${TRAILMATE_ROOT}/modules/core_sys/src/platform/ui/reticulum_call_runtime.cpp"
     "${TRAILMATE_ROOT}/modules/core_sys/src/sys/clock.cpp"
     "${TRAILMATE_ROOT}/modules/core_sys/src/platform/ui/timezone_profile.cpp")
 
@@ -260,8 +254,6 @@ set(TRAILMATE_ESP_IDF_UI_SHARED_SOURCES
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/gps/gps_page_shell.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/node_info/node_info_page_components.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/node_info/node_info_page_layout.cpp"
-    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/pc_link/pc_link_page_runtime.cpp"
-    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/pc_link/pc_link_page_shell.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/settings/settings_page_input.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/settings/settings_page_layout.cpp"
@@ -317,6 +309,7 @@ set(TRAILMATE_ESP_IDF_UI_SHARED_SOURCES
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/ime/ime_widget.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/ime/pinyin_ime.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/map/map_viewport.cpp"
+    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/reticulum_call_overlay.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/system_notification.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/text_candidate_data.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/text_candidate_picker.cpp"
@@ -377,7 +370,6 @@ set(TRAILMATE_ESP_IDF_PLATFORM_COMMON_SOURCES
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_device_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_firmware_update_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_gps_runtime.cpp"
-    "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_hostlink_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_lora_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_orientation_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_pack_repository_runtime.cpp"

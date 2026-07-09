@@ -58,6 +58,8 @@ class MeshAdapterRouter : public IMeshAdapter
     bool hasPkiKey(NodeId dest) const override;
     bool triggerDiscoveryAction(MeshDiscoveryAction action) override;
     MeshActionResult triggerDiscoveryActionDetailed(MeshDiscoveryAction action) override;
+    MeshActionResult startReticulumAudioCall(
+        const ReticulumPeerIdentity& destination) override;
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     void setNetworkLimits(bool duty_cycle_enabled, uint8_t util_percent) override;

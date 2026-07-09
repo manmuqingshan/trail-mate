@@ -73,6 +73,13 @@ class ContactService
     std::string getContactName(uint32_t node_id) const;
 
     /**
+     * @brief Get display name for a Reticulum destination identity
+     * @param identity Reticulum peer destination identity
+     * @return Saved nickname, announce/long name, or empty when unknown
+     */
+    std::string getReticulumContactName(const ReticulumPeerIdentity& identity) const;
+
+    /**
      * @brief Get all contacts (nodes with nicknames)
      */
     std::vector<NodeInfo> getContacts() const;

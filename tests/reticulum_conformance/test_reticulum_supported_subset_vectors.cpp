@@ -54,6 +54,8 @@ constexpr const char* kProofPacket =
 
 constexpr const char* kTextPayload =
     "94cb40934a0000000000c405547261696cc40f68656c6c6f207265746963756c756d80";
+constexpr const char* kPeerAnnounceAppData =
+    "92a87669636c69752d31c0";
 constexpr const char* kAppDataPayload =
     "544d4150010100001234aabbccdd01020304deadbeef";
 constexpr const char* kMessageHash =
@@ -359,6 +361,59 @@ void expectLxmfEnvelopeVectors()
     assert(decoded_text.title == "Trail");
     assert(decoded_text.content == "hello reticulum");
     assert(decoded_text.fields_empty);
+
+    std::vector<uint8_t> peer_announce = encodeBuffer(32);
+    std::size_t peer_announce_len = peer_announce.size();
+    assert(lxmf::packPeerAnnounceAppData("vicliu-1",
+                                         false,
+                                         0,
+                                         peer_announce.data(),
+                                         &peer_announce_len));
+    peer_announce.resize(peer_announce_len);
+    expectBytes(peer_announce.data(), peer_announce.size(), kPeerAnnounceAppData);
+
+    char display_name[32] = {};
+    bool has_stamp_cost = true;
+    uint8_t stamp_cost = 0xFFU;
+    assert(lxmf::unpackPeerAnnounceAppData(peer_announce.data(),
+                                           peer_announce.size(),
+                                           display_name,
+                                           sizeof(display_name),
+                                           &has_stamp_cost,
+                                           &stamp_cost));
+    assert(std::strcmp(display_name, "vicliu-1") == 0);
+    assert(!has_stamp_cost);
+    assert(stamp_cost == 0U);
+
+    const std::vector<uint8_t> legacy_bin_announce =
+        fromHex("92c4087669636c69752d31c0");
+    assert(lxmf::unpackPeerAnnounceAppData(legacy_bin_announce.data(),
+                                           legacy_bin_announce.size(),
+                                           display_name,
+                                           sizeof(display_name),
+                                           &has_stamp_cost,
+                                           &stamp_cost));
+    assert(std::strcmp(display_name, "vicliu-1") == 0);
+
+    const std::vector<uint8_t> str8_announce =
+        fromHex("92d9087669636c69752d31c0");
+    assert(lxmf::unpackPeerAnnounceAppData(str8_announce.data(),
+                                           str8_announce.size(),
+                                           display_name,
+                                           sizeof(display_name),
+                                           &has_stamp_cost,
+                                           &stamp_cost));
+    assert(std::strcmp(display_name, "vicliu-1") == 0);
+
+    const std::vector<uint8_t> str16_announce =
+        fromHex("92da00087669636c69752d31c0");
+    assert(lxmf::unpackPeerAnnounceAppData(str16_announce.data(),
+                                           str16_announce.size(),
+                                           display_name,
+                                           sizeof(display_name),
+                                           &has_stamp_cost,
+                                           &stamp_cost));
+    assert(std::strcmp(display_name, "vicliu-1") == 0);
 
     const uint8_t app_payload[] = {0xDE, 0xAD, 0xBE, 0xEF};
     std::vector<uint8_t> app_data = encodeBuffer(64);

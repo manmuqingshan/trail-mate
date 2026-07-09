@@ -87,6 +87,7 @@ struct MessageRow
     bool outgoing = false;
     MessageDeliveryState delivery = MessageDeliveryState::Unknown;
     MessageFailureKind failure = MessageFailureKind::None;
+    MessageIngressTransport ingress_transport = MessageIngressTransport::Unknown;
 
     uint32_t sender_node_id = 0;
     ui::FixedText<160> text;
@@ -161,6 +162,7 @@ inline void resetMessageRow(MessageRow& row)
     row.outgoing = false;
     row.delivery = MessageDeliveryState::Unknown;
     row.failure = MessageFailureKind::None;
+    row.ingress_transport = MessageIngressTransport::Unknown;
     row.sender_node_id = 0;
     row.text.clear();
     row.time_label.clear();

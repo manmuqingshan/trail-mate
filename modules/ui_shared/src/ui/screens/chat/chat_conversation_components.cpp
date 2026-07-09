@@ -263,6 +263,20 @@ std::string format_team_rich_payload_text(
     }
     return rich_payload_kind_label(payload.kind);
 }
+
+const char* message_ingress_label(::ui::chat::MessageIngressTransport transport)
+{
+    switch (transport)
+    {
+    case ::ui::chat::MessageIngressTransport::LoRa:
+        return "LoRa";
+    case ::ui::chat::MessageIngressTransport::WiFi:
+        return "Wi-Fi";
+    case ::ui::chat::MessageIngressTransport::Unknown:
+        break;
+    }
+    return nullptr;
+}
 } // namespace
 
 static bool is_valid_epoch_ts(uint32_t ts)
@@ -933,6 +947,7 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
         time_buf,
         sizeof(time_buf),
         timestamp_from_presentation_label(row.time_label));
+    const char* ingress_label = !is_self ? message_ingress_label(row.ingress_transport) : nullptr;
     if (conv_.peer == 0)
     {
         std::string sender;
@@ -968,12 +983,28 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
                 sender = buf;
             }
         }
-        std::string line = sender + " " + time_buf;
+        std::string line = sender;
+        if (ingress_label && ingress_label[0] != '\0')
+        {
+            line += " / ";
+            line += ingress_label;
+        }
+        line += " / ";
+        line += time_buf;
         ::ui::i18n::set_content_label_text_raw(item.time_label, line.c_str());
     }
     else
     {
-        ::ui::i18n::set_label_text_raw(item.time_label, time_buf);
+        if (ingress_label && ingress_label[0] != '\0')
+        {
+            char line[32] = {};
+            std::snprintf(line, sizeof(line), "%s / %s", ingress_label, time_buf);
+            ::ui::i18n::set_label_text_raw(item.time_label, line);
+        }
+        else
+        {
+            ::ui::i18n::set_label_text_raw(item.time_label, time_buf);
+        }
         ::ui::fonts::apply_localized_font(
             item.time_label, lv_label_get_text(item.time_label), ::ui::fonts::ui_chrome_font());
     }

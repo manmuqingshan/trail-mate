@@ -208,8 +208,10 @@ enum class RxTimeSource : uint8_t
 enum class RxOrigin : uint8_t
 {
     Unknown = 0,
-    Mesh = 1,
-    External = 2
+    Mesh = 1,     // Legacy LoRa/radio-origin value.
+    External = 2, // Legacy internet/MQTT-origin value.
+    LoRa = 3,
+    WiFi = 4
 };
 
 /**
@@ -356,6 +358,7 @@ struct ChatMessage
     int32_t geo_lat_e7;
     int32_t geo_lon_e7;
     ReticulumPeerIdentity reticulum_identity{};
+    RxOrigin rx_origin;
     MessageStatus status;
 
     ChatMessage() : protocol(MeshProtocol::Meshtastic),
@@ -365,6 +368,7 @@ struct ChatMessage
                     has_geo(false),
                     geo_lat_e7(0),
                     geo_lon_e7(0),
+                    rx_origin(RxOrigin::Unknown),
                     status(MessageStatus::Incoming) {}
 };
 

@@ -843,6 +843,8 @@ std::string aspect_text(AnnounceAspect aspect)
         return "lxmf.delivery";
     case AnnounceAspect::LxmfPropagation:
         return "lxmf.propagation";
+    case AnnounceAspect::CallAudio:
+        return "call.audio";
     case AnnounceAspect::Unknown:
     default:
         return "unknown";
@@ -858,6 +860,10 @@ AnnounceAspect parse_aspect(std::string_view aspect)
     if (aspect == "lxmf.propagation")
     {
         return AnnounceAspect::LxmfPropagation;
+    }
+    if (aspect == "call.audio")
+    {
+        return AnnounceAspect::CallAudio;
     }
     return AnnounceAspect::Unknown;
 }

@@ -4,7 +4,9 @@
  */
 
 #include "platform/esp/arduino_common/app_tasks.h"
+
 #include "platform/esp/common/shared_spi_lock.h"
+#include "platform/ui/reticulum_call_runtime.h"
 #include <Arduino.h>
 #include <RadioLib.h>
 #include <cstring>
@@ -390,6 +392,13 @@ void AppTasks::radioTask(void* pvParameters)
 
     while (true)
     {
+        if (::platform::ui::reticulum_call::realtime_mode_active())
+        {
+            requestRadioReceiveRestart();
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+
         bool should_restart_rx = radio_receive_restart_pending_;
         bool handled_tx = false;
 
@@ -563,6 +572,22 @@ void AppTasks::meshTask(void* pvParameters)
     {
         // Process received packets
         RadioPacket rx_packet;
+        if (::platform::ui::reticulum_call::realtime_mode_active())
+        {
+            while (xQueueReceive(mesh_queue_, &rx_packet, 0) == pdPASS)
+            {
+                if (rx_packet.data)
+                {
+                    free(rx_packet.data);
+                }
+            }
+            if (adapter_)
+            {
+                adapter_->processSendQueue();
+            }
+            vTaskDelay(poll_delay);
+            continue;
+        }
         if (xQueueReceive(mesh_queue_, &rx_packet, 0) == pdPASS)
         {
             if (!rx_packet.is_tx && rx_packet.data && adapter_)

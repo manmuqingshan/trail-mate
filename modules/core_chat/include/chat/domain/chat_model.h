@@ -63,6 +63,11 @@ class ChatModel
     void clearAll();
 
     /**
+     * @brief Clear one conversation and matching failed-message entries
+     */
+    void clearConversation(const ConversationId& conv);
+
+    /**
      * @brief Set policy
      */
     void setPolicy(const ChatPolicy& policy)

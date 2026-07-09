@@ -528,7 +528,7 @@ bool SdStore::readIndex(std::vector<IndexEntry>& entries) const
     IndexHeader header{};
     if (!readExact(file, &header, sizeof(header)) ||
         header.magic != kIndexMagic ||
-        (header.version != kVersion && header.version != kLegacyVersion))
+        (header.version != kIndexVersion && header.version != kLegacyVersion))
     {
         file.close();
         return false;
@@ -598,7 +598,7 @@ bool SdStore::writeIndex(const std::vector<IndexEntry>& entries) const
 
     IndexHeader header{};
     header.magic = kIndexMagic;
-    header.version = kVersion;
+    header.version = kIndexVersion;
     header.count = static_cast<uint16_t>(std::min<size_t>(entries.size(), 0xFFFFU));
     bool ok = writeExact(file, &header, sizeof(header));
     for (size_t index = 0; ok && index < header.count; ++index)
@@ -833,7 +833,9 @@ bool SdStore::loadFileHeader(storage::SdRuntimeFile& file, FileHeader& header) c
         return false;
     }
     return header.magic == kFileMagic &&
-           (header.version == kVersion || header.version == kLegacyVersion) &&
+           (header.version == kFileVersion ||
+            header.version == kReticulumIdentityVersion ||
+            header.version == kLegacyVersion) &&
            header.head < kMaxMessagesPerConv && header.count <= kMaxMessagesPerConv;
 }
 
@@ -841,7 +843,7 @@ bool SdStore::initFileHeader(storage::SdRuntimeFile& file) const
 {
     FileHeader header{};
     header.magic = kFileMagic;
-    header.version = kVersion;
+    header.version = kFileVersion;
     if (!file.seek(0) || !writeExact(file, &header, sizeof(header)))
     {
         return false;
@@ -853,11 +855,13 @@ bool SdStore::upgradeConversationFile(storage::SdRuntimeFile& file,
                                       const char* path,
                                       FileHeader& header) const
 {
-    if (header.version == kVersion)
+    if (header.version == kFileVersion)
     {
         return true;
     }
-    if (header.version != kLegacyVersion || !path || path[0] == '\0')
+    if ((header.version != kLegacyVersion &&
+         header.version != kReticulumIdentityVersion) ||
+        !path || path[0] == '\0')
     {
         return false;
     }
@@ -884,7 +888,7 @@ bool SdStore::upgradeConversationFile(storage::SdRuntimeFile& file,
 
     FileHeader upgraded{};
     upgraded.magic = kFileMagic;
-    upgraded.version = kVersion;
+    upgraded.version = kFileVersion;
     upgraded.count = static_cast<uint16_t>(std::min<size_t>(records.size(), kMaxMessagesPerConv));
     upgraded.head = static_cast<uint16_t>(upgraded.count % kMaxMessagesPerConv);
     if (!file.seek(0) || !writeExact(file, &upgraded, sizeof(upgraded)))
@@ -905,7 +909,7 @@ bool SdStore::upgradeConversationFile(storage::SdRuntimeFile& file,
         file.close();
         return false;
     }
-    return loadFileHeader(file, header) && header.version == kVersion;
+    return loadFileHeader(file, header) && header.version == kFileVersion;
 }
 
 bool SdStore::readRecord(storage::SdRuntimeFile& file,
@@ -917,8 +921,15 @@ bool SdStore::readRecord(storage::SdRuntimeFile& file,
     {
         return false;
     }
-    const bool legacy_format = header.version == kLegacyVersion;
-    const size_t record_size = legacy_format ? sizeof(RecordV2) : sizeof(Record);
+    size_t record_size = sizeof(Record);
+    if (header.version == kLegacyVersion)
+    {
+        record_size = sizeof(RecordV2);
+    }
+    else if (header.version == kReticulumIdentityVersion)
+    {
+        record_size = sizeof(RecordV3);
+    }
     const uint64_t offset = sizeof(FileHeader) + static_cast<uint64_t>(slot) * record_size;
     if (file.size() < offset + record_size)
     {
@@ -928,13 +939,40 @@ bool SdStore::readRecord(storage::SdRuntimeFile& file,
     {
         return false;
     }
-    if (!legacy_format)
+    if (header.version == kFileVersion)
     {
         return readExact(file, &rec, sizeof(rec));
     }
 
+    if (header.version == kReticulumIdentityVersion)
+    {
+        RecordV3 rec_v3{};
+        if (!readExact(file, &rec_v3, sizeof(rec_v3)))
+        {
+            return false;
+        }
+        rec.protocol = rec_v3.protocol;
+        rec.channel = rec_v3.channel;
+        rec.status = rec_v3.status;
+        rec.flags = rec_v3.flags;
+        rec.text_len = rec_v3.text_len;
+        rec.from = rec_v3.from;
+        rec.peer = rec_v3.peer;
+        rec.msg_id = rec_v3.msg_id;
+        rec.timestamp = rec_v3.timestamp;
+        std::memcpy(rec.reticulum_destination_hash,
+                    rec_v3.reticulum_destination_hash,
+                    sizeof(rec.reticulum_destination_hash));
+        std::memcpy(rec.reticulum_identity_hash,
+                    rec_v3.reticulum_identity_hash,
+                    sizeof(rec.reticulum_identity_hash));
+        std::memcpy(rec.text, rec_v3.text, sizeof(rec.text));
+        return true;
+    }
+
     RecordV2 legacy_rec{};
-    if (!readExact(file, &legacy_rec, sizeof(legacy_rec)))
+    if (header.version != kLegacyVersion ||
+        !readExact(file, &legacy_rec, sizeof(legacy_rec)))
     {
         return false;
     }
@@ -1052,6 +1090,7 @@ ChatMessage SdStore::messageFromRecord(const Record& rec)
     msg.timestamp = rec.timestamp;
     msg.text.assign(rec.text, std::min<size_t>(rec.text_len, sizeof(rec.text)));
     msg.status = static_cast<MessageStatus>(rec.status);
+    msg.rx_origin = static_cast<RxOrigin>(rec.rx_origin);
     if ((rec.flags & kRecordHasReticulumIdentityFlag) != 0)
     {
         readReticulumIdentityFromStorage(msg.reticulum_identity,
@@ -1072,6 +1111,7 @@ SdStore::Record SdStore::recordFromMessage(const ChatMessage& msg)
     rec.peer = msg.peer;
     rec.msg_id = msg.msg_id;
     rec.timestamp = msg.timestamp;
+    rec.rx_origin = static_cast<uint8_t>(msg.rx_origin);
     if (msg.protocol == MeshProtocol::Reticulum &&
         hasReticulumDestinationIdentity(msg.reticulum_identity))
     {

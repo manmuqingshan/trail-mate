@@ -113,7 +113,7 @@ bool LoRaReticulumInterface::pollPacket(RxPacket* out)
     out->len = len;
     out->interface_kind = InterfaceKind::LoRa;
     fillTimestamp(&out->rx_meta);
-    out->rx_meta.origin = RxOrigin::Mesh;
+    out->rx_meta.origin = RxOrigin::LoRa;
     out->rx_meta.direct = true;
     out->rx_meta.from_is = false;
     out->rx_meta.rssi_dbm_x10 = static_cast<int16_t>(std::lround(raw_.lastRxRssi() * 10.0f));
@@ -631,7 +631,7 @@ void WifiGatewayReticulumInterface::fillRxMeta(RxMeta* out) const
         return;
     }
     fillTimestamp(out);
-    out->origin = RxOrigin::Mesh;
+    out->origin = RxOrigin::WiFi;
     out->direct = true;
     out->from_is = false;
     out->rssi_dbm_x10 = 0;
@@ -669,6 +669,16 @@ bool ReticulumInterfaceSet::hasReadyInterface() const
            (wifiAllowed() && wifi_.isReady());
 }
 
+bool ReticulumInterfaceSet::hasReadyWifiGateway() const
+{
+    return wifiAllowed() && wifi_.isReady();
+}
+
+bool ReticulumInterfaceSet::wifiGatewayConfigured() const
+{
+    return wifiAllowed() && wifi_.isConfigured();
+}
+
 bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
 {
     last_tx_result_ = {};
@@ -699,6 +709,33 @@ bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
                   last_tx_result_.lora_required ? 1U : 0U,
                   last_tx_result_.lora_ready ? 1U : 0U,
                   last_tx_result_.lora_ok ? 1U : 0U,
+                  last_tx_result_.wifi_required ? 1U : 0U,
+                  last_tx_result_.wifi_ready ? 1U : 0U,
+                  last_tx_result_.wifi_ok ? 1U : 0U,
+                  sent ? 1U : 0U);
+    return sent;
+}
+
+bool ReticulumInterfaceSet::sendPacketWifiOnly(const uint8_t* data, size_t len)
+{
+    last_tx_result_ = {};
+    if (!data || len == 0)
+    {
+        return false;
+    }
+
+    maintain();
+
+    last_tx_result_.wifi_required = wifiAllowed() && wifi_.isConfigured();
+    last_tx_result_.wifi_ready = last_tx_result_.wifi_required && wifi_.isReady();
+    if (last_tx_result_.wifi_ready)
+    {
+        last_tx_result_.wifi_ok = wifi_.sendPacket(data, len);
+    }
+
+    const bool sent = last_tx_result_.sent();
+    Serial.printf("[Reticulum][IF][TX] raw_len=%u mode=wifi_only wifi_req=%u wifi_ready=%u wifi=%u sent=%u\n",
+                  static_cast<unsigned>(len),
                   last_tx_result_.wifi_required ? 1U : 0U,
                   last_tx_result_.wifi_ready ? 1U : 0U,
                   last_tx_result_.wifi_ok ? 1U : 0U,

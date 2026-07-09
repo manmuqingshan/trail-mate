@@ -29,6 +29,8 @@ class ChatMessageListScreen
     enum class ActionIntent
     {
         SelectConversation,
+        ShowInfo,
+        DeleteConversation,
         Back
     };
 
@@ -60,6 +62,7 @@ class ChatMessageListScreen
     lv_obj_t* getItemButton(size_t index) const;
     int getSelectedIndex() const { return selected_index_; }
     bool isFilterPanelVisible() const { return filter_panel_visible_; }
+    bool openSelectedActionMenu();
 
   private:
     enum class TimerDomain
@@ -99,6 +102,20 @@ class ChatMessageListScreen
         Team
     };
 
+    enum class ModalCommand
+    {
+        Chat,
+        Info,
+        Delete,
+        Cancel
+    };
+
+    struct ModalButtonContext
+    {
+        ChatMessageListScreen* screen = nullptr;
+        ModalCommand command = ModalCommand::Cancel;
+    };
+
     lv_obj_t* container_ = nullptr;
     ::ui::widgets::TopBar top_bar_{};
     lv_obj_t* filter_panel_ = nullptr;
@@ -107,6 +124,12 @@ class ChatMessageListScreen
     lv_obj_t* broadcast_btn_ = nullptr;
     lv_obj_t* team_btn_ = nullptr;
     lv_obj_t* list_back_btn_ = nullptr;
+    lv_obj_t* action_menu_modal_ = nullptr;
+    lv_obj_t* delete_confirm_modal_ = nullptr;
+    lv_group_t* modal_group_ = nullptr;
+    lv_group_t* modal_prev_group_ = nullptr;
+    chat::ConversationId modal_conv_{};
+    ModalButtonContext modal_button_contexts_[4]{};
     ::ui::components::air_status_footer::Footer air_status_footer_{};
 
     int selected_index_ = -1;
@@ -160,11 +183,24 @@ class ChatMessageListScreen
     static void search_clear_cb(void* user_data);
     static void search_cancel_cb(void* user_data);
     static void debug_touch_event_cb(lv_event_t* e);
+    static void action_menu_button_cb(lv_event_t* e);
+    static void action_menu_key_cb(lv_event_t* e);
+    static void delete_confirm_cb(lv_event_t* e);
+    static void delete_cancel_cb(lv_event_t* e);
+    static void modal_bg_key_cb(lv_event_t* e);
     static void async_action_cb(void* user_data);
     static void on_root_deleted(lv_event_t* e);
     static void handle_back(void* user_data);
 
     void handle_root_deleted();
+    void openActionMenu(const chat::ConversationId& conv);
+    void openDeleteConfirm(const chat::ConversationId& conv);
+    void closeActionMenu();
+    void closeDeleteConfirm();
+    void closeModal(lv_obj_t*& modal);
+    void prepareModalGroup();
+    void restoreModalGroup();
+    bool isModalOpen() const;
     void schedule_action_async(ActionIntent intent, const chat::ConversationId& conv);
     lv_timer_t* add_timer(lv_timer_cb_t cb, uint32_t period_ms, void* user_data, TimerDomain domain);
     void clear_timers(TimerDomain domain);

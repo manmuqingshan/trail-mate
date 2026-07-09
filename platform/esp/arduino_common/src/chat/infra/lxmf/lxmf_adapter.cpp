@@ -16,6 +16,7 @@
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_service_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_resource_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_transport_runtime.h"
+#include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "sys/event_bus.h"
@@ -153,7 +154,16 @@ void formatHashHex(const uint8_t* hash, size_t hash_len, char* out, size_t out_l
 
 const char* localDestinationKindLabel(runtime::LocalDestinationKind kind)
 {
-    return kind == runtime::LocalDestinationKind::Propagation ? "propagation" : "delivery";
+    switch (kind)
+    {
+    case runtime::LocalDestinationKind::Propagation:
+        return "propagation";
+    case runtime::LocalDestinationKind::CallAudio:
+        return "call_audio";
+    case runtime::LocalDestinationKind::Delivery:
+    default:
+        return "delivery";
+    }
 }
 
 bool appendMsgpackByte(uint8_t value, uint8_t* out, size_t out_len, size_t& used)
@@ -299,18 +309,34 @@ bool packPropagationAnnounceAppData(uint32_t timebase_s,
     return true;
 }
 
-void destinationHashForAspect(const uint8_t identity_hash[reticulum::kTruncatedHashSize],
-                              const char* aspect,
-                              uint8_t out_hash[reticulum::kTruncatedHashSize])
+void destinationHashForServiceAspect(
+    const uint8_t identity_hash[reticulum::kTruncatedHashSize],
+    const char* app_name,
+    const char* aspect,
+    uint8_t out_hash[reticulum::kTruncatedHashSize])
 {
-    if (!identity_hash || !aspect || !out_hash)
+    if (!identity_hash || !app_name || !aspect || !out_hash)
     {
         return;
     }
 
     uint8_t name_hash[reticulum::kNameHashSize] = {};
-    reticulum::computeNameHash("lxmf", aspect, name_hash);
+    reticulum::computeNameHash(app_name, aspect, name_hash);
     reticulum::computeDestinationHash(name_hash, identity_hash, out_hash);
+}
+
+void destinationHashForAspect(const uint8_t identity_hash[reticulum::kTruncatedHashSize],
+                              const char* aspect,
+                              uint8_t out_hash[reticulum::kTruncatedHashSize])
+{
+    destinationHashForServiceAspect(identity_hash, "lxmf", aspect, out_hash);
+}
+
+void callAudioDestinationHashForIdentity(
+    const uint8_t identity_hash[reticulum::kTruncatedHashSize],
+    uint8_t out_hash[reticulum::kTruncatedHashSize])
+{
+    destinationHashForServiceAspect(identity_hash, "call", "audio", out_hash);
 }
 
 void fillRandomBytes(uint8_t* out, size_t len)
@@ -475,6 +501,18 @@ bool isLxmfPropagationAnnounce(const reticulum::ParsedAnnounce& announce)
 
     uint8_t expected_name_hash[reticulum::kNameHashSize] = {};
     reticulum::computeNameHash("lxmf", "propagation", expected_name_hash);
+    return hashesEqual(expected_name_hash, announce.name_hash, sizeof(expected_name_hash));
+}
+
+bool isCallAudioAnnounce(const reticulum::ParsedAnnounce& announce)
+{
+    if (!announce.valid || !announce.name_hash)
+    {
+        return false;
+    }
+
+    uint8_t expected_name_hash[reticulum::kNameHashSize] = {};
+    reticulum::computeNameHash("call", "audio", expected_name_hash);
     return hashesEqual(expected_name_hash, announce.name_hash, sizeof(expected_name_hash));
 }
 
@@ -670,6 +708,7 @@ MeshCapabilities LxmfAdapter::getCapabilities() const
     caps.supports_broadcast_appdata = true;
     caps.provides_appdata_sender = true;
     caps.supports_node_info = true;
+    caps.supports_reticulum_audio_call = true;
     return caps;
 }
 
@@ -1201,13 +1240,17 @@ bool LxmfAdapter::broadcastSelfIdentity()
     const bool delivery_complete = lastAnnounceTxReachedRequiredInterfaces(delivery_ok);
     const bool propagation_ok = sendAnnounce(LocalDestinationKind::Propagation);
     const bool propagation_complete = lastAnnounceTxReachedRequiredInterfaces(propagation_ok);
-    if (delivery_ok || propagation_ok)
+    const bool call_audio_ok = sendAnnounce(LocalDestinationKind::CallAudio);
+    const bool call_audio_complete =
+        !interfaces_.wifiGatewayConfigured() ||
+        lastAnnounceTxReachedRequiredInterfaces(call_audio_ok);
+    if (delivery_ok || propagation_ok || call_audio_ok)
     {
         last_announce_ms_ = millis();
     }
     last_announce_attempt_ms_ = millis();
-    announce_pending_ = !(delivery_complete && propagation_complete);
-    return delivery_ok || propagation_ok;
+    announce_pending_ = !(delivery_complete && propagation_complete && call_audio_complete);
+    return delivery_ok || propagation_ok || call_audio_ok;
 }
 
 NodeId LxmfAdapter::getNodeId() const
@@ -1241,6 +1284,130 @@ bool LxmfAdapter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out)
     localDestinationHash(LocalDestinationKind::Delivery, out->lxmf_address);
     localDestinationHash(LocalDestinationKind::Propagation, out->propagation_address);
     return true;
+}
+
+MeshActionResult LxmfAdapter::startReticulumAudioCall(
+    const ReticulumPeerIdentity& destination)
+{
+    if (config_.reticulum_anonymous_peer)
+    {
+        return MeshActionResult::fail(MeshOperationFailure::Unsupported);
+    }
+    if (!chat::hasReticulumDestinationIdentity(destination) || !identity_.isReady())
+    {
+        return MeshActionResult::fail(MeshOperationFailure::InvalidInput);
+    }
+
+    interfaces_.maintain();
+    if (!interfaces_.wifiGatewayConfigured() || !interfaces_.hasReadyWifiGateway())
+    {
+        return MeshActionResult::fail(MeshOperationFailure::NotReady);
+    }
+
+    const PeerInfo* peer = findPeerByDestinationHash(destination.destination_hash);
+    if (!peer && !isZeroBytes(destination.identity_hash, sizeof(destination.identity_hash)))
+    {
+        peer = findPeerByIdentityHash(destination.identity_hash);
+    }
+
+    uint8_t remote_identity_hash[reticulum::kTruncatedHashSize] = {};
+    if (peer && !isZeroBytes(peer->identity_hash, sizeof(peer->identity_hash)))
+    {
+        copyHash(remote_identity_hash, peer->identity_hash, sizeof(remote_identity_hash));
+    }
+    else if (!isZeroBytes(destination.identity_hash, sizeof(destination.identity_hash)))
+    {
+        copyHash(remote_identity_hash,
+                 destination.identity_hash,
+                 sizeof(remote_identity_hash));
+    }
+    else
+    {
+        return MeshActionResult::fail(MeshOperationFailure::PeerKeyMissing);
+    }
+
+    uint8_t call_destination_hash[reticulum::kTruncatedHashSize] = {};
+    callAudioDestinationHashForIdentity(remote_identity_hash, call_destination_hash);
+    if (isZeroBytes(call_destination_hash, sizeof(call_destination_hash)))
+    {
+        return MeshActionResult::fail(MeshOperationFailure::EncodeFailed);
+    }
+
+    if (runtime::findOpenLinkSessionByDestination(
+            links_, call_destination_hash, LocalDestinationKind::CallAudio))
+    {
+        return MeshActionResult::fail(MeshOperationFailure::Busy);
+    }
+
+    const PathEntry* path = findPath(call_destination_hash);
+    if (!path)
+    {
+        (void)sendPathRequestForDestination(call_destination_hash);
+        return MeshActionResult::fail(MeshOperationFailure::NotReady, 1);
+    }
+
+    LinkSession& session = runtime::appendLinkSession(links_, kMaxLinkSessions);
+    session.created_ms = millis();
+    session.request_ms = session.created_ms;
+    session.last_inbound_ms = session.created_ms;
+    session.initiator = true;
+    session.destination = LocalDestinationKind::CallAudio;
+    session.state = LinkState::Pending;
+    session.close_reason = LinkCloseReason::None;
+    session.expected_hops = path->hops;
+    session.remote_identity_known =
+        !isZeroBytes(remote_identity_hash, sizeof(remote_identity_hash));
+    session.validated = false;
+    session.keepalive_interval_ms = kLinkKeepaliveMaxMs;
+    session.stale_timeout_ms = kLinkKeepaliveMaxMs * 2U;
+    copyHash(session.remote_destination_hash,
+             call_destination_hash,
+             sizeof(session.remote_destination_hash));
+    copyHash(session.remote_identity_hash,
+             remote_identity_hash,
+             sizeof(session.remote_identity_hash));
+    if (peer)
+    {
+        memcpy(session.peer_identity_sig_pub,
+               peer->sig_pub,
+               sizeof(session.peer_identity_sig_pub));
+    }
+
+    Curve25519::dh1(session.local_enc_pub, session.local_enc_priv);
+    if (isZeroBytes(session.local_enc_priv, sizeof(session.local_enc_priv)) ||
+        !generateLinkSigningKey(session.local_sig_pub, session.local_sig_priv) ||
+        !sendLinkRequest(session))
+    {
+        links_.sessions.pop_back();
+        return MeshActionResult::fail(MeshOperationFailure::RadioTxFailed);
+    }
+
+    ::platform::ui::reticulum_call::Peer call_peer{};
+    copyHash(call_peer.link_id, session.link_id, sizeof(call_peer.link_id));
+    if (peer)
+    {
+        copyHash(call_peer.destination_hash,
+                 peer->destination_hash,
+                 sizeof(call_peer.destination_hash));
+        copyHash(call_peer.identity_hash,
+                 peer->identity_hash,
+                 sizeof(call_peer.identity_hash));
+        call_peer.display_name =
+            peer->display_name[0] != '\0' ? peer->display_name : nullptr;
+    }
+    else
+    {
+        copyHash(call_peer.destination_hash,
+                 destination.destination_hash,
+                 sizeof(call_peer.destination_hash));
+        copyHash(call_peer.identity_hash,
+                 remote_identity_hash,
+                 sizeof(call_peer.identity_hash));
+    }
+    call_peer.incoming = false;
+    (void)::platform::ui::reticulum_call::begin_outgoing(call_peer);
+
+    return MeshActionResult::success();
 }
 
 void LxmfAdapter::applyConfig(const MeshConfig& config)
@@ -1325,6 +1492,18 @@ void LxmfAdapter::processSendQueue()
 LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
 {
     RuntimeBudget budget{};
+    if (::platform::ui::reticulum_call::realtime_mode_active())
+    {
+        budget.live_packet_limit = 2;
+        budget.deferred_discovery_limit = 0;
+        budget.allow_public_discovery = false;
+        budget.allow_persistence = false;
+        budget.allow_peer_projection = false;
+        budget.allow_announce_tx = false;
+        budget.phase = "call";
+        return budget;
+    }
+
     const bool maintenance_window =
         screen_runtime::is_sleeping() && !screen_runtime::is_saver_active();
     if (maintenance_window)
@@ -1352,6 +1531,13 @@ LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
 void LxmfAdapter::processRuntime()
 {
     const RuntimeBudget budget = makeRuntimeBudget();
+    if (::platform::ui::reticulum_call::realtime_mode_active())
+    {
+        processRadioPackets(budget);
+        pumpReticulumAudioCall();
+        return;
+    }
+
     cullTransportState();
     cullLinkSessions();
     const runtime::PropagationRuntimeLimits propagation_limits{
@@ -1366,6 +1552,7 @@ void LxmfAdapter::processRuntime()
                                     propagation_limits);
 
     processRadioPackets(budget);
+    pumpReticulumAudioCall();
     processDeferredDiscoveryPackets(budget);
 
     if (budget.allow_peer_projection)
@@ -1494,17 +1681,17 @@ bool LxmfAdapter::processOneRadioPacket(
     }
     if (parsed.packet_type == reticulum::PacketType::Proof)
     {
-        return handleProofPacket(packet, packet_len, parsed);
+        return handleProofPacket(packet, packet_len, parsed, ingress_interface);
     }
     if (parsed.packet_type == reticulum::PacketType::LinkRequest)
     {
-        return handleLinkRequestPacket(packet, packet_len, parsed);
+        return handleLinkRequestPacket(packet, packet_len, parsed, ingress_interface);
     }
     if (parsed.packet_type == reticulum::PacketType::Data)
     {
         if (!handlePathRequestPacket(parsed) &&
             !handleCacheRequestPacket(parsed) &&
-            !handleLocalLinkPacket(packet, packet_len, parsed) &&
+            !handleLocalLinkPacket(packet, packet_len, parsed, ingress_interface) &&
             !maybeForwardLinkPacket(packet, packet_len, parsed) &&
             !maybeForwardTransportPacket(packet, packet_len, parsed))
         {
@@ -1513,7 +1700,8 @@ bool LxmfAdapter::processOneRadioPacket(
         return true;
     }
 
-    const bool handled_local = handleLocalLinkPacket(packet, packet_len, parsed);
+    const bool handled_local =
+        handleLocalLinkPacket(packet, packet_len, parsed, ingress_interface);
     const bool handled_link = maybeForwardLinkPacket(packet, packet_len, parsed);
     const bool handled_transport = maybeForwardTransportPacket(packet, packet_len, parsed);
     return handled_local || handled_link || handled_transport;
@@ -1646,12 +1834,16 @@ void LxmfAdapter::maybeAnnounce()
     const bool delivery_complete = lastAnnounceTxReachedRequiredInterfaces(delivery_ok);
     const bool propagation_ok = sendAnnounce(LocalDestinationKind::Propagation);
     const bool propagation_complete = lastAnnounceTxReachedRequiredInterfaces(propagation_ok);
+    const bool call_audio_ok = sendAnnounce(LocalDestinationKind::CallAudio);
+    const bool call_audio_complete =
+        !interfaces_.wifiGatewayConfigured() ||
+        lastAnnounceTxReachedRequiredInterfaces(call_audio_ok);
     last_announce_attempt_ms_ = now_ms;
-    if (delivery_ok || propagation_ok)
+    if (delivery_ok || propagation_ok || call_audio_ok)
     {
         last_announce_ms_ = now_ms;
     }
-    announce_pending_ = !(delivery_complete && propagation_complete);
+    announce_pending_ = !(delivery_complete && propagation_complete && call_audio_complete);
     if (!announce_pending_)
     {
         last_announce_attempt_ms_ = 0;
@@ -1669,7 +1861,20 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
                       static_cast<unsigned>(context));
         return false;
     }
-    if (!isReady())
+    const bool call_audio = kind == LocalDestinationKind::CallAudio;
+    if (call_audio && !interfaces_.wifiGatewayConfigured())
+    {
+        return false;
+    }
+    if (call_audio)
+    {
+        interfaces_.maintain();
+        if (!identity_.isReady() || !interfaces_.hasReadyWifiGateway())
+        {
+            return false;
+        }
+    }
+    else if (!isReady())
     {
         return false;
     }
@@ -1677,7 +1882,17 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
     uint8_t app_data[96] = {};
     size_t app_data_len = sizeof(app_data);
     bool app_data_ok = false;
-    if (kind == LocalDestinationKind::Propagation)
+    if (kind == LocalDestinationKind::CallAudio)
+    {
+        const char* display_name = effectiveDisplayName();
+        app_data_len = display_name ? std::min(strlen(display_name), sizeof(app_data)) : 0;
+        if (app_data_len != 0)
+        {
+            memcpy(app_data, display_name, app_data_len);
+        }
+        app_data_ok = true;
+    }
+    else if (kind == LocalDestinationKind::Propagation)
     {
         app_data_ok = packPropagationAnnounceAppData(currentTimestampSeconds(),
                                                      true,
@@ -1707,9 +1922,16 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
     localDestinationHash(kind, destination_hash);
 
     uint8_t name_hash[reticulum::kNameHashSize] = {};
-    reticulum::computeNameHash("lxmf",
-                               (kind == LocalDestinationKind::Propagation) ? "propagation" : "delivery",
-                               name_hash);
+    if (kind == LocalDestinationKind::CallAudio)
+    {
+        reticulum::computeNameHash("call", "audio", name_hash);
+    }
+    else
+    {
+        reticulum::computeNameHash("lxmf",
+                                   (kind == LocalDestinationKind::Propagation) ? "propagation" : "delivery",
+                                   name_hash);
+    }
 
     uint8_t random_hash[10] = {};
     fillRandomBytes(random_hash, 5);
@@ -1780,7 +2002,9 @@ bool LxmfAdapter::sendAnnounce(LocalDestinationKind kind,
                   sizeof(destination_hash),
                   destination_hex,
                   sizeof(destination_hex));
-    const bool sent = routeAndSendPacket(packet, packet_len, false);
+    const bool sent = call_audio
+                          ? interfaces_.sendPacketWifiOnly(packet, packet_len)
+                          : routeAndSendPacket(packet, packet_len, false);
     const auto& tx_result = interfaces_.lastTxResult();
     const char* display_name = effectiveDisplayName();
     Serial.printf("[LXMF][AnnounceTX] kind=%s context=%u dest=%s name=%s app_len=%u packet_len=%u ok=%u complete=%u lora=%u/%u wifi=%u/%u\n",
@@ -1940,6 +2164,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
 
     const bool delivery_announce = isLxmfDeliveryAnnounce(announce);
     const bool propagation_announce = isLxmfPropagationAnnounce(announce);
+    const bool call_audio_announce = isCallAudioAnnounce(announce);
     LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
     const bool local_destination = isLocalDestinationHash(packet.destination_hash, &local_kind);
 
@@ -1957,13 +2182,27 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     char announce_display_name[32] = {};
     bool has_stamp_cost = false;
     uint8_t stamp_cost = 0;
-    if (delivery_announce && announce.app_data && announce.app_data_len != 0 &&
-        unpackPeerAnnounceAppData(announce.app_data,
-                                  announce.app_data_len,
-                                  announce_display_name,
-                                  sizeof(announce_display_name),
-                                  &has_stamp_cost,
-                                  &stamp_cost))
+    if (call_audio_announce && announce.app_data && announce.app_data_len != 0)
+    {
+        const size_t name_len =
+            std::min(announce.app_data_len, sizeof(announce_display_name) - 1U);
+        memcpy(announce_display_name, announce.app_data, name_len);
+        announce_display_name[name_len] = '\0';
+        for (char& ch : announce_display_name)
+        {
+            if (ch == '\t' || ch == '\r' || ch == '\n')
+            {
+                ch = ' ';
+            }
+        }
+    }
+    else if (delivery_announce && announce.app_data && announce.app_data_len != 0 &&
+             unpackPeerAnnounceAppData(announce.app_data,
+                                       announce.app_data_len,
+                                       announce_display_name,
+                                       sizeof(announce_display_name),
+                                       &has_stamp_cost,
+                                       &stamp_cost))
     {
         (void)has_stamp_cost;
         (void)stamp_cost;
@@ -1978,9 +2217,12 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
              identity_hash,
              sizeof(directory_announce.identity_hash));
     directory_announce.aspect =
-        delivery_announce ? rtdir::AnnounceAspect::LxmfDelivery
-                          : (propagation_announce ? rtdir::AnnounceAspect::LxmfPropagation
-                                                  : rtdir::AnnounceAspect::Unknown);
+        delivery_announce
+            ? rtdir::AnnounceAspect::LxmfDelivery
+            : (propagation_announce
+                   ? rtdir::AnnounceAspect::LxmfPropagation
+                   : (call_audio_announce ? rtdir::AnnounceAspect::CallAudio
+                                          : rtdir::AnnounceAspect::Unknown));
     directory_announce.source =
         packet.context == static_cast<uint8_t>(reticulum::PacketContext::PathResponse)
             ? rtdir::EntrySource::PathResponse
@@ -2016,7 +2258,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         local_destination;
     if (log_announce_detail)
     {
-        Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u app_len=%u delivery=%u propagation=%u local=%u kind=%s\n",
+        Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u app_len=%u delivery=%u propagation=%u call=%u local=%u kind=%s\n",
                       packet_hash_hex,
                       identity_hash_hex,
                       static_cast<unsigned>(packet.hops),
@@ -2024,6 +2266,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
                       static_cast<unsigned>(announce.app_data_len),
                       delivery_announce ? 1U : 0U,
                       propagation_announce ? 1U : 0U,
+                      call_audio_announce ? 1U : 0U,
                       local_destination ? 1U : 0U,
                       localDestinationKindLabel(local_kind));
     }
@@ -2041,18 +2284,28 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         runtime::markPropagationPeerSeen(propagation_peer, now_s);
     }
 
-    if (!delivery_announce || local_destination)
+    if (!(delivery_announce || call_audio_announce) || local_destination)
     {
         if (log_announce_detail)
         {
             Serial.printf("[LXMF][AnnounceRX] ignore reason=%s dest=%s\n",
-                          local_destination ? "local_destination" : "not_delivery",
+                          local_destination ? "local_destination" : "not_contact_announce",
                           packet_hash_hex);
         }
         return true;
     }
 
-    PeerInfo& peer = upsertPeer(packet.destination_hash);
+    uint8_t peer_destination_hash[reticulum::kTruncatedHashSize] = {};
+    if (delivery_announce)
+    {
+        copyHash(peer_destination_hash, packet.destination_hash, sizeof(peer_destination_hash));
+    }
+    else
+    {
+        destinationHashForAspect(identity_hash, "delivery", peer_destination_hash);
+    }
+
+    PeerInfo& peer = upsertPeer(peer_destination_hash);
     const uint32_t previous_seen_s = peer.last_seen_s;
     const bool identity_changed =
         isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash)) ||
@@ -2273,8 +2526,10 @@ bool LxmfAdapter::handleDataPacket(const uint8_t* raw_packet, size_t raw_len,
     return true;
 }
 
-bool LxmfAdapter::handleProofPacket(const uint8_t* raw_packet, size_t raw_len,
-                                    const reticulum::ParsedPacket& packet)
+bool LxmfAdapter::handleProofPacket(
+    const uint8_t* raw_packet, size_t raw_len,
+    const reticulum::ParsedPacket& packet,
+    reticulum::interfaces::InterfaceKind ingress_interface)
 {
     if (!raw_packet || !packet.destination_hash || packet.packet_type != reticulum::PacketType::Proof)
     {
@@ -2282,7 +2537,7 @@ bool LxmfAdapter::handleProofPacket(const uint8_t* raw_packet, size_t raw_len,
     }
 
     if (packet.destination_type == reticulum::DestinationType::Link &&
-        handleLocalLinkPacket(raw_packet, raw_len, packet))
+        handleLocalLinkPacket(raw_packet, raw_len, packet, ingress_interface))
     {
         return true;
     }
@@ -2324,8 +2579,10 @@ bool LxmfAdapter::handleProofPacket(const uint8_t* raw_packet, size_t raw_len,
     return interfaces_.sendPacket(forward_packet, forward_len);
 }
 
-bool LxmfAdapter::handleLinkRequestPacket(const uint8_t* raw_packet, size_t raw_len,
-                                          const reticulum::ParsedPacket& packet)
+bool LxmfAdapter::handleLinkRequestPacket(
+    const uint8_t* raw_packet, size_t raw_len,
+    const reticulum::ParsedPacket& packet,
+    reticulum::interfaces::InterfaceKind ingress_interface)
 {
     if (!raw_packet || raw_len == 0 || !packet.destination_hash ||
         packet.packet_type != reticulum::PacketType::LinkRequest)
@@ -2342,6 +2599,12 @@ bool LxmfAdapter::handleLinkRequestPacket(const uint8_t* raw_packet, size_t raw_
     LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
     if (isLocalDestinationHash(packet.destination_hash, &local_kind))
     {
+        if (local_kind == LocalDestinationKind::CallAudio &&
+            ingress_interface != reticulum::interfaces::InterfaceKind::WifiGateway)
+        {
+            return false;
+        }
+
         if (!packet.payload ||
             (packet.payload_len != kLinkRequestBaseLen &&
              packet.payload_len != (kLinkRequestBaseLen + kLinkSignallingLen)))
@@ -2395,6 +2658,15 @@ bool LxmfAdapter::handleLinkRequestPacket(const uint8_t* raw_packet, size_t raw_
             {
                 links_.sessions.pop_back();
                 return false;
+            }
+
+            if (local_kind == LocalDestinationKind::CallAudio)
+            {
+                ::platform::ui::reticulum_call::Peer call_peer{};
+                copyHash(call_peer.link_id, session->link_id, sizeof(call_peer.link_id));
+                call_peer.display_name = "Incoming call";
+                call_peer.incoming = true;
+                (void)::platform::ui::reticulum_call::begin_incoming(call_peer);
             }
         }
         else
@@ -2535,8 +2807,10 @@ bool LxmfAdapter::handleCacheRequestPacket(const reticulum::ParsedPacket& packet
     return sendCachedPacketReplay(packet.payload);
 }
 
-bool LxmfAdapter::handleLocalLinkPacket(const uint8_t* raw_packet, size_t raw_len,
-                                        const reticulum::ParsedPacket& packet)
+bool LxmfAdapter::handleLocalLinkPacket(
+    const uint8_t* raw_packet, size_t raw_len,
+    const reticulum::ParsedPacket& packet,
+    reticulum::interfaces::InterfaceKind ingress_interface)
 {
     if (!packet.destination_hash ||
         packet.destination_type != reticulum::DestinationType::Link)
@@ -2546,6 +2820,11 @@ bool LxmfAdapter::handleLocalLinkPacket(const uint8_t* raw_packet, size_t raw_le
 
     LinkSession* session = findLinkSession(packet.destination_hash);
     if (!session)
+    {
+        return false;
+    }
+    if (session->destination == LocalDestinationKind::CallAudio &&
+        ingress_interface != reticulum::interfaces::InterfaceKind::WifiGateway)
     {
         return false;
     }
@@ -2595,6 +2874,13 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
             {
                 handled = handlePropagationBatch(session, payload_ptr, payload_len);
             }
+            else if (session.destination == LocalDestinationKind::CallAudio)
+            {
+                handled = ::platform::ui::reticulum_call::enqueue_inbound_audio(
+                    session.link_id,
+                    payload_ptr,
+                    payload_len);
+            }
             else
             {
                 handled = acceptVerifiedEnvelope(payload_ptr, payload_len, raw_packet, raw_len);
@@ -2619,9 +2905,12 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
                 PeerInfo* peer = rememberPeerIdentity(combined_pub);
                 if (peer)
                 {
-                    copyHash(session.remote_destination_hash,
-                             peer->destination_hash,
-                             sizeof(session.remote_destination_hash));
+                    if (session.destination != LocalDestinationKind::CallAudio)
+                    {
+                        copyHash(session.remote_destination_hash,
+                                 peer->destination_hash,
+                                 sizeof(session.remote_destination_hash));
+                    }
                     copyHash(session.remote_identity_hash,
                              peer->identity_hash,
                              sizeof(session.remote_identity_hash));
@@ -2629,6 +2918,21 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
                            peer->sig_pub,
                            sizeof(session.peer_identity_sig_pub));
                     session.remote_identity_known = true;
+                    if (session.destination == LocalDestinationKind::CallAudio)
+                    {
+                        ::platform::ui::reticulum_call::Peer call_peer{};
+                        copyHash(call_peer.link_id, session.link_id, sizeof(call_peer.link_id));
+                        copyHash(call_peer.destination_hash,
+                                 peer->destination_hash,
+                                 sizeof(call_peer.destination_hash));
+                        copyHash(call_peer.identity_hash,
+                                 peer->identity_hash,
+                                 sizeof(call_peer.identity_hash));
+                        call_peer.display_name =
+                            peer->display_name[0] != '\0' ? peer->display_name : nullptr;
+                        call_peer.incoming = !session.initiator;
+                        ::platform::ui::reticulum_call::update_peer(call_peer);
+                    }
                 }
                 handled = true;
             }
@@ -2695,6 +2999,11 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
             session.stale_timeout_ms = session.keepalive_interval_ms * 2U;
             session.last_keepalive_ms = 0;
             session.state = LinkState::Active;
+            if (session.destination == LocalDestinationKind::CallAudio)
+            {
+                (void)sendLinkIdentify(session);
+                ::platform::ui::reticulum_call::mark_link_active(session.link_id);
+            }
             handled = true;
         }
     }
@@ -2798,8 +3107,19 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                                         : nullptr;
         const size_t signalling_len = signalling ? kLinkSignallingLen : 0;
 
-        const PeerInfo* peer = findPeerByDestinationHash(session.remote_destination_hash);
-        if (!peer)
+        const PeerInfo* peer =
+            session.destination == LocalDestinationKind::CallAudio
+                ? findPeerByIdentityHash(session.remote_identity_hash)
+                : findPeerByDestinationHash(session.remote_destination_hash);
+        const uint8_t* peer_sig_pub = peer ? peer->sig_pub : nullptr;
+        if (!peer_sig_pub &&
+            session.destination == LocalDestinationKind::CallAudio &&
+            !isZeroBytes(session.peer_identity_sig_pub,
+                         sizeof(session.peer_identity_sig_pub)))
+        {
+            peer_sig_pub = session.peer_identity_sig_pub;
+        }
+        if (!peer_sig_pub)
         {
             return false;
         }
@@ -2812,7 +3132,7 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
         used += reticulum::kTruncatedHashSize;
         memcpy(signed_data.data() + used, peer_enc_pub, LxmfIdentity::kEncPubKeySize);
         used += LxmfIdentity::kEncPubKeySize;
-        memcpy(signed_data.data() + used, peer->sig_pub, LxmfIdentity::kSigPubKeySize);
+        memcpy(signed_data.data() + used, peer_sig_pub, LxmfIdentity::kSigPubKeySize);
         used += LxmfIdentity::kSigPubKeySize;
         if (signalling_len != 0)
         {
@@ -2820,14 +3140,21 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
             used += signalling_len;
         }
 
-        if (!LxmfIdentity::verify(peer->sig_pub, signature, signed_data.data(), used))
+        if (!LxmfIdentity::verify(peer_sig_pub, signature, signed_data.data(), used))
         {
             return false;
         }
 
         memcpy(session.peer_enc_pub, peer_enc_pub, sizeof(session.peer_enc_pub));
-        memcpy(session.peer_identity_sig_pub, peer->sig_pub, sizeof(session.peer_identity_sig_pub));
-        copyHash(session.remote_identity_hash, peer->identity_hash, sizeof(session.remote_identity_hash));
+        memcpy(session.peer_identity_sig_pub,
+               peer_sig_pub,
+               sizeof(session.peer_identity_sig_pub));
+        if (peer)
+        {
+            copyHash(session.remote_identity_hash,
+                     peer->identity_hash,
+                     sizeof(session.remote_identity_hash));
+        }
         session.remote_identity_known = true;
         session.mtu = signalling ? mtuFromLinkSignalling(signalling, signalling_len) : reticulum::kReticulumMtu;
         session.mdu = linkMduForMtu(session.mtu);
@@ -2843,6 +3170,26 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
         session.last_keepalive_ms = 0;
         session.state = LinkState::Active;
         const bool rtt_sent = sendLinkRtt(session);
+        if (session.destination == LocalDestinationKind::CallAudio)
+        {
+            (void)sendLinkIdentify(session);
+            ::platform::ui::reticulum_call::Peer call_peer{};
+            copyHash(call_peer.link_id, session.link_id, sizeof(call_peer.link_id));
+            copyHash(call_peer.identity_hash,
+                     session.remote_identity_hash,
+                     sizeof(call_peer.identity_hash));
+            if (peer)
+            {
+                copyHash(call_peer.destination_hash,
+                         peer->destination_hash,
+                         sizeof(call_peer.destination_hash));
+                call_peer.display_name =
+                    peer->display_name[0] != '\0' ? peer->display_name : nullptr;
+            }
+            call_peer.incoming = false;
+            ::platform::ui::reticulum_call::update_peer(call_peer);
+            ::platform::ui::reticulum_call::mark_link_active(session.link_id);
+        }
         flushDeferredLinkPayloads(session);
         return rtt_sent;
     }
@@ -3731,6 +4078,58 @@ bool LxmfAdapter::sendPathRequest(PeerInfo& peer)
     return true;
 }
 
+bool LxmfAdapter::sendPathRequestForDestination(
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize])
+{
+    if (!destination_hash ||
+        isZeroBytes(destination_hash, reticulum::kTruncatedHashSize) ||
+        !identity_.isReady())
+    {
+        return false;
+    }
+
+    const uint32_t now_ms = millis();
+    if (const PendingPathRequest* pending = findPendingPathRequest(destination_hash))
+    {
+        if (!pending->resolved &&
+            pending->last_attempt_ms != 0 &&
+            (now_ms - pending->last_attempt_ms) < kPathRequestMinIntervalMs)
+        {
+            return false;
+        }
+    }
+
+    uint8_t request_payload[reticulum::kTruncatedHashSize + kPathRequestTagSize] = {};
+    memcpy(request_payload, destination_hash, reticulum::kTruncatedHashSize);
+    fillRandomBytes(request_payload + reticulum::kTruncatedHashSize, kPathRequestTagSize);
+
+    uint8_t control_hash[reticulum::kTruncatedHashSize] = {};
+    pathRequestDestinationHash(control_hash);
+
+    uint8_t packet[kMaxPacketLen] = {};
+    size_t packet_len = sizeof(packet);
+    if (!reticulum::buildHeader1Packet(reticulum::PacketType::Data,
+                                       reticulum::DestinationType::Plain,
+                                       reticulum::PacketContext::None,
+                                       false,
+                                       control_hash,
+                                       request_payload,
+                                       sizeof(request_payload),
+                                       packet,
+                                       &packet_len))
+    {
+        return false;
+    }
+
+    if (!routeAndSendPacket(packet, packet_len, false, true))
+    {
+        return false;
+    }
+
+    notePendingPathRequest(destination_hash, now_ms);
+    return true;
+}
+
 bool LxmfAdapter::shouldRequestPath(const PeerInfo& peer) const
 {
     if (isZeroBytes(peer.destination_hash, sizeof(peer.destination_hash)))
@@ -3878,7 +4277,11 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
     }
 
     session.request_ms = millis();
-    const bool sent = routeAndSendPacket(packet, packet_len, true);
+    const bool sent =
+        routeAndSendPacket(packet,
+                           packet_len,
+                           true,
+                           session.destination == LocalDestinationKind::CallAudio);
     if (sent)
     {
         session.last_outbound_ms = session.request_ms;
@@ -4066,22 +4469,29 @@ bool LxmfAdapter::buildEncryptedPacketForPeer(const PeerInfo& peer,
 }
 
 bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
-                                     bool allow_transport)
+                                     bool allow_transport,
+                                     bool wifi_only)
 {
     if (!raw_packet || raw_len == 0)
     {
         return false;
     }
 
+    auto send_packet = [&](const uint8_t* data, size_t len) -> bool
+    {
+        return wifi_only ? interfaces_.sendPacketWifiOnly(data, len)
+                         : interfaces_.sendPacket(data, len);
+    };
+
     if (!allow_transport)
     {
-        return interfaces_.sendPacket(raw_packet, raw_len);
+        return send_packet(raw_packet, raw_len);
     }
 
     reticulum::ParsedPacket parsed{};
     if (!reticulum::parsePacket(raw_packet, raw_len, &parsed) || !parsed.destination_hash)
     {
-        return interfaces_.sendPacket(raw_packet, raw_len);
+        return send_packet(raw_packet, raw_len);
     }
 
     if (parsed.packet_type == reticulum::PacketType::Announce ||
@@ -4089,13 +4499,13 @@ bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
         parsed.destination_type == reticulum::DestinationType::Plain ||
         parsed.destination_type == reticulum::DestinationType::Group)
     {
-        return interfaces_.sendPacket(raw_packet, raw_len);
+        return send_packet(raw_packet, raw_len);
     }
 
     const PathEntry* path = findPath(parsed.destination_hash);
     if (!path || path->hops <= 1 || path->direct)
     {
-        return interfaces_.sendPacket(raw_packet, raw_len);
+        return send_packet(raw_packet, raw_len);
     }
 
     uint8_t routed_packet[kMaxPacketLen] = {};
@@ -4115,7 +4525,7 @@ bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
         return false;
     }
 
-    return interfaces_.sendPacket(routed_packet, routed_len);
+    return send_packet(routed_packet, routed_len);
 }
 
 bool LxmfAdapter::sendCachedAnnounceResponse(const PathEntry& path,
@@ -4510,6 +4920,10 @@ void LxmfAdapter::localDestinationHash(LocalDestinationKind kind,
     {
         reticulum::computeNameHash("lxmf", "propagation", name_hash);
     }
+    else if (kind == LocalDestinationKind::CallAudio)
+    {
+        reticulum::computeNameHash("call", "audio", name_hash);
+    }
     else
     {
         reticulum::computeNameHash("lxmf", "delivery", name_hash);
@@ -4543,6 +4957,17 @@ bool LxmfAdapter::isLocalDestinationHash(const uint8_t hash[reticulum::kTruncate
         if (out_kind)
         {
             *out_kind = LocalDestinationKind::Propagation;
+        }
+        return true;
+    }
+
+    uint8_t call_audio_hash[reticulum::kTruncatedHashSize] = {};
+    localDestinationHash(LocalDestinationKind::CallAudio, call_audio_hash);
+    if (hashesEqual(hash, call_audio_hash, sizeof(call_audio_hash)))
+    {
+        if (out_kind)
+        {
+            *out_kind = LocalDestinationKind::CallAudio;
         }
         return true;
     }
@@ -4705,7 +5130,9 @@ bool LxmfAdapter::sendLinkPacket(LinkSession& session,
         return false;
     }
 
-    const bool ok = interfaces_.sendPacket(packet, packet_len);
+    const bool ok = session.destination == LocalDestinationKind::CallAudio
+                        ? interfaces_.sendPacketWifiOnly(packet, packet_len)
+                        : interfaces_.sendPacket(packet, packet_len);
     if (ok)
     {
         session.last_outbound_ms = millis();
@@ -4795,6 +5222,40 @@ bool LxmfAdapter::sendLinkKeepaliveAck(LinkSession& session)
                           &ack,
                           sizeof(ack),
                           false);
+}
+
+bool LxmfAdapter::sendLinkIdentify(LinkSession& session)
+{
+    if (!identity_.isReady() || session.state != LinkState::Active)
+    {
+        return false;
+    }
+
+    uint8_t combined_pub[reticulum::kCombinedPublicKeySize] = {};
+    identity_.combinedPublicKey(combined_pub);
+
+    std::array<uint8_t, reticulum::kTruncatedHashSize + reticulum::kCombinedPublicKeySize>
+        signed_data{};
+    memcpy(signed_data.data(), session.link_id, reticulum::kTruncatedHashSize);
+    memcpy(signed_data.data() + reticulum::kTruncatedHashSize,
+           combined_pub,
+           reticulum::kCombinedPublicKeySize);
+
+    uint8_t payload[reticulum::kCombinedPublicKeySize + reticulum::kSignatureSize] = {};
+    memcpy(payload, combined_pub, sizeof(combined_pub));
+    if (!identity_.sign(signed_data.data(),
+                        signed_data.size(),
+                        payload + reticulum::kCombinedPublicKeySize))
+    {
+        return false;
+    }
+
+    return sendLinkPacket(session,
+                          reticulum::PacketType::Data,
+                          reticulum::PacketContext::LinkIdentify,
+                          payload,
+                          sizeof(payload),
+                          true);
 }
 
 bool LxmfAdapter::sendLinkPacketProof(LinkSession& session,
@@ -5065,12 +5526,66 @@ bool LxmfAdapter::queueOutgoingResource(LinkSession& session,
     return true;
 }
 
+void LxmfAdapter::pumpReticulumAudioCall()
+{
+    ::platform::ui::reticulum_call::set_wifi_ready(
+        interfaces_.hasReadyWifiGateway());
+
+    uint8_t hangup_link_id[reticulum::kTruncatedHashSize] = {};
+    if (::platform::ui::reticulum_call::consume_hangup_request(hangup_link_id))
+    {
+        if (LinkSession* session = findLinkSession(hangup_link_id))
+        {
+            if (session->destination == LocalDestinationKind::CallAudio)
+            {
+                (void)sendLinkPacket(*session,
+                                     reticulum::PacketType::Data,
+                                     reticulum::PacketContext::LinkClose,
+                                     session->link_id,
+                                     sizeof(session->link_id),
+                                     true);
+                closeLinkSession(*session, LinkCloseReason::LocalClose);
+            }
+        }
+    }
+
+    uint8_t sent_packets = 0;
+    ::platform::ui::reticulum_call::AudioPacket audio{};
+    while (sent_packets < 2 &&
+           ::platform::ui::reticulum_call::dequeue_outbound_audio(&audio))
+    {
+        LinkSession* session = findLinkSession(audio.link_id);
+        if (!session ||
+            session->destination != LocalDestinationKind::CallAudio ||
+            session->state != LinkState::Active)
+        {
+            continue;
+        }
+
+        if (sendLinkPacket(*session,
+                           reticulum::PacketType::Data,
+                           reticulum::PacketContext::None,
+                           audio.data,
+                           audio.len,
+                           true))
+        {
+            ::platform::ui::reticulum_call::note_tx_sent();
+            ++sent_packets;
+        }
+    }
+}
+
 void LxmfAdapter::closeLinkSession(LinkSession& session, LinkCloseReason reason)
 {
     const bool transitioned = runtime::closeLinkSession(session, reason, millis());
     if (!transitioned)
     {
         return;
+    }
+
+    if (session.destination == LocalDestinationKind::CallAudio)
+    {
+        ::platform::ui::reticulum_call::notify_link_closed(session.link_id);
     }
 
     transport_.link_relays.erase(
@@ -5536,6 +6051,23 @@ const LxmfAdapter::PeerInfo* LxmfAdapter::findPeerByDestinationHash(
     return nullptr;
 }
 
+const LxmfAdapter::PeerInfo* LxmfAdapter::findPeerByIdentityHash(
+    const uint8_t hash[reticulum::kTruncatedHashSize]) const
+{
+    if (!hash)
+    {
+        return nullptr;
+    }
+    for (const auto& peer : peers_)
+    {
+        if (hashesEqual(peer.identity_hash, hash, reticulum::kTruncatedHashSize))
+        {
+            return &peer;
+        }
+    }
+    return nullptr;
+}
+
 const ReticulumGroupDestinationConfig* LxmfAdapter::findConfiguredGroupDestination(
     const uint8_t hash[reticulum::kTruncatedHashSize]) const
 {
@@ -5952,7 +6484,7 @@ void LxmfAdapter::populateRxMeta(RxMeta* out) const
     out->time_source = is_valid_epoch(out->rx_timestamp_s)
                            ? RxTimeSource::DeviceUtc
                            : RxTimeSource::Uptime;
-    out->origin = RxOrigin::Mesh;
+    out->origin = RxOrigin::LoRa;
     out->direct = true;
     out->from_is = false;
     out->rssi_dbm_x10 = static_cast<int16_t>(lround(interfaces_.lastRxRssi() * 10.0f));

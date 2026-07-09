@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
 #include "ui/loop_shell.h"
+#include "ui/widgets/reticulum_call_overlay.h"
 #endif
 
 namespace trailmate::apps::esp32_lvgl
@@ -46,6 +47,7 @@ void loopTask(void* parameter)
     while (true)
     {
         platform::esp::idf_common::wireless_companion::c6_companion().poll();
+        ui::widgets::reticulum_call_overlay::tick();
         ui::loop_shell::tick(hooks);
     }
 }

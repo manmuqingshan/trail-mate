@@ -209,6 +209,17 @@ MeshActionResult MeshAdapterRouter::triggerDiscoveryActionDetailed(MeshDiscovery
     return core_.triggerDiscoveryActionDetailed(action);
 }
 
+MeshActionResult MeshAdapterRouter::startReticulumAudioCall(
+    const ReticulumPeerIdentity& destination)
+{
+    LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        return MeshActionResult::fail(MeshOperationFailure::Busy);
+    }
+    return core_.startReticulumAudioCall(destination);
+}
+
 void MeshAdapterRouter::applyConfig(const MeshConfig& config)
 {
     LockGuard lock(mutex_);

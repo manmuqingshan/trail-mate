@@ -73,7 +73,8 @@ struct LinkRelayEntry
 enum class LocalDestinationKind : uint8_t
 {
     Delivery = 0,
-    Propagation = 1
+    Propagation = 1,
+    CallAudio = 2
 };
 
 enum class LinkState : uint8_t
