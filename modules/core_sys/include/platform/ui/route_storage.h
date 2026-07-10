@@ -53,6 +53,8 @@ struct RouteImageDownloadStatus
     std::size_t failed = 0;
     std::size_t current_index = 0;
     std::uint32_t bytes = 0;
+    std::uint32_t current_bytes = 0;
+    std::uint32_t current_total_bytes = 0;
 };
 
 bool is_supported();

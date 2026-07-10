@@ -47,6 +47,9 @@ constexpr std::size_t kRouteImageDownloadAttempts = 1;
 constexpr int kRouteImageMemoryWaitAttempts = 16;
 constexpr TickType_t kRouteImageRetryDelayTicks = pdMS_TO_TICKS(1600);
 constexpr TickType_t kRouteImageMemoryWaitTicks = pdMS_TO_TICKS(250);
+constexpr std::uint32_t kRouteImageDownloadMaxBytes = 4U * 1024U * 1024U;
+constexpr std::uint32_t kRouteImageProgressMinBytes = 8 * 1024;
+constexpr TickType_t kRouteImageProgressMinTicks = pdMS_TO_TICKS(700);
 
 enum class RouteImageBatchKind : uint8_t
 {
@@ -108,6 +111,13 @@ struct RouteImageBatchRuntime
 };
 
 RouteImageBatchRuntime s_image_batch{};
+
+RouteImageDownloadResult download_route_image_with_progress(
+    const std::string& url,
+    const std::string& output_path,
+    std::uint32_t max_bytes,
+    platform::ui::http_client::ProgressCallback progress,
+    void* progress_context);
 
 bool has_kml_extension(const std::string& name)
 {
@@ -738,7 +748,9 @@ void set_batch_status_locked(RouteImageDownloadPhase phase,
                              std::size_t current_index,
                              std::uint32_t bytes,
                              const char* message,
-                             const char* error)
+                             const char* error,
+                             std::uint32_t current_bytes = 0,
+                             std::uint32_t current_total_bytes = 0)
 {
     s_image_batch.status.phase = phase;
     s_image_batch.status.busy = busy;
@@ -749,6 +761,8 @@ void set_batch_status_locked(RouteImageDownloadPhase phase,
     s_image_batch.status.failed = failed;
     s_image_batch.status.current_index = current_index;
     s_image_batch.status.bytes = bytes;
+    s_image_batch.status.current_bytes = current_bytes;
+    s_image_batch.status.current_total_bytes = current_total_bytes;
     s_image_batch.status.message = message ? message : "";
     s_image_batch.status.error = error ? error : "";
 }
@@ -763,7 +777,9 @@ void update_batch_status(RouteImageDownloadPhase phase,
                          std::size_t current_index,
                          std::uint32_t bytes,
                          const char* message,
-                         const char* error = nullptr)
+                         const char* error = nullptr,
+                         std::uint32_t current_bytes = 0,
+                         std::uint32_t current_total_bytes = 0)
 {
     if (!ensure_batch_mutex())
     {
@@ -780,7 +796,82 @@ void update_batch_status(RouteImageDownloadPhase phase,
                             current_index,
                             bytes,
                             message,
-                            error);
+                            error,
+                            current_bytes,
+                            current_total_bytes);
+}
+
+struct RouteImageProgressContext
+{
+    const std::string* asset_id = nullptr;
+    std::size_t total = 0;
+    std::size_t processed = 0;
+    std::size_t saved = 0;
+    std::size_t failed = 0;
+    std::size_t index = 0;
+    std::uint32_t base_bytes = 0;
+    std::uint32_t last_bytes = 0;
+    TickType_t last_tick = 0;
+};
+
+void route_image_download_progress(std::uint32_t current_bytes,
+                                   std::uint32_t total_bytes,
+                                   void* context)
+{
+    auto* progress = static_cast<RouteImageProgressContext*>(context);
+    if (!progress || !progress->asset_id)
+    {
+        return;
+    }
+
+    const TickType_t now = xTaskGetTickCount();
+    const bool first = progress->last_tick == 0;
+    const bool enough_bytes =
+        current_bytes >= progress->last_bytes &&
+        current_bytes - progress->last_bytes >= kRouteImageProgressMinBytes;
+    const bool enough_time = now - progress->last_tick >= kRouteImageProgressMinTicks;
+    const bool complete = total_bytes > 0 && current_bytes >= total_bytes;
+    if (!first && !enough_bytes && !enough_time && !complete)
+    {
+        return;
+    }
+
+    progress->last_tick = now;
+    progress->last_bytes = current_bytes;
+
+    char detail[96]{};
+    if (total_bytes > 0)
+    {
+        std::snprintf(detail,
+                      sizeof(detail),
+                      "Image %u/%u  %u/%u KB",
+                      static_cast<unsigned>(progress->index + 1U),
+                      static_cast<unsigned>(progress->total),
+                      static_cast<unsigned>((current_bytes + 1023U) / 1024U),
+                      static_cast<unsigned>((total_bytes + 1023U) / 1024U));
+    }
+    else
+    {
+        std::snprintf(detail,
+                      sizeof(detail),
+                      "Image %u/%u  %u KB",
+                      static_cast<unsigned>(progress->index + 1U),
+                      static_cast<unsigned>(progress->total),
+                      static_cast<unsigned>((current_bytes + 1023U) / 1024U));
+    }
+    update_batch_status(RouteImageDownloadPhase::Downloading,
+                        true,
+                        *progress->asset_id,
+                        progress->total,
+                        progress->processed,
+                        progress->saved,
+                        progress->failed,
+                        progress->index,
+                        progress->base_bytes + current_bytes,
+                        detail,
+                        nullptr,
+                        current_bytes,
+                        total_bytes);
 }
 
 void route_image_worker_task(void* param)
@@ -966,13 +1057,27 @@ void route_image_worker_task(void* param)
             else
             {
                 RouteImageDownloadResult result{};
+                RouteImageProgressContext progress_context{};
+                progress_context.asset_id = &asset_id;
+                progress_context.total = total;
+                progress_context.processed = processed;
+                progress_context.saved = saved;
+                progress_context.failed = failed;
+                progress_context.index = index;
+                progress_context.base_bytes = bytes;
                 for (std::size_t attempt = 0; attempt < kRouteImageDownloadAttempts; ++attempt)
                 {
                     if (!wait_for_route_http_memory())
                     {
                         log_route_http_memory("tight_continue");
                     }
-                    result = download_route_image(item.url, item.output_path);
+                    progress_context.last_bytes = 0;
+                    progress_context.last_tick = 0;
+                    result = download_route_image_with_progress(item.url,
+                                                                item.output_path,
+                                                                kRouteImageDownloadMaxBytes,
+                                                                route_image_download_progress,
+                                                                &progress_context);
                     if (result.ok ||
                         !route_image_http_error_retryable(result.error) ||
                         attempt + 1U >= kRouteImageDownloadAttempts)
@@ -1196,9 +1301,15 @@ bool route_asset_file_exists(const std::string& path)
            !::platform::esp::arduino_common::storage::sd_is_directory(path.c_str());
 }
 
-RouteImageDownloadResult download_route_image(const std::string& url,
-                                              const std::string& output_path,
-                                              std::uint32_t max_bytes)
+namespace
+{
+
+RouteImageDownloadResult download_route_image_with_progress(
+    const std::string& url,
+    const std::string& output_path,
+    std::uint32_t max_bytes,
+    platform::ui::http_client::ProgressCallback progress,
+    void* progress_context)
 {
     RouteImageDownloadResult result{};
     if (url.empty() || output_path.empty())
@@ -1236,6 +1347,8 @@ RouteImageDownloadResult download_route_image(const std::string& url,
     request.buffer_size = static_cast<int>(kRouteDownloadBufferSize);
     request.tx_buffer_size = kRouteDownloadTxBufferSize;
     request.max_bytes = max_bytes;
+    request.progress = progress;
+    request.progress_context = progress_context;
 
     platform::ui::http_client::TransferStats stats{};
     const bool ok = platform::ui::http_client::download(
@@ -1275,6 +1388,15 @@ RouteImageDownloadResult download_route_image(const std::string& url,
     result.ok = true;
     result.error.clear();
     return result;
+}
+
+} // namespace
+
+RouteImageDownloadResult download_route_image(const std::string& url,
+                                              const std::string& output_path,
+                                              std::uint32_t max_bytes)
+{
+    return download_route_image_with_progress(url, output_path, max_bytes, nullptr, nullptr);
 }
 
 bool start_route_image_download(const std::string& asset_id,

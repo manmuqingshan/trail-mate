@@ -90,6 +90,8 @@ void set_batch_status_locked(RouteImageDownloadPhase phase,
     s_image_batch_status.failed = failed;
     s_image_batch_status.current_index = current_index;
     s_image_batch_status.bytes = bytes;
+    s_image_batch_status.current_bytes = 0;
+    s_image_batch_status.current_total_bytes = 0;
     s_image_batch_status.message = message ? message : "";
     s_image_batch_status.error = error ? error : "";
 }

@@ -289,6 +289,10 @@ bool download(const Request& request,
     {
         http_status = esp_http_client_get_status_code(client);
         const int64_t content_length = esp_http_client_get_content_length(client);
+        const std::uint32_t total_bytes =
+            content_length > 0 && static_cast<std::uint64_t>(content_length) <= UINT32_MAX
+                ? static_cast<std::uint32_t>(content_length)
+                : 0U;
         if (http_status < 200 || http_status >= 300)
         {
             char text[48];
@@ -303,6 +307,10 @@ bool download(const Request& request,
         }
         else
         {
+            if (request.progress)
+            {
+                request.progress(0, total_bytes, request.progress_context);
+            }
             while (out_error.empty())
             {
                 const int read = esp_http_client_read(
@@ -332,6 +340,10 @@ bool download(const Request& request,
                     break;
                 }
                 bytes += static_cast<std::uint32_t>(read);
+                if (request.progress)
+                {
+                    request.progress(bytes, total_bytes, request.progress_context);
+                }
             }
         }
     }

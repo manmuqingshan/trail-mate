@@ -1908,16 +1908,39 @@ void update_route_preview_status()
         int value = 0;
         if (route_preview_download_status_matches(download_status) && download_status.total > 0)
         {
+            std::uint32_t current_percent = 0;
+            if (download_status.busy &&
+                download_status.current_total_bytes > 0)
+            {
+                const std::uint32_t current_bytes =
+                    std::min(download_status.current_bytes, download_status.current_total_bytes);
+                current_percent = static_cast<std::uint32_t>(
+                    std::min<std::uint64_t>(
+                        100U,
+                        (static_cast<std::uint64_t>(current_bytes) * 100U) /
+                            download_status.current_total_bytes));
+            }
             if (download_status.total < s_preview_images.size())
             {
-                const std::size_t numerator = std::min<std::size_t>(
+                const std::size_t completed = std::min<std::size_t>(
                     s_preview_images.size(),
                     saved_count + download_status.processed);
-                value = static_cast<int>((numerator * 100U) / s_preview_images.size());
+                const std::size_t scaled =
+                    std::min<std::size_t>(
+                        s_preview_images.size() * 100U,
+                        completed * 100U + current_percent);
+                value = static_cast<int>(scaled / s_preview_images.size());
             }
             else
             {
-                value = static_cast<int>((download_status.processed * 100U) / download_status.total);
+                const std::size_t completed = std::min<std::size_t>(
+                    download_status.total,
+                    download_status.processed);
+                const std::size_t scaled =
+                    std::min<std::size_t>(
+                        download_status.total * 100U,
+                        completed * 100U + current_percent);
+                value = static_cast<int>(scaled / download_status.total);
             }
         }
         else
