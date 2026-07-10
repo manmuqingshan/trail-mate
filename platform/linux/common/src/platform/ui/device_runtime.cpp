@@ -311,6 +311,11 @@ uint8_t screen_brightness()
     return s_screen_brightness;
 }
 
+uint8_t screen_brightness_max()
+{
+    return 0;
+}
+
 void set_screen_brightness(uint8_t level)
 {
     s_screen_brightness = level;

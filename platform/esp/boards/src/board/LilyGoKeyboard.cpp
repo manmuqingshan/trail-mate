@@ -71,15 +71,29 @@ void LilyGoKeyboard::setBrightness(uint8_t level)
         return;
     }
     _brightness = level;
+    if (!_backlight_attached && _brightness == 0)
+    {
+        ::digitalWrite(_backlight, LOW);
+        return;
+    }
     if (!_backlight_attached)
     {
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-        ledcAttach(_backlight, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
+        _backlight_attached =
+            ledcAttach(_backlight, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
 #else
-        ledcSetup(LEDC_BACKLIGHT_CHANNEL, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
-        ledcAttachPin(_backlight, LEDC_BACKLIGHT_CHANNEL);
+        const double attached_freq =
+            ledcSetup(LEDC_BACKLIGHT_CHANNEL, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
+        _backlight_attached = attached_freq > 0.0;
+        if (_backlight_attached)
+        {
+            ledcAttachPin(_backlight, LEDC_BACKLIGHT_CHANNEL);
+        }
 #endif
-        _backlight_attached = true;
+    }
+    if (!_backlight_attached)
+    {
+        return;
     }
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     ledcWrite(_backlight, _brightness);

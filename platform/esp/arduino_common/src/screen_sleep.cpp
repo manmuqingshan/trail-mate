@@ -22,6 +22,7 @@ constexpr uint32_t kScreenTimeoutMaxMs = 300000;
 constexpr uint32_t kScreenTimeoutDefaultMs = 60000;
 constexpr uint32_t kScreenTimeoutMaxBleSecs = 900;
 constexpr uint32_t kScreenSaverDurationMs = 3000;
+constexpr uint32_t kScreenSleepTaskStackBytes = 4 * 1024;
 
 ScreenSleepHooks s_hooks{};
 
@@ -283,7 +284,7 @@ void initScreenSleepRuntime(const ScreenSleepHooks& hooks)
         BaseType_t sleep_task_result = xTaskCreate(
             screenSleepTask,
             "screen_sleep",
-            2 * 1024,
+            kScreenSleepTaskStackBytes,
             nullptr,
             3,
             &s_screen_sleep_task_handle);

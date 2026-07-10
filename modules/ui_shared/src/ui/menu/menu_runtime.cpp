@@ -190,6 +190,11 @@ bool isKeyboardBacklightKey(char key)
     return key == 'k' || key == 'K';
 }
 
+bool isScreenBrightnessKey(char key)
+{
+    return key == 'b' || key == 'B';
+}
+
 bool pagerMenuKeyboardBacklightShortcutEnabled()
 {
 #if defined(ARDUINO_T_LORA_PAGER)
@@ -206,6 +211,12 @@ bool screenshotShortcutHelpEnabled()
 #else
     return false;
 #endif
+}
+
+bool screenBrightnessShortcutEnabled()
+{
+    return platform::ui::device::supports_screen_brightness() &&
+           platform::ui::device::screen_brightness_max() > 0;
 }
 
 void closeMenuHelpModal()
@@ -229,15 +240,20 @@ void openMenuHelpModal()
         return;
     }
 
-    ::ui::components::shortcut_help_modal::Row rows[6] = {
+    ::ui::components::shortcut_help_modal::Row rows[7] = {
         {"WASD", nullptr, "Select app"},
         {"Enter", nullptr, "Open app"},
+        {"B", nullptr, "Cycle screen brightness"},
         {"K", nullptr, "Cycle keyboard backlight"},
         {"Space", nullptr, "Walkie PTT when monitor is on"},
         {"ALT", "ALT", "Save screenshot"},
         {"H", "Back", "Close help"},
     };
     std::size_t row_count = 2;
+    if (screenBrightnessShortcutEnabled())
+    {
+        rows[row_count++] = {"B", nullptr, "Cycle screen brightness"};
+    }
     if (pagerMenuKeyboardBacklightShortcutEnabled())
     {
         rows[row_count++] = {"K", nullptr, "Cycle keyboard backlight"};
@@ -262,27 +278,52 @@ void openMenuHelpModal()
         config);
 }
 
-uint8_t nextKeyboardBacklightLevel()
+uint8_t nextScreenBrightnessLevel()
 {
-    const uint8_t max_level = platform::ui::device::keyboard_backlight_max();
+    const uint8_t max_level = platform::ui::device::screen_brightness_max();
     if (max_level == 0)
     {
         return 0;
     }
 
-    const uint8_t current = platform::ui::device::keyboard_backlight();
-    if (current >= max_level)
+    const uint8_t current = platform::ui::device::screen_brightness();
+    const uint8_t low = max_level >= 4 ? static_cast<uint8_t>(max_level / 2U) : 1;
+    if (current == 0)
     {
-        return 0;
+        return low;
+    }
+    if (current < max_level)
+    {
+        return max_level;
+    }
+    return 0;
+}
+
+bool cycleScreenBrightness()
+{
+    if (!screenBrightnessShortcutEnabled())
+    {
+        return false;
     }
 
-    const uint8_t step = max_level >= 4 ? static_cast<uint8_t>(max_level / 4) : 1;
-    uint16_t next = static_cast<uint16_t>(current) + step;
-    if (next <= current)
+    platform::ui::device::set_screen_brightness(nextScreenBrightnessLevel());
+    ui::menu_layout::set_bottom_bar_help_text("H Help");
+    closeMenuHelpModal();
+    return true;
+}
+
+uint8_t nextKeyboardBacklightCycleLevel(uint8_t current, uint8_t max_level)
+{
+    const uint8_t low = max_level >= 4 ? static_cast<uint8_t>(max_level / 2U) : 1;
+    if (current == 0)
     {
-        next = static_cast<uint16_t>(current) + 1;
+        return low;
     }
-    return static_cast<uint8_t>(next > max_level ? max_level : next);
+    if (current < max_level)
+    {
+        return max_level;
+    }
+    return 0;
 }
 
 bool cycleKeyboardBacklight()
@@ -292,12 +333,17 @@ bool cycleKeyboardBacklight()
         return false;
     }
 
-    const uint8_t next = nextKeyboardBacklightLevel();
-    platform::ui::device::set_keyboard_backlight(next);
-    char text[24];
     const uint8_t max_level = platform::ui::device::keyboard_backlight_max();
-    std::snprintf(text, sizeof(text), "H Help  K %u/%u", next, max_level);
-    ui::menu_layout::set_bottom_bar_help_text(text);
+    if (max_level == 0)
+    {
+        return false;
+    }
+    const uint8_t next = nextKeyboardBacklightCycleLevel(
+        platform::ui::device::keyboard_backlight(),
+        max_level);
+    platform::ui::device::set_keyboard_backlight(next);
+    ui::menu_layout::set_bottom_bar_help_text("H Help");
+    closeMenuHelpModal();
     return true;
 }
 
@@ -824,6 +870,11 @@ bool handleShortcutKey(char key, int state)
     {
         openMenuHelpModal();
         return true;
+    }
+
+    if (isScreenBrightnessKey(key))
+    {
+        return cycleScreenBrightness();
     }
 
     if (isKeyboardBacklightKey(key))

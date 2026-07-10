@@ -117,12 +117,19 @@ uint8_t screen_brightness()
     return s_brightness_level;
 }
 
+uint8_t screen_brightness_max()
+{
+    return DEVICE_MAX_BRIGHTNESS_LEVEL;
+}
+
 void set_screen_brightness(uint8_t level)
 {
-    s_brightness_level = level;
+    const uint8_t max_level = screen_brightness_max();
+    const uint8_t clamped = level > max_level ? max_level : level;
+    s_brightness_level = clamped;
     const int percent = (DEVICE_MAX_BRIGHTNESS_LEVEL <= 0)
                             ? 100
-                            : static_cast<int>((static_cast<uint32_t>(level) * 100U) /
+                            : static_cast<int>((static_cast<uint32_t>(clamped) * 100U) /
                                                static_cast<uint32_t>(DEVICE_MAX_BRIGHTNESS_LEVEL));
     (void)platform::esp::idf_common::bsp_runtime::set_display_brightness(percent);
 }
