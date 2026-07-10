@@ -193,8 +193,15 @@ that prevents hidden groups from surviving outside the SD-card source of truth.
 
 Discovered Reticulum announces and LXMF delivery addresses are also persisted
 to the SD card with streaming line-based reads and atomic temp-file replacement.
-This lets the device keep Reticulum network discovery and address-book state
-even when the runtime peer cache is rebuilt.
+Runtime discovery persistence is deferred until a stable screen-off maintenance
+window. If the user wakes the device or opens Contacts, Network, Map, Chat, or
+another normal foreground page while a background directory transaction is
+pending, Trail Mate keeps the original TSV file intact, requeues the pending
+record, and waits for the next maintenance window instead of continuing to
+write or remove directory files in the foreground. This lets the device keep
+Reticulum network discovery and address-book state even when the runtime peer
+cache is rebuilt, without letting public discovery traffic contend with the UI
+for the SD bus.
 
 If no SD card is available, Trail Mate must not silently use built-in default
 groups. The Groups list will show an Add row, but tapping Add reports that an

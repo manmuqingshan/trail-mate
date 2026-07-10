@@ -39,8 +39,13 @@ constexpr TickType_t kAsyncMutexWait = pdMS_TO_TICKS(5);
 constexpr TickType_t kAsyncDebounceDelay = pdMS_TO_TICKS(2500);
 constexpr TickType_t kAsyncActivePollDelay = pdMS_TO_TICKS(5000);
 constexpr TickType_t kAsyncBetweenFlushDelay = pdMS_TO_TICKS(250);
+constexpr TickType_t kAsyncMaintenanceClosedDelay = pdMS_TO_TICKS(15000);
+constexpr uint32_t kAsyncMaintenanceStableMs = 8000;
+constexpr uint32_t kAsyncDeferLogIntervalMs = 30000;
 constexpr uint32_t kAsyncTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kAsyncTaskPriority = tskIDLE_PRIORITY + 1;
+constexpr const char* kMaintenanceDeferredMessage =
+    "Reticulum directory maintenance deferred";
 
 enum class PendingDirectoryKind : uint8_t
 {
@@ -84,9 +89,13 @@ struct AsyncDirectoryState
 };
 
 AsyncDirectoryState* s_async_state = nullptr;
+uint32_t s_maintenance_window_entered_ms = 0;
+uint32_t s_last_maintenance_defer_log_ms = 0;
 
-Status record_announce_sync(const AnnounceRecord& record);
-Status record_lxmf_address_sync(const LxmfAddressRecord& record);
+using DirectoryIoGate = bool (*)();
+
+Status record_announce_sync(const AnnounceRecord& record, bool require_maintenance);
+Status record_lxmf_address_sync(const LxmfAddressRecord& record, bool require_maintenance);
 void async_task_entry(void* context);
 
 void copy_text(char* out, std::size_t out_len, const char* text)
@@ -355,10 +364,65 @@ void bind_pending_payloads(PendingAnnounce& pending)
         pending.record.app_data_len != 0 ? pending.app_data : nullptr;
 }
 
-bool maintenance_window()
+uint32_t monotonic_ms()
+{
+    return static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+bool raw_maintenance_window()
 {
     return ::platform::ui::screen::is_sleeping() &&
            !::platform::ui::screen::is_saver_active();
+}
+
+bool maintenance_window()
+{
+    const uint32_t now = monotonic_ms();
+    if (!raw_maintenance_window())
+    {
+        s_maintenance_window_entered_ms = 0;
+        return false;
+    }
+    if (s_maintenance_window_entered_ms == 0)
+    {
+        s_maintenance_window_entered_ms = now != 0 ? now : 1;
+        return false;
+    }
+    return now - s_maintenance_window_entered_ms >= kAsyncMaintenanceStableMs;
+}
+
+bool io_gate_open(DirectoryIoGate gate)
+{
+    return !gate || gate();
+}
+
+void set_maintenance_deferred(Status& out, const char* detail)
+{
+    out.supported = true;
+    out.sd_present = sd_available();
+    set_status(out, kMaintenanceDeferredMessage, detail);
+}
+
+bool maintenance_deferred(const Status& status)
+{
+    return std::strncmp(status.message,
+                        kMaintenanceDeferredMessage,
+                        sizeof(status.message)) == 0;
+}
+
+void log_maintenance_deferred(const char* stage)
+{
+    const uint32_t now = monotonic_ms();
+    if (s_last_maintenance_defer_log_ms != 0 &&
+        now - s_last_maintenance_defer_log_ms < kAsyncDeferLogIntervalMs)
+    {
+        return;
+    }
+    s_last_maintenance_defer_log_ms = now;
+    std::printf("[Reticulum][Directory] flush deferred stage=%s sleeping=%d saver=%d\n",
+                stage ? stage : "-",
+                ::platform::ui::screen::is_sleeping() ? 1 : 0,
+                ::platform::ui::screen::is_saver_active() ? 1 : 0);
 }
 
 AsyncDirectoryState* allocate_async_state()
@@ -607,6 +671,8 @@ void async_task_entry(void* context)
         vTaskDelay(kAsyncDebounceDelay);
         if (!maintenance_window())
         {
+            log_maintenance_deferred("window");
+            vTaskDelay(kAsyncMaintenanceClosedDelay);
             continue;
         }
 
@@ -615,28 +681,56 @@ void async_task_entry(void* context)
         {
             continue;
         }
+        if (!maintenance_window())
+        {
+            log_maintenance_deferred("pre_flush");
+            if (kind == PendingDirectoryKind::Announce)
+            {
+                requeue_active_announce(*state);
+            }
+            else if (kind == PendingDirectoryKind::Address)
+            {
+                requeue_active_address(*state);
+            }
+            vTaskDelay(kAsyncMaintenanceClosedDelay);
+            continue;
+        }
 
         Status status{};
         if (kind == PendingDirectoryKind::Announce)
         {
             bind_pending_payloads(state->active_announce);
-            status = record_announce_sync(state->active_announce.record);
+            status = record_announce_sync(state->active_announce.record, true);
             if (status.sd_present && !status.saved)
             {
-                std::printf("[Reticulum][Directory] announce_flush failed message=%s detail=%s\n",
-                            status.message,
-                            status.detail);
+                if (maintenance_deferred(status))
+                {
+                    log_maintenance_deferred("announce_write");
+                }
+                else
+                {
+                    std::printf("[Reticulum][Directory] announce_flush failed message=%s detail=%s\n",
+                                status.message,
+                                status.detail);
+                }
                 requeue_active_announce(*state);
             }
         }
         else if (kind == PendingDirectoryKind::Address)
         {
-            status = record_lxmf_address_sync(state->active_address.record);
+            status = record_lxmf_address_sync(state->active_address.record, true);
             if (status.sd_present && !status.saved)
             {
-                std::printf("[Reticulum][Directory] address_flush failed message=%s detail=%s\n",
-                            status.message,
-                            status.detail);
+                if (maintenance_deferred(status))
+                {
+                    log_maintenance_deferred("address_write");
+                }
+                else
+                {
+                    std::printf("[Reticulum][Directory] address_flush failed message=%s detail=%s\n",
+                                status.message,
+                                status.detail);
+                }
                 requeue_active_address(*state);
             }
         }
@@ -1131,9 +1225,18 @@ void preserve_address_flags(const char* path,
                             bool* favorite,
                             bool* ignored,
                             bool* trusted,
-                            uint32_t* first_seen_s)
+                            uint32_t* first_seen_s,
+                            DirectoryIoGate io_gate)
 {
+    if (!io_gate_open(io_gate))
+    {
+        return;
+    }
     if (!::platform::esp::arduino_common::storage::sd_exists(path))
+    {
+        return;
+    }
+    if (!io_gate_open(io_gate))
     {
         return;
     }
@@ -1146,6 +1249,10 @@ void preserve_address_flags(const char* path,
     LineReader reader(file);
     while (reader.read_line(line))
     {
+        if (!io_gate_open(io_gate))
+        {
+            break;
+        }
         const std::string_view view = trim_view(line);
         if (data_line(view) && first_field_matches(view, destination))
         {
@@ -1180,11 +1287,17 @@ Status stream_upsert_line(const char* path,
                           const char* title,
                           const char* success_message,
                           const std::string& destination,
-                          const std::string& new_line)
+                          const std::string& new_line,
+                          DirectoryIoGate io_gate)
 {
     Status out{};
     out.supported = true;
     out.sd_present = sd_available();
+    if (!io_gate_open(io_gate))
+    {
+        set_maintenance_deferred(out, path);
+        return out;
+    }
     if (!out.sd_present)
     {
         set_status(out, "SD card required", path);
@@ -1196,12 +1309,27 @@ Status stream_upsert_line(const char* path,
         return out;
     }
 
+    if (!io_gate_open(io_gate))
+    {
+        set_maintenance_deferred(out, path);
+        return out;
+    }
     out.file_present = ::platform::esp::arduino_common::storage::sd_exists(path);
     if (::platform::esp::arduino_common::storage::sd_exists(temp_path))
     {
+        if (!io_gate_open(io_gate))
+        {
+            set_maintenance_deferred(out, temp_path);
+            return out;
+        }
         ::platform::esp::arduino_common::storage::sd_remove(temp_path);
     }
 
+    if (!io_gate_open(io_gate))
+    {
+        set_maintenance_deferred(out, temp_path);
+        return out;
+    }
     SdRuntimeFile out_file;
     if (!out_file.open(temp_path, "w"))
     {
@@ -1216,6 +1344,12 @@ Status stream_upsert_line(const char* path,
     std::size_t existing_data_lines = 0;
     if (ok && out.file_present)
     {
+        if (!io_gate_open(io_gate))
+        {
+            out_file.close();
+            set_maintenance_deferred(out, path);
+            return out;
+        }
         SdRuntimeFile count_file;
         if (!count_file.open(path, "r"))
         {
@@ -1228,6 +1362,13 @@ Status stream_upsert_line(const char* path,
         LineReader reader(count_file);
         while (reader.read_line(old_line))
         {
+            if (!io_gate_open(io_gate))
+            {
+                count_file.close();
+                out_file.close();
+                set_maintenance_deferred(out, path);
+                return out;
+            }
             const std::string_view view = trim_view(old_line);
             if (data_line(view) && !first_field_matches(view, destination))
             {
@@ -1245,6 +1386,12 @@ Status stream_upsert_line(const char* path,
     std::size_t skipped = 0;
     if (ok && out.file_present)
     {
+        if (!io_gate_open(io_gate))
+        {
+            out_file.close();
+            set_maintenance_deferred(out, path);
+            return out;
+        }
         SdRuntimeFile in_file;
         if (!in_file.open(path, "r"))
         {
@@ -1257,6 +1404,13 @@ Status stream_upsert_line(const char* path,
         LineReader reader(in_file);
         while (reader.read_line(old_line))
         {
+            if (!io_gate_open(io_gate))
+            {
+                in_file.close();
+                out_file.close();
+                set_maintenance_deferred(out, path);
+                return out;
+            }
             const std::string_view view = trim_view(old_line);
             if (data_line(view) && !first_field_matches(view, destination))
             {
@@ -1276,6 +1430,12 @@ Status stream_upsert_line(const char* path,
         in_file.close();
     }
 
+    if (!io_gate_open(io_gate))
+    {
+        out_file.close();
+        set_maintenance_deferred(out, temp_path);
+        return out;
+    }
     ok = ok && write_line(out_file, new_line);
     out_file.close();
     if (!ok)
@@ -1285,8 +1445,18 @@ Status stream_upsert_line(const char* path,
         return out;
     }
 
+    if (!io_gate_open(io_gate))
+    {
+        set_maintenance_deferred(out, temp_path);
+        return out;
+    }
     if (::platform::esp::arduino_common::storage::sd_exists(path))
     {
+        if (!io_gate_open(io_gate))
+        {
+            set_maintenance_deferred(out, path);
+            return out;
+        }
         ::platform::esp::arduino_common::storage::sd_remove(path);
     }
     if (!::platform::esp::arduino_common::storage::sd_rename(temp_path, path))
@@ -1368,7 +1538,7 @@ std::string address_line(const LxmfAddressRecord& record,
     return line;
 }
 
-Status record_announce_sync(const AnnounceRecord& record)
+Status record_announce_sync(const AnnounceRecord& record, bool require_maintenance)
 {
     Status out{};
     out.supported = true;
@@ -1380,11 +1550,17 @@ Status record_announce_sync(const AnnounceRecord& record)
         set_status(out, "Invalid Reticulum announce", kAnnouncesPath);
         return out;
     }
+    DirectoryIoGate io_gate = require_maintenance ? maintenance_window : nullptr;
+    if (!io_gate_open(io_gate))
+    {
+        set_maintenance_deferred(out, kAnnouncesPath);
+        return out;
+    }
 
     const std::string destination = hex_text(record.destination_hash, kReticulumHashSize);
     const uint32_t fallback_first_seen =
         record.first_seen_s != 0 ? record.first_seen_s : record.last_seen_s;
-    const uint32_t first_seen_s = out.sd_present
+    const uint32_t first_seen_s = out.sd_present && !require_maintenance
                                       ? find_existing_first_seen(kAnnouncesPath,
                                                                  destination,
                                                                  4,
@@ -1395,10 +1571,11 @@ Status record_announce_sync(const AnnounceRecord& record)
                               "announces",
                               "Reticulum announce saved",
                               destination,
-                              announce_line(record, first_seen_s));
+                              announce_line(record, first_seen_s),
+                              io_gate);
 }
 
-Status record_lxmf_address_sync(const LxmfAddressRecord& record)
+Status record_lxmf_address_sync(const LxmfAddressRecord& record, bool require_maintenance)
 {
     Status out{};
     out.supported = true;
@@ -1410,6 +1587,12 @@ Status record_lxmf_address_sync(const LxmfAddressRecord& record)
         zero_hash(record.sig_pub, kReticulumPublicKeySize))
     {
         set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
+        return out;
+    }
+    DirectoryIoGate io_gate = require_maintenance ? maintenance_window : nullptr;
+    if (!io_gate_open(io_gate))
+    {
+        set_maintenance_deferred(out, kLxmfAddressesPath);
         return out;
     }
 
@@ -1428,18 +1611,25 @@ Status record_lxmf_address_sync(const LxmfAddressRecord& record)
                                &favorite,
                                &ignored,
                                &trusted,
-                               &first_seen_s);
+                               &first_seen_s,
+                               io_gate);
     }
     favorite = favorite || requested_favorite;
     ignored = ignored || requested_ignored;
     trusted = trusted || requested_trusted;
+    if (!io_gate_open(io_gate))
+    {
+        set_maintenance_deferred(out, kLxmfAddressesPath);
+        return out;
+    }
 
     return stream_upsert_line(kLxmfAddressesPath,
                               kLxmfAddressesTempPath,
                               "LXMF addresses",
                               "LXMF address saved",
                               destination,
-                              address_line(record, favorite, ignored, trusted, first_seen_s));
+                              address_line(record, favorite, ignored, trusted, first_seen_s),
+                              io_gate);
 }
 
 } // namespace
@@ -1466,7 +1656,7 @@ Status record_lxmf_address(const LxmfAddressRecord& record)
 
 Status record_lxmf_address_now(const LxmfAddressRecord& record)
 {
-    return record_lxmf_address_sync(record);
+    return record_lxmf_address_sync(record, false);
 }
 
 Status set_lxmf_address_favorite_now(
@@ -1507,7 +1697,8 @@ Status set_lxmf_address_favorite_now(
                                            record.favorite,
                                            record.ignored,
                                            record.trusted,
-                                           record.first_seen_s));
+                                           record.first_seen_s),
+                              nullptr);
 }
 
 Status load_announces(AnnounceRecord* out_records,

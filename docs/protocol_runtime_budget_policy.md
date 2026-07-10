@@ -60,9 +60,12 @@ for SD or NVS persistence.
 
 ## Maintenance Windows
 
-A maintenance window is available when the screen runtime reports that the
-device is sleeping and the saver is not active. During maintenance windows the
-Reticulum runtime may:
+A maintenance window is available only after the screen runtime has reported
+that the device is sleeping and the saver is not active for a stable grace
+period. A single instantaneous sleep-state check is not sufficient for SD
+persistence, because wake/saver/app transitions can otherwise let background
+Reticulum writes overlap foreground Contacts or Map SD reads. During stable
+maintenance windows the Reticulum runtime may:
 
 - Replay deferred discovery packets under the discovery sample budget.
 - Let the Reticulum directory worker persist one coalesced announce or LXMF
@@ -72,6 +75,18 @@ Reticulum runtime may:
 
 The maintenance window still has finite budgets. It must not drain unbounded
 network queues in one cycle.
+
+Reticulum directory persistence is a cancellable maintenance transaction on
+ESP-class devices. The directory worker must re-check the maintenance gate
+before heavy SD operations such as TSV scans, temp-file writes, remove, and
+rename. If the gate closes, it must stop the transaction, leave the original
+directory file intact, requeue the coalesced record, and wait for the next
+stable maintenance window. Foreground user actions such as manually adding a
+contact may still perform bounded synchronous address-book writes, but runtime
+announce/address discovery must not write or remove
+`/trailmate/reticulum/announces.tsv` or
+`/trailmate/reticulum/lxmf_addresses.tsv` while Contacts, Network, Map, Chat,
+or other normal UI pages are foregrounded.
 
 ## UI Projection Budget
 
