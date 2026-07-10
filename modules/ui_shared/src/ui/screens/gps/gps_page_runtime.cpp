@@ -26,6 +26,7 @@ using Projection = gps::ui::shell::Projection;
 #include "ui/ui_common.h"
 #include "ui/widgets/map/map_viewport.h"
 #include "ui/widgets/route_elevation_profile.h"
+#include "ui/widgets/route_image_strip.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_gps_runtime/gps_page_runtime_pump.h"
 #include "ui_map_runtime/map_overlay_snapshot_source.h"
@@ -100,6 +101,7 @@ constexpr std::size_t kTrackFileReadBufferBytes = 256;
 constexpr std::size_t kMaxTrackFileLineBytes = 2048;
 constexpr std::size_t kMaxKmlTagBytes = 80;
 constexpr std::size_t kMaxKmlCoordinateTokenBytes = 96;
+constexpr std::size_t kMaxRouteImagePoints = 64;
 constexpr int kDefaultTrackerZoom = 16;
 
 struct TrackOverlayPoint
@@ -119,6 +121,19 @@ struct TrackElevationMetrics
     double descent_m = 0.0;
     double previous_altitude_m = 0.0;
     bool has_previous_altitude = false;
+};
+
+struct RouteImagePoint
+{
+    double lat = 0.0;
+    double lon = 0.0;
+    bool has_position = false;
+    bool downloaded = false;
+    bool preview_ready = false;
+    bool view_ready = false;
+    std::string local_path{};
+    std::string preview_path{};
+    std::string view_path{};
 };
 
 enum class TrackOverlayFileKind : uint8_t
@@ -173,6 +188,7 @@ lv_obj_t* s_map_tracker_btn = nullptr;
 lv_obj_t* s_map_altitude_panel = nullptr;
 lv_obj_t* s_map_altitude_label = nullptr;
 ::ui::widgets::route_elevation_profile::Widget s_route_elevation_profile;
+::ui::widgets::route_image_strip::Widget s_route_image_strip;
 lv_obj_t* s_map_notice_panel = nullptr;
 lv_obj_t* s_map_notice_label = nullptr;
 lv_obj_t* s_map_context_rail = nullptr;
@@ -189,16 +205,25 @@ uint32_t s_map_notice_until_ms = 0;
 int s_map_drag_start_pan_x = 0;
 int s_map_drag_start_pan_y = 0;
 std::vector<TrackOverlayPoint> s_track_points;
+std::vector<RouteImagePoint> s_route_images;
+std::vector<::ui::widgets::route_image_strip::Item> s_route_image_strip_items;
 std::vector<::ui::widgets::route_elevation_profile::Sample> s_route_elevation_samples;
 std::vector<::ui::widgets::route_elevation_profile::Sample> s_route_elevation_work_samples;
 TrackElevationMetrics s_track_elevation_metrics;
 std::vector<std::string> s_track_modal_names;
 std::string s_track_file;
+std::string s_route_asset_id;
 bool s_track_overlay_active = false;
 TrackOverlayFileKind s_track_overlay_kind = TrackOverlayFileKind::Track;
 bool s_route_elevation_profile_visible = false;
+bool s_route_image_strip_visible = false;
+bool s_route_image_saved_state_known = false;
+bool s_route_image_cache_state_known = false;
+bool s_route_image_cache_build_running = false;
 bool s_route_deviation_active = false;
 double s_route_deviation_distance_m = 0.0;
+std::size_t s_route_selected_image = 0;
+uint32_t s_route_image_strip_items_hash = 0;
 std::vector<lv_obj_t*> s_member_buttons;
 std::vector<uint32_t> s_member_button_ids;
 uint32_t s_member_list_hash = 0;
@@ -236,6 +261,8 @@ lv_obj_t* create_map_control_button(lv_obj_t* parent,
                                     lv_coord_t width,
                                     const char* text,
                                     MapControlAction action);
+void sync_map_route_image_strip();
+void refresh_route_image_storage_state(bool include_cache_state);
 
 void request_exit()
 {
@@ -514,8 +541,13 @@ void clear_map_controls()
     s_map_altitude_panel = nullptr;
     s_map_altitude_label = nullptr;
     ::ui::widgets::route_elevation_profile::reset(s_route_elevation_profile);
+    ::ui::widgets::route_image_strip::destroy(s_route_image_strip);
+    ::ui::widgets::route_image_strip::reset(s_route_image_strip);
     s_route_elevation_samples.clear();
     s_route_elevation_work_samples.clear();
+    s_route_images.clear();
+    s_route_image_strip_items.clear();
+    s_route_asset_id.clear();
     s_map_notice_panel = nullptr;
     s_map_notice_label = nullptr;
     s_map_context_rail = nullptr;
@@ -529,8 +561,14 @@ void clear_map_controls()
     s_map_notice_text[0] = '\0';
     s_map_notice_until_ms = 0;
     s_route_elevation_profile_visible = false;
+    s_route_image_strip_visible = false;
+    s_route_image_saved_state_known = false;
+    s_route_image_cache_state_known = false;
+    s_route_image_cache_build_running = false;
     s_route_deviation_active = false;
     s_route_deviation_distance_m = 0.0;
+    s_route_selected_image = 0;
+    s_route_image_strip_items_hash = 0;
     s_member_buttons.clear();
     s_member_button_ids.clear();
     s_member_list_hash = 0;
@@ -729,6 +767,35 @@ bool route_context_available()
 std::string route_file_path_for_name(const std::string& route_name)
 {
     return std::string(platform::ui::route_storage::route_dir()) + "/" + route_name;
+}
+
+std::string route_path_basename(const std::string& path)
+{
+    const char* base = std::strrchr(path.c_str(), '/');
+    if (base && base[1] != '\0')
+    {
+        return std::string(base + 1);
+    }
+    return path;
+}
+
+std::string route_asset_id_for_path(const std::string& path)
+{
+    const std::string name = route_path_basename(path);
+    std::uint32_t hash = 2166136261U;
+    for (unsigned char ch : name)
+    {
+        hash ^= static_cast<std::uint32_t>(ch);
+        hash *= 16777619U;
+    }
+    char text[16];
+    std::snprintf(text, sizeof(text), "kml-%08lx", static_cast<unsigned long>(hash));
+    return std::string(text);
+}
+
+std::string route_asset_root_for_id(const std::string& asset_id)
+{
+    return std::string(platform::ui::route_storage::route_dir()) + "/.trailmate/" + asset_id;
 }
 
 bool route_path_looks_degraded(const std::string& path)
@@ -1069,6 +1136,239 @@ void toggle_route_elevation_profile()
 
     s_route_elevation_profile_visible = !s_route_elevation_profile_visible;
     set_map_notice(s_route_elevation_profile_visible ? "Elevation shown" : "Elevation hidden", 900);
+    request_refresh_view();
+}
+
+bool route_image_context_active()
+{
+    return s_track_overlay_active &&
+           s_track_overlay_kind == TrackOverlayFileKind::Route &&
+           !s_route_images.empty();
+}
+
+::ui::widgets::route_image_strip::Config map_route_image_strip_config()
+{
+    ::ui::widgets::route_image_strip::Config config{};
+    config.width = 200;
+    config.item_height = ::ui::page_profile::current().dense ? 104 : 120;
+    config.opacity = LV_OPA_70;
+    return config;
+}
+
+uint32_t map_route_image_hash_byte(uint32_t hash, uint8_t value)
+{
+    hash ^= value;
+    hash *= 16777619U;
+    return hash;
+}
+
+uint32_t map_route_image_hash_string(uint32_t hash, const std::string& value)
+{
+    for (unsigned char ch : value)
+    {
+        hash = map_route_image_hash_byte(hash, ch);
+    }
+    return map_route_image_hash_byte(hash, 0);
+}
+
+uint32_t map_route_image_strip_items_hash()
+{
+    uint32_t hash = 2166136261U;
+    hash = map_route_image_hash_string(hash, s_route_asset_id);
+    for (const auto& image : s_route_images)
+    {
+        hash = map_route_image_hash_byte(hash, image.downloaded ? 1U : 0U);
+        hash = map_route_image_hash_byte(hash, image.preview_ready ? 1U : 0U);
+        hash = map_route_image_hash_byte(hash, image.view_ready ? 1U : 0U);
+    }
+    return hash;
+}
+
+void rebuild_map_route_image_strip_items()
+{
+    s_route_image_strip_items.clear();
+    s_route_image_strip_items.reserve(s_route_images.size());
+    for (const auto& image : s_route_images)
+    {
+        ::ui::widgets::route_image_strip::Item item{};
+        item.local_path = image.local_path;
+        item.preview_path = image.preview_ready ? image.preview_path : std::string{};
+        item.view_path = image.view_ready ? image.view_path : std::string{};
+        item.downloaded = image.downloaded;
+        s_route_image_strip_items.push_back(std::move(item));
+    }
+}
+
+void center_map_on_route_image(const RouteImagePoint& image)
+{
+    if (!image.has_position)
+    {
+        return;
+    }
+
+    auto& model = map_workspace_model();
+    auto viewport = model.viewport();
+    viewport.center_lat = image.lat;
+    viewport.center_lon = image.lon;
+    (void)model.setViewport(viewport);
+    s_map_pan_x = 0;
+    s_map_pan_y = 0;
+    sync_workspace_viewport_from_renderer();
+}
+
+void on_map_route_image_strip_selected(std::size_t index, void*)
+{
+    if (index >= s_route_images.size())
+    {
+        return;
+    }
+    s_route_selected_image = index;
+    center_map_on_route_image(s_route_images[index]);
+    request_refresh_view();
+}
+
+void maybe_refresh_finished_route_image_cache()
+{
+    if (!s_route_image_cache_build_running || s_route_asset_id.empty())
+    {
+        return;
+    }
+    const auto status = platform::ui::route_storage::route_image_download_status();
+    if (status.asset_id != s_route_asset_id || status.busy)
+    {
+        return;
+    }
+    if (status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Done ||
+        status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Failed)
+    {
+        refresh_route_image_storage_state(true);
+        s_route_image_cache_build_running = false;
+        s_route_image_strip_items_hash = 0;
+    }
+}
+
+void ensure_map_route_image_cache_build()
+{
+    if (s_route_asset_id.empty() || s_route_images.empty())
+    {
+        return;
+    }
+    if (!s_route_image_cache_state_known)
+    {
+        refresh_route_image_storage_state(true);
+    }
+    const auto status = platform::ui::route_storage::route_image_download_status();
+    if (status.busy)
+    {
+        return;
+    }
+
+    std::vector<platform::ui::route_storage::RouteImageCacheItem> items;
+    items.reserve(s_route_images.size());
+    for (const auto& image : s_route_images)
+    {
+        if (!image.downloaded || (image.preview_ready && image.view_ready))
+        {
+            continue;
+        }
+        platform::ui::route_storage::RouteImageCacheItem item{};
+        item.source_path = image.local_path;
+        item.preview_path = image.preview_path;
+        item.view_path = image.view_path;
+        items.push_back(std::move(item));
+    }
+    if (items.empty())
+    {
+        return;
+    }
+
+    std::string error;
+    if (platform::ui::route_storage::start_route_image_cache_build(
+            s_route_asset_id,
+            items,
+            error))
+    {
+        s_route_image_cache_build_running = true;
+    }
+}
+
+void sync_map_route_image_strip()
+{
+    maybe_refresh_finished_route_image_cache();
+    if (!s_map_viewport || !lv_obj_is_valid(s_map_viewport) ||
+        !route_image_context_active())
+    {
+        s_route_image_strip_visible = false;
+        ::ui::widgets::route_image_strip::destroy(s_route_image_strip);
+        s_route_image_strip_items_hash = 0;
+        return;
+    }
+
+    if (!s_route_image_strip_visible && !s_route_image_strip.root)
+    {
+        return;
+    }
+
+    ::ui::widgets::route_image_strip::create(
+        s_map_viewport,
+        s_route_image_strip,
+        map_route_image_strip_config());
+    ::ui::widgets::route_image_strip::set_selection_callback(
+        s_route_image_strip,
+        on_map_route_image_strip_selected,
+        nullptr);
+
+    const uint32_t next_items_hash = map_route_image_strip_items_hash();
+    if (next_items_hash != s_route_image_strip_items_hash ||
+        s_route_image_strip.items.empty())
+    {
+        rebuild_map_route_image_strip_items();
+        ::ui::widgets::route_image_strip::set_items(
+            s_route_image_strip,
+            s_route_image_strip_items.data(),
+            s_route_image_strip_items.size());
+        s_route_image_strip_items_hash = next_items_hash;
+    }
+
+    const std::size_t selected =
+        s_route_images.empty()
+            ? 0
+            : std::min<std::size_t>(s_route_selected_image, s_route_images.size() - 1);
+    ::ui::widgets::route_image_strip::set_selected(s_route_image_strip, selected, false);
+    ::ui::widgets::route_image_strip::set_hidden(
+        s_route_image_strip,
+        !s_route_image_strip_visible);
+}
+
+void toggle_map_route_image_strip()
+{
+    if (!s_track_overlay_active ||
+        s_track_overlay_kind != TrackOverlayFileKind::Route)
+    {
+        if (!load_configured_route_overlay(true))
+        {
+            set_map_notice("No route", 1200);
+            request_refresh_view();
+            return;
+        }
+    }
+    if (s_route_images.empty())
+    {
+        set_map_notice("No route images", 1200);
+        s_route_image_strip_visible = false;
+        sync_map_route_image_strip();
+        request_refresh_view();
+        return;
+    }
+
+    s_route_image_strip_visible = !s_route_image_strip_visible;
+    if (s_route_image_strip_visible)
+    {
+        refresh_route_image_storage_state(true);
+        ensure_map_route_image_cache_build();
+    }
+    set_map_notice(s_route_image_strip_visible ? "Images shown" : "Images hidden", 900);
+    sync_map_route_image_strip();
     request_refresh_view();
 }
 
@@ -1755,6 +2055,210 @@ bool parse_kml_gx_coord_token(const std::string& token,
     return true;
 }
 
+std::size_t find_case_insensitive(const std::string& text,
+                                  const char* needle,
+                                  std::size_t start = 0)
+{
+    if (!needle || needle[0] == '\0')
+    {
+        return std::string::npos;
+    }
+    const std::size_t needle_len = std::strlen(needle);
+    if (needle_len > text.size())
+    {
+        return std::string::npos;
+    }
+    for (std::size_t pos = start; pos + needle_len <= text.size(); ++pos)
+    {
+        bool match = true;
+        for (std::size_t index = 0; index < needle_len; ++index)
+        {
+            const unsigned char lhs = static_cast<unsigned char>(text[pos + index]);
+            const unsigned char rhs = static_cast<unsigned char>(needle[index]);
+            if (std::tolower(lhs) != std::tolower(rhs))
+            {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+        {
+            return pos;
+        }
+    }
+    return std::string::npos;
+}
+
+std::string html_decode_attr(std::string value)
+{
+    auto replace_all = [&value](const char* from, const char* to)
+    {
+        std::size_t pos = 0;
+        const std::size_t from_len = std::strlen(from);
+        while ((pos = value.find(from, pos)) != std::string::npos)
+        {
+            value.replace(pos, from_len, to);
+            pos += std::strlen(to);
+        }
+    };
+    replace_all("&amp;", "&");
+    replace_all("&quot;", "\"");
+    replace_all("&#34;", "\"");
+    replace_all("&#38;", "&");
+    return value;
+}
+
+void extract_img_srcs(const std::string& text, std::vector<std::string>& out_urls)
+{
+    std::size_t pos = 0;
+    while (out_urls.size() < kMaxRouteImagePoints)
+    {
+        const std::size_t img_pos = find_case_insensitive(text, "<img", pos);
+        if (img_pos == std::string::npos)
+        {
+            break;
+        }
+        const std::size_t tag_end = text.find('>', img_pos);
+        const std::size_t tag_len =
+            tag_end == std::string::npos ? text.size() - img_pos : tag_end - img_pos + 1;
+        const std::string tag = text.substr(img_pos, tag_len);
+        const std::size_t src_pos = find_case_insensitive(tag, "src");
+        if (src_pos != std::string::npos)
+        {
+            std::size_t eq_pos = tag.find('=', src_pos + 3);
+            if (eq_pos != std::string::npos)
+            {
+                ++eq_pos;
+                while (eq_pos < tag.size() &&
+                       std::isspace(static_cast<unsigned char>(tag[eq_pos])))
+                {
+                    ++eq_pos;
+                }
+                if (eq_pos < tag.size())
+                {
+                    const char quote =
+                        tag[eq_pos] == '\'' || tag[eq_pos] == '"' ? tag[eq_pos] : '\0';
+                    const std::size_t value_start = quote ? eq_pos + 1 : eq_pos;
+                    std::size_t value_end = value_start;
+                    while (value_end < tag.size())
+                    {
+                        const char ch = tag[value_end];
+                        if ((quote && ch == quote) ||
+                            (!quote &&
+                             (std::isspace(static_cast<unsigned char>(ch)) || ch == '>')))
+                        {
+                            break;
+                        }
+                        ++value_end;
+                    }
+                    if (value_end > value_start)
+                    {
+                        out_urls.push_back(
+                            html_decode_attr(tag.substr(value_start, value_end - value_start)));
+                    }
+                }
+            }
+        }
+        if (tag_end == std::string::npos)
+        {
+            break;
+        }
+        pos = tag_end + 1;
+    }
+}
+
+bool extract_tag_text(const std::string& line, const char* tag, std::string& out_text)
+{
+    out_text.clear();
+    std::string open = "<";
+    open += tag;
+    const std::size_t open_pos = find_case_insensitive(line, open.c_str());
+    if (open_pos == std::string::npos)
+    {
+        return false;
+    }
+    const std::size_t body_start = line.find('>', open_pos);
+    if (body_start == std::string::npos)
+    {
+        return false;
+    }
+    std::string close = "</";
+    close += tag;
+    close += ">";
+    const std::size_t close_pos = find_case_insensitive(line, close.c_str(), body_start + 1);
+    if (close_pos == std::string::npos || close_pos <= body_start)
+    {
+        return false;
+    }
+    out_text = line.substr(body_start + 1, close_pos - body_start - 1);
+    return true;
+}
+
+void append_route_images(const std::vector<std::string>& urls,
+                         double lat,
+                         double lon,
+                         bool has_position)
+{
+    for (const auto& url : urls)
+    {
+        if (s_route_images.size() >= kMaxRouteImagePoints)
+        {
+            return;
+        }
+        if (url.empty())
+        {
+            continue;
+        }
+        RouteImagePoint image{};
+        image.lat = lat;
+        image.lon = lon;
+        image.has_position = has_position && std::isfinite(lat) && std::isfinite(lon);
+        s_route_images.push_back(std::move(image));
+    }
+}
+
+void assign_route_image_paths()
+{
+    if (s_route_asset_id.empty())
+    {
+        return;
+    }
+    const std::string asset_root = route_asset_root_for_id(s_route_asset_id);
+    for (std::size_t index = 0; index < s_route_images.size(); ++index)
+    {
+        char local_name[32];
+        char preview_name[36];
+        char view_name[34];
+        const unsigned display_index = static_cast<unsigned>(index + 1);
+        std::snprintf(local_name, sizeof(local_name), "/images/img-%04u.jpg", display_index);
+        std::snprintf(preview_name, sizeof(preview_name), "/thumbs/thumb-%04u.bmp", display_index);
+        std::snprintf(view_name, sizeof(view_name), "/views/view-%04u.bmp", display_index);
+        s_route_images[index].local_path = asset_root + local_name;
+        s_route_images[index].preview_path = asset_root + preview_name;
+        s_route_images[index].view_path = asset_root + view_name;
+    }
+}
+
+void refresh_route_image_storage_state(bool include_cache_state)
+{
+    assign_route_image_paths();
+    for (RouteImagePoint& image : s_route_images)
+    {
+        image.downloaded =
+            platform::ui::route_storage::route_asset_file_exists(image.local_path);
+        image.preview_ready =
+            include_cache_state &&
+            image.downloaded &&
+            platform::ui::route_storage::route_asset_file_exists(image.preview_path);
+        image.view_ready =
+            include_cache_state &&
+            image.downloaded &&
+            platform::ui::route_storage::route_asset_file_exists(image.view_path);
+    }
+    s_route_image_saved_state_known = true;
+    s_route_image_cache_state_known = include_cache_state;
+}
+
 template <typename ChunkHandler>
 bool read_track_file_chunks(const char* path, ChunkHandler on_chunk)
 {
@@ -1839,6 +2343,99 @@ bool read_track_file_lines(const char* path, LineHandler on_line)
         on_line(line);
     }
     return ok;
+}
+
+bool load_kml_route_images(const char* path)
+{
+    s_route_images.clear();
+    s_route_image_strip_items.clear();
+    s_route_image_strip_items_hash = 0;
+    s_route_selected_image = 0;
+    s_route_image_saved_state_known = false;
+    s_route_image_cache_state_known = false;
+    s_route_image_cache_build_running = false;
+    if (!path || path[0] == '\0' || !platform::ui::device::sd_ready())
+    {
+        return false;
+    }
+
+    std::vector<std::string> pending_image_urls;
+    const bool read_ok = read_track_file_lines(
+        path,
+        [&](const std::string& line)
+        {
+            if (find_case_insensitive(line, "<Placemark") != std::string::npos)
+            {
+                pending_image_urls.clear();
+            }
+
+            extract_img_srcs(line, pending_image_urls);
+
+            std::string text;
+            if (!pending_image_urls.empty() && extract_tag_text(line, "coordinates", text))
+            {
+                std::size_t token_start = 0;
+                while (token_start < text.size())
+                {
+                    while (token_start < text.size() &&
+                           std::isspace(static_cast<unsigned char>(text[token_start])))
+                    {
+                        ++token_start;
+                    }
+                    if (token_start >= text.size())
+                    {
+                        break;
+                    }
+                    std::size_t token_end = token_start;
+                    while (token_end < text.size() &&
+                           !std::isspace(static_cast<unsigned char>(text[token_end])))
+                    {
+                        ++token_end;
+                    }
+
+                    double lat = 0.0;
+                    double lon = 0.0;
+                    double altitude_m = 0.0;
+                    bool has_altitude = false;
+                    if (parse_kml_coordinate_token(
+                            text.substr(token_start, token_end - token_start),
+                            lat,
+                            lon,
+                            altitude_m,
+                            has_altitude))
+                    {
+                        append_route_images(pending_image_urls, lat, lon, true);
+                        pending_image_urls.clear();
+                        break;
+                    }
+                    token_start = token_end;
+                }
+            }
+            if (!pending_image_urls.empty() && extract_tag_text(line, "gx:coord", text))
+            {
+                double lat = 0.0;
+                double lon = 0.0;
+                double altitude_m = 0.0;
+                bool has_altitude = false;
+                if (parse_kml_gx_coord_token(text, lat, lon, altitude_m, has_altitude))
+                {
+                    append_route_images(pending_image_urls, lat, lon, true);
+                    pending_image_urls.clear();
+                }
+            }
+
+            if (find_case_insensitive(line, "</Placemark") != std::string::npos)
+            {
+                if (!pending_image_urls.empty())
+                {
+                    append_route_images(pending_image_urls, 0.0, 0.0, false);
+                    pending_image_urls.clear();
+                }
+            }
+        });
+
+    assign_route_image_paths();
+    return read_ok;
 }
 
 void build_route_elevation_samples(
@@ -2203,6 +2800,52 @@ bool load_kml_track_points(const char* path,
     return read_ok && !out.empty();
 }
 
+void append_route_image_overlay(::ui::map::MapOverlaySnapshot& snapshot)
+{
+    if (!s_route_image_strip_visible || !route_image_context_active())
+    {
+        return;
+    }
+
+    for (std::size_t index = 0; index < s_route_images.size(); ++index)
+    {
+        if (snapshot.item_count >= ::ui::map::MapOverlaySnapshot::kMaxItems)
+        {
+            snapshot.truncated = true;
+            return;
+        }
+
+        const auto& image = s_route_images[index];
+        if (!image.has_position)
+        {
+            continue;
+        }
+        auto& item = snapshot.items[snapshot.item_count++];
+        item = ::ui::map::MapOverlayItem{};
+        const bool selected = index == s_route_selected_image;
+        item.kind = selected ? ::ui::map::MapOverlayKind::SelectedTarget
+                             : ::ui::map::MapOverlayKind::RoutePoint;
+        item.style = selected ? ::ui::map::MapOverlayStyle::Warning
+                              : ::ui::map::MapOverlayStyle::Route;
+        item.point.valid = true;
+        item.point.lat = image.lat;
+        item.point.lon = image.lon;
+        item.selected = selected;
+        item.stable_id = static_cast<uint32_t>(0x494D0000U + index);
+        if (selected)
+        {
+            char label[12]{};
+            std::snprintf(label,
+                          sizeof(label),
+                          "%u/%u",
+                          static_cast<unsigned>(index + 1),
+                          static_cast<unsigned>(s_route_images.size()));
+            ::ui::copyText(item.label, label);
+        }
+        item.visible = true;
+    }
+}
+
 void append_track_overlay(::ui::map::MapOverlaySnapshot& snapshot)
 {
     if (!s_track_overlay_active || s_track_points.empty())
@@ -2252,13 +2895,17 @@ void keep_only_current_position_overlay(::ui::map::MapOverlaySnapshot& snapshot)
     const bool keep_route_points =
         s_track_overlay_active &&
         s_track_overlay_kind == TrackOverlayFileKind::Route;
+    const bool keep_selected_route_image =
+        keep_route_points && s_route_image_strip_visible;
     std::size_t write = 0;
     for (std::size_t read = 0; read < snapshot.item_count; ++read)
     {
         const auto& item = snapshot.items[read];
         const bool keep_item =
             item.kind == ::ui::map::MapOverlayKind::CurrentPosition ||
-            (keep_route_points && item.kind == ::ui::map::MapOverlayKind::RoutePoint);
+            (keep_route_points && item.kind == ::ui::map::MapOverlayKind::RoutePoint) ||
+            (keep_selected_route_image &&
+             item.kind == ::ui::map::MapOverlayKind::SelectedTarget);
         if (!keep_item)
         {
             continue;
@@ -2313,9 +2960,19 @@ bool load_map_track_file_impl(const char* path, bool show_fail_toast)
         s_track_elevation_metrics = TrackElevationMetrics{};
         s_route_elevation_samples.clear();
         s_route_elevation_work_samples.clear();
+        s_route_images.clear();
+        s_route_image_strip_items.clear();
+        s_route_asset_id.clear();
         s_route_elevation_profile_visible = false;
+        s_route_image_strip_visible = false;
+        s_route_image_saved_state_known = false;
+        s_route_image_cache_state_known = false;
+        s_route_image_cache_build_running = false;
         s_route_deviation_active = false;
         s_route_deviation_distance_m = 0.0;
+        s_route_selected_image = 0;
+        s_route_image_strip_items_hash = 0;
+        ::ui::widgets::route_image_strip::destroy(s_route_image_strip);
         return false;
     }
 
@@ -2328,10 +2985,28 @@ bool load_map_track_file_impl(const char* path, bool show_fail_toast)
     if (file_kind == TrackOverlayFileKind::Route)
     {
         s_route_elevation_samples = std::move(elevation_samples);
+        s_route_asset_id = route_asset_id_for_path(path);
+        (void)load_kml_route_images(path);
+        if (s_route_images.empty())
+        {
+            s_route_image_strip_visible = false;
+            s_route_image_strip_items_hash = 0;
+            ::ui::widgets::route_image_strip::destroy(s_route_image_strip);
+        }
     }
     else
     {
         s_route_elevation_samples.clear();
+        s_route_images.clear();
+        s_route_image_strip_items.clear();
+        s_route_asset_id.clear();
+        s_route_image_strip_visible = false;
+        s_route_image_saved_state_known = false;
+        s_route_image_cache_state_known = false;
+        s_route_image_cache_build_running = false;
+        s_route_selected_image = 0;
+        s_route_image_strip_items_hash = 0;
+        ::ui::widgets::route_image_strip::destroy(s_route_image_strip);
     }
     s_route_elevation_work_samples.clear();
     if (file_kind != TrackOverlayFileKind::Route || !route_elevation_profile_available())
@@ -2434,6 +3109,7 @@ void refresh_view()
     sync_workspace_layers_from_renderer();
     auto snapshot = map_workspace_model().snapshot();
     (void)map_overlay_source().buildMapOverlaySnapshot(s_overlay_snapshot);
+    append_route_image_overlay(s_overlay_snapshot);
     append_track_overlay(s_overlay_snapshot);
     if (!s_map_info_visible)
     {
@@ -2467,6 +3143,7 @@ void refresh_view()
         ::ui::widgets::map::clear(s_map_runtime);
     }
     sync_map_control_labels(snapshot);
+    sync_map_route_image_strip();
 }
 
 void refresh_view_async(void*)
@@ -2842,7 +3519,8 @@ void open_map_help_modal()
 
     add_help_row("WASD", nullptr, "Move map");
     add_help_row("Q", "E", "Zoom map");
-    add_help_row("P", "Pos", "Center current position");
+    add_help_row("C", "Pos", "Center current position");
+    add_help_row("P", nullptr, "Show/hide route photos");
     add_help_row("L", nullptr, "Change base layer");
     add_help_row("O", "Contour", "Toggle contour overlay");
     add_help_row("T", "Track", "Select track file");
@@ -3167,6 +3845,23 @@ void on_map_control_clicked(lv_event_t* e)
 
 bool handle_map_key(uint32_t key, lv_event_t* e)
 {
+    if (::ui::widgets::route_image_strip::handle_key(s_route_image_strip, key))
+    {
+        consume_key_event(e);
+        request_refresh_view();
+        return true;
+    }
+    if (s_route_image_strip_visible &&
+        (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC))
+    {
+        s_route_image_strip_visible = false;
+        sync_map_route_image_strip();
+        set_map_notice("Images hidden", 900);
+        consume_key_event(e);
+        request_refresh_view();
+        return true;
+    }
+
     switch (key)
     {
     case kLvglFunctionKeyF1:
@@ -3214,9 +3909,19 @@ bool handle_map_key(uint32_t key, lv_event_t* e)
         return true;
     case 'c':
     case 'C':
+        center_map_on_self();
+        consume_key_event(e);
+        return true;
     case 'p':
     case 'P':
-        center_map_on_self();
+        if (route_context_available() || route_image_context_active())
+        {
+            toggle_map_route_image_strip();
+        }
+        else
+        {
+            center_map_on_self();
+        }
         consume_key_event(e);
         return true;
     case 'l':
