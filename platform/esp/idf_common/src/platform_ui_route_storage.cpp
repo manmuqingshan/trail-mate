@@ -9,6 +9,7 @@
 #include <dirent.h>
 #include <string>
 #include <sys/stat.h>
+#include <vector>
 
 namespace platform::ui::route_storage
 {
@@ -17,6 +18,7 @@ namespace
 
 constexpr const char* kRouteDir = "/routes";
 constexpr const char* kRouteAssetRoot = "/routes/.trailmate";
+constexpr const char* kRouteAssetImageSubdir = "images";
 
 bool has_kml_extension(const std::string& name)
 {
@@ -44,6 +46,43 @@ bool is_safe_asset_id(const std::string& asset_id)
         }
         return false;
     }
+    return true;
+}
+
+bool parse_route_image_name(const char* name,
+                            std::size_t max_count,
+                            std::size_t& out_index)
+{
+    out_index = 0;
+    if (name == nullptr || max_count == 0)
+    {
+        return false;
+    }
+    if (std::strlen(name) != 12 || std::strncmp(name, "img-", 4) != 0)
+    {
+        return false;
+    }
+    std::uint32_t value = 0;
+    for (int offset = 4; offset < 8; ++offset)
+    {
+        const char ch = name[offset];
+        if (ch < '0' || ch > '9')
+        {
+            return false;
+        }
+        value = (value * 10U) + static_cast<std::uint32_t>(ch - '0');
+    }
+    if (name[8] != '.' ||
+        std::tolower(static_cast<unsigned char>(name[9])) != 'j' ||
+        std::tolower(static_cast<unsigned char>(name[10])) != 'p' ||
+        std::tolower(static_cast<unsigned char>(name[11])) != 'g' ||
+        name[12] != '\0' ||
+        value == 0 ||
+        value > max_count)
+    {
+        return false;
+    }
+    out_index = static_cast<std::size_t>(value - 1U);
     return true;
 }
 
@@ -160,6 +199,51 @@ bool ensure_route_asset_dir(const std::string& asset_id, std::string& out_dir)
         out_dir.clear();
         return false;
     }
+    return true;
+}
+
+bool count_route_saved_images(const std::string& asset_id,
+                              std::size_t max_count,
+                              std::size_t& out_count)
+{
+    out_count = 0;
+    if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready() ||
+        !is_safe_asset_id(asset_id) ||
+        max_count == 0)
+    {
+        return false;
+    }
+
+    const std::string image_dir =
+        mount_path_for(std::string(kRouteAssetRoot) + "/" + asset_id + "/" + kRouteAssetImageSubdir);
+    DIR* dir = ::opendir(image_dir.c_str());
+    if (dir == nullptr)
+    {
+        return false;
+    }
+
+    std::vector<std::uint8_t> seen(max_count, 0);
+    while (out_count < max_count)
+    {
+        dirent* entry = ::readdir(dir);
+        if (entry == nullptr)
+        {
+            break;
+        }
+        std::size_t index = 0;
+        if (parse_route_image_name(entry->d_name, max_count, index) &&
+            index < seen.size() &&
+            !seen[index])
+        {
+            const std::string full_path = image_dir + "/" + entry->d_name;
+            if (is_regular_file(full_path))
+            {
+                seen[index] = 1;
+                ++out_count;
+            }
+        }
+    }
+    ::closedir(dir);
     return true;
 }
 

@@ -148,6 +148,43 @@ bool is_safe_asset_id(const std::string& asset_id)
     return true;
 }
 
+bool parse_route_image_name(const char* name,
+                            std::size_t max_count,
+                            std::size_t& out_index)
+{
+    out_index = 0;
+    if (!name || max_count == 0)
+    {
+        return false;
+    }
+    if (std::strlen(name) != 12 || std::strncmp(name, "img-", 4) != 0)
+    {
+        return false;
+    }
+    std::uint32_t value = 0;
+    for (int offset = 4; offset < 8; ++offset)
+    {
+        const char ch = name[offset];
+        if (ch < '0' || ch > '9')
+        {
+            return false;
+        }
+        value = (value * 10U) + static_cast<std::uint32_t>(ch - '0');
+    }
+    if (name[8] != '.' ||
+        std::tolower(static_cast<unsigned char>(name[9])) != 'j' ||
+        std::tolower(static_cast<unsigned char>(name[10])) != 'p' ||
+        std::tolower(static_cast<unsigned char>(name[11])) != 'g' ||
+        name[12] != '\0' ||
+        value == 0 ||
+        value > max_count)
+    {
+        return false;
+    }
+    out_index = static_cast<std::size_t>(value - 1U);
+    return true;
+}
+
 bool ensure_dir(const char* path)
 {
     if (!path || path[0] == '\0')
@@ -1291,6 +1328,48 @@ bool ensure_route_asset_dir(const std::string& asset_id, std::string& out_dir)
         out_dir.clear();
         return false;
     }
+    return true;
+}
+
+bool count_route_saved_images(const std::string& asset_id,
+                              std::size_t max_count,
+                              std::size_t& out_count)
+{
+    out_count = 0;
+    if (!platform::ui::device::sd_ready() ||
+        !is_safe_asset_id(asset_id) ||
+        max_count == 0)
+    {
+        return false;
+    }
+
+    const std::string image_dir =
+        std::string(kRouteAssetRoot) + "/" + asset_id + "/" + kRouteAssetImageSubdir;
+    ::platform::esp::arduino_common::storage::SdRuntimeDir dir;
+    if (!dir.open(image_dir.c_str()))
+    {
+        return false;
+    }
+
+    std::vector<std::uint8_t> seen(max_count, 0);
+    char name_buf[64];
+    bool is_dir = false;
+    while (out_count < max_count && dir.read_next(name_buf, sizeof(name_buf), &is_dir))
+    {
+        if (is_dir)
+        {
+            continue;
+        }
+        std::size_t index = 0;
+        if (parse_route_image_name(name_buf, max_count, index) &&
+            index < seen.size() &&
+            !seen[index])
+        {
+            seen[index] = 1;
+            ++out_count;
+        }
+    }
+    dir.close();
     return true;
 }
 

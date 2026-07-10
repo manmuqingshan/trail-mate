@@ -62,6 +62,9 @@ bool list_routes(std::vector<std::string>& out_routes, std::size_t max_count = 6
 bool remove_route(const std::string& path);
 const char* route_dir();
 bool ensure_route_asset_dir(const std::string& asset_id, std::string& out_dir);
+bool count_route_saved_images(const std::string& asset_id,
+                              std::size_t max_count,
+                              std::size_t& out_count);
 bool route_asset_file_exists(const std::string& path);
 RouteImageDownloadResult download_route_image(const std::string& url,
                                               const std::string& output_path,

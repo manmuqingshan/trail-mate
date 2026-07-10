@@ -115,6 +115,7 @@ bool s_preview_image_strip_visible = false;
 bool s_preview_map_loader_paused = false;
 bool s_preview_image_saved_state_known = false;
 bool s_preview_image_cache_state_known = false;
+std::size_t s_preview_saved_image_count_hint = 0;
 ::ui::widgets::map::Runtime s_preview_map_runtime;
 lv_timer_t* s_preview_download_poll_timer = nullptr;
 bool s_preview_download_refresh_map_on_finish = false;
@@ -912,13 +913,40 @@ void assign_preview_image_paths()
     }
 }
 
+void refresh_preview_saved_image_count_hint()
+{
+    assign_preview_image_paths();
+    s_preview_saved_image_count_hint = 0;
+    s_preview_image_saved_state_known = false;
+    if (s_preview_asset_id.empty() || s_preview_images.empty())
+    {
+        return;
+    }
+
+    std::size_t saved_count = 0;
+    if (platform::ui::route_storage::count_route_saved_images(
+            s_preview_asset_id,
+            s_preview_images.size(),
+            saved_count))
+    {
+        s_preview_saved_image_count_hint =
+            std::min<std::size_t>(saved_count, s_preview_images.size());
+        s_preview_image_saved_state_known = true;
+    }
+}
+
 void refresh_preview_image_storage_state(bool include_cache_state)
 {
     assign_preview_image_paths();
+    std::size_t saved_count = 0;
     for (RoutePreviewImage& image : s_preview_images)
     {
         image.downloaded =
             platform::ui::route_storage::route_asset_file_exists(image.local_path);
+        if (image.downloaded)
+        {
+            ++saved_count;
+        }
         if (include_cache_state)
         {
             image.preview_ready =
@@ -931,6 +959,7 @@ void refresh_preview_image_storage_state(bool include_cache_state)
         }
         image.view_ready = false;
     }
+    s_preview_saved_image_count_hint = saved_count;
     s_preview_image_saved_state_known = true;
     s_preview_image_cache_state_known = include_cache_state;
 }
@@ -992,6 +1021,18 @@ bool apply_route_preview_download_status_to_images(
             }
         }
     }
+    if (changed || (status.busy && status.saved > 0))
+    {
+        s_preview_saved_image_count_hint = 0;
+        for (const RoutePreviewImage& image : s_preview_images)
+        {
+            if (image.downloaded)
+            {
+                ++s_preview_saved_image_count_hint;
+            }
+        }
+        s_preview_image_saved_state_known = true;
+    }
     return changed;
 }
 
@@ -1013,6 +1054,7 @@ void clear_preview_model()
     s_preview_image_strip_visible = false;
     s_preview_image_saved_state_known = false;
     s_preview_image_cache_state_known = false;
+    s_preview_saved_image_count_hint = 0;
 }
 
 bool load_route_preview_model(const std::string& route_name)
@@ -1133,6 +1175,7 @@ bool load_route_preview_model(const std::string& route_name)
     }
     refresh_preview_metrics();
     assign_preview_image_paths();
+    refresh_preview_saved_image_count_hint();
     if (!s_preview_images.empty())
     {
         s_preview_selected_image = 0;
@@ -1550,6 +1593,16 @@ std::size_t preview_saved_image_count()
                       }));
 }
 
+std::size_t route_preview_saved_image_count()
+{
+    if (s_preview_image_saved_state_known)
+    {
+        return std::min<std::size_t>(s_preview_saved_image_count_hint,
+                                     s_preview_images.size());
+    }
+    return preview_saved_image_count();
+}
+
 bool route_preview_image_cache_ready(const RoutePreviewImage& image)
 {
     if (!image.downloaded)
@@ -1652,7 +1705,7 @@ bool route_preview_all_images_saved()
 {
     return s_preview_image_saved_state_known &&
            !s_preview_images.empty() &&
-           preview_saved_image_count() >= s_preview_images.size();
+           route_preview_saved_image_count() >= s_preview_images.size();
 }
 
 bool route_preview_load_button_disabled()
@@ -1692,7 +1745,7 @@ bool route_preview_download_button_disabled()
     {
         return true;
     }
-    return route_preview_all_image_caches_ready();
+    return route_preview_all_images_saved();
 }
 
 void show_route_preview_notice(const char* message, uint32_t duration_ms = 1800)
@@ -1883,7 +1936,7 @@ void ensure_route_preview_image_cache_build(bool refresh_state)
 void update_route_preview_status()
 {
     auto& state = g_tracker_state;
-    const std::size_t saved_count = preview_saved_image_count();
+    const std::size_t saved_count = route_preview_saved_image_count();
     const std::size_t cached_count = preview_cached_image_count();
     const auto download_status = platform::ui::route_storage::route_image_download_status();
 
@@ -1984,7 +2037,10 @@ void update_route_preview_status()
         else
         {
             const std::size_t numerator =
-                saved_count >= s_preview_images.size() ? cached_count : saved_count;
+                saved_count >= s_preview_images.size() &&
+                        s_preview_image_cache_state_known
+                    ? cached_count
+                    : saved_count;
             value = static_cast<int>((numerator * 100U) / s_preview_images.size());
         }
         lv_bar_set_value(state.route_preview_progress, value, LV_ANIM_ON);
@@ -2519,16 +2575,6 @@ void on_route_preview_download_clicked(lv_event_t*)
 
     if (saved_count >= total)
     {
-        if (!route_preview_all_image_caches_ready())
-        {
-            std::printf("[RoutePreview][down] cache_start asset=%s saved=%u/%u\n",
-                        s_preview_asset_id.c_str(),
-                        static_cast<unsigned>(saved_count),
-                        static_cast<unsigned>(total));
-            show_route_preview_notice("Preparing image cache");
-            ensure_route_preview_image_cache_build(false);
-            return;
-        }
         s_preview_download_state = RoutePreviewDownloadState::Done;
         std::snprintf(detail,
                       sizeof(detail),
@@ -2602,16 +2648,6 @@ void on_route_preview_download_clicked(lv_event_t*)
 
     if (items.empty())
     {
-        if (!route_preview_all_image_caches_ready())
-        {
-            std::printf("[RoutePreview][down] no_missing_images_cache_start asset=%s saved=%u/%u\n",
-                        s_preview_asset_id.c_str(),
-                        static_cast<unsigned>(saved_count),
-                        static_cast<unsigned>(total));
-            show_route_preview_notice("Preparing image cache");
-            ensure_route_preview_image_cache_build(false);
-            return;
-        }
         s_preview_download_state = RoutePreviewDownloadState::Done;
         s_preview_status_text = "Images already saved";
         update_route_preview_status();

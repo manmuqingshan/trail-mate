@@ -59,6 +59,38 @@ bool is_safe_asset_id(const std::string& asset_id)
     return true;
 }
 
+bool parse_route_image_name(const std::string& name,
+                            std::size_t max_count,
+                            std::size_t& out_index)
+{
+    out_index = 0;
+    if (max_count == 0 || name.size() != 12 || name.rfind("img-", 0) != 0)
+    {
+        return false;
+    }
+    std::uint32_t value = 0;
+    for (std::size_t offset = 4; offset < 8; ++offset)
+    {
+        const char ch = name[offset];
+        if (ch < '0' || ch > '9')
+        {
+            return false;
+        }
+        value = (value * 10U) + static_cast<std::uint32_t>(ch - '0');
+    }
+    if (name[8] != '.' ||
+        std::tolower(static_cast<unsigned char>(name[9])) != 'j' ||
+        std::tolower(static_cast<unsigned char>(name[10])) != 'p' ||
+        std::tolower(static_cast<unsigned char>(name[11])) != 'g' ||
+        value == 0 ||
+        value > max_count)
+    {
+        return false;
+    }
+    out_index = static_cast<std::size_t>(value - 1U);
+    return true;
+}
+
 std::filesystem::path resolve_route_path(const std::string& path_or_name)
 {
     std::filesystem::path candidate(path_or_name);
@@ -268,6 +300,48 @@ bool ensure_route_asset_dir(const std::string& asset_id, std::string& out_dir)
     }
     out_dir = dir.string();
     return true;
+}
+
+bool count_route_saved_images(const std::string& asset_id,
+                              std::size_t max_count,
+                              std::size_t& out_count)
+{
+    out_count = 0;
+    if (!ensure_route_dir() || !is_safe_asset_id(asset_id) || max_count == 0)
+    {
+        return false;
+    }
+
+    const std::filesystem::path image_dir =
+        route_dir_path() / ".trailmate" / asset_id / "images";
+    std::error_code ec;
+    if (!std::filesystem::is_directory(image_dir, ec) || ec)
+    {
+        return false;
+    }
+
+    std::vector<std::uint8_t> seen(max_count, 0);
+    for (std::filesystem::directory_iterator it(image_dir, ec), end;
+         !ec && it != end && out_count < max_count; it.increment(ec))
+    {
+        if (ec)
+        {
+            break;
+        }
+        if (!it->is_regular_file(ec) || ec)
+        {
+            continue;
+        }
+        std::size_t index = 0;
+        if (parse_route_image_name(it->path().filename().string(), max_count, index) &&
+            index < seen.size() &&
+            !seen[index])
+        {
+            seen[index] = 1;
+            ++out_count;
+        }
+    }
+    return !ec;
 }
 
 bool route_asset_file_exists(const std::string& path)
