@@ -18,7 +18,7 @@ namespace ui::presentation_sources
 namespace
 {
 
-constexpr std::size_t kMaxMessageRows = 24;
+constexpr std::size_t kMaxMessageRows = ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
 constexpr double kCoordinateScale = 10000000.0;
 
 uint32_t foldTeamId(const ::team::TeamId& team_id)

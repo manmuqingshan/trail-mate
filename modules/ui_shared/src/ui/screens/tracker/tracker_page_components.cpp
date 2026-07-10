@@ -9,6 +9,7 @@
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/tracker/tracker_page_input.h"
 #include "ui/screens/tracker/tracker_page_layout.h"
 #include "ui/screens/tracker/tracker_state.h"
@@ -1673,6 +1674,14 @@ bool route_preview_download_button_disabled()
     return route_preview_all_image_caches_ready();
 }
 
+void show_route_preview_notice(const char* message, uint32_t duration_ms = 1800)
+{
+    if (message && message[0] != '\0')
+    {
+        ::ui::feedback::show_notice(message, duration_ms);
+    }
+}
+
 void set_button_disabled(lv_obj_t* btn, bool disabled)
 {
     if (!btn || !lv_obj_is_valid(btn))
@@ -1853,56 +1862,45 @@ void update_route_preview_status()
     const std::size_t saved_count = preview_saved_image_count();
     const std::size_t cached_count = preview_cached_image_count();
     const auto download_status = platform::ui::route_storage::route_image_download_status();
-    char status[160];
-    if (s_preview_images.empty())
+
+    if (state.route_preview_status_label &&
+        lv_obj_is_valid(state.route_preview_status_label))
     {
-        std::snprintf(status,
-                      sizeof(status),
-                      "%u pts  %.1fkm  %.0f-%.0fm",
-                      static_cast<unsigned>(s_preview_route_points.size()),
-                      s_preview_metrics.distance_m / 1000.0,
-                      s_preview_metrics.min_altitude_m,
-                      s_preview_metrics.max_altitude_m);
+        if (s_preview_images.empty())
+        {
+            lv_obj_add_flag(state.route_preview_status_label, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            char status[24]{};
+            std::snprintf(status,
+                          sizeof(status),
+                          "%u/%u",
+                          static_cast<unsigned>(saved_count),
+                          static_cast<unsigned>(s_preview_images.size()));
+            ::ui::i18n::set_label_text_raw(state.route_preview_status_label, status);
+            lv_obj_clear_flag(state.route_preview_status_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_align(state.route_preview_status_label, LV_ALIGN_TOP_RIGHT, -5, 5);
+            lv_obj_move_foreground(state.route_preview_status_label);
+        }
     }
-    else
+
+    if (state.route_preview_progress &&
+        lv_obj_is_valid(state.route_preview_progress))
     {
-        const bool selected_ok =
-            s_preview_selected_image >= 0 &&
-            s_preview_selected_image < static_cast<int>(s_preview_images.size());
-        const char* local_state = selected_ok &&
-                                          s_preview_images[static_cast<std::size_t>(s_preview_selected_image)].downloaded
-                                      ? "local"
-                                      : "remote";
-        std::snprintf(status,
-                      sizeof(status),
-                      "Img %u/%u %s  saved %u/%u cache %u/%u  %.1fkm",
-                      static_cast<unsigned>(s_preview_selected_image + 1),
-                      static_cast<unsigned>(s_preview_images.size()),
-                      local_state,
-                      static_cast<unsigned>(saved_count),
-                      static_cast<unsigned>(s_preview_images.size()),
-                      static_cast<unsigned>(cached_count),
-                      static_cast<unsigned>(s_preview_images.size()),
-                      s_preview_metrics.distance_m / 1000.0);
-    }
-    std::string status_text = status;
-    if (!s_preview_status_text.empty())
-    {
-        status_text += " | ";
-        status_text += s_preview_status_text;
-    }
-    if (state.route_preview_status_label)
-    {
-        ::ui::i18n::set_label_text_raw(state.route_preview_status_label, status_text.c_str());
-    }
-    if (state.route_preview_progress)
-    {
+        if (s_preview_images.empty())
+        {
+            lv_obj_add_flag(state.route_preview_progress, LV_OBJ_FLAG_HIDDEN);
+            lv_bar_set_value(state.route_preview_progress, 0, LV_ANIM_OFF);
+            return;
+        }
+        lv_obj_clear_flag(state.route_preview_progress, LV_OBJ_FLAG_HIDDEN);
         int value = 0;
         if (route_preview_download_status_matches(download_status) && download_status.total > 0)
         {
             value = static_cast<int>((download_status.processed * 100U) / download_status.total);
         }
-        else if (!s_preview_images.empty())
+        else
         {
             const std::size_t numerator =
                 saved_count >= s_preview_images.size() ? cached_count : saved_count;
@@ -2405,21 +2403,34 @@ void on_route_preview_key(lv_event_t* e)
 void on_route_preview_download_clicked(lv_event_t*)
 {
     assign_preview_image_paths();
+    const std::size_t initial_saved_count = preview_saved_image_count();
+    std::printf("[RoutePreview][down] clicked asset=%s images=%u saved=%u\n",
+                s_preview_asset_id.c_str(),
+                static_cast<unsigned>(s_preview_images.size()),
+                static_cast<unsigned>(initial_saved_count));
     if (s_preview_images.empty())
     {
         s_preview_status_text = "No route images";
         s_preview_download_state = RoutePreviewDownloadState::Failed;
+        std::printf("[RoutePreview][down] blocked reason=no_images asset=%s\n",
+                    s_preview_asset_id.c_str());
+        show_route_preview_notice("No route images");
         update_route_preview_status();
         update_route_preview_buttons();
         return;
     }
 
     const std::size_t total = s_preview_images.size();
-    std::size_t saved_count = preview_saved_image_count();
+    std::size_t saved_count = initial_saved_count;
     char detail[96]{};
 
     if (route_preview_download_busy_for_current_route())
     {
+        std::printf("[RoutePreview][down] already_running asset=%s saved=%u/%u\n",
+                    s_preview_asset_id.c_str(),
+                    static_cast<unsigned>(saved_count),
+                    static_cast<unsigned>(total));
+        show_route_preview_notice("Download in progress");
         sync_route_preview_download_status();
         ensure_route_preview_download_poll_timer();
         return;
@@ -2429,6 +2440,11 @@ void on_route_preview_download_clicked(lv_event_t*)
     {
         if (!route_preview_all_image_caches_ready())
         {
+            std::printf("[RoutePreview][down] cache_start asset=%s saved=%u/%u\n",
+                        s_preview_asset_id.c_str(),
+                        static_cast<unsigned>(saved_count),
+                        static_cast<unsigned>(total));
+            show_route_preview_notice("Preparing image cache");
             ensure_route_preview_image_cache_build();
             return;
         }
@@ -2439,6 +2455,10 @@ void on_route_preview_download_clicked(lv_event_t*)
                       static_cast<unsigned>(total),
                       static_cast<unsigned>(total));
         s_preview_status_text = detail;
+        std::printf("[RoutePreview][down] blocked reason=already_ready asset=%s total=%u\n",
+                    s_preview_asset_id.c_str(),
+                    static_cast<unsigned>(total));
+        show_route_preview_notice("Images already saved");
         update_route_preview_status();
         update_route_preview_buttons();
         return;
@@ -2449,6 +2469,14 @@ void on_route_preview_download_clicked(lv_event_t*)
     {
         s_preview_status_text = "Wi-Fi required";
         s_preview_download_state = RoutePreviewDownloadState::Failed;
+        std::printf("[RoutePreview][down] blocked reason=wifi_required supported=%u enabled=%u connected=%u credentials=%u state=%u msg=%s\n",
+                    wifi.supported ? 1U : 0U,
+                    wifi.enabled ? 1U : 0U,
+                    wifi.connected ? 1U : 0U,
+                    wifi.has_credentials ? 1U : 0U,
+                    static_cast<unsigned>(wifi.state),
+                    wifi.message);
+        show_route_preview_notice("Wi-Fi required");
         update_route_preview_status();
         update_route_preview_buttons();
         return;
@@ -2459,6 +2487,9 @@ void on_route_preview_download_clicked(lv_event_t*)
     {
         s_preview_status_text = "Create image dir failed";
         s_preview_download_state = RoutePreviewDownloadState::Failed;
+        std::printf("[RoutePreview][down] blocked reason=asset_dir_failed asset=%s\n",
+                    s_preview_asset_id.c_str());
+        show_route_preview_notice("Create image dir failed");
         update_route_preview_status();
         update_route_preview_buttons();
         return;
@@ -2473,6 +2504,12 @@ void on_route_preview_download_clicked(lv_event_t*)
                   static_cast<unsigned>(saved_count),
                   static_cast<unsigned>(total));
     s_preview_status_text = detail;
+    std::printf("[RoutePreview][down] starting asset=%s saved=%u/%u wifi_ssid=%s ip=%s\n",
+                s_preview_asset_id.c_str(),
+                static_cast<unsigned>(saved_count),
+                static_cast<unsigned>(total),
+                wifi.ssid,
+                wifi.ip);
     update_route_preview_status();
     update_route_preview_buttons();
 
@@ -2493,11 +2530,19 @@ void on_route_preview_download_clicked(lv_event_t*)
     {
         s_preview_download_state = RoutePreviewDownloadState::Failed;
         s_preview_status_text = error.empty() ? "Start download failed" : error;
+        std::printf("[RoutePreview][down] start_failed asset=%s error=%s\n",
+                    s_preview_asset_id.c_str(),
+                    s_preview_status_text.c_str());
+        show_route_preview_notice(s_preview_status_text.c_str(), 2200);
         update_route_preview_status();
         update_route_preview_buttons();
         return;
     }
 
+    std::printf("[RoutePreview][down] task_started asset=%s total=%u\n",
+                s_preview_asset_id.c_str(),
+                static_cast<unsigned>(items.size()));
+    show_route_preview_notice("Download started");
     s_preview_download_refresh_map_on_finish = true;
     ensure_route_preview_download_poll_timer();
     sync_route_preview_download_status();
@@ -2548,16 +2593,29 @@ void render_route_preview_page()
 
     state.route_preview_elevation_panel = nullptr;
 
-    state.route_preview_status_label = lv_label_create(state.route_preview_page);
-    lv_obj_set_width(state.route_preview_status_label, LV_PCT(100));
-    lv_label_set_long_mode(state.route_preview_status_label, LV_LABEL_LONG_DOT);
+    state.route_preview_status_label = lv_label_create(state.route_preview_map_host);
+    lv_obj_set_size(state.route_preview_status_label, 52, 18);
+    lv_obj_add_flag(state.route_preview_status_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_add_flag(state.route_preview_status_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(state.route_preview_status_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_label_set_long_mode(state.route_preview_status_label, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_bg_color(state.route_preview_status_label, lv_color_hex(0x1C1812), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(state.route_preview_status_label, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_border_width(state.route_preview_status_label, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(state.route_preview_status_label, lv_color_hex(0xFFF3DF), LV_PART_MAIN);
+    lv_obj_set_style_radius(state.route_preview_status_label, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(state.route_preview_status_label, 1, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(state.route_preview_status_label, 1, LV_PART_MAIN);
     lv_obj_set_style_text_font(
-        state.route_preview_status_label, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), 0);
-    lv_obj_set_style_text_color(state.route_preview_status_label, lv_color_hex(kPanelTextMuted), 0);
+        state.route_preview_status_label, ::ui::fonts::localized_font(&lv_font_montserrat_12), 0);
+    lv_obj_set_style_text_color(state.route_preview_status_label, lv_color_hex(0xFFF3DF), 0);
+    lv_obj_set_style_text_align(state.route_preview_status_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(state.route_preview_status_label, LV_ALIGN_TOP_RIGHT, -5, 5);
 
     state.route_preview_progress = lv_bar_create(state.route_preview_page);
     lv_obj_set_size(state.route_preview_progress, LV_PCT(100), 7);
     lv_bar_set_range(state.route_preview_progress, 0, 100);
+    lv_bar_set_value(state.route_preview_progress, 0, LV_ANIM_OFF);
 
     lv_obj_t* row = lv_obj_create(state.route_preview_page);
     lv_obj_set_size(row, LV_PCT(100), action_menu_button_height());

@@ -163,8 +163,20 @@ void SdStore::append(const ChatMessage& msg)
 
 std::vector<ChatMessage> SdStore::loadRecent(const ConversationId& conv, size_t n)
 {
+    return loadPageFromLatest(conv, 0, n, nullptr);
+}
+
+std::vector<ChatMessage> SdStore::loadPageFromLatest(const ConversationId& conv,
+                                                     size_t offset_from_latest,
+                                                     size_t limit,
+                                                     size_t* total)
+{
     std::vector<ChatMessage> out;
-    if (!ready_ || n == 0)
+    if (total)
+    {
+        *total = 0;
+    }
+    if (!ready_ || limit == 0)
     {
         return out;
     }
@@ -189,9 +201,22 @@ std::vector<ChatMessage> SdStore::loadRecent(const ConversationId& conv, size_t 
         return out;
     }
 
-    const size_t to_read = std::min<size_t>(n, header.count);
+    if (total)
+    {
+        *total = header.count;
+    }
+    if (offset_from_latest >= header.count)
+    {
+        file.close();
+        return out;
+    }
+
+    const size_t available = header.count - offset_from_latest;
+    const size_t to_read = std::min<size_t>(limit, available);
+    const size_t logical_start = header.count - offset_from_latest - to_read;
     const uint16_t start = static_cast<uint16_t>(
-        (header.head + kMaxMessagesPerConv - to_read) % kMaxMessagesPerConv);
+        (header.head + kMaxMessagesPerConv - header.count + logical_start) %
+        kMaxMessagesPerConv);
 
     out.reserve(to_read);
     for (size_t index = 0; index < to_read; ++index)

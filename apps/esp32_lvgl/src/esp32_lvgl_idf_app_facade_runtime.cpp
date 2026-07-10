@@ -44,6 +44,7 @@
 #include "team/usecase/team_track_sampler.h"
 #include "ui/chat_ui_runtime.h"
 #include "ui/screens/team/team_page_shell.h"
+#include "ui/widgets/top_bar_power_presenter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1290,6 +1291,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         {
             runtime->update();
         }
+        ::ui::widgets::top_bar_power::tick();
     }
 
     void dispatchPendingEvents(std::size_t max_events = 32) override

@@ -34,6 +34,7 @@ ui::chat::MessageIngressTransport mapMessageIngressTransport(chat::RxOrigin orig
     case chat::RxOrigin::LoRa:
         return ui::chat::MessageIngressTransport::LoRa;
     case chat::RxOrigin::External:
+        return ui::chat::MessageIngressTransport::Mqtt;
     case chat::RxOrigin::WiFi:
         return ui::chat::MessageIngressTransport::WiFi;
     case chat::RxOrigin::Unknown:

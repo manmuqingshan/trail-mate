@@ -14,7 +14,9 @@
 #include "ui/widgets/map/map_viewport.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_presentation/chat/chat_message_ref.h"
+#include "ui_presentation/chat/chat_workspace_snapshot.h"
 #include "ui_presentation/map/map_overlay_snapshot.h"
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -34,7 +36,9 @@ class ChatConversationScreen
   public:
     enum class ActionIntent
     {
-        Reply
+        Reply,
+        LoadOlder,
+        LoadLatest
     };
 
     enum class MessageActionIntent
@@ -70,6 +74,10 @@ class ChatConversationScreen
     void setBackCallback(void (*cb)(void*), void* user_data);
     void setReplyEnabled(bool enabled);
     bool isReplyEnabled() const { return reply_enabled_; }
+    void setHistoryPaging(bool has_older,
+                          bool has_newer,
+                          uint16_t offset,
+                          uint16_t total_count);
     void setLocationOverlay(const ::ui::map::MapOverlaySnapshot& overlay);
     void toggleLocationMap();
     void cycleLocationMapLayer();
@@ -140,6 +148,10 @@ class ChatConversationScreen
     lv_obj_t* msg_list_ = nullptr;
     lv_obj_t* action_bar_ = nullptr;
     lv_obj_t* reply_btn_ = nullptr;
+    lv_obj_t* load_older_btn_ = nullptr;
+    lv_obj_t* load_older_label_ = nullptr;
+    lv_obj_t* load_latest_btn_ = nullptr;
+    lv_obj_t* load_latest_label_ = nullptr;
     lv_obj_t* compose_btn_ = nullptr; // kept for compatibility (not created in v0)
     lv_obj_t* location_panel_ = nullptr;
     lv_obj_t* location_map_host_ = nullptr;
@@ -164,25 +176,41 @@ class ChatConversationScreen
             ::ui::chat::MessageDeliveryState::Unknown;
         lv_obj_t* container = nullptr; // row
         lv_obj_t* bubble = nullptr;
+        lv_obj_t* meta_row = nullptr;
+        lv_obj_t* sender_label = nullptr;
+        lv_obj_t* source_label = nullptr;
         lv_obj_t* text_label = nullptr;   // inside bubble
-        lv_obj_t* time_label = nullptr;   // reserved (not used)
+        lv_obj_t* time_label = nullptr;   // inside meta row
         lv_obj_t* status_label = nullptr; // reserved (not used)
         std::unique_ptr<MessageActionContext> retry_ctx;
         bool retry_enabled = false;
     };
 
     std::vector<MessageItem> messages_;
-    static constexpr size_t MAX_DISPLAY_MESSAGES = 100;
+    static constexpr size_t MAX_DISPLAY_MESSAGES =
+        ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
 
     LifetimeGuard* guard_ = nullptr;
     std::vector<TimerEntry> timers_;
     conversation::input::Binding input_binding_{};
     ActionContext reply_ctx_{};
+    ActionContext load_older_ctx_{};
+    ActionContext load_latest_ctx_{};
     bool reply_enabled_ = true;
+    bool history_has_older_ = false;
+    bool history_has_newer_ = false;
+    uint16_t history_offset_ = 0;
+    uint16_t history_total_count_ = 0;
+    bool history_auto_load_pending_ = false;
+    bool history_scroll_position_valid_ = false;
+    lv_coord_t history_last_scroll_y_ = 0;
     bool location_map_visible_ = false;
     bool location_map_created_ = false;
 
     void createMessageItem(const ::ui::chat::MessageRow& row);
+    void createHistoryControls();
+    void updateHistoryControls();
+    void handleScroll();
     void enableRetryAction(MessageItem& item);
     void disableRetryAction(MessageItem& item);
     void createLocationPanel();
@@ -193,6 +221,7 @@ class ChatConversationScreen
 
     static void action_event_cb(lv_event_t* e);
     static void message_action_event_cb(lv_event_t* e);
+    static void scroll_event_cb(lv_event_t* e);
     static void async_action_cb(void* user_data);
     static void async_message_action_cb(void* user_data);
     static void async_back_cb(void* user_data);

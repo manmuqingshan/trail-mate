@@ -16,7 +16,7 @@ namespace platform::ui::http_client
 namespace
 {
 
-constexpr std::size_t kTlsLargeAllocThresholdBytes = 4096;
+constexpr std::size_t kTlsLargeAllocThresholdBytes = 1024;
 
 bool http_buffer_prefers_psram(const Request& request)
 {

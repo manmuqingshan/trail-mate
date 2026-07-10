@@ -42,13 +42,33 @@ void RamStore::append(const ChatMessage& msg)
 
 std::vector<ChatMessage> RamStore::loadRecent(const ConversationId& conv, size_t n)
 {
+    return loadPageFromLatest(conv, 0, n, nullptr);
+}
+
+std::vector<ChatMessage> RamStore::loadPageFromLatest(const ConversationId& conv,
+                                                      size_t offset_from_latest,
+                                                      size_t limit,
+                                                      size_t* total)
+{
     const ConversationStorage& storage = getConversationStorage(conv);
     std::vector<ChatMessage> result;
 
     size_t count = storage.messages.size();
-    size_t start = (count > n) ? (count - n) : 0;
+    if (total)
+    {
+        *total = count;
+    }
+    if (limit == 0 || offset_from_latest >= count)
+    {
+        return result;
+    }
 
-    for (size_t i = start; i < count; i++)
+    const size_t available = count - offset_from_latest;
+    const size_t to_read = std::min<size_t>(limit, available);
+    size_t start = count - offset_from_latest - to_read;
+    const size_t end = start + to_read;
+
+    for (size_t i = start; i < end; i++)
     {
         result.push_back(storage.messages[i].message);
     }

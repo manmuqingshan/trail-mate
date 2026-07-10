@@ -42,10 +42,11 @@ constexpr TickType_t kAsyncBetweenFlushDelay = pdMS_TO_TICKS(250);
 constexpr TickType_t kAsyncMaintenanceClosedDelay = pdMS_TO_TICKS(15000);
 constexpr uint32_t kAsyncMaintenanceStableMs = 8000;
 constexpr uint32_t kAsyncDeferLogIntervalMs = 30000;
-constexpr uint32_t kAsyncTaskStackBytes = 6 * 1024;
+constexpr uint32_t kAsyncTaskStackBytes = 5 * 1024;
 constexpr UBaseType_t kAsyncTaskPriority = tskIDLE_PRIORITY + 1;
 constexpr const char* kMaintenanceDeferredMessage =
     "Reticulum directory maintenance deferred";
+constexpr uint32_t kAsyncTaskCreateFailLogIntervalMs = 10000;
 
 enum class PendingDirectoryKind : uint8_t
 {
@@ -91,6 +92,7 @@ struct AsyncDirectoryState
 AsyncDirectoryState* s_async_state = nullptr;
 uint32_t s_maintenance_window_entered_ms = 0;
 uint32_t s_last_maintenance_defer_log_ms = 0;
+uint32_t s_last_task_create_fail_log_ms = 0;
 
 using DirectoryIoGate = bool (*)();
 
@@ -425,6 +427,37 @@ void log_maintenance_deferred(const char* stage)
                 ::platform::ui::screen::is_saver_active() ? 1 : 0);
 }
 
+void log_async_task_create_failed(BaseType_t rc)
+{
+    const uint32_t now = monotonic_ms();
+    if (s_last_task_create_fail_log_ms != 0 &&
+        now - s_last_task_create_fail_log_ms < kAsyncTaskCreateFailLogIntervalMs)
+    {
+        return;
+    }
+    s_last_task_create_fail_log_ms = now;
+    std::printf("[Reticulum][Directory] async task_create_failed rc=%ld "
+                "internal_free=%u internal_largest=%u psram_free=%u psram_largest=%u\n",
+                static_cast<long>(rc),
+                static_cast<unsigned>(
+                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+}
+
+void log_async_worker_stack(const char* stage)
+{
+    const UBaseType_t free_words = uxTaskGetStackHighWaterMark(nullptr);
+    std::printf("[Reticulum][Directory] async %s stack_free_words=%u stack_free_bytes=%u\n",
+                stage ? stage : "-",
+                static_cast<unsigned>(free_words),
+                static_cast<unsigned>(free_words * sizeof(StackType_t)));
+}
+
 AsyncDirectoryState* allocate_async_state()
 {
     void* storage = heap_caps_malloc_prefer(sizeof(AsyncDirectoryState),
@@ -436,6 +469,32 @@ AsyncDirectoryState* allocate_async_state()
         storage = ::operator new(sizeof(AsyncDirectoryState), std::nothrow);
     }
     return storage ? new (storage) AsyncDirectoryState() : nullptr;
+}
+
+bool start_async_worker_task(AsyncDirectoryState& state)
+{
+    if (state.task)
+    {
+        return true;
+    }
+    if (!state.mutex || !state.signal)
+    {
+        return false;
+    }
+
+    const BaseType_t ok = xTaskCreate(async_task_entry,
+                                      "rtdir_io",
+                                      kAsyncTaskStackBytes,
+                                      &state,
+                                      kAsyncTaskPriority,
+                                      &state.task);
+    if (ok != pdPASS)
+    {
+        log_async_task_create_failed(ok);
+        state.task = nullptr;
+        return false;
+    }
+    return true;
 }
 
 AsyncDirectoryState* ensure_async_worker()
@@ -462,22 +521,12 @@ AsyncDirectoryState* ensure_async_worker()
     {
         state->signal = xQueueCreate(1, sizeof(uint8_t));
     }
-    if (!state->task && state->mutex && state->signal)
+    if (!state->mutex || !state->signal)
     {
-        const BaseType_t ok = xTaskCreate(async_task_entry,
-                                          "rtdir_io",
-                                          kAsyncTaskStackBytes,
-                                          state,
-                                          kAsyncTaskPriority,
-                                          &state->task);
-        if (ok != pdPASS)
-        {
-            std::printf("[Reticulum][Directory] async task_create_failed rc=%ld\n",
-                        static_cast<long>(ok));
-            state->task = nullptr;
-        }
+        return nullptr;
     }
-    return state->mutex && state->signal && state->task ? state : nullptr;
+    (void)start_async_worker_task(*state);
+    return state;
 }
 
 PendingAnnounce* find_announce_slot(AsyncDirectoryState& state,
@@ -645,6 +694,11 @@ void requeue_active_address(AsyncDirectoryState& state)
 
 void signal_async_worker(AsyncDirectoryState& state)
 {
+    (void)start_async_worker_task(state);
+    if (!state.signal)
+    {
+        return;
+    }
     const uint8_t signal = 1;
     (void)xQueueOverwrite(state.signal, &signal);
 }
@@ -657,6 +711,7 @@ void async_task_entry(void* context)
         vTaskDelete(nullptr);
         return;
     }
+    log_async_worker_stack("start");
 
     uint8_t signal = 0;
     for (;;)
@@ -1055,6 +1110,8 @@ std::string aspect_text(AnnounceAspect aspect)
         return "lxmf.propagation";
     case AnnounceAspect::CallAudio:
         return "call.audio";
+    case AnnounceAspect::NomadNetworkNode:
+        return "nomadnetwork.node";
     case AnnounceAspect::Unknown:
     default:
         return "unknown";
@@ -1074,6 +1131,10 @@ AnnounceAspect parse_aspect(std::string_view aspect)
     if (aspect == "call.audio")
     {
         return AnnounceAspect::CallAudio;
+    }
+    if (aspect == "nomadnetwork.node")
+    {
+        return AnnounceAspect::NomadNetworkNode;
     }
     return AnnounceAspect::Unknown;
 }

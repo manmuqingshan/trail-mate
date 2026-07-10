@@ -92,6 +92,8 @@ constexpr const char* kPeersPrefsNs = "lxmf_peers";
 constexpr const char* kPeersPrefsKey = "peers";
 constexpr const char* kPeersPrefsVer = "ver";
 constexpr const char* kPeersPrefsCrc = "crc";
+constexpr const char* kAnonymousPeerDisplayName = "Anonymous Peer";
+constexpr const char* kAnonymousNodeDisplayName = "Anonymous Node";
 constexpr uint8_t kPeersPrefsVersion = 1;
 constexpr uint8_t kPropagationMetaName = 0x01;
 
@@ -150,6 +152,55 @@ void formatHashHex(const uint8_t* hash, size_t hash_len, char* out, size_t out_l
                      "%02X",
                      static_cast<unsigned>(hash[index])));
     }
+}
+
+void formatLogTextPreview(const std::string& text, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    const size_t max_copy = out_len - 1U;
+    size_t used = 0;
+    for (char value : text)
+    {
+        if (used >= max_copy)
+        {
+            break;
+        }
+        const unsigned char c = static_cast<unsigned char>(value);
+        if (c == '\r' || c == '\n' || c == '\t')
+        {
+            out[used++] = ' ';
+        }
+        else if (c < 0x20U || c == 0x7FU)
+        {
+            out[used++] = '.';
+        }
+        else
+        {
+            out[used++] = value;
+        }
+    }
+    out[used] = '\0';
+}
+
+const char* txBearerName(const reticulum::interfaces::TxResult& result)
+{
+    if (result.lora_ok && result.wifi_ok)
+    {
+        return "lora+wifi";
+    }
+    if (result.lora_ok)
+    {
+        return "lora";
+    }
+    if (result.wifi_ok)
+    {
+        return "wifi";
+    }
+    return "none";
 }
 
 const char* localDestinationKindLabel(runtime::LocalDestinationKind kind)
@@ -558,6 +609,18 @@ bool isCallAudioAnnounce(const reticulum::ParsedAnnounce& announce)
     return hashesEqual(expected_name_hash, announce.name_hash, sizeof(expected_name_hash));
 }
 
+bool isNomadNetworkNodeAnnounce(const reticulum::ParsedAnnounce& announce)
+{
+    if (!announce.valid || !announce.name_hash)
+    {
+        return false;
+    }
+
+    uint8_t expected_name_hash[reticulum::kNameHashSize] = {};
+    reticulum::computeNameHash("nomadnetwork", "node", expected_name_hash);
+    return hashesEqual(expected_name_hash, announce.name_hash, sizeof(expected_name_hash));
+}
+
 bool packetContextUsesRawLinkPayload(uint8_t context)
 {
     return context == static_cast<uint8_t>(reticulum::PacketContext::Keepalive) ||
@@ -772,11 +835,14 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
 {
     (void)forced_msg_id;
 
-    Serial.printf("[LXMF][DirectTX] begin ch=%u peer=%08lX len=%u ready=%u\n",
+    char text_preview[64] = {};
+    formatLogTextPreview(text, text_preview, sizeof(text_preview));
+    Serial.printf("[LXMF][DirectTX] begin ch=%u peer=%08lX len=%u ready=%u text=\"%s\"\n",
                   static_cast<unsigned>(channel),
                   static_cast<unsigned long>(peer),
                   static_cast<unsigned>(text.size()),
-                  isReady() ? 1U : 0U);
+                  isReady() ? 1U : 0U,
+                  text_preview);
 
     if (channel != ChannelId::PRIMARY || text.empty() || peer == 0)
     {
@@ -802,7 +868,12 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
         return MeshSendResult::fail(MeshOperationFailure::PeerKeyMissing);
     }
     char peer_hash[12] = {};
+    char peer_dest_full[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
     formatHashPrefix(peer_info->destination_hash, peer_hash, sizeof(peer_hash));
+    formatHashHex(peer_info->destination_hash,
+                  sizeof(peer_info->destination_hash),
+                  peer_dest_full,
+                  sizeof(peer_dest_full));
 
     if (shouldRequestPath(*peer_info))
     {
@@ -912,14 +983,20 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
     const MessageId message_id = messageIdFromHash(message_hash);
     char message_hash_prefix[12] = {};
     formatHashPrefix(message_hash, message_hash_prefix, sizeof(message_hash_prefix));
-    Serial.printf("[LXMF][DirectTX] result ok=%u msg=%lu hash=%s peer=%08lX dest=%s path=%s payload_len=%u\n",
+    const auto& tx_result = interfaces_.lastTxResult();
+    Serial.printf("[LXMF][DirectTX] result ok=%u msg=%lu hash=%s peer=%08lX name=\"%s\" dest=%s dest_full=%s path=%s bearer=%s complete=%u payload_len=%u text=\"%s\"\n",
                   ok ? 1U : 0U,
                   static_cast<unsigned long>(message_id),
                   message_hash_prefix,
                   static_cast<unsigned long>(peer_info->node_id),
+                  peer_info->display_name[0] != '\0' ? peer_info->display_name : "<unnamed>",
                   peer_hash,
+                  peer_dest_full,
                   send_path,
-                  static_cast<unsigned>(packed_payload_len));
+                  txBearerName(tx_result),
+                  tx_result.reachedRequiredInterfaces() ? 1U : 0U,
+                  static_cast<unsigned>(packed_payload_len),
+                  text_preview);
     MeshSendResult result =
         ok ? MeshSendResult::success(message_id)
            : MeshSendResult::fail(MeshOperationFailure::RadioTxFailed, message_id);
@@ -935,13 +1012,22 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
     const ReticulumPeerIdentity& destination)
 {
     char dest_hash[12] = {};
+    char dest_full[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+    char text_preview[64] = {};
     formatHashPrefix(destination.destination_hash, dest_hash, sizeof(dest_hash));
-    Serial.printf("[LXMF][GroupTX] begin ch=%u forced=%lu dest=%s len=%u ready=%u\n",
+    formatHashHex(destination.destination_hash,
+                  sizeof(destination.destination_hash),
+                  dest_full,
+                  sizeof(dest_full));
+    formatLogTextPreview(text, text_preview, sizeof(text_preview));
+    Serial.printf("[LXMF][GroupTX] begin ch=%u forced=%lu dest=%s dest_full=%s len=%u ready=%u text=\"%s\"\n",
                   static_cast<unsigned>(channel),
                   static_cast<unsigned long>(forced_msg_id),
                   dest_hash,
+                  dest_full,
                   static_cast<unsigned>(text.size()),
-                  isReady() ? 1U : 0U);
+                  isReady() ? 1U : 0U,
+                  text_preview);
 
     if (channel != ChannelId::PRIMARY || text.empty() ||
         !hasReticulumDestinationIdentity(destination))
@@ -1007,11 +1093,16 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
                   static_cast<unsigned>(packed_payload_len),
                   static_cast<unsigned>(packet_len));
     const bool ok = routeAndSendPacket(packet, packet_len, true);
-    Serial.printf("[LXMF][GroupTX] raw_send ok=%u msg=%lu dest=%s packet_len=%u\n",
+    const auto& tx_result = interfaces_.lastTxResult();
+    Serial.printf("[LXMF][GroupTX] raw_send ok=%u msg=%lu dest=%s dest_full=%s bearer=%s complete=%u packet_len=%u text=\"%s\"\n",
                   ok ? 1U : 0U,
                   static_cast<unsigned long>(message_id),
                   dest_hash,
-                  static_cast<unsigned>(packet_len));
+                  dest_full,
+                  txBearerName(tx_result),
+                  tx_result.reachedRequiredInterfaces() ? 1U : 0U,
+                  static_cast<unsigned>(packet_len),
+                  text_preview);
     MeshSendResult result =
         ok ? MeshSendResult::success(message_id)
            : MeshSendResult::fail(MeshOperationFailure::RadioTxFailed, message_id);
@@ -2237,6 +2328,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     const bool delivery_announce = isLxmfDeliveryAnnounce(announce);
     const bool propagation_announce = isLxmfPropagationAnnounce(announce);
     const bool call_audio_announce = isCallAudioAnnounce(announce);
+    const bool nomad_node_announce = isNomadNetworkNodeAnnounce(announce);
     LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
     const bool local_destination = isLocalDestinationHash(packet.destination_hash, &local_kind);
 
@@ -2256,17 +2348,10 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     uint8_t stamp_cost = 0;
     if (call_audio_announce && announce.app_data && announce.app_data_len != 0)
     {
-        const size_t name_len =
-            std::min(announce.app_data_len, sizeof(announce_display_name) - 1U);
-        memcpy(announce_display_name, announce.app_data, name_len);
-        announce_display_name[name_len] = '\0';
-        for (char& ch : announce_display_name)
-        {
-            if (ch == '\t' || ch == '\r' || ch == '\n')
-            {
-                ch = ' ';
-            }
-        }
+        (void)copyTextAppDataDisplayName(announce.app_data,
+                                         announce.app_data_len,
+                                         announce_display_name,
+                                         sizeof(announce_display_name));
     }
     else if (delivery_announce && announce.app_data && announce.app_data_len != 0 &&
              unpackPeerAnnounceAppData(announce.app_data,
@@ -2279,13 +2364,33 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         (void)has_stamp_cost;
         (void)stamp_cost;
     }
-    else if (!(delivery_announce || propagation_announce || call_audio_announce) &&
+    else if (nomad_node_announce && announce.app_data && announce.app_data_len != 0)
+    {
+        (void)copyTextAppDataDisplayName(announce.app_data,
+                                         announce.app_data_len,
+                                         announce_display_name,
+                                         sizeof(announce_display_name));
+    }
+    else if (!(delivery_announce || propagation_announce || call_audio_announce ||
+               nomad_node_announce) &&
              announce.app_data && announce.app_data_len != 0)
     {
         (void)copyTextAppDataDisplayName(announce.app_data,
                                          announce.app_data_len,
                                          announce_display_name,
                                          sizeof(announce_display_name));
+    }
+    if ((delivery_announce || call_audio_announce) && announce_display_name[0] == '\0')
+    {
+        copyCString(announce_display_name,
+                    sizeof(announce_display_name),
+                    kAnonymousPeerDisplayName);
+    }
+    else if (nomad_node_announce && announce_display_name[0] == '\0')
+    {
+        copyCString(announce_display_name,
+                    sizeof(announce_display_name),
+                    kAnonymousNodeDisplayName);
     }
 
     rtdir::AnnounceRecord directory_announce{};
@@ -2302,7 +2407,9 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
             : (propagation_announce
                    ? rtdir::AnnounceAspect::LxmfPropagation
                    : (call_audio_announce ? rtdir::AnnounceAspect::CallAudio
-                                          : rtdir::AnnounceAspect::Unknown));
+                                          : (nomad_node_announce
+                                                 ? rtdir::AnnounceAspect::NomadNetworkNode
+                                                 : rtdir::AnnounceAspect::Unknown)));
     directory_announce.source =
         packet.context == static_cast<uint8_t>(reticulum::PacketContext::PathResponse)
             ? rtdir::EntrySource::PathResponse
@@ -2338,7 +2445,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         local_destination;
     if (log_announce_detail)
     {
-        Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u app_len=%u delivery=%u propagation=%u call=%u local=%u kind=%s\n",
+        Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u app_len=%u delivery=%u propagation=%u call=%u nomad=%u local=%u kind=%s\n",
                       packet_hash_hex,
                       identity_hash_hex,
                       static_cast<unsigned>(packet.hops),
@@ -2347,6 +2454,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
                       delivery_announce ? 1U : 0U,
                       propagation_announce ? 1U : 0U,
                       call_audio_announce ? 1U : 0U,
+                      nomad_node_announce ? 1U : 0U,
                       local_destination ? 1U : 0U,
                       localDestinationKindLabel(local_kind));
     }
@@ -2406,8 +2514,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     }
     else if (peer.display_name[0] == '\0')
     {
-        snprintf(peer.display_name, sizeof(peer.display_name),
-                 "%08lX", static_cast<unsigned long>(peer.node_id));
+        copyCString(peer.display_name, sizeof(peer.display_name), kAnonymousPeerDisplayName);
     }
 
     const bool address_refresh_due =
@@ -6217,11 +6324,6 @@ LxmfAdapter::PeerInfo* LxmfAdapter::upsertPeerFromAddressRecord(
     peer.last_seen_s = record.last_seen_s != 0 ? record.last_seen_s : currentTimestampSeconds();
     peer.last_path_request_ms = 0;
     copyCString(peer.display_name, sizeof(peer.display_name), record.display_name);
-    if (peer.display_name[0] == '\0')
-    {
-        snprintf(peer.display_name, sizeof(peer.display_name),
-                 "%08lX", static_cast<unsigned long>(peer.node_id));
-    }
     if (queue_update)
     {
         queuePeerUpdate(peer);
@@ -6417,7 +6519,7 @@ void LxmfAdapter::publishPeerUpdate(const PeerInfo& peer) const
     auto* node_event = new sys::NodeInfoUpdateEvent(
         peer.node_id,
         short_name,
-        peer.display_name[0] != '\0' ? peer.display_name : short_name,
+        peer.display_name,
         interfaces_.lastRxSnr(),
         interfaces_.lastRxRssi(),
         peer.last_seen_s,
@@ -6532,12 +6634,6 @@ void LxmfAdapter::loadPersistedPeers()
         peer.last_seen_s = record.last_seen_s;
         peer.last_path_request_ms = 0;
         copyCString(peer.display_name, sizeof(peer.display_name), record.display_name);
-
-        if (peer.display_name[0] == '\0')
-        {
-            snprintf(peer.display_name, sizeof(peer.display_name),
-                     "%08lX", static_cast<unsigned long>(peer.node_id));
-        }
 
         queuePeerUpdate(peer);
     }

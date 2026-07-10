@@ -22,7 +22,7 @@ class SdStore final : public IChatStore
   public:
     static constexpr const char* kDir = "/chat";
     static constexpr const char* kIndexFile = "/chat/index.bin";
-    static constexpr size_t kMaxMessagesPerConv = 100;
+    static constexpr size_t kMaxMessagesPerConv = 1000;
     static constexpr size_t kMaxTextLen = 233;
     static constexpr size_t kPreviewLen = 48;
 
@@ -33,6 +33,10 @@ class SdStore final : public IChatStore
 
     void append(const ChatMessage& msg) override;
     std::vector<ChatMessage> loadRecent(const ConversationId& conv, size_t n) override;
+    std::vector<ChatMessage> loadPageFromLatest(const ConversationId& conv,
+                                                size_t offset_from_latest,
+                                                size_t limit,
+                                                size_t* total) override;
     std::vector<ConversationMeta> loadConversationPage(size_t offset,
                                                        size_t limit,
                                                        size_t* total) override;

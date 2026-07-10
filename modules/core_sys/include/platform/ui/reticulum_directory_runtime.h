@@ -16,6 +16,7 @@ enum class AnnounceAspect : uint8_t
     LxmfDelivery = 1,
     LxmfPropagation = 2,
     CallAudio = 3,
+    NomadNetworkNode = 4,
 };
 
 enum class EntrySource : uint8_t

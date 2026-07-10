@@ -32,7 +32,7 @@ constexpr const char* kRouteAssetThumbSubdir = "thumbs";
 constexpr const char* kRouteAssetViewSubdir = "views";
 constexpr std::size_t kRouteDownloadBufferSize = 512;
 constexpr int kRouteDownloadTxBufferSize = 512;
-constexpr uint32_t kRouteImageWorkerStackBytes = 12 * 1024;
+constexpr uint32_t kRouteImageWorkerStackBytes = 10 * 1024;
 constexpr UBaseType_t kRouteImageWorkerPriority = 2;
 constexpr uint16_t kRouteThumbWidth = 200;
 constexpr uint16_t kRouteThumbHeight = 120;
@@ -41,9 +41,10 @@ constexpr uint16_t kRouteViewHeight = 180;
 constexpr std::size_t kRouteCacheInternalReserveBytes = 96 * 1024;
 constexpr std::size_t kRouteCacheInternalSlackBytes = 8 * 1024;
 constexpr std::size_t kRouteJpegDecoderWorkBytes = 3100;
-constexpr std::size_t kRouteHttpInternalFreeTargetBytes = 72 * 1024;
-constexpr std::size_t kRouteHttpInternalLargestTargetBytes = 24 * 1024;
+constexpr std::size_t kRouteHttpInternalFreeTargetBytes = 48 * 1024;
+constexpr std::size_t kRouteHttpInternalLargestTargetBytes = 12 * 1024;
 constexpr std::size_t kRouteImageDownloadAttempts = 3;
+constexpr int kRouteImageMemoryWaitAttempts = 16;
 constexpr TickType_t kRouteImageRetryDelayTicks = pdMS_TO_TICKS(1600);
 constexpr TickType_t kRouteImageMemoryWaitTicks = pdMS_TO_TICKS(250);
 
@@ -323,24 +324,25 @@ bool route_http_memory_ready()
                kRouteHttpInternalLargestTargetBytes;
 }
 
-void wait_for_route_http_memory()
+bool wait_for_route_http_memory()
 {
     if (route_http_memory_ready())
     {
-        return;
+        return true;
     }
 
     log_route_http_memory("wait_begin");
-    for (int attempt = 0; attempt < 8; ++attempt)
+    for (int attempt = 0; attempt < kRouteImageMemoryWaitAttempts; ++attempt)
     {
         vTaskDelay(kRouteImageMemoryWaitTicks);
         if (route_http_memory_ready())
         {
             log_route_http_memory("wait_ready");
-            return;
+            return true;
         }
     }
     log_route_http_memory("wait_continue");
+    return false;
 }
 
 bool route_image_http_error_retryable(const std::string& error)
@@ -348,6 +350,7 @@ bool route_image_http_error_retryable(const std::string& error)
     return error == "Open HTTP request failed" ||
            error == "Fetch HTTP headers failed" ||
            error == "Read HTTP response failed" ||
+           error == "Low HTTP memory" ||
            error == "Create HTTP client failed";
 }
 
@@ -946,8 +949,15 @@ void route_image_worker_task(void* param)
                 RouteImageDownloadResult result{};
                 for (std::size_t attempt = 0; attempt < kRouteImageDownloadAttempts; ++attempt)
                 {
-                    wait_for_route_http_memory();
-                    result = download_route_image(item.url, item.output_path);
+                    if (wait_for_route_http_memory())
+                    {
+                        result = download_route_image(item.url, item.output_path);
+                    }
+                    else
+                    {
+                        result = {};
+                        result.error = "Low HTTP memory";
+                    }
                     if (result.ok ||
                         !route_image_http_error_retryable(result.error) ||
                         attempt + 1U >= kRouteImageDownloadAttempts)
@@ -1073,6 +1083,9 @@ void route_image_worker_task(void* param)
         s_image_batch.worker_task = nullptr;
         s_image_batch.launch_pending = false;
     }
+    std::vector<RouteImageDownloadItem>().swap(download_items);
+    std::vector<RouteImageCacheItem>().swap(cache_items);
+    std::string().swap(asset_id);
     log_route_worker_stack("finish");
     vTaskDelete(nullptr);
 }

@@ -35,6 +35,18 @@ constexpr TickType_t kRadioDisplayPressurePollDelay = pdMS_TO_TICKS(50);
 constexpr uint32_t kRadioDisplayPressureWindowMs = 300;
 constexpr uint32_t kRadioTaskStackBytes = 3 * 1024;
 constexpr uint32_t kMeshTaskStackBytes = 6 * 1024;
+constexpr uint32_t kRadioRxSummaryIntervalMs = 5000;
+
+struct RadioRxSummary
+{
+    uint32_t packets = 0;
+    uint32_t bytes = 0;
+    uint32_t queue_drops = 0;
+    uint32_t alloc_drops = 0;
+    uint32_t read_failures = 0;
+    uint32_t other_irqs = 0;
+    uint32_t last_log_ms = 0;
+};
 
 bool display_spi_pressure_for_radio()
 {
@@ -93,29 +105,6 @@ uint32_t radio_terminal_irq_mask()
     return mask;
 }
 
-void append_irq_flag(char* buf, size_t len, const char* name, bool set)
-{
-    if (!set || !buf || len == 0)
-    {
-        return;
-    }
-    size_t used = strlen(buf);
-    if (used >= len - 1)
-    {
-        return;
-    }
-    if (used > 0)
-    {
-        strncat(buf, "|", len - used - 1);
-        used = strlen(buf);
-        if (used >= len - 1)
-        {
-            return;
-        }
-    }
-    strncat(buf, name, len - used - 1);
-}
-
 bool radio_read_state_has_payload(int state)
 {
     if (state == RADIOLIB_ERR_NONE)
@@ -132,75 +121,34 @@ bool radio_read_state_has_payload(int state)
 #endif
 }
 
-const char* describe_irq_flags(uint32_t flags, char* buf, size_t len)
+void maybe_log_radio_rx_summary(RadioRxSummary& summary)
 {
-    if (!buf || len == 0)
+#if LORA_LOG_ENABLE
+    const uint32_t now_ms = millis();
+    if (summary.last_log_ms == 0)
     {
-        return "";
+        summary.last_log_ms = now_ms;
     }
-    buf[0] = '\0';
-#if defined(RADIOLIB_SX126X_IRQ_RX_DONE)
-    append_irq_flag(buf, len, "RX_DONE", (flags & RADIOLIB_SX126X_IRQ_RX_DONE) != 0);
-#endif
-#if defined(RADIOLIB_SX126X_IRQ_CRC_ERR)
-    append_irq_flag(buf, len, "CRC_ERR", (flags & RADIOLIB_SX126X_IRQ_CRC_ERR) != 0);
-#endif
-#if defined(RADIOLIB_SX126X_IRQ_HEADER_ERR)
-    append_irq_flag(buf, len, "HEADER_ERR", (flags & RADIOLIB_SX126X_IRQ_HEADER_ERR) != 0);
-#endif
-#if defined(RADIOLIB_SX126X_IRQ_TIMEOUT)
-    append_irq_flag(buf, len, "TIMEOUT", (flags & RADIOLIB_SX126X_IRQ_TIMEOUT) != 0);
-#endif
-#if defined(RADIOLIB_SX126X_IRQ_SYNC_WORD_VALID)
-    append_irq_flag(buf, len, "SYNCWORD", (flags & RADIOLIB_SX126X_IRQ_SYNC_WORD_VALID) != 0);
-#endif
-#if defined(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED)
-    append_irq_flag(buf, len, "PREAMBLE", (flags & RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED) != 0);
-#endif
-#if defined(RADIOLIB_SX128X_IRQ_RX_DONE)
-    append_irq_flag(buf, len, "RX_DONE", (flags & RADIOLIB_SX128X_IRQ_RX_DONE) != 0);
-#endif
-#if defined(RADIOLIB_SX128X_IRQ_CRC_ERR)
-    append_irq_flag(buf, len, "CRC_ERR", (flags & RADIOLIB_SX128X_IRQ_CRC_ERR) != 0);
-#endif
-#if defined(RADIOLIB_SX128X_IRQ_HEADER_ERR)
-    append_irq_flag(buf, len, "HEADER_ERR", (flags & RADIOLIB_SX128X_IRQ_HEADER_ERR) != 0);
-#endif
-#if defined(RADIOLIB_SX128X_IRQ_TIMEOUT)
-    append_irq_flag(buf, len, "TIMEOUT", (flags & RADIOLIB_SX128X_IRQ_TIMEOUT) != 0);
-#endif
-#if defined(RADIOLIB_SX128X_IRQ_SYNC_WORD_VALID)
-    append_irq_flag(buf, len, "SYNCWORD", (flags & RADIOLIB_SX128X_IRQ_SYNC_WORD_VALID) != 0);
-#endif
-#if defined(RADIOLIB_SX128X_IRQ_PREAMBLE_DETECTED)
-    append_irq_flag(buf, len, "PREAMBLE", (flags & RADIOLIB_SX128X_IRQ_PREAMBLE_DETECTED) != 0);
-#endif
-#if defined(ARDUINO_LILYGO_LORA_LR1121)
-#if defined(RADIOLIB_LR11X0_IRQ_RX_DONE)
-    append_irq_flag(buf, len, "RX_DONE", (flags & RADIOLIB_LR11X0_IRQ_RX_DONE) != 0);
-#endif
-#if defined(RADIOLIB_LR11X0_IRQ_CRC_ERR)
-    append_irq_flag(buf, len, "CRC_ERR", (flags & RADIOLIB_LR11X0_IRQ_CRC_ERR) != 0);
-#endif
-#if defined(RADIOLIB_LR11X0_IRQ_HEADER_ERR)
-    append_irq_flag(buf, len, "HEADER_ERR", (flags & RADIOLIB_LR11X0_IRQ_HEADER_ERR) != 0);
-#endif
-#if defined(RADIOLIB_LR11X0_IRQ_TIMEOUT)
-    append_irq_flag(buf, len, "TIMEOUT", (flags & RADIOLIB_LR11X0_IRQ_TIMEOUT) != 0);
-#endif
-#if defined(RADIOLIB_LR11X0_IRQ_SYNC_WORD_HEADER_VALID)
-    append_irq_flag(buf, len, "SYNC_HDR", (flags & RADIOLIB_LR11X0_IRQ_SYNC_WORD_HEADER_VALID) != 0);
-#endif
-#if defined(RADIOLIB_LR11X0_IRQ_PREAMBLE_DETECTED)
-    append_irq_flag(buf, len, "PREAMBLE", (flags & RADIOLIB_LR11X0_IRQ_PREAMBLE_DETECTED) != 0);
-#endif
-#endif
-    if (buf[0] == '\0')
+    if ((now_ms - summary.last_log_ms) < kRadioRxSummaryIntervalMs)
     {
-        strncpy(buf, "-", len - 1);
-        buf[len - 1] = '\0';
+        return;
     }
-    return buf;
+    if (summary.packets != 0 || summary.queue_drops != 0 || summary.alloc_drops != 0 ||
+        summary.read_failures != 0 || summary.other_irqs != 0)
+    {
+        Serial.printf("[LORA] RX stats packets=%lu bytes=%lu queue_drop=%lu alloc_drop=%lu read_fail=%lu other_irq=%lu\n",
+                      static_cast<unsigned long>(summary.packets),
+                      static_cast<unsigned long>(summary.bytes),
+                      static_cast<unsigned long>(summary.queue_drops),
+                      static_cast<unsigned long>(summary.alloc_drops),
+                      static_cast<unsigned long>(summary.read_failures),
+                      static_cast<unsigned long>(summary.other_irqs));
+    }
+    summary = RadioRxSummary{};
+    summary.last_log_ms = now_ms;
+#else
+    (void)summary;
+#endif
 }
 } // namespace
 
@@ -389,6 +337,7 @@ void AppTasks::radioTask(void* pvParameters)
     uint8_t rx_buffer[255];
     const uint32_t rx_done_mask = radio_rx_done_mask();
     const uint32_t terminal_irq_mask = radio_terminal_irq_mask();
+    RadioRxSummary rx_summary{};
 
     while (true)
     {
@@ -483,11 +432,6 @@ void AppTasks::radioTask(void* pvParameters)
             uint32_t irq = board_->getRadioIrqFlags();
             if ((irq & rx_done_mask) != 0)
             {
-                char irq_desc[96];
-                const char* flags = describe_irq_flags(irq, irq_desc, sizeof(irq_desc));
-                LORA_LOG("[LORA] IRQ RX_DONE irq=0x%08lX flags=%s\n",
-                         static_cast<unsigned long>(irq),
-                         flags);
                 packet_length = static_cast<int>(board_->getRadioPacketLength(true));
                 if (packet_length > 0 && packet_length <= 255)
                 {
@@ -504,23 +448,22 @@ void AppTasks::radioTask(void* pvParameters)
                             rx_packet.rssi = board_->getRadioRSSI();
                             rx_packet.snr = board_->getRadioSNR();
 
-                            LORA_LOG("[LORA] RX len=%d state=%d flags=%s\n",
-                                     packet_length,
-                                     state,
-                                     flags);
-                            // Send to mesh queue
-                            xQueueSend(mesh_queue_, &rx_packet, portMAX_DELAY);
+                            ++rx_summary.packets;
+                            rx_summary.bytes += static_cast<uint32_t>(packet_length);
+                            if (xQueueSend(mesh_queue_, &rx_packet, 0) != pdPASS)
+                            {
+                                free(rx_packet.data);
+                                ++rx_summary.queue_drops;
+                            }
+                        }
+                        else
+                        {
+                            ++rx_summary.alloc_drops;
                         }
                     }
                     else
                     {
-                        char irq_desc[96];
-                        const char* flags = describe_irq_flags(irq, irq_desc, sizeof(irq_desc));
-                        LORA_LOG("[LORA] RX read fail len=%d state=%d irq=0x%08lX flags=%s\n",
-                                 packet_length,
-                                 state,
-                                 static_cast<unsigned long>(irq),
-                                 flags);
+                        ++rx_summary.read_failures;
                         board_->clearRadioIrqFlags(irq);
                     }
                 }
@@ -529,11 +472,7 @@ void AppTasks::radioTask(void* pvParameters)
             }
             else if (irq)
             {
-                char irq_desc[96];
-                const char* flags = describe_irq_flags(irq, irq_desc, sizeof(irq_desc));
-                LORA_LOG("[LORA] IRQ other irq=0x%08lX flags=%s\n",
-                         static_cast<unsigned long>(irq),
-                         flags);
+                ++rx_summary.other_irqs;
                 board_->clearRadioIrqFlags(irq);
                 if ((irq & terminal_irq_mask) != 0)
                 {
@@ -554,6 +493,7 @@ void AppTasks::radioTask(void* pvParameters)
                     LORA_LOG("[LORA] RX restart fail state=%d\n", rx_state);
                 }
             }
+            maybe_log_radio_rx_summary(rx_summary);
         }
 
         vTaskDelay(display_spi_pressure_for_radio()

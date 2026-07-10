@@ -18,6 +18,7 @@ namespace
 
 constexpr std::uint32_t kWakeProtectionMs = 6000;
 constexpr std::uint32_t kConnectBackoffMs = 10000;
+constexpr std::uint32_t kForegroundDownloadSettleMs = 1500;
 constexpr std::size_t kClientCount = 6;
 
 struct RuntimeState
@@ -27,6 +28,7 @@ struct RuntimeState
     Client owner = Client::Unknown;
     AccessKind active_kind = AccessKind::WifiConnect;
     std::uint32_t active_since_ms = 0;
+    std::uint32_t foreground_download_settle_until_ms = 0;
     std::uint32_t wake_protected_until_ms = 0;
     bool saw_screen_sample = false;
     bool last_sleeping = false;
@@ -115,6 +117,11 @@ bool foreground_download_owner(Client client)
     return client == Client::RouteStorage;
 }
 
+bool messaging_client(Client client)
+{
+    return client == Client::MeshMqtt || client == Client::ReticulumGateway;
+}
+
 bool foreground_download_active_for_other(const Request& request)
 {
     bool active = false;
@@ -126,6 +133,19 @@ bool foreground_download_active_for_other(const Request& request)
              !(s_state.owner == request.client && s_state.active_kind == request.kind);
     portEXIT_CRITICAL(&s_lock);
     return active;
+}
+
+bool foreground_download_settle_active_for(Client client, std::uint32_t now_ms)
+{
+    if (!messaging_client(client))
+    {
+        return false;
+    }
+    std::uint32_t settle_until_ms = 0;
+    portENTER_CRITICAL(&s_lock);
+    settle_until_ms = s_state.foreground_download_settle_until_ms;
+    portEXIT_CRITICAL(&s_lock);
+    return static_cast<std::int32_t>(settle_until_ms - now_ms) > 0;
 }
 
 bool acquire_http(const Request& request, ScreenPhase phase, Lease& out)
@@ -195,8 +215,12 @@ bool long_lived_allowed(const Request& request, ScreenPhase phase, Lease& out)
         return false;
     }
     if (foreground_download_active_for_other(request) &&
-        (request.client == Client::MeshMqtt ||
-         request.client == Client::ReticulumGateway))
+        messaging_client(request.client))
+    {
+        out.decision = Decision::Busy;
+        return false;
+    }
+    if (foreground_download_settle_active_for(request.client, sys::millis_now()))
     {
         out.decision = Decision::Busy;
         return false;
@@ -282,8 +306,11 @@ bool ensure_connected(const Request& request, Decision* out_decision)
         decision = Decision::OtaExclusive;
     }
     else if (foreground_download_active_for_other(request) &&
-             (request.client == Client::MeshMqtt ||
-              request.client == Client::ReticulumGateway))
+             messaging_client(request.client))
+    {
+        decision = Decision::Busy;
+    }
+    else if (foreground_download_settle_active_for(request.client, now_ms))
     {
         decision = Decision::Busy;
     }
@@ -389,17 +416,26 @@ void release(const Lease& lease)
     Client owner = Client::Unknown;
     AccessKind kind = AccessKind::WifiConnect;
     std::uint32_t held_ms = 0;
+    bool route_download_released = false;
     portENTER_CRITICAL(&s_lock);
     owner = s_state.owner;
     kind = s_state.active_kind;
     held_ms = s_state.active_since_ms == 0 ? 0 : now_ms - s_state.active_since_ms;
     if (s_state.http_active && owner == lease.client && kind == lease.kind)
     {
+        route_download_released = owner == Client::RouteStorage &&
+                                  kind == AccessKind::HttpDownload &&
+                                  !s_state.ota_active;
         s_state.http_active = false;
         s_state.ota_active = false;
         s_state.owner = Client::Unknown;
         s_state.active_kind = AccessKind::WifiConnect;
         s_state.active_since_ms = 0;
+        if (route_download_released)
+        {
+            s_state.foreground_download_settle_until_ms =
+                now_ms + kForegroundDownloadSettleMs;
+        }
     }
     portEXIT_CRITICAL(&s_lock);
 
@@ -416,21 +452,27 @@ TrafficBudget traffic_budget(Client client, Priority priority)
     TrafficBudget budget = base_budget(client, phase);
 
     portENTER_CRITICAL(&s_lock);
+    const std::uint32_t now_ms = sys::millis_now();
     const bool http_active = s_state.http_active;
     const bool ota = s_state.ota_active;
     const Client owner = s_state.owner;
     const AccessKind active_kind = s_state.active_kind;
+    const std::uint32_t foreground_settle_until_ms =
+        s_state.foreground_download_settle_until_ms;
     portEXIT_CRITICAL(&s_lock);
 
-    const bool messaging_client =
-        client == Client::MeshMqtt || client == Client::ReticulumGateway;
     const bool foreground_download_active =
         http_active &&
         !ota &&
         active_kind == AccessKind::HttpDownload &&
         foreground_download_owner(owner);
+    const bool foreground_download_settle_active =
+        messaging_client(client) &&
+        static_cast<std::int32_t>(foreground_settle_until_ms - now_ms) > 0;
 
-    if (ota || (foreground_download_active && messaging_client))
+    if (ota ||
+        ((foreground_download_active || foreground_download_settle_active) &&
+         messaging_client(client)))
     {
         budget.allow_connect = false;
         budget.allow_read = false;

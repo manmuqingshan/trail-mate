@@ -25,7 +25,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
 
 #ifndef CHAT_CONVERSATION_LOG_ENABLE
 #define CHAT_CONVERSATION_LOG_ENABLE 0
@@ -57,6 +56,7 @@ constexpr lv_coord_t kLocationMapInnerSize = 188;
 constexpr lv_coord_t kLocationMapOuterSize =
     kLocationMapInnerSize + (kLocationMapBorderPx * 2);
 constexpr lv_coord_t kLocationMapFitPadding = 14;
+constexpr lv_coord_t kMetaChipMinWidth = 18;
 
 lv_coord_t bubble_pad_x()
 {
@@ -75,6 +75,79 @@ void make_plain(lv_obj_t* obj)
     lv_obj_set_style_border_width(obj, 0, 0);
     lv_obj_set_style_radius(obj, 0, 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
+}
+
+lv_obj_t* create_meta_row(lv_obj_t* parent, lv_coord_t max_width, bool is_self)
+{
+    lv_obj_t* row = lv_obj_create(parent);
+    make_plain(row);
+    lv_obj_set_size(row,
+                    std::max<lv_coord_t>(max_width, kMetaChipMinWidth),
+                    LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(row,
+                          is_self ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER,
+                          is_self ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(row,
+                                ::ui::page_profile::is_dense() ? 3 : 4,
+                                0);
+    lv_obj_set_style_pad_row(row,
+                             ::ui::page_profile::is_dense() ? 2 : 3,
+                             0);
+    return row;
+}
+
+lv_obj_t* create_meta_chip(lv_obj_t* parent,
+                           const char* text,
+                           lv_color_t bg_color,
+                           lv_coord_t max_width)
+{
+    if (!parent || !text || text[0] == '\0')
+    {
+        return nullptr;
+    }
+
+    const bool dense = ::ui::page_profile::is_dense();
+    const lv_coord_t pad_x = dense ? 6 : 8;
+    const lv_coord_t pad_y = dense ? 2 : 3;
+    const lv_coord_t safe_max_width =
+        std::max<lv_coord_t>(max_width, kMetaChipMinWidth);
+
+    lv_obj_t* chip = lv_obj_create(parent);
+    lv_obj_set_size(chip, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_width(chip, safe_max_width, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(chip, bg_color, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(chip, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(chip, dense ? 7 : 10, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(chip, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(chip, pad_x, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(chip, pad_x, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(chip, pad_y, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(chip, pad_y, LV_PART_MAIN);
+    lv_obj_set_style_min_height(chip, dense ? 16 : 20, LV_PART_MAIN);
+    lv_obj_clear_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* label = lv_label_create(chip);
+    lv_obj_set_width(label, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_width(
+        label,
+        std::max<lv_coord_t>(safe_max_width - (2 * pad_x), kMetaChipMinWidth),
+        LV_PART_MAIN);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x3A2A1A), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(label, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(label, 0, LV_PART_MAIN);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
+    ::ui::i18n::set_label_text_raw(label, text);
+    ::ui::fonts::apply_localized_font(
+        label,
+        lv_label_get_text(label),
+        ::ui::page_profile::resolve_caption_font());
+    lv_obj_center(label);
+    return label;
 }
 
 void set_hidden(lv_obj_t* obj, bool hidden)
@@ -270,6 +343,8 @@ const char* message_ingress_label(::ui::chat::MessageIngressTransport transport)
     {
     case ::ui::chat::MessageIngressTransport::LoRa:
         return "LoRa";
+    case ::ui::chat::MessageIngressTransport::Mqtt:
+        return "MQTT";
     case ::ui::chat::MessageIngressTransport::WiFi:
         return "Wi-Fi";
     case ::ui::chat::MessageIngressTransport::Unknown:
@@ -294,60 +369,61 @@ static void format_message_time(char* out, size_t out_len, uint32_t ts)
     }
 
     uint32_t now_epoch = sys::epoch_seconds_now();
-    bool ts_is_epoch = is_valid_epoch_ts(ts);
+    const bool ts_is_epoch = is_valid_epoch_ts(ts);
     bool now_is_epoch = is_valid_epoch_ts(now_epoch);
-    uint32_t now_secs = now_is_epoch ? now_epoch : static_cast<uint32_t>(sys::millis_now() / 1000U);
-    if (ts_is_epoch && !now_is_epoch)
-    {
-        ts_is_epoch = false;
-    }
+    uint32_t now_secs =
+        ts_is_epoch
+            ? (now_is_epoch ? now_epoch : ts)
+            : static_cast<uint32_t>(sys::millis_now() / 1000U);
     if (now_secs < ts)
     {
         now_secs = ts;
     }
     uint32_t diff = now_secs - ts;
 
-    if (!ts_is_epoch)
+    if (diff < 60U)
     {
-        if (diff < 60U)
-        {
-            snprintf(out, out_len, "%s", ::ui::i18n::tr("now"));
-            return;
-        }
-        if (diff < 3600U)
-        {
-            snprintf(out, out_len, "%s", ::ui::i18n::format("%um", static_cast<unsigned>(diff / 60U)).c_str());
-            return;
-        }
-        if (diff < kSecondsPerDay)
-        {
-            snprintf(out, out_len, "%s", ::ui::i18n::format("%uh", static_cast<unsigned>(diff / 3600U)).c_str());
-            return;
-        }
-        if (diff < kSecondsPerMonth)
-        {
-            snprintf(out, out_len, "%s", ::ui::i18n::format("%ud", static_cast<unsigned>(diff / kSecondsPerDay)).c_str());
-            return;
-        }
-        if (diff < kSecondsPerYear)
-        {
-            snprintf(out, out_len, "%s", ::ui::i18n::format("%umo", static_cast<unsigned>(diff / kSecondsPerMonth)).c_str());
-            return;
-        }
-        snprintf(out, out_len, "%s", ::ui::i18n::format("%uy", static_cast<unsigned>(diff / kSecondsPerYear)).c_str());
+        snprintf(out, out_len, "%s", ::ui::i18n::tr("now"));
         return;
     }
-
-    time_t t = ui_apply_timezone_offset(static_cast<time_t>(ts));
-    struct tm* info = gmtime(&t);
-    if (info)
+    if (diff < 3600U)
     {
-        strftime(out, out_len, "%H:%M", info);
+        snprintf(out,
+                 out_len,
+                 "%u min ago",
+                 static_cast<unsigned>(diff / 60U));
+        return;
     }
-    else
+    if (diff < kSecondsPerDay)
     {
-        snprintf(out, out_len, "--");
+        snprintf(out,
+                 out_len,
+                 "%u hr ago",
+                 static_cast<unsigned>(diff / 3600U));
+        return;
     }
+    if (diff < kSecondsPerMonth)
+    {
+        const unsigned days = static_cast<unsigned>(diff / kSecondsPerDay);
+        snprintf(out,
+                 out_len,
+                 "%u day%s ago",
+                 days,
+                 days == 1U ? "" : "s");
+        return;
+    }
+    if (diff < kSecondsPerYear)
+    {
+        snprintf(out,
+                 out_len,
+                 "%u mo ago",
+                 static_cast<unsigned>(diff / kSecondsPerMonth));
+        return;
+    }
+    snprintf(out,
+             out_len,
+             "%u yr ago",
+             static_cast<unsigned>(diff / kSecondsPerYear));
 }
 
 static bool sender_token_is_valid(const std::string& sender)
@@ -438,6 +514,11 @@ ChatConversationScreen::ChatConversationScreen(lv_obj_t* parent, chat::Conversat
     chat::ui::conversation::styles::apply_msg_list(msg_list_);
     chat::ui::conversation::styles::apply_action_bar(action_bar_);
     chat::ui::conversation::styles::apply_reply_btn(reply_btn_);
+    if (msg_list_)
+    {
+        lv_obj_add_event_cb(msg_list_, scroll_event_cb, LV_EVENT_SCROLL, this);
+    }
+    createHistoryControls();
 
     // Primary compose entry label.
     ::ui::i18n::set_label_text(w.reply_label, "Send");
@@ -448,7 +529,6 @@ ChatConversationScreen::ChatConversationScreen(lv_obj_t* parent, chat::Conversat
     ::ui::widgets::top_bar_init(top_bar_, container_);
     const char* title = (conv_.peer == 0) ? ::ui::i18n::tr("Broadcast") : ::ui::i18n::tr("Direct");
     ::ui::widgets::top_bar_set_title(top_bar_, title);
-    ::ui::widgets::top_bar_set_right_text(top_bar_, "");
     ::ui::widgets::top_bar_set_back_callback(top_bar_, handle_back, this);
     if (top_bar_.container)
     {
@@ -497,6 +577,73 @@ ChatConversationScreen::~ChatConversationScreen()
     }
 }
 
+void ChatConversationScreen::createHistoryControls()
+{
+    if (!msg_list_)
+    {
+        return;
+    }
+
+    load_older_ctx_.screen = this;
+    load_older_ctx_.intent = ActionIntent::LoadOlder;
+    load_older_btn_ = lv_btn_create(msg_list_);
+    lv_obj_set_size(load_older_btn_,
+                    LV_PCT(100),
+                    ::ui::page_profile::resolve_control_button_height());
+    lv_obj_clear_flag(load_older_btn_, LV_OBJ_FLAG_SCROLLABLE);
+    chat::ui::conversation::styles::apply_reply_btn(load_older_btn_);
+    load_older_label_ = lv_label_create(load_older_btn_);
+    ::ui::i18n::set_label_text(load_older_label_, "Load older");
+    chat::ui::conversation::styles::apply_reply_label(load_older_label_);
+    ::ui::fonts::apply_localized_font(
+        load_older_label_, lv_label_get_text(load_older_label_), ::ui::fonts::ui_chrome_font());
+    lv_obj_center(load_older_label_);
+    lv_obj_add_event_cb(load_older_btn_,
+                        action_event_cb,
+                        LV_EVENT_CLICKED,
+                        &load_older_ctx_);
+
+    load_latest_ctx_.screen = this;
+    load_latest_ctx_.intent = ActionIntent::LoadLatest;
+    load_latest_btn_ = lv_btn_create(msg_list_);
+    lv_obj_set_size(load_latest_btn_,
+                    LV_PCT(100),
+                    ::ui::page_profile::resolve_control_button_height());
+    lv_obj_clear_flag(load_latest_btn_, LV_OBJ_FLAG_SCROLLABLE);
+    chat::ui::conversation::styles::apply_reply_btn(load_latest_btn_);
+    load_latest_label_ = lv_label_create(load_latest_btn_);
+    ::ui::i18n::set_label_text(load_latest_label_, "Latest");
+    chat::ui::conversation::styles::apply_reply_label(load_latest_label_);
+    ::ui::fonts::apply_localized_font(
+        load_latest_label_, lv_label_get_text(load_latest_label_), ::ui::fonts::ui_chrome_font());
+    lv_obj_center(load_latest_label_);
+    lv_obj_add_event_cb(load_latest_btn_,
+                        action_event_cb,
+                        LV_EVENT_CLICKED,
+                        &load_latest_ctx_);
+
+    updateHistoryControls();
+}
+
+void ChatConversationScreen::updateHistoryControls()
+{
+    if (!guard_ || !guard_->alive || !msg_list_ || !lv_obj_is_valid(msg_list_))
+    {
+        return;
+    }
+
+    if (load_older_btn_ && lv_obj_is_valid(load_older_btn_))
+    {
+        set_hidden(load_older_btn_, true);
+        lv_obj_move_to_index(load_older_btn_, 0);
+    }
+    if (load_latest_btn_ && lv_obj_is_valid(load_latest_btn_))
+    {
+        set_hidden(load_latest_btn_, !history_has_newer_);
+        lv_obj_move_to_index(load_latest_btn_, lv_obj_get_child_cnt(msg_list_) - 1);
+    }
+}
+
 void ChatConversationScreen::addMessage(const ::ui::chat::MessageRow& row)
 {
     if (!guard_ || !guard_->alive || !msg_list_ || !lv_obj_is_valid(msg_list_))
@@ -538,6 +685,8 @@ void ChatConversationScreen::scrollToBottom()
     if (guard_ && guard_->alive && msg_list_)
     {
         lv_obj_scroll_to_y(msg_list_, LV_COORD_MAX, LV_ANIM_OFF);
+        history_last_scroll_y_ = lv_obj_get_scroll_y(msg_list_);
+        history_scroll_position_valid_ = true;
     }
 }
 
@@ -626,7 +775,6 @@ void ChatConversationScreen::updateBatteryFromBoard()
     {
         return;
     }
-    ui_update_top_bar_battery(top_bar_);
 }
 
 void ChatConversationScreen::setBackCallback(void (*cb)(void*), void* user_data)
@@ -654,6 +802,52 @@ void ChatConversationScreen::setReplyEnabled(bool enabled)
     {
         lv_obj_add_state(reply_btn_, LV_STATE_DISABLED);
     }
+}
+
+void ChatConversationScreen::setHistoryPaging(bool has_older,
+                                              bool has_newer,
+                                              uint16_t offset,
+                                              uint16_t total_count)
+{
+    history_has_older_ = has_older;
+    history_has_newer_ = has_newer;
+    history_offset_ = offset;
+    history_total_count_ = total_count;
+    history_auto_load_pending_ = false;
+    history_scroll_position_valid_ = false;
+    history_last_scroll_y_ = 0;
+    updateHistoryControls();
+}
+
+void ChatConversationScreen::handleScroll()
+{
+    if (!guard_ || !guard_->alive || !msg_list_ || !lv_obj_is_valid(msg_list_))
+    {
+        return;
+    }
+
+    const lv_coord_t scroll_y = lv_obj_get_scroll_y(msg_list_);
+    if (!history_scroll_position_valid_)
+    {
+        history_scroll_position_valid_ = true;
+        history_last_scroll_y_ = scroll_y;
+        return;
+    }
+
+    const bool scrolling_toward_older = scroll_y < history_last_scroll_y_;
+    history_last_scroll_y_ = scroll_y;
+    if (!scrolling_toward_older || scroll_y > 0)
+    {
+        return;
+    }
+
+    if (!history_has_older_ || history_auto_load_pending_ || !action_cb_)
+    {
+        return;
+    }
+
+    history_auto_load_pending_ = true;
+    schedule_action_async(ActionIntent::LoadOlder);
 }
 
 void ChatConversationScreen::setLocationOverlay(
@@ -940,74 +1134,64 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     chat::ui::conversation::styles::apply_bubble(bubble, is_self);
     chat::ui::layout::set_bubble_max_width(bubble, max_bubble_w);
 
-    item.time_label = chat::ui::layout::create_bubble_time(bubble);
-    chat::ui::conversation::styles::apply_bubble_time(item.time_label);
-    char time_buf[16];
+    char time_buf[24];
     format_message_time(
         time_buf,
         sizeof(time_buf),
         timestamp_from_presentation_label(row.time_label));
     const char* ingress_label = !is_self ? message_ingress_label(row.ingress_transport) : nullptr;
-    if (conv_.peer == 0)
+
+    std::string sender;
+    if (is_self)
     {
-        std::string sender;
-        if (is_self)
+        sender = app::configFacade().getConfig().short_name;
+        if (sender.empty() && !row.sender_label.empty())
         {
-            sender = app::configFacade().getConfig().short_name;
-            if (sender.empty() && !row.sender_label.empty())
-            {
-                sender = row.sender_label.c_str();
-            }
-            if (sender.empty())
-            {
-                sender = "Me";
-            }
+            sender = row.sender_label.c_str();
         }
-        else if (!row.sender_label.empty())
+        if (sender.empty())
         {
-            sender = inferred_sender.empty() ? row.sender_label.c_str() : inferred_sender;
+            sender = "Me";
         }
-        else if (row.sender_node_id == 0)
-        {
-            sender = inferred_sender.empty() ? ::ui::i18n::tr("Unknown") : inferred_sender;
-        }
-        else
-        {
-            sender = app::messagingFacade().getContactService().getContactName(
-                row.sender_node_id);
-            if (sender.empty())
-            {
-                char buf[16];
-                snprintf(buf, sizeof(buf), "%04lX",
-                         static_cast<unsigned long>(row.sender_node_id & 0xFFFF));
-                sender = buf;
-            }
-        }
-        std::string line = sender;
-        if (ingress_label && ingress_label[0] != '\0')
-        {
-            line += " / ";
-            line += ingress_label;
-        }
-        line += " / ";
-        line += time_buf;
-        ::ui::i18n::set_content_label_text_raw(item.time_label, line.c_str());
+    }
+    else if (!row.sender_label.empty())
+    {
+        sender = inferred_sender.empty() ? row.sender_label.c_str() : inferred_sender;
+    }
+    else if (row.sender_node_id == 0)
+    {
+        sender = inferred_sender.empty() ? ::ui::i18n::tr("Unknown") : inferred_sender;
     }
     else
     {
-        if (ingress_label && ingress_label[0] != '\0')
+        sender = app::messagingFacade().getContactService().getContactName(
+            row.sender_node_id);
+        if (sender.empty())
         {
-            char line[32] = {};
-            std::snprintf(line, sizeof(line), "%s / %s", ingress_label, time_buf);
-            ::ui::i18n::set_label_text_raw(item.time_label, line);
+            char buf[16];
+            snprintf(buf,
+                     sizeof(buf),
+                     "%04lX",
+                     static_cast<unsigned long>(row.sender_node_id & 0xFFFF));
+            sender = buf;
         }
-        else
-        {
-            ::ui::i18n::set_label_text_raw(item.time_label, time_buf);
-        }
-        ::ui::fonts::apply_localized_font(
-            item.time_label, lv_label_get_text(item.time_label), ::ui::fonts::ui_chrome_font());
     }
+
+    const lv_coord_t max_meta_w =
+        std::max<lv_coord_t>(max_bubble_w - 2 * bubble_pad_x(), 24);
+    item.meta_row = create_meta_row(bubble, max_meta_w, is_self);
+    item.sender_label =
+        create_meta_chip(item.meta_row, sender.c_str(), lv_color_hex(0xF1B75A), max_meta_w);
+    if (ingress_label && ingress_label[0] != '\0')
+    {
+        item.source_label = create_meta_chip(
+            item.meta_row,
+            ingress_label,
+            lv_color_hex(0xCFE4FF),
+            max_meta_w);
+    }
+    item.time_label =
+        create_meta_chip(item.meta_row, time_buf, lv_color_hex(0xD4F0D2), max_meta_w);
 
     item.text_label = chat::ui::layout::create_bubble_text(bubble);
     chat::ui::conversation::styles::apply_bubble_text(item.text_label);
@@ -1129,7 +1313,7 @@ void ChatConversationScreen::action_event_cb(lv_event_t* e)
     {
         return;
     }
-    if (!screen->reply_enabled_)
+    if (ctx->intent == ActionIntent::Reply && !screen->reply_enabled_)
     {
         return;
     }
@@ -1149,6 +1333,16 @@ void ChatConversationScreen::message_action_event_cb(lv_event_t* e)
         return;
     }
     screen->schedule_message_action_async(ctx->intent, ctx->ref);
+}
+
+void ChatConversationScreen::scroll_event_cb(lv_event_t* e)
+{
+    auto* screen = static_cast<ChatConversationScreen*>(lv_event_get_user_data(e));
+    if (!screen)
+    {
+        return;
+    }
+    screen->handleScroll();
 }
 
 void ChatConversationScreen::async_action_cb(void* user_data)
@@ -1315,6 +1509,11 @@ void ChatConversationScreen::handle_root_deleted()
     back_cb_ = nullptr;
     back_cb_user_data_ = nullptr;
     reply_ctx_.screen = nullptr;
+    load_older_ctx_.screen = nullptr;
+    load_latest_ctx_.screen = nullptr;
+    history_auto_load_pending_ = false;
+    history_scroll_position_valid_ = false;
+    history_last_scroll_y_ = 0;
 
     chat::ui::conversation::input::cleanup(&input_binding_);
     ::ui::widgets::map::destroy(location_map_runtime_);
@@ -1332,6 +1531,10 @@ void ChatConversationScreen::handle_root_deleted()
     msg_list_ = nullptr;
     action_bar_ = nullptr;
     reply_btn_ = nullptr;
+    load_older_btn_ = nullptr;
+    load_older_label_ = nullptr;
+    load_latest_btn_ = nullptr;
+    load_latest_label_ = nullptr;
     compose_btn_ = nullptr;
     location_panel_ = nullptr;
     location_map_host_ = nullptr;

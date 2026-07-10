@@ -53,6 +53,7 @@ struct ScanResult
 bool is_supported();
 bool load_config(Config& out);
 bool save_config(const Config& config);
+bool find_saved_config(const char* ssid, Config& out);
 bool apply_enabled(bool enabled);
 bool connect(const Config* override_config = nullptr);
 void disconnect();

@@ -657,7 +657,20 @@ std::vector<::chat::ChatMessage> LinuxSqliteChatStore::loadRecent(
     const ::chat::ConversationId& conv,
     std::size_t n)
 {
-    if (n == 0U)
+    return loadPageFromLatest(conv, 0, n, nullptr);
+}
+
+std::vector<::chat::ChatMessage> LinuxSqliteChatStore::loadPageFromLatest(
+    const ::chat::ConversationId& conv,
+    std::size_t offset_from_latest,
+    std::size_t limit,
+    std::size_t* total)
+{
+    if (total != nullptr)
+    {
+        *total = 0;
+    }
+    if (limit == 0U)
     {
         return {};
     }
@@ -670,6 +683,13 @@ std::vector<::chat::ChatMessage> LinuxSqliteChatStore::loadRecent(
     }
 
     sqlite3_stmt* stmt = nullptr;
+    constexpr const char* kLegacyCountSql =
+        "SELECT COUNT(*) FROM chat_messages "
+        "WHERE protocol=?1 AND channel=?2 AND peer=?3;";
+    constexpr const char* kReticulumCountSql =
+        "SELECT COUNT(*) FROM chat_messages "
+        "WHERE protocol=?1 AND channel=?2 AND "
+        "reticulum_identity_valid != 0 AND reticulum_destination_hash=?3;";
     constexpr const char* kLegacySql =
         "SELECT protocol, channel, peer, from_node, msg_id, timestamp, text, "
         "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status, "
@@ -677,7 +697,7 @@ std::vector<::chat::ChatMessage> LinuxSqliteChatStore::loadRecent(
         "reticulum_identity_hash "
         "FROM chat_messages "
         "WHERE protocol=?1 AND channel=?2 AND peer=?3 "
-        "ORDER BY sequence DESC LIMIT ?4;";
+        "ORDER BY sequence DESC LIMIT ?4 OFFSET ?5;";
     constexpr const char* kReticulumSql =
         "SELECT protocol, channel, peer, from_node, msg_id, timestamp, text, "
         "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status, "
@@ -686,8 +706,39 @@ std::vector<::chat::ChatMessage> LinuxSqliteChatStore::loadRecent(
         "FROM chat_messages "
         "WHERE protocol=?1 AND channel=?2 AND "
         "reticulum_identity_valid != 0 AND reticulum_destination_hash=?3 "
-        "ORDER BY sequence DESC LIMIT ?4;";
+        "ORDER BY sequence DESC LIMIT ?4 OFFSET ?5;";
     const bool use_reticulum_key = hasReticulumConversationKey(conv);
+
+    if (total != nullptr)
+    {
+        const char* count_sql =
+            use_reticulum_key ? kReticulumCountSql : kLegacyCountSql;
+        if (sqlite3_prepare_v2(handle.db,
+                               count_sql,
+                               -1,
+                               &stmt,
+                               nullptr) == SQLITE_OK)
+        {
+            const bool bound =
+                use_reticulum_key
+                    ? (sqlite3_bind_int(stmt, 1, protocolValue(conv.protocol)) ==
+                           SQLITE_OK &&
+                       sqlite3_bind_int(stmt, 2, channelValue(conv.channel)) ==
+                           SQLITE_OK &&
+                       bindReticulumDestinationHash(
+                           stmt, 3, conv.reticulum_identity))
+                    : bindConversation(stmt, 1, conv);
+            if (bound && sqlite3_step(stmt) == SQLITE_ROW)
+            {
+                *total = static_cast<std::size_t>(
+                    std::max<sqlite3_int64>(
+                        0, sqlite3_column_int64(stmt, 0)));
+            }
+        }
+        sqlite3_finalize(stmt);
+        stmt = nullptr;
+    }
+
     const char* sql = use_reticulum_key ? kReticulumSql : kLegacySql;
     if (sqlite3_prepare_v2(handle.db, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
@@ -703,13 +754,27 @@ std::vector<::chat::ChatMessage> LinuxSqliteChatStore::loadRecent(
                 sqlite3_bind_int(stmt, 2, channelValue(conv.channel)) ==
                     SQLITE_OK &&
                 bindReticulumDestinationHash(stmt, 3, conv.reticulum_identity) &&
-                sqlite3_bind_int64(stmt, 4, static_cast<sqlite3_int64>(n)) ==
+                sqlite3_bind_int64(stmt,
+                                   4,
+                                   static_cast<sqlite3_int64>(limit)) ==
+                    SQLITE_OK &&
+                sqlite3_bind_int64(
+                    stmt,
+                    5,
+                    static_cast<sqlite3_int64>(offset_from_latest)) ==
                     SQLITE_OK;
     }
     else
     {
         bound = bindConversation(stmt, 1, conv) &&
-                sqlite3_bind_int64(stmt, 4, static_cast<sqlite3_int64>(n)) ==
+                sqlite3_bind_int64(stmt,
+                                   4,
+                                   static_cast<sqlite3_int64>(limit)) ==
+                    SQLITE_OK &&
+                sqlite3_bind_int64(
+                    stmt,
+                    5,
+                    static_cast<sqlite3_int64>(offset_from_latest)) ==
                     SQLITE_OK;
     }
     if (bound)

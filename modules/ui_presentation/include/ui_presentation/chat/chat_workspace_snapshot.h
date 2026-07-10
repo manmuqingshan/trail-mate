@@ -114,12 +114,17 @@ struct ChatWorkspaceSnapshot
     ui::SnapshotHeader header;
 
     static constexpr size_t kMaxLocationParticipants = 16;
+    static constexpr size_t kMaxMessages = 20;
 
     ConversationRow conversations[16]{};
     size_t conversation_count = 0;
 
-    MessageRow messages[24]{};
+    MessageRow messages[kMaxMessages]{};
     size_t message_count = 0;
+    uint16_t message_offset = 0;
+    uint16_t message_total_count = 0;
+    bool has_older_messages = false;
+    bool has_newer_messages = false;
 
     ConversationLocationParticipant location_participants[kMaxLocationParticipants]{};
     size_t location_participant_count = 0;
@@ -193,11 +198,15 @@ inline void resetChatWorkspaceSnapshot(ChatWorkspaceSnapshot& out)
     }
     out.conversation_count = 0;
 
-    for (size_t i = 0; i < 24; ++i)
+    for (size_t i = 0; i < ChatWorkspaceSnapshot::kMaxMessages; ++i)
     {
         resetMessageRow(out.messages[i]);
     }
     out.message_count = 0;
+    out.message_offset = 0;
+    out.message_total_count = 0;
+    out.has_older_messages = false;
+    out.has_newer_messages = false;
 
     for (size_t i = 0; i < ChatWorkspaceSnapshot::kMaxLocationParticipants; ++i)
     {

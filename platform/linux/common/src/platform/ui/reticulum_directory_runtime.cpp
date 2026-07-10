@@ -419,6 +419,8 @@ std::string aspect_text(AnnounceAspect aspect)
         return "lxmf.propagation";
     case AnnounceAspect::CallAudio:
         return "call.audio";
+    case AnnounceAspect::NomadNetworkNode:
+        return "nomadnetwork.node";
     case AnnounceAspect::Unknown:
     default:
         return "unknown";
@@ -438,6 +440,10 @@ AnnounceAspect parse_aspect(std::string_view aspect)
     if (aspect == "call.audio")
     {
         return AnnounceAspect::CallAudio;
+    }
+    if (aspect == "nomadnetwork.node")
+    {
+        return AnnounceAspect::NomadNetworkNode;
     }
     return AnnounceAspect::Unknown;
 }

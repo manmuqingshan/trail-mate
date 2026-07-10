@@ -73,6 +73,8 @@ const char* message_ingress_label(::ui::chat::MessageIngressTransport transport)
     {
     case ::ui::chat::MessageIngressTransport::LoRa:
         return "LoRa";
+    case ::ui::chat::MessageIngressTransport::Mqtt:
+        return "MQTT";
     case ::ui::chat::MessageIngressTransport::WiFi:
         return "Wi-Fi";
     case ::ui::chat::MessageIngressTransport::Unknown:
@@ -397,6 +399,17 @@ void ChatConversationScreen::setReplyEnabled(bool enabled)
     {
         lv_obj_add_state(reply_btn_, LV_STATE_DISABLED);
     }
+}
+
+void ChatConversationScreen::setHistoryPaging(bool has_older,
+                                              bool has_newer,
+                                              uint16_t offset,
+                                              uint16_t total_count)
+{
+    (void)has_older;
+    (void)has_newer;
+    (void)offset;
+    (void)total_count;
 }
 
 void ChatConversationScreen::schedule_action_async(ActionIntent intent)

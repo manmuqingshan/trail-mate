@@ -109,6 +109,10 @@ class ChatService
      * @brief Get recent messages for a conversation
      */
     std::vector<ChatMessage> getRecentMessages(const ConversationId& conv, size_t limit) const;
+    std::vector<ChatMessage> getMessagePageFromLatest(const ConversationId& conv,
+                                                      size_t offset_from_latest,
+                                                      size_t limit,
+                                                      size_t* total) const;
     std::vector<ConversationMeta> getConversations(size_t offset, size_t limit, size_t* total) const;
     int getTotalUnread() const;
 

@@ -8,6 +8,7 @@
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/timezone_profile.h"
+#include "ui/widgets/top_bar_power_presenter.h"
 
 extern "C" lv_draw_buf_t* lv_snapshot_take(lv_obj_t* obj, lv_color_format_t cf);
 extern "C" void lv_draw_buf_destroy(lv_draw_buf_t* draw_buf);
@@ -45,16 +46,8 @@ void ensure_timezone_loaded()
 
 void ui_update_top_bar_battery(ui::widgets::TopBar& bar)
 {
-    const platform::ui::device::BatteryInfo info = platform::ui::device::battery_info();
-    if (info.level < 0)
-    {
-        ui::widgets::top_bar_set_right_text_ascii(bar, info.charging ? "USB" : "--");
-        return;
-    }
-
-    char battery_buf[32] = "--";
-    ui_format_battery(info.level, info.charging, battery_buf, sizeof(battery_buf));
-    ui::widgets::top_bar_set_right_text_ascii(bar, battery_buf);
+    ui::widgets::top_bar_power::bind(bar);
+    ui::widgets::top_bar_power::tick();
 }
 
 int ui_get_timezone_offset_min()

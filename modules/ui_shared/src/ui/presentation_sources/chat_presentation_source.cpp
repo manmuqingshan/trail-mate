@@ -5,6 +5,7 @@
 #include "chat_presentation_adapters/chat_message_mapper.h"
 #include "ui_presentation/common/fixed_text.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -16,7 +17,7 @@ namespace
 {
 
 constexpr std::size_t kMaxConversationRows = 16;
-constexpr std::size_t kMaxMessageRows = 24;
+constexpr std::size_t kMaxMessageRows = ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
 constexpr double kCoordinateScale = 10000000.0;
 
 template <std::size_t N>
@@ -379,10 +380,6 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
     const ui::chat::ChatWorkspaceRequest& request,
     ui::chat::ChatWorkspaceSnapshot& out) const
 {
-    // Message paging is deferred until ChatService exposes a stable
-    // presentation-safe paging API.
-    (void)request.message_offset;
-
     ui::chat::resetChatWorkspaceSnapshot(out);
     out.header.valid = true;
     out.header.version = 1;
@@ -418,8 +415,12 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
     if (chat_presentation_adapters::toCoreConversationId(request.selected,
                                                          core_selected))
     {
+        std::size_t total_messages = 0;
         const auto messages =
-            chat_service_.getRecentMessages(core_selected, kMaxMessageRows);
+            chat_service_.getMessagePageFromLatest(core_selected,
+                                                   request.message_offset,
+                                                   kMaxMessageRows,
+                                                   &total_messages);
         const ::chat::NodeId self_node =
             mesh_adapter_ != nullptr ? mesh_adapter_->getNodeId() : 0;
         if (self_node != 0)
@@ -432,6 +433,12 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
             appendNodePositionParticipant(
                 out, contact_service_, core_selected.peer, false);
         }
+        out.message_offset = request.message_offset;
+        out.message_total_count = static_cast<uint16_t>(
+            std::min<std::size_t>(total_messages, 0xFFFFU));
+        out.has_newer_messages = request.message_offset > 0;
+        out.has_older_messages =
+            request.message_offset + messages.size() < total_messages;
         out.message_count = messages.size() < kMaxMessageRows
                                 ? messages.size()
                                 : kMaxMessageRows;

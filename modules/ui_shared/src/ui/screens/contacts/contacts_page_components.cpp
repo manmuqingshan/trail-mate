@@ -91,6 +91,7 @@ static uint32_t s_compose_peer_id = 0;
 static chat::ChannelId s_compose_channel = chat::ChannelId::PRIMARY;
 static chat::MeshProtocol s_compose_protocol = chat::MeshProtocol::Meshtastic;
 static chat::ConversationId s_compose_conversation{};
+static std::string s_compose_target_display_name;
 static bool s_refreshing_ui = false;
 static lv_coord_t page_button_height()
 {
@@ -189,6 +190,38 @@ static void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& iden
                   static_cast<unsigned>(identity.destination_hash[1]),
                   static_cast<unsigned>(identity.destination_hash[2]),
                   static_cast<unsigned>(identity.destination_hash[3]));
+}
+
+static void format_log_text_preview(const std::string& text, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    const size_t max_copy = out_len - 1U;
+    size_t used = 0;
+    for (char value : text)
+    {
+        if (used >= max_copy)
+        {
+            break;
+        }
+        const unsigned char c = static_cast<unsigned char>(value);
+        if (c == '\r' || c == '\n' || c == '\t')
+        {
+            out[used++] = ' ';
+        }
+        else if (c < 0x20U || c == 0x7FU)
+        {
+            out[used++] = '.';
+        }
+        else
+        {
+            out[used++] = value;
+        }
+    }
+    out[used] = '\0';
 }
 
 static void format_reticulum_hash_text(const uint8_t* hash, char* out, size_t out_len)
@@ -2764,19 +2797,23 @@ static void open_chat_compose()
     if (g_contacts_state.current_mode == ContactsMode::Groups)
     {
         conv.reticulum_identity = reticulum_destination;
-        char dest_hash[12] = {};
-        format_reticulum_hash_prefix(reticulum_destination, dest_hash, sizeof(dest_hash));
-        std::printf("[Contacts][RTGroup] compose_open title=%s channel=%u peer=%08lX dest=%s\n",
-                    title.c_str(),
-                    static_cast<unsigned>(channel),
-                    static_cast<unsigned long>(peer_id),
-                    dest_hash);
     }
     else if (node && protocol == chat::MeshProtocol::Reticulum &&
              chat::hasReticulumDestinationIdentity(node->reticulum_identity))
     {
         conv.reticulum_identity = node->reticulum_identity;
     }
+    char compose_dest_hash[12] = {};
+    format_reticulum_hash_prefix(conv.reticulum_identity,
+                                 compose_dest_hash,
+                                 sizeof(compose_dest_hash));
+    std::printf("[Contacts][TX] compose_open protocol=%s group=%u target=\"%s\" ch=%u peer=%08lX dest=%s\n",
+                chat::infra::meshProtocolName(protocol),
+                g_contacts_state.current_mode == ContactsMode::Groups ? 1U : 0U,
+                title.c_str(),
+                static_cast<unsigned>(channel),
+                static_cast<unsigned long>(peer_id),
+                compose_dest_hash);
     g_contacts_state.compose_screen = new chat::ui::ChatComposeScreen(parent, conv);
     g_contacts_state.compose_screen->setActionCallback(on_compose_action, nullptr);
     g_contacts_state.compose_screen->setBackCallback(on_compose_back, nullptr);
@@ -2803,6 +2840,7 @@ static void open_chat_compose()
     s_compose_channel = channel;
     s_compose_protocol = protocol;
     s_compose_conversation = conv;
+    s_compose_target_display_name = title;
     s_compose_is_team = (g_contacts_state.current_mode == ContactsMode::Team);
     if (s_compose_is_team)
     {
@@ -2853,6 +2891,7 @@ static void close_chat_compose()
     s_compose_channel = chat::ChannelId::PRIMARY;
     s_compose_protocol = chat::MeshProtocol::Meshtastic;
     s_compose_conversation = chat::ConversationId{};
+    s_compose_target_display_name.clear();
     s_compose_is_team = false;
 
     if (s_compose_from_conversation && g_contacts_state.conversation_screen)
@@ -2989,25 +3028,31 @@ static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, 
             if (g_contacts_state.chat_service)
             {
                 char dest_hash[12] = {};
+                char text_preview[64] = {};
                 format_reticulum_hash_prefix(s_compose_conversation.reticulum_identity,
                                              dest_hash,
                                              sizeof(dest_hash));
-                std::printf("[Contacts][RTGroup] compose_send begin group=%u protocol=%s ch=%u peer=%08lX dest=%s len=%u\n",
+                format_log_text_preview(text, text_preview, sizeof(text_preview));
+                std::printf("[Contacts][TX] send_begin group=%u protocol=%s target=\"%s\" ch=%u peer=%08lX dest=%s len=%u text=\"%s\"\n",
                             reticulum_group_send ? 1U : 0U,
                             chat::infra::meshProtocolName(s_compose_protocol),
+                            s_compose_target_display_name.c_str(),
                             static_cast<unsigned>(s_compose_channel),
                             static_cast<unsigned long>(s_compose_peer_id),
                             dest_hash,
-                            static_cast<unsigned>(text.size()));
+                            static_cast<unsigned>(text.size()),
+                            text_preview);
                 const chat::MeshSendResult result =
                     g_contacts_state.chat_service->sendTextToConversationDetailed(
                         s_compose_conversation,
                         text);
-                std::printf("[Contacts][RTGroup] compose_send end ok=%u msg=%lu failure=%u dest=%s\n",
+                std::printf("[Contacts][TX] send_end ok=%u msg=%lu failure=%u target=\"%s\" dest=%s text=\"%s\"\n",
                             result.ok ? 1U : 0U,
                             static_cast<unsigned long>(result.msg_id),
                             static_cast<unsigned>(result.failure),
-                            dest_hash);
+                            s_compose_target_display_name.c_str(),
+                            dest_hash,
+                            text_preview);
                 if (!result.ok || result.msg_id == 0)
                 {
                     ::ui::feedback::show_notice(

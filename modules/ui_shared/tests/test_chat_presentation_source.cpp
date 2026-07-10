@@ -230,6 +230,154 @@ class FakeContactStore final : public ::chat::contacts::IContactStore
     size_t getCount() const override { return 0; }
 };
 
+class PagingStore final : public ::chat::IChatStore
+{
+  public:
+    void append(const ::chat::ChatMessage& msg) override
+    {
+        messages_.push_back(msg);
+    }
+
+    std::vector<::chat::ChatMessage> loadRecent(const ::chat::ConversationId& conv,
+                                                size_t n) override
+    {
+        return loadPageFromLatest(conv, 0, n, nullptr);
+    }
+
+    std::vector<::chat::ChatMessage> loadPageFromLatest(
+        const ::chat::ConversationId& conv,
+        size_t offset_from_latest,
+        size_t limit,
+        size_t* total) override
+    {
+        size_t count = 0;
+        for (const auto& msg : messages_)
+        {
+            if (::chat::conversationIdForMessage(msg) == conv)
+            {
+                ++count;
+            }
+        }
+        if (total)
+        {
+            *total = count;
+        }
+        if (limit == 0 || offset_from_latest >= count)
+        {
+            return {};
+        }
+
+        const size_t available = count - offset_from_latest;
+        const size_t to_read = available < limit ? available : limit;
+        const size_t start = count - offset_from_latest - to_read;
+        const size_t end = start + to_read;
+
+        std::vector<::chat::ChatMessage> out;
+        out.reserve(to_read);
+        size_t index = 0;
+        for (const auto& msg : messages_)
+        {
+            if (!(::chat::conversationIdForMessage(msg) == conv))
+            {
+                continue;
+            }
+            if (index >= start && index < end)
+            {
+                out.push_back(msg);
+            }
+            ++index;
+        }
+        return out;
+    }
+
+    std::vector<::chat::ConversationMeta> loadConversationPage(size_t offset,
+                                                               size_t limit,
+                                                               size_t* total) override
+    {
+        const size_t count = messages_.empty() ? 0U : 1U;
+        if (total)
+        {
+            *total = count;
+        }
+        if (messages_.empty() || offset > 0)
+        {
+            return {};
+        }
+
+        const auto& latest = messages_.back();
+        ::chat::ConversationMeta meta;
+        meta.id = ::chat::conversationIdForMessage(latest);
+        meta.preview = latest.text;
+        meta.last_timestamp = latest.timestamp;
+        return {meta};
+    }
+
+    void setUnread(const ::chat::ConversationId&, int unread) override
+    {
+        unread_ = unread;
+    }
+
+    int getUnread(const ::chat::ConversationId&) const override
+    {
+        return unread_;
+    }
+
+    void clearConversation(const ::chat::ConversationId& conv) override
+    {
+        std::vector<::chat::ChatMessage> kept;
+        kept.reserve(messages_.size());
+        for (const auto& msg : messages_)
+        {
+            if (!(::chat::conversationIdForMessage(msg) == conv))
+            {
+                kept.push_back(msg);
+            }
+        }
+        messages_ = kept;
+    }
+
+    void clearAll() override
+    {
+        messages_.clear();
+        unread_ = 0;
+    }
+
+    bool updateMessageStatus(::chat::MessageId msg_id,
+                             ::chat::MessageStatus status) override
+    {
+        for (auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id)
+            {
+                msg.status = status;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool getMessage(::chat::MessageId msg_id,
+                    ::chat::ChatMessage* out) const override
+    {
+        for (const auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id)
+            {
+                if (out)
+                {
+                    *out = msg;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+  private:
+    std::vector<::chat::ChatMessage> messages_;
+    int unread_ = 0;
+};
+
 ui::chat::ConversationId directPeer(uint32_t peer)
 {
     ui::chat::ConversationId id;
@@ -476,6 +624,60 @@ int main()
            ui::chat::MessageIngressTransport::LoRa);
     assert(snapshot.messages[0].sender_node_id == 0x648144D4);
     assert(std::strcmp(snapshot.messages[0].sender_label.c_str(), "Mother") == 0);
+
+    const uint32_t paging_peer = 0x00ABCDEF;
+    contacts.updateNodeInfo(paging_peer,
+                            "CDEF",
+                            "Pager",
+                            0.0f,
+                            0.0f,
+                            1700000000U,
+                            0,
+                            ::chat::contacts::kNodeRoleUnknown,
+                            0xFF,
+                            0,
+                            0xFF);
+    ::chat::ChatModel paging_model;
+    FakeMeshAdapter paging_mesh;
+    paging_mesh.self_node_id = mesh.self_node_id;
+    PagingStore paging_store;
+    ::chat::ChatService paging_service(paging_model, paging_mesh, paging_store);
+    ui::presentation_sources::ChatPresentationSource paging_source(
+        paging_service, &contacts, &delivery_read_model, &paging_mesh);
+    const ui::chat::ConversationId paging = directPeer(paging_peer);
+    for (::chat::MessageId id = 1; id <= 25; ++id)
+    {
+        ::chat::ChatMessage page_msg;
+        page_msg.protocol = ::chat::MeshProtocol::Meshtastic;
+        page_msg.channel = ::chat::ChannelId::PRIMARY;
+        page_msg.from = paging_peer;
+        page_msg.peer = paging_peer;
+        page_msg.msg_id = 2000 + id;
+        page_msg.timestamp = 1700000000U + id;
+        page_msg.text = "page-" + std::to_string(id);
+        page_msg.status = ::chat::MessageStatus::Incoming;
+        paging_store.append(page_msg);
+    }
+
+    ui::chat::ChatWorkspaceRequest paging_request;
+    paging_request.selected = paging;
+    paging_request.message_offset = 0;
+    assert(paging_source.buildChatWorkspaceSnapshot(paging_request, snapshot));
+    assert(snapshot.message_count == ui::chat::ChatWorkspaceSnapshot::kMaxMessages);
+    assert(snapshot.message_total_count == 25);
+    assert(!snapshot.has_newer_messages);
+    assert(snapshot.has_older_messages);
+    assert(std::strcmp(snapshot.messages[0].text.c_str(), "page-6") == 0);
+    assert(std::strcmp(snapshot.messages[19].text.c_str(), "page-25") == 0);
+
+    paging_request.message_offset = ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
+    assert(paging_source.buildChatWorkspaceSnapshot(paging_request, snapshot));
+    assert(snapshot.message_count == 5);
+    assert(snapshot.message_total_count == 25);
+    assert(snapshot.has_newer_messages);
+    assert(!snapshot.has_older_messages);
+    assert(std::strcmp(snapshot.messages[0].text.c_str(), "page-1") == 0);
+    assert(std::strcmp(snapshot.messages[4].text.c_str(), "page-5") == 0);
 
     service.setActiveProtocol(::chat::MeshProtocol::MeshCore);
     ::chat::MeshIncomingText unknown_meshcore_incoming{};

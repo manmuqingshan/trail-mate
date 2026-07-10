@@ -35,6 +35,45 @@ class IChatStore
     virtual std::vector<ChatMessage> loadRecent(const ConversationId& conv, size_t n) = 0;
 
     /**
+     * @brief Load one message page counted backwards from the newest message
+     * @param conv Conversation ID
+     * @param offset_from_latest Number of newer messages to skip (0 means newest page)
+     * @param limit Max messages to return
+     * @param total Optional total message count for the conversation
+     * @return Vector of messages in chronological order (oldest first)
+     */
+    virtual std::vector<ChatMessage> loadPageFromLatest(const ConversationId& conv,
+                                                        size_t offset_from_latest,
+                                                        size_t limit,
+                                                        size_t* total)
+    {
+        if (limit == 0)
+        {
+            if (total)
+            {
+                *total = 0;
+            }
+            return {};
+        }
+
+        const size_t window_limit = offset_from_latest + limit;
+        std::vector<ChatMessage> window = loadRecent(conv, window_limit);
+        if (total)
+        {
+            *total = window.size();
+        }
+        if (offset_from_latest >= window.size())
+        {
+            return {};
+        }
+
+        const size_t end = window.size() - offset_from_latest;
+        const size_t start = (end > limit) ? (end - limit) : 0;
+        return std::vector<ChatMessage>(window.begin() + static_cast<long>(start),
+                                        window.begin() + static_cast<long>(end));
+    }
+
+    /**
      * @brief Load conversation list metadata
      * @param offset Start offset (pagination)
      * @param limit Max items to return (0 means all)

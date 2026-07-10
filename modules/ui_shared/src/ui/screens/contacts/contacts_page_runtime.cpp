@@ -225,11 +225,8 @@ void copy_node_text(char* out, std::size_t out_len, const char* text)
 std::string reticulum_record_fallback_name(
     const chat::ReticulumPeerIdentity& identity)
 {
-    char prefix[12] = {};
-    format_reticulum_hash_prefix(identity, prefix, sizeof(prefix));
-    return prefix[0] != '\0' && std::strcmp(prefix, "-") != 0
-               ? std::string(prefix)
-               : std::string("Reticulum");
+    (void)identity;
+    return "Anonymous Peer";
 }
 
 chat::contacts::NodeInfo node_from_lxmf_address(

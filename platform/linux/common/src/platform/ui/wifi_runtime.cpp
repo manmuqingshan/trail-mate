@@ -68,6 +68,19 @@ bool save_config(const Config& config)
     return ssid_ok && password_ok;
 }
 
+bool find_saved_config(const char* ssid, Config& out)
+{
+    out = Config{};
+    Config config{};
+    (void)load_config(config);
+    if (ssid && ssid[0] != '\0' && std::strcmp(config.ssid, ssid) == 0)
+    {
+        out = config;
+        return true;
+    }
+    return false;
+}
+
 bool apply_enabled(bool enabled)
 {
     return !enabled;

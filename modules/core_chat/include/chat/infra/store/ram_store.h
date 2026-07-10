@@ -27,6 +27,10 @@ class RamStore : public IChatStore
 
     void append(const ChatMessage& msg) override;
     std::vector<ChatMessage> loadRecent(const ConversationId& conv, size_t n) override;
+    std::vector<ChatMessage> loadPageFromLatest(const ConversationId& conv,
+                                                size_t offset_from_latest,
+                                                size_t limit,
+                                                size_t* total) override;
     std::vector<ConversationMeta> loadConversationPage(size_t offset,
                                                        size_t limit,
                                                        size_t* total) override;

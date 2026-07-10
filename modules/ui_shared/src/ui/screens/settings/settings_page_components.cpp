@@ -3113,12 +3113,19 @@ static void on_option_clicked(lv_event_t* e)
             const wifi_runtime::ScanResult& result =
                 dynamic_options().wifi_scan_results[static_cast<size_t>(payload->value)];
             copy_bounded(g_settings.wifi_ssid, sizeof(g_settings.wifi_ssid), result.ssid);
-            wifi_runtime::Config config{};
-            config.enabled = g_settings.wifi_enabled;
-            copy_bounded(config.ssid, sizeof(config.ssid), g_settings.wifi_ssid);
-            copy_bounded(config.password, sizeof(config.password), g_settings.wifi_password);
-            (void)wifi_runtime::save_config(config);
-            refresh_wifi_state_from_runtime();
+            wifi_runtime::Config saved_config{};
+            if (wifi_runtime::find_saved_config(g_settings.wifi_ssid, saved_config))
+            {
+                copy_bounded(g_settings.wifi_password,
+                             sizeof(g_settings.wifi_password),
+                             saved_config.password);
+                saved_config.enabled = g_settings.wifi_enabled;
+                (void)wifi_runtime::save_config(saved_config);
+            }
+            else
+            {
+                g_settings.wifi_password[0] = '\0';
+            }
             rebuild_list = true;
         }
     }

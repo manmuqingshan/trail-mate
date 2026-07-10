@@ -8,6 +8,13 @@ card, and NVS budgets before trying to ingest background network traffic.
 
 Reticulum runs as a low-frequency terminal ingress runtime.
 
+Reticulum `All` carrier policy is a Wi-Fi-preferred auto policy, not a
+desktop-style dual-interface router policy. When the Reticulum Wi-Fi gateway is
+configured and ready, normal Reticulum TX, RX, and raw LoRa packet ingestion use
+the Wi-Fi gateway only. LoRa is the fallback carrier only while the Wi-Fi
+gateway is not ready. Explicit `LoRaOnly` and `WifiGatewayOnly` policies keep
+their literal meanings.
+
 When the screen is on, realtime processing is limited to:
 
 - LXMF direct traffic addressed to this device.
@@ -23,6 +30,32 @@ The exception is lightweight peer-name projection: verified LXMF delivery
 announces may publish one coalesced contact-store update at a low awake-screen
 rate so Contacts and Chat can show the sender's display name without waiting
 for SD or NVS persistence.
+
+## MeshChat-Compatible Discovery Projection
+
+Trail Mate's Reticulum UI projections follow the same product-facing discovery
+split as Reticulum MeshChat:
+
+- Contacts and Chat consume `lxmf.delivery` announces as chat peers. The peer
+  display name is decoded from LXMF announce app data using the upstream shape:
+  raw UTF-8 display names and msgpack arrays whose first element is the display
+  name are both valid. Current upstream LXMF arrays may contain additional
+  fields such as stamp cost and supported functionality; supported parsers must
+  ignore trailing fields they do not need.
+- Network consumes `nomadnetwork.node` announces as Nomad nodes. Their display
+  name is decoded from text app data and is separate from LXMF peer naming.
+- `lxmf.propagation`, `call.audio`, and unknown announces may be stored for
+  routing, call, or diagnostic use, but they must not be promoted into Contacts
+  as ordinary chat peers unless a Trail Mate business flow explicitly needs
+  them.
+- Destination and identity hashes remain address/search metadata. They must not
+  be used as the default display name. If a Reticulum peer has no display name,
+  the UI uses `Anonymous Peer`; if a Nomad node has no display name, the UI uses
+  `Anonymous Node`.
+- The UI must not infer display names from hash shape, old local records,
+  destination prefixes, or other historical artefacts. If a stored record
+  contains an incorrect name, that is stored data to fix or replace, not a
+  runtime display-name fallback.
 
 ## Required Boundaries
 
@@ -53,6 +86,11 @@ for SD or NVS persistence.
 - RX hot-path logging must be summary-first. Detailed logs are acceptable for
   local/realtime traffic and diagnostics, but public discovery should normally
   be represented by periodic counters.
+- Shared LoRa RX task logging must also be summary-first. Normal IRQ/RX_DONE
+  packets must not emit per-packet serial lines on ESP devices, because short
+  packet bursts can stall UI-visible work even before packets reach Reticulum.
+  If the mesh queue is full, the radio task must drop and count the packet
+  instead of blocking on queue send.
 - Reticulum runtime code executed by `mesh_task` must not allocate MTU-sized
   packet buffers or queued packet records as automatic locals. Carrier packet
   scratch storage belongs in adapter/interface members, and `mesh_task` needs

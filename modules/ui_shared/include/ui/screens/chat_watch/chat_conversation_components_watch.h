@@ -3,6 +3,8 @@
 #include "chat/domain/chat_types.h"
 #include "lvgl.h"
 #include "ui_presentation/chat/chat_message_ref.h"
+#include "ui_presentation/chat/chat_workspace_snapshot.h"
+#include <cstdint>
 #include <vector>
 
 namespace ui::chat
@@ -18,7 +20,9 @@ class ChatConversationScreen
   public:
     enum class ActionIntent
     {
-        Reply
+        Reply,
+        LoadOlder,
+        LoadLatest
     };
 
     enum class MessageActionIntent
@@ -54,6 +58,10 @@ class ChatConversationScreen
     void setBackCallback(void (*cb)(void*), void* user_data);
     void setReplyEnabled(bool enabled);
     bool isReplyEnabled() const { return reply_enabled_; }
+    void setHistoryPaging(bool has_older,
+                          bool has_newer,
+                          uint16_t offset,
+                          uint16_t total_count);
 
   private:
     struct LifetimeGuard
@@ -99,7 +107,8 @@ class ChatConversationScreen
     void* back_cb_user_data_ = nullptr;
 
     std::vector<MessageItem> messages_;
-    static constexpr size_t MAX_DISPLAY_MESSAGES = 100;
+    static constexpr size_t MAX_DISPLAY_MESSAGES =
+        ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
 
     LifetimeGuard* guard_ = nullptr;
     bool reply_enabled_ = true;

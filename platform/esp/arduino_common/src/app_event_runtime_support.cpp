@@ -16,6 +16,7 @@
 #include "ui/localization.h"
 #include "ui/runtime/ui_feedback.h"
 #include "ui/screens/team/team_page_shell.h"
+#include "ui/widgets/top_bar_power_presenter.h"
 #include "ui_chat_runtime/chat_delivery_feedback_controller.h"
 
 namespace platform::esp::arduino_common
@@ -182,6 +183,8 @@ void tickUiRuntime(app::IAppFacade& app_context)
     {
         chat_ui_runtime->update();
     }
+
+    ::ui::widgets::top_bar_power::tick();
 }
 
 bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)

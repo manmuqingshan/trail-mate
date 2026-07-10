@@ -32,8 +32,8 @@ static constexpr lv_coord_t kBubblePadX = 10;
 static constexpr lv_coord_t kBubblePadY = 6;
 static constexpr lv_coord_t kBubbleRadius = 12;
 
-static const lv_color_t kBubbleOther = lv_color_hex(0xFFF7E9);
-static const lv_color_t kBubbleSelf = lv_color_hex(0xFFF0D3);
+static const lv_color_t kBubbleOther = lv_color_hex(0xFFF8E8);
+static const lv_color_t kBubbleSelf = lv_color_hex(0xDDF3EA);
 static const lv_color_t kTextColor = lv_color_hex(0x3A2A1A);
 
 void init_once()
@@ -105,7 +105,8 @@ void init_once()
 
     lv_style_init(&s_bubble_base);
     lv_style_set_bg_opa(&s_bubble_base, LV_OPA_COVER);
-    lv_style_set_border_width(&s_bubble_base, 0);
+    lv_style_set_border_width(&s_bubble_base, 1);
+    lv_style_set_border_color(&s_bubble_base, lv_color_hex(0xD7B979));
     lv_style_set_radius(&s_bubble_base, bubble_radius);
     lv_style_set_pad_left(&s_bubble_base, bubble_pad_x);
     lv_style_set_pad_right(&s_bubble_base, bubble_pad_x);
@@ -117,9 +118,11 @@ void init_once()
 
     lv_style_init(&s_bubble_self);
     lv_style_set_bg_color(&s_bubble_self, kBubbleSelf);
+    lv_style_set_border_color(&s_bubble_self, lv_color_hex(0x8FCDB9));
 
     lv_style_init(&s_bubble_other);
     lv_style_set_bg_color(&s_bubble_other, kBubbleOther);
+    lv_style_set_border_color(&s_bubble_other, lv_color_hex(0xE2C487));
 
     lv_style_init(&s_bubble_text);
     lv_style_set_text_color(&s_bubble_text, kTextColor);

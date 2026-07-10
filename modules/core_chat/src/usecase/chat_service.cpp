@@ -113,6 +113,38 @@ void format_reticulum_hash_prefix(const ReticulumPeerIdentity* identity,
                   static_cast<unsigned>(identity->destination_hash[3]));
 }
 
+void format_log_text_preview(const std::string& text, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    const size_t max_copy = out_len - 1U;
+    size_t used = 0;
+    for (char value : text)
+    {
+        if (used >= max_copy)
+        {
+            break;
+        }
+        const unsigned char c = static_cast<unsigned char>(value);
+        if (c == '\r' || c == '\n' || c == '\t')
+        {
+            out[used++] = ' ';
+        }
+        else if (c < 0x20U || c == 0x7FU)
+        {
+            out[used++] = '.';
+        }
+        else
+        {
+            out[used++] = value;
+        }
+    }
+    out[used] = '\0';
+}
+
 ChatService::ChatService(ChatModel& model,
                          IMeshAdapter& adapter,
                          IChatStore& store,
@@ -228,15 +260,18 @@ MeshSendResult ChatService::sendTextResolvedDetailed(
         reticulum_destination &&
         hasReticulumDestinationIdentity(*reticulum_destination);
     char dest_hash[12] = {};
+    char text_preview[64] = {};
     format_reticulum_hash_prefix(reticulum_destination, dest_hash, sizeof(dest_hash));
-    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] begin protocol=%s mode=%s ch=%u peer=%08lX forced=%lu dest=%s len=%u\n",
+    format_log_text_preview(text, text_preview, sizeof(text_preview));
+    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] begin protocol=%s mode=%s ch=%u peer=%08lX forced=%lu dest=%s len=%u text=\"%s\"\n",
                           protocol_name(active_protocol_),
                           has_reticulum_destination ? "reticulum_destination" : "peer",
                           static_cast<unsigned>(channel),
                           static_cast<unsigned long>(normalize_conversation_peer(peer)),
                           static_cast<unsigned long>(forced_msg_id),
                           dest_hash,
-                          static_cast<unsigned>(text.size()));
+                          static_cast<unsigned>(text.size()),
+                          text_preview);
     MeshSendResult result =
         has_reticulum_destination
             ? adapter_.sendTextToReticulumDestination(channel,
@@ -280,11 +315,12 @@ MeshSendResult ChatService::sendTextResolvedDetailed(
     }
 
     store_.append(msg);
-    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] stored msg=%lu status=%u peer=%08lX dest=%s\n",
+    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] stored msg=%lu status=%u peer=%08lX dest=%s text=\"%s\"\n",
                           static_cast<unsigned long>(msg.msg_id),
                           static_cast<unsigned>(msg.status),
                           static_cast<unsigned long>(msg.peer),
-                          dest_hash);
+                          dest_hash,
+                          text_preview);
 
     if (result.ok && result.msg_id != 0)
     {
@@ -410,6 +446,15 @@ bool ChatService::resendFailed(MessageId msg_id)
 std::vector<ChatMessage> ChatService::getRecentMessages(const ConversationId& conv, size_t limit) const
 {
     return store_.loadRecent(conv, limit);
+}
+
+std::vector<ChatMessage> ChatService::getMessagePageFromLatest(
+    const ConversationId& conv,
+    size_t offset_from_latest,
+    size_t limit,
+    size_t* total) const
+{
+    return store_.loadPageFromLatest(conv, offset_from_latest, limit, total);
 }
 
 std::vector<ConversationMeta> ChatService::getConversations(size_t offset,

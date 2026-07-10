@@ -27,6 +27,23 @@ const char* boolLabel(bool value)
     return value ? "true" : "false";
 }
 
+const char* txBearerName(const TxResult& result)
+{
+    if (result.lora_ok && result.wifi_ok)
+    {
+        return "lora+wifi";
+    }
+    if (result.lora_ok)
+    {
+        return "lora";
+    }
+    if (result.wifi_ok)
+    {
+        return "wifi";
+    }
+    return "none";
+}
+
 bool copyHost(char* out, size_t out_len, const char* value)
 {
     if (!out || out_len == 0)
@@ -670,8 +687,8 @@ void ReticulumInterfaceSet::maintain()
 
 bool ReticulumInterfaceSet::hasReadyInterface() const
 {
-    return (loraAllowed() && lora_.isReady()) ||
-           (wifiAllowed() && wifi_.isReady());
+    return (loraSelectedForRuntime() && lora_.isReady()) ||
+           (wifiSelectedForRuntime() && wifi_.isReady());
 }
 
 bool ReticulumInterfaceSet::hasReadyWifiGateway() const
@@ -694,9 +711,9 @@ bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
 
     maintain();
 
-    last_tx_result_.lora_required = loraAllowed();
+    last_tx_result_.lora_required = loraSelectedForRuntime();
     last_tx_result_.lora_ready = last_tx_result_.lora_required && lora_.isReady();
-    last_tx_result_.wifi_required = wifiAllowed() && wifi_.isConfigured();
+    last_tx_result_.wifi_required = wifiSelectedForRuntime() && wifi_.isConfigured();
     last_tx_result_.wifi_ready = last_tx_result_.wifi_required && wifi_.isReady();
 
     if (last_tx_result_.lora_ready)
@@ -709,15 +726,17 @@ bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
     }
 
     const bool sent = last_tx_result_.sent();
-    Serial.printf("[Reticulum][IF][TX] raw_len=%u lora_req=%u lora_ready=%u lora=%u wifi_req=%u wifi_ready=%u wifi=%u sent=%u\n",
+    Serial.printf("[Reticulum][IF][TX] raw_len=%u bearer=%s lora_req=%u lora_ready=%u lora=%u wifi_req=%u wifi_ready=%u wifi=%u sent=%u complete=%u\n",
                   static_cast<unsigned>(len),
+                  txBearerName(last_tx_result_),
                   last_tx_result_.lora_required ? 1U : 0U,
                   last_tx_result_.lora_ready ? 1U : 0U,
                   last_tx_result_.lora_ok ? 1U : 0U,
                   last_tx_result_.wifi_required ? 1U : 0U,
                   last_tx_result_.wifi_ready ? 1U : 0U,
                   last_tx_result_.wifi_ok ? 1U : 0U,
-                  sent ? 1U : 0U);
+                  sent ? 1U : 0U,
+                  last_tx_result_.reachedRequiredInterfaces() ? 1U : 0U);
     return sent;
 }
 
@@ -739,12 +758,14 @@ bool ReticulumInterfaceSet::sendPacketWifiOnly(const uint8_t* data, size_t len)
     }
 
     const bool sent = last_tx_result_.sent();
-    Serial.printf("[Reticulum][IF][TX] raw_len=%u mode=wifi_only wifi_req=%u wifi_ready=%u wifi=%u sent=%u\n",
+    Serial.printf("[Reticulum][IF][TX] raw_len=%u mode=wifi_only bearer=%s wifi_req=%u wifi_ready=%u wifi=%u sent=%u complete=%u\n",
                   static_cast<unsigned>(len),
+                  txBearerName(last_tx_result_),
                   last_tx_result_.wifi_required ? 1U : 0U,
                   last_tx_result_.wifi_ready ? 1U : 0U,
                   last_tx_result_.wifi_ok ? 1U : 0U,
-                  sent ? 1U : 0U);
+                  sent ? 1U : 0U,
+                  last_tx_result_.reachedRequiredInterfaces() ? 1U : 0U);
     return sent;
 }
 
@@ -757,17 +778,19 @@ bool ReticulumInterfaceSet::pollIncomingPacket(RxPacket* out)
 
     maintain();
 
+    const bool lora_selected = loraSelectedForRuntime();
+    const bool wifi_selected = wifiSelectedForRuntime();
     for (uint8_t i = 0; i < 2; ++i)
     {
         const uint8_t index = static_cast<uint8_t>((next_poll_index_ + i) % 2U);
         bool got = false;
         if (index == 0)
         {
-            got = loraAllowed() && lora_.pollPacket(out);
+            got = lora_selected && lora_.pollPacket(out);
         }
         else
         {
-            got = wifiAllowed() && wifi_.pollPacket(out);
+            got = wifi_selected && wifi_.pollPacket(out);
         }
         if (got)
         {
@@ -783,12 +806,12 @@ bool ReticulumInterfaceSet::pollIncomingPacket(RxPacket* out)
 
 bool ReticulumInterfaceSet::pollLegacyIncomingData(MeshIncomingData* out)
 {
-    return lora_.pollLegacyIncomingData(out);
+    return loraSelectedForRuntime() && lora_.pollLegacyIncomingData(out);
 }
 
 void ReticulumInterfaceSet::handleRawPacket(const uint8_t* data, size_t size)
 {
-    if (loraAllowed())
+    if (loraSelectedForRuntime())
     {
         lora_.handleRawPacket(data, size);
     }
@@ -827,6 +850,26 @@ bool ReticulumInterfaceSet::wifiAllowed() const
 {
     return config_.reticulum_wifi_gateway_enabled &&
            config_.reticulum_interface_policy != ReticulumInterfacePolicy::LoRaOnly;
+}
+
+bool ReticulumInterfaceSet::loraSelectedForRuntime() const
+{
+    if (!loraAllowed())
+    {
+        return false;
+    }
+    return config_.reticulum_interface_policy != ReticulumInterfacePolicy::All ||
+           !wifi_.isReady();
+}
+
+bool ReticulumInterfaceSet::wifiSelectedForRuntime() const
+{
+    if (!wifiAllowed())
+    {
+        return false;
+    }
+    return config_.reticulum_interface_policy == ReticulumInterfacePolicy::WifiGatewayOnly ||
+           wifi_.isReady();
 }
 
 } // namespace chat::reticulum::interfaces

@@ -481,5 +481,51 @@ int main()
                                       identity);
     }
 
+    {
+        chat::RamStore paging_store;
+        const chat::ConversationId paging_conv(chat::ChannelId::PRIMARY,
+                                               0,
+                                               chat::MeshProtocol::Meshtastic);
+        for (chat::MessageId id = 1; id <= 20; ++id)
+        {
+            chat::ChatMessage page_msg;
+            page_msg.channel = paging_conv.channel;
+            page_msg.peer = paging_conv.peer;
+            page_msg.protocol = paging_conv.protocol;
+            page_msg.msg_id = id;
+            page_msg.timestamp = id;
+            page_msg.text = "page";
+            page_msg.status = chat::MessageStatus::Incoming;
+            paging_store.append(page_msg);
+        }
+
+        size_t total = 0;
+        const auto newest =
+            paging_store.loadPageFromLatest(paging_conv, 0, 5, &total);
+        assert(total == 20);
+        assert(newest.size() == 5);
+        assert(newest.front().msg_id == 16);
+        assert(newest.back().msg_id == 20);
+
+        const auto middle =
+            paging_store.loadPageFromLatest(paging_conv, 5, 5, &total);
+        assert(total == 20);
+        assert(middle.size() == 5);
+        assert(middle.front().msg_id == 11);
+        assert(middle.back().msg_id == 15);
+
+        const auto oldest =
+            paging_store.loadPageFromLatest(paging_conv, 15, 5, &total);
+        assert(total == 20);
+        assert(oldest.size() == 5);
+        assert(oldest.front().msg_id == 1);
+        assert(oldest.back().msg_id == 5);
+
+        const auto beyond =
+            paging_store.loadPageFromLatest(paging_conv, 20, 5, &total);
+        assert(total == 20);
+        assert(beyond.empty());
+    }
+
     return 0;
 }

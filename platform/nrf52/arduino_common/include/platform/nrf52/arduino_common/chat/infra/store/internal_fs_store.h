@@ -18,6 +18,10 @@ class InternalFsStore final : public ::chat::IChatStore
 
     void append(const ::chat::ChatMessage& msg) override;
     std::vector<::chat::ChatMessage> loadRecent(const ::chat::ConversationId& conv, size_t n) override;
+    std::vector<::chat::ChatMessage> loadPageFromLatest(const ::chat::ConversationId& conv,
+                                                        size_t offset_from_latest,
+                                                        size_t limit,
+                                                        size_t* total) override;
     std::vector<::chat::ConversationMeta> loadConversationPage(size_t offset,
                                                                size_t limit,
                                                                size_t* total) override;

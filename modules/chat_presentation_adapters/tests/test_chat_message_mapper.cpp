@@ -38,7 +38,7 @@ void rxOriginsMapToIngressTransport()
     assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::LoRa) ==
            ui::chat::MessageIngressTransport::LoRa);
     assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::External) ==
-           ui::chat::MessageIngressTransport::WiFi);
+           ui::chat::MessageIngressTransport::Mqtt);
     assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::WiFi) ==
            ui::chat::MessageIngressTransport::WiFi);
 }

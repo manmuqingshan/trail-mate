@@ -2,6 +2,7 @@
 
 #include "platform/ui/wifi_runtime.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -30,11 +31,23 @@ constexpr const char* kSettingsNs = "settings";
 constexpr const char* kWifiEnabledKey = "wifi_enabled";
 constexpr const char* kWifiSsidKey = "wifi_ssid";
 constexpr const char* kWifiPasswordKey = "wifi_password";
+constexpr const char* kWifiProfileCountKey = "wifi_prof_count";
+constexpr std::size_t kWifiProfileCapacity = 10;
 constexpr uint32_t kWifiFeatureMask = TM_C6_FEATURE_WIFI_STA | TM_C6_FEATURE_WIFI_AP;
 #if defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
 constexpr uint32_t kC6ScanWaitTimeoutMs = 10000;
 constexpr uint32_t kC6ScanPollIntervalMs = 100;
 #endif
+
+struct RuntimeState
+{
+    bool profiles_cached = false;
+    Config profiles[kWifiProfileCapacity] = {};
+    std::size_t profile_count = 0;
+    std::size_t next_profile_index = 0;
+};
+
+RuntimeState s_runtime{};
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {
@@ -48,6 +61,127 @@ void copy_text(char* out, std::size_t out_len, const char* text)
 void copy_config_text(char* out, std::size_t out_len, const char* text)
 {
     copy_text(out, out_len, text && text[0] != '\0' ? text : "");
+}
+
+bool has_saved_credentials(const Config& config)
+{
+    return config.ssid[0] != '\0';
+}
+
+void profile_key(char* out, std::size_t out_len, const char* field, std::size_t index)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "wifi_%s_%u", field ? field : "profile", static_cast<unsigned>(index));
+}
+
+bool same_ssid(const Config& lhs, const Config& rhs)
+{
+    return std::strncmp(lhs.ssid, rhs.ssid, sizeof(lhs.ssid)) == 0;
+}
+
+void clear_profiles()
+{
+    for (Config& profile : s_runtime.profiles)
+    {
+        profile = Config{};
+    }
+    s_runtime.profile_count = 0;
+    s_runtime.next_profile_index = 0;
+    s_runtime.profiles_cached = true;
+}
+
+void append_profile_unique(const Config& profile)
+{
+    if (!has_saved_credentials(profile))
+    {
+        return;
+    }
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (same_ssid(s_runtime.profiles[i], profile))
+        {
+            return;
+        }
+    }
+    if (s_runtime.profile_count >= kWifiProfileCapacity)
+    {
+        return;
+    }
+    s_runtime.profiles[s_runtime.profile_count] = profile;
+    s_runtime.profiles[s_runtime.profile_count].enabled = true;
+    ++s_runtime.profile_count;
+}
+
+void upsert_profile_front(const Config& profile)
+{
+    if (!has_saved_credentials(profile))
+    {
+        return;
+    }
+
+    std::size_t existing = s_runtime.profile_count;
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (same_ssid(s_runtime.profiles[i], profile))
+        {
+            existing = i;
+            break;
+        }
+    }
+
+    std::size_t last = s_runtime.profile_count;
+    if (existing < s_runtime.profile_count)
+    {
+        last = existing;
+    }
+    else if (s_runtime.profile_count < kWifiProfileCapacity)
+    {
+        last = s_runtime.profile_count;
+        ++s_runtime.profile_count;
+    }
+    else
+    {
+        last = kWifiProfileCapacity - 1U;
+    }
+
+    for (std::size_t i = last; i > 0; --i)
+    {
+        s_runtime.profiles[i] = s_runtime.profiles[i - 1U];
+    }
+    s_runtime.profiles[0] = profile;
+    s_runtime.profiles[0].enabled = true;
+    s_runtime.next_profile_index = 0;
+    s_runtime.profiles_cached = true;
+}
+
+bool persist_profiles()
+{
+    ::platform::ui::settings_store::put_int(kSettingsNs,
+                                            kWifiProfileCountKey,
+                                            static_cast<int>(s_runtime.profile_count));
+    bool ok = true;
+    for (std::size_t i = 0; i < kWifiProfileCapacity; ++i)
+    {
+        char ssid_key[24] = {};
+        char password_key[24] = {};
+        profile_key(ssid_key, sizeof(ssid_key), "ssid", i);
+        profile_key(password_key, sizeof(password_key), "password", i);
+        const Config& profile = s_runtime.profiles[i];
+        ok = ::platform::ui::settings_store::put_string(
+                 kSettingsNs,
+                 ssid_key,
+                 i < s_runtime.profile_count ? profile.ssid : "") &&
+             ok;
+        ok = ::platform::ui::settings_store::put_string(
+                 kSettingsNs,
+                 password_key,
+                 i < s_runtime.profile_count ? profile.password : "") &&
+             ok;
+    }
+    return ok;
 }
 
 void format_ipv4(uint32_t addr, char* out, std::size_t out_len)
@@ -86,17 +220,54 @@ Config load_saved_config()
     {
         copy_text(out.password, sizeof(out.password), value.c_str());
     }
+    clear_profiles();
+    const int stored_count = std::clamp(
+        ::platform::ui::settings_store::get_int(kSettingsNs, kWifiProfileCountKey, 0),
+        0,
+        static_cast<int>(kWifiProfileCapacity));
+    for (int i = 0; i < stored_count; ++i)
+    {
+        Config profile{};
+        profile.enabled = true;
+        char ssid_key[24] = {};
+        char password_key[24] = {};
+        profile_key(ssid_key, sizeof(ssid_key), "ssid", static_cast<std::size_t>(i));
+        profile_key(password_key, sizeof(password_key), "password", static_cast<std::size_t>(i));
+        value.clear();
+        if (::platform::ui::settings_store::get_string(kSettingsNs, ssid_key, value))
+        {
+            copy_text(profile.ssid, sizeof(profile.ssid), value.c_str());
+        }
+        value.clear();
+        if (::platform::ui::settings_store::get_string(kSettingsNs, password_key, value))
+        {
+            copy_text(profile.password, sizeof(profile.password), value.c_str());
+        }
+        append_profile_unique(profile);
+    }
+    append_profile_unique(out);
+    if (s_runtime.profile_count > 0)
+    {
+        copy_text(out.ssid, sizeof(out.ssid), s_runtime.profiles[0].ssid);
+        copy_text(out.password, sizeof(out.password), s_runtime.profiles[0].password);
+    }
     return out;
 }
 
 bool save_saved_config(const Config& config)
 {
+    if (!s_runtime.profiles_cached)
+    {
+        (void)load_saved_config();
+    }
+    upsert_profile_front(config);
+    const bool profiles_ok = persist_profiles();
     const bool ssid_ok =
         ::platform::ui::settings_store::put_string(kSettingsNs, kWifiSsidKey, config.ssid);
     const bool password_ok =
         ::platform::ui::settings_store::put_string(kSettingsNs, kWifiPasswordKey, config.password);
     ::platform::ui::settings_store::put_bool(kSettingsNs, kWifiEnabledKey, config.enabled);
-    return ssid_ok && password_ok;
+    return profiles_ok && ssid_ok && password_ok;
 }
 
 c6::WifiCompanionConfig make_companion_wifi_config(const Config& config)
@@ -196,6 +367,28 @@ bool save_config(const Config& config)
     return save_saved_config(config);
 }
 
+bool find_saved_config(const char* ssid, Config& out)
+{
+    out = Config{};
+    if (!ssid || ssid[0] == '\0')
+    {
+        return false;
+    }
+    if (!s_runtime.profiles_cached)
+    {
+        (void)load_saved_config();
+    }
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (std::strncmp(s_runtime.profiles[i].ssid, ssid, sizeof(s_runtime.profiles[i].ssid)) == 0)
+        {
+            out = s_runtime.profiles[i];
+            return true;
+        }
+    }
+    return false;
+}
+
 bool apply_enabled(bool enabled)
 {
     Config config = load_saved_config();
@@ -211,8 +404,23 @@ bool apply_enabled(bool enabled)
 bool connect(const Config* override_config)
 {
     Config config = override_config ? *override_config : load_saved_config();
+    if (!override_config && s_runtime.profile_count > 0)
+    {
+        const std::size_t index = s_runtime.next_profile_index % s_runtime.profile_count;
+        config = s_runtime.profiles[index];
+        config.enabled = true;
+        std::printf("[WiFi][C6] auto connect profile index=%u/%u ssid=%s\n",
+                    static_cast<unsigned>(index + 1U),
+                    static_cast<unsigned>(s_runtime.profile_count),
+                    config.ssid);
+        s_runtime.next_profile_index = (index + 1U) % s_runtime.profile_count;
+    }
     config.enabled = true;
-    if (!save_saved_config(config) || !c6_present())
+    if (override_config && !save_saved_config(config))
+    {
+        return false;
+    }
+    if (!has_saved_credentials(config) || !c6_present())
     {
         return false;
     }

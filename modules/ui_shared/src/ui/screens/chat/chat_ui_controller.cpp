@@ -159,12 +159,7 @@ std::string base_conversation_name(const chat::ConversationId& conv)
 
     if (has_reticulum_destination(conv))
     {
-        const std::string destination_label =
-            reticulum_destination_label(conv.reticulum_identity);
-        if (!destination_label.empty())
-        {
-            return destination_label;
-        }
+        return "Anonymous Peer";
     }
 
     if (conv.peer == 0)
@@ -475,6 +470,10 @@ void applySnapshotMessagesToConversation(
     {
         conversation.addMessage(snapshot.messages[i]);
     }
+    conversation.setHistoryPaging(snapshot.has_older_messages,
+                                  snapshot.has_newer_messages,
+                                  snapshot.message_offset,
+                                  snapshot.message_total_count);
     conversation.setLocationOverlay(buildConversationLocationOverlay(snapshot));
     conversation.scrollToBottom();
 }
@@ -1379,7 +1378,7 @@ void UiController::refreshUnreadCounts(const bool force_reload)
         return;
     }
 
-    if (force_reload || conversation_list_dirty_ || cached_conversations_.empty())
+    if (force_reload || conversation_list_dirty_ || !conversation_list_loaded_)
     {
         syncConversationListFromStore();
     }
@@ -1404,6 +1403,7 @@ void UiController::syncConversationListFromStore()
     }
 
     conversation_list_dirty_ = false;
+    conversation_list_loaded_ = true;
 }
 
 void UiController::normalizeConversationNames(std::vector<chat::ConversationMeta>& convs) const
@@ -1849,6 +1849,35 @@ void UiController::onTeamPositionIconSelected(uint8_t icon_id)
 
 void UiController::handleConversationAction(ChatConversationScreen::ActionIntent intent)
 {
+    if (intent == ChatConversationScreen::ActionIntent::LoadOlder)
+    {
+        if (team_conv_active_)
+        {
+            return;
+        }
+        if (!loadChatSnapshot() || !chat_snapshot_buffer_.has_older_messages)
+        {
+            return;
+        }
+        const uint16_t next_offset = static_cast<uint16_t>(
+            chat_snapshot_buffer_.message_offset +
+            ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages);
+        chat_model_.setMessageOffset(next_offset);
+        reloadConversationView();
+        return;
+    }
+
+    if (intent == ChatConversationScreen::ActionIntent::LoadLatest)
+    {
+        if (team_conv_active_)
+        {
+            return;
+        }
+        chat_model_.setMessageOffset(0);
+        reloadConversationView();
+        return;
+    }
+
     if (intent == ChatConversationScreen::ActionIntent::Reply)
     {
         if (!team_conv_active_ && current_conv_.protocol != chat_support::active_mesh_protocol())

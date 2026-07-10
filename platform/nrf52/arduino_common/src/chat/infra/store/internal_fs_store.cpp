@@ -77,12 +77,33 @@ void InternalFsStore::append(const ::chat::ChatMessage& msg)
 
 std::vector<::chat::ChatMessage> InternalFsStore::loadRecent(const ::chat::ConversationId& conv, size_t n)
 {
+    return loadPageFromLatest(conv, 0, n, nullptr);
+}
+
+std::vector<::chat::ChatMessage> InternalFsStore::loadPageFromLatest(
+    const ::chat::ConversationId& conv,
+    size_t offset_from_latest,
+    size_t limit,
+    size_t* total)
+{
     const ConversationStorage& storage = getConversationStorage(conv);
     std::vector<::chat::ChatMessage> result;
 
     size_t count = storage.messages.size();
-    size_t start = (count > n) ? (count - n) : 0;
-    for (size_t i = start; i < count; ++i)
+    if (total)
+    {
+        *total = count;
+    }
+    if (limit == 0 || offset_from_latest >= count)
+    {
+        return result;
+    }
+
+    const size_t available = count - offset_from_latest;
+    const size_t to_read = std::min<size_t>(limit, available);
+    size_t start = count - offset_from_latest - to_read;
+    const size_t end = start + to_read;
+    for (size_t i = start; i < end; ++i)
     {
         result.push_back(storage.messages[i].message);
     }

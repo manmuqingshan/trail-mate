@@ -594,7 +594,7 @@ bool packPeerAnnounceAppData(const char* display_name,
             return false;
         }
     }
-    else if (!appendString(name_bytes, name_len, out_data, *inout_len, used))
+    else if (!appendBin(name_bytes, name_len, out_data, *inout_len, used))
     {
         return false;
     }
@@ -613,6 +613,24 @@ bool packPeerAnnounceAppData(const char* display_name,
 
     *inout_len = used;
     return true;
+}
+
+void copyAnnounceDisplayName(const std::vector<uint8_t>& name,
+                             char* out_display_name,
+                             size_t display_name_len)
+{
+    if (!out_display_name || display_name_len == 0)
+    {
+        return;
+    }
+    const size_t copy_len = std::min(name.size(), display_name_len - 1);
+    for (size_t i = 0; i < copy_len; ++i)
+    {
+        const uint8_t byte = name[i];
+        out_display_name[i] =
+            (byte == '\t' || byte == '\r' || byte == '\n') ? ' ' : static_cast<char>(byte);
+    }
+    out_display_name[copy_len] = '\0';
 }
 
 bool unpackPeerAnnounceAppData(const uint8_t* data, size_t len,
@@ -640,7 +658,13 @@ bool unpackPeerAnnounceAppData(const uint8_t* data, size_t len,
     cursor.len = len;
     cursor.pos = 0;
     size_t count = 0;
-    if (!readArrayHeader(cursor, &count) || count != 2)
+    if (!readArrayHeader(cursor, &count))
+    {
+        std::vector<uint8_t> legacy_name(data, data + len);
+        copyAnnounceDisplayName(legacy_name, out_display_name, display_name_len);
+        return out_display_name[0] != '\0';
+    }
+    if (count < 1)
     {
         return false;
     }
@@ -664,9 +688,12 @@ bool unpackPeerAnnounceAppData(const uint8_t* data, size_t len,
         {
             return false;
         }
-        const size_t copy_len = std::min(name.size(), display_name_len - 1);
-        memcpy(out_display_name, name.data(), copy_len);
-        out_display_name[copy_len] = '\0';
+        copyAnnounceDisplayName(name, out_display_name, display_name_len);
+    }
+
+    if (count == 1)
+    {
+        return true;
     }
 
     if (!peekByte(cursor, &next))
@@ -675,21 +702,34 @@ bool unpackPeerAnnounceAppData(const uint8_t* data, size_t len,
     }
     if (next == 0xC0)
     {
-        return readNil(cursor);
+        if (!readNil(cursor))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        uint32_t stamp = 0;
+        if (!readUint(cursor, &stamp))
+        {
+            return false;
+        }
+        if (out_has_stamp_cost)
+        {
+            *out_has_stamp_cost = true;
+        }
+        if (out_stamp_cost)
+        {
+            *out_stamp_cost = static_cast<uint8_t>(stamp);
+        }
     }
 
-    uint32_t stamp = 0;
-    if (!readUint(cursor, &stamp))
+    for (size_t index = 2; index < count; ++index)
     {
-        return false;
-    }
-    if (out_has_stamp_cost)
-    {
-        *out_has_stamp_cost = true;
-    }
-    if (out_stamp_cost)
-    {
-        *out_stamp_cost = static_cast<uint8_t>(stamp);
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
     }
     return true;
 }

@@ -357,10 +357,41 @@ const char* aspect_label(rtdir::AnnounceAspect aspect)
         return "Prop";
     case rtdir::AnnounceAspect::CallAudio:
         return "Call";
+    case rtdir::AnnounceAspect::NomadNetworkNode:
+        return "Nomad";
     case rtdir::AnnounceAspect::Unknown:
     default:
         return "Node";
     }
+}
+
+const char* announce_display_label(const rtdir::AnnounceRecord& announce,
+                                   const char* fallback)
+{
+    if (announce.display_name[0] != '\0')
+    {
+        return announce.display_name;
+    }
+    if (announce.aspect == rtdir::AnnounceAspect::NomadNetworkNode)
+    {
+        return "Anonymous Node";
+    }
+    if (announce.aspect == rtdir::AnnounceAspect::LxmfDelivery ||
+        announce.aspect == rtdir::AnnounceAspect::CallAudio)
+    {
+        return "Anonymous Peer";
+    }
+    return fallback ? fallback : "";
+}
+
+const char* address_display_label(const rtdir::LxmfAddressRecord& address,
+                                  const char* fallback)
+{
+    if (address.display_name[0] != '\0')
+    {
+        return address.display_name;
+    }
+    return fallback ? fallback : "Anonymous Peer";
 }
 
 bool contains_ci(const char* text, const char* query)
@@ -414,7 +445,7 @@ bool announce_matches_search(const rtdir::AnnounceRecord& announce)
     char identity[kHashTextLen] = {};
     format_hash_hex(announce.destination_hash, destination, sizeof(destination));
     format_hash_hex(announce.identity_hash, identity, sizeof(identity));
-    return contains_ci(announce.display_name, g_state.search_query) ||
+    return contains_ci(announce_display_label(announce, ""), g_state.search_query) ||
            contains_ci(destination, g_state.search_query) ||
            contains_ci(identity, g_state.search_query) ||
            contains_ci(aspect_label(announce.aspect), g_state.search_query);
@@ -430,7 +461,7 @@ bool address_matches_search(const rtdir::LxmfAddressRecord& address)
     char identity[kHashTextLen] = {};
     format_hash_hex(address.destination_hash, destination, sizeof(destination));
     format_hash_hex(address.identity_hash, identity, sizeof(identity));
-    return contains_ci(address.display_name, g_state.search_query) ||
+    return contains_ci(address_display_label(address, ""), g_state.search_query) ||
            contains_ci(destination, g_state.search_query) ||
            contains_ci(identity, g_state.search_query);
 }
@@ -959,9 +990,7 @@ void render_home_page()
         format_hash_hex(g_state.announces[0].destination_hash, dest, sizeof(dest));
         char target[kAddressTextLen] = {};
         std::snprintf(target, sizeof(target), "%s:/page/index.mu", dest);
-        const char* label = g_state.announces[0].display_name[0] != '\0'
-                                ? g_state.announces[0].display_name
-                                : "Latest announce";
+        const char* label = announce_display_label(g_state.announces[0], "Latest announce");
         add_terminal_link(target, label);
     }
 }
@@ -988,9 +1017,7 @@ void render_collection_page(bool favourites)
             char target[kAddressTextLen] = {};
             format_hash_hex(address.destination_hash, dest, sizeof(dest));
             std::snprintf(target, sizeof(target), "%s:/page/index.mu", dest);
-            add_terminal_link(target,
-                              address.display_name[0] != '\0' ? address.display_name
-                                                              : dest);
+            add_terminal_link(target, address_display_label(address, "Anonymous Peer"));
             ++visible;
         }
         if (visible == 0)
@@ -1011,9 +1038,7 @@ void render_collection_page(bool favourites)
         char target[kAddressTextLen] = {};
         format_hash_hex(announce.destination_hash, dest, sizeof(dest));
         std::snprintf(target, sizeof(target), "%s:/page/index.mu", dest);
-        add_terminal_link(target,
-                          announce.display_name[0] != '\0' ? announce.display_name
-                                                           : dest);
+        add_terminal_link(target, announce_display_label(announce, dest));
     }
     if (g_state.announce_count == 0)
     {
@@ -1027,13 +1052,13 @@ void render_node_page(const rtdir::AnnounceRecord* announce,
 {
     clear_viewport();
     const char* title = nullptr;
-    if (address_record && address_record->display_name[0] != '\0')
+    if (address_record)
     {
-        title = address_record->display_name;
+        title = address_display_label(*address_record, "Anonymous Peer");
     }
-    else if (announce && announce->display_name[0] != '\0')
+    else if (announce)
     {
-        title = announce->display_name;
+        title = announce_display_label(*announce, destination_text);
     }
     else
     {
@@ -1364,8 +1389,7 @@ void render_directory_list()
             format_hash_prefix(address.destination_hash, destination, sizeof(destination));
             char meta[64] = {};
             std::snprintf(meta, sizeof(meta), "%s  LXMF", destination);
-            create_directory_row(address.display_name[0] != '\0' ? address.display_name
-                                                                 : destination,
+            create_directory_row(address_display_label(address, "Anonymous Peer"),
                                  meta,
                                  LV_SYMBOL_STAR,
                                  DirectoryRowKind::Favourite,
@@ -1391,8 +1415,7 @@ void render_directory_list()
                           destination,
                           aspect_label(announce.aspect),
                           static_cast<unsigned>(announce.hops));
-            create_directory_row(announce.display_name[0] != '\0' ? announce.display_name
-                                                                  : destination,
+            create_directory_row(announce_display_label(announce, destination),
                                  meta,
                                  "A",
                                  DirectoryRowKind::Announce,

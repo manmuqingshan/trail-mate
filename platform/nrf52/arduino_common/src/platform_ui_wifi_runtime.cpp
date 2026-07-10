@@ -22,6 +22,13 @@ bool save_config(const Config& config)
     return false;
 }
 
+bool find_saved_config(const char* ssid, Config& out)
+{
+    (void)ssid;
+    out = Config{};
+    return false;
+}
+
 bool apply_enabled(bool enabled)
 {
     (void)enabled;

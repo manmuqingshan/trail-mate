@@ -4,11 +4,13 @@
  */
 
 #include "ui/ui_common.h"
-#include "board/BoardBase.h"
+#include <Arduino.h>
+
 #include "lvgl.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/timezone_profile.h"
+#include "ui/widgets/top_bar_power_presenter.h"
 #if LV_USE_SNAPSHOT
 extern "C" lv_draw_buf_t* lv_snapshot_take(lv_obj_t* obj, lv_color_format_t cf);
 extern "C" void lv_draw_buf_destroy(lv_draw_buf_t* draw_buf);
@@ -17,8 +19,6 @@ extern "C" void lv_draw_buf_destroy(lv_draw_buf_t* draw_buf);
 #include <cstdio>
 #include <ctime>
 #include <vector>
-
-extern BoardBase& board;
 
 namespace
 {
@@ -52,11 +52,8 @@ void ensure_timezone_loaded()
 
 void ui_update_top_bar_battery(ui::widgets::TopBar& bar)
 {
-    char battery_buf[24] = "--";
-    int battery = board.getBatteryLevel();
-    bool charging = board.isCharging();
-    ui_format_battery(battery, charging, battery_buf, sizeof(battery_buf));
-    ui::widgets::top_bar_set_right_text_ascii(bar, battery_buf);
+    ui::widgets::top_bar_power::bind(bar);
+    ui::widgets::top_bar_power::tick();
 }
 
 int ui_get_timezone_offset_min()

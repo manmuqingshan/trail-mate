@@ -177,6 +177,8 @@ class ReticulumInterfaceSet
 
     bool loraAllowed() const;
     bool wifiAllowed() const;
+    bool loraSelectedForRuntime() const;
+    bool wifiSelectedForRuntime() const;
 };
 
 } // namespace chat::reticulum::interfaces

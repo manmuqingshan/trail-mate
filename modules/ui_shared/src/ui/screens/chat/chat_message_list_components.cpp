@@ -484,7 +484,6 @@ ChatMessageListScreen::ChatMessageListScreen(lv_obj_t* parent)
     // ---------- Top bar (existing widget, unchanged) ----------
     ::ui::widgets::top_bar_init(top_bar_, container_);
     ::ui::widgets::top_bar_set_title(top_bar_, ::ui::i18n::tr("MESSAGES"));
-    ::ui::widgets::top_bar_set_right_text(top_bar_, "--:--  --%");
     ::ui::widgets::top_bar_set_back_callback(top_bar_, handle_back, this);
     if (top_bar_.container)
     {
@@ -788,7 +787,6 @@ void ChatMessageListScreen::updateBatteryFromBoard()
         return;
     }
     ::ui::components::air_status_footer::refresh(air_status_footer_);
-    ui_update_top_bar_battery(top_bar_);
 }
 
 bool ChatMessageListScreen::searchActive() const

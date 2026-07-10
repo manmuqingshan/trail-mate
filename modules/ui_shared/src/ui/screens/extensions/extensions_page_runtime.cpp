@@ -1310,7 +1310,9 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     s_runtime.root = two_pane_layout::create_root(parent, root_spec);
     apply_root_style(s_runtime.root);
 
-    ::ui::widgets::top_bar_init(s_runtime.top_bar, s_runtime.root);
+    ::ui::widgets::TopBarConfig top_bar_config{};
+    top_bar_config.power_indicator = false;
+    ::ui::widgets::top_bar_init(s_runtime.top_bar, s_runtime.root, top_bar_config);
     ::ui::widgets::top_bar_set_title(s_runtime.top_bar, ::ui::i18n::tr("Extensions"));
     ::ui::widgets::top_bar_set_back_callback(s_runtime.top_bar, on_back, nullptr);
 

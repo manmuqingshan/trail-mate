@@ -55,7 +55,7 @@ constexpr const char* kProofPacket =
 constexpr const char* kTextPayload =
     "94cb40934a0000000000c405547261696cc40f68656c6c6f207265746963756c756d80";
 constexpr const char* kPeerAnnounceAppData =
-    "92a87669636c69752d31c0";
+    "92c4087669636c69752d31c0";
 constexpr const char* kAppDataPayload =
     "544d4150010100001234aabbccdd01020304deadbeef";
 constexpr const char* kMessageHash =
@@ -377,6 +377,30 @@ void expectLxmfEnvelopeVectors()
     uint8_t stamp_cost = 0xFFU;
     assert(lxmf::unpackPeerAnnounceAppData(peer_announce.data(),
                                            peer_announce.size(),
+                                           display_name,
+                                           sizeof(display_name),
+                                           &has_stamp_cost,
+                                           &stamp_cost));
+    assert(std::strcmp(display_name, "vicliu-1") == 0);
+    assert(!has_stamp_cost);
+    assert(stamp_cost == 0U);
+
+    const std::vector<uint8_t> lxmf_current_announce =
+        fromHex("93c4087669636c69752d31c09101");
+    assert(lxmf::unpackPeerAnnounceAppData(lxmf_current_announce.data(),
+                                           lxmf_current_announce.size(),
+                                           display_name,
+                                           sizeof(display_name),
+                                           &has_stamp_cost,
+                                           &stamp_cost));
+    assert(std::strcmp(display_name, "vicliu-1") == 0);
+    assert(!has_stamp_cost);
+    assert(stamp_cost == 0U);
+
+    const std::vector<uint8_t> raw_utf8_announce =
+        fromHex("7669636c69752d31");
+    assert(lxmf::unpackPeerAnnounceAppData(raw_utf8_announce.data(),
+                                           raw_utf8_announce.size(),
                                            display_name,
                                            sizeof(display_name),
                                            &has_stamp_cost,

@@ -18,6 +18,11 @@ class LinuxSqliteChatStore final : public ::chat::IChatStore
     std::vector<::chat::ChatMessage> loadRecent(
         const ::chat::ConversationId& conv,
         std::size_t n) override;
+    std::vector<::chat::ChatMessage> loadPageFromLatest(
+        const ::chat::ConversationId& conv,
+        std::size_t offset_from_latest,
+        std::size_t limit,
+        std::size_t* total) override;
     std::vector<::chat::ConversationMeta> loadConversationPage(
         std::size_t offset,
         std::size_t limit,

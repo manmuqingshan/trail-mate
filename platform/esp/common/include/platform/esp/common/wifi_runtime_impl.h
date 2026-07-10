@@ -37,6 +37,8 @@ constexpr const char* kSettingsNs = "settings";
 constexpr const char* kWifiEnabledKey = "wifi_enabled";
 constexpr const char* kWifiSsidKey = "wifi_ssid";
 constexpr const char* kWifiPasswordKey = "wifi_password";
+constexpr const char* kWifiProfileCountKey = "wifi_prof_count";
+constexpr std::size_t kWifiProfileCapacity = 10;
 constexpr uint32_t kBleRetryDelayMs = 180;
 constexpr int kWifiTxBufferTypeStatic = 0;
 constexpr int kWifiTxBufferTypeDynamic = 1;
@@ -51,6 +53,8 @@ constexpr int kWifiRetryDynamicTxBufNum = 8;
 constexpr int kWifiRetryCacheTxBufNum = 4;
 constexpr int kWifiRetryMgmtSbufNum = 6;
 constexpr int kWifiRetryRxMgmtBufNum = 5;
+constexpr std::size_t kWifiConnectMinInternalFreeBytes = 32U * 1024U;
+constexpr std::size_t kWifiConnectMinInternalLargestBlockBytes = 8U * 1024U;
 
 enum class WifiInitProfile : uint8_t
 {
@@ -66,11 +70,15 @@ struct RuntimeState
     bool wifi_initialized = false;
     bool ble_paused_for_wifi = false;
     bool config_cached = false;
+    bool profiles_cached = false;
     bool connected = false;
     bool connecting = false;
     bool scanning = false;
     int rssi = -127;
     Config config{};
+    Config profiles[kWifiProfileCapacity] = {};
+    std::size_t profile_count = 0;
+    std::size_t next_profile_index = 0;
     char ssid[kMaxSsidLength + 1] = {};
     char ip[kMaxIpLength + 1] = {};
     char message[kMaxStatusMessageLength + 1] = {};
@@ -109,6 +117,28 @@ void log_heap_snapshot(const char* stage)
                 static_cast<unsigned>(internal_largest_block_bytes()),
                 static_cast<unsigned>(psram_free_bytes()),
                 static_cast<unsigned>(psram_largest_block_bytes()));
+}
+
+void set_status_message(const char* message);
+
+bool internal_memory_ready_for_wifi_connect(const char* stage)
+{
+    const std::size_t ram_free = internal_free_bytes();
+    const std::size_t ram_largest = internal_largest_block_bytes();
+    if (ram_free >= kWifiConnectMinInternalFreeBytes &&
+        ram_largest >= kWifiConnectMinInternalLargestBlockBytes)
+    {
+        return true;
+    }
+
+    std::printf("[WiFi][MEM] connect deferred stage=%s ram_free=%u ram_largest=%u min_free=%u min_largest=%u\n",
+                stage ? stage : "connect",
+                static_cast<unsigned>(ram_free),
+                static_cast<unsigned>(ram_largest),
+                static_cast<unsigned>(kWifiConnectMinInternalFreeBytes),
+                static_cast<unsigned>(kWifiConnectMinInternalLargestBlockBytes));
+    set_status_message("Wi-Fi memory low");
+    return false;
 }
 
 const char* wifi_profile_name(WifiInitProfile profile)
@@ -196,6 +226,124 @@ void cache_config(const Config& config)
     s_runtime.config_cached = true;
 }
 
+bool has_saved_credentials(const Config& config);
+
+void profile_key(char* out, std::size_t out_len, const char* field, std::size_t index)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "wifi_%s_%u", field ? field : "profile", static_cast<unsigned>(index));
+}
+
+bool same_ssid(const Config& lhs, const Config& rhs)
+{
+    return std::strncmp(lhs.ssid, rhs.ssid, sizeof(lhs.ssid)) == 0;
+}
+
+void clear_profiles()
+{
+    for (Config& profile : s_runtime.profiles)
+    {
+        profile = Config{};
+    }
+    s_runtime.profile_count = 0;
+    s_runtime.next_profile_index = 0;
+    s_runtime.profiles_cached = true;
+}
+
+void append_profile_unique(const Config& profile)
+{
+    if (!has_saved_credentials(profile))
+    {
+        return;
+    }
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (same_ssid(s_runtime.profiles[i], profile))
+        {
+            return;
+        }
+    }
+    if (s_runtime.profile_count >= kWifiProfileCapacity)
+    {
+        return;
+    }
+    s_runtime.profiles[s_runtime.profile_count] = profile;
+    s_runtime.profiles[s_runtime.profile_count].enabled = true;
+    ++s_runtime.profile_count;
+}
+
+void upsert_profile_front(const Config& profile)
+{
+    if (!has_saved_credentials(profile))
+    {
+        return;
+    }
+
+    std::size_t existing = s_runtime.profile_count;
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (same_ssid(s_runtime.profiles[i], profile))
+        {
+            existing = i;
+            break;
+        }
+    }
+
+    std::size_t last = s_runtime.profile_count;
+    if (existing < s_runtime.profile_count)
+    {
+        last = existing;
+    }
+    else if (s_runtime.profile_count < kWifiProfileCapacity)
+    {
+        last = s_runtime.profile_count;
+        ++s_runtime.profile_count;
+    }
+    else
+    {
+        last = kWifiProfileCapacity - 1U;
+    }
+
+    for (std::size_t i = last; i > 0; --i)
+    {
+        s_runtime.profiles[i] = s_runtime.profiles[i - 1U];
+    }
+    s_runtime.profiles[0] = profile;
+    s_runtime.profiles[0].enabled = true;
+    s_runtime.next_profile_index = 0;
+    s_runtime.profiles_cached = true;
+}
+
+bool persist_profiles()
+{
+    ::platform::ui::settings_store::put_int(kSettingsNs,
+                                            kWifiProfileCountKey,
+                                            static_cast<int>(s_runtime.profile_count));
+    bool ok = true;
+    for (std::size_t i = 0; i < kWifiProfileCapacity; ++i)
+    {
+        char ssid_key[24] = {};
+        char password_key[24] = {};
+        profile_key(ssid_key, sizeof(ssid_key), "ssid", i);
+        profile_key(password_key, sizeof(password_key), "password", i);
+        const Config& profile = s_runtime.profiles[i];
+        ok = ::platform::ui::settings_store::put_string(
+                 kSettingsNs,
+                 ssid_key,
+                 i < s_runtime.profile_count ? profile.ssid : "") &&
+             ok;
+        ok = ::platform::ui::settings_store::put_string(
+                 kSettingsNs,
+                 password_key,
+                 i < s_runtime.profile_count ? profile.password : "") &&
+             ok;
+    }
+    return ok;
+}
+
 bool read_config_from_store(Config& out)
 {
     out = Config{};
@@ -211,6 +359,38 @@ bool read_config_from_store(Config& out)
     if (::platform::ui::settings_store::get_string(kSettingsNs, kWifiPasswordKey, value))
     {
         copy_bounded(out.password, sizeof(out.password), value.c_str());
+    }
+
+    clear_profiles();
+    const int stored_count = std::clamp(
+        ::platform::ui::settings_store::get_int(kSettingsNs, kWifiProfileCountKey, 0),
+        0,
+        static_cast<int>(kWifiProfileCapacity));
+    for (int i = 0; i < stored_count; ++i)
+    {
+        Config profile{};
+        profile.enabled = true;
+        char ssid_key[24] = {};
+        char password_key[24] = {};
+        profile_key(ssid_key, sizeof(ssid_key), "ssid", static_cast<std::size_t>(i));
+        profile_key(password_key, sizeof(password_key), "password", static_cast<std::size_t>(i));
+        value.clear();
+        if (::platform::ui::settings_store::get_string(kSettingsNs, ssid_key, value))
+        {
+            copy_bounded(profile.ssid, sizeof(profile.ssid), value.c_str());
+        }
+        value.clear();
+        if (::platform::ui::settings_store::get_string(kSettingsNs, password_key, value))
+        {
+            copy_bounded(profile.password, sizeof(profile.password), value.c_str());
+        }
+        append_profile_unique(profile);
+    }
+    append_profile_unique(out);
+    if (s_runtime.profile_count > 0)
+    {
+        copy_bounded(out.ssid, sizeof(out.ssid), s_runtime.profiles[0].ssid);
+        copy_bounded(out.password, sizeof(out.password), s_runtime.profiles[0].password);
     }
 
     cache_config(out);
@@ -632,6 +812,13 @@ bool load_config(Config& out)
 
 bool save_config(const Config& config)
 {
+    if (!s_runtime.profiles_cached)
+    {
+        Config ignored{};
+        (void)read_config_from_store(ignored);
+    }
+    upsert_profile_front(config);
+    const bool profiles_ok = persist_profiles();
     const bool ssid_ok =
         ::platform::ui::settings_store::put_string(kSettingsNs, kWifiSsidKey, config.ssid);
     const bool password_ok =
@@ -639,7 +826,31 @@ bool save_config(const Config& config)
     ::platform::ui::settings_store::put_bool(kSettingsNs, kWifiEnabledKey, config.enabled);
     cache_config(config);
     refresh_runtime_status_message();
-    return ssid_ok && password_ok;
+    return profiles_ok && ssid_ok && password_ok;
+}
+
+bool find_saved_config(const char* ssid, Config& out)
+{
+    out = Config{};
+    if (!ssid || ssid[0] == '\0')
+    {
+        return false;
+    }
+    if (!s_runtime.profiles_cached)
+    {
+        Config ignored{};
+        (void)read_config_from_store(ignored);
+    }
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (std::strncmp(s_runtime.profiles[i].ssid, ssid, sizeof(s_runtime.profiles[i].ssid)) == 0)
+        {
+            out = s_runtime.profiles[i];
+            out.enabled = s_runtime.config_cached ? s_runtime.config.enabled : out.enabled;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool apply_enabled(bool enabled)
@@ -690,18 +901,8 @@ bool apply_enabled(bool enabled)
     return true;
 }
 
-bool connect(const Config* override_config)
+static bool connect_single_profile(const Config& config)
 {
-    Config config{};
-    if (override_config)
-    {
-        config = *override_config;
-    }
-    else
-    {
-        (void)load_config(config);
-    }
-
     if (!config.enabled)
     {
         set_status_message("Enable Wi-Fi first");
@@ -715,6 +916,11 @@ bool connect(const Config* override_config)
     }
 
     if (!ensure_wifi_started())
+    {
+        return false;
+    }
+
+    if (!internal_memory_ready_for_wifi_connect("before esp_wifi_connect"))
     {
         return false;
     }
@@ -737,6 +943,7 @@ bool connect(const Config* override_config)
         return false;
     }
 
+    cache_config(config);
     clear_connection_details();
     s_runtime.connecting = true;
     refresh_runtime_status_message();
@@ -768,6 +975,43 @@ bool connect(const Config* override_config)
 
     s_runtime.connecting = false;
     set_status_message("Wi-Fi connect timeout");
+    return false;
+}
+
+bool connect(const Config* override_config)
+{
+    if (override_config)
+    {
+        return connect_single_profile(*override_config);
+    }
+
+    Config config{};
+    (void)load_config(config);
+    if (!config.enabled)
+    {
+        set_status_message("Enable Wi-Fi first");
+        return false;
+    }
+    if (s_runtime.profile_count == 0)
+    {
+        set_status_message("SSID is not set");
+        return false;
+    }
+
+    const std::size_t index = s_runtime.next_profile_index % s_runtime.profile_count;
+    Config candidate = s_runtime.profiles[index];
+    candidate.enabled = config.enabled;
+    std::printf("[WiFi] auto connect profile index=%u/%u ssid=%s\n",
+                static_cast<unsigned>(index + 1U),
+                static_cast<unsigned>(s_runtime.profile_count),
+                candidate.ssid);
+    const bool connected = connect_single_profile(candidate);
+    if (connected)
+    {
+        s_runtime.next_profile_index = index;
+        return true;
+    }
+    s_runtime.next_profile_index = (index + 1U) % s_runtime.profile_count;
     return false;
 }
 

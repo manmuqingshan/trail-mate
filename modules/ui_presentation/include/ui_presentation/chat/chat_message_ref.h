@@ -44,6 +44,7 @@ enum class MessageIngressTransport : uint8_t
 {
     Unknown,
     LoRa,
+    Mqtt,
     WiFi,
 };
 
