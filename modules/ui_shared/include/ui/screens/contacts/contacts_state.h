@@ -96,6 +96,12 @@ struct ContactsPageState
     ContactsMode rendered_mode = ContactsMode::Contacts;
     char rendered_search_query[32] = {};
     bool filter_panel_visible = true;
+    uint32_t contacts_data_signature = 0;
+    uint32_t contacts_data_revision = 0;
+    uint32_t rendered_data_revision = 0;
+    bool contacts_data_signature_valid = false;
+    ContactsMode focused_filter_mode = ContactsMode::Contacts;
+    bool focused_filter_mode_valid = false;
 
     // Data (using forward declaration, full type in .cpp)
     std::vector<chat::contacts::NodeInfo> contacts_list;

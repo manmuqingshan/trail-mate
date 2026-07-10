@@ -48,6 +48,122 @@ constexpr std::size_t kReticulumDirectoryProjectionLimit = 100;
 
 const Host* s_host = nullptr;
 
+static uint32_t hash_step(uint32_t hash, uint8_t byte)
+{
+    return (hash ^ byte) * 16777619U;
+}
+
+static uint32_t hash_bytes(uint32_t hash, const uint8_t* data, std::size_t len)
+{
+    if (!data)
+    {
+        return hash_step(hash, 0);
+    }
+    for (std::size_t i = 0; i < len; ++i)
+    {
+        hash = hash_step(hash, data[i]);
+    }
+    return hash;
+}
+
+static uint32_t hash_u32(uint32_t hash, uint32_t value)
+{
+    hash = hash_step(hash, static_cast<uint8_t>(value & 0xFFU));
+    hash = hash_step(hash, static_cast<uint8_t>((value >> 8) & 0xFFU));
+    hash = hash_step(hash, static_cast<uint8_t>((value >> 16) & 0xFFU));
+    hash = hash_step(hash, static_cast<uint8_t>((value >> 24) & 0xFFU));
+    return hash;
+}
+
+static uint32_t hash_text(uint32_t hash, const char* text)
+{
+    if (!text)
+    {
+        return hash_step(hash, 0);
+    }
+    while (*text)
+    {
+        hash = hash_step(hash, static_cast<uint8_t>(*text));
+        ++text;
+    }
+    return hash_step(hash, 0);
+}
+
+static uint32_t hash_string(uint32_t hash, const std::string& text)
+{
+    return hash_text(hash, text.c_str());
+}
+
+static uint32_t hash_reticulum_identity(uint32_t hash,
+                                        const chat::ReticulumPeerIdentity& identity)
+{
+    hash = hash_bytes(hash,
+                      identity.destination_hash,
+                      sizeof(identity.destination_hash));
+    hash = hash_bytes(hash, identity.identity_hash, sizeof(identity.identity_hash));
+    hash = hash_step(hash, identity.valid ? 1U : 0U);
+    return hash;
+}
+
+static uint32_t hash_node(uint32_t hash, const chat::contacts::NodeInfo& node)
+{
+    hash = hash_u32(hash, node.node_id);
+    hash = hash_text(hash, node.short_name);
+    hash = hash_text(hash, node.long_name);
+    hash = hash_string(hash, node.display_name);
+    hash = hash_step(hash, static_cast<uint8_t>(node.protocol));
+    hash = hash_step(hash, static_cast<uint8_t>(node.role));
+    hash = hash_step(hash, node.channel);
+    hash = hash_step(hash, node.hops_away);
+    hash = hash_step(hash, node.is_contact ? 1U : 0U);
+    hash = hash_step(hash, node.is_ignored ? 1U : 0U);
+    hash = hash_step(hash, node.has_public_key ? 1U : 0U);
+    hash = hash_step(hash, node.key_manually_verified ? 1U : 0U);
+    return hash_reticulum_identity(hash, node.reticulum_identity);
+}
+
+static uint32_t hash_node_list(uint32_t hash,
+                               const std::vector<chat::contacts::NodeInfo>& nodes)
+{
+    hash = hash_u32(hash, static_cast<uint32_t>(nodes.size()));
+    for (const auto& node : nodes)
+    {
+        hash = hash_node(hash, node);
+    }
+    return hash;
+}
+
+static uint32_t compute_contacts_data_signature()
+{
+    uint32_t hash = 2166136261U;
+    hash = hash_node_list(hash, g_contacts_state.contacts_list);
+    hash = hash_node_list(hash, g_contacts_state.nearby_list);
+    hash = hash_node_list(hash, g_contacts_state.reticulum_group_list);
+    hash = hash_node_list(hash, g_contacts_state.ignored_list);
+    hash = hash_step(hash, g_contacts_state.reticulum_group_storage_supported ? 1U : 0U);
+    hash = hash_step(hash, g_contacts_state.reticulum_group_storage_ready ? 1U : 0U);
+    hash = hash_step(hash, g_contacts_state.reticulum_group_storage_loaded ? 1U : 0U);
+    hash = hash_text(hash, g_contacts_state.reticulum_group_storage_message);
+    hash = hash_text(hash, g_contacts_state.reticulum_group_storage_detail);
+    return hash;
+}
+
+static void mark_contacts_data_refreshed()
+{
+    const uint32_t signature = compute_contacts_data_signature();
+    if (!g_contacts_state.contacts_data_signature_valid ||
+        signature != g_contacts_state.contacts_data_signature)
+    {
+        g_contacts_state.contacts_data_signature = signature;
+        ++g_contacts_state.contacts_data_revision;
+        if (g_contacts_state.contacts_data_revision == 0)
+        {
+            g_contacts_state.contacts_data_revision = 1;
+        }
+        g_contacts_state.contacts_data_signature_valid = true;
+    }
+}
+
 void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& identity,
                                   char* out,
                                   size_t out_len)
@@ -118,7 +234,10 @@ void contacts_refresh_timer_cb(lv_timer_t* timer)
     const size_t before_nearby = g_contacts_state.nearby_list.size();
     const size_t before_ignored = g_contacts_state.ignored_list.size();
 
+    const uint32_t before_revision = g_contacts_state.contacts_data_revision;
     refresh_contacts_data();
+    const bool data_changed =
+        before_revision != g_contacts_state.contacts_data_revision;
     if (before_contacts != g_contacts_state.contacts_list.size() ||
         before_nearby != g_contacts_state.nearby_list.size() ||
         before_ignored != g_contacts_state.ignored_list.size())
@@ -128,7 +247,11 @@ void contacts_refresh_timer_cb(lv_timer_t* timer)
                     static_cast<unsigned>(g_contacts_state.nearby_list.size()),
                     static_cast<unsigned>(g_contacts_state.ignored_list.size()));
     }
-    refresh_ui();
+    if (data_changed ||
+        g_contacts_state.rendered_data_revision != g_contacts_state.contacts_data_revision)
+    {
+        refresh_ui();
+    }
 }
 
 void copy_text(char* out, size_t out_len, const char* text)
@@ -464,6 +587,7 @@ void refresh_contacts_data_impl_internal()
     filter_to_active_protocol(g_contacts_state.nearby_list);
     filter_to_active_protocol(g_contacts_state.ignored_list);
     merge_reticulum_directory_projection();
+    mark_contacts_data_refreshed();
 
     CONTACTS_LOG("[Contacts] Data refreshed: %zu contacts, %zu nearby, %zu groups, %zu ignored\n",
                  g_contacts_state.contacts_list.size(),
@@ -534,6 +658,12 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     g_contacts_state.list_scroll_y = 0;
     g_contacts_state.rendered_mode_valid = false;
     g_contacts_state.rendered_search_query[0] = '\0';
+    g_contacts_state.contacts_data_signature = 0;
+    g_contacts_state.contacts_data_revision = 0;
+    g_contacts_state.rendered_data_revision = 0;
+    g_contacts_state.contacts_data_signature_valid = false;
+    g_contacts_state.focused_filter_mode = ContactsMode::Contacts;
+    g_contacts_state.focused_filter_mode_valid = false;
 
     init_contacts_input();
     refresh_contacts_data();

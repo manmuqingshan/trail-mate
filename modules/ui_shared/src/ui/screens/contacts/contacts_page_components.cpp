@@ -315,7 +315,6 @@ static std::string format_time_status(uint32_t last_seen);
 [[maybe_unused]] static std::string format_snr(float snr);
 
 static void on_filter_focused(lv_event_t* e);
-static void on_filter_clicked(lv_event_t* e);
 static void on_list_item_clicked(lv_event_t* e);
 static void on_list_item_focused(lv_event_t* e);
 static void on_list_scrolled(lv_event_t* e);
@@ -1125,6 +1124,39 @@ static void build_display_list(const std::vector<chat::contacts::NodeInfo>& sour
     }
 }
 
+static bool use_search_display_list_for_mode(ContactsMode mode)
+{
+    return search_active() && is_searchable_contacts_mode(mode);
+}
+
+static const std::vector<chat::contacts::NodeInfo>* raw_list_for_mode(ContactsMode mode)
+{
+    switch (mode)
+    {
+    case ContactsMode::Contacts:
+        return &g_contacts_state.contacts_list;
+    case ContactsMode::Nearby:
+        return &g_contacts_state.nearby_list;
+    case ContactsMode::Groups:
+        return &g_contacts_state.reticulum_group_list;
+    case ContactsMode::Ignored:
+        return &g_contacts_state.ignored_list;
+    default:
+        break;
+    }
+    return nullptr;
+}
+
+static const std::vector<chat::contacts::NodeInfo>* selectable_list_for_mode(
+    ContactsMode mode)
+{
+    if (use_search_display_list_for_mode(mode))
+    {
+        return &g_contacts_state.display_list;
+    }
+    return raw_list_for_mode(mode);
+}
+
 static const char* reticulum_address_save_failure_message(
     chat::MeshOperationFailure failure)
 {
@@ -1267,51 +1299,41 @@ void create_filter_panel(lv_obj_t* parent)
     contacts::ui::layout::create_filter_panel(parent);
     g_contacts_state.filter_panel_visible = true;
 
-    // Bind events:
-    // - Rotate in Filter column triggers FOCUSED -> switch mode + refresh
-    // - Press in Filter column:
-    //    * on TopBar back -> exit (handled by topbar)
-    //    * on a mode button -> move focus to the List column
+    // Bind focus-only events here. Actual filter activation is routed through
+    // two_pane_nav so focus movement stays cheap on low-power targets.
     if (g_contacts_state.contacts_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.contacts_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.contacts_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
         bind_page_shortcuts(g_contacts_state.contacts_btn);
     }
     if (g_contacts_state.nearby_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.nearby_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.nearby_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
         bind_page_shortcuts(g_contacts_state.nearby_btn);
     }
     if (g_contacts_state.groups_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.groups_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.groups_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
         bind_page_shortcuts(g_contacts_state.groups_btn);
     }
     if (g_contacts_state.ignored_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.ignored_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.ignored_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
         bind_page_shortcuts(g_contacts_state.ignored_btn);
     }
     if (g_contacts_state.broadcast_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.broadcast_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.broadcast_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
         bind_page_shortcuts(g_contacts_state.broadcast_btn);
     }
     if (g_contacts_state.team_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.team_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.team_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
         bind_page_shortcuts(g_contacts_state.team_btn);
     }
     if (g_contacts_state.discover_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.discover_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.discover_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
         bind_page_shortcuts(g_contacts_state.discover_btn);
     }
     bind_page_shortcuts(g_contacts_state.root);
@@ -1334,31 +1356,22 @@ static void on_filter_focused(lv_event_t* e)
         return;
     }
 
-    if (new_mode != g_contacts_state.current_mode)
-    {
-        if (new_mode == ContactsMode::Discover &&
-            g_contacts_state.current_mode != ContactsMode::Discover)
-        {
-            g_contacts_state.last_action_mode = g_contacts_state.current_mode;
-        }
-        g_contacts_state.current_mode = new_mode;
-        g_contacts_state.current_page = 0;
-        g_contacts_state.selected_index = -1;
-        clear_search_query();
-        refresh_contacts_data();
-        refresh_ui(); // When switching filter mode, refresh the list column.
-        return;
-    }
-
+    g_contacts_state.focused_filter_mode = new_mode;
+    g_contacts_state.focused_filter_mode_valid = true;
     refresh_filter_checked_state();
 }
 
-static void on_filter_clicked(lv_event_t* e)
+bool activate_contacts_filter(lv_obj_t* filter_button)
 {
-    lv_obj_t* tgt = (lv_obj_t*)lv_event_get_target(e);
     ContactsMode new_mode = g_contacts_state.current_mode;
-    if (filter_mode_for_button(tgt, &new_mode) &&
-        new_mode != g_contacts_state.current_mode)
+    if (!filter_mode_for_button(filter_button, &new_mode))
+    {
+        return false;
+    }
+
+    g_contacts_state.focused_filter_mode = new_mode;
+    g_contacts_state.focused_filter_mode_valid = true;
+    if (new_mode != g_contacts_state.current_mode)
     {
         if (new_mode == ContactsMode::Discover)
         {
@@ -1368,12 +1381,13 @@ static void on_filter_clicked(lv_event_t* e)
         g_contacts_state.current_page = 0;
         g_contacts_state.selected_index = -1;
         clear_search_query();
-        refresh_contacts_data();
         refresh_ui();
+        if (g_contacts_state.refresh_timer)
+        {
+            lv_timer_reset(g_contacts_state.refresh_timer);
+        }
     }
-
-    // Press on filter mode button: move focus to List column
-    contacts_focus_to_list();
+    return true;
 }
 
 static void on_list_item_clicked(lv_event_t* e)
@@ -1510,12 +1524,13 @@ static const chat::contacts::NodeInfo* get_selected_node()
     {
         return nullptr;
     }
-    const auto& list = g_contacts_state.display_list;
-    if (g_contacts_state.selected_index >= static_cast<int>(list.size()))
+    const auto* list = selectable_list_for_mode(g_contacts_state.current_mode);
+    if (!list ||
+        g_contacts_state.selected_index >= static_cast<int>(list->size()))
     {
         return nullptr;
     }
-    return &list[g_contacts_state.selected_index];
+    return &(*list)[g_contacts_state.selected_index];
 }
 
 static const chat::contacts::NodeInfo* get_selected_reticulum_group()
@@ -1525,12 +1540,13 @@ static const chat::contacts::NodeInfo* get_selected_reticulum_group()
     {
         return nullptr;
     }
-    if (g_contacts_state.selected_index >=
-        static_cast<int>(g_contacts_state.display_list.size()))
+    const auto* list = selectable_list_for_mode(g_contacts_state.current_mode);
+    if (!list ||
+        g_contacts_state.selected_index >= static_cast<int>(list->size()))
     {
         return nullptr;
     }
-    return &g_contacts_state.display_list[g_contacts_state.selected_index];
+    return &(*list)[g_contacts_state.selected_index];
 }
 
 static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id)
@@ -4365,7 +4381,7 @@ void refresh_ui()
         current_list = &broadcast_list;
     }
 
-    if (current_list && is_searchable_contacts_mode(g_contacts_state.current_mode))
+    if (current_list && use_search_display_list_for_mode(g_contacts_state.current_mode))
     {
         build_display_list(*current_list);
         current_list = &g_contacts_state.display_list;
@@ -4685,6 +4701,7 @@ void refresh_ui()
     }
     g_contacts_state.rendered_mode = g_contacts_state.current_mode;
     g_contacts_state.rendered_mode_valid = true;
+    g_contacts_state.rendered_data_revision = g_contacts_state.contacts_data_revision;
     std::snprintf(g_contacts_state.rendered_search_query,
                   sizeof(g_contacts_state.rendered_search_query),
                   "%s",

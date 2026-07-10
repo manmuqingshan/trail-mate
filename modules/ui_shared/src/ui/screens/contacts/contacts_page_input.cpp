@@ -7,6 +7,7 @@
 
 #include "ui/components/two_pane_nav.h"
 #include "ui/screens/contacts/contacts_filter_profile.h"
+#include "ui/screens/contacts/contacts_page_components.h"
 #include "ui/screens/contacts/contacts_state.h"
 
 namespace
@@ -126,7 +127,11 @@ static int get_preferred_filter_index(void* /*ctx*/)
     {
         return -1;
     }
-    return mode_to_index(contacts::ui::g_contacts_state.current_mode);
+    const contacts::ui::ContactsMode mode =
+        contacts::ui::g_contacts_state.focused_filter_mode_valid
+            ? contacts::ui::g_contacts_state.focused_filter_mode
+            : contacts::ui::g_contacts_state.current_mode;
+    return mode_to_index(mode);
 }
 
 static size_t get_list_count(void* /*ctx*/)
@@ -155,6 +160,20 @@ static int get_preferred_list_index(void* /*ctx*/)
 static lv_obj_t* get_list_back_button(void* /*ctx*/)
 {
     return contacts::ui::g_contacts_state.back_btn;
+}
+
+static bool handle_filter_activate(void* /*ctx*/, lv_obj_t* focused)
+{
+    return activate_contacts_filter(focused);
+}
+
+static void handle_column_changed(void* /*ctx*/,
+                                  ::ui::components::two_pane_nav::FocusColumn column)
+{
+    if (column == ::ui::components::two_pane_nav::FocusColumn::List)
+    {
+        contacts::ui::g_contacts_state.focused_filter_mode_valid = false;
+    }
 }
 
 static bool handle_list_enter(void* /*ctx*/, lv_obj_t* focused)
@@ -194,7 +213,9 @@ static Adapter make_adapter()
     adapter.get_list_button = get_list_button;
     adapter.get_preferred_list_index = get_preferred_list_index;
     adapter.get_list_back_button = get_list_back_button;
+    adapter.handle_filter_activate = handle_filter_activate;
     adapter.handle_list_enter = handle_list_enter;
+    adapter.on_column_changed = handle_column_changed;
     adapter.filter_top_back_placement = BackPlacement::Trailing;
     return adapter;
 }
