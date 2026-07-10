@@ -244,6 +244,12 @@ bool read_profile_from_store(std::size_t index, Config& profile)
         if (::platform::ui::settings_store::get_string(kSettingsNs, legacy_password_key, value))
         {
             copy_text(profile.password, sizeof(profile.password), value.c_str());
+            (void)::platform::ui::settings_store::put_string(
+                kSettingsNs,
+                password_key,
+                profile.password);
+            const char* legacy_keys[] = {legacy_password_key};
+            ::platform::ui::settings_store::remove_keys(kSettingsNs, legacy_keys, 1);
         }
     }
 
