@@ -41,8 +41,8 @@ constexpr uint16_t kRouteViewHeight = 180;
 constexpr std::size_t kRouteCacheInternalReserveBytes = 96 * 1024;
 constexpr std::size_t kRouteCacheInternalSlackBytes = 8 * 1024;
 constexpr std::size_t kRouteJpegDecoderWorkBytes = 3100;
-constexpr std::size_t kRouteHttpInternalFreeTargetBytes = 48 * 1024;
-constexpr std::size_t kRouteHttpInternalLargestTargetBytes = 12 * 1024;
+constexpr std::size_t kRouteHttpInternalFreeTargetBytes = 24 * 1024;
+constexpr std::size_t kRouteHttpInternalLargestTargetBytes = 8 * 1024;
 constexpr std::size_t kRouteImageDownloadAttempts = 1;
 constexpr int kRouteImageMemoryWaitAttempts = 16;
 constexpr TickType_t kRouteImageRetryDelayTicks = pdMS_TO_TICKS(1600);
@@ -968,15 +968,11 @@ void route_image_worker_task(void* param)
                 RouteImageDownloadResult result{};
                 for (std::size_t attempt = 0; attempt < kRouteImageDownloadAttempts; ++attempt)
                 {
-                    if (wait_for_route_http_memory())
+                    if (!wait_for_route_http_memory())
                     {
-                        result = download_route_image(item.url, item.output_path);
+                        log_route_http_memory("tight_continue");
                     }
-                    else
-                    {
-                        result = {};
-                        result.error = "Low HTTP memory";
-                    }
+                    result = download_route_image(item.url, item.output_path);
                     if (result.ok ||
                         !route_image_http_error_retryable(result.error) ||
                         attempt + 1U >= kRouteImageDownloadAttempts)
