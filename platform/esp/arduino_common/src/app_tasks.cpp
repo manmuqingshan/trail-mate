@@ -7,6 +7,7 @@
 
 #include "platform/esp/common/shared_spi_lock.h"
 #include "platform/ui/reticulum_call_runtime.h"
+#include "platform/ui/screen_runtime.h"
 #include <Arduino.h>
 #include <RadioLib.h>
 #include <cstring>
@@ -32,10 +33,13 @@ namespace
 {
 constexpr TickType_t kRadioPollDelay = pdMS_TO_TICKS(10);
 constexpr TickType_t kRadioDisplayPressurePollDelay = pdMS_TO_TICKS(50);
+constexpr TickType_t kRadioForegroundPollDelay = pdMS_TO_TICKS(80);
 constexpr uint32_t kRadioDisplayPressureWindowMs = 300;
 constexpr uint32_t kRadioTaskStackBytes = 3 * 1024;
 constexpr uint32_t kMeshTaskStackBytes = 6 * 1024;
 constexpr uint32_t kRadioRxSummaryIntervalMs = 5000;
+constexpr uint32_t kRadioForegroundRxSummaryIntervalMs = 15000;
+constexpr uint32_t kRadioForegroundPostRxQuietMs = 120;
 
 struct RadioRxSummary
 {
@@ -53,6 +57,29 @@ bool display_spi_pressure_for_radio()
     return ::platform::esp::common::display_spi_recently_timed_out(
         millis(),
         kRadioDisplayPressureWindowMs);
+}
+
+bool foreground_ui_pressure_for_radio()
+{
+    return !::platform::ui::screen::is_sleeping() ||
+           ::platform::ui::screen::is_saver_active();
+}
+
+TickType_t radio_idle_poll_delay()
+{
+    if (foreground_ui_pressure_for_radio())
+    {
+        return kRadioForegroundPollDelay;
+    }
+    return display_spi_pressure_for_radio()
+               ? kRadioDisplayPressurePollDelay
+               : kRadioPollDelay;
+}
+
+bool radio_rx_quiet_window_active(uint32_t now_ms, uint32_t quiet_until_ms)
+{
+    return quiet_until_ms != 0 &&
+           static_cast<int32_t>(quiet_until_ms - now_ms) > 0;
 }
 
 uint32_t radio_rx_done_mask()
@@ -125,11 +152,14 @@ void maybe_log_radio_rx_summary(RadioRxSummary& summary)
 {
 #if LORA_LOG_ENABLE
     const uint32_t now_ms = millis();
+    const uint32_t interval_ms = foreground_ui_pressure_for_radio()
+                                     ? kRadioForegroundRxSummaryIntervalMs
+                                     : kRadioRxSummaryIntervalMs;
     if (summary.last_log_ms == 0)
     {
         summary.last_log_ms = now_ms;
     }
-    if ((now_ms - summary.last_log_ms) < kRadioRxSummaryIntervalMs)
+    if ((now_ms - summary.last_log_ms) < interval_ms)
     {
         return;
     }
@@ -368,6 +398,7 @@ void AppTasks::radioTask(void* pvParameters)
     const uint32_t rx_done_mask = radio_rx_done_mask();
     const uint32_t terminal_irq_mask = radio_terminal_irq_mask();
     RadioRxSummary rx_summary{};
+    uint32_t foreground_rx_quiet_until_ms = 0;
 
     while (true)
     {
@@ -444,6 +475,14 @@ void AppTasks::radioTask(void* pvParameters)
             continue;
         }
 
+        if (!handled_tx && foreground_ui_pressure_for_radio() &&
+            radio_rx_quiet_window_active(millis(), foreground_rx_quiet_until_ms))
+        {
+            maybe_log_radio_rx_summary(rx_summary);
+            vTaskDelay(kRadioForegroundPollDelay);
+            continue;
+        }
+
         // Poll for RX (non-blocking)
         if (board_ && board_->isRadioOnline())
         {
@@ -473,9 +512,11 @@ void AppTasks::radioTask(void* pvParameters)
             }
             // Check if data available using RadioLib IRQs
             int packet_length = 0;
+            bool handled_rx_activity = false;
             uint32_t irq = board_->getRadioIrqFlags();
             if ((irq & rx_done_mask) != 0)
             {
+                handled_rx_activity = true;
                 packet_length = static_cast<int>(board_->getRadioPacketLength(true));
                 if (packet_length > 0 && packet_length <= 255)
                 {
@@ -516,6 +557,7 @@ void AppTasks::radioTask(void* pvParameters)
             }
             else if (irq)
             {
+                handled_rx_activity = true;
                 ++rx_summary.other_irqs;
                 board_->clearRadioIrqFlags(irq);
                 if ((irq & terminal_irq_mask) != 0)
@@ -537,12 +579,14 @@ void AppTasks::radioTask(void* pvParameters)
                     LORA_LOG("[LORA] RX restart fail state=%d\n", rx_state);
                 }
             }
+            if (handled_rx_activity && foreground_ui_pressure_for_radio())
+            {
+                foreground_rx_quiet_until_ms = millis() + kRadioForegroundPostRxQuietMs;
+            }
             maybe_log_radio_rx_summary(rx_summary);
         }
 
-        vTaskDelay(display_spi_pressure_for_radio()
-                       ? kRadioDisplayPressurePollDelay
-                       : kRadioPollDelay);
+        vTaskDelay(radio_idle_poll_delay());
     }
 }
 
