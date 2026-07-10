@@ -53,6 +53,12 @@ namespace
 namespace chat_support = chat::ui::support;
 namespace rtdir = ::platform::ui::reticulum_directory;
 
+enum class ConversationScrollAnchor
+{
+    Top,
+    Bottom
+};
+
 constexpr uint8_t kTeamChatChannelRaw = 2;
 constexpr chat::ChannelId kTeamChatChannel =
     static_cast<chat::ChannelId>(kTeamChatChannelRaw);
@@ -463,7 +469,8 @@ bool teamConversationMetaFromSnapshot(
 
 void applySnapshotMessagesToConversation(
     const ::ui::chat::ChatWorkspaceSnapshot& snapshot,
-    ChatConversationScreen& conversation)
+    ChatConversationScreen& conversation,
+    ConversationScrollAnchor scroll_anchor = ConversationScrollAnchor::Bottom)
 {
     conversation.clearMessages();
     for (size_t i = 0; i < snapshot.message_count; ++i)
@@ -475,7 +482,14 @@ void applySnapshotMessagesToConversation(
                                   snapshot.message_offset,
                                   snapshot.message_total_count);
     conversation.setLocationOverlay(buildConversationLocationOverlay(snapshot));
-    conversation.scrollToBottom();
+    if (scroll_anchor == ConversationScrollAnchor::Top)
+    {
+        conversation.scrollToTop();
+    }
+    else
+    {
+        conversation.scrollToBottom();
+    }
 }
 
 const char* key_verification_action_failure_message(::ui::UiActionResult result)
@@ -1859,22 +1873,55 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
         {
             return;
         }
-        const uint16_t next_offset = static_cast<uint16_t>(
-            chat_snapshot_buffer_.message_offset +
-            ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages);
+        const uint16_t page_size =
+            ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
+        const uint16_t total_count = chat_snapshot_buffer_.message_total_count;
+        if (total_count <= page_size)
+        {
+            return;
+        }
+        const uint16_t max_offset =
+            static_cast<uint16_t>(total_count - page_size);
+        const uint32_t requested_offset =
+            static_cast<uint32_t>(chat_snapshot_buffer_.message_offset) +
+            page_size;
+        const uint16_t next_offset =
+            requested_offset > max_offset
+                ? max_offset
+                : static_cast<uint16_t>(requested_offset);
+        if (next_offset == chat_snapshot_buffer_.message_offset)
+        {
+            return;
+        }
         chat_model_.setMessageOffset(next_offset);
         reloadConversationView();
         return;
     }
 
-    if (intent == ChatConversationScreen::ActionIntent::LoadLatest)
+    if (intent == ChatConversationScreen::ActionIntent::LoadNewer)
     {
-        if (team_conv_active_)
+        if (team_conv_active_ || !conversation_)
         {
             return;
         }
-        chat_model_.setMessageOffset(0);
-        reloadConversationView();
+        if (!loadChatSnapshot() || !chat_snapshot_buffer_.has_newer_messages)
+        {
+            return;
+        }
+        const uint16_t page_size =
+            ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
+        const uint16_t current_offset = chat_snapshot_buffer_.message_offset;
+        const uint16_t next_offset =
+            current_offset > page_size
+                ? static_cast<uint16_t>(current_offset - page_size)
+                : 0;
+        chat_model_.setMessageOffset(next_offset);
+        if (loadChatSnapshot())
+        {
+            applySnapshotMessagesToConversation(chat_snapshot_buffer_,
+                                                *conversation_,
+                                                ConversationScrollAnchor::Top);
+        }
         return;
     }
 

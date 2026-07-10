@@ -38,7 +38,7 @@ class ChatConversationScreen
     {
         Reply,
         LoadOlder,
-        LoadLatest
+        LoadNewer
     };
 
     enum class MessageActionIntent
@@ -51,6 +51,7 @@ class ChatConversationScreen
 
     void addMessage(const ::ui::chat::MessageRow& row);
     void clearMessages();
+    void scrollToTop();
     void scrollToBottom();
     bool updateMessageStatus(chat::MessageId msg_id, chat::MessageStatus status);
 
@@ -148,10 +149,6 @@ class ChatConversationScreen
     lv_obj_t* msg_list_ = nullptr;
     lv_obj_t* action_bar_ = nullptr;
     lv_obj_t* reply_btn_ = nullptr;
-    lv_obj_t* load_older_btn_ = nullptr;
-    lv_obj_t* load_older_label_ = nullptr;
-    lv_obj_t* load_latest_btn_ = nullptr;
-    lv_obj_t* load_latest_label_ = nullptr;
     lv_obj_t* compose_btn_ = nullptr; // kept for compatibility (not created in v0)
     lv_obj_t* location_panel_ = nullptr;
     lv_obj_t* location_map_host_ = nullptr;
@@ -194,8 +191,6 @@ class ChatConversationScreen
     std::vector<TimerEntry> timers_;
     conversation::input::Binding input_binding_{};
     ActionContext reply_ctx_{};
-    ActionContext load_older_ctx_{};
-    ActionContext load_latest_ctx_{};
     bool reply_enabled_ = true;
     bool history_has_older_ = false;
     bool history_has_newer_ = false;
@@ -208,8 +203,6 @@ class ChatConversationScreen
     bool location_map_created_ = false;
 
     void createMessageItem(const ::ui::chat::MessageRow& row);
-    void createHistoryControls();
-    void updateHistoryControls();
     void handleScroll();
     void enableRetryAction(MessageItem& item);
     void disableRetryAction(MessageItem& item);

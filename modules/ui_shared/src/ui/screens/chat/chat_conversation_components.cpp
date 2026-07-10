@@ -518,7 +518,6 @@ ChatConversationScreen::ChatConversationScreen(lv_obj_t* parent, chat::Conversat
     {
         lv_obj_add_event_cb(msg_list_, scroll_event_cb, LV_EVENT_SCROLL, this);
     }
-    createHistoryControls();
 
     // Primary compose entry label.
     ::ui::i18n::set_label_text(w.reply_label, "Send");
@@ -577,73 +576,6 @@ ChatConversationScreen::~ChatConversationScreen()
     }
 }
 
-void ChatConversationScreen::createHistoryControls()
-{
-    if (!msg_list_)
-    {
-        return;
-    }
-
-    load_older_ctx_.screen = this;
-    load_older_ctx_.intent = ActionIntent::LoadOlder;
-    load_older_btn_ = lv_btn_create(msg_list_);
-    lv_obj_set_size(load_older_btn_,
-                    LV_PCT(100),
-                    ::ui::page_profile::resolve_control_button_height());
-    lv_obj_clear_flag(load_older_btn_, LV_OBJ_FLAG_SCROLLABLE);
-    chat::ui::conversation::styles::apply_reply_btn(load_older_btn_);
-    load_older_label_ = lv_label_create(load_older_btn_);
-    ::ui::i18n::set_label_text(load_older_label_, "Load older");
-    chat::ui::conversation::styles::apply_reply_label(load_older_label_);
-    ::ui::fonts::apply_localized_font(
-        load_older_label_, lv_label_get_text(load_older_label_), ::ui::fonts::ui_chrome_font());
-    lv_obj_center(load_older_label_);
-    lv_obj_add_event_cb(load_older_btn_,
-                        action_event_cb,
-                        LV_EVENT_CLICKED,
-                        &load_older_ctx_);
-
-    load_latest_ctx_.screen = this;
-    load_latest_ctx_.intent = ActionIntent::LoadLatest;
-    load_latest_btn_ = lv_btn_create(msg_list_);
-    lv_obj_set_size(load_latest_btn_,
-                    LV_PCT(100),
-                    ::ui::page_profile::resolve_control_button_height());
-    lv_obj_clear_flag(load_latest_btn_, LV_OBJ_FLAG_SCROLLABLE);
-    chat::ui::conversation::styles::apply_reply_btn(load_latest_btn_);
-    load_latest_label_ = lv_label_create(load_latest_btn_);
-    ::ui::i18n::set_label_text(load_latest_label_, "Latest");
-    chat::ui::conversation::styles::apply_reply_label(load_latest_label_);
-    ::ui::fonts::apply_localized_font(
-        load_latest_label_, lv_label_get_text(load_latest_label_), ::ui::fonts::ui_chrome_font());
-    lv_obj_center(load_latest_label_);
-    lv_obj_add_event_cb(load_latest_btn_,
-                        action_event_cb,
-                        LV_EVENT_CLICKED,
-                        &load_latest_ctx_);
-
-    updateHistoryControls();
-}
-
-void ChatConversationScreen::updateHistoryControls()
-{
-    if (!guard_ || !guard_->alive || !msg_list_ || !lv_obj_is_valid(msg_list_))
-    {
-        return;
-    }
-
-    if (load_older_btn_ && lv_obj_is_valid(load_older_btn_))
-    {
-        set_hidden(load_older_btn_, true);
-        lv_obj_move_to_index(load_older_btn_, 0);
-    }
-    if (load_latest_btn_ && lv_obj_is_valid(load_latest_btn_))
-    {
-        set_hidden(load_latest_btn_, !history_has_newer_);
-        lv_obj_move_to_index(load_latest_btn_, lv_obj_get_child_cnt(msg_list_) - 1);
-    }
-}
-
 void ChatConversationScreen::addMessage(const ::ui::chat::MessageRow& row)
 {
     if (!guard_ || !guard_->alive || !msg_list_ || !lv_obj_is_valid(msg_list_))
@@ -678,6 +610,16 @@ void ChatConversationScreen::clearMessages()
         }
     }
     messages_.clear();
+}
+
+void ChatConversationScreen::scrollToTop()
+{
+    if (guard_ && guard_->alive && msg_list_)
+    {
+        lv_obj_scroll_to_y(msg_list_, 0, LV_ANIM_OFF);
+        history_last_scroll_y_ = lv_obj_get_scroll_y(msg_list_);
+        history_scroll_position_valid_ = true;
+    }
 }
 
 void ChatConversationScreen::scrollToBottom()
@@ -816,7 +758,6 @@ void ChatConversationScreen::setHistoryPaging(bool has_older,
     history_auto_load_pending_ = false;
     history_scroll_position_valid_ = false;
     history_last_scroll_y_ = 0;
-    updateHistoryControls();
 }
 
 void ChatConversationScreen::handleScroll()
@@ -835,19 +776,28 @@ void ChatConversationScreen::handleScroll()
     }
 
     const bool scrolling_toward_older = scroll_y < history_last_scroll_y_;
+    const bool scrolling_toward_newer = scroll_y > history_last_scroll_y_;
     history_last_scroll_y_ = scroll_y;
-    if (!scrolling_toward_older || scroll_y > 0)
+
+    if (history_auto_load_pending_ || !action_cb_)
     {
         return;
     }
 
-    if (!history_has_older_ || history_auto_load_pending_ || !action_cb_)
+    if (history_has_older_ && scrolling_toward_older && scroll_y <= 0)
     {
+        history_auto_load_pending_ = true;
+        schedule_action_async(ActionIntent::LoadOlder);
         return;
     }
 
-    history_auto_load_pending_ = true;
-    schedule_action_async(ActionIntent::LoadOlder);
+    if (history_has_newer_ &&
+        scrolling_toward_newer &&
+        lv_obj_get_scroll_bottom(msg_list_) <= 0)
+    {
+        history_auto_load_pending_ = true;
+        schedule_action_async(ActionIntent::LoadNewer);
+    }
 }
 
 void ChatConversationScreen::setLocationOverlay(
@@ -1509,8 +1459,6 @@ void ChatConversationScreen::handle_root_deleted()
     back_cb_ = nullptr;
     back_cb_user_data_ = nullptr;
     reply_ctx_.screen = nullptr;
-    load_older_ctx_.screen = nullptr;
-    load_latest_ctx_.screen = nullptr;
     history_auto_load_pending_ = false;
     history_scroll_position_valid_ = false;
     history_last_scroll_y_ = 0;
@@ -1531,10 +1479,6 @@ void ChatConversationScreen::handle_root_deleted()
     msg_list_ = nullptr;
     action_bar_ = nullptr;
     reply_btn_ = nullptr;
-    load_older_btn_ = nullptr;
-    load_older_label_ = nullptr;
-    load_latest_btn_ = nullptr;
-    load_latest_label_ = nullptr;
     compose_btn_ = nullptr;
     location_panel_ = nullptr;
     location_map_host_ = nullptr;

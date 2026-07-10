@@ -58,6 +58,37 @@ static void make_plain_container(lv_obj_t* obj)
     lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
 }
 
+static lv_obj_t* create_action_bar_spacer(lv_obj_t* parent)
+{
+    lv_obj_t* spacer = lv_obj_create(parent);
+    lv_obj_set_size(spacer, 0, LV_PCT(100));
+    lv_obj_set_flex_grow(spacer, 1);
+    make_plain_container(spacer);
+    return spacer;
+}
+
+static void style_help_chip(lv_obj_t* chip,
+                            const ::ui::page_profile::PageLayoutProfile& profile)
+{
+    lv_obj_set_size(chip, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(chip, lv_color_hex(0xFFE36E), 0);
+    lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(chip, 1, 0);
+    lv_obj_set_style_border_color(chip, lv_color_hex(0xC28700), 0);
+    lv_obj_set_style_radius(chip, 10, 0);
+    lv_obj_set_style_shadow_width(chip, 0, 0);
+    lv_obj_set_style_pad_left(chip, profile.dense ? 6 : 8, 0);
+    lv_obj_set_style_pad_right(chip, profile.dense ? 6 : 8, 0);
+    lv_obj_set_style_pad_top(chip, profile.dense ? 2 : 3, 0);
+    lv_obj_set_style_pad_bottom(chip, profile.dense ? 2 : 3, 0);
+    lv_obj_set_style_min_height(
+        chip,
+        ::ui::page_profile::resolve_control_button_height() - (profile.dense ? 4 : 6),
+        0);
+    make_non_scrollable(chip);
+    lv_obj_clear_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+}
+
 ConversationWidgets create_conversation_base(lv_obj_t* parent)
 {
     ConversationWidgets w{};
@@ -105,15 +136,32 @@ ConversationWidgets create_conversation_base(lv_obj_t* parent)
     lv_obj_set_flex_grow(w.action_bar, 0);
     lv_obj_set_flex_flow(w.action_bar, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(w.action_bar,
-                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     make_non_scrollable(w.action_bar);
 
+    w.help_chip = lv_obj_create(w.action_bar);
+    style_help_chip(w.help_chip, profile);
+    w.help_label = lv_label_create(w.help_chip);
+    lv_obj_set_width(w.help_label, LV_SIZE_CONTENT);
+    lv_obj_set_style_text_align(w.help_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(w.help_label, lv_color_hex(0x3A2A1A), 0);
+    lv_obj_set_style_text_font(
+        w.help_label,
+        profile.caption_font ? profile.caption_font : ::ui::page_profile::resolve_caption_font(),
+        0);
+    lv_label_set_long_mode(w.help_label, LV_LABEL_LONG_CLIP);
+    lv_label_set_recolor(w.help_label, true);
+    lv_label_set_text(w.help_label, "#D00000 H#elp");
+    lv_obj_center(w.help_label);
+
+    create_action_bar_spacer(w.action_bar);
+
     // Primary compose button
     w.reply_btn = lv_btn_create(w.action_bar);
     lv_obj_set_size(w.reply_btn,
-                    profile.dense ? 92 : 120,
+                    profile.dense ? 74 : 96,
                     ::ui::page_profile::resolve_control_button_height());
     make_non_scrollable(w.reply_btn);
 

@@ -14,6 +14,8 @@ struct ConversationWidgets
     lv_obj_t* right_column = nullptr;
     lv_obj_t* msg_list = nullptr;
     lv_obj_t* action_bar = nullptr;
+    lv_obj_t* help_chip = nullptr;
+    lv_obj_t* help_label = nullptr;
     lv_obj_t* reply_btn = nullptr;
     lv_obj_t* reply_label = nullptr;
 };
