@@ -289,7 +289,7 @@ RouteImageDownloadResult download_route_image(const std::string& url,
 }
 
 bool start_route_image_download(const std::string& asset_id,
-                                const std::vector<RouteImageDownloadItem>& items,
+                                std::vector<RouteImageDownloadItem> items,
                                 std::string& out_error)
 {
     out_error.clear();
@@ -303,6 +303,7 @@ bool start_route_image_download(const std::string& asset_id,
         out_error = "No route images";
         return false;
     }
+    const std::size_t total = items.size();
 
     {
         std::lock_guard<std::mutex> lock(s_image_batch_mutex);
@@ -319,7 +320,7 @@ bool start_route_image_download(const std::string& asset_id,
         set_batch_status_locked(RouteImageDownloadPhase::Downloading,
                                 true,
                                 asset_id,
-                                items.size(),
+                                total,
                                 0,
                                 0,
                                 0,
@@ -331,7 +332,7 @@ bool start_route_image_download(const std::string& asset_id,
 
     try
     {
-        std::thread(route_image_worker, asset_id, items).detach();
+        std::thread(route_image_worker, asset_id, std::move(items)).detach();
         return true;
     }
     catch (...)
@@ -341,10 +342,10 @@ bool start_route_image_download(const std::string& asset_id,
         set_batch_status_locked(RouteImageDownloadPhase::Failed,
                                 false,
                                 asset_id,
-                                items.size(),
+                                total,
                                 0,
                                 0,
-                                items.size(),
+                                total,
                                 0,
                                 0,
                                 "Create image download task failed",

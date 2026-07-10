@@ -65,7 +65,7 @@ RouteImageDownloadResult download_route_image(const std::string& url,
                                               const std::string& output_path,
                                               std::uint32_t max_bytes = 4U * 1024U * 1024U);
 bool start_route_image_download(const std::string& asset_id,
-                                const std::vector<RouteImageDownloadItem>& items,
+                                std::vector<RouteImageDownloadItem> items,
                                 std::string& out_error);
 bool start_route_image_cache_build(const std::string& asset_id,
                                    const std::vector<RouteImageCacheItem>& items,

@@ -32,7 +32,7 @@ constexpr const char* kRouteAssetThumbSubdir = "thumbs";
 constexpr const char* kRouteAssetViewSubdir = "views";
 constexpr std::size_t kRouteDownloadBufferSize = 512;
 constexpr int kRouteDownloadTxBufferSize = 512;
-constexpr uint32_t kRouteImageWorkerStackBytes = 10 * 1024;
+constexpr uint32_t kRouteImageWorkerStackBytes = 6 * 1024;
 constexpr UBaseType_t kRouteImageWorkerPriority = 2;
 constexpr uint16_t kRouteThumbWidth = 200;
 constexpr uint16_t kRouteThumbHeight = 120;
@@ -43,7 +43,7 @@ constexpr std::size_t kRouteCacheInternalSlackBytes = 8 * 1024;
 constexpr std::size_t kRouteJpegDecoderWorkBytes = 3100;
 constexpr std::size_t kRouteHttpInternalFreeTargetBytes = 48 * 1024;
 constexpr std::size_t kRouteHttpInternalLargestTargetBytes = 12 * 1024;
-constexpr std::size_t kRouteImageDownloadAttempts = 3;
+constexpr std::size_t kRouteImageDownloadAttempts = 1;
 constexpr int kRouteImageMemoryWaitAttempts = 16;
 constexpr TickType_t kRouteImageRetryDelayTicks = pdMS_TO_TICKS(1600);
 constexpr TickType_t kRouteImageMemoryWaitTicks = pdMS_TO_TICKS(250);
@@ -306,6 +306,25 @@ void log_route_http_memory(const char* stage)
     std::printf("[RouteImage][http] %s internal_free=%u internal_largest=%u "
                 "psram_free=%u psram_largest=%u\n",
                 stage ? stage : "-",
+                static_cast<unsigned>(
+                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+}
+
+void log_route_task_create_failed(const char* task_name,
+                                  std::size_t item_count,
+                                  uint32_t stack_bytes)
+{
+    std::printf("[RouteImage][task] create_failed name=%s items=%u stack=%u "
+                "internal_free=%u internal_largest=%u psram_free=%u psram_largest=%u\n",
+                task_name ? task_name : "-",
+                static_cast<unsigned>(item_count),
+                static_cast<unsigned>(stack_bytes),
                 static_cast<unsigned>(
                     heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
                 static_cast<unsigned>(
@@ -1263,10 +1282,11 @@ RouteImageDownloadResult download_route_image(const std::string& url,
 }
 
 bool start_route_image_download(const std::string& asset_id,
-                                const std::vector<RouteImageDownloadItem>& items,
+                                std::vector<RouteImageDownloadItem> items,
                                 std::string& out_error)
 {
     out_error.clear();
+    const std::size_t total = items.size();
     if (!ensure_batch_mutex())
     {
         out_error = "Create image download mutex failed";
@@ -1277,21 +1297,39 @@ bool start_route_image_download(const std::string& asset_id,
         out_error = "Invalid route asset id";
         return false;
     }
-    if (items.empty())
+    if (total == 0)
     {
         out_error = "No route images";
         return false;
     }
 
+    {
+        BatchStateLock lock(s_image_batch.mutex);
+        if (s_image_batch.status.busy ||
+            s_image_batch.worker_task != nullptr ||
+            s_image_batch.launch_pending)
+        {
+            if (s_image_batch.status.asset_id == asset_id)
+            {
+                return true;
+            }
+            out_error = "Another route image download is running";
+            return false;
+        }
+    }
+
     auto* ctx = new (std::nothrow) RouteImageBatchContext{};
     if (ctx == nullptr)
     {
+        log_route_task_create_failed("route_img_dl_ctx",
+                                     total,
+                                     kRouteImageWorkerStackBytes);
         out_error = "Allocate image download task failed";
         return false;
     }
     ctx->kind = RouteImageBatchKind::Download;
     ctx->asset_id = asset_id;
-    ctx->download_items = items;
+    ctx->download_items = std::move(items);
 
     {
         BatchStateLock lock(s_image_batch.mutex);
@@ -1313,7 +1351,7 @@ bool start_route_image_download(const std::string& asset_id,
         set_batch_status_locked(RouteImageDownloadPhase::Downloading,
                                 true,
                                 asset_id,
-                                items.size(),
+                                total,
                                 0,
                                 0,
                                 0,
@@ -1335,15 +1373,18 @@ bool start_route_image_download(const std::string& asset_id,
         BatchStateLock lock(s_image_batch.mutex);
         if (task_ok != pdPASS || task_handle == nullptr)
         {
+            log_route_task_create_failed("route_img_dl",
+                                         total,
+                                         kRouteImageWorkerStackBytes);
             s_image_batch.worker_task = nullptr;
             s_image_batch.launch_pending = false;
             set_batch_status_locked(RouteImageDownloadPhase::Failed,
                                     false,
                                     asset_id,
-                                    items.size(),
+                                    total,
                                     0,
                                     0,
-                                    items.size(),
+                                    total,
                                     0,
                                     0,
                                     "Create image download task failed",

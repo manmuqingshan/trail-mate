@@ -1866,6 +1866,16 @@ void update_route_preview_status()
     if (state.route_preview_status_label &&
         lv_obj_is_valid(state.route_preview_status_label))
     {
+        std::size_t display_saved_count = saved_count;
+        if (route_preview_download_status_matches(download_status) &&
+            download_status.busy &&
+            download_status.total > 0 &&
+            download_status.total < s_preview_images.size())
+        {
+            display_saved_count = std::min<std::size_t>(
+                s_preview_images.size(),
+                saved_count + download_status.saved);
+        }
         if (s_preview_images.empty())
         {
             lv_obj_add_flag(state.route_preview_status_label, LV_OBJ_FLAG_HIDDEN);
@@ -1876,7 +1886,7 @@ void update_route_preview_status()
             std::snprintf(status,
                           sizeof(status),
                           "%u/%u",
-                          static_cast<unsigned>(saved_count),
+                          static_cast<unsigned>(display_saved_count),
                           static_cast<unsigned>(s_preview_images.size()));
             ::ui::i18n::set_label_text_raw(state.route_preview_status_label, status);
             lv_obj_clear_flag(state.route_preview_status_label, LV_OBJ_FLAG_HIDDEN);
@@ -1898,7 +1908,17 @@ void update_route_preview_status()
         int value = 0;
         if (route_preview_download_status_matches(download_status) && download_status.total > 0)
         {
-            value = static_cast<int>((download_status.processed * 100U) / download_status.total);
+            if (download_status.total < s_preview_images.size())
+            {
+                const std::size_t numerator = std::min<std::size_t>(
+                    s_preview_images.size(),
+                    saved_count + download_status.processed);
+                value = static_cast<int>((numerator * 100U) / s_preview_images.size());
+            }
+            else
+            {
+                value = static_cast<int>((download_status.processed * 100U) / download_status.total);
+            }
         }
         else
         {
@@ -2504,19 +2524,14 @@ void on_route_preview_download_clicked(lv_event_t*)
                   static_cast<unsigned>(saved_count),
                   static_cast<unsigned>(total));
     s_preview_status_text = detail;
-    std::printf("[RoutePreview][down] starting asset=%s saved=%u/%u wifi_ssid=%s ip=%s\n",
-                s_preview_asset_id.c_str(),
-                static_cast<unsigned>(saved_count),
-                static_cast<unsigned>(total),
-                wifi.ssid,
-                wifi.ip);
-    update_route_preview_status();
-    update_route_preview_buttons();
-
     std::vector<platform::ui::route_storage::RouteImageDownloadItem> items;
-    items.reserve(s_preview_images.size());
+    items.reserve(total > saved_count ? total - saved_count : 0);
     for (const auto& image : s_preview_images)
     {
+        if (image.downloaded)
+        {
+            continue;
+        }
         platform::ui::route_storage::RouteImageDownloadItem item{};
         item.url = image.url;
         item.output_path = image.local_path;
@@ -2525,8 +2540,41 @@ void on_route_preview_download_clicked(lv_event_t*)
         items.push_back(std::move(item));
     }
 
+    if (items.empty())
+    {
+        if (!route_preview_all_image_caches_ready())
+        {
+            std::printf("[RoutePreview][down] no_missing_images_cache_start asset=%s saved=%u/%u\n",
+                        s_preview_asset_id.c_str(),
+                        static_cast<unsigned>(saved_count),
+                        static_cast<unsigned>(total));
+            show_route_preview_notice("Preparing image cache");
+            ensure_route_preview_image_cache_build();
+            return;
+        }
+        s_preview_download_state = RoutePreviewDownloadState::Done;
+        s_preview_status_text = "Images already saved";
+        update_route_preview_status();
+        update_route_preview_buttons();
+        return;
+    }
+
+    std::printf("[RoutePreview][down] starting asset=%s saved=%u/%u queued=%u wifi_ssid=%s ip=%s\n",
+                s_preview_asset_id.c_str(),
+                static_cast<unsigned>(saved_count),
+                static_cast<unsigned>(total),
+                static_cast<unsigned>(items.size()),
+                wifi.ssid,
+                wifi.ip);
+    update_route_preview_status();
+    update_route_preview_buttons();
+
     std::string error;
-    if (!platform::ui::route_storage::start_route_image_download(s_preview_asset_id, items, error))
+    const std::size_t queued_count = items.size();
+    if (!platform::ui::route_storage::start_route_image_download(
+            s_preview_asset_id,
+            std::move(items),
+            error))
     {
         s_preview_download_state = RoutePreviewDownloadState::Failed;
         s_preview_status_text = error.empty() ? "Start download failed" : error;
@@ -2541,7 +2589,7 @@ void on_route_preview_download_clicked(lv_event_t*)
 
     std::printf("[RoutePreview][down] task_started asset=%s total=%u\n",
                 s_preview_asset_id.c_str(),
-                static_cast<unsigned>(items.size()));
+                static_cast<unsigned>(queued_count));
     show_route_preview_notice("Download started");
     s_preview_download_refresh_map_on_finish = true;
     ensure_route_preview_download_poll_timer();

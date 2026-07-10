@@ -185,7 +185,7 @@ RouteImageDownloadResult download_route_image(const std::string& url,
 }
 
 bool start_route_image_download(const std::string& asset_id,
-                                const std::vector<RouteImageDownloadItem>& items,
+                                std::vector<RouteImageDownloadItem> items,
                                 std::string& out_error)
 {
     (void)asset_id;
