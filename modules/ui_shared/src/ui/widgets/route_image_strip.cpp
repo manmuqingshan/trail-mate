@@ -685,11 +685,16 @@ void set_items(Widget& widget, const Item* items, std::size_t item_count)
     {
         if (item.downloaded && !item.local_path.empty())
         {
-            const std::string preview_path =
-                !item.preview_path.empty() ? item.preview_path : item.local_path;
             const std::string view_path =
                 !item.view_path.empty() ? item.view_path : item.local_path;
-            widget.image_sources.push_back(::ui::fs::normalize_path(preview_path.c_str()));
+            if (!item.preview_path.empty())
+            {
+                widget.image_sources.push_back(::ui::fs::normalize_path(item.preview_path.c_str()));
+            }
+            else
+            {
+                widget.image_sources.emplace_back();
+            }
             widget.fullscreen_sources.push_back(::ui::fs::normalize_path(view_path.c_str()));
         }
         else

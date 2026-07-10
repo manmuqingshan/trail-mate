@@ -113,6 +113,8 @@ int s_preview_selected_image = 0;
 bool s_preview_elevation_visible = false;
 bool s_preview_image_strip_visible = false;
 bool s_preview_map_loader_paused = false;
+bool s_preview_image_saved_state_known = false;
+bool s_preview_image_cache_state_known = false;
 ::ui::widgets::map::Runtime s_preview_map_runtime;
 lv_timer_t* s_preview_download_poll_timer = nullptr;
 bool s_preview_download_refresh_map_on_finish = false;
@@ -174,7 +176,7 @@ void sync_route_preview_map_loader_pause(
     const platform::ui::route_storage::RouteImageDownloadStatus& status);
 void sync_route_preview_map_loader_pause();
 void ensure_route_preview_download_poll_timer();
-void ensure_route_preview_image_cache_build();
+void ensure_route_preview_image_cache_build(bool refresh_state = true);
 void sync_route_preview_elevation_visibility();
 void toggle_route_preview_elevation();
 void cycle_route_preview_map_layer();
@@ -892,7 +894,7 @@ void refresh_preview_metrics()
     }
 }
 
-void assign_preview_image_paths(bool refresh_downloaded = true)
+void assign_preview_image_paths()
 {
     const std::string asset_root = route_asset_root_for_id(s_preview_asset_id);
     for (std::size_t index = 0; index < s_preview_images.size(); ++index)
@@ -907,22 +909,36 @@ void assign_preview_image_paths(bool refresh_downloaded = true)
         s_preview_images[index].local_path = asset_root + local_name;
         s_preview_images[index].preview_path = asset_root + preview_name;
         s_preview_images[index].view_path = asset_root + view_name;
-        if (refresh_downloaded)
-        {
-            s_preview_images[index].downloaded =
-                platform::ui::route_storage::route_asset_file_exists(s_preview_images[index].local_path);
-            s_preview_images[index].preview_ready =
-                platform::ui::route_storage::route_asset_file_exists(s_preview_images[index].preview_path);
-            s_preview_images[index].view_ready =
-                platform::ui::route_storage::route_asset_file_exists(s_preview_images[index].view_path);
-        }
     }
+}
+
+void refresh_preview_image_storage_state(bool include_cache_state)
+{
+    assign_preview_image_paths();
+    for (RoutePreviewImage& image : s_preview_images)
+    {
+        image.downloaded =
+            platform::ui::route_storage::route_asset_file_exists(image.local_path);
+        if (include_cache_state)
+        {
+            image.preview_ready =
+                image.downloaded &&
+                platform::ui::route_storage::route_asset_file_exists(image.preview_path);
+        }
+        else
+        {
+            image.preview_ready = false;
+        }
+        image.view_ready = false;
+    }
+    s_preview_image_saved_state_known = true;
+    s_preview_image_cache_state_known = include_cache_state;
 }
 
 bool apply_route_preview_download_status_to_images(
     const platform::ui::route_storage::RouteImageDownloadStatus& status)
 {
-    assign_preview_image_paths(false);
+    assign_preview_image_paths();
     if (s_preview_asset_id.empty() ||
         status.asset_id.empty() ||
         status.asset_id != s_preview_asset_id)
@@ -933,7 +949,7 @@ bool apply_route_preview_download_status_to_images(
     if (status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Done ||
         status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Failed)
     {
-        assign_preview_image_paths(true);
+        refresh_preview_image_storage_state(true);
         return true;
     }
 
@@ -995,6 +1011,8 @@ void clear_preview_model()
     s_preview_selected_image = 0;
     s_preview_elevation_visible = false;
     s_preview_image_strip_visible = false;
+    s_preview_image_saved_state_known = false;
+    s_preview_image_cache_state_known = false;
 }
 
 bool load_route_preview_model(const std::string& route_name)
@@ -1500,7 +1518,7 @@ void sync_route_preview_image_strip()
 
 void toggle_route_preview_image_strip()
 {
-    assign_preview_image_paths(false);
+    assign_preview_image_paths();
     if (s_preview_images.empty())
     {
         s_preview_status_text = "No route images";
@@ -1509,7 +1527,8 @@ void toggle_route_preview_image_strip()
         update_route_preview_status();
         return;
     }
-    s_preview_image_strip_visible = !s_preview_image_strip_visible;
+    const bool next_visible = !s_preview_image_strip_visible;
+    s_preview_image_strip_visible = next_visible;
     s_preview_status_text =
         s_preview_image_strip_visible ? "Images shown" : "Images hidden";
     if (s_preview_image_strip_visible)
@@ -1553,7 +1572,8 @@ std::size_t preview_cached_image_count()
 
 bool route_preview_all_image_caches_ready()
 {
-    return !s_preview_images.empty() &&
+    return s_preview_image_cache_state_known &&
+           !s_preview_images.empty() &&
            preview_cached_image_count() >= s_preview_images.size();
 }
 
@@ -1630,7 +1650,8 @@ void sync_route_preview_map_loader_pause()
 
 bool route_preview_all_images_saved()
 {
-    return !s_preview_images.empty() &&
+    return s_preview_image_saved_state_known &&
+           !s_preview_images.empty() &&
            preview_saved_image_count() >= s_preview_images.size();
 }
 
@@ -1711,7 +1732,7 @@ void sync_route_preview_download_status()
     sync_route_preview_map_loader_pause(status);
     if (!route_preview_download_status_matches(status))
     {
-        assign_preview_image_paths(false);
+        assign_preview_image_paths();
         sync_route_preview_image_strip();
         update_route_preview_buttons();
         if (!status.busy && s_preview_download_poll_timer)
@@ -1736,7 +1757,7 @@ void sync_route_preview_download_status()
         status.phase == platform::ui::route_storage::RouteImageDownloadPhase::Done;
     if (download_just_finished)
     {
-        assign_preview_image_paths(true);
+        refresh_preview_image_storage_state(true);
     }
     else
     {
@@ -1765,7 +1786,7 @@ void sync_route_preview_download_status()
         route_preview_all_images_saved() &&
         !route_preview_all_image_caches_ready())
     {
-        ensure_route_preview_image_cache_build();
+        ensure_route_preview_image_cache_build(false);
         return;
     }
 
@@ -1795,9 +1816,12 @@ void ensure_route_preview_download_poll_timer()
     }
 }
 
-void ensure_route_preview_image_cache_build()
+void ensure_route_preview_image_cache_build(bool refresh_state)
 {
-    assign_preview_image_paths();
+    if (refresh_state)
+    {
+        refresh_preview_image_storage_state(true);
+    }
     if (s_preview_images.empty() ||
         !route_preview_all_images_saved() ||
         route_preview_all_image_caches_ready())
@@ -1883,11 +1907,25 @@ void update_route_preview_status()
         else
         {
             char status[24]{};
-            std::snprintf(status,
-                          sizeof(status),
-                          "%u/%u",
-                          static_cast<unsigned>(display_saved_count),
-                          static_cast<unsigned>(s_preview_images.size()));
+            const bool live_download_status =
+                route_preview_download_status_matches(download_status) &&
+                download_status.busy;
+            if (s_preview_image_saved_state_known ||
+                live_download_status)
+            {
+                std::snprintf(status,
+                              sizeof(status),
+                              "%u/%u",
+                              static_cast<unsigned>(display_saved_count),
+                              static_cast<unsigned>(s_preview_images.size()));
+            }
+            else
+            {
+                std::snprintf(status,
+                              sizeof(status),
+                              "--/%u",
+                              static_cast<unsigned>(s_preview_images.size()));
+            }
             ::ui::i18n::set_label_text_raw(state.route_preview_status_label, status);
             lv_obj_clear_flag(state.route_preview_status_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_align(state.route_preview_status_label, LV_ALIGN_TOP_RIGHT, -5, 5);
@@ -2445,7 +2483,7 @@ void on_route_preview_key(lv_event_t* e)
 
 void on_route_preview_download_clicked(lv_event_t*)
 {
-    assign_preview_image_paths();
+    refresh_preview_image_storage_state(true);
     const std::size_t initial_saved_count = preview_saved_image_count();
     std::printf("[RoutePreview][down] clicked asset=%s images=%u saved=%u\n",
                 s_preview_asset_id.c_str(),
@@ -2488,7 +2526,7 @@ void on_route_preview_download_clicked(lv_event_t*)
                         static_cast<unsigned>(saved_count),
                         static_cast<unsigned>(total));
             show_route_preview_notice("Preparing image cache");
-            ensure_route_preview_image_cache_build();
+            ensure_route_preview_image_cache_build(false);
             return;
         }
         s_preview_download_state = RoutePreviewDownloadState::Done;
@@ -2538,7 +2576,6 @@ void on_route_preview_download_clicked(lv_event_t*)
         return;
     }
 
-    assign_preview_image_paths();
     saved_count = preview_saved_image_count();
     s_preview_download_state = RoutePreviewDownloadState::Downloading;
     std::snprintf(detail,
@@ -2572,7 +2609,7 @@ void on_route_preview_download_clicked(lv_event_t*)
                         static_cast<unsigned>(saved_count),
                         static_cast<unsigned>(total));
             show_route_preview_notice("Preparing image cache");
-            ensure_route_preview_image_cache_build();
+            ensure_route_preview_image_cache_build(false);
             return;
         }
         s_preview_download_state = RoutePreviewDownloadState::Done;
@@ -2759,7 +2796,14 @@ void render_route_preview_page()
 
     lv_obj_update_layout(state.route_preview_page);
     sync_route_preview_elevation_visibility();
-    sync_route_preview_download_status();
+    if (route_preview_download_busy_for_current_route())
+    {
+        sync_route_preview_download_status();
+    }
+    else
+    {
+        sync_route_preview_map_loader_pause();
+    }
     update_route_preview_status();
 }
 
@@ -2815,7 +2859,6 @@ void open_route_preview_page()
     lv_obj_set_style_border_width(state.route_preview_page, 0, LV_PART_MAIN);
     lv_obj_clear_flag(state.route_preview_page, LV_OBJ_FLAG_SCROLLABLE);
     render_route_preview_page();
-    ensure_route_preview_image_cache_build();
     if (route_preview_download_busy_for_current_route())
     {
         ensure_route_preview_download_poll_timer();
