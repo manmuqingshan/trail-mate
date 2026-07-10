@@ -30,6 +30,7 @@ constexpr StorageKeyAlias kStorageKeyAliases[] = {
     {"chat_contact_alerts", "chat_ct_alert"},
     {"timezone_profile", "timezone_prof"},
     {"gauge_design_mah", "gauge_dsgn"},
+    {"wifi_profile_count", "wifi_prof_count"},
 };
 
 inline const char* safe_label(const char* value)
