@@ -92,8 +92,9 @@ struct SettingsData
     bool net_relay = true;
     bool net_duty_cycle = true;
     int net_channel_util = 0;
+    int rt_bearer_policy = 0;
     bool rt_lora_enabled = true;
-    bool rt_wifi_gateway_enabled = false;
+    bool rt_wifi_gateway_enabled = true;
     bool rt_wifi_auto_connect = true;
     bool rt_anonymous_peer = false;
     char rt_display_name[32] = "--";

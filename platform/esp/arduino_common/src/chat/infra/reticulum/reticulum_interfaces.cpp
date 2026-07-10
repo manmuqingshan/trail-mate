@@ -6,6 +6,7 @@
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
 
 #include "chat/time_utils.h"
+#include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 
@@ -675,6 +676,7 @@ void ReticulumInterfaceSet::applyConfig(const MeshConfig& config)
     lora_.applyConfig(config_);
     wifi_.applyConfig(config_);
     maintain();
+    syncSharedLoRaRxGate();
 }
 
 void ReticulumInterfaceSet::maintain()
@@ -683,6 +685,7 @@ void ReticulumInterfaceSet::maintain()
     {
         wifi_.maintain();
     }
+    syncSharedLoRaRxGate();
 }
 
 bool ReticulumInterfaceSet::hasReadyInterface() const
@@ -870,6 +873,18 @@ bool ReticulumInterfaceSet::wifiSelectedForRuntime() const
     }
     return config_.reticulum_interface_policy == ReticulumInterfacePolicy::WifiGatewayOnly ||
            wifi_.isReady();
+}
+
+void ReticulumInterfaceSet::syncSharedLoRaRxGate()
+{
+    const bool suppress = !loraSelectedForRuntime();
+    if (shared_lora_rx_suppressed_ == suppress &&
+        app::AppTasks::isRadioReceiveSuppressed() == suppress)
+    {
+        return;
+    }
+    shared_lora_rx_suppressed_ = suppress;
+    app::AppTasks::setRadioReceiveSuppressed(suppress);
 }
 
 } // namespace chat::reticulum::interfaces

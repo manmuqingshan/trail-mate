@@ -1,6 +1,7 @@
 #include "ui/presentation_sources/chat_presentation_source.h"
 
 #include "chat/delivery/chat_delivery_message_projection.h"
+#include "chat/time_utils.h"
 #include "chat_presentation_adapters/chat_conversation_mapper.h"
 #include "chat_presentation_adapters/chat_message_mapper.h"
 #include "ui_presentation/common/fixed_text.h"
@@ -300,7 +301,7 @@ void appendMessageLocationParticipant(
 
 void copyTimeLabel(ui::FixedText<24>& out, uint32_t timestamp)
 {
-    if (timestamp == 0)
+    if (!::chat::is_valid_epoch(timestamp))
     {
         out.clear();
         return;

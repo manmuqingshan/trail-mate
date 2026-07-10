@@ -163,6 +163,7 @@ chat::IMeshAdapter* AppTasks::adapter_ = nullptr;
 bool AppTasks::radio_tasks_paused_ = false;
 volatile bool AppTasks::radio_receive_active_ = false;
 volatile bool AppTasks::radio_receive_restart_pending_ = true;
+volatile bool AppTasks::radio_receive_suppressed_ = false;
 volatile bool AppTasks::radio_transmit_active_ = false;
 
 bool AppTasks::init(LoraBoard& board, chat::IMeshAdapter* adapter)
@@ -170,7 +171,7 @@ bool AppTasks::init(LoraBoard& board, chat::IMeshAdapter* adapter)
     board_ = &board;
     adapter_ = adapter;
     radio_receive_active_ = false;
-    radio_receive_restart_pending_ = true;
+    radio_receive_restart_pending_ = !radio_receive_suppressed_;
 
     // Create queues
     radio_tx_queue_ = xQueueCreate(RADIO_QUEUE_SIZE, sizeof(RadioPacket));
@@ -261,14 +262,43 @@ void AppTasks::resumeRadioTasks()
 
 void AppTasks::setRadioReceiveActive(bool active)
 {
+    if (radio_receive_suppressed_ && active)
+    {
+        radio_receive_active_ = false;
+        radio_receive_restart_pending_ = false;
+        return;
+    }
     radio_receive_active_ = active;
     radio_receive_restart_pending_ = !active;
 }
 
 void AppTasks::requestRadioReceiveRestart()
 {
+    if (radio_receive_suppressed_)
+    {
+        radio_receive_active_ = false;
+        radio_receive_restart_pending_ = false;
+        return;
+    }
     radio_receive_active_ = false;
     radio_receive_restart_pending_ = true;
+}
+
+void AppTasks::setRadioReceiveSuppressed(bool suppressed)
+{
+    if (radio_receive_suppressed_ == suppressed)
+    {
+        return;
+    }
+    radio_receive_suppressed_ = suppressed;
+    radio_receive_active_ = false;
+    radio_receive_restart_pending_ = !suppressed;
+    Serial.printf("[LORA] RX gate %s\n", suppressed ? "suppressed" : "enabled");
+}
+
+bool AppTasks::isRadioReceiveSuppressed()
+{
+    return radio_receive_suppressed_;
 }
 
 void AppTasks::setRadioTransmitActive(bool active)
@@ -281,7 +311,7 @@ void AppTasks::setRadioTransmitActive(bool active)
     }
     else
     {
-        radio_receive_restart_pending_ = true;
+        radio_receive_restart_pending_ = !radio_receive_suppressed_;
     }
 }
 
@@ -373,7 +403,7 @@ void AppTasks::radioTask(void* pvParameters)
                     state = board_->transmitRadio(tx_packet.data, tx_packet.size);
                     setRadioTransmitActive(false);
                     LORA_LOG("[LORA] TX queue len=%u state=%d\n", (unsigned)tx_packet.size, state);
-                    if (state == RADIOLIB_ERR_NONE)
+                    if (state == RADIOLIB_ERR_NONE && !radio_receive_suppressed_)
                     {
                         int rx_state = board_->startRadioReceive();
                         if (rx_state == RADIOLIB_ERR_NONE)
@@ -387,6 +417,11 @@ void AppTasks::radioTask(void* pvParameters)
                             LORA_LOG("[LORA] RX start fail state=%d\n", rx_state);
                         }
                     }
+                    else if (state == RADIOLIB_ERR_NONE)
+                    {
+                        radio_receive_active_ = false;
+                        radio_receive_restart_pending_ = false;
+                    }
                     else
                     {
                         requestRadioReceiveRestart();
@@ -398,6 +433,15 @@ void AppTasks::radioTask(void* pvParameters)
                 }
                 free(tx_packet.data);
             }
+        }
+
+        if (radio_receive_suppressed_)
+        {
+            radio_receive_active_ = false;
+            radio_receive_restart_pending_ = false;
+            maybe_log_radio_rx_summary(rx_summary);
+            vTaskDelay(kRadioDisplayPressurePollDelay);
+            continue;
         }
 
         // Poll for RX (non-blocking)

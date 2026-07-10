@@ -528,8 +528,8 @@ struct MeshConfig
     char meshcore_mqtt_username[kMeshCoreMqttUsernameMaxLen + 1];
     char meshcore_mqtt_password[kMeshCoreMqttPasswordMaxLen + 1];
 
-    // Reticulum carrier interfaces. The user-facing protocol remains
-    // Reticulum; these switches only select which carriers participate.
+    // Reticulum bearer strategy. The user-facing protocol remains Reticulum;
+    // legacy booleans are the persisted projection of reticulum_interface_policy.
     bool reticulum_lora_enabled;
     bool reticulum_wifi_gateway_enabled;
     bool reticulum_wifi_auto_connect;
@@ -578,7 +578,7 @@ struct MeshConfig
           meshcore_mqtt_downlink_enabled(true),
           meshcore_mqtt_port(1883),
           reticulum_lora_enabled(true),
-          reticulum_wifi_gateway_enabled(false),
+          reticulum_wifi_gateway_enabled(true),
           reticulum_wifi_auto_connect(true),
           reticulum_anonymous_peer(false),
           reticulum_wifi_gateway_port(4242),

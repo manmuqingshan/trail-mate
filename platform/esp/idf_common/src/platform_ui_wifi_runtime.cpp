@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "hostlink/c6/c6_protocol.h"
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
@@ -82,6 +83,22 @@ bool same_ssid(const Config& lhs, const Config& rhs)
     return std::strncmp(lhs.ssid, rhs.ssid, sizeof(lhs.ssid)) == 0;
 }
 
+int profile_index_for_ssid(const char* ssid)
+{
+    if (!ssid || ssid[0] == '\0')
+    {
+        return -1;
+    }
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (std::strncmp(s_runtime.profiles[i].ssid, ssid, sizeof(s_runtime.profiles[i].ssid)) == 0)
+        {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 void clear_profiles()
 {
     for (Config& profile : s_runtime.profiles)
@@ -89,8 +106,17 @@ void clear_profiles()
         profile = Config{};
     }
     s_runtime.profile_count = 0;
-    s_runtime.next_profile_index = 0;
     s_runtime.profiles_cached = true;
+}
+
+void clamp_next_profile_index()
+{
+    if (s_runtime.profile_count == 0)
+    {
+        s_runtime.next_profile_index = 0;
+        return;
+    }
+    s_runtime.next_profile_index %= s_runtime.profile_count;
 }
 
 void append_profile_unique(const Config& profile)
@@ -220,7 +246,9 @@ Config load_saved_config()
     {
         copy_text(out.password, sizeof(out.password), value.c_str());
     }
+    const std::size_t next_profile_index = s_runtime.next_profile_index;
     clear_profiles();
+    s_runtime.next_profile_index = next_profile_index;
     const int stored_count = std::clamp(
         ::platform::ui::settings_store::get_int(kSettingsNs, kWifiProfileCountKey, 0),
         0,
@@ -246,6 +274,7 @@ Config load_saved_config()
         append_profile_unique(profile);
     }
     append_profile_unique(out);
+    clamp_next_profile_index();
     if (s_runtime.profile_count > 0)
     {
         copy_text(out.ssid, sizeof(out.ssid), s_runtime.profiles[0].ssid);
@@ -349,6 +378,66 @@ bool wait_for_c6_scan(std::vector<ScanResult>& out_results)
 #endif
 }
 
+bool select_auto_profile_from_scan(std::size_t& out_index)
+{
+    out_index = s_runtime.next_profile_index;
+    if (s_runtime.profile_count == 0 || !c6_present())
+    {
+        return false;
+    }
+
+    std::vector<ScanResult> results;
+    append_scan_results(results, c6::get_c6_companion_status());
+    if (results.empty())
+    {
+        const bool sent = c6::c6_companion().sendWifiControl(make_control(c6::WifiCommand::Scan));
+        if (!sent)
+        {
+            return false;
+        }
+#if defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
+        results.clear();
+        if (!wait_for_c6_scan(results))
+        {
+            return false;
+        }
+#endif
+    }
+
+    int best_index = -1;
+    int best_rssi = -128;
+    for (const ScanResult& result : results)
+    {
+        const int index = profile_index_for_ssid(result.ssid);
+        if (index < 0)
+        {
+            continue;
+        }
+        if (best_index < 0 || result.rssi > best_rssi)
+        {
+            best_index = index;
+            best_rssi = result.rssi;
+        }
+    }
+    if (best_index < 0)
+    {
+        std::printf("[WiFi][C6] auto scan no saved match results=%u profiles=%u\n",
+                    static_cast<unsigned>(results.size()),
+                    static_cast<unsigned>(s_runtime.profile_count));
+        return false;
+    }
+
+    out_index = static_cast<std::size_t>(best_index);
+    s_runtime.next_profile_index = out_index;
+    std::printf("[WiFi][C6] auto scan matched profile index=%u/%u ssid=%s rssi=%d results=%u\n",
+                static_cast<unsigned>(out_index + 1U),
+                static_cast<unsigned>(s_runtime.profile_count),
+                s_runtime.profiles[out_index].ssid,
+                best_rssi,
+                static_cast<unsigned>(results.size()));
+    return true;
+}
+
 } // namespace
 
 bool is_supported()
@@ -406,7 +495,8 @@ bool connect(const Config* override_config)
     Config config = override_config ? *override_config : load_saved_config();
     if (!override_config && s_runtime.profile_count > 0)
     {
-        const std::size_t index = s_runtime.next_profile_index % s_runtime.profile_count;
+        std::size_t index = s_runtime.next_profile_index % s_runtime.profile_count;
+        (void)select_auto_profile_from_scan(index);
         config = s_runtime.profiles[index];
         config.enabled = true;
         std::printf("[WiFi][C6] auto connect profile index=%u/%u ssid=%s\n",

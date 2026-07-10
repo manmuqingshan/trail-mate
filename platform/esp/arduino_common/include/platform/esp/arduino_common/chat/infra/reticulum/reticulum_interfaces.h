@@ -174,11 +174,13 @@ class ReticulumInterfaceSet
     TxResult last_tx_result_{};
     bool has_last_rx_meta_ = false;
     uint8_t next_poll_index_ = 0;
+    bool shared_lora_rx_suppressed_ = false;
 
     bool loraAllowed() const;
     bool wifiAllowed() const;
     bool loraSelectedForRuntime() const;
     bool wifiSelectedForRuntime() const;
+    void syncSharedLoRaRxGate();
 };
 
 } // namespace chat::reticulum::interfaces

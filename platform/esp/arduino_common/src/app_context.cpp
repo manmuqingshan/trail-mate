@@ -14,6 +14,7 @@
 #include "board/MotionBoard.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/runtime/self_identity_policy.h"
+#include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/memory_diag.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "sys/event_bus.h"
@@ -35,6 +36,28 @@ constexpr TickType_t kConfigSaveMutexWait = pdMS_TO_TICKS(20);
 constexpr TickType_t kConfigSaveDebounceTicks = pdMS_TO_TICKS(250);
 constexpr TickType_t kConfigSaveRetryDelayTicks = pdMS_TO_TICKS(1000);
 
+void normalize_reticulum_interface_strategy(AppConfig& config)
+{
+    chat::MeshConfig& reticulum = config.reticulumConfig();
+    switch (reticulum.reticulum_interface_policy)
+    {
+    case chat::ReticulumInterfacePolicy::LoRaOnly:
+        reticulum.reticulum_lora_enabled = true;
+        reticulum.reticulum_wifi_gateway_enabled = false;
+        break;
+    case chat::ReticulumInterfacePolicy::WifiGatewayOnly:
+        reticulum.reticulum_lora_enabled = false;
+        reticulum.reticulum_wifi_gateway_enabled = true;
+        break;
+    case chat::ReticulumInterfacePolicy::All:
+    default:
+        reticulum.reticulum_interface_policy = chat::ReticulumInterfacePolicy::All;
+        reticulum.reticulum_lora_enabled = true;
+        reticulum.reticulum_wifi_gateway_enabled = true;
+        break;
+    }
+}
+
 void sync_reticulum_group_config(AppConfig& config)
 {
     if (!chat::infra::isReticulumMeshProtocol(
@@ -42,6 +65,7 @@ void sync_reticulum_group_config(AppConfig& config)
     {
         return;
     }
+    normalize_reticulum_interface_strategy(config);
 
     const auto status = ::platform::ui::reticulum_groups::load(
         config.reticulumConfig().reticulum_groups,
@@ -390,6 +414,11 @@ void AppContext::configSaveTaskEntry(void* context)
 void AppContext::applyMeshConfig()
 {
     sync_reticulum_group_config(config_);
+    if (!chat::infra::isReticulumMeshProtocol(
+            chat::infra::normalizeMeshProtocol(config_.mesh_protocol)))
+    {
+        AppTasks::setRadioReceiveSuppressed(false);
+    }
     if (mesh_router_)
     {
         if (mesh_router_->backendProtocol() != config_.mesh_protocol)
@@ -518,6 +547,10 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
     const chat::MeshProtocol previous_protocol = config_.mesh_protocol;
     config_.mesh_protocol = normalized;
     sync_reticulum_group_config(config_);
+    if (!chat::infra::isReticulumMeshProtocol(normalized))
+    {
+        AppTasks::setRadioReceiveSuppressed(false);
+    }
 
     backend->applyConfig(config_.activeMeshConfig());
 

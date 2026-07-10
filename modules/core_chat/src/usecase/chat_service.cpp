@@ -16,6 +16,25 @@ NodeId normalize_conversation_peer(NodeId peer)
 {
     return (peer == 0 || peer == 0xFFFFFFFFUL) ? 0 : peer;
 }
+
+uint32_t persistable_now_timestamp()
+{
+    const uint32_t now = now_epoch_seconds();
+    return is_valid_epoch(now) ? now : 0;
+}
+
+uint32_t persistable_incoming_timestamp(const MeshIncomingText& incoming)
+{
+    if (is_valid_epoch(incoming.timestamp))
+    {
+        return incoming.timestamp;
+    }
+    if (is_valid_epoch(incoming.rx_meta.rx_timestamp_s))
+    {
+        return incoming.rx_meta.rx_timestamp_s;
+    }
+    return persistable_now_timestamp();
+}
 } // namespace
 
 #ifndef CHAT_SERVICE_LOG_ENABLE
@@ -300,7 +319,7 @@ MeshSendResult ChatService::sendTextResolvedDetailed(
     msg.from = 0;
     msg.peer = normalize_conversation_peer(peer);
     msg.msg_id = result.msg_id;
-    msg.timestamp = now_message_timestamp();
+    msg.timestamp = persistable_now_timestamp();
     msg.text = text;
     msg.reticulum_identity = result.reticulum_identity;
     msg.status = result.ok ? MessageStatus::Queued : MessageStatus::Failed;
@@ -507,7 +526,7 @@ void ChatService::processIncoming()
         msg.from = incoming_text.from;
         msg.peer = normalize_conversation_peer(incoming_text.to) == 0 ? 0 : incoming_text.from;
         msg.msg_id = incoming_text.msg_id;
-        msg.timestamp = now_message_timestamp();
+        msg.timestamp = persistable_incoming_timestamp(incoming_text);
         msg.text = incoming_text.text;
         msg.reticulum_identity = incoming_text.reticulum_identity;
         msg.rx_origin = incoming_text.rx_meta.origin;

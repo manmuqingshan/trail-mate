@@ -1283,6 +1283,55 @@ static bool is_reticulum_protocol_selected()
     return chat::infra::isReticulumMeshProtocol(selected_protocol());
 }
 
+static chat::ReticulumInterfacePolicy reticulum_bearer_policy_from_value(int value)
+{
+    switch (value)
+    {
+    case static_cast<int>(chat::ReticulumInterfacePolicy::LoRaOnly):
+        return chat::ReticulumInterfacePolicy::LoRaOnly;
+    case static_cast<int>(chat::ReticulumInterfacePolicy::WifiGatewayOnly):
+        return chat::ReticulumInterfacePolicy::WifiGatewayOnly;
+    case static_cast<int>(chat::ReticulumInterfacePolicy::All):
+    default:
+        return chat::ReticulumInterfacePolicy::All;
+    }
+}
+
+static int reticulum_bearer_policy_to_value(chat::ReticulumInterfacePolicy policy)
+{
+    return static_cast<int>(reticulum_bearer_policy_from_value(static_cast<int>(policy)));
+}
+
+static void apply_reticulum_bearer_policy(chat::MeshConfig& config,
+                                          chat::ReticulumInterfacePolicy policy)
+{
+    config.reticulum_interface_policy = reticulum_bearer_policy_from_value(
+        static_cast<int>(policy));
+    switch (config.reticulum_interface_policy)
+    {
+    case chat::ReticulumInterfacePolicy::LoRaOnly:
+        config.reticulum_lora_enabled = true;
+        config.reticulum_wifi_gateway_enabled = false;
+        break;
+    case chat::ReticulumInterfacePolicy::WifiGatewayOnly:
+        config.reticulum_lora_enabled = false;
+        config.reticulum_wifi_gateway_enabled = true;
+        break;
+    case chat::ReticulumInterfacePolicy::All:
+    default:
+        config.reticulum_interface_policy = chat::ReticulumInterfacePolicy::All;
+        config.reticulum_lora_enabled = true;
+        config.reticulum_wifi_gateway_enabled = true;
+        break;
+    }
+}
+
+static bool reticulum_wifi_settings_visible()
+{
+    return reticulum_bearer_policy_from_value(g_settings.rt_bearer_policy) !=
+           chat::ReticulumInterfacePolicy::LoRaOnly;
+}
+
 static void reset_mesh_settings()
 {
     app::IAppFacade& app_ctx = app::appFacade();
@@ -1312,6 +1361,15 @@ static void reset_mesh_settings()
     g_settings.net_relay = app_ctx.getConfig().meshtastic_config.enable_relay;
     g_settings.net_duty_cycle = true;
     g_settings.net_channel_util = 0;
+    g_settings.rt_bearer_policy =
+        reticulum_bearer_policy_to_value(app_ctx.getConfig().reticulumConfig().reticulum_interface_policy);
+    g_settings.rt_lora_enabled = app_ctx.getConfig().reticulumConfig().reticulum_lora_enabled;
+    g_settings.rt_wifi_gateway_enabled =
+        app_ctx.getConfig().reticulumConfig().reticulum_wifi_gateway_enabled;
+    g_settings.rt_wifi_auto_connect =
+        app_ctx.getConfig().reticulumConfig().reticulum_wifi_auto_connect;
+    g_settings.rt_anonymous_peer =
+        app_ctx.getConfig().reticulumConfig().reticulum_anonymous_peer;
     g_settings.mt_mqtt_enabled = app_ctx.getConfig().meshtastic_mqtt_enabled;
     g_settings.mt_mqtt_uplink = app_ctx.getConfig().meshtastic_mqtt_uplink_enabled;
     g_settings.mt_mqtt_downlink = app_ctx.getConfig().meshtastic_mqtt_downlink_enabled;
@@ -1385,6 +1443,7 @@ static void reset_mesh_settings()
         "mc_fwd_prof",
         "mc_channel_slot",
         "mc_ch_slot",
+        "rt_bearer",
         "rt_lora_enabled",
         "rt_wifi_gateway",
         "rt_wifi_host",
@@ -1589,6 +1648,8 @@ static void settings_load()
         g_settings.net_manual_cr = reticulum_cfg.coding_rate;
         float_to_text(reticulum_cfg.override_frequency_mhz, g_settings.net_override_freq,
                       sizeof(g_settings.net_override_freq), 3);
+        g_settings.rt_bearer_policy =
+            reticulum_bearer_policy_to_value(reticulum_cfg.reticulum_interface_policy);
         g_settings.rt_lora_enabled = reticulum_cfg.reticulum_lora_enabled;
         g_settings.rt_wifi_gateway_enabled = reticulum_cfg.reticulum_wifi_gateway_enabled;
         g_settings.rt_wifi_auto_connect = reticulum_cfg.reticulum_wifi_auto_connect;
@@ -3121,13 +3182,29 @@ static void on_option_clicked(lv_event_t* e)
                              saved_config.password);
                 saved_config.enabled = g_settings.wifi_enabled;
                 (void)wifi_runtime::save_config(saved_config);
+                refresh_wifi_state_from_runtime();
             }
             else
             {
                 g_settings.wifi_password[0] = '\0';
             }
+            refresh_visible_item_values();
             rebuild_list = true;
         }
+    }
+    if (payload->item->pref_key && strcmp(payload->item->pref_key, "rt_bearer") == 0)
+    {
+        app::IAppFacade& app_ctx = app::appFacade();
+        chat::MeshConfig& reticulum = app_ctx.getConfig().reticulumConfig();
+        apply_reticulum_bearer_policy(reticulum,
+                                      reticulum_bearer_policy_from_value(payload->value));
+        g_settings.rt_bearer_policy =
+            reticulum_bearer_policy_to_value(reticulum.reticulum_interface_policy);
+        g_settings.rt_lora_enabled = reticulum.reticulum_lora_enabled;
+        g_settings.rt_wifi_gateway_enabled = reticulum.reticulum_wifi_gateway_enabled;
+        app_ctx.saveConfig();
+        app_ctx.applyMeshConfig();
+        rebuild_list = true;
     }
     if (payload->item->pref_key && strcmp(payload->item->pref_key, "mesh_protocol") == 0)
     {
@@ -4254,6 +4331,11 @@ static const settings::ui::SettingOption kBoolOptions[] = {
     {"OFF", 0},
     {"ON", 1},
 };
+static const settings::ui::SettingOption kReticulumBearerOptions[] = {
+    {"Auto", static_cast<int>(chat::ReticulumInterfacePolicy::All)},
+    {"LoRa", static_cast<int>(chat::ReticulumInterfacePolicy::LoRaOnly)},
+    {"Wi-Fi", static_cast<int>(chat::ReticulumInterfacePolicy::WifiGatewayOnly)},
+};
 static const settings::ui::SettingOption kChatContactAlertOptions[] = {
     {"OFF", kChatContactAlertsNone},
     {"Contacts Only", kChatContactAlertsContacts},
@@ -4465,11 +4547,10 @@ static settings::ui::SettingItem kNetworkItems[] = {
      0, &g_settings.net_tx_power, nullptr, nullptr, 0, false, "net_tx_power"},
     {"Hop Limit", settings::ui::SettingType::Enum, kHopLimitOptions, sizeof(kHopLimitOptions) / sizeof(kHopLimitOptions[0]), &g_settings.net_hop_limit, nullptr, nullptr, 0, false, "net_hop_limit"},
     {"TX Enabled", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.net_tx_enabled, nullptr, 0, false, "net_tx_enabled"},
-    {"Reticulum LoRa", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_lora_enabled, nullptr, 0, false, "rt_lora_enabled"},
+    {"Bearer", settings::ui::SettingType::Enum, kReticulumBearerOptions, sizeof(kReticulumBearerOptions) / sizeof(kReticulumBearerOptions[0]), &g_settings.rt_bearer_policy, nullptr, nullptr, 0, false, "rt_bearer"},
     {"Display Name", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_display_name, sizeof(g_settings.rt_display_name), false, "rt_display_name"},
     {"Identity Hash", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_identity_hash, sizeof(g_settings.rt_identity_hash), false, "rt_identity_hash"},
     {"LXMF Address", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_lxmf_address, sizeof(g_settings.rt_lxmf_address), false, "rt_lxmf_address"},
-    {"Wi-Fi Gateway", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_wifi_gateway_enabled, nullptr, 0, false, "rt_wifi_gateway"},
     {"Gateway Host", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.rt_wifi_gateway_host, sizeof(g_settings.rt_wifi_gateway_host), false, "rt_wifi_host"},
     {"Gateway Port", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.rt_wifi_gateway_port, sizeof(g_settings.rt_wifi_gateway_port), false, "rt_wifi_port"},
     {"Auto Wi-Fi", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_wifi_auto_connect, nullptr, 0, false, "rt_wifi_auto"},
@@ -4826,6 +4907,7 @@ static bool should_show_item(const settings::ui::SettingItem& item)
         if (has_pref_key(item, "net_cr")) return false;
         if (has_pref_key(item, "net_tx_power")) return false;
         if (has_pref_key(item, "net_hop_limit")) return false;
+        if (has_pref_key(item, "rt_bearer")) return false;
         if (has_pref_key(item, "rt_lora_enabled")) return false;
         if (has_pref_key(item, "rt_display_name")) return false;
         if (has_pref_key(item, "rt_identity_hash")) return false;
@@ -4872,10 +4954,12 @@ static bool should_show_item(const settings::ui::SettingItem& item)
         if (has_pref_key(item, "mc_channel_slot")) return false;
         if (has_pref_key(item, "mc_channel_name")) return false;
         if (has_pref_key(item, "mc_channel_key")) return false;
+        if (has_pref_key(item, "rt_lora_enabled")) return false;
+        if (has_pref_key(item, "rt_wifi_gateway")) return false;
         if ((has_pref_key(item, "rt_wifi_host") ||
              has_pref_key(item, "rt_wifi_port") ||
              has_pref_key(item, "rt_wifi_auto")) &&
-            !g_settings.rt_wifi_gateway_enabled)
+            !reticulum_wifi_settings_visible())
         {
             return false;
         }
@@ -4899,6 +4983,7 @@ static bool should_show_item(const settings::ui::SettingItem& item)
         if (has_pref_key(item, "mc_channel_name")) return false;
         if (has_pref_key(item, "mc_channel_key")) return false;
 
+        if (has_pref_key(item, "rt_bearer")) return false;
         if (has_pref_key(item, "rt_lora_enabled")) return false;
         if (has_pref_key(item, "rt_display_name")) return false;
         if (has_pref_key(item, "rt_identity_hash")) return false;
@@ -5119,43 +5204,6 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
                 }
                 app_ctx.saveConfig();
                 app_ctx.applyMeshConfig();
-            }
-            if (item.pref_key && strcmp(item.pref_key, "rt_lora_enabled") == 0)
-            {
-                app::IAppFacade& app_ctx = app::appFacade();
-                chat::MeshConfig& rt_cfg = app_ctx.getConfig().reticulumConfig();
-                if (!*item.bool_value && !rt_cfg.reticulum_wifi_gateway_enabled)
-                {
-                    *item.bool_value = true;
-                    g_settings.rt_lora_enabled = true;
-                    update_item_value(widget);
-                    ::ui::feedback::show_notice(::ui::i18n::tr("Keep one Reticulum interface enabled"), 3000);
-                }
-                else
-                {
-                    rt_cfg.reticulum_lora_enabled = *item.bool_value;
-                    app_ctx.saveConfig();
-                    app_ctx.applyMeshConfig();
-                }
-            }
-            if (item.pref_key && strcmp(item.pref_key, "rt_wifi_gateway") == 0)
-            {
-                app::IAppFacade& app_ctx = app::appFacade();
-                chat::MeshConfig& rt_cfg = app_ctx.getConfig().reticulumConfig();
-                if (!*item.bool_value && !rt_cfg.reticulum_lora_enabled)
-                {
-                    *item.bool_value = true;
-                    g_settings.rt_wifi_gateway_enabled = true;
-                    update_item_value(widget);
-                    ::ui::feedback::show_notice(::ui::i18n::tr("Keep one Reticulum interface enabled"), 3000);
-                }
-                else
-                {
-                    rt_cfg.reticulum_wifi_gateway_enabled = *item.bool_value;
-                    app_ctx.saveConfig();
-                    app_ctx.applyMeshConfig();
-                    build_item_list();
-                }
             }
             if (item.pref_key && strcmp(item.pref_key, "rt_wifi_auto") == 0)
             {

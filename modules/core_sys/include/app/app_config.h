@@ -311,7 +311,7 @@ struct AppConfig
     {
         applyRNodeFactoryDefaults();
         rnode_config.reticulum_lora_enabled = true;
-        rnode_config.reticulum_wifi_gateway_enabled = false;
+        rnode_config.reticulum_wifi_gateway_enabled = true;
         rnode_config.reticulum_wifi_auto_connect = true;
         rnode_config.reticulum_anonymous_peer = false;
         rnode_config.reticulum_wifi_gateway_host[0] = '\0';

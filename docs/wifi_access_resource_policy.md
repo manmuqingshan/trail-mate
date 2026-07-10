@@ -18,6 +18,10 @@ the same small device resources.
 - MQTT and Reticulum Wi-Fi gateway are long-lived protocol users. They keep
   their own protocol socket state, but connection attempts and pump budgets are
   governed by `wifi_access`.
+- Reticulum bearer strategy is selected above the Wi-Fi access layer. `Auto`
+  means Wi-Fi-preferred terminal mode; once the gateway socket is ready, the
+  Reticulum runtime must suppress shared LoRa RX instead of running LoRa and
+  Wi-Fi as parallel receive paths.
 - OTA is an exclusive Wi-Fi/HTTP activity. During OTA, long-lived protocol
   users must not consume pump budget beyond what `wifi_access` grants.
 
@@ -65,9 +69,15 @@ SSID is new, the editor clears the password and waits for the user to enter it.
 
 Saving Wi-Fi credentials must insert or update that SSID at the front of the
 saved profile list and keep older unique SSIDs behind it. Background auto
-connect must attempt one saved profile per granted connection attempt and then
-advance to the next profile on failure. It must not synchronously try the whole
-list in one call, because an absent SSID can consume a full connect timeout.
+connect must first run a bounded Wi-Fi scan under the granted connection budget
+and prefer a saved profile whose SSID is currently visible. If no saved SSID is
+visible, it may attempt one saved profile per granted connection attempt and
+then advance to the next profile on failure. It must not synchronously try the
+whole list in one call, because an absent SSID can consume a full connect
+timeout.
+Refreshing or loading Wi-Fi settings must preserve the pending auto-connect
+profile cursor; otherwise UI status refreshes can pin auto connect to the first
+saved SSID forever.
 
 Manual connect with an explicit `Config` still targets only that profile. A
 successful or newly saved manual profile becomes the preferred profile.

@@ -39,6 +39,7 @@ constexpr const char* kWifiSsidKey = "wifi_ssid";
 constexpr const char* kWifiPasswordKey = "wifi_password";
 constexpr const char* kWifiProfileCountKey = "wifi_prof_count";
 constexpr std::size_t kWifiProfileCapacity = 10;
+constexpr uint16_t kWifiAutoScanMaxRecords = 16;
 constexpr uint32_t kBleRetryDelayMs = 180;
 constexpr int kWifiTxBufferTypeStatic = 0;
 constexpr int kWifiTxBufferTypeDynamic = 1;
@@ -77,6 +78,7 @@ struct RuntimeState
     int rssi = -127;
     Config config{};
     Config profiles[kWifiProfileCapacity] = {};
+    wifi_ap_record_t auto_scan_records[kWifiAutoScanMaxRecords] = {};
     std::size_t profile_count = 0;
     std::size_t next_profile_index = 0;
     char ssid[kMaxSsidLength + 1] = {};
@@ -242,6 +244,22 @@ bool same_ssid(const Config& lhs, const Config& rhs)
     return std::strncmp(lhs.ssid, rhs.ssid, sizeof(lhs.ssid)) == 0;
 }
 
+int profile_index_for_ssid(const char* ssid)
+{
+    if (!ssid || ssid[0] == '\0')
+    {
+        return -1;
+    }
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (std::strncmp(s_runtime.profiles[i].ssid, ssid, sizeof(s_runtime.profiles[i].ssid)) == 0)
+        {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 void clear_profiles()
 {
     for (Config& profile : s_runtime.profiles)
@@ -249,8 +267,17 @@ void clear_profiles()
         profile = Config{};
     }
     s_runtime.profile_count = 0;
-    s_runtime.next_profile_index = 0;
     s_runtime.profiles_cached = true;
+}
+
+void clamp_next_profile_index()
+{
+    if (s_runtime.profile_count == 0)
+    {
+        s_runtime.next_profile_index = 0;
+        return;
+    }
+    s_runtime.next_profile_index %= s_runtime.profile_count;
 }
 
 void append_profile_unique(const Config& profile)
@@ -361,7 +388,9 @@ bool read_config_from_store(Config& out)
         copy_bounded(out.password, sizeof(out.password), value.c_str());
     }
 
+    const std::size_t next_profile_index = s_runtime.next_profile_index;
     clear_profiles();
+    s_runtime.next_profile_index = next_profile_index;
     const int stored_count = std::clamp(
         ::platform::ui::settings_store::get_int(kSettingsNs, kWifiProfileCountKey, 0),
         0,
@@ -387,6 +416,7 @@ bool read_config_from_store(Config& out)
         append_profile_unique(profile);
     }
     append_profile_unique(out);
+    clamp_next_profile_index();
     if (s_runtime.profile_count > 0)
     {
         copy_bounded(out.ssid, sizeof(out.ssid), s_runtime.profiles[0].ssid);
@@ -978,6 +1008,100 @@ static bool connect_single_profile(const Config& config)
     return false;
 }
 
+bool select_auto_profile_from_scan(std::size_t& out_index)
+{
+    out_index = s_runtime.next_profile_index;
+    if (s_runtime.profile_count == 0)
+    {
+        return false;
+    }
+    if (!ensure_wifi_started())
+    {
+        return false;
+    }
+    if (!internal_memory_ready_for_wifi_connect("before auto scan"))
+    {
+        return false;
+    }
+
+    s_runtime.scanning = true;
+    refresh_runtime_status_message();
+
+    wifi_scan_config_t scan_config{};
+    const esp_err_t scan_err = esp_wifi_scan_start(&scan_config, true);
+    s_runtime.scanning = false;
+    if (scan_err != ESP_OK)
+    {
+        std::printf("[WiFi] auto scan skipped err=0x%x\n",
+                    static_cast<unsigned>(scan_err));
+        refresh_runtime_status_message();
+        return false;
+    }
+
+    uint16_t ap_count = 0;
+    if (esp_wifi_scan_get_ap_num(&ap_count) != ESP_OK || ap_count == 0)
+    {
+        std::printf("[WiFi] auto scan no networks profiles=%u\n",
+                    static_cast<unsigned>(s_runtime.profile_count));
+        refresh_runtime_status_message();
+        return false;
+    }
+
+    uint16_t record_count = std::min<uint16_t>(ap_count, kWifiAutoScanMaxRecords);
+    for (wifi_ap_record_t& record : s_runtime.auto_scan_records)
+    {
+        record = wifi_ap_record_t{};
+    }
+    if (esp_wifi_scan_get_ap_records(&record_count, s_runtime.auto_scan_records) != ESP_OK)
+    {
+        std::printf("[WiFi] auto scan read failed aps=%u\n",
+                    static_cast<unsigned>(ap_count));
+        refresh_runtime_status_message();
+        return false;
+    }
+
+    int best_index = -1;
+    int8_t best_rssi = -128;
+    for (uint16_t i = 0; i < record_count; ++i)
+    {
+        const wifi_ap_record_t& record = s_runtime.auto_scan_records[i];
+        if (record.ssid[0] == 0)
+        {
+            continue;
+        }
+        const int index = profile_index_for_ssid(reinterpret_cast<const char*>(record.ssid));
+        if (index < 0)
+        {
+            continue;
+        }
+        if (best_index < 0 || record.rssi > best_rssi)
+        {
+            best_index = index;
+            best_rssi = record.rssi;
+        }
+    }
+
+    refresh_runtime_status_message();
+    if (best_index < 0)
+    {
+        std::printf("[WiFi] auto scan no saved match aps=%u read=%u profiles=%u\n",
+                    static_cast<unsigned>(ap_count),
+                    static_cast<unsigned>(record_count),
+                    static_cast<unsigned>(s_runtime.profile_count));
+        return false;
+    }
+
+    out_index = static_cast<std::size_t>(best_index);
+    s_runtime.next_profile_index = out_index;
+    std::printf("[WiFi] auto scan matched profile index=%u/%u ssid=%s rssi=%d aps=%u\n",
+                static_cast<unsigned>(out_index + 1U),
+                static_cast<unsigned>(s_runtime.profile_count),
+                s_runtime.profiles[out_index].ssid,
+                static_cast<int>(best_rssi),
+                static_cast<unsigned>(record_count));
+    return true;
+}
+
 bool connect(const Config* override_config)
 {
     if (override_config)
@@ -998,7 +1122,8 @@ bool connect(const Config* override_config)
         return false;
     }
 
-    const std::size_t index = s_runtime.next_profile_index % s_runtime.profile_count;
+    std::size_t index = s_runtime.next_profile_index % s_runtime.profile_count;
+    (void)select_auto_profile_from_scan(index);
     Config candidate = s_runtime.profiles[index];
     candidate.enabled = config.enabled;
     std::printf("[WiFi] auto connect profile index=%u/%u ssid=%s\n",
@@ -1012,6 +1137,10 @@ bool connect(const Config* override_config)
         return true;
     }
     s_runtime.next_profile_index = (index + 1U) % s_runtime.profile_count;
+    std::printf("[WiFi] auto connect profile failed index=%u/%u next=%u\n",
+                static_cast<unsigned>(index + 1U),
+                static_cast<unsigned>(s_runtime.profile_count),
+                static_cast<unsigned>(s_runtime.next_profile_index + 1U));
     return false;
 }
 

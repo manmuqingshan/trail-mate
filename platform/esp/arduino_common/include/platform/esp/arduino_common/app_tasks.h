@@ -104,6 +104,11 @@ class AppTasks
      * @brief Ask the radio task to re-arm RX on its next poll cycle.
      */
     static void requestRadioReceiveRestart();
+    /**
+     * @brief Gate the shared LoRa RX path while keeping queued TX possible.
+     */
+    static void setRadioReceiveSuppressed(bool suppressed);
+    static bool isRadioReceiveSuppressed();
     static void setRadioTransmitActive(bool active);
     static bool isRadioTransmitActive();
     static bool enqueueRadioTransmit(const uint8_t* data, size_t size);
@@ -128,6 +133,7 @@ class AppTasks
     static bool radio_tasks_paused_;
     static volatile bool radio_receive_active_;
     static volatile bool radio_receive_restart_pending_;
+    static volatile bool radio_receive_suppressed_;
     static volatile bool radio_transmit_active_;
 };
 

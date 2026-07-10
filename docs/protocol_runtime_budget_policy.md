@@ -15,6 +15,19 @@ the Wi-Fi gateway only. LoRa is the fallback carrier only while the Wi-Fi
 gateway is not ready. Explicit `LoRaOnly` and `WifiGatewayOnly` policies keep
 their literal meanings.
 
+The product UI must expose this as one Reticulum bearer strategy (`Auto`,
+`LoRa`, `Wi-Fi`), not as independent LoRa/Wi-Fi toggles. The legacy persisted
+boolean fields are only the internal projection of that strategy. Runtime code
+must normalize them from `reticulum_interface_policy` before applying a
+Reticulum backend.
+
+The same strategy must also gate the shared LoRa radio receive task. In
+Reticulum `Auto`, once the Wi-Fi gateway is ready, the shared LoRa RX task must
+stop arming RX, reading LoRa IRQs, or queueing LoRa packets until Wi-Fi is no
+longer ready. In `WifiGatewayOnly`, shared LoRa RX stays suppressed. In
+`LoRaOnly`, shared LoRa RX stays enabled. Outbound LoRa TX may still be queued
+only when the active strategy has selected LoRa.
+
 When the screen is on, realtime processing is limited to:
 
 - LXMF direct traffic addressed to this device.

@@ -25,6 +25,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 #ifndef CHAT_CONVERSATION_LOG_ENABLE
 #define CHAT_CONVERSATION_LOG_ENABLE 0
@@ -359,22 +360,48 @@ static bool is_valid_epoch_ts(uint32_t ts)
     return ts >= kMinValidEpochSeconds;
 }
 
+static bool format_absolute_message_time(char* out, size_t out_len, uint32_t ts)
+{
+    if (!out || out_len == 0 || !is_valid_epoch_ts(ts))
+    {
+        return false;
+    }
+    const std::time_t raw = static_cast<std::time_t>(ts);
+    std::tm* tm = std::localtime(&raw);
+    if (!tm)
+    {
+        return false;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "%02u/%02u %02u:%02u",
+                  static_cast<unsigned>(tm->tm_mon + 1),
+                  static_cast<unsigned>(tm->tm_mday),
+                  static_cast<unsigned>(tm->tm_hour),
+                  static_cast<unsigned>(tm->tm_min));
+    return true;
+}
+
 static void format_message_time(char* out, size_t out_len, uint32_t ts)
 {
     if (!out || out_len == 0) return;
-    if (ts == 0)
+    if (!is_valid_epoch_ts(ts))
     {
         snprintf(out, out_len, "--");
         return;
     }
 
     uint32_t now_epoch = sys::epoch_seconds_now();
-    const bool ts_is_epoch = is_valid_epoch_ts(ts);
-    bool now_is_epoch = is_valid_epoch_ts(now_epoch);
-    uint32_t now_secs =
-        ts_is_epoch
-            ? (now_is_epoch ? now_epoch : ts)
-            : static_cast<uint32_t>(sys::millis_now() / 1000U);
+    if (!is_valid_epoch_ts(now_epoch))
+    {
+        if (!format_absolute_message_time(out, out_len, ts))
+        {
+            snprintf(out, out_len, "--");
+        }
+        return;
+    }
+
+    uint32_t now_secs = now_epoch;
     if (now_secs < ts)
     {
         now_secs = ts;
