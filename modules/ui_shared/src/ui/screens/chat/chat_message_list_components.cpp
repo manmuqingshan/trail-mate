@@ -24,7 +24,7 @@
 #include <cstring>
 
 #ifndef CHAT_MESSAGE_LIST_LOG_ENABLE
-#define CHAT_MESSAGE_LIST_LOG_ENABLE 1
+#define CHAT_MESSAGE_LIST_LOG_ENABLE 0
 #endif
 
 #if CHAT_MESSAGE_LIST_LOG_ENABLE
@@ -314,27 +314,6 @@ static lv_obj_t* create_action_button(lv_obj_t* parent, const char* text)
     return btn;
 }
 
-static const char* touch_event_name(lv_event_code_t code)
-{
-    switch (code)
-    {
-    case LV_EVENT_PRESSED:
-        return "PRESSED";
-    case LV_EVENT_PRESSING:
-        return "PRESSING";
-    case LV_EVENT_RELEASED:
-        return "RELEASED";
-    case LV_EVENT_CLICKED:
-        return "CLICKED";
-    case LV_EVENT_FOCUSED:
-        return "FOCUSED";
-    case LV_EVENT_DEFOCUSED:
-        return "DEFOCUSED";
-    default:
-        return "OTHER";
-    }
-}
-
 static bool event_input_is_pointer(lv_event_t* e)
 {
     lv_indev_t* indev = e ? lv_event_get_indev(e) : nullptr;
@@ -363,61 +342,6 @@ static void disable_touch_click_focus_recursive(lv_obj_t* obj)
 static void normalize_touch_focus_tree(lv_obj_t* root)
 {
     disable_touch_click_focus_recursive(root);
-}
-
-static void log_obj_snapshot(const char* tag, lv_obj_t* obj)
-{
-    if (!obj)
-    {
-        CHAT_MESSAGE_LIST_LOG("[ChatMessageList][State] %s obj=null\n", tag);
-        return;
-    }
-    if (!lv_obj_is_valid(obj))
-    {
-        CHAT_MESSAGE_LIST_LOG("[ChatMessageList][State] %s obj=%p invalid\n", tag, obj);
-        return;
-    }
-
-    const lv_state_t state = lv_obj_get_state(obj);
-    CHAT_MESSAGE_LIST_LOG(
-        "[ChatMessageList][State] %s obj=%p state=0x%X focused=%d focus_key=%d pressed=%d "
-        "checked=%d clickable=%d click_focusable=%d checkable=%d press_lock=%d group=%p "
-        "parent=%p child_count=%u\n",
-        tag,
-        obj,
-        static_cast<unsigned>(state),
-        lv_obj_has_state(obj, LV_STATE_FOCUSED) ? 1 : 0,
-        lv_obj_has_state(obj, LV_STATE_FOCUS_KEY) ? 1 : 0,
-        lv_obj_has_state(obj, LV_STATE_PRESSED) ? 1 : 0,
-        lv_obj_has_state(obj, LV_STATE_CHECKED) ? 1 : 0,
-        lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICKABLE) ? 1 : 0,
-        lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICK_FOCUSABLE) ? 1 : 0,
-        lv_obj_has_flag(obj, LV_OBJ_FLAG_CHECKABLE) ? 1 : 0,
-        lv_obj_has_flag(obj, LV_OBJ_FLAG_PRESS_LOCK) ? 1 : 0,
-        lv_obj_get_group(obj),
-        lv_obj_get_parent(obj),
-        static_cast<unsigned>(lv_obj_get_child_count(obj)));
-}
-
-static void log_item_tree(const char* tag, lv_obj_t* item)
-{
-    log_obj_snapshot(tag, item);
-    if (!item || !lv_obj_is_valid(item))
-    {
-        return;
-    }
-
-    for (uint32_t child_index = 0; child_index < lv_obj_get_child_count(item); ++child_index)
-    {
-        lv_obj_t* child = lv_obj_get_child(item, child_index);
-        char child_tag[64];
-        std::snprintf(child_tag,
-                      sizeof(child_tag),
-                      "%s.child[%u]",
-                      tag,
-                      static_cast<unsigned>(child_index));
-        log_obj_snapshot(child_tag, child);
-    }
 }
 
 // ------------------------------------------------
@@ -494,13 +418,9 @@ ChatMessageListScreen::ChatMessageListScreen(lv_obj_t* parent)
     {
         lv_obj_add_event_cb(container_, on_root_deleted, LV_EVENT_DELETE, this);
         lv_obj_add_event_cb(container_, page_shortcut_cb, LV_EVENT_KEY, this);
-        lv_obj_add_event_cb(container_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
-        lv_obj_add_event_cb(container_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
         if (list_panel_)
         {
             lv_obj_add_event_cb(list_panel_, page_shortcut_cb, LV_EVENT_KEY, this);
-            lv_obj_add_event_cb(list_panel_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
-            lv_obj_add_event_cb(list_panel_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
         }
     }
     disable_touch_click_focus_recursive(container_);
@@ -508,42 +428,18 @@ ChatMessageListScreen::ChatMessageListScreen(lv_obj_t* parent)
     // ---------- Filter events ----------
     if (direct_btn_)
     {
-        if (use_group_navigation())
-        {
-            lv_obj_add_event_cb(direct_btn_, filter_focus_cb, LV_EVENT_FOCUSED, this);
-        }
         lv_obj_add_event_cb(direct_btn_, filter_click_cb, LV_EVENT_CLICKED, this);
         lv_obj_add_event_cb(direct_btn_, page_shortcut_cb, LV_EVENT_KEY, this);
-        lv_obj_add_event_cb(direct_btn_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
-        lv_obj_add_event_cb(direct_btn_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
-        lv_obj_add_event_cb(direct_btn_, debug_touch_event_cb, LV_EVENT_FOCUSED, this);
-        lv_obj_add_event_cb(direct_btn_, debug_touch_event_cb, LV_EVENT_DEFOCUSED, this);
     }
     if (broadcast_btn_)
     {
-        if (use_group_navigation())
-        {
-            lv_obj_add_event_cb(broadcast_btn_, filter_focus_cb, LV_EVENT_FOCUSED, this);
-        }
         lv_obj_add_event_cb(broadcast_btn_, filter_click_cb, LV_EVENT_CLICKED, this);
         lv_obj_add_event_cb(broadcast_btn_, page_shortcut_cb, LV_EVENT_KEY, this);
-        lv_obj_add_event_cb(broadcast_btn_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
-        lv_obj_add_event_cb(broadcast_btn_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
-        lv_obj_add_event_cb(broadcast_btn_, debug_touch_event_cb, LV_EVENT_FOCUSED, this);
-        lv_obj_add_event_cb(broadcast_btn_, debug_touch_event_cb, LV_EVENT_DEFOCUSED, this);
     }
     if (team_btn_)
     {
-        if (use_group_navigation())
-        {
-            lv_obj_add_event_cb(team_btn_, filter_focus_cb, LV_EVENT_FOCUSED, this);
-        }
         lv_obj_add_event_cb(team_btn_, filter_click_cb, LV_EVENT_CLICKED, this);
         lv_obj_add_event_cb(team_btn_, page_shortcut_cb, LV_EVENT_KEY, this);
-        lv_obj_add_event_cb(team_btn_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
-        lv_obj_add_event_cb(team_btn_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
-        lv_obj_add_event_cb(team_btn_, debug_touch_event_cb, LV_EVENT_FOCUSED, this);
-        lv_obj_add_event_cb(team_btn_, debug_touch_event_cb, LV_EVENT_DEFOCUSED, this);
     }
     updateFilterHighlight();
     applyFilterPanelVisibility();
@@ -568,13 +464,6 @@ ChatMessageListScreen::ChatMessageListScreen(lv_obj_t* parent)
         container_,
         list_panel_,
         filter_panel_);
-    log_obj_snapshot("ctor.root", container_);
-    log_obj_snapshot("ctor.list_panel", list_panel_);
-    log_obj_snapshot("ctor.filter_panel", filter_panel_);
-    log_obj_snapshot("ctor.direct_btn", direct_btn_);
-    log_obj_snapshot("ctor.broadcast_btn", broadcast_btn_);
-    log_obj_snapshot("ctor.team_btn", team_btn_);
-
     // ---------- Input layer ----------
     if (use_group_navigation())
     {
@@ -1175,8 +1064,6 @@ void ChatMessageListScreen::rebuildList()
                           selected_index_,
                           had_previous_selected ? 1 : 0,
                           static_cast<unsigned long>(previous_selected.peer));
-    log_obj_snapshot("rebuild.list_panel.before", list_panel_);
-
     // Same behavior: clear and rebuild
     lv_obj_clean(list_panel_);
     items_.clear();
@@ -1227,21 +1114,10 @@ void ChatMessageListScreen::rebuildList()
         {
             lv_obj_add_event_cb(item.btn, item_focused_cb, LV_EVENT_FOCUSED, this);
         }
-        lv_obj_add_event_cb(item.btn, debug_touch_event_cb, LV_EVENT_PRESSED, this);
-        lv_obj_add_event_cb(item.btn, debug_touch_event_cb, LV_EVENT_CLICKED, this);
-        lv_obj_add_event_cb(item.btn, debug_touch_event_cb, LV_EVENT_FOCUSED, this);
-        lv_obj_add_event_cb(item.btn, debug_touch_event_cb, LV_EVENT_DEFOCUSED, this);
-
         items_.push_back(item);
         CHAT_MESSAGE_LIST_LOG("[ChatMessageList] rebuildList item index=%u btn=%p\n",
                               (unsigned)(items_.size() - 1),
                               item.btn);
-        char item_tag[48];
-        std::snprintf(item_tag,
-                      sizeof(item_tag),
-                      "rebuild.item[%u]",
-                      static_cast<unsigned>(items_.size() - 1));
-        log_item_tree(item_tag, item.btn);
     }
 
     if (items_.empty())
@@ -1285,12 +1161,7 @@ void ChatMessageListScreen::rebuildList()
         {
             lv_obj_add_event_cb(list_back_btn_, item_focused_cb, LV_EVENT_FOCUSED, this);
         }
-        lv_obj_add_event_cb(list_back_btn_, debug_touch_event_cb, LV_EVENT_PRESSED, this);
-        lv_obj_add_event_cb(list_back_btn_, debug_touch_event_cb, LV_EVENT_CLICKED, this);
-        lv_obj_add_event_cb(list_back_btn_, debug_touch_event_cb, LV_EVENT_FOCUSED, this);
-        lv_obj_add_event_cb(list_back_btn_, debug_touch_event_cb, LV_EVENT_DEFOCUSED, this);
         CHAT_MESSAGE_LIST_LOG("[ChatMessageList] rebuildList back_btn=%p\n", list_back_btn_);
-        log_item_tree("rebuild.back_btn", list_back_btn_);
     }
 
     if (had_previous_selected && !items_.empty())
@@ -1377,7 +1248,6 @@ void ChatMessageListScreen::item_event_cb(lv_event_t* e)
                           item,
                           lv_event_get_target(e),
                           screen->selected_index_);
-    log_item_tree("item_click.current.before", item);
     for (size_t i = 0; i < screen->items_.size(); i++)
     {
         if (screen->items_[i].btn == item)
@@ -1388,7 +1258,6 @@ void ChatMessageListScreen::item_event_cb(lv_event_t* e)
                                   static_cast<unsigned>(i),
                                   screen->selected_index_,
                                   static_cast<unsigned long>(screen->items_[i].conv.peer));
-            log_item_tree("item_click.current.after", item);
             screen->openActionMenu(screen->items_[i].conv);
             break;
         }
@@ -1425,29 +1294,6 @@ void ChatMessageListScreen::item_focused_cb(lv_event_t* e)
     }
 }
 
-void ChatMessageListScreen::filter_focus_cb(lv_event_t* e)
-{
-    auto* screen =
-        static_cast<ChatMessageListScreen*>(lv_event_get_user_data(e));
-    if (!screen || !screen->guard_ || !screen->guard_->alive)
-    {
-        return;
-    }
-    lv_obj_t* tgt = static_cast<lv_obj_t*>(lv_event_get_current_target(e));
-    if (tgt == screen->direct_btn_)
-    {
-        screen->setFilterMode(FilterMode::Direct);
-    }
-    else if (tgt == screen->broadcast_btn_)
-    {
-        screen->setFilterMode(FilterMode::Broadcast);
-    }
-    else if (tgt == screen->team_btn_)
-    {
-        screen->setFilterMode(FilterMode::Team);
-    }
-}
-
 void ChatMessageListScreen::filter_click_cb(lv_event_t* e)
 {
     auto* screen =
@@ -1474,7 +1320,6 @@ void ChatMessageListScreen::filter_click_cb(lv_event_t* e)
                           event_input_is_pointer(e) ? 1 : 0,
                           static_cast<int>(screen->filter_mode_));
     normalize_touch_focus_tree(screen->container_);
-    log_obj_snapshot("filter_click.target", tgt);
     if (use_group_navigation() && !event_input_is_pointer(e))
     {
         chat::ui::message_list::input::focus_list(&screen->input_controller_);
@@ -1610,73 +1455,6 @@ void ChatMessageListScreen::page_shortcut_cb(lv_event_t* e)
         screen->toggleFilterPanel();
         lv_event_stop_processing(e);
         return;
-    }
-}
-
-void ChatMessageListScreen::debug_touch_event_cb(lv_event_t* e)
-{
-    auto* screen = static_cast<ChatMessageListScreen*>(lv_event_get_user_data(e));
-    if (!screen || !screen->guard_ || !screen->guard_->alive)
-    {
-        return;
-    }
-
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t* current = static_cast<lv_obj_t*>(lv_event_get_current_target(e));
-    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
-    const char* role = "unknown";
-    int index = -1;
-
-    if (current == screen->list_panel_)
-    {
-        role = "list_panel";
-    }
-    else if (current == screen->container_)
-    {
-        role = "screen_root";
-    }
-    else if (current == screen->list_back_btn_)
-    {
-        role = "list_back";
-    }
-    else if (current == screen->direct_btn_)
-    {
-        role = "direct_filter";
-    }
-    else if (current == screen->broadcast_btn_)
-    {
-        role = "broadcast_filter";
-    }
-    else if (current == screen->team_btn_)
-    {
-        role = "team_filter";
-    }
-    else
-    {
-        for (size_t i = 0; i < screen->items_.size(); ++i)
-        {
-            if (screen->items_[i].btn == current)
-            {
-                role = "list_item";
-                index = static_cast<int>(i);
-                break;
-            }
-        }
-    }
-
-    CHAT_MESSAGE_LIST_LOG("[ChatMessageList][Touch] event=%s code=%d role=%s index=%d current=%p target=%p selected=%d items=%u\n",
-                          touch_event_name(code),
-                          (int)code,
-                          role,
-                          index,
-                          current,
-                          target,
-                          screen->selected_index_,
-                          (unsigned)screen->items_.size());
-    log_obj_snapshot("touch.current", current);
-    if (index >= 0)
-    {
-        log_item_tree("touch.item", current);
     }
 }
 

@@ -868,7 +868,7 @@ void UiController::switchToChannelList()
     }
 
     service_.setModelEnabled(true);
-    refreshUnreadCounts(true);
+    refreshUnreadCounts(false);
 }
 
 void UiController::switchToConversation(chat::ConversationId conv)

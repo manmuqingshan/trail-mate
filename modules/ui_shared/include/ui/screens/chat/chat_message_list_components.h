@@ -176,13 +176,11 @@ class ChatMessageListScreen
     static void item_event_cb(lv_event_t* e);
     static void list_back_event_cb(lv_event_t* e);
     static void item_focused_cb(lv_event_t* e);
-    static void filter_focus_cb(lv_event_t* e);
     static void filter_click_cb(lv_event_t* e);
     static void page_shortcut_cb(lv_event_t* e);
     static void search_apply_cb(const char* text, void* user_data);
     static void search_clear_cb(void* user_data);
     static void search_cancel_cb(void* user_data);
-    static void debug_touch_event_cb(lv_event_t* e);
     static void action_menu_button_cb(lv_event_t* e);
     static void action_menu_key_cb(lv_event_t* e);
     static void delete_confirm_cb(lv_event_t* e);
