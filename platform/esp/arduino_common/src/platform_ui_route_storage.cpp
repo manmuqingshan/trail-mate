@@ -30,7 +30,7 @@ constexpr const char* kRouteAssetRoot = "/routes/.trailmate";
 constexpr const char* kRouteAssetImageSubdir = "images";
 constexpr const char* kRouteAssetThumbSubdir = "thumbs";
 constexpr const char* kRouteAssetViewSubdir = "views";
-constexpr std::size_t kRouteDownloadBufferSize = 1024;
+constexpr std::size_t kRouteDownloadBufferSize = 512;
 constexpr int kRouteDownloadTxBufferSize = 512;
 constexpr uint32_t kRouteImageWorkerStackBytes = 12 * 1024;
 constexpr UBaseType_t kRouteImageWorkerPriority = 2;
@@ -40,6 +40,12 @@ constexpr uint16_t kRouteViewWidth = 320;
 constexpr uint16_t kRouteViewHeight = 180;
 constexpr std::size_t kRouteCacheInternalReserveBytes = 96 * 1024;
 constexpr std::size_t kRouteCacheInternalSlackBytes = 8 * 1024;
+constexpr std::size_t kRouteJpegDecoderWorkBytes = 3100;
+constexpr std::size_t kRouteHttpInternalFreeTargetBytes = 72 * 1024;
+constexpr std::size_t kRouteHttpInternalLargestTargetBytes = 24 * 1024;
+constexpr std::size_t kRouteImageDownloadAttempts = 3;
+constexpr TickType_t kRouteImageRetryDelayTicks = pdMS_TO_TICKS(1600);
+constexpr TickType_t kRouteImageMemoryWaitTicks = pdMS_TO_TICKS(250);
 
 enum class RouteImageBatchKind : uint8_t
 {
@@ -49,6 +55,43 @@ enum class RouteImageBatchKind : uint8_t
 
 struct RouteImageBatchContext
 {
+#if defined(ESP_PLATFORM)
+    static void* allocate_storage(std::size_t size) noexcept
+    {
+        void* ptr = heap_caps_malloc_prefer(size,
+                                            2,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        return ptr;
+    }
+
+    void* operator new(std::size_t size)
+    {
+        void* ptr = allocate_storage(size);
+        return ptr != nullptr ? ptr : ::operator new(size);
+    }
+
+    void* operator new(std::size_t size, const std::nothrow_t&) noexcept
+    {
+        return allocate_storage(size);
+    }
+
+    void operator delete(void* ptr) noexcept
+    {
+        heap_caps_free(ptr);
+    }
+
+    void operator delete(void* ptr, std::size_t) noexcept
+    {
+        operator delete(ptr);
+    }
+
+    void operator delete(void* ptr, const std::nothrow_t&) noexcept
+    {
+        operator delete(ptr);
+    }
+#endif
+
     RouteImageBatchKind kind = RouteImageBatchKind::Download;
     std::string asset_id{};
     std::vector<RouteImageDownloadItem> download_items{};
@@ -177,7 +220,7 @@ class HeapCapsBuffer
     HeapCapsBuffer(const HeapCapsBuffer&) = delete;
     HeapCapsBuffer& operator=(const HeapCapsBuffer&) = delete;
 
-    bool allocate(std::size_t bytes)
+    bool allocate(std::size_t bytes, bool zero_fill = true)
     {
         reset();
         if (bytes == 0)
@@ -206,7 +249,10 @@ class HeapCapsBuffer
             return false;
         }
         size_ = bytes;
-        std::memset(data_, 0, size_);
+        if (zero_fill)
+        {
+            std::memset(data_, 0, size_);
+        }
         return true;
     }
 
@@ -252,6 +298,70 @@ void log_cache_memory_skip(const char* label, std::size_t bytes)
                     heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
                 static_cast<unsigned>(
                     heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+}
+
+void log_route_http_memory(const char* stage)
+{
+    std::printf("[RouteImage][http] %s internal_free=%u internal_largest=%u "
+                "psram_free=%u psram_largest=%u\n",
+                stage ? stage : "-",
+                static_cast<unsigned>(
+                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+}
+
+bool route_http_memory_ready()
+{
+    return heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >=
+               kRouteHttpInternalFreeTargetBytes &&
+           heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >=
+               kRouteHttpInternalLargestTargetBytes;
+}
+
+void wait_for_route_http_memory()
+{
+    if (route_http_memory_ready())
+    {
+        return;
+    }
+
+    log_route_http_memory("wait_begin");
+    for (int attempt = 0; attempt < 8; ++attempt)
+    {
+        vTaskDelay(kRouteImageMemoryWaitTicks);
+        if (route_http_memory_ready())
+        {
+            log_route_http_memory("wait_ready");
+            return;
+        }
+    }
+    log_route_http_memory("wait_continue");
+}
+
+bool route_image_http_error_retryable(const std::string& error)
+{
+    return error == "Open HTTP request failed" ||
+           error == "Fetch HTTP headers failed" ||
+           error == "Read HTTP response failed" ||
+           error == "Create HTTP client failed";
+}
+
+void log_route_worker_stack(const char* stage)
+{
+#if defined(ESP_PLATFORM)
+    const UBaseType_t free_words = uxTaskGetStackHighWaterMark(nullptr);
+    std::printf("[RouteImage][task] %s stack_free_words=%u stack_free_bytes=%u\n",
+                stage ? stage : "-",
+                static_cast<unsigned>(free_words),
+                static_cast<unsigned>(free_words * sizeof(StackType_t)));
+#else
+    (void)stage;
+#endif
 }
 
 struct RouteJpegCacheContext
@@ -503,13 +613,19 @@ bool generate_route_image_bmp_cache(const std::string& source_path,
     }
 
     constexpr uint8_t kDecodeScale = 1;
-    uint8_t work[3100]{};
+    HeapCapsBuffer decoder_work;
+    if (!decoder_work.allocate(kRouteJpegDecoderWorkBytes))
+    {
+        ctx.input.close();
+        log_cache_memory_skip("decoder_work", kRouteJpegDecoderWorkBytes);
+        return false;
+    }
     esp_rom_tjpgd_dec_t decoder{};
     esp_rom_tjpgd_result_t result =
         esp_rom_tjpgd_prepare(&decoder,
                               jpeg_input_cb,
-                              work,
-                              static_cast<uint32_t>(sizeof(work)),
+                              decoder_work.data(),
+                              static_cast<uint32_t>(decoder_work.size()),
                               &ctx);
     if (result != JDR_OK || decoder.width == 0 || decoder.height == 0)
     {
@@ -671,6 +787,7 @@ void route_image_worker_task(void* param)
     bool stopped_for_connection_failure = false;
     char detail[96]{};
 
+    log_route_worker_stack("start");
     std::snprintf(detail,
                   sizeof(detail),
                   cache_only ? "Caching 0/%u" : "Downloading 0/%u",
@@ -826,7 +943,37 @@ void route_image_worker_task(void* param)
             }
             else
             {
-                const auto result = download_route_image(item.url, item.output_path);
+                RouteImageDownloadResult result{};
+                for (std::size_t attempt = 0; attempt < kRouteImageDownloadAttempts; ++attempt)
+                {
+                    wait_for_route_http_memory();
+                    result = download_route_image(item.url, item.output_path);
+                    if (result.ok ||
+                        !route_image_http_error_retryable(result.error) ||
+                        attempt + 1U >= kRouteImageDownloadAttempts)
+                    {
+                        break;
+                    }
+
+                    std::snprintf(detail,
+                                  sizeof(detail),
+                                  "Retry %u/%u image %u",
+                                  static_cast<unsigned>(attempt + 2U),
+                                  static_cast<unsigned>(kRouteImageDownloadAttempts),
+                                  static_cast<unsigned>(index + 1));
+                    update_batch_status(RouteImageDownloadPhase::Downloading,
+                                        true,
+                                        asset_id,
+                                        total,
+                                        processed,
+                                        saved,
+                                        failed,
+                                        index,
+                                        bytes,
+                                        detail);
+                    log_route_http_memory("retry_wait");
+                    vTaskDelay(kRouteImageRetryDelayTicks);
+                }
                 if (result.ok)
                 {
                     original_available = true;
@@ -836,7 +983,7 @@ void route_image_worker_task(void* param)
                 else
                 {
                     ++failed;
-                    if (result.error == "Open HTTP request failed")
+                    if (route_image_http_error_retryable(result.error))
                     {
                         ++consecutive_connection_failures;
                     }
@@ -926,6 +1073,7 @@ void route_image_worker_task(void* param)
         s_image_batch.worker_task = nullptr;
         s_image_batch.launch_pending = false;
     }
+    log_route_worker_stack("finish");
     vTaskDelete(nullptr);
 }
 

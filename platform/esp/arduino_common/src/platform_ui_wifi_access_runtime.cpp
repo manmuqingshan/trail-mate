@@ -110,6 +110,24 @@ bool ota_active_for_other(const Request& request)
     return active;
 }
 
+bool foreground_download_owner(Client client)
+{
+    return client == Client::RouteStorage;
+}
+
+bool foreground_download_active_for_other(const Request& request)
+{
+    bool active = false;
+    portENTER_CRITICAL(&s_lock);
+    active = s_state.http_active &&
+             !s_state.ota_active &&
+             s_state.active_kind == AccessKind::HttpDownload &&
+             foreground_download_owner(s_state.owner) &&
+             !(s_state.owner == request.client && s_state.active_kind == request.kind);
+    portEXIT_CRITICAL(&s_lock);
+    return active;
+}
+
 bool acquire_http(const Request& request, ScreenPhase phase, Lease& out)
 {
     if (::platform::ui::reticulum_call::realtime_mode_active())
@@ -174,6 +192,13 @@ bool long_lived_allowed(const Request& request, ScreenPhase phase, Lease& out)
     if (ota_active_for_other(request))
     {
         out.decision = Decision::OtaExclusive;
+        return false;
+    }
+    if (foreground_download_active_for_other(request) &&
+        (request.client == Client::MeshMqtt ||
+         request.client == Client::ReticulumGateway))
+    {
+        out.decision = Decision::Busy;
         return false;
     }
     out.granted = true;
@@ -255,6 +280,12 @@ bool ensure_connected(const Request& request, Decision* out_decision)
     else if (ota_active_for_other(request))
     {
         decision = Decision::OtaExclusive;
+    }
+    else if (foreground_download_active_for_other(request) &&
+             (request.client == Client::MeshMqtt ||
+              request.client == Client::ReticulumGateway))
+    {
+        decision = Decision::Busy;
     }
     else if (::platform::ui::reticulum_call::realtime_mode_active() &&
              request.client != Client::ReticulumGateway)
@@ -387,9 +418,19 @@ TrafficBudget traffic_budget(Client client, Priority priority)
     portENTER_CRITICAL(&s_lock);
     const bool http_active = s_state.http_active;
     const bool ota = s_state.ota_active;
+    const Client owner = s_state.owner;
+    const AccessKind active_kind = s_state.active_kind;
     portEXIT_CRITICAL(&s_lock);
 
-    if (ota)
+    const bool messaging_client =
+        client == Client::MeshMqtt || client == Client::ReticulumGateway;
+    const bool foreground_download_active =
+        http_active &&
+        !ota &&
+        active_kind == AccessKind::HttpDownload &&
+        foreground_download_owner(owner);
+
+    if (ota || (foreground_download_active && messaging_client))
     {
         budget.allow_connect = false;
         budget.allow_read = false;

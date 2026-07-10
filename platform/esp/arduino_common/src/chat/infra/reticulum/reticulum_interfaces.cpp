@@ -512,6 +512,11 @@ void WifiGatewayReticulumInterface::readAvailable()
         {
             ++rx_stats_read_skips_;
         }
+        if (!budget.allow_connect && !budget.allow_write)
+        {
+            stop();
+            last_reconnect_ms_ = now_ms;
+        }
         return;
     }
     if (remaining > 0 &&

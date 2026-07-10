@@ -5,9 +5,9 @@
 #include "esp_http_client.h"
 #include "mbedtls/platform.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
-#include <memory>
-#include <new>
 
 extern "C" esp_err_t esp_crt_bundle_attach(void* conf);
 
@@ -17,6 +17,71 @@ namespace
 {
 
 constexpr std::size_t kTlsLargeAllocThresholdBytes = 4096;
+
+bool http_buffer_prefers_psram(const Request& request)
+{
+    return request.client == wifi_access::Client::RouteStorage ||
+           request.client == wifi_access::Client::PackRepository;
+}
+
+class HeapCapsBuffer
+{
+  public:
+    HeapCapsBuffer() = default;
+    ~HeapCapsBuffer()
+    {
+        reset();
+    }
+
+    HeapCapsBuffer(const HeapCapsBuffer&) = delete;
+    HeapCapsBuffer& operator=(const HeapCapsBuffer&) = delete;
+
+    bool allocate(std::size_t bytes, bool prefer_psram)
+    {
+        reset();
+        if (bytes == 0)
+        {
+            return false;
+        }
+
+        const uint32_t primary_caps = prefer_psram ? (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+                                                   : (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const uint32_t secondary_caps = prefer_psram ? (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+                                                     : (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        data_ = static_cast<std::uint8_t*>(
+            heap_caps_malloc_prefer(bytes, 2, primary_caps, secondary_caps));
+        if (!data_)
+        {
+            return false;
+        }
+        size_ = bytes;
+        return true;
+    }
+
+    void reset()
+    {
+        if (data_)
+        {
+            heap_caps_free(data_);
+            data_ = nullptr;
+        }
+        size_ = 0;
+    }
+
+    std::uint8_t* data()
+    {
+        return data_;
+    }
+
+    std::size_t size() const
+    {
+        return size_;
+    }
+
+  private:
+    std::uint8_t* data_ = nullptr;
+    std::size_t size_ = 0;
+};
 
 void log_memory_snapshot(const char* stage)
 {
@@ -196,9 +261,10 @@ bool download(const Request& request,
 
     const std::size_t buffer_size =
         request.buffer_size > 0 ? static_cast<std::size_t>(request.buffer_size) : 1024U;
-    std::unique_ptr<std::uint8_t[]> buffer(new (std::nothrow) std::uint8_t[buffer_size]);
-    if (!buffer)
+    HeapCapsBuffer buffer;
+    if (!buffer.allocate(buffer_size, http_buffer_prefers_psram(request)))
     {
+        log_memory_snapshot("buffer alloc failed");
         esp_http_client_cleanup(client);
         wifi_access::release(lease);
         out_error = "Allocate HTTP buffer failed";
@@ -211,10 +277,12 @@ bool download(const Request& request,
     const esp_err_t open_err = esp_http_client_open(client, 0);
     if (open_err != ESP_OK)
     {
+        log_memory_snapshot("open failed");
         out_error = "Open HTTP request failed";
     }
     else if (esp_http_client_fetch_headers(client) < 0)
     {
+        log_memory_snapshot("headers failed");
         out_error = "Fetch HTTP headers failed";
     }
     else
@@ -239,10 +307,11 @@ bool download(const Request& request,
             {
                 const int read = esp_http_client_read(
                     client,
-                    reinterpret_cast<char*>(buffer.get()),
-                    static_cast<int>(buffer_size));
+                    reinterpret_cast<char*>(buffer.data()),
+                    static_cast<int>(buffer.size()));
                 if (read < 0)
                 {
+                    log_memory_snapshot("read failed");
                     out_error = "Read HTTP response failed";
                     break;
                 }
@@ -257,7 +326,7 @@ bool download(const Request& request,
                     out_error = "HTTP response too large";
                     break;
                 }
-                if (!write(buffer.get(), static_cast<std::size_t>(read), write_context))
+                if (!write(buffer.data(), static_cast<std::size_t>(read), write_context))
                 {
                     out_error = "Write HTTP response failed";
                     break;

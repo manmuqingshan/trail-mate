@@ -182,6 +182,7 @@ lv_obj_t* s_tracker_modal = nullptr;
 bool s_map_help_open_pending = false;
 bool s_map_refresh_pending = false;
 bool s_map_drag_active = false;
+bool s_map_tile_loader_paused = false;
 uint8_t s_map_context_mask = 0xFF;
 char s_map_notice_text[64]{};
 uint32_t s_map_notice_until_ms = 0;
@@ -211,6 +212,7 @@ void open_tracker_modal();
 void add_map_controls_to_group(lv_group_t* group);
 void request_refresh_view();
 void consume_key_event(lv_event_t* e);
+void sync_map_tile_loader_pause();
 void sync_map_chrome_visibility();
 void rebuild_map_control_group();
 bool load_map_track_file_impl(const char* path, bool show_fail_toast);
@@ -2409,12 +2411,21 @@ void apply_map_drag_preview()
         build_map_model(snapshot));
 }
 
+void sync_map_tile_loader_pause()
+{
+    const auto status = platform::ui::route_storage::route_image_download_status();
+    const bool should_pause = status.busy;
+    s_map_tile_loader_paused = should_pause;
+    ::ui::widgets::map::set_loader_paused(s_map_runtime, should_pause);
+}
+
 void refresh_view()
 {
     if (!s_root)
     {
         return;
     }
+    sync_map_tile_loader_pause();
 
     ui_update_top_bar_battery(s_top_bar);
     update_map_top_bar_title();
@@ -2523,6 +2534,7 @@ SharedGpsUiRefreshSink& gps_runtime_refresh_sink()
 void refresh_timer_cb(lv_timer_t* timer)
 {
     (void)timer;
+    sync_map_tile_loader_pause();
     gps_runtime_pump().update(sys::millis_now());
 }
 
@@ -3544,6 +3556,7 @@ void create_map_content(lv_obj_t* content)
     const auto map_widgets = ::ui::widgets::map::create(s_map_runtime, viewport, 180);
     ::ui::widgets::map::set_gesture_callback(s_map_runtime, map_gesture_callback, nullptr);
     ::ui::widgets::map::set_gesture_enabled(s_map_runtime, true);
+    sync_map_tile_loader_pause();
     lv_obj_update_layout(content);
     lv_obj_update_layout(viewport);
     ::ui::widgets::map::set_size(s_map_runtime,
@@ -3705,6 +3718,7 @@ void exit(lv_obj_t* parent)
     {
         ::ui::widgets::map::destroy(s_map_runtime);
     }
+    s_map_tile_loader_paused = false;
     clear_gps_status_labels();
     clear_map_controls();
     if (s_root)

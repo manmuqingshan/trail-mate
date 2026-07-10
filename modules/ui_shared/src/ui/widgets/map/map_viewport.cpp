@@ -58,6 +58,7 @@ struct RuntimeImpl
     lv_timer_t* loader_timer = nullptr;
     uint32_t loader_interval_ms = 50;
     uint32_t last_loader_active_log_ms = 0;
+    bool loader_paused = false;
     bool alive = false;
     bool has_map_data = false;
     bool has_visible_map_data = false;
@@ -666,17 +667,21 @@ void loader_timer_cb(lv_timer_t* timer)
         now_ms - impl->last_loader_active_log_ms >= 5000U)
     {
         impl->last_loader_active_log_ms = now_ms;
-        std::printf("[UI][Lifecycle] map tile_loader active root=%p interval_ms=%lu focus=%.6f,%.6f zoom=%d visible=%d data=%d\n",
+        std::printf("[UI][Lifecycle] map tile_loader active root=%p interval_ms=%lu focus=%.6f,%.6f zoom=%d visible=%d data=%d paused=%d\n",
                     impl->widgets.root,
                     static_cast<unsigned long>(impl->loader_interval_ms),
                     impl->model.focus_point.lat,
                     impl->model.focus_point.lon,
                     impl->model.zoom,
                     impl->has_visible_map_data ? 1 : 0,
-                    impl->has_map_data ? 1 : 0);
+                    impl->has_map_data ? 1 : 0,
+                    impl->loader_paused ? 1 : 0);
     }
 
-    tile_loader_step(impl->tile_ctx);
+    if (!impl->loader_paused)
+    {
+        tile_loader_step(impl->tile_ctx);
+    }
 
     uint8_t missing_source = 0;
     if (::take_missing_tile_notice(&missing_source))
@@ -1081,6 +1086,20 @@ bool take_missing_tile_notice(Runtime& runtime, uint8_t* out_map_source)
 {
     (void)runtime;
     return ::take_missing_tile_notice(out_map_source);
+}
+
+void set_loader_paused(Runtime& runtime, bool paused)
+{
+    RuntimeImpl* impl = runtime.impl_;
+    if (!impl || impl->loader_paused == paused)
+    {
+        return;
+    }
+
+    impl->loader_paused = paused;
+    MAP_VIEWPORT_LOG("loader_paused root=%p paused=%d\n",
+                     impl->widgets.root,
+                     paused ? 1 : 0);
 }
 
 void set_gesture_enabled(Runtime& runtime, bool enabled)
