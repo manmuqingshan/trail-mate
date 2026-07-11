@@ -162,6 +162,8 @@ constexpr uint32_t kTerminalDim = 0x9A917F;
 constexpr uint32_t kTerminalGreen = 0x4EA646;
 constexpr uint32_t kTerminalAmber = 0xF4B443;
 
+#define NETWORK_PAGE_LOG(...) std::printf("[UI][Network][Nomad] " __VA_ARGS__)
+
 const char* safe_tr(const char* text)
 {
     return ::ui::i18n::tr(text);
@@ -174,6 +176,40 @@ void copy_text(char* out, std::size_t out_len, const char* text)
         return;
     }
     std::snprintf(out, out_len, "%s", text ? text : "");
+}
+
+const char* log_text(const char* text)
+{
+    return text ? text : "";
+}
+
+const char* directory_mode_label(DirectoryMode mode)
+{
+    return mode == DirectoryMode::Favourites ? "favourites" : "announces";
+}
+
+void log_page_status(const char* stage,
+                     const RemotePageAddress& page_address,
+                     const rtpage::Status& status,
+                     std::size_t body_len,
+                     uint32_t elapsed_ms)
+{
+    NETWORK_PAGE_LOG(
+        "%s dest=%s path=%s elapsed_ms=%lu supported=%u sd=%u file=%u loaded=%u saved=%u request=%u truncated=%u body=%lu message=\"%s\" detail=\"%s\"\n",
+        log_text(stage),
+        page_address.destination,
+        page_address.path,
+        static_cast<unsigned long>(elapsed_ms),
+        status.supported ? 1U : 0U,
+        status.sd_present ? 1U : 0U,
+        status.file_present ? 1U : 0U,
+        status.loaded ? 1U : 0U,
+        status.saved ? 1U : 0U,
+        status.request_started ? 1U : 0U,
+        status.truncated ? 1U : 0U,
+        static_cast<unsigned long>(body_len),
+        status.message,
+        status.detail);
 }
 
 const lv_font_t* body_font()
@@ -1264,18 +1300,25 @@ void render_current_page()
     }
 
     const char* address = g_state.current_address;
+    NETWORK_PAGE_LOG("render begin address=%s\n", log_text(address));
     if (!address || address[0] == '\0' || std::strcmp(address, "home:/") == 0)
     {
+        NETWORK_PAGE_LOG("render route=home announces=%lu favourites=%lu reticulum=%u\n",
+                         static_cast<unsigned long>(visible_announce_count()),
+                         static_cast<unsigned long>(favourite_count()),
+                         reticulum_active() ? 1U : 0U);
         render_home_page();
         return;
     }
     if (std::strcmp(address, "home:/announces") == 0)
     {
+        NETWORK_PAGE_LOG("render route=collection type=announces\n");
         render_collection_page(false);
         return;
     }
     if (std::strcmp(address, "home:/favourites") == 0)
     {
+        NETWORK_PAGE_LOG("render route=collection type=favourites\n");
         render_collection_page(true);
         return;
     }
@@ -1288,8 +1331,14 @@ void render_current_page()
             find_announce_by_destination_text(destination);
         const auto* known_address =
             find_address_by_destination_text(destination);
+        NETWORK_PAGE_LOG("address parsed address=%s dest=%s announce=%u contact=%u\n",
+                         address,
+                         destination,
+                         announce ? 1U : 0U,
+                         known_address ? 1U : 0U);
         if (!parse_remote_page_address(address, page_address))
         {
+            NETWORK_PAGE_LOG("parse failed address=%s dest=%s\n", address, destination);
             rtpage::Status invalid_status{};
             copy_text(invalid_status.message,
                       sizeof(invalid_status.message),
@@ -1305,19 +1354,45 @@ void render_current_page()
         }
 
         std::size_t body_len = 0;
+        NETWORK_PAGE_LOG("cache lookup begin dest=%s path=%s\n",
+                         page_address.destination,
+                         page_address.path);
+        const uint32_t cache_started_ms = lv_tick_get();
         const rtpage::Status cache_status =
             rtpage::load_cached_page(page_address.destination,
                                      page_address.path,
                                      g_state.page_body.data(),
                                      g_state.page_body.size(),
                                      &body_len);
+        log_page_status("cache lookup result",
+                        page_address,
+                        cache_status,
+                        body_len,
+                        lv_tick_elaps(cache_started_ms));
         if (cache_status.loaded)
         {
+            NETWORK_PAGE_LOG("render cached dest=%s path=%s body=%lu truncated=%u\n",
+                             page_address.destination,
+                             page_address.path,
+                             static_cast<unsigned long>(body_len),
+                             cache_status.truncated ? 1U : 0U);
             render_cached_page(cache_status, body_len);
             return;
         }
+        NETWORK_PAGE_LOG("request begin dest=%s path=%s\n",
+                         page_address.destination,
+                         page_address.path);
+        const uint32_t request_started_ms = lv_tick_get();
         const rtpage::Status request_status =
             rtpage::request_page(page_address.destination, page_address.path);
+        log_page_status("request result",
+                        page_address,
+                        request_status,
+                        0,
+                        lv_tick_elaps(request_started_ms));
+        NETWORK_PAGE_LOG("render shell reason=cache_miss dest=%s path=%s\n",
+                         page_address.destination,
+                         page_address.path);
         render_remote_page_shell(address,
                                  &page_address,
                                  announce,
@@ -1327,6 +1402,7 @@ void render_current_page()
         return;
     }
 
+    NETWORK_PAGE_LOG("render shell reason=unrecognized_address address=%s\n", address);
     render_remote_page_shell(address, nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
@@ -1546,6 +1622,7 @@ void render_directory_list()
 {
     if (!g_state.directory_list)
     {
+        NETWORK_PAGE_LOG("directory render skipped reason=no_list\n");
         return;
     }
     lv_obj_clean(g_state.directory_list);
@@ -1601,6 +1678,17 @@ void render_directory_list()
             ++visible;
         }
     }
+
+    NETWORK_PAGE_LOG(
+        "directory render mode=%s total=%lu visible=%lu search=\"%s\" announce_status=\"%s\" address_status=\"%s\"\n",
+        directory_mode_label(g_state.directory_mode),
+        static_cast<unsigned long>(g_state.directory_mode == DirectoryMode::Favourites
+                                       ? g_state.address_count
+                                       : g_state.announce_count),
+        static_cast<unsigned long>(visible),
+        g_state.search_query,
+        g_state.announce_status.message,
+        g_state.address_status.message);
 
     if (visible == 0)
     {
