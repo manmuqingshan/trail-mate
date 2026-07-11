@@ -743,6 +743,19 @@ void ChatMessageListScreen::buildFilteredConversations(
             out.push_back(conv);
         }
     }
+    std::stable_sort(out.begin(),
+                     out.end(),
+                     [](const chat::ConversationMeta& lhs,
+                        const chat::ConversationMeta& rhs)
+                     {
+                         const bool lhs_unread = lhs.unread > 0;
+                         const bool rhs_unread = rhs.unread > 0;
+                         if (lhs_unread != rhs_unread)
+                         {
+                             return lhs_unread;
+                         }
+                         return lhs.last_timestamp > rhs.last_timestamp;
+                     });
 }
 
 void ChatMessageListScreen::applyFilterPanelVisibility()
