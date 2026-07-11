@@ -43,7 +43,7 @@ constexpr std::size_t kRouteCacheInternalSlackBytes = 8 * 1024;
 constexpr std::size_t kRouteJpegDecoderWorkBytes = 3100;
 constexpr std::size_t kRouteHttpInternalFreeTargetBytes = 24 * 1024;
 constexpr std::size_t kRouteHttpInternalLargestTargetBytes = 8 * 1024;
-constexpr std::size_t kRouteImageDownloadAttempts = 1;
+constexpr std::size_t kRouteImageDownloadAttempts = 2;
 constexpr int kRouteImageMemoryWaitAttempts = 16;
 constexpr TickType_t kRouteImageRetryDelayTicks = pdMS_TO_TICKS(1600);
 constexpr TickType_t kRouteImageMemoryWaitTicks = pdMS_TO_TICKS(250);
@@ -419,6 +419,36 @@ bool route_image_http_error_retryable(const std::string& error)
            error == "Read HTTP response failed" ||
            error == "Low HTTP memory" ||
            error == "Create HTTP client failed";
+}
+
+bool route_image_url_supported(const std::string& url)
+{
+    const std::size_t scheme_end = url.find("://");
+    if (scheme_end == std::string::npos)
+    {
+        return false;
+    }
+
+    std::string scheme = url.substr(0, scheme_end);
+    std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char ch)
+                   { return static_cast<char>(std::tolower(ch)); });
+    if (scheme != "http" && scheme != "https")
+    {
+        return false;
+    }
+
+    const std::size_t host_start = scheme_end + 3U;
+    if (host_start >= url.size())
+    {
+        return false;
+    }
+    const char first_host_char = url[host_start];
+    if (first_host_char == '/' || first_host_char == ':' ||
+        first_host_char == '?' || first_host_char == '#')
+    {
+        return false;
+    }
+    return true;
 }
 
 void log_route_worker_stack(const char* stage)
@@ -1063,10 +1093,11 @@ void route_image_worker_task(void* param)
     }
     else
     {
-        for (std::size_t index = 0; index < total; ++index)
+        for (std::size_t index = 0; index < total;)
         {
             const RouteImageDownloadItem& item = download_items[index];
             bool original_available = false;
+            bool defer_for_memory = false;
             std::snprintf(detail,
                           sizeof(detail),
                           "Image %u/%u",
@@ -1115,9 +1146,25 @@ void route_image_worker_task(void* param)
                 progress_context.base_bytes = bytes;
                 for (std::size_t attempt = 0; attempt < kRouteImageDownloadAttempts; ++attempt)
                 {
-                    if (!wait_for_route_http_memory())
+                    while (!wait_for_route_http_memory())
                     {
-                        log_route_http_memory("tight_continue");
+                        std::snprintf(detail,
+                                      sizeof(detail),
+                                      "Waiting memory %u/%u",
+                                      static_cast<unsigned>(index + 1),
+                                      static_cast<unsigned>(total));
+                        update_batch_status(RouteImageDownloadPhase::Downloading,
+                                            true,
+                                            asset_id,
+                                            total,
+                                            processed,
+                                            saved,
+                                            failed,
+                                            index,
+                                            bytes,
+                                            detail);
+                        log_route_http_memory("tight_wait");
+                        vTaskDelay(kRouteImageRetryDelayTicks);
                     }
                     progress_context.last_bytes = 0;
                     progress_context.last_tick = 0;
@@ -1126,6 +1173,28 @@ void route_image_worker_task(void* param)
                                                                 kRouteImageDownloadMaxBytes,
                                                                 route_image_download_progress,
                                                                 &progress_context);
+                    if (!result.ok && result.error == "Low HTTP memory")
+                    {
+                        defer_for_memory = true;
+                        std::snprintf(detail,
+                                      sizeof(detail),
+                                      "Waiting memory %u/%u",
+                                      static_cast<unsigned>(index + 1),
+                                      static_cast<unsigned>(total));
+                        update_batch_status(RouteImageDownloadPhase::Downloading,
+                                            true,
+                                            asset_id,
+                                            total,
+                                            processed,
+                                            saved,
+                                            failed,
+                                            index,
+                                            bytes,
+                                            detail);
+                        log_route_http_memory("http_low_memory");
+                        vTaskDelay(kRouteImageRetryDelayTicks);
+                        break;
+                    }
                     if (result.ok ||
                         !route_image_http_error_retryable(result.error) ||
                         attempt + 1U >= kRouteImageDownloadAttempts)
@@ -1152,7 +1221,12 @@ void route_image_worker_task(void* param)
                     log_route_http_memory("retry_wait");
                     vTaskDelay(kRouteImageRetryDelayTicks);
                 }
-                if (result.ok)
+                if (defer_for_memory)
+                {
+                    consecutive_connection_failures = 0;
+                    continue;
+                }
+                else if (result.ok)
                 {
                     original_available = true;
                     bytes += result.bytes;
@@ -1210,6 +1284,7 @@ void route_image_worker_task(void* param)
                               static_cast<unsigned>(total));
                 break;
             }
+            ++index;
         }
 
         const bool ok = !stopped_for_connection_failure && failed == 0 && saved >= total;
@@ -1407,6 +1482,11 @@ RouteImageDownloadResult download_route_image_with_progress(
         result.error = "Missing URL";
         return result;
     }
+    if (!route_image_url_supported(url))
+    {
+        result.error = "Invalid image URL";
+        return result;
+    }
     if (!platform::ui::device::sd_ready())
     {
         result.error = "No SD card";
@@ -1437,6 +1517,8 @@ RouteImageDownloadResult download_route_image_with_progress(
     request.buffer_size = static_cast<int>(kRouteDownloadBufferSize);
     request.tx_buffer_size = kRouteDownloadTxBufferSize;
     request.max_bytes = max_bytes;
+    request.min_internal_free_bytes = kRouteHttpInternalFreeTargetBytes;
+    request.min_internal_largest_bytes = kRouteHttpInternalLargestTargetBytes;
     request.progress = progress;
     request.progress_context = progress_context;
 

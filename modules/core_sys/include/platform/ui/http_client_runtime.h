@@ -27,6 +27,8 @@ struct Request
     int buffer_size = 1024;
     int tx_buffer_size = 512;
     std::uint32_t max_bytes = 0;
+    std::uint32_t min_internal_free_bytes = 0;
+    std::uint32_t min_internal_largest_bytes = 0;
     ProgressCallback progress = nullptr;
     void* progress_context = nullptr;
 };

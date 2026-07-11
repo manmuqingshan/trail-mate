@@ -144,6 +144,35 @@ bool ensure_tls_allocator_configured()
     return configured;
 }
 
+bool memory_preflight_ready(const Request& request)
+{
+    if (request.min_internal_free_bytes == 0 &&
+        request.min_internal_largest_bytes == 0)
+    {
+        return true;
+    }
+
+    const std::uint32_t free_bytes = static_cast<std::uint32_t>(
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    const std::uint32_t largest_bytes = static_cast<std::uint32_t>(
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    return free_bytes >= request.min_internal_free_bytes &&
+           largest_bytes >= request.min_internal_largest_bytes;
+}
+
+bool require_memory_preflight(const Request& request,
+                              const char* stage,
+                              std::string& out_error)
+{
+    if (memory_preflight_ready(request))
+    {
+        return true;
+    }
+    log_memory_snapshot(stage);
+    out_error = "Low HTTP memory";
+    return false;
+}
+
 void configure_http_client(esp_http_client_config_t& config, const Request& request)
 {
     (void)ensure_tls_allocator_configured();
@@ -227,6 +256,10 @@ bool download(const Request& request,
         out_error = "Missing HTTP writer";
         return false;
     }
+    if (!require_memory_preflight(request, "preflight low memory", out_error))
+    {
+        return false;
+    }
 
     wifi_access::Request access_request{};
     access_request.client = request.client;
@@ -246,6 +279,11 @@ bool download(const Request& request,
     {
         wifi_access::release(lease);
         out_error = wifi_access::decision_name(connect_decision);
+        return false;
+    }
+    if (!require_memory_preflight(request, "pre-init low memory", out_error))
+    {
+        wifi_access::release(lease);
         return false;
     }
 
