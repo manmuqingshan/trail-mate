@@ -975,7 +975,9 @@ void GpsService::gpsTask(void* pvParameters)
                 (total_chars >= last_health_total_chars) ? (total_chars - last_health_total_chars) : 0;
             const uint32_t reads_since_log =
                 (total_uart_reads >= last_health_total_uart_reads) ? (total_uart_reads - last_health_total_uart_reads) : 0;
-            Serial.printf("[GPS] health ready=%d powered=%d state=%s lat=%.6f lng=%.6f age_ms=%lu sats=%u view=%u use=%u chars_total=%lu chars_%lus=%lu read_%lus=%lu poll_ms=%lu collection_ms=%lu loops=%lu\n",
+            const bool parser_stalled = gps_ready && service->gps_powered_ &&
+                                        reads_since_log > 0 && chars_since_log == 0;
+            Serial.printf("[GPS] health ready=%d powered=%d state=%s lat=%.6f lng=%.6f age_ms=%lu sats=%u view=%u use=%u chars_total=%lu chars_%lus=%lu read_%lus=%lu parser_stalled=%u poll_ms=%lu collection_ms=%lu loops=%lu\n",
                           gps_ready ? 1 : 0,
                           service->gps_powered_ ? 1 : 0,
                           gps_valid_text(health_valid),
@@ -990,6 +992,7 @@ void GpsService::gpsTask(void* pvParameters)
                           static_cast<unsigned long>(chars_since_log),
                           static_cast<unsigned long>(kGpsHealthLogIntervalMs / 1000),
                           static_cast<unsigned long>(reads_since_log),
+                          parser_stalled ? 1U : 0U,
                           static_cast<unsigned long>(kGpsUartPollIntervalMs),
                           static_cast<unsigned long>(service->getCollectionInterval()),
                           static_cast<unsigned long>(loop_count));

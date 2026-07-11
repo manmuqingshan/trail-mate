@@ -796,6 +796,17 @@ class PlainMqttRuntime
             return false;
         }
 
+        const auto wifi_status = platform::ui::wifi::status();
+        if (!wifi_status.connected)
+        {
+            std::printf("[%s][MQTT] socket connect deferred wifi_disconnected state=%u message='%s'\n",
+                        protocolTag(),
+                        static_cast<unsigned>(wifi_status.state),
+                        wifi_status.message);
+            logWifiGate(wifi_status, WifiGateState::WaitingForConnection);
+            return false;
+        }
+
         IPAddress remote_ip{};
         if (!resolveHost(&remote_ip))
         {
