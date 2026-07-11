@@ -11,6 +11,7 @@
 #include "chat/domain/chat_types.h"
 #include "chat_conversation_input.h"
 #include "lvgl.h"
+#include "ui/components/shortcut_help_modal.h"
 #include "ui/widgets/map/map_viewport.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_presentation/chat/chat_message_ref.h"
@@ -75,6 +76,8 @@ class ChatConversationScreen
     void setBackCallback(void (*cb)(void*), void* user_data);
     void setReplyEnabled(bool enabled);
     bool isReplyEnabled() const { return reply_enabled_; }
+    bool requestAction(ActionIntent intent);
+    void toggleShortcutHelp();
     void setHistoryPaging(bool has_older,
                           bool has_newer,
                           uint16_t offset,
@@ -152,6 +155,7 @@ class ChatConversationScreen
     lv_obj_t* compose_btn_ = nullptr; // kept for compatibility (not created in v0)
     lv_obj_t* location_panel_ = nullptr;
     lv_obj_t* location_map_host_ = nullptr;
+    ::ui::components::shortcut_help_modal::State shortcut_help_modal_{};
     ::ui::widgets::map::Runtime location_map_runtime_{};
     ::ui::map::MapOverlaySnapshot location_overlay_{};
     chat::ConversationId conv_{};

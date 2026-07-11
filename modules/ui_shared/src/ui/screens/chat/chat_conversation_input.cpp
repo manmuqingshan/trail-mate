@@ -2,6 +2,7 @@
 #include "ui/screens/chat/chat_conversation_input.h"
 #include "ui/screens/chat/chat_conversation_components.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #define CHAT_CONV_INPUT_DEBUG 0
@@ -19,7 +20,85 @@ namespace
 constexpr int kEncoderKeyRotateUp = 19;
 constexpr int kEncoderKeyRotateDown = 20;
 constexpr lv_coord_t kScrollStep = 24;
+constexpr lv_coord_t kPageScrollPadding = 12;
 } // namespace
+
+static void consume(lv_event_t* e)
+{
+    if (!e)
+    {
+        return;
+    }
+    lv_event_stop_bubbling(e);
+    lv_event_stop_processing(e);
+}
+
+static lv_coord_t page_scroll_step(ChatConversationScreen* screen)
+{
+    lv_obj_t* msg_list = screen ? screen->getMsgList() : nullptr;
+    const lv_coord_t height =
+        msg_list && lv_obj_is_valid(msg_list) ? lv_obj_get_height(msg_list) : 0;
+    return std::max<lv_coord_t>(kScrollStep, height - kPageScrollPadding);
+}
+
+static bool scroll_messages(ChatConversationScreen* screen,
+                            lv_event_t* e,
+                            lv_coord_t delta)
+{
+    lv_obj_t* msg_list = screen ? screen->getMsgList() : nullptr;
+    if (!msg_list || !lv_obj_is_valid(msg_list) || delta == 0)
+    {
+        return false;
+    }
+    lv_obj_scroll_by(msg_list, 0, delta, LV_ANIM_OFF);
+    consume(e);
+    return true;
+}
+
+static bool jump_messages(ChatConversationScreen* screen,
+                          lv_event_t* e,
+                          bool bottom)
+{
+    lv_obj_t* msg_list = screen ? screen->getMsgList() : nullptr;
+    if (!msg_list || !lv_obj_is_valid(msg_list))
+    {
+        return false;
+    }
+    lv_obj_scroll_to_y(msg_list, bottom ? LV_COORD_MAX : 0, LV_ANIM_OFF);
+    consume(e);
+    return true;
+}
+
+static bool send_back(ChatConversationScreen* screen, lv_event_t* e)
+{
+    if (lv_obj_t* back_btn = screen ? screen->getBackBtn() : nullptr)
+    {
+        lv_obj_send_event(back_btn, LV_EVENT_CLICKED, nullptr);
+        consume(e);
+        return true;
+    }
+    return false;
+}
+
+static bool send_reply(ChatConversationScreen* screen, lv_event_t* e)
+{
+    if (!screen || !screen->isAlive())
+    {
+        return false;
+    }
+    if (lv_obj_t* reply_btn = screen->getReplyBtn())
+    {
+        lv_obj_send_event(reply_btn, LV_EVENT_CLICKED, nullptr);
+        consume(e);
+        return true;
+    }
+    if (screen->requestAction(ChatConversationScreen::ActionIntent::Reply))
+    {
+        consume(e);
+        return true;
+    }
+    return false;
+}
 
 static bool handle_map_key(ChatConversationScreen* screen,
                            lv_event_t* e,
@@ -33,15 +112,81 @@ static bool handle_map_key(ChatConversationScreen* screen,
     if (key == 'm' || key == 'M')
     {
         screen->toggleLocationMap();
-        lv_event_stop_processing(e);
+        consume(e);
         return true;
     }
     if (key == 'l' || key == 'L')
     {
         screen->cycleLocationMapLayer();
-        lv_event_stop_processing(e);
+        consume(e);
         return true;
     }
+    return false;
+}
+
+static bool handle_conversation_shortcut(ChatConversationScreen* screen,
+                                         lv_event_t* e,
+                                         uint32_t key)
+{
+    if (!screen || !screen->isAlive())
+    {
+        return false;
+    }
+
+    if (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC)
+    {
+        return send_back(screen, e);
+    }
+    if (key == 'h' || key == 'H')
+    {
+        screen->toggleShortcutHelp();
+        consume(e);
+        return true;
+    }
+    if (key == 's' || key == 'S')
+    {
+        return send_reply(screen, e);
+    }
+    if (handle_map_key(screen, e, key))
+    {
+        return true;
+    }
+
+    if (key == LV_KEY_UP || key == kEncoderKeyRotateUp)
+    {
+        return scroll_messages(screen, e, -kScrollStep);
+    }
+    if (key == LV_KEY_DOWN || key == kEncoderKeyRotateDown)
+    {
+        return scroll_messages(screen, e, kScrollStep);
+    }
+    if (key == LV_KEY_PREV)
+    {
+        if (screen->requestAction(ChatConversationScreen::ActionIntent::LoadOlder))
+        {
+            consume(e);
+            return true;
+        }
+        return scroll_messages(screen, e, -page_scroll_step(screen));
+    }
+    if (key == LV_KEY_NEXT)
+    {
+        if (screen->requestAction(ChatConversationScreen::ActionIntent::LoadNewer))
+        {
+            consume(e);
+            return true;
+        }
+        return scroll_messages(screen, e, page_scroll_step(screen));
+    }
+    if (key == LV_KEY_HOME)
+    {
+        return jump_messages(screen, e, false);
+    }
+    if (key == LV_KEY_END)
+    {
+        return jump_messages(screen, e, true);
+    }
+
     return false;
 }
 
@@ -51,17 +196,7 @@ static void on_msg_list_key(lv_event_t* e)
     if (!screen || !screen->isAlive()) return;
 
     uint32_t key = lv_event_get_key(e);
-    if (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC)
-    {
-        if (lv_obj_t* back_btn = screen->getBackBtn())
-        {
-            lv_obj_send_event(back_btn, LV_EVENT_CLICKED, nullptr);
-            lv_event_stop_processing(e);
-        }
-        return;
-    }
-
-    if (handle_map_key(screen, e, key))
+    if (handle_conversation_shortcut(screen, e, key))
     {
         return;
     }
@@ -94,27 +229,18 @@ static void on_msg_list_key(lv_event_t* e)
             if (lv_obj_t* msg_list = screen->getMsgList())
             {
                 lv_obj_scroll_by(msg_list, 0, delta, LV_ANIM_OFF);
-                lv_event_stop_processing(e);
+                consume(e);
             }
         }
     }
 }
 
-static void on_backspace_key(lv_event_t* e)
+static void on_control_key(lv_event_t* e)
 {
     auto* screen = static_cast<ChatConversationScreen*>(lv_event_get_user_data(e));
     if (!screen || !screen->isAlive()) return;
     uint32_t key = lv_event_get_key(e);
-    if (handle_map_key(screen, e, key))
-    {
-        return;
-    }
-    if (key != LV_KEY_BACKSPACE && key != LV_KEY_ESC) return;
-    if (lv_obj_t* back_btn = screen->getBackBtn())
-    {
-        lv_obj_send_event(back_btn, LV_EVENT_CLICKED, nullptr);
-        lv_event_stop_processing(e);
-    }
+    (void)handle_conversation_shortcut(screen, e, key);
 }
 
 void init(ChatConversationScreen* screen, Binding* binding)
@@ -150,12 +276,12 @@ void init(ChatConversationScreen* screen, Binding* binding)
     if (binding->reply_btn)
     {
         lv_group_add_obj(binding->group, binding->reply_btn);
-        lv_obj_add_event_cb(binding->reply_btn, on_backspace_key, LV_EVENT_KEY, screen);
+        lv_obj_add_event_cb(binding->reply_btn, on_control_key, LV_EVENT_KEY, screen);
     }
     if (binding->back_btn)
     {
         lv_group_add_obj(binding->group, binding->back_btn);
-        lv_obj_add_event_cb(binding->back_btn, on_backspace_key, LV_EVENT_KEY, screen);
+        lv_obj_add_event_cb(binding->back_btn, on_control_key, LV_EVENT_KEY, screen);
     }
     binding->bound = true;
     CHAT_CONV_INPUT_LOG("[ChatConversationInput] init (group focus msg list)\n");

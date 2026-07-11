@@ -362,6 +362,25 @@ bool is_any_modal_open()
            g_tracker_state.route_preview_help_modal != nullptr;
 }
 
+void bind_route_preview_key_handler(lv_obj_t* obj)
+{
+    if (!obj || !lv_obj_is_valid(obj))
+    {
+        return;
+    }
+    lv_obj_remove_event_cb(obj, on_route_preview_key);
+    lv_obj_add_event_cb(obj, on_route_preview_key, LV_EVENT_KEY, nullptr);
+}
+
+void unbind_route_preview_key_handler(lv_obj_t* obj)
+{
+    if (!obj || !lv_obj_is_valid(obj))
+    {
+        return;
+    }
+    lv_obj_remove_event_cb(obj, on_route_preview_key);
+}
+
 void init_button_styles()
 {
     if (s_btn_styles_inited)
@@ -1535,6 +1554,7 @@ void sync_route_preview_image_strip()
         s_preview_image_strip,
         on_route_preview_image_strip_selected,
         nullptr);
+    bind_route_preview_key_handler(s_preview_image_strip.root);
     const uint32_t next_items_hash = route_preview_image_strip_items_hash();
     if (next_items_hash != s_preview_image_strip_items_hash ||
         s_preview_image_strip.items.empty())
@@ -2071,7 +2091,7 @@ lv_obj_t* create_preview_page_button(lv_obj_t* parent,
     {
         lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
     }
-    lv_obj_add_event_cb(btn, on_route_preview_key, LV_EVENT_KEY, nullptr);
+    bind_route_preview_key_handler(btn);
     if (lv_group_t* group = tracker_group())
     {
         lv_group_add_obj(group, btn);
@@ -2457,6 +2477,7 @@ void close_route_preview_page()
     s_preview_image_strip_items_hash = 0;
     s_preview_image_strip_visible = false;
     ::ui::widgets::map::destroy(s_preview_map_runtime);
+    unbind_route_preview_key_handler(state.top_bar.back_btn);
     if (state.route_preview_page)
     {
         lv_obj_del(state.route_preview_page);
@@ -2490,6 +2511,11 @@ void on_route_preview_key(lv_event_t* e)
     {
         return;
     }
+    auto& state = g_tracker_state;
+    if (!state.route_preview_page || !lv_obj_is_valid(state.route_preview_page))
+    {
+        return;
+    }
     const uint32_t key = lv_event_get_key(e);
     if (::ui::widgets::route_image_strip::handle_key(s_preview_image_strip, key))
     {
@@ -2508,26 +2534,31 @@ void on_route_preview_key(lv_event_t* e)
     }
     if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE)
     {
+        consume_route_preview_key_event(e);
         close_route_preview_page();
         return;
     }
     if (key == 'd' || key == 'D')
     {
+        consume_route_preview_key_event(e);
         on_route_preview_download_clicked(nullptr);
         return;
     }
     if (key == 'r' || key == 'R')
     {
+        consume_route_preview_key_event(e);
         on_route_preview_load_clicked(nullptr);
         return;
     }
     if (key == 'l' || key == 'L')
     {
+        consume_route_preview_key_event(e);
         cycle_route_preview_map_layer();
         return;
     }
     if (key == 'e' || key == 'E')
     {
+        consume_route_preview_key_event(e);
         toggle_route_preview_elevation();
         return;
     }
@@ -2539,7 +2570,9 @@ void on_route_preview_key(lv_event_t* e)
     }
     if (key == 'h' || key == 'H' || key == '?')
     {
+        consume_route_preview_key_event(e);
         open_route_preview_help_modal();
+        return;
     }
 }
 
@@ -2717,6 +2750,7 @@ void render_route_preview_page()
     state.route_preview_download_btn = nullptr;
     state.route_preview_load_btn = nullptr;
     state.route_preview_load_label = nullptr;
+    bind_route_preview_key_handler(state.top_bar.back_btn);
     lv_group_t* group = tracker_group();
     if (group)
     {
@@ -2737,7 +2771,7 @@ void render_route_preview_page()
     lv_obj_set_style_border_width(state.route_preview_map_host, 2, LV_PART_MAIN);
     lv_obj_set_style_border_color(state.route_preview_map_host, lv_color_hex(0xD2A868), LV_PART_MAIN);
     lv_obj_set_style_border_color(state.route_preview_map_host, lv_color_hex(kPanelBtnFocused), LV_PART_MAIN | LV_STATE_FOCUSED);
-    lv_obj_add_event_cb(state.route_preview_map_host, on_route_preview_key, LV_EVENT_KEY, nullptr);
+    bind_route_preview_key_handler(state.route_preview_map_host);
     if (group)
     {
         lv_group_add_obj(group, state.route_preview_map_host);
@@ -2891,6 +2925,7 @@ void open_route_preview_page()
         clear_preview_model();
         return;
     }
+    bind_route_preview_key_handler(state.route_preview_page);
     lv_obj_set_width(state.route_preview_page, LV_PCT(100));
     lv_obj_set_height(state.route_preview_page, LV_PCT(100));
     lv_obj_set_flex_grow(state.route_preview_page, 1);

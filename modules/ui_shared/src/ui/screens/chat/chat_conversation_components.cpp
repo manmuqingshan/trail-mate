@@ -587,6 +587,7 @@ ChatConversationScreen::ChatConversationScreen(lv_obj_t* parent, chat::Conversat
 
 ChatConversationScreen::~ChatConversationScreen()
 {
+    ::ui::components::shortcut_help_modal::close(shortcut_help_modal_);
     ::ui::widgets::map::destroy(location_map_runtime_);
     location_map_created_ = false;
     if (container_ && lv_obj_is_valid(container_))
@@ -774,6 +775,106 @@ void ChatConversationScreen::setReplyEnabled(bool enabled)
     }
 }
 
+bool ChatConversationScreen::requestAction(ActionIntent intent)
+{
+    if (!guard_ || !guard_->alive)
+    {
+        return false;
+    }
+
+    if (intent == ActionIntent::Reply && !reply_enabled_)
+    {
+        ::ui::feedback::show_notice("Cannot send here", 1200);
+        return true;
+    }
+
+    if (!action_cb_)
+    {
+        return false;
+    }
+
+    if (intent == ActionIntent::LoadOlder)
+    {
+        if (history_auto_load_pending_)
+        {
+            return true;
+        }
+        if (!history_has_older_)
+        {
+            if (!history_older_boundary_notified_)
+            {
+                history_older_boundary_notified_ = true;
+                ::ui::feedback::show_notice("No more messages", 1400);
+            }
+            return true;
+        }
+        history_auto_load_pending_ = true;
+    }
+    else if (intent == ActionIntent::LoadNewer)
+    {
+        if (history_auto_load_pending_)
+        {
+            return true;
+        }
+        if (!history_has_newer_)
+        {
+            if (!history_newer_boundary_notified_)
+            {
+                history_newer_boundary_notified_ = true;
+                ::ui::feedback::show_notice("Latest messages", 1400);
+            }
+            return true;
+        }
+        history_auto_load_pending_ = true;
+    }
+
+    schedule_action_async(intent);
+    return true;
+}
+
+void ChatConversationScreen::toggleShortcutHelp()
+{
+    if (!guard_ || !guard_->alive)
+    {
+        return;
+    }
+    if (::ui::components::shortcut_help_modal::is_open(shortcut_help_modal_))
+    {
+        ::ui::components::shortcut_help_modal::close(shortcut_help_modal_);
+        return;
+    }
+
+    static constexpr ::ui::components::shortcut_help_modal::Row rows[] = {
+        {"S", nullptr, "Compose message"},
+        {"Up/Down", nullptr, "Scroll messages"},
+        {"Prev/Next", nullptr, "Load older/newer"},
+        {"Home/End", nullptr, "Top/bottom"},
+        {"M", nullptr, "Show or hide map"},
+        {"L", nullptr, "Cycle map layer"},
+        {"Back", "Esc", "Conversation list"},
+        {"H", nullptr, "Close help"},
+    };
+
+    lv_obj_t* parent =
+        container_ && lv_obj_is_valid(container_) ? container_ : lv_screen_active();
+    if (!parent)
+    {
+        return;
+    }
+
+    ::ui::components::shortcut_help_modal::Config config{};
+    config.title = "Conversation Help";
+    config.rows = rows;
+    config.row_count = sizeof(rows) / sizeof(rows[0]);
+    config.width = ::ui::page_profile::is_dense() ? 288 : 304;
+    config.height = ::ui::page_profile::is_dense() ? 170 : 186;
+    config.restore_group = lv_group_get_default();
+    (void)::ui::components::shortcut_help_modal::open(
+        shortcut_help_modal_,
+        parent,
+        config);
+}
+
 void ChatConversationScreen::setHistoryPaging(bool has_older,
                                               bool has_newer,
                                               uint16_t offset,
@@ -827,31 +928,13 @@ void ChatConversationScreen::handleScroll()
 
     if (scrolling_toward_older && at_top)
     {
-        if (history_has_older_)
-        {
-            history_auto_load_pending_ = true;
-            schedule_action_async(ActionIntent::LoadOlder);
-        }
-        else if (!history_older_boundary_notified_)
-        {
-            history_older_boundary_notified_ = true;
-            ::ui::feedback::show_notice("No more messages", 1400);
-        }
+        (void)requestAction(ActionIntent::LoadOlder);
         return;
     }
 
     if (scrolling_toward_newer && at_bottom)
     {
-        if (history_has_newer_)
-        {
-            history_auto_load_pending_ = true;
-            schedule_action_async(ActionIntent::LoadNewer);
-        }
-        else if (!history_newer_boundary_notified_)
-        {
-            history_newer_boundary_notified_ = true;
-            ::ui::feedback::show_notice("Latest messages", 1400);
-        }
+        (void)requestAction(ActionIntent::LoadNewer);
     }
 }
 
@@ -1318,11 +1401,7 @@ void ChatConversationScreen::action_event_cb(lv_event_t* e)
     {
         return;
     }
-    if (ctx->intent == ActionIntent::Reply && !screen->reply_enabled_)
-    {
-        return;
-    }
-    screen->schedule_action_async(ctx->intent);
+    (void)screen->requestAction(ctx->intent);
 }
 
 void ChatConversationScreen::message_action_event_cb(lv_event_t* e)
@@ -1520,6 +1599,7 @@ void ChatConversationScreen::handle_root_deleted()
     history_older_boundary_notified_ = false;
     history_newer_boundary_notified_ = false;
 
+    ::ui::components::shortcut_help_modal::close(shortcut_help_modal_);
     chat::ui::conversation::input::cleanup(&input_binding_);
     ::ui::widgets::map::destroy(location_map_runtime_);
     location_map_created_ = false;

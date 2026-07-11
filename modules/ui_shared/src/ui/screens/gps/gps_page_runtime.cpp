@@ -743,6 +743,16 @@ bool is_help_key(uint32_t key)
     return key == 'h' || key == 'H';
 }
 
+void bind_map_key_handler(lv_obj_t* obj)
+{
+    if (!obj || !lv_obj_is_valid(obj))
+    {
+        return;
+    }
+    lv_obj_remove_event_cb(obj, root_key_event_cb);
+    lv_obj_add_event_cb(obj, root_key_event_cb, LV_EVENT_KEY, nullptr);
+}
+
 void rebuild_map_control_group()
 {
     if (!app_g || (s_map_help_modal && lv_obj_is_valid(s_map_help_modal)) ||
@@ -1319,6 +1329,7 @@ void sync_map_route_image_strip()
         s_route_image_strip,
         on_map_route_image_strip_selected,
         nullptr);
+    bind_map_key_handler(s_route_image_strip.root);
 
     const uint32_t next_items_hash = map_route_image_strip_items_hash();
     if (next_items_hash != s_route_image_strip_items_hash ||
@@ -3990,7 +4001,7 @@ lv_obj_t* create_map_control_button(lv_obj_t* parent,
                         on_map_control_clicked,
                         LV_EVENT_CLICKED,
                         reinterpret_cast<void*>(static_cast<uintptr_t>(action)));
-    lv_obj_add_event_cb(btn, root_key_event_cb, LV_EVENT_KEY, nullptr);
+    bind_map_key_handler(btn);
 
     lv_obj_t* label = lv_label_create(btn);
     lv_label_set_text(label, text ? text : "");
@@ -4046,6 +4057,7 @@ void create_map_control_bar(lv_obj_t* viewport)
     lv_obj_set_style_pad_bottom(s_map_control_bar, 2, 0);
     lv_obj_set_style_pad_column(s_map_control_bar, 3, 0);
     lv_obj_clear_flag(s_map_control_bar, LV_OBJ_FLAG_SCROLLABLE);
+    bind_map_key_handler(s_map_control_bar);
 
     s_map_zoom_out_btn = create_map_control_button(
         s_map_control_bar,
@@ -4111,6 +4123,7 @@ void create_map_altitude_overlay(lv_obj_t* viewport)
     lv_obj_set_style_pad_top(s_map_altitude_panel, 1, 0);
     lv_obj_set_style_pad_bottom(s_map_altitude_panel, 1, 0);
     lv_obj_clear_flag(s_map_altitude_panel, LV_OBJ_FLAG_SCROLLABLE);
+    bind_map_key_handler(s_map_altitude_panel);
 
     s_map_altitude_label = lv_label_create(s_map_altitude_panel);
     lv_label_set_text(s_map_altitude_label, "Alt --");
@@ -4135,6 +4148,7 @@ void create_route_elevation_profile_overlay(lv_obj_t* viewport)
                      LV_ALIGN_BOTTOM_MID,
                      0,
                      -(kMapControlBarHeight + kRouteElevationPanelInset));
+        bind_map_key_handler(s_route_elevation_profile.panel);
     }
 }
 
@@ -4154,6 +4168,7 @@ void create_map_notice_overlay(lv_obj_t* viewport)
     lv_obj_set_style_pad_top(s_map_notice_panel, 2, 0);
     lv_obj_set_style_pad_bottom(s_map_notice_panel, 2, 0);
     lv_obj_clear_flag(s_map_notice_panel, LV_OBJ_FLAG_SCROLLABLE);
+    bind_map_key_handler(s_map_notice_panel);
 
     s_map_notice_label = lv_label_create(s_map_notice_panel);
     lv_label_set_text(s_map_notice_label, "");
@@ -4182,6 +4197,7 @@ void create_map_context_rail(lv_obj_t* viewport)
     lv_obj_set_style_pad_all(s_map_context_rail, 3, 0);
     lv_obj_set_style_pad_row(s_map_context_rail, 3, 0);
     lv_obj_clear_flag(s_map_context_rail, LV_OBJ_FLAG_SCROLLABLE);
+    bind_map_key_handler(s_map_context_rail);
 
     s_map_route_btn = create_map_control_button(
         s_map_context_rail,
@@ -4260,6 +4276,7 @@ void create_map_content(lv_obj_t* content)
     lv_obj_set_style_radius(viewport, 0, 0);
     lv_obj_set_style_pad_all(viewport, 0, 0);
     lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
+    bind_map_key_handler(viewport);
 
     const auto map_widgets = ::ui::widgets::map::create(s_map_runtime, viewport, 180);
     ::ui::widgets::map::set_gesture_callback(s_map_runtime, map_gesture_callback, nullptr);
@@ -4273,6 +4290,7 @@ void create_map_content(lv_obj_t* content)
     if (map_widgets.root)
     {
         lv_obj_align(map_widgets.root, LV_ALIGN_CENTER, 0, 0);
+        bind_map_key_handler(map_widgets.root);
     }
     create_map_control_bar(viewport);
     create_map_altitude_overlay(viewport);
