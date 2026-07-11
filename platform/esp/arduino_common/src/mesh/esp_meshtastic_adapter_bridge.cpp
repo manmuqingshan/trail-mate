@@ -120,8 +120,104 @@ void EspMeshEventBridge::emit(const ::mesh::MeshEvent& event)
     ++emitted_count;
 }
 
-EspMeshtasticAdapterBridge::EspMeshtasticAdapterBridge(LoraBoard& board)
+EspMeshPeerDirectoryPeerKeyStore::EspMeshPeerDirectoryPeerKeyStore(
+    ::chat::IMeshPeerDirectory* directory)
+    : directory_(directory)
+{
+}
+
+::mesh::StoreResult EspMeshPeerDirectoryPeerKeyStore::get(
+    ::mesh::NodeId node_id,
+    ::mesh::PeerPublicKey& out)
+{
+    if (!directory_ || !node_id.isValidUnicast())
+    {
+        return ::mesh::StoreResult::fail(::mesh::StoreFailure::NotFound);
+    }
+
+    ::chat::MeshPeerRecord record{};
+    const auto status = directory_->find(
+        ::chat::makeMeshPeerNodeIdentity(::chat::MeshProtocol::Meshtastic,
+                                         node_id.value),
+        record);
+    if (!status.succeeded() || !record.meshtastic.has_public_key)
+    {
+        return ::mesh::StoreResult::fail(::mesh::StoreFailure::NotFound);
+    }
+
+    out = {};
+    out.node_id = node_id;
+    std::memcpy(out.public_key,
+                record.meshtastic.public_key,
+                sizeof(out.public_key));
+    out.updated_at_ms = record.last_seen_s * 1000UL;
+    out.verified = record.meshtastic.key_manually_verified;
+    return ::mesh::StoreResult::success();
+}
+
+::mesh::StoreResult EspMeshPeerDirectoryPeerKeyStore::put(
+    const ::mesh::PeerPublicKey& key)
+{
+    if (!directory_ || !key.node_id.isValidUnicast())
+    {
+        return ::mesh::StoreResult::fail(::mesh::StoreFailure::InvalidArgument);
+    }
+
+    ::chat::MeshPeerRecord record{};
+    record.valid = true;
+    record.identity = ::chat::makeMeshPeerNodeIdentity(
+        ::chat::MeshProtocol::Meshtastic,
+        key.node_id.value);
+    record.source = ::chat::MeshPeerSource::RuntimeRx;
+    record.first_seen_s = key.updated_at_ms / 1000UL;
+    record.last_seen_s = record.first_seen_s;
+    record.meshtastic.has_public_key = true;
+    record.meshtastic.key_manually_verified = key.verified;
+    std::memcpy(record.meshtastic.public_key,
+                key.public_key,
+                sizeof(record.meshtastic.public_key));
+
+    const auto status = directory_->record(record);
+    return status.succeeded()
+               ? ::mesh::StoreResult::success()
+               : ::mesh::StoreResult::fail(::mesh::StoreFailure::IoError);
+}
+
+::mesh::StoreResult EspMeshPeerDirectoryPeerKeyStore::remove(
+    ::mesh::NodeId node_id)
+{
+    if (!directory_ || !node_id.isValidUnicast())
+    {
+        return ::mesh::StoreResult::fail(::mesh::StoreFailure::InvalidArgument);
+    }
+    const auto status = directory_->remove(
+        ::chat::makeMeshPeerNodeIdentity(::chat::MeshProtocol::Meshtastic,
+                                         node_id.value));
+    if (status.succeeded() ||
+        status.code == ::chat::MeshPeerDirectoryStatusCode::NotFound)
+    {
+        return ::mesh::StoreResult::success();
+    }
+    return ::mesh::StoreResult::fail(::mesh::StoreFailure::IoError);
+}
+
+::mesh::StoreResult EspMeshPeerDirectoryPeerKeyStore::clear()
+{
+    if (!directory_)
+    {
+        return ::mesh::StoreResult::fail(::mesh::StoreFailure::InvalidArgument);
+    }
+    const auto status = directory_->clearProtocol(::chat::MeshProtocol::Meshtastic);
+    return status.succeeded()
+               ? ::mesh::StoreResult::success()
+               : ::mesh::StoreResult::fail(::mesh::StoreFailure::IoError);
+}
+
+EspMeshtasticAdapterBridge::EspMeshtasticAdapterBridge(
+    LoraBoard& board,
+    ::chat::IMeshPeerDirectory* peer_directory)
     : radio_(board),
+      peer_store_(peer_directory),
       identity_(local_store_, peer_store_, crypto_, clock_),
       receive_(protocol_, identity_, events_, clock_, &receive_dedup_),
       direct_(protocol_, identity_, radio_, clock_, events_),

@@ -5,7 +5,6 @@
 
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_adapter.h"
 
-#include "../../internal/blob_store_io.h"
 #include "chat/domain/contact_types.h"
 #include "chat/domain/reticulum_identity.h"
 #include "chat/infra/meshcore/crypto/ed25519/ed_25519.h"
@@ -28,7 +27,6 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
-#include <memory>
 #include <new>
 
 namespace chat::lxmf
@@ -88,26 +86,9 @@ constexpr uint32_t kReverseEntryTtlMs = 60000;
 constexpr uint32_t kLinkRelayTtlMs = 300000;
 constexpr uint32_t kDirectoryAddressRefreshIntervalS = 300;
 constexpr uint8_t kMaxTransportHops = 128;
-constexpr const char* kPeersPrefsNs = "lxmf_peers";
-constexpr const char* kPeersPrefsKey = "peers";
-constexpr const char* kPeersPrefsVer = "ver";
-constexpr const char* kPeersPrefsCrc = "crc";
 constexpr const char* kAnonymousPeerDisplayName = "Anonymous Peer";
 constexpr const char* kAnonymousNodeDisplayName = "Anonymous Node";
-constexpr uint8_t kPeersPrefsVersion = 1;
 constexpr uint8_t kPropagationMetaName = 0x01;
-
-struct PersistedPeerRecord
-{
-    uint8_t destination_hash[reticulum::kTruncatedHashSize];
-    uint8_t identity_hash[reticulum::kTruncatedHashSize];
-    uint8_t enc_pub[LxmfIdentity::kEncPubKeySize];
-    uint8_t sig_pub[LxmfIdentity::kSigPubKeySize];
-    uint32_t last_seen_s;
-    char display_name[32];
-};
-
-static_assert(sizeof(PersistedPeerRecord) == 132, "Unexpected LXMF peer record size");
 
 void formatHashPrefix(const uint8_t* hash, char* out, size_t out_len)
 {
@@ -498,6 +479,24 @@ void copyHash(uint8_t* out, const uint8_t* in, size_t len)
                                              peer.identity_hash);
 }
 
+MeshPeerSource meshPeerSourceFromDirectorySource(rtdir::EntrySource source)
+{
+    switch (source)
+    {
+    case rtdir::EntrySource::RuntimeRx:
+        return MeshPeerSource::RuntimeRx;
+    case rtdir::EntrySource::PathResponse:
+        return MeshPeerSource::DiscoveryResponse;
+    case rtdir::EntrySource::Manual:
+        return MeshPeerSource::Manual;
+    case rtdir::EntrySource::Import:
+        return MeshPeerSource::Import;
+    case rtdir::EntrySource::Unknown:
+    default:
+        return MeshPeerSource::Unknown;
+    }
+}
+
 void copyCString(char* out, size_t out_len, const char* in)
 {
     if (!out || out_len == 0)
@@ -555,22 +554,6 @@ bool copyTextAppDataDisplayName(const uint8_t* data,
     }
     out[used] = '\0';
     return has_visible && used != 0;
-}
-
-uint32_t fnv1a32(const uint8_t* data, size_t len)
-{
-    uint32_t hash = 2166136261UL;
-    if (!data)
-    {
-        return hash;
-    }
-
-    for (size_t i = 0; i < len; ++i)
-    {
-        hash ^= static_cast<uint32_t>(data[i]);
-        hash *= 16777619UL;
-    }
-    return hash;
 }
 
 bool isLxmfDeliveryAnnounce(const reticulum::ParsedAnnounce& announce)
@@ -773,8 +756,10 @@ bool computeLinkIdFromLinkRequest(const uint8_t* raw_packet, size_t raw_len,
 
 } // namespace
 
-LxmfAdapter::LxmfAdapter(LoraBoard& board)
-    : interfaces_(board)
+LxmfAdapter::LxmfAdapter(LoraBoard& board,
+                         IMeshPeerDirectory* peer_directory)
+    : interfaces_(board),
+      peer_directory_(peer_directory)
 {
     uint8_t seed[sizeof(next_app_packet_id_)] = {};
     fillRandomBytes(seed, sizeof(seed));
@@ -1722,10 +1707,6 @@ void LxmfAdapter::processRuntime()
     {
         pumpPendingPeerUpdates();
     }
-    if (budget.allow_persistence && peer_persist_dirty_)
-    {
-        (void)maybePersistPeers(false);
-    }
     if (budget.allow_announce_tx)
     {
         maybeAnnounce();
@@ -2528,35 +2509,19 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         address_refresh_due;
     if (allow_persistence && should_store_address)
     {
-        rtdir::LxmfAddressRecord directory_address{};
-        directory_address.valid = true;
-        copyHash(directory_address.destination_hash,
-                 peer.destination_hash,
-                 sizeof(directory_address.destination_hash));
-        copyHash(directory_address.identity_hash,
-                 peer.identity_hash,
-                 sizeof(directory_address.identity_hash));
-        memcpy(directory_address.enc_pub, peer.enc_pub, sizeof(directory_address.enc_pub));
-        memcpy(directory_address.sig_pub, peer.sig_pub, sizeof(directory_address.sig_pub));
-        copyCString(directory_address.display_name,
-                    sizeof(directory_address.display_name),
-                    peer.display_name);
-        directory_address.source = directory_announce.source;
-        directory_address.first_seen_s = previous_seen_s != 0 ? previous_seen_s : now_s;
-        directory_address.last_seen_s = now_s;
-        const auto address_store_status = rtdir::record_lxmf_address(directory_address);
-        if (address_store_status.sd_present && !address_store_status.saved)
+        if (!recordPeerInDirectory(
+                peer,
+                meshPeerSourceFromDirectorySource(directory_announce.source),
+                false,
+                false))
         {
-            Serial.printf("[LXMF][AnnounceRX] address_save failed message=%s detail=%s\n",
-                          address_store_status.message,
-                          address_store_status.detail);
+            Serial.printf("[LXMF][AnnounceRX] address_save failed status=mesh_peer_directory\n");
         }
     }
 
     if (ingress_interface == reticulum::interfaces::InterfaceKind::WifiGateway)
     {
         queuePeerUpdate(peer);
-        (void)maybePersistPeers(false);
     }
     else
     {
@@ -2568,7 +2533,6 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         {
             queuePeerUpdate(peer);
         }
-        (void)maybePersistPeers(false);
     }
     Serial.printf("[LXMF][AnnounceRX] learned peer=%08lX dest=%s identity=%s name=%s peers=%u\n",
                   static_cast<unsigned long>(peer.node_id),
@@ -5951,32 +5915,12 @@ LxmfAdapter::PeerInfo* LxmfAdapter::rememberPeerIdentity(
         screen_runtime::is_sleeping() && !screen_runtime::is_saver_active();
     if (allow_persistence)
     {
-        rtdir::LxmfAddressRecord directory_address{};
-        directory_address.valid = true;
-        copyHash(directory_address.destination_hash,
-                 peer.destination_hash,
-                 sizeof(directory_address.destination_hash));
-        copyHash(directory_address.identity_hash,
-                 peer.identity_hash,
-                 sizeof(directory_address.identity_hash));
-        memcpy(directory_address.enc_pub, peer.enc_pub, sizeof(directory_address.enc_pub));
-        memcpy(directory_address.sig_pub, peer.sig_pub, sizeof(directory_address.sig_pub));
-        copyCString(directory_address.display_name,
-                    sizeof(directory_address.display_name),
-                    peer.display_name);
-        directory_address.source = rtdir::EntrySource::RuntimeRx;
-        directory_address.first_seen_s = peer.last_seen_s;
-        directory_address.last_seen_s = peer.last_seen_s;
-        const auto address_status = rtdir::record_lxmf_address(directory_address);
-        if (address_status.sd_present && !address_status.saved)
+        if (!recordPeerInDirectory(peer, MeshPeerSource::RuntimeRx, false, false))
         {
-            Serial.printf("[LXMF][Directory] address_save failed message=%s detail=%s\n",
-                          address_status.message,
-                          address_status.detail);
+            Serial.printf("[LXMF][Directory] address_save failed status=mesh_peer_directory\n");
         }
     }
     publishPeerUpdate(peer);
-    (void)maybePersistPeers(false);
     return &peer;
 }
 
@@ -6304,24 +6248,37 @@ LxmfAdapter::PeerInfo& LxmfAdapter::upsertPeer(
     return peer;
 }
 
-LxmfAdapter::PeerInfo* LxmfAdapter::upsertPeerFromAddressRecord(
-    const rtdir::LxmfAddressRecord& record,
+LxmfAdapter::PeerInfo* LxmfAdapter::upsertPeerFromDirectoryRecord(
+    const MeshPeerRecord& record,
     bool queue_update)
 {
-    if (!record.valid || record.ignored ||
-        isZeroBytes(record.destination_hash, sizeof(record.destination_hash)) ||
-        isZeroBytes(record.identity_hash, sizeof(record.identity_hash)) ||
-        isZeroBytes(record.enc_pub, sizeof(record.enc_pub)) ||
-        isZeroBytes(record.sig_pub, sizeof(record.sig_pub)))
+    if (!meshPeerRecordIsValid(record) || record.flags.ignored ||
+        !meshPeerSameProtocol(record.identity.protocol, MeshProtocol::Reticulum) ||
+        record.identity.kind != MeshPeerIdentityKind::ReticulumDestination ||
+        !record.reticulum.has_public_keys)
     {
         return nullptr;
     }
 
-    PeerInfo& peer = upsertPeer(record.destination_hash);
-    copyHash(peer.identity_hash, record.identity_hash, sizeof(peer.identity_hash));
-    memcpy(peer.enc_pub, record.enc_pub, sizeof(peer.enc_pub));
-    memcpy(peer.sig_pub, record.sig_pub, sizeof(peer.sig_pub));
-    peer.last_seen_s = record.last_seen_s != 0 ? record.last_seen_s : currentTimestampSeconds();
+    const ReticulumPeerIdentity& identity = record.reticulum.identity.valid
+                                                ? record.reticulum.identity
+                                                : record.identity.reticulum;
+    if (!identity.valid ||
+        isZeroBytes(identity.destination_hash, sizeof(identity.destination_hash)) ||
+        isZeroBytes(identity.identity_hash, sizeof(identity.identity_hash)) ||
+        isZeroBytes(record.reticulum.enc_pub, sizeof(record.reticulum.enc_pub)) ||
+        isZeroBytes(record.reticulum.sig_pub, sizeof(record.reticulum.sig_pub)))
+    {
+        return nullptr;
+    }
+
+    PeerInfo& peer = upsertPeer(identity.destination_hash);
+    copyHash(peer.identity_hash, identity.identity_hash, sizeof(peer.identity_hash));
+    memcpy(peer.enc_pub, record.reticulum.enc_pub, sizeof(peer.enc_pub));
+    memcpy(peer.sig_pub, record.reticulum.sig_pub, sizeof(peer.sig_pub));
+    peer.last_seen_s = record.last_seen_s != 0
+                           ? record.last_seen_s
+                           : currentTimestampSeconds();
     peer.last_path_request_ms = 0;
     copyCString(peer.display_name, sizeof(peer.display_name), record.display_name);
     if (queue_update)
@@ -6341,18 +6298,22 @@ LxmfAdapter::PeerInfo* LxmfAdapter::findOrLoadPeerByNodeId(NodeId node_id)
     {
         return peer;
     }
-
-    rtdir::LxmfAddressRecord record{};
-    const auto status = rtdir::find_lxmf_address_by_node_id(node_id, &record);
-    if (!status.loaded || !record.valid)
+    if (!peer_directory_)
     {
-        Serial.printf("[LXMF][Directory] peer_lookup miss node=%08lX message=%s detail=%s\n",
-                      static_cast<unsigned long>(node_id),
-                      status.message,
-                      status.detail);
         return nullptr;
     }
-    PeerInfo* peer = upsertPeerFromAddressRecord(record, true);
+
+    MeshPeerRecord record{};
+    const MeshPeerDirectoryStatus status =
+        peer_directory_->findByNodeId(MeshProtocol::Reticulum, node_id, record);
+    if (!status.succeeded())
+    {
+        Serial.printf("[LXMF][Directory] peer_lookup miss node=%08lX status=%u\n",
+                      static_cast<unsigned long>(node_id),
+                      static_cast<unsigned>(status.code));
+        return nullptr;
+    }
+    PeerInfo* peer = upsertPeerFromDirectoryRecord(record, true);
     if (peer)
     {
         Serial.printf("[LXMF][Directory] peer_lookup loaded node=%08lX name=%s\n",
@@ -6378,21 +6339,27 @@ LxmfAdapter::PeerInfo* LxmfAdapter::findOrLoadPeerByDestinationHash(
             return &peer;
         }
     }
+    if (!peer_directory_)
+    {
+        return nullptr;
+    }
 
-    rtdir::LxmfAddressRecord record{};
-    const auto status =
-        rtdir::find_lxmf_address_by_destination(destination_hash, &record);
-    if (!status.loaded || !record.valid)
+    MeshPeerIdentity identity{};
+    identity.protocol = MeshProtocol::Reticulum;
+    identity.kind = MeshPeerIdentityKind::ReticulumDestination;
+    identity.reticulum = makeReticulumDestinationIdentity(destination_hash);
+    MeshPeerRecord record{};
+    const MeshPeerDirectoryStatus status = peer_directory_->find(identity, record);
+    if (!status.succeeded())
     {
         char dest[12] = {};
         formatHashPrefix(destination_hash, dest, sizeof(dest));
-        Serial.printf("[LXMF][Directory] peer_lookup miss dest=%s message=%s detail=%s\n",
+        Serial.printf("[LXMF][Directory] peer_lookup miss dest=%s status=%u\n",
                       dest,
-                      status.message,
-                      status.detail);
+                      static_cast<unsigned>(status.code));
         return nullptr;
     }
-    PeerInfo* peer = upsertPeerFromAddressRecord(record, true);
+    PeerInfo* peer = upsertPeerFromDirectoryRecord(record, true);
     if (peer)
     {
         char dest[12] = {};
@@ -6414,36 +6381,83 @@ MeshActionResult LxmfAdapter::persistPeerAddressNow(const PeerInfo& peer,
     {
         return MeshActionResult::fail(MeshOperationFailure::PeerKeyMissing);
     }
-
-    rtdir::LxmfAddressRecord record{};
-    record.valid = true;
-    copyHash(record.destination_hash,
-             peer.destination_hash,
-             sizeof(record.destination_hash));
-    copyHash(record.identity_hash,
-             peer.identity_hash,
-             sizeof(record.identity_hash));
-    memcpy(record.enc_pub, peer.enc_pub, sizeof(record.enc_pub));
-    memcpy(record.sig_pub, peer.sig_pub, sizeof(record.sig_pub));
-    copyCString(record.display_name, sizeof(record.display_name), peer.display_name);
-    record.favorite = favorite;
-    record.source = rtdir::EntrySource::Manual;
-    record.first_seen_s = peer.last_seen_s != 0 ? peer.last_seen_s : currentTimestampSeconds();
-    record.last_seen_s = currentTimestampSeconds();
-
-    const auto status = rtdir::record_lxmf_address_now(record);
-    if (!status.sd_present)
+    if (!peer_directory_)
     {
         return MeshActionResult::fail(MeshOperationFailure::NotReady);
     }
-    if (!status.saved)
+
+    if (!recordPeerInDirectory(peer, MeshPeerSource::Manual, true, favorite))
     {
-        Serial.printf("[LXMF][Directory] address_save_now failed message=%s detail=%s\n",
-                      status.message,
-                      status.detail);
         return MeshActionResult::fail(MeshOperationFailure::Unknown);
     }
     return MeshActionResult::success();
+}
+
+bool LxmfAdapter::recordPeerInDirectory(const PeerInfo& peer,
+                                        MeshPeerSource source,
+                                        bool update_favorite,
+                                        bool favorite) const
+{
+    if (!peer_directory_ ||
+        isZeroBytes(peer.destination_hash, sizeof(peer.destination_hash)) ||
+        isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash)) ||
+        isZeroBytes(peer.enc_pub, sizeof(peer.enc_pub)) ||
+        isZeroBytes(peer.sig_pub, sizeof(peer.sig_pub)))
+    {
+        return false;
+    }
+
+    MeshPeerRecord record{};
+    record.valid = true;
+    record.identity = makeMeshPeerReticulumIdentity(reticulumIdentityForPeer(peer));
+    record.source = source;
+    const uint32_t now_s = currentTimestampSeconds();
+    record.first_seen_s = peer.last_seen_s != 0 ? peer.last_seen_s : now_s;
+    record.last_seen_s = peer.last_seen_s != 0 ? peer.last_seen_s : now_s;
+    copyMeshPeerText(record.display_name,
+                     sizeof(record.display_name),
+                     peer.display_name);
+    record.reticulum.identity = record.identity.reticulum;
+    record.reticulum.has_public_keys = true;
+    memcpy(record.reticulum.enc_pub,
+           peer.enc_pub,
+           sizeof(record.reticulum.enc_pub));
+    memcpy(record.reticulum.sig_pub,
+           peer.sig_pub,
+           sizeof(record.reticulum.sig_pub));
+    record.reticulum.delivery = true;
+
+    MeshPeerUserFlags flags{};
+    if (update_favorite)
+    {
+        MeshPeerRecord existing{};
+        if (peer_directory_->find(record.identity, existing).succeeded())
+        {
+            flags = existing.flags;
+        }
+        flags.favorite = favorite;
+    }
+
+    const MeshPeerDirectoryStatus record_status = peer_directory_->record(record);
+    if (!record_status.succeeded())
+    {
+        Serial.printf("[LXMF][Directory] address_save failed status=%u\n",
+                      static_cast<unsigned>(record_status.code));
+        return false;
+    }
+
+    if (update_favorite)
+    {
+        const MeshPeerDirectoryStatus flags_status =
+            peer_directory_->setUserFlags(record.identity, flags);
+        if (!flags_status.succeeded())
+        {
+            Serial.printf("[LXMF][Directory] flag_save failed status=%u\n",
+                          static_cast<unsigned>(flags_status.code));
+            return false;
+        }
+    }
+    return true;
 }
 
 void LxmfAdapter::queuePeerUpdate(const PeerInfo& peer)
@@ -6534,37 +6548,38 @@ void LxmfAdapter::publishPeerUpdate(const PeerInfo& peer) const
 
 void LxmfAdapter::loadDirectoryPeers()
 {
-    auto records = std::unique_ptr<rtdir::LxmfAddressRecord[]>(
-        new (std::nothrow) rtdir::LxmfAddressRecord[kMaxPersistedPeers]);
-    if (!records)
+    if (!peer_directory_)
     {
-        Serial.printf("[LXMF][Directory] load skipped reason=oom records=%u\n",
-                      static_cast<unsigned>(kMaxPersistedPeers));
+        Serial.printf("[LXMF][Directory] load skipped reason=no_mesh_peer_directory\n");
         return;
     }
 
     std::size_t count = 0;
-    const auto status =
-        rtdir::load_lxmf_addresses(records.get(), kMaxPersistedPeers, &count);
-    if (status.sd_present && !status.loaded)
+    const MeshPeerDirectoryStatus status =
+        peer_directory_->loadRecent(MeshProtocol::Reticulum,
+                                    peer_directory_load_entries_.data(),
+                                    peer_directory_load_entries_.size(),
+                                    &count);
+    if (!status.succeeded())
     {
-        Serial.printf("[LXMF][Directory] load failed message=%s detail=%s\n",
-                      status.message,
-                      status.detail);
+        Serial.printf("[LXMF][Directory] load failed status=%u\n",
+                      static_cast<unsigned>(status.code));
         return;
     }
 
+    std::size_t loaded = 0;
     for (std::size_t index = 0; index < count; ++index)
     {
-        const auto& record = records[index];
-        (void)upsertPeerFromAddressRecord(record, true);
+        if (upsertPeerFromDirectoryRecord(peer_directory_load_entries_[index], true))
+        {
+            ++loaded;
+        }
     }
 
-    if (status.file_present)
+    if (loaded > 0)
     {
-        Serial.printf("[LXMF][Directory] loaded addresses=%u file=%s\n",
-                      static_cast<unsigned>(count),
-                      status.detail);
+        Serial.printf("[LXMF][Directory] loaded addresses=%u directory=mesh_peer_directory\n",
+                      static_cast<unsigned>(loaded));
     }
 }
 
@@ -6572,176 +6587,6 @@ void LxmfAdapter::loadPersistedPeers()
 {
     peers_loaded_ = true;
     loadDirectoryPeers();
-
-    std::vector<uint8_t> blob;
-    chat::infra::PreferencesBlobMetadata meta;
-    if (!chat::infra::loadRawBlobFromPreferencesWithMetadata(kPeersPrefsNs,
-                                                             kPeersPrefsKey,
-                                                             kPeersPrefsVer,
-                                                             kPeersPrefsCrc,
-                                                             blob,
-                                                             &meta))
-    {
-        return;
-    }
-
-    if (meta.len == 0)
-    {
-        if (meta.has_version || meta.has_crc)
-        {
-            chat::infra::clearPreferencesKeys(kPeersPrefsNs,
-                                              kPeersPrefsVer,
-                                              kPeersPrefsCrc);
-        }
-        return;
-    }
-
-    const bool valid_blob =
-        (meta.len == blob.size()) &&
-        (meta.len % sizeof(PersistedPeerRecord) == 0) &&
-        meta.has_version &&
-        (meta.version == kPeersPrefsVersion) &&
-        meta.has_crc &&
-        (meta.crc == fnv1a32(blob.data(), blob.size()));
-
-    if (!valid_blob)
-    {
-        chat::infra::clearPreferencesKeys(kPeersPrefsNs,
-                                          kPeersPrefsKey,
-                                          kPeersPrefsVer,
-                                          kPeersPrefsCrc);
-        return;
-    }
-
-    const size_t record_count = std::min(blob.size() / sizeof(PersistedPeerRecord), kMaxPersistedPeers);
-    for (size_t i = 0; i < record_count; ++i)
-    {
-        PersistedPeerRecord record{};
-        memcpy(&record, blob.data() + (i * sizeof(PersistedPeerRecord)), sizeof(record));
-
-        if (isZeroBytes(record.destination_hash, sizeof(record.destination_hash)) ||
-            isZeroBytes(record.identity_hash, sizeof(record.identity_hash)) ||
-            isZeroBytes(record.enc_pub, sizeof(record.enc_pub)) ||
-            isZeroBytes(record.sig_pub, sizeof(record.sig_pub)))
-        {
-            continue;
-        }
-
-        PeerInfo& peer = upsertPeer(record.destination_hash);
-        copyHash(peer.identity_hash, record.identity_hash, sizeof(peer.identity_hash));
-        memcpy(peer.enc_pub, record.enc_pub, sizeof(peer.enc_pub));
-        memcpy(peer.sig_pub, record.sig_pub, sizeof(peer.sig_pub));
-        peer.last_seen_s = record.last_seen_s;
-        peer.last_path_request_ms = 0;
-        copyCString(peer.display_name, sizeof(peer.display_name), record.display_name);
-
-        queuePeerUpdate(peer);
-    }
-}
-
-bool LxmfAdapter::maybePersistPeers(bool force)
-{
-    peer_persist_dirty_ = true;
-
-    const uint32_t now_ms = millis();
-    if (!force)
-    {
-        if (last_peer_persist_ms_ == 0)
-        {
-            last_peer_persist_ms_ = now_ms;
-        }
-        else if ((now_ms - last_peer_persist_ms_) >= kPeerPersistSleepIntervalMs)
-        {
-            last_peer_persist_ms_ = now_ms;
-        }
-        return true;
-    }
-
-    const bool ok = persistPeers();
-    if (ok)
-    {
-        last_peer_persist_ms_ = now_ms;
-        peer_persist_dirty_ = false;
-    }
-    return ok;
-}
-
-bool LxmfAdapter::persistPeers() const
-{
-    std::vector<const PeerInfo*> ordered;
-    ordered.reserve(peers_.size());
-    for (const auto& peer : peers_)
-    {
-        if (isZeroBytes(peer.destination_hash, sizeof(peer.destination_hash)) ||
-            isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash)) ||
-            isZeroBytes(peer.enc_pub, sizeof(peer.enc_pub)) ||
-            isZeroBytes(peer.sig_pub, sizeof(peer.sig_pub)))
-        {
-            continue;
-        }
-
-        ordered.push_back(&peer);
-    }
-
-    std::sort(ordered.begin(), ordered.end(),
-              [](const PeerInfo* a, const PeerInfo* b)
-              {
-                  if (a->last_seen_s != b->last_seen_s)
-                  {
-                      return a->last_seen_s > b->last_seen_s;
-                  }
-                  return a->node_id < b->node_id;
-              });
-
-    if (ordered.size() > kMaxPersistedPeers)
-    {
-        ordered.resize(kMaxPersistedPeers);
-    }
-
-    if (ordered.empty())
-    {
-        return chat::infra::saveRawBlobToPreferencesWithMetadata(kPeersPrefsNs,
-                                                                 kPeersPrefsKey,
-                                                                 kPeersPrefsVer,
-                                                                 kPeersPrefsCrc,
-                                                                 nullptr,
-                                                                 0,
-                                                                 nullptr,
-                                                                 true);
-    }
-
-    std::vector<uint8_t> blob(ordered.size() * sizeof(PersistedPeerRecord));
-    for (size_t i = 0; i < ordered.size(); ++i)
-    {
-        PersistedPeerRecord record{};
-        copyHash(record.destination_hash,
-                 ordered[i]->destination_hash,
-                 sizeof(record.destination_hash));
-        copyHash(record.identity_hash,
-                 ordered[i]->identity_hash,
-                 sizeof(record.identity_hash));
-        memcpy(record.enc_pub, ordered[i]->enc_pub, sizeof(record.enc_pub));
-        memcpy(record.sig_pub, ordered[i]->sig_pub, sizeof(record.sig_pub));
-        record.last_seen_s = ordered[i]->last_seen_s;
-        copyCString(record.display_name, sizeof(record.display_name), ordered[i]->display_name);
-        memcpy(blob.data() + (i * sizeof(PersistedPeerRecord)), &record, sizeof(record));
-    }
-
-    chat::infra::PreferencesBlobMetadata meta;
-    meta.len = blob.size();
-    meta.has_version = true;
-    meta.version = kPeersPrefsVersion;
-    meta.has_crc = true;
-    meta.crc = fnv1a32(blob.data(), blob.size());
-
-    return chat::infra::saveRawBlobToPreferencesWithMetadata(kPeersPrefsNs,
-                                                             kPeersPrefsKey,
-                                                             kPeersPrefsVer,
-                                                             kPeersPrefsCrc,
-                                                             blob.data(),
-                                                             blob.size(),
-                                                             &meta,
-                                                             true);
 }
 
 uint32_t LxmfAdapter::currentTimestampSeconds() const

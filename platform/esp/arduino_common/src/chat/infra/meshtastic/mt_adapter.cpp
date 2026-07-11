@@ -277,8 +277,9 @@ MeshCapabilities MtAdapter::getCapabilities() const
     return caps;
 }
 
-MtAdapter::MtAdapter(LoraBoard& board)
+MtAdapter::MtAdapter(LoraBoard& board, IMeshPeerDirectory* peer_directory)
     : board_(board),
+      peer_directory_(peer_directory),
       next_packet_id_(1),
       ready_(false),
       node_id_(0),
@@ -306,7 +307,10 @@ MtAdapter::MtAdapter(LoraBoard& board)
       has_pending_raw_packet_(false)
 {
     config_ = MeshConfig(); // Default config
-    core_bridge_.reset(new ::platform::esp::arduino_common::mesh::EspMeshtasticAdapterBridge(board_));
+    core_bridge_.reset(
+        new ::platform::esp::arduino_common::mesh::EspMeshtasticAdapterBridge(
+            board_,
+            peer_directory_));
     initNodeIdentity();
     next_packet_id_ = static_cast<MessageId>(random(1, 0x7FFFFFFF));
     LORA_LOG("[LORA] packet id start=%lu\n", static_cast<unsigned long>(next_packet_id_));
@@ -840,7 +844,11 @@ void MtAdapter::forgetNodePublicKey(NodeId node_id)
     }
     (void)erasePkiNodeKey(node_id);
     eraseNodeRuntime(node_id);
-    savePkiKeysToPrefs();
+    if (peer_directory_)
+    {
+        (void)peer_directory_->remove(
+            makeMeshPeerNodeIdentity(MeshProtocol::Meshtastic, node_id));
+    }
 }
 
 meshtastic_Routing_Error MtAdapter::getLastRoutingError() const
@@ -3681,40 +3689,53 @@ void MtAdapter::setNodeInfoReplyMs(uint32_t node_id, uint32_t now_ms)
 
 void MtAdapter::loadPkiNodeKeys()
 {
-    ::platform::esp::arduino_common::mesh::EspPreferencesPeerKeyStore store;
-    std::vector<::mesh::PeerPublicKey> keys;
-    auto loaded = store.loadAll(keys);
-    if (!loaded.ok)
+    if (!peer_directory_)
     {
-        if (loaded.failure != ::mesh::StoreFailure::NotFound)
-        {
-            LORA_LOG("[LORA] PKI key load failed ns=%s status=%u\n",
-                     kPkiPrefsNs,
-                     static_cast<unsigned>(loaded.failure));
-        }
+        LORA_LOG("[LORA] PKI peer directory unavailable, hot cache empty\n");
         return;
     }
 
     clearPkiNodeKeys();
-    for (const auto& peer_key : keys)
+    size_t count = 0;
+    const auto loaded =
+        peer_directory_->loadRecent(MeshProtocol::Meshtastic,
+                                    pki_directory_load_entries_.data(),
+                                    pki_directory_load_entries_.size(),
+                                    &count);
+    if (!loaded.succeeded())
     {
+        LORA_LOG("[LORA] PKI peer directory load failed status=%u\n",
+                 static_cast<unsigned>(loaded.code));
+        return;
+    }
+
+    size_t loaded_keys = 0;
+    for (size_t index = 0; index < count; ++index)
+    {
+        const MeshPeerRecord& peer = pki_directory_load_entries_[index];
+        if (peer.identity.kind != MeshPeerIdentityKind::NodeId ||
+            peer.identity.node_id == 0 ||
+            !peer.meshtastic.has_public_key)
+        {
+            continue;
+        }
         bool evicted = false;
-        (void)upsertPkiNodeKey(peer_key.node_id.value,
-                               peer_key.public_key,
-                               peer_key.updated_at_ms,
+        (void)upsertPkiNodeKey(peer.identity.node_id,
+                               peer.meshtastic.public_key,
+                               peer.last_seen_s,
                                nullptr,
                                &evicted);
         LORA_LOG("[LORA] PKI key loaded for %08lX\n",
-                 static_cast<unsigned long>(peer_key.node_id.value));
+                 static_cast<unsigned long>(peer.identity.node_id));
+        ++loaded_keys;
         if (evicted)
         {
             LORA_LOG("[LORA] PKI key load evicted oldest cap=%u\n",
                      static_cast<unsigned>(pki_node_keys_.size()));
         }
     }
-    LORA_LOG("[LORA] PKI keys loaded=%u ns=%s\n",
-             static_cast<unsigned>(keys.size()),
-             kPkiPrefsNs);
+    LORA_LOG("[LORA] PKI hot keys loaded=%u directory=mesh_peer_directory\n",
+             static_cast<unsigned>(loaded_keys));
 }
 
 void MtAdapter::savePkiNodeKey(uint32_t node_id, const uint8_t* key, size_t key_len)
@@ -3723,55 +3744,44 @@ void MtAdapter::savePkiNodeKey(uint32_t node_id, const uint8_t* key, size_t key_
     {
         return;
     }
-    bool changed = false;
-    bool evicted = false;
-    if (!upsertPkiNodeKey(node_id, key, static_cast<uint32_t>(time(nullptr)), &changed, &evicted))
+    const uint32_t seen = static_cast<uint32_t>(time(nullptr));
+    if (!upsertPkiNodeKey(node_id, key, seen))
     {
         return;
     }
     touchPkiNodeKey(node_id);
-    if (changed || evicted)
-    {
-        savePkiKeysToPrefs();
-    }
+    savePkiNodeKeyToDirectory(node_id, key, seen);
 }
 
-void MtAdapter::savePkiKeysToPrefs()
+void MtAdapter::savePkiNodeKeyToDirectory(uint32_t node_id,
+                                          const uint8_t* key,
+                                          uint32_t last_seen_s)
 {
-    size_t count = 0;
-    for (const auto& item : pki_node_keys_)
+    if (!peer_directory_ || node_id == 0 || !key)
     {
-        if (!item.used)
-        {
-            continue;
-        }
-        if (count >= pki_save_entries_.size())
-        {
-            break;
-        }
-        ::mesh::PeerPublicKey entry{};
-        entry.node_id = ::mesh::NodeId{item.node_id};
-        entry.updated_at_ms = item.last_seen_s;
-        entry.verified = false;
-        memcpy(entry.public_key, item.key.data(), sizeof(entry.public_key));
-        pki_save_entries_[count++] = entry;
-    }
-
-    ::platform::esp::arduino_common::mesh::EspPreferencesPeerKeyStore store;
-    auto saved = store.replaceAll(count == 0 ? nullptr : pki_save_entries_.data(), count);
-    if (!saved.ok)
-    {
-        LORA_LOG("[LORA] PKI key save failed ns=%s status=%u\n",
-                 kPkiPrefsNs,
-                 static_cast<unsigned>(saved.failure));
         return;
     }
-    if (count > 0)
+
+    MeshPeerRecord record{};
+    record.valid = true;
+    record.identity = makeMeshPeerNodeIdentity(MeshProtocol::Meshtastic, node_id);
+    record.source = MeshPeerSource::RuntimeRx;
+    record.first_seen_s = last_seen_s;
+    record.last_seen_s = last_seen_s;
+    record.meshtastic.has_public_key = true;
+    memcpy(record.meshtastic.public_key,
+           key,
+           sizeof(record.meshtastic.public_key));
+
+    const auto saved = peer_directory_->record(record);
+    if (!saved.succeeded())
     {
-        LORA_LOG("[LORA] PKI key saved (total=%u ns=%s)\n",
-                 static_cast<unsigned>(count),
-                 kPkiPrefsNs);
+        LORA_LOG("[LORA] PKI key directory save failed status=%u\n",
+                 static_cast<unsigned>(saved.code));
+        return;
     }
+    LORA_LOG("[LORA] PKI key saved directory=mesh_peer_directory node=%08lX\n",
+             static_cast<unsigned long>(node_id));
 }
 
 void MtAdapter::touchPkiNodeKey(uint32_t node_id)

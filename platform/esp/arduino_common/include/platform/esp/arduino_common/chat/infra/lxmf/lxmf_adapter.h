@@ -9,6 +9,7 @@
 #include "chat/infra/lxmf/lxmf_wire.h"
 #include "chat/infra/mesh_incoming_queue.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/ports/i_mesh_peer_directory.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_state.h"
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
@@ -18,18 +19,14 @@
 #include <cstddef>
 #include <vector>
 
-namespace platform::ui::reticulum_directory
-{
-struct LxmfAddressRecord;
-}
-
 namespace chat::lxmf
 {
 
 class LxmfAdapter : public IMeshAdapter
 {
   public:
-    explicit LxmfAdapter(LoraBoard& board);
+    explicit LxmfAdapter(LoraBoard& board,
+                         IMeshPeerDirectory* peer_directory = nullptr);
 
     static void* operator new(std::size_t size);
     static void operator delete(void* ptr) noexcept;
@@ -98,8 +95,8 @@ class LxmfAdapter : public IMeshAdapter
     static constexpr uint32_t kPeerProjectionScreenIntervalMs = 2000;
     static constexpr uint32_t kPeerProjectionSleepIntervalMs = 250;
     static constexpr std::size_t kPendingPeerProjectionDepth = 24;
-    static constexpr uint32_t kPeerPersistSleepIntervalMs = 15000;
     static constexpr std::size_t kDeferredDiscoveryDepth = 8;
+    static constexpr std::size_t kPeerDirectoryHotLoadRecords = 64;
 
     struct RuntimeBudget
     {
@@ -123,6 +120,7 @@ class LxmfAdapter : public IMeshAdapter
     };
 
     reticulum::interfaces::ReticulumInterfaceSet interfaces_;
+    IMeshPeerDirectory* peer_directory_ = nullptr;
     reticulum::interfaces::RxPacket rx_packet_scratch_{};
     uint8_t announce_tx_signed_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t announce_tx_payload_scratch_[reticulum::kReticulumMtu] = {};
@@ -155,12 +153,11 @@ class LxmfAdapter : public IMeshAdapter
     uint32_t rx_summary_deferred_dropped_ = 0;
     std::array<NodeId, kPendingPeerProjectionDepth> pending_peer_projection_nodes_{};
     std::size_t pending_peer_projection_count_ = 0;
+    std::array<MeshPeerRecord, kPeerDirectoryHotLoadRecords> peer_directory_load_entries_{};
     uint32_t last_peer_projection_ms_ = 0;
-    uint32_t last_peer_persist_ms_ = 0;
     uint32_t next_app_packet_id_ = 1;
     bool announce_pending_ = true;
     bool peers_loaded_ = false;
-    bool peer_persist_dirty_ = false;
     RxMeta active_rx_meta_{};
     bool has_active_rx_meta_ = false;
 
@@ -277,13 +274,16 @@ class LxmfAdapter : public IMeshAdapter
     bool isConfiguredGroupDestination(
         const ReticulumPeerIdentity& destination) const;
     PeerInfo& upsertPeer(const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
-    PeerInfo* upsertPeerFromAddressRecord(
-        const ::platform::ui::reticulum_directory::LxmfAddressRecord& record,
-        bool queue_update);
+    PeerInfo* upsertPeerFromDirectoryRecord(const MeshPeerRecord& record,
+                                            bool queue_update);
     PeerInfo* findOrLoadPeerByNodeId(NodeId node_id);
     PeerInfo* findOrLoadPeerByDestinationHash(
         const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
     MeshActionResult persistPeerAddressNow(const PeerInfo& peer, bool favorite) const;
+    bool recordPeerInDirectory(const PeerInfo& peer,
+                               MeshPeerSource source,
+                               bool update_favorite,
+                               bool favorite) const;
     PeerInfo* rememberPeerIdentity(const uint8_t combined_pub[reticulum::kCombinedPublicKeySize],
                                    const char* display_name = nullptr);
     void queuePeerUpdate(const PeerInfo& peer);
@@ -291,8 +291,6 @@ class LxmfAdapter : public IMeshAdapter
     void publishPeerUpdate(const PeerInfo& peer) const;
     void loadPersistedPeers();
     void loadDirectoryPeers();
-    bool maybePersistPeers(bool force);
-    bool persistPeers() const;
     uint32_t currentTimestampSeconds() const;
     const char* effectiveDisplayName() const;
     void populateRxMeta(RxMeta* out) const;

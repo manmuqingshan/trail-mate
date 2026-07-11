@@ -11,6 +11,7 @@
 #pragma once
 
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/ports/i_mesh_peer_directory.h"
 
 #include <memory>
 
@@ -29,7 +30,8 @@ namespace lxmf = ::chat::lxmf;
 class ReticulumAdapter final : public IMeshAdapter
 {
   public:
-    explicit ReticulumAdapter(LoraBoard& board);
+    explicit ReticulumAdapter(LoraBoard& board,
+                              IMeshPeerDirectory* peer_directory = nullptr);
     ~ReticulumAdapter() override;
 
     ReticulumAdapter(const ReticulumAdapter&) = delete;

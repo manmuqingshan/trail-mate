@@ -1,5 +1,6 @@
 #include "platform/ui/reticulum_directory_runtime.h"
 
+#include "chat/ports/i_mesh_peer_directory.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/screen_runtime.h"
@@ -26,14 +27,12 @@ using ::platform::esp::arduino_common::storage::SdRuntimeFile;
 constexpr const char* kConfigDir = "/trailmate/reticulum";
 constexpr const char* kAnnouncesPath = "/trailmate/reticulum/announces.tsv";
 constexpr const char* kAnnouncesTempPath = "/trailmate/reticulum/announces.tmp";
-constexpr const char* kLxmfAddressesPath = "/trailmate/reticulum/lxmf_addresses.tsv";
-constexpr const char* kLxmfAddressesTempPath = "/trailmate/reticulum/lxmf_addresses.tmp";
+constexpr const char* kLxmfAddressesPath = "/mesh/peers.bin";
 constexpr std::size_t kMaxDirectoryEntries = 1024;
 constexpr std::size_t kMaxLineBytes = 4096;
 constexpr std::size_t kMaxTsvFields = 14;
 constexpr std::size_t kLineReadChunkBytes = 256;
 constexpr std::size_t kPendingAnnounceDepth = 16;
-constexpr std::size_t kPendingAddressDepth = 16;
 constexpr std::size_t kPendingRuntimeBlobBytes = 500;
 constexpr TickType_t kAsyncMutexWait = pdMS_TO_TICKS(5);
 constexpr TickType_t kAsyncDebounceDelay = pdMS_TO_TICKS(2500);
@@ -47,13 +46,6 @@ constexpr UBaseType_t kAsyncTaskPriority = tskIDLE_PRIORITY + 1;
 constexpr const char* kMaintenanceDeferredMessage =
     "Reticulum directory maintenance deferred";
 constexpr uint32_t kAsyncTaskCreateFailLogIntervalMs = 10000;
-
-enum class PendingDirectoryKind : uint8_t
-{
-    None = 0,
-    Announce,
-    Address,
-};
 
 struct TsvFields
 {
@@ -70,13 +62,6 @@ struct PendingAnnounce
     uint8_t app_data[kPendingRuntimeBlobBytes] = {};
 };
 
-struct PendingAddress
-{
-    bool occupied = false;
-    uint32_t order = 0;
-    LxmfAddressRecord record{};
-};
-
 struct AsyncDirectoryState
 {
     SemaphoreHandle_t mutex = nullptr;
@@ -84,12 +69,11 @@ struct AsyncDirectoryState
     TaskHandle_t task = nullptr;
     uint32_t next_order = 1;
     PendingAnnounce announces[kPendingAnnounceDepth]{};
-    PendingAddress addresses[kPendingAddressDepth]{};
     PendingAnnounce active_announce{};
-    PendingAddress active_address{};
 };
 
 AsyncDirectoryState* s_async_state = nullptr;
+chat::IMeshPeerDirectory* s_mesh_peer_directory = nullptr;
 uint32_t s_maintenance_window_entered_ms = 0;
 uint32_t s_last_maintenance_defer_log_ms = 0;
 uint32_t s_last_task_create_fail_log_ms = 0;
@@ -157,6 +141,185 @@ bool zero_hash(const uint8_t* hash, std::size_t len)
             return false;
         }
     }
+    return true;
+}
+
+chat::MeshPeerSource mesh_source_from_entry_source(EntrySource source)
+{
+    switch (source)
+    {
+    case EntrySource::RuntimeRx:
+        return chat::MeshPeerSource::RuntimeRx;
+    case EntrySource::PathResponse:
+        return chat::MeshPeerSource::DiscoveryResponse;
+    case EntrySource::Manual:
+        return chat::MeshPeerSource::Manual;
+    case EntrySource::Import:
+        return chat::MeshPeerSource::Import;
+    case EntrySource::Unknown:
+    default:
+        return chat::MeshPeerSource::Unknown;
+    }
+}
+
+EntrySource entry_source_from_mesh_source(chat::MeshPeerSource source)
+{
+    switch (source)
+    {
+    case chat::MeshPeerSource::RuntimeRx:
+        return EntrySource::RuntimeRx;
+    case chat::MeshPeerSource::DiscoveryResponse:
+        return EntrySource::PathResponse;
+    case chat::MeshPeerSource::Manual:
+        return EntrySource::Manual;
+    case chat::MeshPeerSource::Import:
+        return EntrySource::Import;
+    case chat::MeshPeerSource::Unknown:
+    default:
+        return EntrySource::Unknown;
+    }
+}
+
+void init_lxmf_directory_status(Status& out)
+{
+    out.supported = true;
+    out.sd_present = sd_available();
+    out.file_present = s_mesh_peer_directory != nullptr;
+}
+
+chat::IMeshPeerDirectory* require_mesh_peer_directory(Status& out)
+{
+    init_lxmf_directory_status(out);
+    if (!s_mesh_peer_directory)
+    {
+        set_status(out, "Mesh peer directory unavailable", kLxmfAddressesPath);
+        return nullptr;
+    }
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kLxmfAddressesPath);
+        return nullptr;
+    }
+    return s_mesh_peer_directory;
+}
+
+void set_mesh_peer_directory_failure(Status& out,
+                                     chat::MeshPeerDirectoryStatusCode code,
+                                     const char* not_found_message,
+                                     const char* invalid_message)
+{
+    switch (code)
+    {
+    case chat::MeshPeerDirectoryStatusCode::NotFound:
+        set_status(out, not_found_message, kLxmfAddressesPath);
+        break;
+    case chat::MeshPeerDirectoryStatusCode::InvalidArgument:
+        set_status(out, invalid_message, kLxmfAddressesPath);
+        break;
+    case chat::MeshPeerDirectoryStatusCode::StorageUnavailable:
+        set_status(out, "Mesh peer directory storage unavailable", kLxmfAddressesPath);
+        break;
+    case chat::MeshPeerDirectoryStatusCode::IoError:
+        set_status(out, "Cannot access mesh peer directory", kLxmfAddressesPath);
+        break;
+    case chat::MeshPeerDirectoryStatusCode::CapacityExceeded:
+        set_status(out, "Mesh peer directory full", kLxmfAddressesPath);
+        break;
+    case chat::MeshPeerDirectoryStatusCode::Unsupported:
+        set_status(out, "Mesh peer directory unsupported", kLxmfAddressesPath);
+        break;
+    case chat::MeshPeerDirectoryStatusCode::Ok:
+    default:
+        set_status(out, "Mesh peer directory failed", kLxmfAddressesPath);
+        break;
+    }
+}
+
+bool lxmf_address_to_mesh_peer_record(const LxmfAddressRecord& record,
+                                      chat::MeshPeerRecord& out_record)
+{
+    out_record = chat::MeshPeerRecord{};
+    if (!record.valid ||
+        zero_hash(record.destination_hash, kReticulumHashSize) ||
+        zero_hash(record.identity_hash, kReticulumHashSize) ||
+        zero_hash(record.enc_pub, kReticulumPublicKeySize) ||
+        zero_hash(record.sig_pub, kReticulumPublicKeySize))
+    {
+        return false;
+    }
+
+    const chat::ReticulumPeerIdentity identity =
+        chat::makeReticulumPeerIdentity(record.destination_hash,
+                                        record.identity_hash);
+    out_record.valid = true;
+    out_record.identity = chat::makeMeshPeerReticulumIdentity(identity);
+    out_record.source = mesh_source_from_entry_source(record.source);
+    out_record.first_seen_s =
+        record.first_seen_s != 0 ? record.first_seen_s : record.last_seen_s;
+    out_record.last_seen_s =
+        record.last_seen_s != 0 ? record.last_seen_s : out_record.first_seen_s;
+    chat::copyMeshPeerText(out_record.display_name,
+                           sizeof(out_record.display_name),
+                           record.display_name);
+    out_record.flags.favorite = record.favorite;
+    out_record.flags.ignored = record.ignored;
+    out_record.flags.trusted = record.trusted;
+    out_record.reticulum.identity = identity;
+    out_record.reticulum.has_public_keys = true;
+    std::memcpy(out_record.reticulum.enc_pub,
+                record.enc_pub,
+                sizeof(out_record.reticulum.enc_pub));
+    std::memcpy(out_record.reticulum.sig_pub,
+                record.sig_pub,
+                sizeof(out_record.reticulum.sig_pub));
+    out_record.reticulum.delivery = true;
+    return chat::meshPeerRecordIsValid(out_record);
+}
+
+bool mesh_peer_record_to_lxmf_address(const chat::MeshPeerRecord& record,
+                                      LxmfAddressRecord& out_record)
+{
+    out_record = LxmfAddressRecord{};
+    if (!chat::meshPeerRecordIsValid(record) ||
+        !chat::meshPeerIsReticulumProtocol(record.identity.protocol))
+    {
+        return false;
+    }
+
+    chat::ReticulumPeerIdentity identity = record.reticulum.identity.valid
+                                               ? record.reticulum.identity
+                                               : record.identity.reticulum;
+    if (!identity.valid ||
+        zero_hash(identity.destination_hash, kReticulumHashSize))
+    {
+        return false;
+    }
+
+    out_record.valid = true;
+    std::memcpy(out_record.destination_hash,
+                identity.destination_hash,
+                sizeof(out_record.destination_hash));
+    std::memcpy(out_record.identity_hash,
+                identity.identity_hash,
+                sizeof(out_record.identity_hash));
+    if (record.reticulum.has_public_keys)
+    {
+        std::memcpy(out_record.enc_pub,
+                    record.reticulum.enc_pub,
+                    sizeof(out_record.enc_pub));
+        std::memcpy(out_record.sig_pub,
+                    record.reticulum.sig_pub,
+                    sizeof(out_record.sig_pub));
+    }
+    copy_text(out_record.display_name,
+              sizeof(out_record.display_name),
+              record.display_name);
+    out_record.favorite = record.flags.favorite;
+    out_record.ignored = record.flags.ignored;
+    out_record.trusted = record.flags.trusted;
+    out_record.source = entry_source_from_mesh_source(record.source);
+    out_record.first_seen_s = record.first_seen_s;
+    out_record.last_seen_s = record.last_seen_s;
     return true;
 }
 
@@ -553,40 +716,9 @@ PendingAnnounce* find_announce_slot(AsyncDirectoryState& state,
     return empty ? empty : oldest;
 }
 
-PendingAddress* find_address_slot(AsyncDirectoryState& state,
-                                  const uint8_t destination_hash[kReticulumHashSize])
-{
-    PendingAddress* empty = nullptr;
-    PendingAddress* oldest = nullptr;
-    for (auto& pending : state.addresses)
-    {
-        if (pending.occupied &&
-            hash_equal(pending.record.destination_hash, destination_hash, kReticulumHashSize))
-        {
-            return &pending;
-        }
-        if (!pending.occupied && !empty)
-        {
-            empty = &pending;
-        }
-        if (pending.occupied && (!oldest || pending.order < oldest->order))
-        {
-            oldest = &pending;
-        }
-    }
-    return empty ? empty : oldest;
-}
-
 bool has_pending_locked(const AsyncDirectoryState& state)
 {
     for (const auto& pending : state.announces)
-    {
-        if (pending.occupied)
-        {
-            return true;
-        }
-    }
-    for (const auto& pending : state.addresses)
     {
         if (pending.occupied)
         {
@@ -607,20 +739,14 @@ bool has_pending(AsyncDirectoryState& state)
     return pending;
 }
 
-bool pop_oldest_pending(AsyncDirectoryState& state, PendingDirectoryKind* out_kind)
+bool pop_oldest_pending(AsyncDirectoryState& state)
 {
-    if (!out_kind)
-    {
-        return false;
-    }
-    *out_kind = PendingDirectoryKind::None;
     if (xSemaphoreTake(state.mutex, portMAX_DELAY) != pdTRUE)
     {
         return false;
     }
 
     PendingAnnounce* oldest_announce = nullptr;
-    PendingAddress* oldest_address = nullptr;
     for (auto& pending : state.announces)
     {
         if (pending.occupied &&
@@ -629,32 +755,17 @@ bool pop_oldest_pending(AsyncDirectoryState& state, PendingDirectoryKind* out_ki
             oldest_announce = &pending;
         }
     }
-    for (auto& pending : state.addresses)
-    {
-        if (pending.occupied &&
-            (!oldest_address || pending.order < oldest_address->order))
-        {
-            oldest_address = &pending;
-        }
-    }
 
-    if (oldest_announce &&
-        (!oldest_address || oldest_announce->order <= oldest_address->order))
+    if (oldest_announce)
     {
         state.active_announce = *oldest_announce;
         bind_pending_payloads(state.active_announce);
         *oldest_announce = PendingAnnounce{};
-        *out_kind = PendingDirectoryKind::Announce;
-    }
-    else if (oldest_address)
-    {
-        state.active_address = *oldest_address;
-        *oldest_address = PendingAddress{};
-        *out_kind = PendingDirectoryKind::Address;
     }
 
+    const bool popped = oldest_announce != nullptr;
     xSemaphoreGive(state.mutex);
-    return *out_kind != PendingDirectoryKind::None;
+    return popped;
 }
 
 void requeue_active_announce(AsyncDirectoryState& state)
@@ -671,23 +782,6 @@ void requeue_active_announce(AsyncDirectoryState& state)
         slot->occupied = true;
         slot->order = state.next_order++;
         bind_pending_payloads(*slot);
-    }
-    xSemaphoreGive(state.mutex);
-}
-
-void requeue_active_address(AsyncDirectoryState& state)
-{
-    if (xSemaphoreTake(state.mutex, portMAX_DELAY) != pdTRUE)
-    {
-        return;
-    }
-    PendingAddress* slot =
-        find_address_slot(state, state.active_address.record.destination_hash);
-    if (slot)
-    {
-        *slot = state.active_address;
-        slot->occupied = true;
-        slot->order = state.next_order++;
     }
     xSemaphoreGive(state.mutex);
 }
@@ -731,63 +825,34 @@ void async_task_entry(void* context)
             continue;
         }
 
-        PendingDirectoryKind kind = PendingDirectoryKind::None;
-        if (!pop_oldest_pending(*state, &kind))
+        if (!pop_oldest_pending(*state))
         {
             continue;
         }
         if (!maintenance_window())
         {
             log_maintenance_deferred("pre_flush");
-            if (kind == PendingDirectoryKind::Announce)
-            {
-                requeue_active_announce(*state);
-            }
-            else if (kind == PendingDirectoryKind::Address)
-            {
-                requeue_active_address(*state);
-            }
+            requeue_active_announce(*state);
             vTaskDelay(kAsyncMaintenanceClosedDelay);
             continue;
         }
 
         Status status{};
-        if (kind == PendingDirectoryKind::Announce)
+        bind_pending_payloads(state->active_announce);
+        status = record_announce_sync(state->active_announce.record, true);
+        if (status.sd_present && !status.saved)
         {
-            bind_pending_payloads(state->active_announce);
-            status = record_announce_sync(state->active_announce.record, true);
-            if (status.sd_present && !status.saved)
+            if (maintenance_deferred(status))
             {
-                if (maintenance_deferred(status))
-                {
-                    log_maintenance_deferred("announce_write");
-                }
-                else
-                {
-                    std::printf("[Reticulum][Directory] announce_flush failed message=%s detail=%s\n",
-                                status.message,
-                                status.detail);
-                }
-                requeue_active_announce(*state);
+                log_maintenance_deferred("announce_write");
             }
-        }
-        else if (kind == PendingDirectoryKind::Address)
-        {
-            status = record_lxmf_address_sync(state->active_address.record, true);
-            if (status.sd_present && !status.saved)
+            else
             {
-                if (maintenance_deferred(status))
-                {
-                    log_maintenance_deferred("address_write");
-                }
-                else
-                {
-                    std::printf("[Reticulum][Directory] address_flush failed message=%s detail=%s\n",
-                                status.message,
-                                status.detail);
-                }
-                requeue_active_address(*state);
+                std::printf("[Reticulum][Directory] announce_flush failed message=%s detail=%s\n",
+                            status.message,
+                            status.detail);
             }
+            requeue_active_announce(*state);
         }
 
         vTaskDelay(kAsyncBetweenFlushDelay);
@@ -876,67 +941,6 @@ Status queue_announce_async(const AnnounceRecord& record)
     return out;
 }
 
-Status queue_lxmf_address_async(const LxmfAddressRecord& record)
-{
-    Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
-    if (!record.valid ||
-        zero_hash(record.destination_hash, kReticulumHashSize) ||
-        zero_hash(record.identity_hash, kReticulumHashSize) ||
-        zero_hash(record.enc_pub, kReticulumPublicKeySize) ||
-        zero_hash(record.sig_pub, kReticulumPublicKeySize))
-    {
-        set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
-        return out;
-    }
-    if (!out.sd_present)
-    {
-        set_status(out, "SD card required", kLxmfAddressesPath);
-        return out;
-    }
-
-    AsyncDirectoryState* state = ensure_async_worker();
-    if (!state)
-    {
-        set_status(out, "Reticulum directory queue unavailable", kLxmfAddressesPath);
-        return out;
-    }
-    if (xSemaphoreTake(state->mutex, kAsyncMutexWait) != pdTRUE)
-    {
-        set_status(out, "Reticulum directory queue busy", kLxmfAddressesPath);
-        return out;
-    }
-
-    PendingAddress* slot = find_address_slot(*state, record.destination_hash);
-    const uint32_t previous_first_seen =
-        slot && slot->occupied ? slot->record.first_seen_s : 0;
-    if (slot)
-    {
-        *slot = PendingAddress{};
-        slot->occupied = true;
-        slot->order = state->next_order++;
-        slot->record = record;
-        if (previous_first_seen != 0 &&
-            (slot->record.first_seen_s == 0 ||
-             previous_first_seen < slot->record.first_seen_s))
-        {
-            slot->record.first_seen_s = previous_first_seen;
-        }
-    }
-    xSemaphoreGive(state->mutex);
-
-    if (!slot)
-    {
-        set_status(out, "Reticulum directory queue full", kLxmfAddressesPath);
-        return out;
-    }
-    out.saved = true;
-    set_status(out, "LXMF address queued", kLxmfAddressesPath);
-    signal_async_worker(*state);
-    return out;
-}
-
 TsvFields split_tsv(std::string_view line)
 {
     TsvFields out{};
@@ -990,70 +994,6 @@ uint32_t parse_u32(std::string_view text, uint32_t fallback = 0)
 bool truthy(std::string_view text)
 {
     return text == "1" || text == "true" || text == "yes" || text == "enabled";
-}
-
-char lower_ascii(char ch)
-{
-    if (ch >= 'A' && ch <= 'Z')
-    {
-        return static_cast<char>(ch - 'A' + 'a');
-    }
-    return ch;
-}
-
-bool contains_ci(std::string_view text, std::string_view query)
-{
-    if (query.empty())
-    {
-        return true;
-    }
-    if (query.size() > text.size())
-    {
-        return false;
-    }
-    for (std::size_t start = 0; start + query.size() <= text.size(); ++start)
-    {
-        bool match = true;
-        for (std::size_t offset = 0; offset < query.size(); ++offset)
-        {
-            if (lower_ascii(text[start + offset]) != lower_ascii(query[offset]))
-            {
-                match = false;
-                break;
-            }
-        }
-        if (match)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool address_line_matches_query(std::string_view line, std::string_view query)
-{
-    const std::string_view trimmed_query = trim_view(query);
-    if (trimmed_query.empty())
-    {
-        return true;
-    }
-    const TsvFields fields = split_tsv(line);
-    return (fields.count > 0 && contains_ci(fields.values[0], trimmed_query)) ||
-           (fields.count > 1 && contains_ci(fields.values[1], trimmed_query)) ||
-           (fields.count > 4 && contains_ci(fields.values[4], trimmed_query));
-}
-
-uint32_t node_id_from_destination_hash(
-    const uint8_t destination_hash[kReticulumHashSize])
-{
-    if (!destination_hash)
-    {
-        return 0;
-    }
-    return (static_cast<uint32_t>(destination_hash[12]) << 24) |
-           (static_cast<uint32_t>(destination_hash[13]) << 16) |
-           (static_cast<uint32_t>(destination_hash[14]) << 8) |
-           static_cast<uint32_t>(destination_hash[15]);
 }
 
 std::string bool_text(bool value)
@@ -1220,33 +1160,6 @@ uint32_t find_existing_first_seen(const char* path,
     return fallback;
 }
 
-bool parse_address_line(std::string_view line, LxmfAddressRecord& out)
-{
-    const TsvFields fields = split_tsv(line);
-    if (fields.count < 11)
-    {
-        return false;
-    }
-    LxmfAddressRecord parsed{};
-    if (!parse_hex(fields.values[0], parsed.destination_hash, kReticulumHashSize) ||
-        !parse_hex(fields.values[1], parsed.identity_hash, kReticulumHashSize) ||
-        !parse_hex(fields.values[2], parsed.enc_pub, kReticulumPublicKeySize) ||
-        !parse_hex(fields.values[3], parsed.sig_pub, kReticulumPublicKeySize))
-    {
-        return false;
-    }
-    copy_view(parsed.display_name, sizeof(parsed.display_name), fields.values[4]);
-    parsed.favorite = truthy(fields.values[5]);
-    parsed.ignored = truthy(fields.values[6]);
-    parsed.trusted = truthy(fields.values[7]);
-    parsed.source = parse_source(fields.values[8]);
-    parsed.first_seen_s = parse_u32(fields.values[9]);
-    parsed.last_seen_s = parse_u32(fields.values[10]);
-    parsed.valid = true;
-    out = parsed;
-    return true;
-}
-
 bool parse_announce_line(std::string_view line, AnnounceRecord& out)
 {
     const TsvFields fields = split_tsv(line);
@@ -1279,68 +1192,6 @@ bool parse_announce_line(std::string_view line, AnnounceRecord& out)
     parsed.valid = true;
     out = parsed;
     return true;
-}
-
-void preserve_address_flags(const char* path,
-                            const std::string& destination,
-                            bool* favorite,
-                            bool* ignored,
-                            bool* trusted,
-                            uint32_t* first_seen_s,
-                            DirectoryIoGate io_gate)
-{
-    if (!io_gate_open(io_gate))
-    {
-        return;
-    }
-    if (!::platform::esp::arduino_common::storage::sd_exists(path))
-    {
-        return;
-    }
-    if (!io_gate_open(io_gate))
-    {
-        return;
-    }
-    SdRuntimeFile file;
-    if (!file.open(path, "r"))
-    {
-        return;
-    }
-    std::string line;
-    LineReader reader(file);
-    while (reader.read_line(line))
-    {
-        if (!io_gate_open(io_gate))
-        {
-            break;
-        }
-        const std::string_view view = trim_view(line);
-        if (data_line(view) && first_field_matches(view, destination))
-        {
-            LxmfAddressRecord parsed{};
-            if (parse_address_line(view, parsed))
-            {
-                if (favorite)
-                {
-                    *favorite = parsed.favorite;
-                }
-                if (ignored)
-                {
-                    *ignored = parsed.ignored;
-                }
-                if (trusted)
-                {
-                    *trusted = parsed.trusted;
-                }
-                if (first_seen_s && parsed.first_seen_s != 0)
-                {
-                    *first_seen_s = parsed.first_seen_s;
-                }
-            }
-            break;
-        }
-    }
-    file.close();
 }
 
 Status stream_upsert_line(const char* path,
@@ -1567,38 +1418,6 @@ std::string announce_line(const AnnounceRecord& record, uint32_t first_seen_s)
     return line;
 }
 
-std::string address_line(const LxmfAddressRecord& record,
-                         bool favorite,
-                         bool ignored,
-                         bool trusted,
-                         uint32_t first_seen_s)
-{
-    std::string line;
-    line.reserve(256);
-    line += hex_text(record.destination_hash, kReticulumHashSize);
-    line += "\t";
-    line += hex_text(record.identity_hash, kReticulumHashSize);
-    line += "\t";
-    line += hex_text(record.enc_pub, kReticulumPublicKeySize);
-    line += "\t";
-    line += hex_text(record.sig_pub, kReticulumPublicKeySize);
-    line += "\t";
-    line += sanitize_field(record.display_name);
-    line += "\t";
-    line += bool_text(favorite);
-    line += "\t";
-    line += bool_text(ignored);
-    line += "\t";
-    line += bool_text(trusted);
-    line += "\t";
-    line += source_text(record.source);
-    line += "\t";
-    line += std::to_string(first_seen_s);
-    line += "\t";
-    line += std::to_string(record.last_seen_s);
-    return line;
-}
-
 Status record_announce_sync(const AnnounceRecord& record, bool require_maintenance)
 {
     Status out{};
@@ -1639,17 +1458,19 @@ Status record_announce_sync(const AnnounceRecord& record, bool require_maintenan
 Status record_lxmf_address_sync(const LxmfAddressRecord& record, bool require_maintenance)
 {
     Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
-    if (!record.valid ||
-        zero_hash(record.destination_hash, kReticulumHashSize) ||
-        zero_hash(record.identity_hash, kReticulumHashSize) ||
-        zero_hash(record.enc_pub, kReticulumPublicKeySize) ||
-        zero_hash(record.sig_pub, kReticulumPublicKeySize))
+    chat::IMeshPeerDirectory* directory = require_mesh_peer_directory(out);
+    if (!directory)
+    {
+        return out;
+    }
+
+    chat::MeshPeerRecord mesh_record{};
+    if (!lxmf_address_to_mesh_peer_record(record, mesh_record))
     {
         set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
         return out;
     }
+
     DirectoryIoGate io_gate = require_maintenance ? maintenance_window : nullptr;
     if (!io_gate_open(io_gate))
     {
@@ -1657,40 +1478,43 @@ Status record_lxmf_address_sync(const LxmfAddressRecord& record, bool require_ma
         return out;
     }
 
-    const std::string destination = hex_text(record.destination_hash, kReticulumHashSize);
-    const bool requested_favorite = record.favorite;
-    const bool requested_ignored = record.ignored;
-    const bool requested_trusted = record.trusted;
-    bool favorite = record.favorite;
-    bool ignored = record.ignored;
-    bool trusted = record.trusted;
-    uint32_t first_seen_s = record.first_seen_s != 0 ? record.first_seen_s : record.last_seen_s;
-    if (out.sd_present)
+    chat::MeshPeerUserFlags merged_flags = mesh_record.flags;
+    chat::MeshPeerRecord existing{};
+    if (directory->find(mesh_record.identity, existing).succeeded())
     {
-        preserve_address_flags(kLxmfAddressesPath,
-                               destination,
-                               &favorite,
-                               &ignored,
-                               &trusted,
-                               &first_seen_s,
-                               io_gate);
+        merged_flags.favorite = existing.flags.favorite || record.favorite;
+        merged_flags.ignored = existing.flags.ignored || record.ignored;
+        merged_flags.trusted = existing.flags.trusted || record.trusted;
     }
-    favorite = favorite || requested_favorite;
-    ignored = ignored || requested_ignored;
-    trusted = trusted || requested_trusted;
-    if (!io_gate_open(io_gate))
+
+    const chat::MeshPeerDirectoryStatus status = directory->record(mesh_record);
+    if (!status.succeeded())
     {
-        set_maintenance_deferred(out, kLxmfAddressesPath);
+        set_mesh_peer_directory_failure(out,
+                                        status.code,
+                                        "LXMF address not found",
+                                        "Invalid LXMF address");
         return out;
     }
 
-    return stream_upsert_line(kLxmfAddressesPath,
-                              kLxmfAddressesTempPath,
-                              "LXMF addresses",
-                              "LXMF address saved",
-                              destination,
-                              address_line(record, favorite, ignored, trusted, first_seen_s),
-                              io_gate);
+    if (record.favorite || record.ignored || record.trusted)
+    {
+        const chat::MeshPeerDirectoryStatus flag_status =
+            directory->setUserFlags(mesh_record.identity, merged_flags);
+        if (!flag_status.succeeded())
+        {
+            set_mesh_peer_directory_failure(out,
+                                            flag_status.code,
+                                            "LXMF address not found",
+                                            "Invalid LXMF address");
+            return out;
+        }
+    }
+
+    out.saved = true;
+    out.loaded = true;
+    set_status(out, "LXMF address saved", kLxmfAddressesPath);
+    return out;
 }
 
 } // namespace
@@ -1705,6 +1529,11 @@ const char* lxmf_addresses_path()
     return kLxmfAddressesPath;
 }
 
+void bind_mesh_peer_directory(chat::IMeshPeerDirectory* directory)
+{
+    s_mesh_peer_directory = directory;
+}
+
 Status record_announce(const AnnounceRecord& record)
 {
     return queue_announce_async(record);
@@ -1712,7 +1541,7 @@ Status record_announce(const AnnounceRecord& record)
 
 Status record_lxmf_address(const LxmfAddressRecord& record)
 {
-    return queue_lxmf_address_async(record);
+    return record_lxmf_address_sync(record, false);
 }
 
 Status record_lxmf_address_now(const LxmfAddressRecord& record)
@@ -1725,41 +1554,50 @@ Status set_lxmf_address_favorite_now(
     bool favorite)
 {
     Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
+    chat::IMeshPeerDirectory* directory = require_mesh_peer_directory(out);
+    if (!directory)
+    {
+        return out;
+    }
     if (!destination_hash || zero_hash(destination_hash, kReticulumHashSize))
     {
         set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
         return out;
     }
-    if (!out.sd_present)
+
+    const chat::ReticulumPeerIdentity reticulum_identity =
+        chat::makeReticulumDestinationIdentity(destination_hash);
+    const chat::MeshPeerIdentity identity =
+        chat::makeMeshPeerReticulumIdentity(reticulum_identity);
+    chat::MeshPeerRecord record{};
+    const chat::MeshPeerDirectoryStatus find_status =
+        directory->find(identity, record);
+    if (!find_status.succeeded())
     {
-        set_status(out, "SD card required", kLxmfAddressesPath);
+        set_mesh_peer_directory_failure(out,
+                                        find_status.code,
+                                        "LXMF address not found",
+                                        "Invalid LXMF address");
         return out;
     }
 
-    LxmfAddressRecord record{};
-    Status find_status = find_lxmf_address_by_destination(destination_hash, &record);
-    out.file_present = find_status.file_present;
-    if (!find_status.loaded || !record.valid)
+    chat::MeshPeerUserFlags flags = record.flags;
+    flags.favorite = favorite;
+    const chat::MeshPeerDirectoryStatus flag_status =
+        directory->setUserFlags(record.identity, flags);
+    if (!flag_status.succeeded())
     {
-        set_status(out, "LXMF address not found", kLxmfAddressesPath);
+        set_mesh_peer_directory_failure(out,
+                                        flag_status.code,
+                                        "LXMF address not found",
+                                        "Invalid LXMF address");
         return out;
     }
 
-    record.favorite = favorite;
-    const std::string destination = hex_text(record.destination_hash, kReticulumHashSize);
-    return stream_upsert_line(kLxmfAddressesPath,
-                              kLxmfAddressesTempPath,
-                              "LXMF addresses",
-                              "LXMF address saved",
-                              destination,
-                              address_line(record,
-                                           record.favorite,
-                                           record.ignored,
-                                           record.trusted,
-                                           record.first_seen_s),
-                              nullptr);
+    out.saved = true;
+    out.loaded = true;
+    set_status(out, "LXMF address saved", kLxmfAddressesPath);
+    return out;
 }
 
 Status load_announces(AnnounceRecord* out_records,
@@ -1832,56 +1670,55 @@ Status load_lxmf_addresses(LxmfAddressRecord* out_records,
                            std::size_t* out_count)
 {
     Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
     if (out_count)
     {
         *out_count = 0;
+    }
+    chat::IMeshPeerDirectory* directory = require_mesh_peer_directory(out);
+    if (!directory)
+    {
+        return out;
     }
     if (!out_records || max_records == 0)
     {
         set_status(out, "LXMF address storage unavailable", kLxmfAddressesPath);
         return out;
     }
-    if (!out.sd_present)
+
+    chat::MeshPeerRecord* records =
+        new (std::nothrow) chat::MeshPeerRecord[max_records];
+    if (!records)
     {
-        set_status(out, "SD card required", kLxmfAddressesPath);
+        set_status(out, "LXMF address buffer unavailable", kLxmfAddressesPath);
         return out;
     }
 
-    out.file_present = ::platform::esp::arduino_common::storage::sd_exists(kLxmfAddressesPath);
-    if (!out.file_present)
+    std::size_t loaded_count = 0;
+    const chat::MeshPeerDirectoryStatus status =
+        directory->loadRecent(chat::MeshProtocol::Reticulum,
+                              records,
+                              max_records,
+                              &loaded_count);
+    if (!status.succeeded())
     {
-        out.loaded = true;
-        set_status(out, "No LXMF addresses", kLxmfAddressesPath);
-        return out;
-    }
-
-    SdRuntimeFile file;
-    if (!file.open(kLxmfAddressesPath, "r"))
-    {
-        set_status(out, "Cannot read LXMF addresses", kLxmfAddressesPath);
+        delete[] records;
+        set_mesh_peer_directory_failure(out,
+                                        status.code,
+                                        "No LXMF addresses",
+                                        "LXMF address storage unavailable");
         return out;
     }
 
     std::size_t count = 0;
-    std::string line;
-    LineReader reader(file);
-    while (reader.read_line(line))
+    for (std::size_t index = 0; index < loaded_count && count < max_records; ++index)
     {
-        const std::string_view view = trim_view(line);
-        if (data_line(view))
+        LxmfAddressRecord converted{};
+        if (mesh_peer_record_to_lxmf_address(records[index], converted))
         {
-            LxmfAddressRecord parsed{};
-            if (parse_address_line(view, parsed))
-            {
-                append_latest_record(out_records, max_records, count, parsed);
-            }
+            out_records[count++] = converted;
         }
     }
-    file.close();
-
-    reverse_records(out_records, count);
+    delete[] records;
     if (out_count)
     {
         *out_count = count;
@@ -1898,8 +1735,6 @@ Status load_lxmf_addresses_matching(const char* query,
                                     std::size_t* out_count)
 {
     Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
     if (out_count)
     {
         *out_count = 0;
@@ -1908,50 +1743,52 @@ Status load_lxmf_addresses_matching(const char* query,
     {
         return load_lxmf_addresses(out_records, max_records, out_count);
     }
+    chat::IMeshPeerDirectory* directory = require_mesh_peer_directory(out);
+    if (!directory)
+    {
+        return out;
+    }
     if (!out_records || max_records == 0)
     {
         set_status(out, "LXMF address storage unavailable", kLxmfAddressesPath);
         return out;
     }
-    if (!out.sd_present)
+
+    chat::MeshPeerRecord* records =
+        new (std::nothrow) chat::MeshPeerRecord[max_records];
+    if (!records)
     {
-        set_status(out, "SD card required", kLxmfAddressesPath);
+        set_status(out, "LXMF address buffer unavailable", kLxmfAddressesPath);
         return out;
     }
 
-    out.file_present = ::platform::esp::arduino_common::storage::sd_exists(kLxmfAddressesPath);
-    if (!out.file_present)
+    std::size_t loaded_count = 0;
+    const chat::MeshPeerDirectoryStatus status =
+        directory->search(chat::MeshProtocol::Reticulum,
+                          query,
+                          records,
+                          max_records,
+                          &loaded_count);
+    if (!status.succeeded())
     {
-        out.loaded = true;
-        set_status(out, "No LXMF addresses", kLxmfAddressesPath);
-        return out;
-    }
-
-    SdRuntimeFile file;
-    if (!file.open(kLxmfAddressesPath, "r"))
-    {
-        set_status(out, "Cannot read LXMF addresses", kLxmfAddressesPath);
+        delete[] records;
+        set_mesh_peer_directory_failure(out,
+                                        status.code,
+                                        "No LXMF address matches",
+                                        "LXMF address storage unavailable");
         return out;
     }
 
     std::size_t count = 0;
-    std::string line;
-    LineReader reader(file);
-    while (reader.read_line(line))
+    for (std::size_t index = 0; index < loaded_count && count < max_records; ++index)
     {
-        const std::string_view view = trim_view(line);
-        if (data_line(view) && address_line_matches_query(view, query))
+        LxmfAddressRecord converted{};
+        if (mesh_peer_record_to_lxmf_address(records[index], converted))
         {
-            LxmfAddressRecord parsed{};
-            if (parse_address_line(view, parsed))
-            {
-                append_latest_record(out_records, max_records, count, parsed);
-            }
+            out_records[count++] = converted;
         }
     }
-    file.close();
-
-    reverse_records(out_records, count);
+    delete[] records;
     if (out_count)
     {
         *out_count = count;
@@ -1967,11 +1804,14 @@ Status find_lxmf_address_by_destination(
     LxmfAddressRecord* out_record)
 {
     Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
     if (out_record)
     {
         *out_record = LxmfAddressRecord{};
+    }
+    chat::IMeshPeerDirectory* directory = require_mesh_peer_directory(out);
+    if (!directory)
+    {
+        return out;
     }
     if (!destination_hash || !out_record ||
         zero_hash(destination_hash, kReticulumHashSize))
@@ -1979,43 +1819,29 @@ Status find_lxmf_address_by_destination(
         set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
         return out;
     }
-    if (!out.sd_present)
+
+    const chat::ReticulumPeerIdentity reticulum_identity =
+        chat::makeReticulumDestinationIdentity(destination_hash);
+    const chat::MeshPeerIdentity identity =
+        chat::makeMeshPeerReticulumIdentity(reticulum_identity);
+    chat::MeshPeerRecord record{};
+    const chat::MeshPeerDirectoryStatus status = directory->find(identity, record);
+    if (!status.succeeded())
     {
-        set_status(out, "SD card required", kLxmfAddressesPath);
+        set_mesh_peer_directory_failure(out,
+                                        status.code,
+                                        "LXMF address not found",
+                                        "Invalid LXMF address");
+        return out;
+    }
+    if (!mesh_peer_record_to_lxmf_address(record, *out_record))
+    {
+        set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
         return out;
     }
 
-    out.file_present = ::platform::esp::arduino_common::storage::sd_exists(kLxmfAddressesPath);
-    if (!out.file_present)
-    {
-        out.loaded = true;
-        set_status(out, "No LXMF addresses", kLxmfAddressesPath);
-        return out;
-    }
-
-    SdRuntimeFile file;
-    if (!file.open(kLxmfAddressesPath, "r"))
-    {
-        set_status(out, "Cannot read LXMF addresses", kLxmfAddressesPath);
-        return out;
-    }
-
-    const std::string destination = hex_text(destination_hash, kReticulumHashSize);
-    std::string line;
-    LineReader reader(file);
-    while (reader.read_line(line))
-    {
-        const std::string_view view = trim_view(line);
-        if (data_line(view) && first_field_matches(view, destination))
-        {
-            out.loaded = parse_address_line(view, *out_record);
-            break;
-        }
-    }
-    file.close();
-    set_status(out,
-               out.loaded ? "LXMF address loaded" : "LXMF address not found",
-               kLxmfAddressesPath);
+    out.loaded = true;
+    set_status(out, "LXMF address loaded", kLxmfAddressesPath);
     return out;
 }
 
@@ -2023,61 +1849,40 @@ Status find_lxmf_address_by_node_id(uint32_t node_id,
                                     LxmfAddressRecord* out_record)
 {
     Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
     if (out_record)
     {
         *out_record = LxmfAddressRecord{};
+    }
+    chat::IMeshPeerDirectory* directory = require_mesh_peer_directory(out);
+    if (!directory)
+    {
+        return out;
     }
     if (node_id == 0 || !out_record)
     {
         set_status(out, "Invalid LXMF node", kLxmfAddressesPath);
         return out;
     }
-    if (!out.sd_present)
+
+    chat::MeshPeerRecord record{};
+    const chat::MeshPeerDirectoryStatus status =
+        directory->findByNodeId(chat::MeshProtocol::Reticulum, node_id, record);
+    if (!status.succeeded())
     {
-        set_status(out, "SD card required", kLxmfAddressesPath);
+        set_mesh_peer_directory_failure(out,
+                                        status.code,
+                                        "LXMF address not found",
+                                        "Invalid LXMF node");
+        return out;
+    }
+    if (!mesh_peer_record_to_lxmf_address(record, *out_record))
+    {
+        set_status(out, "Invalid LXMF address", kLxmfAddressesPath);
         return out;
     }
 
-    out.file_present = ::platform::esp::arduino_common::storage::sd_exists(kLxmfAddressesPath);
-    if (!out.file_present)
-    {
-        out.loaded = true;
-        set_status(out, "No LXMF addresses", kLxmfAddressesPath);
-        return out;
-    }
-
-    SdRuntimeFile file;
-    if (!file.open(kLxmfAddressesPath, "r"))
-    {
-        set_status(out, "Cannot read LXMF addresses", kLxmfAddressesPath);
-        return out;
-    }
-
-    std::string line;
-    LineReader reader(file);
-    bool found = false;
-    while (reader.read_line(line))
-    {
-        const std::string_view view = trim_view(line);
-        if (!data_line(view))
-        {
-            continue;
-        }
-        LxmfAddressRecord parsed{};
-        if (parse_address_line(view, parsed) &&
-            node_id_from_destination_hash(parsed.destination_hash) == node_id)
-        {
-            *out_record = parsed;
-            found = true;
-        }
-    }
-    file.close();
-    out.loaded = found;
-    set_status(out,
-               found ? "LXMF address loaded" : "LXMF address not found",
-               kLxmfAddressesPath);
+    out.loaded = true;
+    set_status(out, "LXMF address loaded", kLxmfAddressesPath);
     return out;
 }
 

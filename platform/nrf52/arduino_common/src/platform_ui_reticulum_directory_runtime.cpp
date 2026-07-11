@@ -46,6 +46,10 @@ const char* lxmf_addresses_path()
     return kLxmfAddressesPath;
 }
 
+void bind_mesh_peer_directory(chat::IMeshPeerDirectory*)
+{
+}
+
 Status record_announce(const AnnounceRecord&)
 {
     return unsupported("Reticulum announce storage unsupported", kAnnouncesPath);

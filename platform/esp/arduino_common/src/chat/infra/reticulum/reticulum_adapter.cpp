@@ -9,8 +9,9 @@
 namespace chat::reticulum
 {
 
-ReticulumAdapter::ReticulumAdapter(LoraBoard& board)
-    : service_(new lxmf::LxmfAdapter(board))
+ReticulumAdapter::ReticulumAdapter(LoraBoard& board,
+                                   IMeshPeerDirectory* peer_directory)
+    : service_(new lxmf::LxmfAdapter(board, peer_directory))
 {
 }
 

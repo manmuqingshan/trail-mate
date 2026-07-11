@@ -35,6 +35,7 @@ class ChatModel;
 class ChatService;
 class IChatStore;
 class IMeshAdapter;
+class IMeshPeerDirectory;
 namespace contacts
 {
 class INodeStore;
@@ -271,6 +272,7 @@ class AppContext final : public IAppBleFacade
     std::unique_ptr<chat::ChatModel> chat_model_;
 
     std::unique_ptr<chat::IChatStore> chat_store_;
+    std::unique_ptr<chat::IMeshPeerDirectory> mesh_peer_directory_;
     std::unique_ptr<chat::IMeshAdapter> mesh_router_;
     std::unique_ptr<chat::contacts::INodeStore> node_store_;
     std::unique_ptr<chat::contacts::IContactStore> contact_store_;

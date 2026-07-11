@@ -1,10 +1,12 @@
 #pragma once
 
 #include "board/LoraBoard.h"
+#include "chat/ports/i_mesh_peer_directory.h"
 #include "mesh/ports/i_clock.h"
 #include "mesh/ports/i_crypto_provider.h"
 #include "mesh/ports/i_mesh_event_sink.h"
 #include "mesh/ports/i_packet_radio.h"
+#include "mesh/ports/i_peer_key_store.h"
 #include "mesh/protocol/meshtastic/meshtastic_protocol_strategy.h"
 #include "mesh/usecase/direct_message_service.h"
 #include "mesh/usecase/mesh_dedup_service.h"
@@ -71,10 +73,26 @@ class EspMeshEventBridge final : public ::mesh::IMeshEventSink
     uint32_t emitted_count = 0;
 };
 
+class EspMeshPeerDirectoryPeerKeyStore final : public ::mesh::IPeerKeyStore
+{
+  public:
+    explicit EspMeshPeerDirectoryPeerKeyStore(::chat::IMeshPeerDirectory* directory);
+
+    ::mesh::StoreResult get(::mesh::NodeId node_id,
+                            ::mesh::PeerPublicKey& out) override;
+    ::mesh::StoreResult put(const ::mesh::PeerPublicKey& key) override;
+    ::mesh::StoreResult remove(::mesh::NodeId node_id) override;
+    ::mesh::StoreResult clear() override;
+
+  private:
+    ::chat::IMeshPeerDirectory* directory_ = nullptr;
+};
+
 class EspMeshtasticAdapterBridge final
 {
   public:
-    explicit EspMeshtasticAdapterBridge(LoraBoard& board);
+    EspMeshtasticAdapterBridge(LoraBoard& board,
+                               ::chat::IMeshPeerDirectory* peer_directory);
 
     static void* operator new(std::size_t size);
     static void operator delete(void* ptr) noexcept;
@@ -89,7 +107,7 @@ class EspMeshtasticAdapterBridge final
     EspMeshtasticPacketRadio radio_;
     ::mesh::meshtastic::MeshtasticProtocolStrategy protocol_;
     EspPreferencesLocalIdentityStore local_store_;
-    EspPreferencesPeerKeyStore peer_store_;
+    EspMeshPeerDirectoryPeerKeyStore peer_store_;
     EspArduinoMeshCryptoProvider crypto_;
     EspArduinoMeshClock clock_;
     EspMeshEventBridge events_;

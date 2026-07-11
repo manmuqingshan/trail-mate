@@ -3,6 +3,11 @@
 #include <cstddef>
 #include <cstdint>
 
+namespace chat
+{
+class IMeshPeerDirectory;
+}
+
 namespace platform::ui::reticulum_directory
 {
 
@@ -78,6 +83,8 @@ struct LxmfAddressRecord
 
 const char* announces_path();
 const char* lxmf_addresses_path();
+
+void bind_mesh_peer_directory(chat::IMeshPeerDirectory* directory);
 
 Status record_announce(const AnnounceRecord& record);
 Status record_lxmf_address(const LxmfAddressRecord& record);

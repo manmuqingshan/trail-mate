@@ -16,6 +16,7 @@
 #include "chat/runtime/self_identity_policy.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/memory_diag.h"
+#include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "sys/event_bus.h"
 #include "ui/chat_ui_runtime_proxy.h"
@@ -141,7 +142,9 @@ std::unique_ptr<chat::IMeshAdapter> AppContext::createMeshBackend(chat::MeshProt
     {
         return nullptr;
     }
-    return platform_bindings_.create_mesh_backend(protocol, *lora_board_);
+    return platform_bindings_.create_mesh_backend(protocol,
+                                                  *lora_board_,
+                                                  mesh_peer_directory_.get());
 }
 
 void AppContext::initChatRuntime(bool use_mock_adapter)
@@ -161,6 +164,9 @@ void AppContext::initChatRuntime(bool use_mock_adapter)
 
     chat_model_ = std::move(chat_services.model);
     chat_store_ = std::move(chat_services.store);
+    mesh_peer_directory_ = std::move(chat_services.mesh_peer_directory);
+    ::platform::ui::reticulum_directory::bind_mesh_peer_directory(
+        mesh_peer_directory_.get());
     mesh_router_ = std::move(chat_services.mesh_runtime);
     chat_service_ = std::move(chat_services.service);
     chat_event_bus_bridge_ = std::move(chat_services.incoming_message_observer);

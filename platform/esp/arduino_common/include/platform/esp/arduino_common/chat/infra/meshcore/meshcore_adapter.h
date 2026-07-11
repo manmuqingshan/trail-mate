@@ -10,6 +10,7 @@
 #include "chat/infra/meshcore/meshcore_ble_backend.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/ports/i_mesh_peer_directory.h"
 #include "chat/runtime/meshcore_runtime.h"
 #include "chat/runtime/protocol_runtime_factory.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_identity.h"
@@ -37,7 +38,8 @@ class MeshCoreAdapter : public IMeshAdapter,
     /**
      * @brief Constructor
      */
-    MeshCoreAdapter(LoraBoard& board);
+    MeshCoreAdapter(LoraBoard& board,
+                    IMeshPeerDirectory* peer_directory = nullptr);
 
     /**
      * @brief Destructor
@@ -229,32 +231,12 @@ class MeshCoreAdapter : public IMeshAdapter,
     static constexpr size_t kMaxPeerRouteCandidates = 4;
     static constexpr size_t kMaxPeerRoutes = 128;
     static constexpr size_t kMaxVerifiedPeers = 128;
-    static constexpr size_t kMaxPersistedPeerPubKeys = 64;
-    static constexpr const char* kPeerPubKeyPrefsNs = "mc_peers";
-    static constexpr const char* kPeerPubKeyPrefsKey = "peer_keys";
-    static constexpr const char* kPeerPubKeyPrefsKeyVer = "peer_ver";
-    static constexpr uint8_t kPeerPubKeyPrefsVersion = 1;
+    static constexpr size_t kPeerDirectoryHotLoadRecords = kMaxPeerRoutes;
     static constexpr size_t kMaxEventQueue = 32;
     static constexpr size_t kMaxScheduledFrames = 24;
     static constexpr size_t kMaxSeenPackets = 128;
     static constexpr size_t kScheduledFrameMaxLen = 255;
     static constexpr size_t kMqttBridgeQueueDepth = 3;
-
-    struct PersistedPeerPubKeyEntryV1
-    {
-        uint8_t peer_hash = 0;
-        uint8_t flags = 0;
-        uint16_t reserved = 0;
-        uint8_t pubkey[MeshCoreIdentity::kPubKeySize] = {};
-    } __attribute__((packed));
-    static_assert(sizeof(PersistedPeerPubKeyEntryV1) == 36,
-                  "Persisted peer pubkey entry must remain stable");
-
-    struct StagedPeerPubKeySaveEntry
-    {
-        uint32_t seen_ms = 0;
-        PersistedPeerPubKeyEntryV1 entry{};
-    };
 
     struct ScheduledFrame
     {
@@ -631,6 +613,7 @@ class MeshCoreAdapter : public IMeshAdapter,
     };
 
     LoraBoard& board_;
+    IMeshPeerDirectory* peer_directory_ = nullptr;
 
     // Configuration
     MeshConfig config_;
@@ -672,8 +655,7 @@ class MeshCoreAdapter : public IMeshAdapter,
     EventQueue events_;
     PeerRouteTable peer_routes_;
     VerifiedPeerTable verified_peers_;
-    std::array<StagedPeerPubKeySaveEntry, kMaxPersistedPeerPubKeys> peer_key_save_scratch_{};
-    std::array<PersistedPeerPubKeyEntryV1, kMaxPersistedPeerPubKeys> peer_key_save_entries_{};
+    std::array<MeshPeerRecord, kPeerDirectoryHotLoadRecords> peer_directory_load_entries_{};
     KeyVerifySession key_verify_session_;
 
     MessageId next_msg_id_;
@@ -714,8 +696,8 @@ class MeshCoreAdapter : public IMeshAdapter,
                           uint8_t out_pubkey[MeshCoreIdentity::kPubKeySize]) const;
     void rememberPeerPubKey(const uint8_t pubkey[MeshCoreIdentity::kPubKeySize],
                             uint32_t now_ms, bool verified);
-    void loadPeerPubKeysFromPrefs();
-    void savePeerPubKeysToPrefs();
+    void loadPeerPubKeysFromDirectory();
+    void savePeerPubKeyToDirectory(const PeerRouteEntry& route);
     void maybeAutoDiscoverMissingPeer(uint8_t peer_hash, uint32_t now_ms);
     bool tryDecryptPeerPayload(uint8_t src_hash, const uint8_t* cipher, size_t cipher_len,
                                uint8_t* out_plain, size_t* out_plain_len,

@@ -200,6 +200,32 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_node_store_core_smoke
              COMMAND trailmate_node_store_core_smoke)
 
+    add_executable(trailmate_mesh_peer_directory_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_peer_directory_contract.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp")
+    target_include_directories(trailmate_mesh_peer_directory_contract_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_mesh_peer_directory_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_mesh_peer_directory_contract_smoke
+             COMMAND trailmate_mesh_peer_directory_contract_smoke)
+
+    add_executable(trailmate_linux_reticulum_directory_runtime_smoke
+        tests/linux_reticulum_directory_runtime_smoke.cpp
+        "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/platform/ui/reticulum_directory_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/platform/linux/runtime_paths.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp")
+    target_include_directories(trailmate_linux_reticulum_directory_runtime_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_linux_reticulum_directory_runtime_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_linux_reticulum_directory_runtime_smoke
+             COMMAND trailmate_linux_reticulum_directory_runtime_smoke)
+
     add_executable(trailmate_mesh_adapter_router_core_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_adapter_router_core.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_adapter_router_core.cpp")

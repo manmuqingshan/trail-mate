@@ -11,6 +11,7 @@
 #include "chat/ports/i_chat_store.h"
 #include "chat/ports/i_contact_store.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/ports/i_mesh_peer_directory.h"
 #include "chat/ports/i_node_store.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
@@ -39,13 +40,15 @@ struct ChatServicesBundle
 {
     std::unique_ptr<chat::ChatModel> model;
     std::unique_ptr<chat::IChatStore> store;
+    std::unique_ptr<chat::IMeshPeerDirectory> mesh_peer_directory;
     std::unique_ptr<chat::IMeshAdapter> mesh_runtime;
     std::unique_ptr<chat::ChatService> service;
     std::unique_ptr<chat::ChatService::IncomingMessageObserver> incoming_message_observer;
 
     bool isValid() const
     {
-        return model && store && mesh_runtime && service && incoming_message_observer;
+        return model && store && mesh_peer_directory && mesh_runtime && service &&
+               incoming_message_observer;
     }
 };
 
@@ -99,8 +102,10 @@ struct AppContextPlatformBindings
     using ChatServicesFactory = ChatServicesBundle (*)(const AppConfig& config,
                                                        LoraBoard* lora_board,
                                                        bool use_mock_adapter);
-    using MeshBackendFactory = std::unique_ptr<chat::IMeshAdapter> (*)(chat::MeshProtocol protocol,
-                                                                       LoraBoard& lora_board);
+    using MeshBackendFactory =
+        std::unique_ptr<chat::IMeshAdapter> (*)(chat::MeshProtocol protocol,
+                                                LoraBoard& lora_board,
+                                                chat::IMeshPeerDirectory* peer_directory);
     using ContactServicesFactory = ContactServicesBundle (*)();
     using TeamServicesFactory = TeamServicesBundle (*)(chat::IMeshAdapter& mesh_adapter);
     using SelfNodeIdProvider = chat::NodeId (*)();

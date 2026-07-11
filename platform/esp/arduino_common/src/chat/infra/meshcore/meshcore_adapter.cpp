@@ -4,7 +4,6 @@
  */
 
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
-#include "../../internal/blob_store_io.h"
 #include "chat/domain/contact_types.h"
 #include "chat/infra/meshcore/meshcore_payload_helpers.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
@@ -16,7 +15,6 @@
 #include "sys/event_bus.h"
 #include <AES.h>
 #include <Arduino.h>
-#include <Preferences.h>
 #include <RadioLib.h>
 #include <SHA256.h>
 #include <algorithm>
@@ -109,8 +107,6 @@ constexpr size_t kMeshcorePubKeySize = 32;
 constexpr size_t kAdvertSignatureSize = 64;
 constexpr size_t kAdvertMinPayloadSize =
     kMeshcorePubKeySize + sizeof(uint32_t) + kAdvertSignatureSize;
-
-constexpr uint8_t kPersistedPeerFlagVerified = 0x01;
 
 template <typename T>
 T clampValue(T value, T min_value, T max_value)
@@ -280,8 +276,10 @@ bool buildPathPlain(const uint8_t* out_path, size_t out_path_len,
 
 } // namespace
 
-MeshCoreAdapter::MeshCoreAdapter(LoraBoard& board)
+MeshCoreAdapter::MeshCoreAdapter(LoraBoard& board,
+                                 IMeshPeerDirectory* peer_directory)
     : board_(board),
+      peer_directory_(peer_directory),
       initialized_(false),
       last_raw_packet_len_(0),
       has_pending_raw_packet_(false),
@@ -1573,62 +1571,71 @@ void MeshCoreAdapter::rememberPeerPubKey(const uint8_t pubkey[MeshCoreIdentity::
     }
     if (changed)
     {
-        savePeerPubKeysToPrefs();
+        savePeerPubKeyToDirectory(entry);
     }
 }
 
-void MeshCoreAdapter::loadPeerPubKeysFromPrefs()
+void MeshCoreAdapter::loadPeerPubKeysFromDirectory()
 {
-    std::vector<uint8_t> blob;
-    chat::infra::PreferencesBlobMetadata meta;
-    if (!chat::infra::loadRawBlobFromPreferencesWithMetadata(kPeerPubKeyPrefsNs,
-                                                             kPeerPubKeyPrefsKey,
-                                                             kPeerPubKeyPrefsKeyVer,
-                                                             nullptr,
-                                                             blob,
-                                                             &meta))
+    if (!peer_directory_)
     {
-        MESHCORE_LOG("[MESHCORE] peer key store not initialized ns=%s (first run)\n",
-                     kPeerPubKeyPrefsNs);
+        MESHCORE_LOG("[MESHCORE] peer directory unavailable, hot cache empty\n");
         return;
     }
 
-    if (!meta.has_version || meta.version != kPeerPubKeyPrefsVersion ||
-        meta.len < sizeof(PersistedPeerPubKeyEntryV1) ||
-        (meta.len % sizeof(PersistedPeerPubKeyEntryV1)) != 0)
+    size_t count = 0;
+    const MeshPeerDirectoryStatus status =
+        peer_directory_->loadRecent(MeshProtocol::MeshCore,
+                                    peer_directory_load_entries_.data(),
+                                    peer_directory_load_entries_.size(),
+                                    &count);
+    if (!status.succeeded())
     {
+        MESHCORE_LOG("[MESHCORE] peer directory load failed status=%u\n",
+                     static_cast<unsigned>(status.code));
         return;
     }
-
-    size_t count = meta.len / sizeof(PersistedPeerPubKeyEntryV1);
-    if (count > kMaxPersistedPeerPubKeys)
-    {
-        count = kMaxPersistedPeerPubKeys;
-    }
-    const auto* entries = reinterpret_cast<const PersistedPeerPubKeyEntryV1*>(blob.data());
 
     const uint32_t now_ms = millis();
     size_t loaded = 0;
     for (size_t i = 0; i < count; ++i)
     {
-        const PersistedPeerPubKeyEntryV1& persisted = entries[i];
-        if (persisted.peer_hash == 0x00 || persisted.peer_hash == 0xFF || persisted.peer_hash == self_hash_)
+        const MeshPeerRecord& persisted = peer_directory_load_entries_[i];
+        const uint8_t* pubkey = nullptr;
+        bool verified = false;
+        if (persisted.meshcore.has_public_key)
+        {
+            pubkey = persisted.meshcore.public_key;
+            verified = persisted.meshcore.public_key_verified;
+        }
+        else if (persisted.identity.kind == MeshPeerIdentityKind::PublicKey &&
+                 meshPeerSameProtocol(persisted.identity.protocol, MeshProtocol::MeshCore) &&
+                 persisted.identity.public_key_len == MeshCoreIdentity::kPubKeySize)
+        {
+            pubkey = persisted.identity.public_key;
+        }
+        else
         {
             continue;
         }
-        if (persisted.pubkey[0] != persisted.peer_hash ||
-            isZeroKey(persisted.pubkey, sizeof(persisted.pubkey)))
+
+        const uint8_t peer_hash = pubkey[0];
+        if (peer_hash == 0x00 || peer_hash == 0xFF || peer_hash == self_hash_)
+        {
+            continue;
+        }
+        if (isZeroKey(pubkey, MeshCoreIdentity::kPubKeySize))
         {
             continue;
         }
 
         uint8_t peer_hash2[chat::meshcore::kMeshCoreV2HashBytes] = {};
-        copyPublicHash(PayloadProfile::V2, persisted.pubkey, sizeof(persisted.pubkey),
+        copyPublicHash(PayloadProfile::V2, pubkey, MeshCoreIdentity::kPubKeySize,
                        peer_hash2, sizeof(peer_hash2));
         PeerRouteEntry& entry = upsertPeerRoute(PayloadProfile::V2, peer_hash2, now_ms);
         entry.has_pubkey = true;
-        entry.pubkey_verified = (persisted.flags & kPersistedPeerFlagVerified) != 0;
-        memcpy(entry.pubkey, persisted.pubkey, sizeof(entry.pubkey));
+        entry.pubkey_verified = verified;
+        memcpy(entry.pubkey, pubkey, sizeof(entry.pubkey));
         entry.pubkey_seen_ms = now_ms;
         const NodeId node = deriveNodeIdFromPubkey(entry.pubkey, sizeof(entry.pubkey));
         if (node != 0)
@@ -1640,92 +1647,53 @@ void MeshCoreAdapter::loadPeerPubKeysFromPrefs()
 
     if (loaded > 0)
     {
-        MESHCORE_LOG("[MESHCORE] peer keys loaded=%u ns=%s\n",
-                     static_cast<unsigned>(loaded),
-                     kPeerPubKeyPrefsNs);
+        MESHCORE_LOG("[MESHCORE] peer keys loaded=%u directory=mesh_peer_directory\n",
+                     static_cast<unsigned>(loaded));
     }
 }
 
-void MeshCoreAdapter::savePeerPubKeysToPrefs()
+void MeshCoreAdapter::savePeerPubKeyToDirectory(const PeerRouteEntry& route)
 {
-    size_t staged_count = 0;
-    for (const PeerRouteEntry& route : peer_routes_)
+    if (!peer_directory_ || !route.has_pubkey ||
+        route.peer_hash == 0x00 || route.peer_hash == 0xFF ||
+        route.peer_hash == self_hash_ ||
+        isZeroKey(route.pubkey, sizeof(route.pubkey)))
     {
-        if (!route.has_pubkey || route.peer_hash == 0x00 || route.peer_hash == 0xFF ||
-            route.peer_hash == self_hash_ || isZeroKey(route.pubkey, sizeof(route.pubkey)))
-        {
-            continue;
-        }
-
-        StagedPeerPubKeySaveEntry item{};
-        item.seen_ms = route.pubkey_seen_ms;
-        item.entry.peer_hash = route.peer_hash;
-        item.entry.flags = route.pubkey_verified ? kPersistedPeerFlagVerified : 0;
-        memcpy(item.entry.pubkey, route.pubkey, sizeof(item.entry.pubkey));
-
-        size_t insert_pos = 0;
-        while (insert_pos < staged_count &&
-               peer_key_save_scratch_[insert_pos].seen_ms >= item.seen_ms)
-        {
-            ++insert_pos;
-        }
-        if (insert_pos >= kMaxPersistedPeerPubKeys &&
-            staged_count >= kMaxPersistedPeerPubKeys)
-        {
-            continue;
-        }
-
-        const size_t move_start =
-            (staged_count < kMaxPersistedPeerPubKeys) ? staged_count
-                                                      : (kMaxPersistedPeerPubKeys - 1);
-        for (size_t move = move_start; move > insert_pos; --move)
-        {
-            peer_key_save_scratch_[move] = peer_key_save_scratch_[move - 1];
-        }
-        peer_key_save_scratch_[insert_pos] = item;
-        if (staged_count < kMaxPersistedPeerPubKeys)
-        {
-            ++staged_count;
-        }
-    }
-
-    for (size_t index = 0; index < staged_count; ++index)
-    {
-        peer_key_save_entries_[index] = peer_key_save_scratch_[index].entry;
-    }
-    for (size_t index = staged_count; index < peer_key_save_entries_.size(); ++index)
-    {
-        peer_key_save_entries_[index] = PersistedPeerPubKeyEntryV1{};
-    }
-
-    chat::infra::PreferencesBlobMetadata meta;
-    if (staged_count > 0)
-    {
-        meta.len = staged_count * sizeof(PersistedPeerPubKeyEntryV1);
-        meta.has_version = true;
-        meta.version = kPeerPubKeyPrefsVersion;
-    }
-
-    const bool ok = chat::infra::saveRawBlobToPreferencesWithMetadata(
-        kPeerPubKeyPrefsNs,
-        kPeerPubKeyPrefsKey,
-        kPeerPubKeyPrefsKeyVer,
-        nullptr,
-        staged_count == 0 ? nullptr : reinterpret_cast<const uint8_t*>(peer_key_save_entries_.data()),
-        staged_count * sizeof(PersistedPeerPubKeyEntryV1),
-        &meta,
-        false);
-    if (!ok)
-    {
-        MESHCORE_LOG("[MESHCORE] peer key save failed open ns=%s\n", kPeerPubKeyPrefsNs);
         return;
     }
-    if (staged_count > 0)
+
+    MeshPeerRecord record{};
+    record.valid = true;
+    if (!makeMeshPeerPublicKeyIdentity(MeshProtocol::MeshCore,
+                                       route.pubkey,
+                                       sizeof(route.pubkey),
+                                       record.identity))
     {
-        MESHCORE_LOG("[MESHCORE] peer key saved total=%u ns=%s\n",
-                     static_cast<unsigned>(staged_count),
-                     kPeerPubKeyPrefsNs);
+        return;
     }
+
+    const uint32_t now_s = now_message_timestamp();
+    record.source = MeshPeerSource::RuntimeRx;
+    record.first_seen_s = now_s;
+    record.last_seen_s = now_s;
+    record.meshcore.has_public_key = true;
+    memcpy(record.meshcore.public_key,
+           route.pubkey,
+           sizeof(record.meshcore.public_key));
+    record.meshcore.public_key_verified = route.pubkey_verified;
+    record.meshcore.has_peer_hash = true;
+    record.meshcore.peer_hash = route.peer_hash;
+
+    const MeshPeerDirectoryStatus status = peer_directory_->record(record);
+    if (!status.succeeded())
+    {
+        MESHCORE_LOG("[MESHCORE] peer key directory save failed hash=%02X status=%u\n",
+                     route.peer_hash,
+                     static_cast<unsigned>(status.code));
+        return;
+    }
+    MESHCORE_LOG("[MESHCORE] peer key saved hash=%02X directory=mesh_peer_directory\n",
+                 route.peer_hash);
 }
 
 void MeshCoreAdapter::maybeAutoDiscoverMissingPeer(uint8_t peer_hash, uint32_t now_ms)
@@ -4022,7 +3990,7 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
     key_verify_session_ = KeyVerifySession{};
     verified_peers_.clear();
     protocol_runtime_.resetAutoDiscoverState();
-    loadPeerPubKeysFromPrefs();
+    loadPeerPubKeysFromDirectory();
 
 #if defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_SX1280) || \
     defined(ARDUINO_LILYGO_LORA_LR1121)

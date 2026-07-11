@@ -13,18 +13,22 @@ namespace chat
 {
 
 std::unique_ptr<IMeshAdapter> ProtocolFactory::createAdapter(MeshProtocol protocol,
-                                                             LoraBoard& board)
+                                                             LoraBoard& board,
+                                                             IMeshPeerDirectory* peer_directory)
 {
     switch (protocol)
     {
     case MeshProtocol::MeshCore:
-        return std::unique_ptr<IMeshAdapter>(new chat::meshcore::MeshCoreAdapter(board));
+        return std::unique_ptr<IMeshAdapter>(
+            new chat::meshcore::MeshCoreAdapter(board, peer_directory));
     case MeshProtocol::RNode:
     case MeshProtocol::Reticulum:
-        return std::unique_ptr<IMeshAdapter>(new chat::reticulum::ReticulumAdapter(board));
+        return std::unique_ptr<IMeshAdapter>(
+            new chat::reticulum::ReticulumAdapter(board, peer_directory));
     case MeshProtocol::Meshtastic:
     default:
-        return std::unique_ptr<IMeshAdapter>(new chat::meshtastic::MtAdapter(board));
+        return std::unique_ptr<IMeshAdapter>(
+            new chat::meshtastic::MtAdapter(board, peer_directory));
     }
 }
 

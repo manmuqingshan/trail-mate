@@ -6,6 +6,7 @@
 #include "app/app_facades.h"
 #include "board/GpsBoard.h"
 #include "board/MotionBoard.h"
+#include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/infra/store/ram_store.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/chat/infra/chat_event_bus_bridge.h"
@@ -23,13 +24,25 @@
 #include "platform/esp/arduino_common/team/event/team_event_bus_sink.h"
 #include "platform/esp/arduino_common/team/event/team_pairing_event_bus_sink.h"
 #include "platform/esp/arduino_common/team_platform_bundle.h"
+#include "platform/esp/common/shared_spi_lock.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "team/usecase/team_controller.h"
 #include "team/usecase/team_track_sampler.h"
 #include "ui/ui_common.h"
 
+#include "freertos/FreeRTOS.h"
+
+#include <new>
+#include <vector>
+
 namespace
 {
+
+constexpr TickType_t kMeshPeerDirectorySdWait = pdMS_TO_TICKS(50);
+constexpr const char* kMeshPeerDirectoryDir = "/mesh";
+constexpr const char* kMeshPeerDirectoryPath = "/mesh/peers.bin";
+constexpr const char* kMeshPeerDirectoryTempPath = "/mesh/peers.tmp";
+constexpr std::size_t kMeshPeerDirectoryMaxBlobBytes = 768U * 1024U;
 
 gps::GpsReceiverInitConfig make_receiver_init_config(const app::AppConfig& config)
 {
@@ -129,10 +142,236 @@ std::unique_ptr<chat::IChatStore> create_chat_store()
     return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
 }
 
-std::unique_ptr<chat::IMeshAdapter> create_mesh_backend(chat::MeshProtocol protocol,
-                                                        LoraBoard& lora_board)
+bool ensure_mesh_peer_directory_dir()
 {
-    return chat::ProtocolFactory::createAdapter(protocol, lora_board);
+    using namespace ::platform::esp::arduino_common::storage;
+    return sd_exists(kMeshPeerDirectoryDir) || sd_mkdir(kMeshPeerDirectoryDir);
+}
+
+class EspSdMeshPeerDirectoryBlobStore final
+    : public chat::IMeshPeerDirectoryBlobStore
+{
+  public:
+    chat::MeshPeerDirectoryBlobLoadResult loadBlob(
+        std::vector<uint8_t>& out) override
+    {
+        using namespace ::platform::esp::arduino_common::storage;
+        out.clear();
+        if (!sd_card_ready())
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::Unavailable;
+        }
+        if (!sd_exists(kMeshPeerDirectoryPath))
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::Missing;
+        }
+
+        ::platform::esp::common::SharedSpiLockGuard spi_guard(
+            kMeshPeerDirectorySdWait,
+            "mesh_peer_dir_load");
+        if (!spi_guard.locked())
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::Unavailable;
+        }
+
+        SdRuntimeFile file;
+        if (!file.open(kMeshPeerDirectoryPath, "r"))
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+        const uint64_t size = file.size();
+        if (size == 0 || size > kMeshPeerDirectoryMaxBlobBytes)
+        {
+            file.close();
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+        out.resize(static_cast<std::size_t>(size));
+        const int read = file.read(out.data(), out.size());
+        file.close();
+        if (read < 0 || static_cast<std::size_t>(read) != out.size())
+        {
+            out.clear();
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+        return chat::MeshPeerDirectoryBlobLoadResult::Loaded;
+    }
+
+    bool saveBlob(const uint8_t* data, std::size_t len) override
+    {
+        using namespace ::platform::esp::arduino_common::storage;
+        if (!sd_card_ready() || (!data && len > 0) ||
+            len > kMeshPeerDirectoryMaxBlobBytes || !ensure_mesh_peer_directory_dir())
+        {
+            return false;
+        }
+
+        ::platform::esp::common::SharedSpiLockGuard spi_guard(
+            kMeshPeerDirectorySdWait,
+            "mesh_peer_dir_save");
+        if (!spi_guard.locked())
+        {
+            return false;
+        }
+
+        if (sd_exists(kMeshPeerDirectoryTempPath))
+        {
+            sd_remove(kMeshPeerDirectoryTempPath);
+        }
+
+        SdRuntimeFile file;
+        if (!file.open(kMeshPeerDirectoryTempPath, "w"))
+        {
+            return false;
+        }
+        bool ok = true;
+        if (len > 0)
+        {
+            ok = file.write(data, len) == len;
+        }
+        file.close();
+        if (!ok)
+        {
+            sd_remove(kMeshPeerDirectoryTempPath);
+            return false;
+        }
+
+        if (sd_exists(kMeshPeerDirectoryPath))
+        {
+            sd_remove(kMeshPeerDirectoryPath);
+        }
+        if (!sd_rename(kMeshPeerDirectoryTempPath, kMeshPeerDirectoryPath))
+        {
+            sd_remove(kMeshPeerDirectoryTempPath);
+            return false;
+        }
+        return true;
+    }
+
+    void clearBlob() override
+    {
+        using namespace ::platform::esp::arduino_common::storage;
+        if (!sd_card_ready())
+        {
+            return;
+        }
+        if (sd_exists(kMeshPeerDirectoryTempPath))
+        {
+            sd_remove(kMeshPeerDirectoryTempPath);
+        }
+        if (sd_exists(kMeshPeerDirectoryPath))
+        {
+            sd_remove(kMeshPeerDirectoryPath);
+        }
+    }
+};
+
+class EspSdMeshPeerDirectory final : public chat::IMeshPeerDirectory
+{
+  public:
+    EspSdMeshPeerDirectory()
+        : core_(blob_store_)
+    {
+    }
+
+    chat::MeshPeerDirectoryStatus begin() override
+    {
+        return core_.begin();
+    }
+
+    chat::MeshPeerDirectoryStatus record(
+        const chat::MeshPeerRecord& record) override
+    {
+        return core_.record(record);
+    }
+
+    chat::MeshPeerDirectoryStatus find(
+        const chat::MeshPeerIdentity& identity,
+        chat::MeshPeerRecord& out_record) override
+    {
+        return core_.find(identity, out_record);
+    }
+
+    chat::MeshPeerDirectoryStatus findByNodeId(
+        chat::MeshProtocol protocol,
+        chat::NodeId node_id,
+        chat::MeshPeerRecord& out_record) override
+    {
+        return core_.findByNodeId(protocol, node_id, out_record);
+    }
+
+    chat::MeshPeerDirectoryStatus loadRecent(
+        chat::MeshProtocol protocol,
+        chat::MeshPeerRecord* out_records,
+        std::size_t max_records,
+        std::size_t* out_count) override
+    {
+        return core_.loadRecent(protocol, out_records, max_records, out_count);
+    }
+
+    chat::MeshPeerDirectoryStatus search(chat::MeshProtocol protocol,
+                                         const char* query,
+                                         chat::MeshPeerRecord* out_records,
+                                         std::size_t max_records,
+                                         std::size_t* out_count) override
+    {
+        return core_.search(protocol, query, out_records, max_records, out_count);
+    }
+
+    chat::MeshPeerDirectoryStatus setUserFlags(
+        const chat::MeshPeerIdentity& identity,
+        const chat::MeshPeerUserFlags& flags) override
+    {
+        return core_.setUserFlags(identity, flags);
+    }
+
+    chat::MeshPeerDirectoryStatus remove(
+        const chat::MeshPeerIdentity& identity) override
+    {
+        return core_.remove(identity);
+    }
+
+    chat::MeshPeerDirectoryStatus clearProtocol(
+        chat::MeshProtocol protocol) override
+    {
+        return core_.clearProtocol(protocol);
+    }
+
+    chat::MeshPeerDirectoryCapacity capacityFor(
+        chat::MeshProtocol protocol) const override
+    {
+        return core_.capacityFor(protocol);
+    }
+
+    chat::MeshPeerDirectoryStatus flush() override
+    {
+        return core_.flush();
+    }
+
+  private:
+    EspSdMeshPeerDirectoryBlobStore blob_store_;
+    chat::MeshPeerDirectoryCore core_;
+};
+
+std::unique_ptr<chat::IMeshPeerDirectory> create_mesh_peer_directory()
+{
+    std::unique_ptr<chat::IMeshPeerDirectory> directory(
+        new (std::nothrow) EspSdMeshPeerDirectory());
+    if (!directory)
+    {
+        return directory;
+    }
+    const auto status = directory->begin();
+    Serial.printf("[MeshPeerDirectory] backend=sd path=%s status=%u\n",
+                  kMeshPeerDirectoryPath,
+                  static_cast<unsigned>(status.code));
+    return directory;
+}
+
+std::unique_ptr<chat::IMeshAdapter> create_mesh_backend(chat::MeshProtocol protocol,
+                                                        LoraBoard& lora_board,
+                                                        chat::IMeshPeerDirectory* peer_directory)
+{
+    return chat::ProtocolFactory::createAdapter(protocol, lora_board, peer_directory);
 }
 
 app::ContactServicesBundle create_contact_services()
@@ -177,15 +416,19 @@ app::ChatServicesBundle create_chat_services(const app::AppConfig& config,
     bundle.model->setPolicy(config.chat_policy);
 
     bundle.store = create_chat_store();
+    bundle.mesh_peer_directory = create_mesh_peer_directory();
     bundle.mesh_runtime = create_mesh_runtime();
-    if (!bundle.store || !bundle.mesh_runtime)
+    if (!bundle.store || !bundle.mesh_peer_directory || !bundle.mesh_runtime)
     {
         return bundle;
     }
 
     if (lora_board)
     {
-        std::unique_ptr<chat::IMeshAdapter> backend = create_mesh_backend(config.mesh_protocol, *lora_board);
+        std::unique_ptr<chat::IMeshAdapter> backend =
+            create_mesh_backend(config.mesh_protocol,
+                                *lora_board,
+                                bundle.mesh_peer_directory.get());
         if (backend)
         {
             backend->applyConfig(config.activeMeshConfig());

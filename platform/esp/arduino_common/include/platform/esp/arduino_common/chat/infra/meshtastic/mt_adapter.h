@@ -14,6 +14,7 @@
 #include "chat/infra/meshtastic/mt_packet_wire.h" // Wire packet format
 #include "chat/infra/meshtastic/mt_pending_wire_table.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/ports/i_mesh_peer_directory.h"
 #include "chat/runtime/meshtastic_runtime.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -40,7 +41,7 @@ class MtAdapter : public chat::IMeshAdapter
   public:
     using MqttProxySettings = ::chat::meshtastic::MqttProxyRuntimeSettings;
 
-    MtAdapter(LoraBoard& board);
+    MtAdapter(LoraBoard& board, IMeshPeerDirectory* peer_directory = nullptr);
     virtual ~MtAdapter();
 
     static void* operator new(std::size_t size);
@@ -112,6 +113,7 @@ class MtAdapter : public chat::IMeshAdapter
 
   private:
     LoraBoard& board_;
+    IMeshPeerDirectory* peer_directory_;
     MeshConfig config_;
     MtDedup dedup_;
     MessageId next_packet_id_;
@@ -273,11 +275,6 @@ class MtAdapter : public chat::IMeshAdapter
     static constexpr size_t kPkiNodeTableDepth = 16;
     static constexpr size_t kNodeRuntimeTableDepth = 64;
     static constexpr size_t kProtocolActionQueueSize = 8;
-    static constexpr const char* kPkiPrefsNs = "chat_pki";
-    static constexpr const char* kPkiPrefsKey = "pki_nodes";
-    static constexpr const char* kPkiPrefsKeyVer = "pki_nodes_ver";
-    static constexpr uint8_t kPkiPrefsVersion = 2;
-
     struct PkiNodeKeyEntry
     {
         bool used = false;
@@ -297,7 +294,7 @@ class MtAdapter : public chat::IMeshAdapter
     };
 
     std::array<PkiNodeKeyEntry, kPkiNodeTableDepth> pki_node_keys_{};
-    std::array<::mesh::PeerPublicKey, kPkiNodeTableDepth> pki_save_entries_{};
+    std::array<MeshPeerRecord, kPkiNodeTableDepth> pki_directory_load_entries_{};
     std::array<NodeRuntimeEntry, kNodeRuntimeTableDepth> node_runtime_{};
 
     uint32_t min_tx_interval_ms_ = 0;
@@ -362,7 +359,9 @@ class MtAdapter : public chat::IMeshAdapter
     bool encryptPkiPayload(uint32_t dest, uint32_t packet_id,
                            const uint8_t* plain, size_t plain_len,
                            uint8_t* out_cipher, size_t* out_cipher_len);
-    void savePkiKeysToPrefs();
+    void savePkiNodeKeyToDirectory(uint32_t node_id,
+                                   const uint8_t* key,
+                                   uint32_t last_seen_s);
     void touchPkiNodeKey(uint32_t node_id);
     PkiNodeKeyEntry* findPkiNodeKey(uint32_t node_id);
     const PkiNodeKeyEntry* findPkiNodeKey(uint32_t node_id) const;
