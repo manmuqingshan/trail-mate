@@ -15,7 +15,7 @@
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/runtime/memory_profile.h"
 #include "ui/support/lvgl_fs_utils.h"
-#include "ui/widgets/busy_overlay.h"
+#include "ui/widgets/progress_overlay_presenter.h"
 #include "ui/widgets/text_candidate_data.h"
 
 #if (defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)) && __has_include("ui/LV_Helper.h")
@@ -64,6 +64,7 @@ constexpr uint8_t kFontLoadOverlayPresentFrameCount = 3;
 constexpr uint32_t kFontLoadOverlayPresentFrameDelayMs = 16;
 constexpr unsigned kMaxMissingFontDiagnostics = 20;
 constexpr uint32_t kFontLoadFailureBackoffMs = 5U * 60U * 1000U;
+constexpr uint32_t kFontLoadTransientBackoffMs = 5U * 1000U;
 constexpr std::size_t kSmallContentSupplementMaxBytes = 16U * 1024U;
 constexpr const char* kBuiltinSymbolFontPackId = "builtin-symbol-core";
 constexpr const char* kBuiltinEmojiFontPackId = "builtin-emoji-core";
@@ -99,6 +100,12 @@ enum class FontPackUsage : uint8_t
     Both,
 };
 
+enum class FontLoadFailureKind : uint8_t
+{
+    Permanent = 0,
+    TransientBusBusy,
+};
+
 struct CodepointRange
 {
     uint32_t first = 0;
@@ -118,6 +125,7 @@ struct FontPackRecord
     std::vector<CodepointRange> coverage;
     uint32_t load_retry_not_before_ms = 0;
     uint8_t load_failure_count = 0;
+    bool load_retry_is_transient = false;
     bool content_load_deferred_logged = false;
 };
 
@@ -188,33 +196,34 @@ class ScopedFontLoadOverlay
 {
   public:
     explicit ScopedFontLoadOverlay(const FontPackRecord& pack)
-        : active_(should_show(pack))
+        : active_(should_show(pack)),
+          presenter_(true,
+                     kFontLoadOverlayPresentFrameCount,
+                     kFontLoadOverlayPresentFrameDelayMs)
     {
         if (!active_)
         {
             return;
         }
 
-        ::ui::widgets::busy_overlay::show("Loading language pack...",
-                                          pack.display_name.empty()
-                                              ? pack.id.c_str()
-                                              : pack.display_name.c_str());
+        presenter_.show_or_update("Loading language pack...",
+                                  pack.display_name.empty()
+                                      ? pack.id.c_str()
+                                      : pack.display_name.c_str());
         std::printf("%s font load overlay show id=%s source=%s forced=%d bytes=%lu\n",
                     kLogTag,
                     pack.id.c_str(),
                     pack.source_path.empty() ? "<none>" : pack.source_path.c_str(),
                     s_force_font_load_overlay ? 1 : 0,
                     static_cast<unsigned long>(pack.estimated_ram_bytes));
-        present_now();
     }
 
     ~ScopedFontLoadOverlay()
     {
         if (active_)
         {
-            ::ui::widgets::busy_overlay::hide();
+            presenter_.hide();
             std::printf("%s font load overlay hide\n", kLogTag);
-            present_now();
         }
     }
 
@@ -235,31 +244,8 @@ class ScopedFontLoadOverlay
         return pack.estimated_ram_bytes == 0U || pack.estimated_ram_bytes >= kFontLoadOverlayThresholdBytes;
     }
 
-    static void present_now()
-    {
-        static bool s_presenting = false;
-        if (s_presenting)
-        {
-            return;
-        }
-        s_presenting = true;
-        for (uint8_t frame = 0; frame < kFontLoadOverlayPresentFrameCount; ++frame)
-        {
-            if (lv_obj_t* top = lv_layer_top())
-            {
-                lv_obj_invalidate(top);
-            }
-            lv_timer_handler();
-            lv_refr_now(nullptr);
-            if (frame + 1U < kFontLoadOverlayPresentFrameCount)
-            {
-                sys::sleep_ms(kFontLoadOverlayPresentFrameDelayMs);
-            }
-        }
-        s_presenting = false;
-    }
-
     bool active_ = false;
+    ::ui::widgets::ProgressOverlayPresenter presenter_{};
 };
 
 class ScopedExternalFontActivation
@@ -293,19 +279,31 @@ class ScopedExternalFontLoadFs
     ScopedExternalFontLoadFs()
     {
 #if UI_I18N_HAVE_EXTERNAL_FONT_LOAD_FS_SCOPE
-        lv_begin_external_font_load_fs_scope();
+        active_ = lv_begin_external_font_load_fs_scope();
 #endif
     }
 
     ~ScopedExternalFontLoadFs()
     {
 #if UI_I18N_HAVE_EXTERNAL_FONT_LOAD_FS_SCOPE
-        lv_end_external_font_load_fs_scope();
+        if (active_)
+        {
+            lv_end_external_font_load_fs_scope();
+        }
 #endif
     }
 
     ScopedExternalFontLoadFs(const ScopedExternalFontLoadFs&) = delete;
     ScopedExternalFontLoadFs& operator=(const ScopedExternalFontLoadFs&) = delete;
+
+    bool active() const { return active_; }
+
+  private:
+#if UI_I18N_HAVE_EXTERNAL_FONT_LOAD_FS_SCOPE
+    bool active_ = false;
+#else
+    bool active_ = true;
+#endif
 };
 
 class ScopedForcedFontLoadOverlay
@@ -1026,19 +1024,42 @@ bool font_load_backoff_active(const FontPackRecord& pack, uint32_t now_ms)
            static_cast<int32_t>(pack.load_retry_not_before_ms - now_ms) > 0;
 }
 
-void record_font_load_failure(FontPackRecord& pack, uint32_t now_ms)
+const char* font_load_retry_kind_name(const FontPackRecord& pack)
 {
-    if (pack.load_failure_count < UINT8_MAX)
+    return pack.load_retry_is_transient ? "transient" : "permanent";
+}
+
+const char* font_load_failure_kind_name(FontLoadFailureKind kind)
+{
+    switch (kind)
+    {
+    case FontLoadFailureKind::TransientBusBusy:
+        return "bus_busy";
+    case FontLoadFailureKind::Permanent:
+    default:
+        return "binfont_failed";
+    }
+}
+
+void record_font_load_failure(FontPackRecord& pack,
+                              uint32_t now_ms,
+                              FontLoadFailureKind kind)
+{
+    if (kind == FontLoadFailureKind::Permanent && pack.load_failure_count < UINT8_MAX)
     {
         ++pack.load_failure_count;
     }
-    pack.load_retry_not_before_ms = now_ms + kFontLoadFailureBackoffMs;
+    pack.load_retry_is_transient = kind == FontLoadFailureKind::TransientBusBusy;
+    pack.load_retry_not_before_ms =
+        now_ms + (pack.load_retry_is_transient ? kFontLoadTransientBackoffMs
+                                               : kFontLoadFailureBackoffMs);
 }
 
 void clear_font_load_failure(FontPackRecord& pack)
 {
     pack.load_retry_not_before_ms = 0;
     pack.load_failure_count = 0;
+    pack.load_retry_is_transient = false;
 }
 
 bool font_pack_covers_codepoint(const FontPackRecord& pack, uint32_t codepoint)
@@ -1439,20 +1460,49 @@ bool load_font_pack(FontPackRecord& pack)
     ScopedFontLoadOverlay overlay(pack);
     {
         ScopedExternalFontLoadFs fs_scope;
+        if (!fs_scope.active())
+        {
+            const uint32_t failed_ms = sys::millis_now();
+            record_font_load_failure(pack,
+                                     failed_ms,
+                                     FontLoadFailureKind::TransientBusBusy);
+            const uint32_t retry_ms = pack.load_retry_not_before_ms > failed_ms
+                                          ? pack.load_retry_not_before_ms - failed_ms
+                                          : 0U;
+            std::printf("%s font load deferred id=%s source=%s reason=%s retry_ms=%lu\n",
+                        kLogTag,
+                        pack.id.c_str(),
+                        pack.source_path.c_str(),
+                        font_load_failure_kind_name(FontLoadFailureKind::TransientBusBusy),
+                        static_cast<unsigned long>(retry_ms));
+#if UI_I18N_ROUTE_LOG_ENABLE
+            std::printf("%s[route] route=pack_load state=deferred id=%s source=%s reason=%s retry_ms=%lu\n",
+                        kLogTag,
+                        pack.id.c_str(),
+                        pack.source_path.c_str(),
+                        font_load_failure_kind_name(FontLoadFailureKind::TransientBusBusy),
+                        static_cast<unsigned long>(retry_ms));
+#endif
+            return false;
+        }
         pack.owned_font = lv_binfont_create(pack.source_path.c_str());
     }
     if (pack.owned_font == nullptr)
     {
-        record_font_load_failure(pack, now_ms);
-        std::printf("%s font load failed id=%s source=%s\n",
-                    kLogTag,
-                    pack.id.c_str(),
-                    pack.source_path.c_str());
-#if UI_I18N_ROUTE_LOG_ENABLE
-        std::printf("%s[route] route=pack_load state=failed id=%s source=%s failures=%u\n",
+        record_font_load_failure(pack,
+                                 sys::millis_now(),
+                                 FontLoadFailureKind::Permanent);
+        std::printf("%s font load failed id=%s source=%s reason=%s\n",
                     kLogTag,
                     pack.id.c_str(),
                     pack.source_path.c_str(),
+                    font_load_failure_kind_name(FontLoadFailureKind::Permanent));
+#if UI_I18N_ROUTE_LOG_ENABLE
+        std::printf("%s[route] route=pack_load state=failed id=%s source=%s reason=%s failures=%u\n",
+                    kLogTag,
+                    pack.id.c_str(),
+                    pack.source_path.c_str(),
+                    font_load_failure_kind_name(FontLoadFailureKind::Permanent),
                     static_cast<unsigned>(pack.load_failure_count));
 #endif
         return false;
@@ -3215,7 +3265,7 @@ void log_font_load_deferred(FontPackRecord& pack, const char* role, const char* 
     const uint32_t retry_ms = pack.load_retry_not_before_ms > now_ms
                                   ? pack.load_retry_not_before_ms - now_ms
                                   : 0U;
-    std::printf("%s font load deferred id=%s role=%s reason=%s active_locale=%s source=%s failures=%u retry_ms=%lu\n",
+    std::printf("%s font load deferred id=%s role=%s reason=%s active_locale=%s source=%s failures=%u retry_kind=%s retry_ms=%lu\n",
                 kLogTag,
                 pack.id.c_str(),
                 safe_text(role),
@@ -3223,6 +3273,7 @@ void log_font_load_deferred(FontPackRecord& pack, const char* role, const char* 
                 s_active_locale ? s_active_locale->id.c_str() : "<none>",
                 pack.source_path.empty() ? "<none>" : pack.source_path.c_str(),
                 static_cast<unsigned>(pack.load_failure_count),
+                font_load_retry_kind_name(pack),
                 static_cast<unsigned long>(retry_ms));
 }
 

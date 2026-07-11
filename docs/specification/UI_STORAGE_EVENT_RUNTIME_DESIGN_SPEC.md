@@ -769,6 +769,20 @@ classDiagram
     +locked()
   }
 
+  class SharedSpiBusAdapter {
+    <<runtime adapter>>
+    +tryAcquire(timeout_ms)
+    +release()
+    +nowMs()
+    +owner()
+  }
+
+  class FixedSharedSpiBusPolicyStrategy {
+    <<runtime policy>>
+    +select(command)
+    +timeoutFor(policy)
+  }
+
   class LilyGoDispArduinoSPI {
     <<frame-critical adapter>>
     +pushColors(area)
@@ -803,6 +817,12 @@ classDiagram
     +health()
   }
 
+  class LvglExternalFontLoadScope {
+    <<ESP adapter>>
+    +lv_begin_external_font_load_fs_scope()
+    +lv_end_external_font_load_fs_scope()
+  }
+
   class MapTileWorker {
     <<active object>>
     +execute(command, now_ms)
@@ -816,8 +836,13 @@ classDiagram
   }
 
   SharedSpiLockGuard --> SharedSpiLockPort
+  SharedSpiBusAdapter --> SharedSpiLockPort
+  FixedSharedSpiBusPolicyStrategy --> RuntimeBusAbstractions
   LilyGoDispArduinoSPI --> SharedSpiLockPort : publishes pressure
   LvglSdFsAdapter --> SharedSpiLockGuard
+  LvglExternalFontLoadScope --> RuntimeBusAbstractions
+  LvglExternalFontLoadScope --> SharedSpiBusAdapter
+  LvglExternalFontLoadScope --> LvglSdFsAdapter : bounds lv_binfont_create
   RuntimeBusAbstractions <|.. EspMapTileBusArbiter
   EspMapTileBusArbiter --> SharedSpiLockPort
   MapTileWorker --> RuntimeBusAbstractions
@@ -837,6 +862,30 @@ Static ownership rules:
   arbiter port.
 - LVGL FS callbacks are adapters. They must not contain product policy, retry
   strategy, tile priority, or page state.
+- External font loading is the UI-visible exception that may synchronously hold
+  the display-shared bus, but only after a busy modal has been flushed and only
+  through an `IBusArbiter` token. The old depth-only font-load flag is not a bus
+  contract.
+
+### Long-Running Progress Overlay Boundary
+
+`busy_overlay` is the single visual component for modal long-running progress.
+`ProgressOverlayPresenter` is the ownership/presentation adapter for code that
+needs to show, update, flush, and hide that component.
+
+This presenter is not a storage transaction and must not acquire shared SPI by
+itself. It is used by:
+
+- external font loading, where the presenter flushes the modal before the
+  separate `lvgl_font_sd` shared-SPI transaction begins
+- package/language-pack installation, where download status may publish
+  `progress_percent` while SD writes stay in the storage runtime/file adapter
+- firmware update, where OTA status publishes `progress_percent` and the
+  settings page only presents the status
+
+The illegal shortcut is to treat every progress bar as a bus lock. Progress UI
+describes user-visible operation state; shared-SPI tokens describe physical bus
+ownership for bounded storage/display critical sections.
 
 ### Component Deployment
 
@@ -1060,6 +1109,7 @@ their wait, hold, burst, and frame budgets.
 | `display_spi_lock.cpp` source filename | Burned down | Platform implementations must be named after `shared_spi_lock`, not display-private terminology. |
 | ESP map UI source synchronous storage behavior | Burned down | UI map source is path/planning only; worker source performs SD reads. |
 | LVGL SD FS adapter reachable from legacy resource paths | Contained | Adapter remains but uses short bounded lock attempts and must not be used as a UI hot-path storage probe. |
+| External font load depth-only LVGL FS scope | Burned down | Font loading must acquire a shared-SPI runtime bus token before `lv_binfont_create()`; callback wait stretching is not a valid transaction. |
 | ESP map worker direct physical lock calls | Contained adapter | Allowed only inside `EspMapTileBusArbiter` and tile SD adapter until all ESP storage paths use a common `IBusArbiter` implementation. |
 | Team UI store direct SD persistence | Remaining legacy | Must move behind team/storage runtime worker in a separate migration. |
 | Route/track file load from GPS page | Remaining legacy | Must move behind route/track runtime worker in a separate migration. |

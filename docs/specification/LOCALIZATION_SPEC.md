@@ -501,8 +501,27 @@ English、基础特殊字符输入与精选 emoji 输入必须在没有任何外
 8. 外部 `source=binfont` 字体 pack 必须在 catalog 阶段验证 `font.bin` 路径可规范化且可打开；缺少 payload 的 locale 不能进入可选 locale 列表。
 9. 任何用户可见路径中被运行时明确允许的同步外部字体加载，必须先显示阻塞式 busy modal，加载完成或失败后关闭。这个规则不以字体包大小为条件；纯 deferred/backoff 路径只记录诊断，不显示“正在加载”的假窗口。
 10. “显示 busy modal” 的代码语义不是只创建 LVGL 对象，而是必须在进入 `lv_binfont_create()` / 外部 `font.bin` 读取之前，强制把 modal flush 到屏幕。当前绑定点是 `resource_pack_registry.cpp` 的 `ScopedFontLoadOverlay`，它是 `load_font_pack()` 的唯一同步字体加载 UI 边界。
+11. ESP 上所有通过 LVGL FS 读取外部 `font.bin` 的同步加载，都必须进入完整的 shared-SPI bus transaction。`lv_begin_external_font_load_fs_scope()` 不能只是 depth flag 或“让每次 FS callback 多等一点”的旁路；它必须成功取得 runtime bus token 后，才允许进入 `lv_binfont_create()`。
+12. 外部字体加载事务取得 bus token 失败属于瞬时 `bus_busy`，只能进入短退避并保留后续重试机会；只有已经取得 bus token 但 `lv_binfont_create()` 返回空，才按字体文件/格式失败进入长 backoff。
 
 这条规则的目标是保护 UI 实时域：联系人页、聊天页、地图 overlay、节点详情页等内容页面不得因为遇到中文/日文/韩文/阿拉伯文本而把 UI 线程拖入 SD 阻塞 IO。
+
+### 4.5.1.1 External Font Load Transaction
+
+外部字体加载事务的边界如下：
+
+1. `ScopedFontLoadOverlay` 通过 `ProgressOverlayPresenter` 先显示并强制刷新 busy modal。
+2. `ScopedExternalFontLoadFs` 调用平台 scope begin，申请 owner 为 `lvgl_font_sd` 的 shared-SPI runtime bus token。
+3. 只有 begin 返回成功，`load_font_pack()` 才能调用 `lv_binfont_create()`。
+4. `lv_binfont_create()` 内部触发的 LVGL SD FS `open/read/seek/tell/close` 回调仍然通过 `SharedSpiLockGuard`，但由于底层 physical lock 是同任务可重入的，这些回调会复用外层事务，而不是每个小读片段重新竞争总线。
+5. scope end 释放 runtime bus token；busy modal 随后关闭并刷新。
+
+这个事务是同步外部字体加载的唯一平台入口。禁止重新引入以下旧实现：
+
+- 只维护 `external_font_load_depth`，不持有 shared-SPI token。
+- 在 LVGL FS callback 中把 timeout 调大来掩盖外层没有事务的问题。
+- 总线忙时把失败计入 5 分钟字体文件 backoff。
+- 页面/widget 直接绕过 registry 读取 `font.bin`。
 
 #### Registry-time preferred content supplement preload
 

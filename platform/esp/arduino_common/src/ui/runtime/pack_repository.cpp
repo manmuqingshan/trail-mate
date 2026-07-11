@@ -166,13 +166,36 @@ void set_install_status_locked(PackageInstallPhase phase,
                                bool busy,
                                const std::string& package_id,
                                const char* message,
-                               const char* detail = nullptr)
+                               const char* detail = nullptr,
+                               int progress_percent = -1)
 {
     s_install_state.status.phase = phase;
     s_install_state.status.busy = busy;
+    s_install_state.status.progress_percent = progress_percent;
     s_install_state.status.package_id = package_id;
     s_install_state.status.message = message ? message : "";
     s_install_state.status.detail = detail ? detail : "";
+}
+
+void set_install_status(PackageInstallPhase phase,
+                        bool busy,
+                        const std::string& package_id,
+                        const char* message,
+                        const char* detail = nullptr,
+                        int progress_percent = -1)
+{
+    if (!ensure_install_mutex())
+    {
+        return;
+    }
+
+    InstallStateLock lock(s_install_state.mutex);
+    set_install_status_locked(phase,
+                              busy,
+                              package_id,
+                              message,
+                              detail,
+                              progress_percent);
 }
 
 void* allocate_pack_scratch(std::size_t bytes)
@@ -1726,7 +1749,15 @@ bool fetch_catalog_text(const std::string& url, std::string& out, std::string& o
     return platform::ui::http_client::get_text(request, out, out_error);
 }
 
-bool download_package_archive(const std::string& url,
+struct PackageDownloadContext
+{
+    SequentialWriteFile* file = nullptr;
+    const PackageRecord* package = nullptr;
+    std::size_t bytes_written = 0;
+    int last_progress = -1;
+};
+
+bool download_package_archive(const PackageRecord& package,
                               const std::string& logical_path,
                               std::string& out_error)
 {
@@ -1749,8 +1780,16 @@ bool download_package_archive(const std::string& url,
         return false;
     }
 
+    const bool has_total = package.archive_size_bytes > 0;
+    set_install_status(PackageInstallPhase::Installing,
+                       true,
+                       package.id,
+                       "Downloading package...",
+                       has_total ? "0%" : package.id.c_str(),
+                       has_total ? 0 : -1);
+
     platform::ui::http_client::Request request{};
-    request.url = url.c_str();
+    request.url = package.download_url.c_str();
     request.client = platform::ui::wifi_access::Client::PackRepository;
     request.access_kind = platform::ui::wifi_access::AccessKind::HttpDownload;
     request.priority = platform::ui::wifi_access::Priority::UserForeground;
@@ -1758,14 +1797,47 @@ bool download_package_archive(const std::string& url,
     request.buffer_size = kHttpBufferSize;
     request.tx_buffer_size = kHttpTxBufferSize;
 
+    PackageDownloadContext context{};
+    context.file = &file;
+    context.package = &package;
+
     bool ok = platform::ui::http_client::download(
         request,
         [](const std::uint8_t* data, std::size_t len, void* context)
         {
-            auto* target = static_cast<SequentialWriteFile*>(context);
-            return target && target->write(data, len);
+            auto* state = static_cast<PackageDownloadContext*>(context);
+            if (!state || !state->file || !state->file->write(data, len))
+            {
+                return false;
+            }
+
+            state->bytes_written += len;
+            const std::size_t total = state->package ? state->package->archive_size_bytes : 0;
+            if (state->package && total > 0)
+            {
+                int progress = static_cast<int>(
+                    (static_cast<std::uint64_t>(state->bytes_written) * 100U) /
+                    total);
+                if (progress > 100)
+                {
+                    progress = 100;
+                }
+                if (progress != state->last_progress)
+                {
+                    state->last_progress = progress;
+                    char detail[32];
+                    std::snprintf(detail, sizeof(detail), "%d%%", progress);
+                    set_install_status(PackageInstallPhase::Installing,
+                                       true,
+                                       state->package->id,
+                                       "Downloading package...",
+                                       detail,
+                                       progress);
+                }
+            }
+            return true;
         },
-        &file,
+        &context,
         out_error);
     file.close();
 
@@ -3406,12 +3478,18 @@ bool install_package_impl(const PackageRecord& package,
 
     const std::string temp_zip_path = std::string(kTempDir) + "/" + package.id + "-" + package.version + ".zip";
     std::printf("[Packs][Install] download temp=%s\n", temp_zip_path.c_str());
-    if (!download_package_archive(package.download_url, temp_zip_path, out_error))
+    if (!download_package_archive(package, temp_zip_path, out_error))
     {
         std::printf("[Packs][Install] download failed error=%s\n", out_error.c_str());
         return false;
     }
     log_path_probe("temp_zip.after_download", temp_zip_path);
+
+    set_install_status(PackageInstallPhase::Installing,
+                       true,
+                       package.id,
+                       "Verifying package...",
+                       package.id.c_str());
 
     std::string archive_sha256;
     if (!sha256_file(temp_zip_path, archive_sha256))
@@ -3433,6 +3511,12 @@ bool install_package_impl(const PackageRecord& package,
                     package.archive_sha256.c_str());
         return false;
     }
+
+    set_install_status(PackageInstallPhase::Installing,
+                       true,
+                       package.id,
+                       "Extracting package...",
+                       package.id.c_str());
 
     if (!extract_zip_payload(temp_zip_path, out_error))
     {
@@ -3461,6 +3545,12 @@ bool install_package_impl(const PackageRecord& package,
 
     const InstalledPackageRecord* previous_record = find_installed_record(index, package.id);
     const std::string previous_storage = previous_record ? previous_record->storage : "";
+
+    set_install_status(PackageInstallPhase::Installing,
+                       true,
+                       package.id,
+                       "Writing package index...",
+                       package.id.c_str());
 
     bool updated = false;
     for (InstalledPackageRecord& record : index.packages)

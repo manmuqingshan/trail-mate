@@ -48,8 +48,8 @@
 #include "ui/screens/settings/settings_page_styles.h"
 #include "ui/screens/settings/settings_state.h"
 #include "ui/ui_common.h"
-#include "ui/widgets/busy_overlay.h"
 #include "ui/widgets/ime/ime_widget.h"
+#include "ui/widgets/progress_overlay_presenter.h"
 #include "ui/widgets/text_candidate_picker.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_presentation/settings/settings_model.h"
@@ -189,27 +189,10 @@ static size_t kLocaleOptionCount = 0;
 static size_t kTimeZoneOptionCount = 0;
 static size_t kWifiNetworkOptionCount = 0;
 static lv_timer_t* s_firmware_update_timer = nullptr;
-static bool s_firmware_overlay_owned = false;
+static ::ui::widgets::ProgressOverlayPresenter s_firmware_progress_overlay(true);
 static firmware_update_runtime::Phase s_last_firmware_phase = firmware_update_runtime::Phase::Unsupported;
 static bool s_last_firmware_busy = false;
 static lv_obj_t* s_gps_diagnostics_label = nullptr;
-
-static void present_settings_busy_overlay_now()
-{
-    static bool s_presenting = false;
-    if (s_presenting)
-    {
-        return;
-    }
-    s_presenting = true;
-    if (lv_obj_t* top = lv_layer_top())
-    {
-        lv_obj_invalidate(top);
-    }
-    lv_timer_handler();
-    lv_refr_now(nullptr);
-    s_presenting = false;
-}
 
 class ScopedSettingsBusyOverlay
 {
@@ -218,9 +201,7 @@ class ScopedSettingsBusyOverlay
                                        const char* detail = nullptr,
                                        int progress_percent = -1)
     {
-        ::ui::widgets::busy_overlay::show(title, detail);
-        ::ui::widgets::busy_overlay::set_progress(progress_percent);
-        present_settings_busy_overlay_now();
+        presenter_.show_or_update(title, detail, progress_percent);
         active_ = true;
     }
 
@@ -230,8 +211,7 @@ class ScopedSettingsBusyOverlay
         {
             return;
         }
-        ::ui::widgets::busy_overlay::hide();
-        present_settings_busy_overlay_now();
+        presenter_.hide();
     }
 
     ScopedSettingsBusyOverlay(const ScopedSettingsBusyOverlay&) = delete;
@@ -243,12 +223,11 @@ class ScopedSettingsBusyOverlay
         {
             return;
         }
-        ::ui::widgets::busy_overlay::update(title, detail);
-        ::ui::widgets::busy_overlay::set_progress(progress_percent);
-        present_settings_busy_overlay_now();
+        presenter_.show_or_update(title, detail, progress_percent);
     }
 
   private:
+    ::ui::widgets::ProgressOverlayPresenter presenter_{true};
     bool active_ = false;
 };
 
@@ -804,21 +783,13 @@ static void sync_firmware_update_ui(bool notify_completion)
     if (status.busy)
     {
         const char* detail = status.detail[0] != '\0' ? status.detail : nullptr;
-        if (!s_firmware_overlay_owned)
-        {
-            ::ui::widgets::busy_overlay::show(firmware_overlay_title(status), detail);
-            s_firmware_overlay_owned = true;
-        }
-        else
-        {
-            ::ui::widgets::busy_overlay::update(firmware_overlay_title(status), detail);
-        }
-        ::ui::widgets::busy_overlay::set_progress(status.progress_percent);
+        s_firmware_progress_overlay.show_or_update(firmware_overlay_title(status),
+                                                   detail,
+                                                   status.progress_percent);
     }
-    else if (s_firmware_overlay_owned)
+    else
     {
-        ::ui::widgets::busy_overlay::hide();
-        s_firmware_overlay_owned = false;
+        s_firmware_progress_overlay.hide();
     }
 
     if (notify_completion && s_last_firmware_busy && !status.busy)
@@ -5859,11 +5830,7 @@ void destroy()
         lv_timer_del(s_firmware_update_timer);
         s_firmware_update_timer = nullptr;
     }
-    if (s_firmware_overlay_owned)
-    {
-        ::ui::widgets::busy_overlay::hide();
-        s_firmware_overlay_owned = false;
-    }
+    s_firmware_progress_overlay.hide();
     settings::ui::input::cleanup();
     if (g_state.root)
     {

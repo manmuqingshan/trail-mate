@@ -10,8 +10,10 @@
 #include "display/DisplayInterface.h"
 #include "input/morse_engine.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/common/shared_spi_bus_arbiter.h"
 #include "platform/esp/common/shared_spi_lock.h"
 #include "screen_sleep.h"
+#include "sys/clock.h"
 #include "ui/LV_Helper.h"
 #include "ui/app_runtime.h"
 #include "ui/menu/menu_runtime.h"
@@ -24,6 +26,7 @@
 #include <errno.h>
 #include <esp_heap_caps.h>
 #include <fcntl.h>
+#include <freertos/task.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -60,28 +63,51 @@ static_assert(kTDeckDmaDrawBufferLines >= 10, "TDeck draw buffers below 10 lines
 // bus must surface as LV_FS_RES_BUSY/failed open, not as a blocked UI frame.
 constexpr TickType_t kLvglSdFsWait = pdMS_TO_TICKS(2);
 constexpr TickType_t kLvglSdFsCloseWait = pdMS_TO_TICKS(10);
-constexpr TickType_t kLvglSdFsExternalFontWait = pdMS_TO_TICKS(100);
-constexpr TickType_t kLvglSdFsExternalFontCloseWait = pdMS_TO_TICKS(100);
+constexpr uint32_t kLvglExternalFontBusAcquireMs = 6000;
+constexpr uint32_t kLvglExternalFontSlowHoldMs = 750;
+constexpr uint32_t kLvglExternalFontLogIntervalMs = 5000;
+constexpr uint32_t kLvglExternalFontBusResource = 0x4C56464EU; // "LVFN"
+constexpr uint32_t kLvglExternalFontCommandId = 0x4C564653U;   // "LVFS"
+constexpr const char* kLvglExternalFontOwner = "lvgl_font_sd";
 
 lv_fs_drv_t s_flash_fs_drv;
 lv_fs_drv_t s_sd_fs_drv;
 bool s_flash_fs_ready = false;
 bool s_sd_fs_ready = false;
 std::atomic<unsigned> s_external_font_load_fs_depth{0};
+::platform::esp::common::SharedSpiBusAdapter s_external_font_bus_adapter(
+    kLvglExternalFontOwner,
+    kLvglExternalFontCommandId);
+::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_external_font_bus_policy(
+    5,
+    25,
+    150,
+    kLvglExternalFontBusAcquireMs);
+sys::runtime::StorageBusArbiter s_external_font_bus_arbiter(
+    s_external_font_bus_adapter,
+    s_external_font_bus_policy);
+sys::runtime::BusAccessToken s_external_font_bus_token{};
+TaskHandle_t s_external_font_owner_task = nullptr;
+uint32_t s_external_font_acquired_ms = 0;
+uint32_t s_external_font_last_busy_log_ms = 0;
 
 bool external_font_load_fs_scope_active()
 {
-    return s_external_font_load_fs_depth.load(std::memory_order_relaxed) > 0;
+    return s_external_font_load_fs_depth.load(std::memory_order_relaxed) > 0 &&
+           s_external_font_bus_token.valid;
 }
 
-TickType_t current_sd_fs_wait(TickType_t normal_wait, TickType_t font_wait)
+TickType_t current_sd_fs_wait(TickType_t normal_wait)
 {
-    return external_font_load_fs_scope_active() ? font_wait : normal_wait;
+    // A font load scope already owns the shared bus. Same-task callback reentry
+    // succeeds immediately; cross-task access should fail fast instead of
+    // waiting behind the UI-visible font transaction.
+    return external_font_load_fs_scope_active() ? 0 : normal_wait;
 }
 
 const char* current_sd_fs_owner()
 {
-    return external_font_load_fs_scope_active() ? "lvgl_font_sd" : nullptr;
+    return external_font_load_fs_scope_active() ? kLvglExternalFontOwner : nullptr;
 }
 
 inline int flash_fs_fd_from_ptr(void* file_p)
@@ -145,8 +171,7 @@ void* sd_fs_open(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
     // FS as a synchronous SD probe; callers should submit runtime work and let
     // worker-domain code handle retry/backpressure.
     ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return nullptr;
@@ -184,8 +209,7 @@ lv_fs_res_t sd_fs_close(lv_fs_drv_t* drv, void* file_p)
         return LV_FS_RES_INV_PARAM;
     }
     ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsCloseWait, kLvglSdFsExternalFontCloseWait),
-        current_sd_fs_owner());
+        current_sd_fs_wait(kLvglSdFsCloseWait), current_sd_fs_owner());
     file->close();
     delete file;
     return LV_FS_RES_OK;
@@ -200,8 +224,7 @@ lv_fs_res_t sd_fs_read(lv_fs_drv_t* drv, void* file_p, void* buf, uint32_t btr, 
         return LV_FS_RES_INV_PARAM;
     }
     ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -232,8 +255,7 @@ lv_fs_res_t sd_fs_write(lv_fs_drv_t* drv,
         return LV_FS_RES_INV_PARAM;
     }
     ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -256,8 +278,7 @@ lv_fs_res_t sd_fs_seek(lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whenc
         return LV_FS_RES_INV_PARAM;
     }
     ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -290,8 +311,7 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
         return LV_FS_RES_INV_PARAM;
     }
     ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -304,8 +324,7 @@ void* sd_fs_dir_open(lv_fs_drv_t* drv, const char* path)
 {
     LV_UNUSED(drv);
     ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return nullptr;
@@ -333,8 +352,7 @@ lv_fs_res_t sd_fs_dir_read(lv_fs_drv_t* drv, void* dir_p, char* fn, uint32_t fn_
         return LV_FS_RES_INV_PARAM;
     }
     ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -364,8 +382,7 @@ lv_fs_res_t sd_fs_dir_close(lv_fs_drv_t* drv, void* dir_p)
         return LV_FS_RES_INV_PARAM;
     }
     ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsCloseWait, kLvglSdFsExternalFontCloseWait),
-        current_sd_fs_owner());
+        current_sd_fs_wait(kLvglSdFsCloseWait), current_sd_fs_owner());
     dir->close();
     delete dir;
     return LV_FS_RES_OK;
@@ -1271,22 +1288,125 @@ lv_indev_t* lv_get_encoder_indev()
     return indev_encoder;
 }
 
-void lv_begin_external_font_load_fs_scope()
+const char* bus_acquire_status_name(sys::runtime::BusAcquireStatus status)
 {
-    s_external_font_load_fs_depth.fetch_add(1, std::memory_order_relaxed);
+    switch (status)
+    {
+    case sys::runtime::BusAcquireStatus::Acquired:
+        return "acquired";
+    case sys::runtime::BusAcquireStatus::Busy:
+        return "busy";
+    case sys::runtime::BusAcquireStatus::TimedOut:
+        return "timeout";
+    case sys::runtime::BusAcquireStatus::Unavailable:
+        return "unavailable";
+    default:
+        return "unknown";
+    }
+}
+
+bool lv_begin_external_font_load_fs_scope()
+{
+    TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
+    unsigned depth = s_external_font_load_fs_depth.load(std::memory_order_acquire);
+    if (depth > 0)
+    {
+        if (s_external_font_owner_task == current_task && s_external_font_bus_token.valid)
+        {
+            s_external_font_load_fs_depth.fetch_add(1, std::memory_order_acq_rel);
+            return true;
+        }
+
+        const uint32_t now_ms = sys::millis_now();
+        if (s_external_font_last_busy_log_ms == 0 ||
+            static_cast<uint32_t>(now_ms - s_external_font_last_busy_log_ms) >=
+                kLvglExternalFontLogIntervalMs)
+        {
+            Serial.printf("[SPI][LVGL_FONT] acquire failed reason=owned_by_other depth=%lu owner_task=%s current_task=%s\n",
+                          static_cast<unsigned long>(depth),
+                          s_external_font_owner_task ? pcTaskGetName(s_external_font_owner_task)
+                                                     : "-",
+                          current_task ? pcTaskGetName(current_task) : "-");
+            s_external_font_last_busy_log_ms = now_ms;
+        }
+        return false;
+    }
+
+    sys::runtime::BusAcquireRequest request{};
+    const uint32_t start_ms = sys::millis_now();
+    request.resource = kLvglExternalFontBusResource;
+    request.policy = sys::runtime::BusAccessPolicy::RecoveryExclusive;
+    request.command_id = kLvglExternalFontCommandId;
+    request.deadline_ms = start_ms + kLvglExternalFontBusAcquireMs;
+    request.origin = kLvglExternalFontCommandId;
+
+    sys::runtime::BusAcquireResult result = s_external_font_bus_arbiter.acquire(request);
+    if (result.status != sys::runtime::BusAcquireStatus::Acquired || !result.token.valid)
+    {
+        const uint32_t now_ms = sys::millis_now();
+        if (s_external_font_last_busy_log_ms == 0 ||
+            static_cast<uint32_t>(now_ms - s_external_font_last_busy_log_ms) >=
+                kLvglExternalFontLogIntervalMs)
+        {
+            Serial.printf("[SPI][LVGL_FONT] acquire failed status=%s wait_ms=%lu owner=%s task=%s\n",
+                          bus_acquire_status_name(result.status),
+                          static_cast<unsigned long>(result.diagnostics.wait_ms),
+                          kLvglExternalFontOwner,
+                          current_task ? pcTaskGetName(current_task) : "-");
+            s_external_font_last_busy_log_ms = now_ms;
+        }
+        return false;
+    }
+
+    s_external_font_bus_token = result.token;
+    s_external_font_owner_task = current_task;
+    s_external_font_acquired_ms = result.token.acquired_ms;
+    s_external_font_load_fs_depth.store(1, std::memory_order_release);
+    s_external_font_last_busy_log_ms = 0;
+
+    Serial.printf("[SPI][LVGL_FONT] acquire ok wait_ms=%lu owner=%s task=%s\n",
+                  static_cast<unsigned long>(result.diagnostics.wait_ms),
+                  kLvglExternalFontOwner,
+                  current_task ? pcTaskGetName(current_task) : "-");
+    return true;
 }
 
 void lv_end_external_font_load_fs_scope()
 {
-    unsigned depth = s_external_font_load_fs_depth.load(std::memory_order_relaxed);
+    unsigned depth = s_external_font_load_fs_depth.load(std::memory_order_acquire);
     while (depth > 0)
     {
-        if (s_external_font_load_fs_depth.compare_exchange_weak(
-                depth, depth - 1, std::memory_order_relaxed))
+        const unsigned next_depth = depth - 1U;
+        if (!s_external_font_load_fs_depth.compare_exchange_weak(
+                depth, next_depth, std::memory_order_acq_rel))
+        {
+            continue;
+        }
+        if (next_depth > 0)
         {
             return;
         }
+
+        sys::runtime::BusAccessToken token = s_external_font_bus_token;
+        s_external_font_bus_token = {};
+        s_external_font_owner_task = nullptr;
+        const uint32_t now_ms = sys::millis_now();
+        const uint32_t hold_ms = s_external_font_acquired_ms == 0
+                                     ? 0
+                                     : static_cast<uint32_t>(now_ms - s_external_font_acquired_ms);
+        s_external_font_acquired_ms = 0;
+
+        if (token.valid)
+        {
+            s_external_font_bus_arbiter.release(token);
+            Serial.printf("[SPI][LVGL_FONT] release hold_ms=%lu slow=%d\n",
+                          static_cast<unsigned long>(hold_ms),
+                          hold_ms >= kLvglExternalFontSlowHoldMs ? 1 : 0);
+        }
+        return;
     }
+
+    Serial.printf("[SPI][LVGL_FONT] release skipped reason=no_active_scope\n");
 }
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_CUSTOM

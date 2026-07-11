@@ -18,7 +18,7 @@
 #include "ui/page/page_profile.h"
 #include "ui/runtime/ui_feedback.h"
 #include "ui/ui_theme.h"
-#include "ui/widgets/busy_overlay.h"
+#include "ui/widgets/progress_overlay_presenter.h"
 #include "ui/widgets/top_bar.h"
 
 #if !defined(LV_FONT_MONTSERRAT_16) || !LV_FONT_MONTSERRAT_16
@@ -74,7 +74,6 @@ struct RuntimeState
     MainView view = MainView::List;
     PackageFilter filter = PackageFilter::Installed;
     bool remote_catalog_loaded = false;
-    bool install_overlay_owned = false;
     bool install_was_busy = false;
     std::string catalog_error;
     std::string selected_package_id;
@@ -84,6 +83,7 @@ struct RuntimeState
 };
 
 RuntimeState s_runtime{};
+::ui::widgets::ProgressOverlayPresenter s_install_progress_overlay{};
 
 void request_exit()
 {
@@ -659,25 +659,13 @@ void sync_install_ui(bool notify_completion)
         const char* detail = !status.detail.empty()
                                  ? status.detail.c_str()
                                  : (status.package_id.empty() ? nullptr : status.package_id.c_str());
-        if (!s_runtime.install_overlay_owned)
-        {
-            ::ui::widgets::busy_overlay::show(title, detail);
-            s_runtime.install_overlay_owned = true;
-        }
-        else
-        {
-            ::ui::widgets::busy_overlay::update(title, detail);
-        }
+        s_install_progress_overlay.show_or_update(title, detail, status.progress_percent);
         set_status_text(title);
         set_install_action_buttons_disabled(true);
     }
     else
     {
-        if (s_runtime.install_overlay_owned)
-        {
-            ::ui::widgets::busy_overlay::hide();
-            s_runtime.install_overlay_owned = false;
-        }
+        s_install_progress_overlay.hide();
         set_install_action_buttons_disabled(false);
     }
 
@@ -1347,11 +1335,7 @@ void exit(lv_obj_t* parent)
         lv_timer_del(s_runtime.install_timer);
         s_runtime.install_timer = nullptr;
     }
-    if (s_runtime.install_overlay_owned)
-    {
-        ::ui::widgets::busy_overlay::hide();
-        s_runtime.install_overlay_owned = false;
-    }
+    s_install_progress_overlay.hide();
     if (s_runtime.root != nullptr)
     {
         lv_obj_del(s_runtime.root);
