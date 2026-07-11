@@ -1600,6 +1600,67 @@ static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id)
     return nullptr;
 }
 
+static bool reticulum_identity_hash_present(
+    const chat::ReticulumPeerIdentity& identity)
+{
+    if (!chat::hasReticulumDestinationIdentity(identity))
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < chat::kReticulumPeerHashSize; ++index)
+    {
+        if (identity.identity_hash[index] != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void merge_reticulum_projection_for_details(
+    chat::contacts::NodeInfo& target,
+    const chat::contacts::NodeInfo& projection)
+{
+    if (!is_reticulum_node(projection))
+    {
+        return;
+    }
+
+    if (target.protocol != chat::contacts::NodeProtocolType::Reticulum)
+    {
+        target.protocol = chat::contacts::NodeProtocolType::Reticulum;
+    }
+    if (!reticulum_identity_hash_present(target.reticulum_identity) &&
+        chat::hasReticulumDestinationIdentity(projection.reticulum_identity))
+    {
+        target.reticulum_identity = projection.reticulum_identity;
+    }
+    if (target.last_seen == 0 && projection.last_seen != 0)
+    {
+        target.last_seen = projection.last_seen;
+    }
+    if (std::isnan(target.snr) && !std::isnan(projection.snr))
+    {
+        target.snr = projection.snr;
+    }
+    if (std::isnan(target.rssi) && !std::isnan(projection.rssi))
+    {
+        target.rssi = projection.rssi;
+    }
+    if (target.hops_away == 0xFF && projection.hops_away != 0xFF)
+    {
+        target.hops_away = projection.hops_away;
+    }
+    if (target.long_name[0] == '\0' && projection.long_name[0] != '\0')
+    {
+        lv_strlcpy(target.long_name, projection.long_name, sizeof(target.long_name));
+    }
+    if (target.display_name.empty() && !projection.display_name.empty())
+    {
+        target.display_name = projection.display_name;
+    }
+}
+
 static bool get_selected_broadcast_target(BroadcastTargetSpec* out_spec,
                                           std::string* out_title)
 {
@@ -2570,22 +2631,23 @@ static void open_node_info_screen_for_node(uint32_t node_id)
                            static_cast<int>(lv_obj_get_height(parent)),
                            lv_obj_has_flag(parent, LV_OBJ_FLAG_HIDDEN) ? 1 : 0);
 
-    const chat::contacts::NodeInfo* info = node;
+    chat::contacts::NodeInfo detail_info = *node;
     if (g_contacts_state.contact_service)
     {
         const auto* latest = g_contacts_state.contact_service->getNodeInfo(node->node_id);
         if (latest)
         {
-            info = latest;
+            detail_info = *latest;
+            merge_reticulum_projection_for_details(detail_info, *node);
             CONTACTS_NODE_INFO_LOG("using latest contact_service snapshot node=%08lX pos_valid=%d\n",
                                    static_cast<unsigned long>(latest->node_id),
                                    latest->position.valid ? 1 : 0);
         }
     }
 
-    if (is_reticulum_node(*info))
+    if (is_reticulum_node(detail_info))
     {
-        open_reticulum_node_info_screen(*info, parent);
+        open_reticulum_node_info_screen(detail_info, parent);
         CONTACTS_NODE_INFO_LOG("reticulum node_info opened\n");
         return;
     }
@@ -2598,7 +2660,7 @@ static void open_node_info_screen_for_node(uint32_t node_id)
                            widgets.content,
                            widgets.back_btn);
 
-    node_info::ui::set_node_info(*info);
+    node_info::ui::set_node_info(detail_info);
     CONTACTS_NODE_INFO_LOG("set_node_info done root=%p hidden=%d size=%dx%d\n",
                            widgets.root,
                            widgets.root ? (lv_obj_has_flag(widgets.root, LV_OBJ_FLAG_HIDDEN) ? 1 : 0) : -1,

@@ -1,4 +1,5 @@
 #include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/reticulum_page_runtime.h"
 
 #include <cassert>
 #include <cstdint>
@@ -9,6 +10,7 @@
 #include <string>
 
 namespace rtdir = platform::ui::reticulum_directory;
+namespace rtpage = platform::ui::reticulum_page;
 
 namespace
 {
@@ -66,6 +68,20 @@ rtdir::LxmfAddressRecord make_address(const char* display_name,
     return record;
 }
 
+void format_hash_hex(const uint8_t* hash, char* out, std::size_t out_len)
+{
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    assert(hash != nullptr);
+    assert(out != nullptr);
+    assert(out_len >= rtpage::kReticulumPageDestinationTextSize);
+    for (std::size_t i = 0; i < rtdir::kReticulumHashSize; ++i)
+    {
+        out[i * 2U] = kHex[(hash[i] >> 4U) & 0x0FU];
+        out[(i * 2U) + 1U] = kHex[hash[i] & 0x0FU];
+    }
+    out[rtdir::kReticulumHashSize * 2U] = '\0';
+}
+
 } // namespace
 
 namespace platform::ui::device
@@ -96,6 +112,57 @@ int main()
     assert(std::strcmp(rtdir::lxmf_addresses_path(), "/mesh/peers.bin") == 0);
 
     rtdir::LxmfAddressRecord alpha = make_address("alpha trail", true, true);
+    char alpha_destination[rtpage::kReticulumPageDestinationTextSize] = {};
+    format_hash_hex(alpha.destination_hash,
+                    alpha_destination,
+                    sizeof(alpha_destination));
+
+    char normalized_path[rtpage::kReticulumPagePathSize] = {};
+    assert(rtpage::normalize_path("page/index.mu",
+                                  normalized_path,
+                                  sizeof(normalized_path)));
+    assert(std::strcmp(normalized_path, "/page/index.mu") == 0);
+    assert(!rtpage::normalize_path("/page/../secret.mu",
+                                   normalized_path,
+                                   sizeof(normalized_path)));
+
+    const char page_body[] = "# Alpha Trail\n=> /page/about.mu About\nhello";
+    rtpage::Status page_status =
+        rtpage::store_cached_page_now(alpha_destination,
+                                      "page/index.mu",
+                                      page_body,
+                                      std::strlen(page_body));
+    assert(page_status.saved);
+    assert(std::filesystem::exists(sd / "trailmate" / "reticulum" / "pages" /
+                                   alpha_destination / "page" / "index.mu"));
+
+    char loaded_page[128] = {};
+    std::size_t loaded_len = 0;
+    page_status = rtpage::load_cached_page(alpha_destination,
+                                           "/page/index.mu",
+                                           loaded_page,
+                                           sizeof(loaded_page),
+                                           &loaded_len);
+    assert(page_status.loaded);
+    assert(!page_status.truncated);
+    assert(loaded_len == std::strlen(page_body));
+    assert(std::strcmp(loaded_page, page_body) == 0);
+
+    char tiny_page[8] = {};
+    loaded_len = 0;
+    page_status = rtpage::load_cached_page(alpha_destination,
+                                           "/page/index.mu",
+                                           tiny_page,
+                                           sizeof(tiny_page),
+                                           &loaded_len);
+    assert(page_status.loaded);
+    assert(page_status.truncated);
+    assert(loaded_len == sizeof(tiny_page) - 1U);
+
+    page_status = rtpage::request_page(alpha_destination, "/page/index.mu");
+    assert(!page_status.request_started);
+    assert(std::strcmp(page_status.message, "Nomad page fetch unavailable") == 0);
+
     rtdir::Status status = rtdir::record_lxmf_address(alpha);
     assert(status.saved);
     assert(std::filesystem::exists(sd / "mesh" / "peers.bin"));

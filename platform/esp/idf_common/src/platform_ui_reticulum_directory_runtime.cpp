@@ -1,4 +1,5 @@
 #include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/reticulum_page_runtime.h"
 
 #include <cstdio>
 #include <cstring>
@@ -119,3 +120,65 @@ Status find_lxmf_address_by_node_id(uint32_t, LxmfAddressRecord* out_record)
 }
 
 } // namespace platform::ui::reticulum_directory
+
+namespace platform::ui::reticulum_page
+{
+namespace
+{
+
+constexpr const char* kPagesPath = "/trailmate/reticulum/pages";
+
+void copy_text(char* out, std::size_t out_len, const char* text)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "%s", text ? text : "");
+}
+
+Status unsupported(const char* message, const char* detail)
+{
+    Status out{};
+    copy_text(out.message, sizeof(out.message), message);
+    copy_text(out.detail, sizeof(out.detail), detail);
+    return out;
+}
+
+} // namespace
+
+const char* cache_root_path()
+{
+    return kPagesPath;
+}
+
+bool normalize_path(const char* path, char* out_path, std::size_t out_len)
+{
+    if (!out_path || out_len == 0)
+    {
+        return false;
+    }
+    std::snprintf(out_path, out_len, "%s", (path && path[0]) ? path : "/page/index.mu");
+    return true;
+}
+
+Status load_cached_page(const char*, const char*, char*, std::size_t, std::size_t* out_body_len)
+{
+    if (out_body_len)
+    {
+        *out_body_len = 0;
+    }
+    return unsupported("Nomad page cache unsupported", kPagesPath);
+}
+
+Status store_cached_page_now(const char*, const char*, const char*, std::size_t)
+{
+    return unsupported("Nomad page cache unsupported", kPagesPath);
+}
+
+Status request_page(const char*, const char*)
+{
+    return unsupported("Nomad page fetch unsupported", kPagesPath);
+}
+
+} // namespace platform::ui::reticulum_page

@@ -4,6 +4,7 @@
 #include "app/app_facade_access.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/reticulum_page_runtime.h"
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/components/floating_search_box.h"
@@ -55,6 +56,7 @@ namespace
 {
 
 namespace rtdir = ::platform::ui::reticulum_directory;
+namespace rtpage = ::platform::ui::reticulum_page;
 
 constexpr std::size_t kMaxVisibleAnnounces = 100;
 constexpr std::size_t kMaxVisibleAddresses = 100;
@@ -93,6 +95,13 @@ struct HistoryEntry
     char address[kAddressTextLen] = {};
 };
 
+struct RemotePageAddress
+{
+    bool valid = false;
+    char destination[kHashTextLen] = {};
+    char path[rtpage::kReticulumPagePathSize] = {};
+};
+
 struct NetworkPageState
 {
     lv_obj_t* root = nullptr;
@@ -120,6 +129,7 @@ struct NetworkPageState
     std::array<DirectoryRowContext, kMaxDirectoryRows> row_contexts{};
     std::array<LinkContext, kMaxPageLinks> link_contexts{};
     std::array<HistoryEntry, kMaxHistoryEntries> history{};
+    std::array<char, rtpage::kReticulumPageBodyMaxBytes + 1U> page_body{};
     std::size_t announce_count = 0;
     std::size_t address_count = 0;
     std::size_t row_context_count = 0;
@@ -394,6 +404,36 @@ const char* address_display_label(const rtdir::LxmfAddressRecord& address,
     return fallback ? fallback : "Anonymous Peer";
 }
 
+bool announce_visible_in_directory(const rtdir::AnnounceRecord& announce)
+{
+    return announce.valid && announce.aspect == rtdir::AnnounceAspect::NomadNetworkNode;
+}
+
+std::size_t visible_announce_count()
+{
+    std::size_t count = 0;
+    for (const auto& announce : g_state.announces)
+    {
+        if (announce_visible_in_directory(announce))
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+const rtdir::AnnounceRecord* first_visible_announce()
+{
+    for (const auto& announce : g_state.announces)
+    {
+        if (announce_visible_in_directory(announce))
+        {
+            return &announce;
+        }
+    }
+    return nullptr;
+}
+
 bool contains_ci(const char* text, const char* query)
 {
     if (!query || query[0] == '\0')
@@ -539,6 +579,53 @@ bool extract_destination_text(const char* address, char* out, std::size_t out_le
     std::snprintf(out, out_len, "%.*s",
                   static_cast<int>(rtdir::kReticulumHashSize * 2U),
                   start);
+    return true;
+}
+
+const char* remote_address_body(const char* address)
+{
+    if (!address)
+    {
+        return nullptr;
+    }
+    const char* start = address;
+    if (std::strncmp(start, "rn://", 5) == 0)
+    {
+        start += 5;
+    }
+    if (std::strncmp(start, "reticulum://", 12) == 0)
+    {
+        start += 12;
+    }
+    return start;
+}
+
+bool parse_remote_page_address(const char* address, RemotePageAddress& out)
+{
+    out = RemotePageAddress{};
+    const char* start = remote_address_body(address);
+    if (!start || !is_hex_text(start, rtdir::kReticulumHashSize * 2U))
+    {
+        return false;
+    }
+
+    std::snprintf(out.destination,
+                  sizeof(out.destination),
+                  "%.*s",
+                  static_cast<int>(rtdir::kReticulumHashSize * 2U),
+                  start);
+
+    const char* cursor = start + (rtdir::kReticulumHashSize * 2U);
+    if (*cursor == ':')
+    {
+        ++cursor;
+    }
+    const char* path = (*cursor != '\0') ? cursor : "/page/index.mu";
+    if (!rtpage::normalize_path(path, out.path, sizeof(out.path)))
+    {
+        return false;
+    }
+    out.valid = true;
     return true;
 }
 
@@ -958,6 +1045,57 @@ void render_micron_line(const char* line)
     add_terminal_label(line, kTerminalText, caption_font(), LV_LABEL_LONG_WRAP);
 }
 
+void render_micron_body(char* body, std::size_t body_len, bool truncated)
+{
+    if (!body)
+    {
+        return;
+    }
+    if (body_len == 0)
+    {
+        add_terminal_label("empty page", kTerminalDim, caption_font(), LV_LABEL_LONG_WRAP);
+        return;
+    }
+
+    char* line = body;
+    char* cursor = body;
+    char* end = body + body_len;
+    while (cursor <= end)
+    {
+        if (cursor == end || *cursor == '\n')
+        {
+            const char saved = cursor == end ? '\0' : *cursor;
+            *cursor = '\0';
+            const std::size_t len = std::strlen(line);
+            if (len != 0 && line[len - 1U] == '\r')
+            {
+                line[len - 1U] = '\0';
+            }
+            render_micron_line(line);
+            if (saved == '\0')
+            {
+                break;
+            }
+            line = cursor + 1;
+        }
+        ++cursor;
+    }
+
+    if (truncated)
+    {
+        add_terminal_spacer(4);
+        add_terminal_label("page truncated", kTerminalDim, caption_font(), LV_LABEL_LONG_WRAP);
+    }
+}
+
+void add_node_page_links()
+{
+    add_terminal_spacer(6);
+    add_terminal_link("/page/index.mu", "/page/index.mu");
+    add_terminal_link("/page/about.mu", "/page/about.mu");
+    add_terminal_link("/page/peers.mu", "/page/peers.mu");
+}
+
 void render_home_page()
 {
     clear_viewport();
@@ -967,7 +1105,7 @@ void render_home_page()
     std::snprintf(line,
                   sizeof(line),
                   "announces %u  favourites %u",
-                  static_cast<unsigned>(g_state.announce_count),
+                  static_cast<unsigned>(visible_announce_count()),
                   static_cast<unsigned>(favourite_count()));
     add_terminal_label(line, kTerminalText, caption_font(), LV_LABEL_LONG_WRAP);
 
@@ -984,13 +1122,13 @@ void render_home_page()
     add_terminal_link("home:/announces", "Announces");
     add_terminal_link("home:/favourites", "Favourites");
 
-    if (g_state.announce_count != 0)
+    if (const rtdir::AnnounceRecord* latest = first_visible_announce())
     {
         char dest[kHashTextLen] = {};
-        format_hash_hex(g_state.announces[0].destination_hash, dest, sizeof(dest));
+        format_hash_hex(latest->destination_hash, dest, sizeof(dest));
         char target[kAddressTextLen] = {};
         std::snprintf(target, sizeof(target), "%s:/page/index.mu", dest);
-        const char* label = announce_display_label(g_state.announces[0], "Latest announce");
+        const char* label = announce_display_label(*latest, "Latest announce");
         add_terminal_link(target, label);
     }
 }
@@ -1027,10 +1165,11 @@ void render_collection_page(bool favourites)
         return;
     }
 
-    for (std::size_t i = 0; i < g_state.announce_count && i < 16; ++i)
+    std::size_t visible = 0;
+    for (std::size_t i = 0; i < g_state.announce_count && visible < 16; ++i)
     {
         const auto& announce = g_state.announces[i];
-        if (!announce.valid)
+        if (!announce_visible_in_directory(announce))
         {
             continue;
         }
@@ -1039,41 +1178,38 @@ void render_collection_page(bool favourites)
         format_hash_hex(announce.destination_hash, dest, sizeof(dest));
         std::snprintf(target, sizeof(target), "%s:/page/index.mu", dest);
         add_terminal_link(target, announce_display_label(announce, dest));
+        ++visible;
     }
-    if (g_state.announce_count == 0)
+    if (visible == 0)
     {
-        add_terminal_label("no announces", kTerminalDim, caption_font());
+        add_terminal_label("no Nomad nodes", kTerminalDim, caption_font());
     }
 }
 
-void render_node_page(const rtdir::AnnounceRecord* announce,
-                      const rtdir::LxmfAddressRecord* address_record,
-                      const char* destination_text)
+void render_remote_page_shell(const char* address,
+                              const RemotePageAddress* page_address,
+                              const rtdir::AnnounceRecord* announce,
+                              const rtdir::LxmfAddressRecord* address_record,
+                              const rtpage::Status* cache_status,
+                              const rtpage::Status* request_status)
 {
     clear_viewport();
-    const char* title = nullptr;
+    const char* title = "Nomad Page";
     if (address_record)
     {
-        title = address_display_label(*address_record, "Anonymous Peer");
+        title = address_display_label(*address_record, title);
     }
     else if (announce)
     {
-        title = announce_display_label(*announce, destination_text);
+        title = announce_display_label(*announce, title);
     }
-    else
-    {
-        title = destination_text;
-    }
-
-    add_terminal_label(title ? title : "Nomad Node",
-                       kTerminalAmber,
-                       body_font(),
-                       LV_LABEL_LONG_WRAP);
+    add_terminal_label(title, kTerminalAmber, body_font(), LV_LABEL_LONG_WRAP);
     add_terminal_spacer();
-
-    if (destination_text)
+    add_terminal_pair("address", address ? address : "");
+    if (page_address && page_address->valid)
     {
-        add_terminal_pair("dest", destination_text);
+        add_terminal_pair("dest", page_address->destination);
+        add_terminal_pair("path", page_address->path);
     }
     if (announce)
     {
@@ -1093,25 +1229,31 @@ void render_node_page(const rtdir::AnnounceRecord* announce,
         char identity[kHashTextLen] = {};
         format_hash_hex(address_record->identity_hash, identity, sizeof(identity));
         add_terminal_pair("identity", identity);
-        if (address_record->favorite)
-        {
-            add_terminal_pair("state", "favourite");
-        }
     }
-
-    add_terminal_spacer(6);
-    add_terminal_link("/page/index.mu", "/page/index.mu");
-    add_terminal_link("/page/about.mu", "/page/about.mu");
-    add_terminal_link("/page/peers.mu", "/page/peers.mu");
+    add_terminal_pair("cache", rtpage::cache_root_path());
+    add_terminal_pair("state",
+                      cache_status && cache_status->message[0] != '\0'
+                          ? cache_status->message
+                          : "no cached page body");
+    if (request_status && request_status->message[0] != '\0')
+    {
+        add_terminal_pair("request", request_status->message);
+    }
+    if (page_address && page_address->valid)
+    {
+        add_node_page_links();
+    }
 }
 
-void render_remote_page_shell(const char* address)
+void render_cached_page(const rtpage::Status& status,
+                        std::size_t body_len)
 {
     clear_viewport();
-    add_terminal_label("Nomad Page", kTerminalAmber, body_font(), LV_LABEL_LONG_WRAP);
-    add_terminal_spacer();
-    add_terminal_pair("address", address ? address : "");
-    add_terminal_label("no cached page body", kTerminalDim, caption_font());
+    render_micron_body(g_state.page_body.data(), body_len, status.truncated);
+    if (g_state.link_context_count == 0)
+    {
+        add_node_page_links();
+    }
 }
 
 void render_current_page()
@@ -1141,16 +1283,51 @@ void render_current_page()
     char destination[kHashTextLen] = {};
     if (extract_destination_text(address, destination, sizeof(destination)))
     {
-        const auto* announce = find_announce_by_destination_text(destination);
-        const auto* known_address = find_address_by_destination_text(destination);
-        if (announce || known_address)
+        RemotePageAddress page_address{};
+        const auto* announce =
+            find_announce_by_destination_text(destination);
+        const auto* known_address =
+            find_address_by_destination_text(destination);
+        if (!parse_remote_page_address(address, page_address))
         {
-            render_node_page(announce, known_address, destination);
+            rtpage::Status invalid_status{};
+            copy_text(invalid_status.message,
+                      sizeof(invalid_status.message),
+                      "Invalid Nomad page path");
+            copy_text(invalid_status.detail, sizeof(invalid_status.detail), address);
+            render_remote_page_shell(address,
+                                     nullptr,
+                                     announce,
+                                     known_address,
+                                     &invalid_status,
+                                     nullptr);
             return;
         }
+
+        std::size_t body_len = 0;
+        const rtpage::Status cache_status =
+            rtpage::load_cached_page(page_address.destination,
+                                     page_address.path,
+                                     g_state.page_body.data(),
+                                     g_state.page_body.size(),
+                                     &body_len);
+        if (cache_status.loaded)
+        {
+            render_cached_page(cache_status, body_len);
+            return;
+        }
+        const rtpage::Status request_status =
+            rtpage::request_page(page_address.destination, page_address.path);
+        render_remote_page_shell(address,
+                                 &page_address,
+                                 announce,
+                                 known_address,
+                                 &cache_status,
+                                 &request_status);
+        return;
     }
 
-    render_remote_page_shell(address);
+    render_remote_page_shell(address, nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
 void refresh_directory_data()
@@ -1402,7 +1579,8 @@ void render_directory_list()
         for (std::size_t i = 0; i < g_state.announce_count; ++i)
         {
             const auto& announce = g_state.announces[i];
-            if (!announce.valid || !announce_matches_search(announce))
+            if (!announce_visible_in_directory(announce) ||
+                !announce_matches_search(announce))
             {
                 continue;
             }
@@ -1426,11 +1604,11 @@ void render_directory_list()
 
     if (visible == 0)
     {
-        render_empty_directory(g_state.search_query[0] != '\0' ? "No matches"
-                                                               : (g_state.directory_mode ==
-                                                                          DirectoryMode::Favourites
-                                                                      ? "No favourites"
-                                                                      : "No announces"));
+        render_empty_directory(g_state.search_query[0] != '\0'
+                                   ? "No matches"
+                                   : (g_state.directory_mode == DirectoryMode::Favourites
+                                          ? "No favourites"
+                                          : "No Nomad nodes"));
     }
     rebuild_focus_group(nullptr);
 }

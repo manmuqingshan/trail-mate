@@ -1,10 +1,12 @@
 #include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/reticulum_page_runtime.h"
 
 #include "chat/infra/mesh_peer_directory_core.h"
 #include "platform/linux/runtime_paths.h"
 #include "platform/ui/device_runtime.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -1413,3 +1415,309 @@ Status find_lxmf_address_by_node_id(uint32_t node_id,
 }
 
 } // namespace platform::ui::reticulum_directory
+
+namespace platform::ui::reticulum_page
+{
+namespace
+{
+
+constexpr const char* kPagesRelativeDir = "trailmate/reticulum/pages";
+constexpr const char* kPagesLogicalDir = "/trailmate/reticulum/pages";
+constexpr const char* kDefaultPagePath = "/page/index.mu";
+
+void copy_text(char* out, std::size_t out_len, const char* text)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "%s", text ? text : "");
+}
+
+void set_status(Status& out, const char* message, const char* detail = nullptr)
+{
+    copy_text(out.message, sizeof(out.message), message);
+    copy_text(out.detail, sizeof(out.detail), detail);
+}
+
+std::filesystem::path page_path_under_sd(const std::string& relative)
+{
+    return ::platform::linux_runtime::resolve_paths().sd_root / relative;
+}
+
+bool is_hex_char(char ch)
+{
+    return std::isxdigit(static_cast<unsigned char>(ch)) != 0;
+}
+
+char uppercase_hex(char ch)
+{
+    return static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+}
+
+bool normalize_destination(const char* destination_hash,
+                           char* out_hash,
+                           std::size_t out_len)
+{
+    if (!destination_hash || !out_hash ||
+        out_len < kReticulumPageDestinationTextSize)
+    {
+        return false;
+    }
+    for (std::size_t i = 0; i < kReticulumPageDestinationTextSize - 1U; ++i)
+    {
+        if (!is_hex_char(destination_hash[i]))
+        {
+            return false;
+        }
+        out_hash[i] = uppercase_hex(destination_hash[i]);
+    }
+    out_hash[kReticulumPageDestinationTextSize - 1U] = '\0';
+    return destination_hash[kReticulumPageDestinationTextSize - 1U] == '\0';
+}
+
+bool allowed_path_char(char ch)
+{
+    const auto value = static_cast<unsigned char>(ch);
+    return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') ||
+           (value >= '0' && value <= '9') || ch == '/' || ch == '-' ||
+           ch == '_' || ch == '.';
+}
+
+bool path_has_parent_segment(const char* path)
+{
+    if (!path)
+    {
+        return true;
+    }
+    const char* segment = path;
+    while (*segment != '\0')
+    {
+        while (*segment == '/')
+        {
+            ++segment;
+        }
+        const char* end = segment;
+        while (*end != '\0' && *end != '/')
+        {
+            ++end;
+        }
+        if ((end - segment) == 2 && segment[0] == '.' && segment[1] == '.')
+        {
+            return true;
+        }
+        segment = end;
+    }
+    return false;
+}
+
+std::string cache_relative_path(const char* destination_hash, const char* path)
+{
+    std::string relative = kPagesRelativeDir;
+    relative += "/";
+    relative += destination_hash;
+    relative += path;
+    return relative;
+}
+
+bool ensure_parent_dir(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    return !ec;
+}
+
+} // namespace
+
+const char* cache_root_path()
+{
+    return kPagesLogicalDir;
+}
+
+bool normalize_path(const char* path, char* out_path, std::size_t out_len)
+{
+    if (!out_path || out_len == 0)
+    {
+        return false;
+    }
+    out_path[0] = '\0';
+
+    const char* source = (path && path[0] != '\0') ? path : kDefaultPagePath;
+    if (std::strcmp(source, "/") == 0)
+    {
+        source = kDefaultPagePath;
+    }
+
+    std::size_t written = 0;
+    if (source[0] != '/')
+    {
+        if (written + 1U >= out_len)
+        {
+            return false;
+        }
+        out_path[written++] = '/';
+    }
+
+    bool previous_slash = false;
+    for (std::size_t i = 0; source[i] != '\0'; ++i)
+    {
+        const char ch = source[i];
+        if (!allowed_path_char(ch) || ch == '\\')
+        {
+            out_path[0] = '\0';
+            return false;
+        }
+        if (ch == '/' && previous_slash)
+        {
+            continue;
+        }
+        if (written + 1U >= out_len)
+        {
+            out_path[0] = '\0';
+            return false;
+        }
+        out_path[written++] = ch;
+        previous_slash = ch == '/';
+    }
+    if (written == 0)
+    {
+        if (out_len <= std::strlen(kDefaultPagePath))
+        {
+            return false;
+        }
+        copy_text(out_path, out_len, kDefaultPagePath);
+        return true;
+    }
+    if (written > 1U && out_path[written - 1U] == '/')
+    {
+        --written;
+    }
+    out_path[written] = '\0';
+    if (path_has_parent_segment(out_path))
+    {
+        out_path[0] = '\0';
+        return false;
+    }
+    return true;
+}
+
+Status load_cached_page(const char* destination_hash,
+                        const char* path,
+                        char* out_body,
+                        std::size_t body_capacity,
+                        std::size_t* out_body_len)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = true;
+    if (out_body_len)
+    {
+        *out_body_len = 0;
+    }
+    if (out_body && body_capacity != 0)
+    {
+        out_body[0] = '\0';
+    }
+
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)) ||
+        !out_body || body_capacity == 0)
+    {
+        set_status(out, "Invalid Nomad page address", kPagesLogicalDir);
+        return out;
+    }
+
+    const auto cache_path = page_path_under_sd(
+        cache_relative_path(destination, normalized_path));
+    out.file_present = std::filesystem::exists(cache_path);
+    if (!out.file_present)
+    {
+        set_status(out, "Nomad page cache miss", cache_path.string().c_str());
+        return out;
+    }
+
+    std::ifstream in(cache_path, std::ios::binary);
+    if (!in.is_open())
+    {
+        set_status(out, "Cannot open Nomad page cache", cache_path.string().c_str());
+        return out;
+    }
+    in.read(out_body, static_cast<std::streamsize>(body_capacity - 1U));
+    const std::streamsize read = in.gcount();
+    const std::size_t used = read > 0 ? static_cast<std::size_t>(read) : 0;
+    out_body[used] = '\0';
+    if (out_body_len)
+    {
+        *out_body_len = used;
+    }
+    out.truncated = in.peek() != std::char_traits<char>::eof();
+    out.loaded = true;
+    set_status(out, "Nomad page cache loaded", cache_path.string().c_str());
+    return out;
+}
+
+Status store_cached_page_now(const char* destination_hash,
+                             const char* path,
+                             const char* body,
+                             std::size_t body_len)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = true;
+
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)) ||
+        (!body && body_len != 0))
+    {
+        set_status(out, "Invalid Nomad page address", kPagesLogicalDir);
+        return out;
+    }
+
+    const auto cache_path = page_path_under_sd(
+        cache_relative_path(destination, normalized_path));
+    if (!ensure_parent_dir(cache_path))
+    {
+        set_status(out, "Cannot create Nomad page cache directory",
+                   cache_path.string().c_str());
+        return out;
+    }
+
+    std::ofstream file(cache_path, std::ios::binary | std::ios::trunc);
+    if (!file.is_open())
+    {
+        set_status(out, "Cannot write Nomad page cache", cache_path.string().c_str());
+        return out;
+    }
+    if (body_len != 0)
+    {
+        file.write(body, static_cast<std::streamsize>(body_len));
+    }
+    out.saved = static_cast<bool>(file);
+    out.file_present = out.saved;
+    set_status(out,
+               out.saved ? "Nomad page cache saved"
+                         : "Nomad page cache write failed",
+               cache_path.string().c_str());
+    return out;
+}
+
+Status request_page(const char* destination_hash, const char* path)
+{
+    Status out{};
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        set_status(out, "Invalid Nomad page address", kPagesLogicalDir);
+        return out;
+    }
+    set_status(out, "Nomad page fetch unavailable", normalized_path);
+    return out;
+}
+
+} // namespace platform::ui::reticulum_page
