@@ -2938,12 +2938,11 @@ lv_obj_t* create_list_item_button(const std::string& text, intptr_t user_data, b
 
     lv_obj_t* label = lv_label_create(btn);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, page_profile().dense ? 6 : 10, 0);
-    lv_label_set_text(label, text.c_str());
-    ::ui::i18n::log_direct_text_route("tracker_list_item", label, text.c_str());
     lv_obj_add_style(label, &s_btn_label, LV_PART_MAIN);
-    lv_obj_set_style_text_font(label, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), 0);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     lv_obj_set_width(label, LV_PCT(100));
+    ::ui::i18n::set_content_label_text_raw(label, text.c_str());
+    ::ui::i18n::log_direct_text_route("tracker_list_item", label, text.c_str());
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
 
     lv_obj_set_user_data(btn, reinterpret_cast<void*>(user_data));
     if (checked)
@@ -3774,8 +3773,7 @@ void on_list_item_focused(lv_event_t* e)
     {
         return;
     }
-    lv_label_set_text(label, names[idx].c_str());
-    lv_obj_set_style_text_font(label, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), 0);
+    ::ui::i18n::set_content_label_text_raw(label, names[idx].c_str());
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
 }
 
@@ -3818,9 +3816,8 @@ void on_list_item_defocused(lv_event_t* e)
         return;
     }
     std::string display_name = format_list_name(names[idx]);
-    lv_label_set_text(label, display_name.c_str());
     lv_obj_add_style(label, &s_btn_label, LV_PART_MAIN);
-    lv_obj_set_style_text_font(label, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), 0);
+    ::ui::i18n::set_content_label_text_raw(label, display_name.c_str());
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
 }
 
