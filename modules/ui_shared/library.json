@@ -6,6 +6,8 @@
                   "srcDir":  "src",
                   "srcFilter":  [
                                     "+<*>",
+                                    "-<ui/assets/ble_topbar.c>",
+                                    "-<ui/widgets/ble_pairing_popup.cpp>",
                                     "-<ui/screens/pc_link/>"
                                 ],
                   "flags":  [

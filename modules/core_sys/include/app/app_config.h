@@ -193,7 +193,7 @@ struct AppConfig
         applyMeshtasticMqttFactoryDefaults();
         node_name[0] = '\0';
         short_name[0] = '\0';
-        ble_enabled = true;
+        ble_enabled = false;
         primary_enabled = true;
         secondary_enabled = false;
         primary_uplink_enabled = false;

@@ -2,7 +2,6 @@
 
 #include "app/app_config.h"
 #include "app/app_facades.h"
-#include "ble/ble_manager.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/mqtt.pb.h"
@@ -22,6 +21,14 @@
 #include <cstring>
 #include <lwip/netdb.h>
 #include <pb_decode.h>
+
+#ifndef TRAIL_MATE_ENABLE_BLE
+#define TRAIL_MATE_ENABLE_BLE 0
+#endif
+
+#if TRAIL_MATE_ENABLE_BLE
+#include "ble/ble_manager.h"
+#endif
 
 #if __has_include(<WiFi.h>)
 #include <WiFi.h>
@@ -572,6 +579,7 @@ class PlainMqttRuntime
 
     void forceBleOff(app::IAppFacade& app_context)
     {
+#if TRAIL_MATE_ENABLE_BLE
         if (app_context.isBleEnabled())
         {
             std::printf("[%s][MQTT] disabling BLE for standalone MQTT mode\n",
@@ -588,6 +596,9 @@ class PlainMqttRuntime
                 ble_manager->setEnabled(false);
             }
         }
+#else
+        (void)app_context;
+#endif
     }
 
     void syncAdapterDisabled(app::IAppFacade& app_context)

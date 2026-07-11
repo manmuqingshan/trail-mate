@@ -6,7 +6,6 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <vector>
 
 #include "hostlink/c6/c6_protocol.h"
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
@@ -44,6 +43,7 @@ struct RuntimeState
 {
     bool profiles_cached = false;
     Config profiles[kWifiProfileCapacity] = {};
+    ScanResult scan_results[kWifiProfileCapacity] = {};
     std::size_t profile_count = 0;
     std::size_t next_profile_index = 0;
 };
@@ -375,20 +375,52 @@ bool c6_present()
     return c6::get_c6_companion_status().present;
 }
 
-void append_scan_results(std::vector<ScanResult>& out_results, const c6::C6CompanionStatus& c6_status)
+std::size_t copy_scan_results(ScanResult* out_results,
+                              std::size_t capacity,
+                              const c6::C6CompanionStatus& c6_status)
 {
-    for (uint8_t i = 0; i < c6_status.wifi_scan_result_count; ++i)
+    if (out_results == nullptr || capacity == 0)
     {
-        ScanResult result{};
+        return 0;
+    }
+
+    std::size_t count = 0;
+    for (uint8_t i = 0; i < c6_status.wifi_scan_result_count && count < capacity; ++i)
+    {
+        ScanResult& result = out_results[count];
+        result = ScanResult{};
         copy_text(result.ssid, sizeof(result.ssid), c6_status.wifi_scan_results[i].ssid);
         result.rssi = c6_status.wifi_scan_results[i].rssi;
         result.requires_password = c6_status.wifi_scan_results[i].authmode != 0;
-        out_results.push_back(result);
+        ++count;
     }
+    return count;
 }
 
-bool wait_for_c6_scan(std::vector<ScanResult>& out_results)
+int best_profile_index_for_scan_results(const ScanResult* results, std::size_t count, int& out_rssi)
 {
+    int best_index = -1;
+    int best_rssi = -128;
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const int index = profile_index_for_ssid(results[i].ssid);
+        if (index < 0)
+        {
+            continue;
+        }
+        if (best_index < 0 || results[i].rssi > best_rssi)
+        {
+            best_index = index;
+            best_rssi = results[i].rssi;
+        }
+    }
+    out_rssi = best_rssi;
+    return best_index;
+}
+
+bool wait_for_c6_scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count)
+{
+    out_count = 0;
 #if defined(ESP_PLATFORM) && defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
     const TickType_t start_ticks = xTaskGetTickCount();
     const TickType_t timeout_ticks = pdMS_TO_TICKS(kC6ScanWaitTimeoutMs);
@@ -407,7 +439,7 @@ bool wait_for_c6_scan(std::vector<ScanResult>& out_results)
         }
         else if (saw_scanning || c6_status.wifi_scan_result_count > 0)
         {
-            append_scan_results(out_results, c6_status);
+            out_count = copy_scan_results(out_results, capacity, c6_status);
             return true;
         }
 
@@ -415,10 +447,11 @@ bool wait_for_c6_scan(std::vector<ScanResult>& out_results)
     }
 
     const auto c6_status = c6::get_c6_companion_status();
-    append_scan_results(out_results, c6_status);
-    return !out_results.empty();
+    out_count = copy_scan_results(out_results, capacity, c6_status);
+    return out_count > 0;
 #else
     (void)out_results;
+    (void)capacity;
     return false;
 #endif
 }
@@ -431,9 +464,9 @@ bool select_auto_profile_from_scan(std::size_t& out_index)
         return false;
     }
 
-    std::vector<ScanResult> results;
-    append_scan_results(results, c6::get_c6_companion_status());
-    if (results.empty())
+    std::size_t result_count =
+        copy_scan_results(s_runtime.scan_results, kWifiProfileCapacity, c6::get_c6_companion_status());
+    if (result_count == 0)
     {
         const bool sent = c6::c6_companion().sendWifiControl(make_control(c6::WifiCommand::Scan));
         if (!sent)
@@ -441,33 +474,20 @@ bool select_auto_profile_from_scan(std::size_t& out_index)
             return false;
         }
 #if defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
-        results.clear();
-        if (!wait_for_c6_scan(results))
+        if (!wait_for_c6_scan(s_runtime.scan_results, kWifiProfileCapacity, result_count))
         {
             return false;
         }
 #endif
     }
 
-    int best_index = -1;
     int best_rssi = -128;
-    for (const ScanResult& result : results)
-    {
-        const int index = profile_index_for_ssid(result.ssid);
-        if (index < 0)
-        {
-            continue;
-        }
-        if (best_index < 0 || result.rssi > best_rssi)
-        {
-            best_index = index;
-            best_rssi = result.rssi;
-        }
-    }
+    const int best_index =
+        best_profile_index_for_scan_results(s_runtime.scan_results, result_count, best_rssi);
     if (best_index < 0)
     {
         std::printf("[WiFi][C6] auto scan no saved match results=%u profiles=%u\n",
-                    static_cast<unsigned>(results.size()),
+                    static_cast<unsigned>(result_count),
                     static_cast<unsigned>(s_runtime.profile_count));
         return false;
     }
@@ -479,7 +499,7 @@ bool select_auto_profile_from_scan(std::size_t& out_index)
                 static_cast<unsigned>(s_runtime.profile_count),
                 s_runtime.profiles[out_index].ssid,
                 best_rssi,
-                static_cast<unsigned>(results.size()));
+                static_cast<unsigned>(result_count));
     return true;
 }
 
@@ -574,14 +594,14 @@ void disconnect()
     }
 }
 
-bool scan(std::vector<ScanResult>& out_results)
+bool scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count)
 {
-    out_results.clear();
+    out_count = 0;
     const auto c6_status = c6::get_c6_companion_status();
-    append_scan_results(out_results, c6_status);
+    out_count = copy_scan_results(out_results, capacity, c6_status);
     if (!c6_status.present)
     {
-        return !out_results.empty();
+        return out_count > 0;
     }
     const bool sent = c6::c6_companion().sendWifiControl(make_control(c6::WifiCommand::Scan));
     if (!sent)
@@ -589,8 +609,7 @@ bool scan(std::vector<ScanResult>& out_results)
         return false;
     }
 #if defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
-    out_results.clear();
-    return wait_for_c6_scan(out_results);
+    return wait_for_c6_scan(out_results, capacity, out_count);
 #else
     return true;
 #endif

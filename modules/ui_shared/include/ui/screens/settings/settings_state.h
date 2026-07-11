@@ -8,6 +8,7 @@
 #include "lvgl.h"
 #include "ui/widgets/top_bar.h"
 #include <cstddef>
+#include <cstdint>
 
 namespace settings::ui
 {
@@ -19,6 +20,145 @@ enum class SettingType
     Enum,
     Text,
     Action,
+};
+
+enum class SettingId : std::uint16_t
+{
+    Unknown,
+    ChatUser,
+    ChatShort,
+    MeshProtocol,
+    ChatMessageAlerts,
+    ChatContactAlerts,
+    ChatRegion,
+    ChatChannel,
+    ChatPsk,
+    MtPrimaryEnabled,
+    MtPrimaryName,
+    MtPrimaryKey,
+    MtPrimaryKeyGenerate,
+    MtPrimaryUplink,
+    MtPrimaryDownlink,
+    MtSecondaryEnabled,
+    MtSecondaryName,
+    MtSecondaryKey,
+    MtSecondaryKeyGenerate,
+    MtSecondaryUplink,
+    MtSecondaryDownlink,
+    PrivacyEncrypt,
+    MtMqttEnabled,
+    MtMqttHost,
+    MtMqttPort,
+    MtMqttRoot,
+    MtMqttUser,
+    MtMqttPass,
+    MtMqttUplink,
+    MtMqttDownlink,
+    McMqttEnabled,
+    McMqttHost,
+    McMqttPort,
+    McMqttRoot,
+    McMqttUser,
+    McMqttPass,
+    McMqttUplink,
+    McMqttDownlink,
+    McChannelSlot,
+    McChannelName,
+    McChannelKey,
+    McChannelKeyGenerate,
+    RtBearer,
+    RtLoraEnabled,
+    RtDisplayName,
+    RtIdentityHash,
+    RtLxmfAddress,
+    RtWifiGateway,
+    RtWifiHost,
+    RtWifiPort,
+    RtWifiAuto,
+    RtAnonymousPeer,
+    NetUsePreset,
+    NetPreset,
+    NetBw,
+    NetSf,
+    NetCr,
+    NetTxPower,
+    NetHopLimit,
+    NetTxEnabled,
+    NetOverrideDuty,
+    NetChannelNum,
+    NetFreqOffset,
+    NetOverrideFreq,
+    NetRelay,
+    NetDutyCycle,
+    NetUtil,
+    McRegionPreset,
+    McFreq,
+    McBw,
+    McSf,
+    McCr,
+    McTxPower,
+    McRepeat,
+    McRxDelay,
+    McAirtime,
+    McFloodMax,
+    McMultiAcks,
+    McSendProfile,
+    McForwardProfile,
+    GpsEnabled,
+    GpsInitBaud,
+    GpsInitProbeMs,
+    GpsInitProfile,
+    GpsInitRxm,
+    GpsInitGnss,
+    GpsInitNmea,
+    GpsMode,
+    GpsSatMask,
+    GpsStrategy,
+    GpsInterval,
+    GpsAltRef,
+    GpsCoordFmt,
+    ExternalNmea,
+    ExternalNmeaSent,
+    GpsDiagnostics,
+    MapCoord,
+    MapSource,
+    MapContour,
+    MapTrack,
+    MapTrackInterval,
+    MapTrackFormat,
+    DisplayLocale,
+    EnabledImes,
+    ScreenTimeout,
+    ScreenBrightness,
+    SpeakerVolume,
+    VibrationEnabled,
+    C6CompanionStatus,
+    C6EnterDownload,
+    TimezoneProfile,
+    ManualTimeSet,
+    GaugeDesignMah,
+    GaugeFullMah,
+    WifiEnabled,
+    WifiStatus,
+    WifiScan,
+    WifiNetwork,
+    WifiSsid,
+    WifiPassword,
+    WifiConnect,
+    WifiDisconnect,
+    FwCurrent,
+    FwLatest,
+    FwStatus,
+    FwCheck,
+    FwInstall,
+    SettingsBackupStatus,
+    SettingsBackup,
+    SettingsRestore,
+    AdvDebug,
+    ChatResetMesh,
+    ChatResetNodes,
+    ChatClearMessages,
+    SystemFactoryReset,
 };
 
 struct SettingOption
@@ -39,6 +179,7 @@ struct SettingItem
     size_t text_max;
     bool mask_text;
     const char* pref_key;
+    SettingId id = SettingId::Unknown;
 };
 
 struct SettingsData
@@ -75,6 +216,18 @@ struct SettingsData
     char chat_psk[65] = {};
     int chat_message_alerts = 1;
     int chat_contact_alerts = 1;
+
+    // Meshtastic channels
+    bool mt_primary_enabled = true;
+    char mt_primary_name[32] = "LongFast";
+    char mt_primary_key[65] = {};
+    bool mt_primary_uplink = false;
+    bool mt_primary_downlink = false;
+    bool mt_secondary_enabled = false;
+    char mt_secondary_name[32] = "Secondary";
+    char mt_secondary_key[65] = {};
+    bool mt_secondary_uplink = false;
+    bool mt_secondary_downlink = false;
 
     // Network
     int net_use_preset = 1;
@@ -158,7 +311,6 @@ struct SettingsData
     int speaker_volume = 45;
     int display_locale_index = 0;
     char c6_companion_status[96] = "";
-    bool ble_enabled = true;
     bool vibration_enabled = true;
 
     // Wi-Fi

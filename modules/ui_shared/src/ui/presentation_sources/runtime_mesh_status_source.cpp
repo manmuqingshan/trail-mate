@@ -9,7 +9,11 @@
 
 #include <cstdio>
 
-#if __has_include("ble/ble_manager.h")
+#ifndef TRAIL_MATE_ENABLE_BLE
+#define TRAIL_MATE_ENABLE_BLE 0
+#endif
+
+#if TRAIL_MATE_ENABLE_BLE && __has_include("ble/ble_manager.h")
 #include "ble/ble_manager.h"
 #define TRAIL_MATE_UI_PRESENTATION_HAS_BLE_MANAGER_HEADER 1
 #else
@@ -39,6 +43,7 @@ bool RuntimeMeshStatusSource::buildMeshStatusSnapshot(
                                   .getTotalUnread());
     const uint32_t unread = chat_unread + team_unread;
 
+#if TRAIL_MATE_ENABLE_BLE
     bool ble_active = app::runtimeFacade().isBleEnabled();
     bool ble_linked = false;
 #if TRAIL_MATE_UI_PRESENTATION_HAS_BLE_MANAGER_HEADER
@@ -52,6 +57,7 @@ bool RuntimeMeshStatusSource::buildMeshStatusSnapshot(
         }
     }
 #endif
+#endif
 
     out.team_linked = has_team;
     out.known_nodes = has_team
@@ -62,10 +68,14 @@ bool RuntimeMeshStatusSource::buildMeshStatusSnapshot(
     ui::copyText(out.protocol_label,
                  chat::infra::meshProtocolName(
                      app::configFacade().getConfig().mesh_protocol));
+#if TRAIL_MATE_ENABLE_BLE
     ui::copyText(out.radio_label,
                  ble_linked ? "BLE linked"
                             : (ble_active ? "BLE bridge ready"
                                           : "LoRa direct path"));
+#else
+    ui::copyText(out.radio_label, "LoRa direct path");
+#endif
 
     char status[64]{};
     std::snprintf(status,

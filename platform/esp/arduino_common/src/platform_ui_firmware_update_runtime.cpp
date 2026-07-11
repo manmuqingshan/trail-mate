@@ -9,7 +9,6 @@
 #include <string>
 
 #include "app/app_facade_access.h"
-#include "ble/ble_manager.h"
 #include "cJSON.h"
 #include "esp_err.h"
 #include "esp_ota_ops.h"
@@ -19,6 +18,14 @@
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/http_client_runtime.h"
 #include "platform/ui/wifi_runtime.h"
+
+#ifndef TRAIL_MATE_ENABLE_BLE
+#define TRAIL_MATE_ENABLE_BLE 0
+#endif
+
+#if TRAIL_MATE_ENABLE_BLE
+#include "ble/ble_manager.h"
+#endif
 
 #ifdef INADDR_NONE
 #undef INADDR_NONE
@@ -710,6 +717,7 @@ bool battery_allows_install(std::string& out_error)
 
 void restore_ble_after_failure(bool restore_ble)
 {
+#if TRAIL_MATE_ENABLE_BLE
     if (!restore_ble || !app::hasAppFacade())
     {
         return;
@@ -718,6 +726,9 @@ void restore_ble_after_failure(bool restore_ble)
     {
         ble_manager->setEnabled(true);
     }
+#else
+    (void)restore_ble;
+#endif
 }
 
 struct OtaDownloadContext
@@ -1020,6 +1031,7 @@ bool perform_install(std::string& out_error)
     }
 
     bool restore_ble = false;
+#if TRAIL_MATE_ENABLE_BLE
     if (app::hasAppFacade())
     {
         if (ble::BleManager* ble_manager = app::appFacade().getBleManager())
@@ -1033,6 +1045,7 @@ bool perform_install(std::string& out_error)
             }
         }
     }
+#endif
 
     const bool ok = begin_ota_download(metadata, out_error);
     if (!ok)

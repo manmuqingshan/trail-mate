@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-#include <vector>
 
 #include "esp_err.h"
 #include "esp_event.h"
@@ -17,7 +16,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#if __has_include("ble/ble_manager.h")
+#ifndef TRAIL_MATE_ENABLE_BLE
+#define TRAIL_MATE_ENABLE_BLE 0
+#endif
+
+#if TRAIL_MATE_ENABLE_BLE && __has_include("ble/ble_manager.h")
 #include "ble/ble_manager.h"
 #define TRAIL_MATE_WIFI_HAS_BLE_MANAGER 1
 #else
@@ -215,6 +218,43 @@ void copy_bounded(char* out, std::size_t out_len, const char* text)
 
     const char* source = text ? text : "";
     std::snprintf(out, out_len, "%s", source);
+}
+
+void insert_scan_result_sorted(ScanResult* out_results,
+                               std::size_t capacity,
+                               std::size_t& out_count,
+                               const wifi_ap_record_t& record)
+{
+    if (out_results == nullptr || capacity == 0 || record.ssid[0] == 0)
+    {
+        return;
+    }
+
+    ScanResult result{};
+    copy_bounded(result.ssid, sizeof(result.ssid), reinterpret_cast<const char*>(record.ssid));
+    result.rssi = record.rssi;
+    result.requires_password = record.authmode != WIFI_AUTH_OPEN;
+
+    std::size_t insert_at = out_count;
+    if (out_count < capacity)
+    {
+        ++out_count;
+    }
+    else if (result.rssi <= out_results[capacity - 1U].rssi)
+    {
+        return;
+    }
+    else
+    {
+        insert_at = capacity - 1U;
+    }
+
+    while (insert_at > 0 && out_results[insert_at - 1U].rssi < result.rssi)
+    {
+        out_results[insert_at] = out_results[insert_at - 1U];
+        --insert_at;
+    }
+    out_results[insert_at] = result;
 }
 
 void set_status_message(const char* message)
@@ -556,6 +596,7 @@ void refresh_runtime_status_message()
 
 bool runtime_ble_is_enabled()
 {
+#if TRAIL_MATE_ENABLE_BLE
     if (!app::hasAppFacade())
     {
         return false;
@@ -569,10 +610,14 @@ bool runtime_ble_is_enabled()
 #endif
 
     return app::appFacade().isBleEnabled();
+#else
+    return false;
+#endif
 }
 
 bool pause_runtime_ble_for_wifi()
 {
+#if TRAIL_MATE_ENABLE_BLE
     if (s_runtime.ble_paused_for_wifi || !app::hasAppFacade())
     {
         return false;
@@ -601,10 +646,15 @@ bool pause_runtime_ble_for_wifi()
     app::appFacade().setBleEnabled(false);
     s_runtime.ble_paused_for_wifi = true;
     return true;
+#else
+    s_runtime.ble_paused_for_wifi = false;
+    return false;
+#endif
 }
 
 void restore_runtime_ble_after_wifi(const char* reason)
 {
+#if TRAIL_MATE_ENABLE_BLE
     if (!s_runtime.ble_paused_for_wifi || !app::hasAppFacade())
     {
         return;
@@ -623,6 +673,10 @@ void restore_runtime_ble_after_wifi(const char* reason)
     std::printf("[WiFi][BLE] restoring BLE runtime facade (%s)\n", reason ? reason : "after Wi-Fi");
     app::appFacade().setBleEnabled(true);
     s_runtime.ble_paused_for_wifi = false;
+#else
+    (void)reason;
+    s_runtime.ble_paused_for_wifi = false;
+#endif
 }
 
 bool ensure_stack_ready()
@@ -1245,9 +1299,9 @@ void disconnect()
     refresh_runtime_status_message();
 }
 
-bool scan(std::vector<ScanResult>& out_results)
+bool scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count)
 {
-    out_results.clear();
+    out_count = 0;
 
     Config config{};
     (void)load_config(config);
@@ -1281,42 +1335,27 @@ bool scan(std::vector<ScanResult>& out_results)
         return true;
     }
 
-    std::vector<wifi_ap_record_t> records(ap_count);
-    if (esp_wifi_scan_get_ap_records(&ap_count, records.data()) != ESP_OK)
+    uint16_t record_count = std::min<uint16_t>(ap_count, kWifiAutoScanMaxRecords);
+    for (wifi_ap_record_t& record : s_runtime.auto_scan_records)
+    {
+        record = wifi_ap_record_t{};
+    }
+    if (esp_wifi_scan_get_ap_records(&record_count, s_runtime.auto_scan_records) != ESP_OK)
     {
         set_status_message("Read scan results failed");
         return false;
     }
 
-    out_results.reserve(ap_count);
-    for (const wifi_ap_record_t& record : records)
+    for (uint16_t i = 0; i < record_count; ++i)
     {
-        if (record.ssid[0] == 0)
-        {
-            continue;
-        }
-
-        ScanResult result{};
-        copy_bounded(result.ssid,
-                     sizeof(result.ssid),
-                     reinterpret_cast<const char*>(record.ssid));
-        result.rssi = record.rssi;
-        result.requires_password = record.authmode != WIFI_AUTH_OPEN;
-        out_results.push_back(result);
+        insert_scan_result_sorted(out_results, capacity, out_count, s_runtime.auto_scan_records[i]);
     }
-
-    std::sort(out_results.begin(),
-              out_results.end(),
-              [](const ScanResult& lhs, const ScanResult& rhs)
-              {
-                  return lhs.rssi > rhs.rssi;
-              });
 
     char buffer[kMaxStatusMessageLength + 1];
     std::snprintf(buffer,
                   sizeof(buffer),
                   "Found %u networks",
-                  static_cast<unsigned>(out_results.size()));
+                  static_cast<unsigned>(out_count));
     set_status_message(buffer);
     return true;
 }

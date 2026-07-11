@@ -9,7 +9,6 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <vector>
 
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
@@ -30,6 +29,7 @@ constexpr const char* kBackupTempPath = "/trailmate/settings-backup.tmp";
 constexpr const char* kBackupMagic = "trail-mate-settings-backup";
 constexpr int kBackupVersion = 1;
 constexpr std::size_t kMaxBackupBytes = 24 * 1024;
+constexpr std::size_t kMaxExtraBlobBytes = 128;
 
 enum class ValueType : uint8_t
 {
@@ -179,10 +179,16 @@ int hex_nibble(char ch)
     return -1;
 }
 
-bool hex_to_bytes(const char* text, std::vector<uint8_t>& out)
+bool hex_to_bytes_into(const char* text,
+                       uint8_t* out,
+                       std::size_t capacity,
+                       std::size_t* out_len)
 {
-    out.clear();
-    if (!text)
+    if (out_len)
+    {
+        *out_len = 0;
+    }
+    if (!text || (!out && capacity != 0))
     {
         return false;
     }
@@ -191,17 +197,27 @@ bool hex_to_bytes(const char* text, std::vector<uint8_t>& out)
     {
         return false;
     }
-    out.resize(len / 2);
-    for (std::size_t index = 0; index < out.size(); ++index)
+    const std::size_t byte_len = len / 2;
+    if (byte_len > capacity)
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < byte_len; ++index)
     {
         const int high = hex_nibble(text[index * 2]);
         const int low = hex_nibble(text[index * 2 + 1]);
         if (high < 0 || low < 0)
         {
-            out.clear();
             return false;
         }
-        out[index] = static_cast<uint8_t>((high << 4) | low);
+        if (out)
+        {
+            out[index] = static_cast<uint8_t>((high << 4) | low);
+        }
+    }
+    if (out_len)
+    {
+        *out_len = byte_len;
     }
     return true;
 }
@@ -307,24 +323,24 @@ void copy_json_blob(cJSON* object,
                     std::size_t capacity,
                     uint8_t* out_len = nullptr)
 {
+    if (!out || capacity == 0)
+    {
+        return;
+    }
     const char* hex = json_string(object, key);
     if (!hex)
     {
         return;
     }
-    std::vector<uint8_t> bytes;
-    if (!hex_to_bytes(hex, bytes) || bytes.size() > capacity)
+    std::size_t bytes_len = 0;
+    if (!hex_to_bytes_into(hex, out, capacity, &bytes_len))
     {
         return;
     }
-    std::memset(out, 0, capacity);
-    if (!bytes.empty())
-    {
-        std::memcpy(out, bytes.data(), bytes.size());
-    }
+    std::memset(out + bytes_len, 0, capacity - bytes_len);
     if (out_len)
     {
-        *out_len = static_cast<uint8_t>(bytes.size());
+        *out_len = static_cast<uint8_t>(bytes_len);
     }
 }
 
@@ -686,7 +702,6 @@ cJSON* create_app_config_json(const app::AppConfig& config)
     add_int(object, "mesh_protocol", static_cast<int>(config.mesh_protocol));
     add_string(object, "node_name", config.node_name);
     add_string(object, "short_name", config.short_name);
-    add_bool(object, "ble_enabled", config.ble_enabled);
     add_bool(object, "primary_enabled", config.primary_enabled);
     add_bool(object, "secondary_enabled", config.secondary_enabled);
     add_bool(object, "primary_uplink_enabled", config.primary_uplink_enabled);
@@ -768,7 +783,7 @@ void restore_app_config_json(cJSON* object, app::AppConfig& config)
                                sizeof(config.meshtastic_mqtt_password));
     copy_json_string(object, "node_name", config.node_name, sizeof(config.node_name));
     copy_json_string(object, "short_name", config.short_name, sizeof(config.short_name));
-    config.ble_enabled = json_bool(object, "ble_enabled", config.ble_enabled);
+    config.ble_enabled = false;
     config.primary_enabled = json_bool(object, "primary_enabled", config.primary_enabled);
     config.secondary_enabled = json_bool(object, "secondary_enabled", config.secondary_enabled);
     config.primary_uplink_enabled = json_bool(object, "primary_uplink_enabled", config.primary_uplink_enabled);
@@ -876,13 +891,18 @@ void add_extra_value(cJSON* parent, const ExtraKey& key)
     }
     case ValueType::Blob:
     {
-        std::vector<uint8_t> value;
-        if (::platform::ui::settings_store::get_blob(key.ns, key.key, value))
+        uint8_t value[kMaxExtraBlobBytes] = {};
+        std::size_t value_len = 0;
+        if (::platform::ui::settings_store::get_blob_into(key.ns,
+                                                          key.key,
+                                                          value,
+                                                          sizeof(value),
+                                                          &value_len))
         {
-            std::string hex(value.size() * 2 + 1, '\0');
-            if (bytes_to_hex(value.data(), value.size(), &hex[0], hex.size()))
+            char hex[kMaxExtraBlobBytes * 2 + 1] = {};
+            if (bytes_to_hex(value, value_len, hex, sizeof(hex)))
             {
-                add_string(value_object, "value", hex.c_str());
+                add_string(value_object, "value", hex);
             }
         }
         break;
@@ -927,14 +947,15 @@ void restore_extra_value(const ExtraKey& key, cJSON* value_object)
     case ValueType::Blob:
         if (cJSON_IsString(value) && value->valuestring)
         {
-            std::vector<uint8_t> bytes;
-            if (hex_to_bytes(value->valuestring, bytes))
+            uint8_t bytes[kMaxExtraBlobBytes] = {};
+            std::size_t bytes_len = 0;
+            if (hex_to_bytes_into(value->valuestring, bytes, sizeof(bytes), &bytes_len))
             {
                 (void)::platform::ui::settings_store::put_blob(
                     key.ns,
                     key.key,
-                    bytes.empty() ? nullptr : bytes.data(),
-                    bytes.size());
+                    bytes_len == 0 ? nullptr : bytes,
+                    bytes_len);
             }
         }
         break;

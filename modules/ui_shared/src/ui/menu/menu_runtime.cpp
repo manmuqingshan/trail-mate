@@ -690,7 +690,9 @@ void createTopBar()
         menu_wifi_icon = lv_image_create(menu_status_row);
         menu_team_icon = lv_image_create(menu_status_row);
         menu_msg_icon = lv_image_create(menu_status_row);
+#if defined(TRAIL_MATE_ENABLE_BLE) && TRAIL_MATE_ENABLE_BLE
         menu_ble_icon = lv_image_create(menu_status_row);
+#endif
         lv_obj_add_flag(menu_radio_mod_icon, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(menu_walkie_monitor_icon, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(menu_route_icon, LV_OBJ_FLAG_HIDDEN);
@@ -699,7 +701,9 @@ void createTopBar()
         lv_obj_add_flag(menu_wifi_icon, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(menu_team_icon, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(menu_msg_icon, LV_OBJ_FLAG_HIDDEN);
+#if defined(TRAIL_MATE_ENABLE_BLE) && TRAIL_MATE_ENABLE_BLE
         lv_obj_add_flag(menu_ble_icon, LV_OBJ_FLAG_HIDDEN);
+#endif
     }
     else
     {

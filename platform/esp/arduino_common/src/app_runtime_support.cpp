@@ -31,6 +31,10 @@
 #define APP_EVENT_LOG_ENABLE 0
 #endif
 
+#ifndef TRAIL_MATE_ENABLE_BLE
+#define TRAIL_MATE_ENABLE_BLE 0
+#endif
+
 #if APP_EVENT_LOG_ENABLE
 #define APP_EVENT_LOG(...) std::printf(__VA_ARGS__)
 #else
@@ -200,11 +204,14 @@ void tickRuntime(app::IAppFacade& app_context)
     }
     mesh_mqtt::update(app_context);
 
-    ble::BleManager* ble_manager = app_context.getBleManager();
-    if (ble_manager)
+#if TRAIL_MATE_ENABLE_BLE
+    if (ble::BleManager* ble_manager = app_context.getBleManager())
     {
         ble_manager->update();
     }
+#else
+    (void)app_context;
+#endif
 }
 
 void updateCoreServices(app::IAppFacade& app_context)
@@ -357,6 +364,7 @@ bool dispatchEvent(app::IAppFacade& app_context, sys::Event* event)
 
 std::unique_ptr<ble::BleManager> createBleManager(app::IAppBleFacade& app_facade)
 {
+#if TRAIL_MATE_ENABLE_BLE
     std::unique_ptr<ble::BleManager> ble_manager(new ble::BleManager(app_facade));
     if (app_facade.getConfig().ble_enabled &&
         !mesh_mqtt::wantsStandaloneMode(app_facade))
@@ -368,6 +376,10 @@ std::unique_ptr<ble::BleManager> createBleManager(app::IAppBleFacade& app_facade
         std::printf("[MQTT] BLE startup skipped for standalone mesh MQTT mode\n");
     }
     return ble_manager;
+#else
+    (void)app_facade;
+    return std::unique_ptr<ble::BleManager>();
+#endif
 }
 
 } // namespace platform::esp::arduino_common

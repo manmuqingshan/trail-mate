@@ -1297,7 +1297,8 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         map_track_enabled = get_bool("map_track", map_track_enabled);
         map_track_interval = get_uchar(kSettingsKeyMapTrackInterval, map_track_interval);
         map_track_format = get_uchar(kSettingsKeyMapTrackFormat, map_track_format);
-        ble_enabled = get_bool("ble_enabled", ble_enabled);
+        (void)get_bool("ble_enabled", false);
+        ble_enabled = false;
         chat_channel = get_uchar("chat_channel", chat_channel);
         net_duty_cycle = get_bool("net_duty_cycle", net_duty_cycle);
         net_channel_util = get_uchar("net_util", net_channel_util);
@@ -1418,7 +1419,6 @@ bool saveAppConfigToPreferences(const AppConfig& config,
     const auto& map_track_enabled = config.map_track_enabled;
     const auto& map_track_interval = config.map_track_interval;
     const auto& map_track_format = config.map_track_format;
-    const auto& ble_enabled = config.ble_enabled;
     const auto& chat_channel = config.chat_channel;
     const auto& net_duty_cycle = config.net_duty_cycle;
     const auto& net_channel_util = config.net_channel_util;
@@ -1690,7 +1690,7 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_bool("map_track", map_track_enabled);
         put_uchar(kSettingsKeyMapTrackInterval, map_track_interval);
         put_uchar(kSettingsKeyMapTrackFormat, map_track_format);
-        put_bool("ble_enabled", ble_enabled);
+        put_bool("ble_enabled", false);
         put_uchar("chat_channel", chat_channel);
         put_bool("net_duty_cycle", net_duty_cycle);
         put_uchar("net_util", net_channel_util);

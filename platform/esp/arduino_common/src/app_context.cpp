@@ -479,7 +479,11 @@ void AppContext::applyPrivacyConfig()
 
 bool AppContext::isBleEnabled() const
 {
+#if defined(TRAIL_MATE_ENABLE_BLE) && TRAIL_MATE_ENABLE_BLE
     return config_.ble_enabled;
+#else
+    return false;
+#endif
 }
 
 bool AppContext::init(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_board, MotionBoard* motion_board,
@@ -673,11 +677,16 @@ void AppContext::attachBleManager(std::unique_ptr<ble::BleManager> ble_manager)
 
 void AppContext::setBleEnabled(bool enabled)
 {
+#if defined(TRAIL_MATE_ENABLE_BLE) && TRAIL_MATE_ENABLE_BLE
     config_.ble_enabled = enabled;
     if (ble_manager_)
     {
         ble_manager_->setEnabled(enabled);
     }
+#else
+    (void)enabled;
+    config_.ble_enabled = false;
+#endif
     saveConfig();
 }
 
