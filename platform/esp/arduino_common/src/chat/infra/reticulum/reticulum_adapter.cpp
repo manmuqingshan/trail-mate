@@ -5,17 +5,86 @@
 
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_adapter.h"
+#include "platform/ui/reticulum_page_runtime.h"
 
 namespace chat::reticulum
 {
+namespace
+{
+
+namespace rtpage = ::platform::ui::reticulum_page;
+
+rtpage::RequestStartCode pageRequestCodeFromFailure(MeshOperationFailure failure)
+{
+    switch (failure)
+    {
+    case MeshOperationFailure::InvalidInput:
+        return rtpage::RequestStartCode::InvalidInput;
+    case MeshOperationFailure::Unsupported:
+        return rtpage::RequestStartCode::Unsupported;
+    case MeshOperationFailure::NotReady:
+    case MeshOperationFailure::LocalIdentityMissing:
+    case MeshOperationFailure::RadioOffline:
+        return rtpage::RequestStartCode::NotReady;
+    case MeshOperationFailure::Busy:
+    case MeshOperationFailure::DutyCycleLimited:
+        return rtpage::RequestStartCode::Busy;
+    case MeshOperationFailure::EncodeFailed:
+    case MeshOperationFailure::CryptoFailed:
+        return rtpage::RequestStartCode::EncodeFailed;
+    case MeshOperationFailure::RadioTxFailed:
+        return rtpage::RequestStartCode::RadioTxFailed;
+    case MeshOperationFailure::None:
+    case MeshOperationFailure::TxDisabled:
+    case MeshOperationFailure::PeerKeyMissing:
+    case MeshOperationFailure::ChannelKeyMissing:
+    case MeshOperationFailure::Unknown:
+    default:
+        return rtpage::RequestStartCode::Unknown;
+    }
+}
+
+rtpage::RequestStartResult startNomadPageRequest(
+    const uint8_t destination_hash[rtpage::kReticulumPageDestinationTextSize / 2U],
+    const char* path,
+    void* context)
+{
+    rtpage::RequestStartResult out{};
+    auto* service = static_cast<lxmf::LxmfAdapter*>(context);
+    if (!service)
+    {
+        out.code = rtpage::RequestStartCode::Unsupported;
+        return out;
+    }
+
+    const MeshActionResult result =
+        service->requestNomadPage(destination_hash, path);
+    if (result.ok)
+    {
+        out.code = result.detail == 1 ? rtpage::RequestStartCode::AlreadyPending
+                                      : rtpage::RequestStartCode::Started;
+        out.detail = result.detail;
+        return out;
+    }
+
+    out.code = pageRequestCodeFromFailure(result.failure);
+    out.detail = result.detail;
+    return out;
+}
+
+} // namespace
 
 ReticulumAdapter::ReticulumAdapter(LoraBoard& board,
                                    IMeshPeerDirectory* peer_directory)
     : service_(new lxmf::LxmfAdapter(board, peer_directory))
 {
+    rtpage::bind_request_start_handler(startNomadPageRequest, service_.get());
 }
 
-ReticulumAdapter::~ReticulumAdapter() = default;
+ReticulumAdapter::~ReticulumAdapter()
+{
+    rtpage::bind_request_start_handler(nullptr, nullptr);
+}
 
 MeshCapabilities ReticulumAdapter::getCapabilities() const
 {

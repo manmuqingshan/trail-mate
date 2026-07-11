@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace platform::ui::reticulum_page
 {
@@ -22,9 +23,36 @@ struct Status
     char detail[128] = {};
 };
 
+enum class RequestStartCode : std::uint8_t
+{
+    Started = 0,
+    AlreadyPending,
+    InvalidInput,
+    Unsupported,
+    NotReady,
+    Busy,
+    EncodeFailed,
+    RadioTxFailed,
+    StorageUnavailable,
+    Unknown,
+};
+
+struct RequestStartResult
+{
+    RequestStartCode code = RequestStartCode::Unsupported;
+    int detail = 0;
+};
+
+using RequestStartHandler = RequestStartResult (*)(
+    const std::uint8_t destination_hash[kReticulumPageDestinationTextSize / 2U],
+    const char* path,
+    void* context);
+
 const char* cache_root_path();
 
 bool normalize_path(const char* path, char* out_path, std::size_t out_len);
+
+void bind_request_start_handler(RequestStartHandler handler, void* context);
 
 Status load_cached_page(const char* destination_hash,
                         const char* path,

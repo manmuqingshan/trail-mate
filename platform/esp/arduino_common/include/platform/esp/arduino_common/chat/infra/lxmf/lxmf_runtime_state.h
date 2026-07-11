@@ -74,7 +74,8 @@ enum class LocalDestinationKind : uint8_t
 {
     Delivery = 0,
     Propagation = 1,
-    CallAudio = 2
+    CallAudio = 2,
+    NomadPage = 3
 };
 
 enum class LinkState : uint8_t

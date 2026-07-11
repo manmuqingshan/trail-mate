@@ -152,6 +152,10 @@ const char* cache_root_path()
     return kPagesPath;
 }
 
+void bind_request_start_handler(RequestStartHandler, void*)
+{
+}
+
 bool normalize_path(const char* path, char* out_path, std::size_t out_len)
 {
     if (!out_path || out_len == 0)

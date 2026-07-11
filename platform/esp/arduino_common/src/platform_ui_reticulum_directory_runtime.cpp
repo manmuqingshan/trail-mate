@@ -2,7 +2,9 @@
 #include "platform/ui/reticulum_page_runtime.h"
 
 #include "chat/ports/i_mesh_peer_directory.h"
+#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/common/shared_spi_bus_arbiter.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/screen_runtime.h"
 
@@ -1899,6 +1901,67 @@ using ::platform::esp::arduino_common::storage::SdRuntimeFile;
 
 constexpr const char* kPagesDir = "/trailmate/reticulum/pages";
 constexpr const char* kDefaultPagePath = "/page/index.mu";
+constexpr uint32_t kPageCacheReadWaitMs = 60;
+constexpr uint32_t kPageCacheWriteWaitMs = 120;
+constexpr uint32_t kPageCacheBusResource = 5;
+constexpr uint32_t kPageCacheBusOwnerId = 0x4E504147u; // 'NPAG'
+constexpr const char* kPageCacheBusOwner = "reticulum_page_cache";
+
+::platform::esp::common::SharedSpiBusAdapter s_page_cache_bus_adapter(
+    kPageCacheBusOwner,
+    kPageCacheBusOwnerId);
+::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_page_cache_bus_policy(
+    kPageCacheReadWaitMs,
+    kPageCacheReadWaitMs,
+    kPageCacheWriteWaitMs,
+    kPageCacheWriteWaitMs);
+sys::runtime::StorageBusArbiter s_page_cache_bus_arbiter(
+    s_page_cache_bus_adapter,
+    s_page_cache_bus_policy);
+
+RequestStartHandler s_request_handler = nullptr;
+void* s_request_context = nullptr;
+
+enum class PageCacheBusAccess : uint8_t
+{
+    Read = 1,
+    Write,
+};
+
+class PageCacheBusGate final
+{
+  public:
+    explicit PageCacheBusGate(PageCacheBusAccess access)
+        : gate_(s_page_cache_bus_arbiter,
+                policyFor(access),
+                waitMsFor(access),
+                kPageCacheBusResource,
+                kPageCacheBusOwnerId + static_cast<uint32_t>(access),
+                kPageCacheBusOwnerId)
+    {
+    }
+
+    bool locked() const
+    {
+        return gate_.locked();
+    }
+
+  private:
+    static sys::runtime::BusAccessPolicy policyFor(PageCacheBusAccess access)
+    {
+        return access == PageCacheBusAccess::Write
+                   ? sys::runtime::BusAccessPolicy::DurableCommit
+                   : sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
+    }
+
+    static uint32_t waitMsFor(PageCacheBusAccess access)
+    {
+        return access == PageCacheBusAccess::Write ? kPageCacheWriteWaitMs
+                                                   : kPageCacheReadWaitMs;
+    }
+
+    ::platform::esp::arduino_common::storage::PersistenceBusGate gate_;
+};
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {
@@ -1931,6 +1994,23 @@ char uppercase_hex(char ch)
     return static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
 }
 
+int hex_value(char ch)
+{
+    if (ch >= '0' && ch <= '9')
+    {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f')
+    {
+        return ch - 'a' + 10;
+    }
+    if (ch >= 'A' && ch <= 'F')
+    {
+        return ch - 'A' + 10;
+    }
+    return -1;
+}
+
 bool normalize_destination(const char* destination_hash,
                            char* out_hash,
                            std::size_t out_len)
@@ -1950,6 +2030,27 @@ bool normalize_destination(const char* destination_hash,
     }
     out_hash[kReticulumPageDestinationTextSize - 1U] = '\0';
     return destination_hash[kReticulumPageDestinationTextSize - 1U] == '\0';
+}
+
+bool destination_to_bytes(
+    const char* destination_hash,
+    uint8_t out_hash[kReticulumPageDestinationTextSize / 2U])
+{
+    if (!destination_hash || !out_hash)
+    {
+        return false;
+    }
+    for (std::size_t i = 0; i < kReticulumPageDestinationTextSize / 2U; ++i)
+    {
+        const int hi = hex_value(destination_hash[i * 2U]);
+        const int lo = hex_value(destination_hash[i * 2U + 1U]);
+        if (hi < 0 || lo < 0)
+        {
+            return false;
+        }
+        out_hash[i] = static_cast<uint8_t>((hi << 4) | lo);
+    }
+    return true;
 }
 
 bool allowed_path_char(char ch)
@@ -2049,6 +2150,57 @@ bool ensure_page_parent_dirs(const char* destination_hash, const char* path)
     return true;
 }
 
+void set_request_status(Status& out,
+                        const RequestStartResult& result,
+                        const char* normalized_path)
+{
+    switch (result.code)
+    {
+    case RequestStartCode::Started:
+        out.supported = true;
+        out.request_started = true;
+        set_status(out, "Nomad page request started", normalized_path);
+        break;
+    case RequestStartCode::AlreadyPending:
+        out.supported = true;
+        out.request_started = true;
+        set_status(out, "Nomad page request already pending", normalized_path);
+        break;
+    case RequestStartCode::InvalidInput:
+        out.supported = true;
+        set_status(out, "Invalid Nomad page request", normalized_path);
+        break;
+    case RequestStartCode::Unsupported:
+        set_status(out, "Nomad page fetch unavailable", normalized_path);
+        break;
+    case RequestStartCode::NotReady:
+        out.supported = true;
+        set_status(out, "Nomad page requester not ready", normalized_path);
+        break;
+    case RequestStartCode::Busy:
+        out.supported = true;
+        set_status(out, "Nomad page requester busy", normalized_path);
+        break;
+    case RequestStartCode::EncodeFailed:
+        out.supported = true;
+        set_status(out, "Cannot encode Nomad page request", normalized_path);
+        break;
+    case RequestStartCode::RadioTxFailed:
+        out.supported = true;
+        set_status(out, "Nomad page request TX failed", normalized_path);
+        break;
+    case RequestStartCode::StorageUnavailable:
+        out.supported = true;
+        set_status(out, "SD card required", kPagesDir);
+        break;
+    case RequestStartCode::Unknown:
+    default:
+        out.supported = true;
+        set_status(out, "Nomad page request failed", normalized_path);
+        break;
+    }
+}
+
 } // namespace
 
 const char* cache_root_path()
@@ -2123,6 +2275,12 @@ bool normalize_path(const char* path, char* out_path, std::size_t out_len)
     return true;
 }
 
+void bind_request_start_handler(RequestStartHandler handler, void* context)
+{
+    s_request_handler = handler;
+    s_request_context = context;
+}
+
 Status load_cached_page(const char* destination_hash,
                         const char* path,
                         char* out_body,
@@ -2157,6 +2315,13 @@ Status load_cached_page(const char* destination_hash,
     }
 
     const std::string path_text = cache_path(destination, normalized_path);
+    PageCacheBusGate bus_gate(PageCacheBusAccess::Read);
+    if (!bus_gate.locked())
+    {
+        set_status(out, "Nomad page cache busy", path_text.c_str());
+        return out;
+    }
+
     out.file_present =
         ::platform::esp::arduino_common::storage::sd_exists(path_text.c_str()) &&
         !::platform::esp::arduino_common::storage::sd_is_directory(path_text.c_str());
@@ -2213,6 +2378,13 @@ Status store_cached_page_now(const char* destination_hash,
         return out;
     }
 
+    PageCacheBusGate bus_gate(PageCacheBusAccess::Write);
+    if (!bus_gate.locked())
+    {
+        set_status(out, "Nomad page cache busy", kPagesDir);
+        return out;
+    }
+
     if (!ensure_page_parent_dirs(destination, normalized_path))
     {
         set_status(out, "Cannot create Nomad page cache directory", kPagesDir);
@@ -2239,6 +2411,8 @@ Status store_cached_page_now(const char* destination_hash,
 Status request_page(const char* destination_hash, const char* path)
 {
     Status out{};
+    out.supported = s_request_handler != nullptr;
+    out.sd_present = page_sd_available();
     char destination[kReticulumPageDestinationTextSize] = {};
     char normalized_path[kReticulumPagePathSize] = {};
     if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
@@ -2247,7 +2421,28 @@ Status request_page(const char* destination_hash, const char* path)
         set_status(out, "Invalid Nomad page address", kPagesDir);
         return out;
     }
-    set_status(out, "Nomad page fetch unavailable", normalized_path);
+
+    if (!s_request_handler)
+    {
+        set_status(out, "Nomad page fetch unavailable", normalized_path);
+        return out;
+    }
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kPagesDir);
+        return out;
+    }
+
+    uint8_t destination_bytes[kReticulumPageDestinationTextSize / 2U] = {};
+    if (!destination_to_bytes(destination, destination_bytes))
+    {
+        set_status(out, "Invalid Nomad page address", kPagesDir);
+        return out;
+    }
+
+    const RequestStartResult result =
+        s_request_handler(destination_bytes, normalized_path, s_request_context);
+    set_request_status(out, result, normalized_path);
     return out;
 }
 

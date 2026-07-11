@@ -59,6 +59,9 @@ class LxmfAdapter : public IMeshAdapter
     MeshActionResult persistReticulumPeer(
         const ReticulumPeerIdentity& destination,
         bool favorite) override;
+    MeshActionResult requestNomadPage(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+        const char* path);
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     bool isReady() const override;
@@ -97,6 +100,10 @@ class LxmfAdapter : public IMeshAdapter
     static constexpr std::size_t kPendingPeerProjectionDepth = 24;
     static constexpr std::size_t kDeferredDiscoveryDepth = 8;
     static constexpr std::size_t kPeerDirectoryHotLoadRecords = 64;
+    static constexpr std::size_t kMaxPendingNomadPageRequests = 4;
+    static constexpr std::size_t kNomadPagePathMaxLen = 64;
+    static constexpr uint32_t kNomadPageRequestTtlMs = 90000;
+    static constexpr uint32_t kNomadPageSendRetryMs = 1500;
 
     struct RuntimeBudget
     {
@@ -117,6 +124,19 @@ class LxmfAdapter : public IMeshAdapter
         reticulum::interfaces::InterfaceKind interface_kind =
             reticulum::interfaces::InterfaceKind::LoRa;
         uint8_t packet_hash[reticulum::kFullHashSize] = {};
+    };
+
+    struct PendingNomadPageRequest
+    {
+        uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
+        uint8_t request_id[reticulum::kTruncatedHashSize] = {};
+        char path[kNomadPagePathMaxLen] = {};
+        uint32_t created_ms = 0;
+        uint32_t last_attempt_ms = 0;
+        uint32_t last_path_request_ms = 0;
+        bool path_requested = false;
+        bool link_started = false;
+        bool request_sent = false;
     };
 
     reticulum::interfaces::ReticulumInterfaceSet interfaces_;
@@ -158,6 +178,10 @@ class LxmfAdapter : public IMeshAdapter
     std::array<NodeId, kPendingPeerProjectionDepth> pending_peer_projection_nodes_{};
     std::size_t pending_peer_projection_count_ = 0;
     std::array<MeshPeerRecord, kPeerDirectoryHotLoadRecords> peer_directory_load_entries_{};
+    std::vector<PendingNomadPageRequest> pending_nomad_page_requests_;
+    uint8_t nomad_page_request_payload_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t nomad_page_wire_payload_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t nomad_page_packet_scratch_[reticulum::kReticulumMtu] = {};
     uint32_t last_peer_projection_ms_ = 0;
     uint32_t next_app_packet_id_ = 1;
     bool announce_pending_ = true;
@@ -323,6 +347,11 @@ class LxmfAdapter : public IMeshAdapter
                         reticulum::PacketContext context,
                         const uint8_t* payload, size_t payload_len,
                         bool encrypt_payload);
+    bool sendNomadPageRequestPacket(LinkSession& session,
+                                    PendingNomadPageRequest& request);
+    void pumpNomadPageRequests();
+    void completeNomadPageRequest(PendingNomadPageRequest& request,
+                                  const std::vector<uint8_t>& packed_response);
     bool sendLinkHandshakeProof(LinkSession& session);
     bool sendLinkRtt(LinkSession& session);
     bool sendLinkKeepalive(LinkSession& session);
