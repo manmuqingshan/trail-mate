@@ -107,6 +107,7 @@ struct RouteImageBatchRuntime
     SemaphoreHandle_t mutex = nullptr;
     TaskHandle_t worker_task = nullptr;
     bool launch_pending = false;
+    RouteImageTaskPresentation presentation = RouteImageTaskPresentation::Hidden;
     RouteImageDownloadStatus status{};
 };
 
@@ -791,6 +792,7 @@ void set_batch_status_locked(RouteImageDownloadPhase phase,
 {
     s_image_batch.status.phase = phase;
     s_image_batch.status.busy = busy;
+    s_image_batch.status.presentation = s_image_batch.presentation;
     s_image_batch.status.asset_id = asset_id;
     s_image_batch.status.total = total;
     s_image_batch.status.processed = processed;
@@ -836,6 +838,15 @@ void update_batch_status(RouteImageDownloadPhase phase,
                             error,
                             current_bytes,
                             current_total_bytes);
+}
+
+void promote_batch_presentation_locked(RouteImageTaskPresentation presentation)
+{
+    if (presentation == RouteImageTaskPresentation::UserVisible)
+    {
+        s_image_batch.presentation = presentation;
+        s_image_batch.status.presentation = presentation;
+    }
 }
 
 struct RouteImageProgressContext
@@ -1480,7 +1491,8 @@ RouteImageDownloadResult download_route_image(const std::string& url,
 
 bool start_route_image_download(const std::string& asset_id,
                                 std::vector<RouteImageDownloadItem> items,
-                                std::string& out_error)
+                                std::string& out_error,
+                                RouteImageTaskPresentation presentation)
 {
     out_error.clear();
     const std::size_t total = items.size();
@@ -1508,6 +1520,7 @@ bool start_route_image_download(const std::string& asset_id,
         {
             if (s_image_batch.status.asset_id == asset_id)
             {
+                promote_batch_presentation_locked(presentation);
                 return true;
             }
             out_error = "Another route image download is running";
@@ -1536,6 +1549,7 @@ bool start_route_image_download(const std::string& asset_id,
         {
             if (s_image_batch.status.asset_id == asset_id)
             {
+                promote_batch_presentation_locked(presentation);
                 delete ctx;
                 return true;
             }
@@ -1545,6 +1559,7 @@ bool start_route_image_download(const std::string& asset_id,
         }
 
         s_image_batch.launch_pending = true;
+        s_image_batch.presentation = presentation;
         set_batch_status_locked(RouteImageDownloadPhase::Downloading,
                                 true,
                                 asset_id,
@@ -1601,7 +1616,8 @@ bool start_route_image_download(const std::string& asset_id,
 
 bool start_route_image_cache_build(const std::string& asset_id,
                                    const std::vector<RouteImageCacheItem>& items,
-                                   std::string& out_error)
+                                   std::string& out_error,
+                                   RouteImageTaskPresentation presentation)
 {
     out_error.clear();
     if (!ensure_batch_mutex())
@@ -1638,6 +1654,7 @@ bool start_route_image_cache_build(const std::string& asset_id,
         {
             if (s_image_batch.status.asset_id == asset_id)
             {
+                promote_batch_presentation_locked(presentation);
                 delete ctx;
                 return true;
             }
@@ -1647,6 +1664,7 @@ bool start_route_image_cache_build(const std::string& asset_id,
         }
 
         s_image_batch.launch_pending = true;
+        s_image_batch.presentation = presentation;
         set_batch_status_locked(RouteImageDownloadPhase::Caching,
                                 true,
                                 asset_id,

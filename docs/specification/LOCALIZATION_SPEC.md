@@ -510,7 +510,7 @@ English、基础特殊字符输入与精选 emoji 输入必须在没有任何外
 
 外部字体加载事务的边界如下：
 
-1. `ScopedFontLoadOverlay` 通过 `ProgressOverlayPresenter` 先显示并强制刷新 busy modal。
+1. `ScopedFontLoadOverlay` 通过 foreground operation `I18nFontLoad` slot 先发布阻塞式 busy modal，并保留字体加载要求的强制刷新帧数。
 2. `ScopedExternalFontLoadFs` 调用平台 scope begin，申请 owner 为 `lvgl_font_sd` 的 shared-SPI runtime bus token。
 3. 只有 begin 返回成功，`load_font_pack()` 才能调用 `lv_binfont_create()`。
 4. `lv_binfont_create()` 内部触发的 LVGL SD FS `open/read/seek/tell/close` 回调仍然通过 `SharedSpiLockGuard`，但由于底层 physical lock 是同任务可重入的，这些回调会复用外层事务，而不是每个小读片段重新竞争总线。

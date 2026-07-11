@@ -870,11 +870,24 @@ Static ownership rules:
 ### Long-Running Progress Overlay Boundary
 
 `busy_overlay` is the single visual component for modal long-running progress.
-`ProgressOverlayPresenter` is the ownership/presentation adapter for code that
-needs to show, update, flush, and hide that component.
+`foreground_operation_overlay` is the only ownership boundary for code that
+publishes user-visible long-running operation state. `ProgressOverlayPresenter`
+is only the renderer adapter behind that coordinator; page code and runtime
+status sync code must not own a presenter directly.
 
-This presenter is not a storage transaction and must not acquire shared SPI by
-itself. It is used by:
+Foreground operation snapshots are fixed-size UI projections. They describe:
+
+- operation slot (`FirmwareUpdate`, `PackageInstall`, `I18nFontLoad`,
+  `RouteImage`, or `SettingsAction`)
+- presentation policy (`Hidden`, `PageOnly`, `Overlay`, or
+  `OverlayImmediate`)
+- priority
+- title, detail, optional result, and optional `progress_percent`
+
+They are not task executors, storage transactions, JSON payloads, or business
+state owners. The underlying runtimes continue to own their real state.
+
+The coordinator is used by:
 
 - external font loading, where the presenter flushes the modal before the
   separate `lvgl_font_sd` shared-SPI transaction begins
@@ -882,10 +895,27 @@ itself. It is used by:
   `progress_percent` while SD writes stay in the storage runtime/file adapter
 - firmware update, where OTA status publishes `progress_percent` and the
   settings page only presents the status
+- route image download/cache, where user-triggered KML image download publishes
+  a foreground operation while route preview and GPS map pages keep their own
+  page-local route/image context widgets
 
 The illegal shortcut is to treat every progress bar as a bus lock. Progress UI
 describes user-visible operation state; shared-SPI tokens describe physical bus
 ownership for bounded storage/display critical sections.
+
+Route image tasks are explicitly split by presentation semantics:
+
+- `UserVisible` route image tasks may publish a global overlay.
+- `PageOnly` route image tasks may update page-local status such as route image
+  strips, counters, and map loader pause state, but must not steal the global
+  overlay.
+- `Hidden` route image tasks are status-only.
+
+Route image HTTP downloads use `wifi_access` with the `RouteStorage` client.
+They must not hold a shared-SPI token for the whole HTTP transfer. SD file
+open/read/write/flush/rename stays protected by the SD runtime's bounded
+per-operation guards; cache/build stages may add bounded bus policy, but must
+not become an unbounded batch-level SPI lock.
 
 ### Component Deployment
 

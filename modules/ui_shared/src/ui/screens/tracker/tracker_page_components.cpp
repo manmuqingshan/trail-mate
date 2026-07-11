@@ -17,6 +17,7 @@
 #include "ui/ui_common.h"
 #include "ui/widgets/map/map_viewport.h"
 #include "ui/widgets/route_elevation_profile.h"
+#include "ui/widgets/route_image_operation_presenter.h"
 #include "ui/widgets/route_image_strip.h"
 
 #include <algorithm>
@@ -1782,6 +1783,7 @@ void update_route_preview_buttons()
 void sync_route_preview_download_status()
 {
     const auto status = platform::ui::route_storage::route_image_download_status();
+    ::ui::widgets::route_image_operation::sync(status);
     sync_route_preview_map_loader_pause(status);
     if (!route_preview_download_status_matches(status))
     {
@@ -1916,7 +1918,11 @@ void ensure_route_preview_image_cache_build(bool refresh_state)
     }
 
     std::string error;
-    if (!platform::ui::route_storage::start_route_image_cache_build(s_preview_asset_id, items, error))
+    if (!platform::ui::route_storage::start_route_image_cache_build(
+            s_preview_asset_id,
+            items,
+            error,
+            platform::ui::route_storage::RouteImageTaskPresentation::UserVisible))
     {
         s_preview_download_state = RoutePreviewDownloadState::Failed;
         s_preview_status_text = error.empty() ? "Start cache failed" : error;
@@ -2670,7 +2676,8 @@ void on_route_preview_download_clicked(lv_event_t*)
     if (!platform::ui::route_storage::start_route_image_download(
             s_preview_asset_id,
             std::move(items),
-            error))
+            error,
+            platform::ui::route_storage::RouteImageTaskPresentation::UserVisible))
     {
         s_preview_download_state = RoutePreviewDownloadState::Failed;
         s_preview_status_text = error.empty() ? "Start download failed" : error;
@@ -2689,6 +2696,7 @@ void on_route_preview_download_clicked(lv_event_t*)
     show_route_preview_notice("Download started");
     s_preview_download_refresh_map_on_finish = true;
     ensure_route_preview_download_poll_timer();
+    ::ui::widgets::route_image_operation::refresh();
     sync_route_preview_download_status();
     update_route_preview_status();
     update_route_preview_buttons();

@@ -270,20 +270,24 @@ RouteImageDownloadResult download_route_image(const std::string& url,
 
 bool start_route_image_download(const std::string& asset_id,
                                 std::vector<RouteImageDownloadItem> items,
-                                std::string& out_error)
+                                std::string& out_error,
+                                RouteImageTaskPresentation presentation)
 {
     (void)asset_id;
     (void)items;
+    (void)presentation;
     out_error = "Route image download unsupported on this target";
     return false;
 }
 
 bool start_route_image_cache_build(const std::string& asset_id,
                                    const std::vector<RouteImageCacheItem>& items,
-                                   std::string& out_error)
+                                   std::string& out_error,
+                                   RouteImageTaskPresentation presentation)
 {
     (void)asset_id;
     (void)items;
+    (void)presentation;
     out_error = "Route image cache unsupported on this target";
     return false;
 }

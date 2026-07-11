@@ -48,8 +48,8 @@
 #include "ui/screens/settings/settings_page_styles.h"
 #include "ui/screens/settings/settings_state.h"
 #include "ui/ui_common.h"
+#include "ui/widgets/foreground_operation_overlay.h"
 #include "ui/widgets/ime/ime_widget.h"
-#include "ui/widgets/progress_overlay_presenter.h"
 #include "ui/widgets/text_candidate_picker.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_presentation/settings/settings_model.h"
@@ -189,10 +189,20 @@ static size_t kLocaleOptionCount = 0;
 static size_t kTimeZoneOptionCount = 0;
 static size_t kWifiNetworkOptionCount = 0;
 static lv_timer_t* s_firmware_update_timer = nullptr;
-static ::ui::widgets::ProgressOverlayPresenter s_firmware_progress_overlay(true);
 static firmware_update_runtime::Phase s_last_firmware_phase = firmware_update_runtime::Phase::Unsupported;
 static bool s_last_firmware_busy = false;
+static std::uint32_t s_settings_busy_generation = 0;
 static lv_obj_t* s_gps_diagnostics_label = nullptr;
+
+static std::uint32_t next_settings_busy_generation()
+{
+    ++s_settings_busy_generation;
+    if (s_settings_busy_generation == 0)
+    {
+        ++s_settings_busy_generation;
+    }
+    return s_settings_busy_generation;
+}
 
 class ScopedSettingsBusyOverlay
 {
@@ -200,8 +210,18 @@ class ScopedSettingsBusyOverlay
     explicit ScopedSettingsBusyOverlay(const char* title,
                                        const char* detail = nullptr,
                                        int progress_percent = -1)
+        : generation_(next_settings_busy_generation())
     {
-        presenter_.show_or_update(title, detail, progress_percent);
+        namespace foreground = ::ui::widgets::foreground_operation;
+        foreground::publish(
+            foreground::make_snapshot(foreground::Slot::SettingsAction,
+                                      foreground::Policy::OverlayImmediate,
+                                      foreground::Priority::Blocking,
+                                      title,
+                                      detail,
+                                      progress_percent,
+                                      nullptr,
+                                      generation_));
         active_ = true;
     }
 
@@ -211,7 +231,8 @@ class ScopedSettingsBusyOverlay
         {
             return;
         }
-        presenter_.hide();
+        namespace foreground = ::ui::widgets::foreground_operation;
+        foreground::clear(foreground::Slot::SettingsAction, generation_);
     }
 
     ScopedSettingsBusyOverlay(const ScopedSettingsBusyOverlay&) = delete;
@@ -223,11 +244,20 @@ class ScopedSettingsBusyOverlay
         {
             return;
         }
-        presenter_.show_or_update(title, detail, progress_percent);
+        namespace foreground = ::ui::widgets::foreground_operation;
+        foreground::publish(
+            foreground::make_snapshot(foreground::Slot::SettingsAction,
+                                      foreground::Policy::OverlayImmediate,
+                                      foreground::Priority::Blocking,
+                                      title,
+                                      detail,
+                                      progress_percent,
+                                      nullptr,
+                                      generation_));
     }
 
   private:
-    ::ui::widgets::ProgressOverlayPresenter presenter_{true};
+    std::uint32_t generation_ = 0;
     bool active_ = false;
 };
 
@@ -782,14 +812,20 @@ static void sync_firmware_update_ui(bool notify_completion)
 
     if (status.busy)
     {
+        namespace foreground = ::ui::widgets::foreground_operation;
         const char* detail = status.detail[0] != '\0' ? status.detail : nullptr;
-        s_firmware_progress_overlay.show_or_update(firmware_overlay_title(status),
-                                                   detail,
-                                                   status.progress_percent);
+        foreground::publish(
+            foreground::make_snapshot(foreground::Slot::FirmwareUpdate,
+                                      foreground::Policy::OverlayImmediate,
+                                      foreground::Priority::Critical,
+                                      firmware_overlay_title(status),
+                                      detail,
+                                      status.progress_percent));
     }
     else
     {
-        s_firmware_progress_overlay.hide();
+        ::ui::widgets::foreground_operation::clear(
+            ::ui::widgets::foreground_operation::Slot::FirmwareUpdate);
     }
 
     if (notify_completion && s_last_firmware_busy && !status.busy)
@@ -5830,7 +5866,10 @@ void destroy()
         lv_timer_del(s_firmware_update_timer);
         s_firmware_update_timer = nullptr;
     }
-    s_firmware_progress_overlay.hide();
+    ::ui::widgets::foreground_operation::clear(
+        ::ui::widgets::foreground_operation::Slot::FirmwareUpdate);
+    ::ui::widgets::foreground_operation::clear(
+        ::ui::widgets::foreground_operation::Slot::SettingsAction);
     settings::ui::input::cleanup();
     if (g_state.root)
     {

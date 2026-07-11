@@ -18,7 +18,7 @@
 #include "ui/page/page_profile.h"
 #include "ui/runtime/ui_feedback.h"
 #include "ui/ui_theme.h"
-#include "ui/widgets/progress_overlay_presenter.h"
+#include "ui/widgets/foreground_operation_overlay.h"
 #include "ui/widgets/top_bar.h"
 
 #if !defined(LV_FONT_MONTSERRAT_16) || !LV_FONT_MONTSERRAT_16
@@ -83,7 +83,6 @@ struct RuntimeState
 };
 
 RuntimeState s_runtime{};
-::ui::widgets::ProgressOverlayPresenter s_install_progress_overlay{};
 
 void request_exit()
 {
@@ -659,13 +658,21 @@ void sync_install_ui(bool notify_completion)
         const char* detail = !status.detail.empty()
                                  ? status.detail.c_str()
                                  : (status.package_id.empty() ? nullptr : status.package_id.c_str());
-        s_install_progress_overlay.show_or_update(title, detail, status.progress_percent);
+        namespace foreground = ::ui::widgets::foreground_operation;
+        foreground::publish(
+            foreground::make_snapshot(foreground::Slot::PackageInstall,
+                                      foreground::Policy::Overlay,
+                                      foreground::Priority::Foreground,
+                                      title,
+                                      detail,
+                                      status.progress_percent));
         set_status_text(title);
         set_install_action_buttons_disabled(true);
     }
     else
     {
-        s_install_progress_overlay.hide();
+        ::ui::widgets::foreground_operation::clear(
+            ::ui::widgets::foreground_operation::Slot::PackageInstall);
         set_install_action_buttons_disabled(false);
     }
 
@@ -1335,7 +1342,8 @@ void exit(lv_obj_t* parent)
         lv_timer_del(s_runtime.install_timer);
         s_runtime.install_timer = nullptr;
     }
-    s_install_progress_overlay.hide();
+    ::ui::widgets::foreground_operation::clear(
+        ::ui::widgets::foreground_operation::Slot::PackageInstall);
     if (s_runtime.root != nullptr)
     {
         lv_obj_del(s_runtime.root);

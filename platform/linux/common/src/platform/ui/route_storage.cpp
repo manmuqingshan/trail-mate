@@ -23,6 +23,8 @@ std::string s_route_dir_cache{};
 std::mutex s_image_batch_mutex;
 RouteImageDownloadStatus s_image_batch_status{};
 bool s_image_batch_running = false;
+RouteImageTaskPresentation s_image_batch_presentation =
+    RouteImageTaskPresentation::Hidden;
 
 std::filesystem::path route_dir_path()
 {
@@ -115,6 +117,7 @@ void set_batch_status_locked(RouteImageDownloadPhase phase,
 {
     s_image_batch_status.phase = phase;
     s_image_batch_status.busy = busy;
+    s_image_batch_status.presentation = s_image_batch_presentation;
     s_image_batch_status.asset_id = asset_id;
     s_image_batch_status.total = total;
     s_image_batch_status.processed = processed;
@@ -126,6 +129,15 @@ void set_batch_status_locked(RouteImageDownloadPhase phase,
     s_image_batch_status.current_total_bytes = 0;
     s_image_batch_status.message = message ? message : "";
     s_image_batch_status.error = error ? error : "";
+}
+
+void promote_batch_presentation_locked(RouteImageTaskPresentation presentation)
+{
+    if (presentation == RouteImageTaskPresentation::UserVisible)
+    {
+        s_image_batch_presentation = presentation;
+        s_image_batch_status.presentation = presentation;
+    }
 }
 
 void route_image_worker(std::string asset_id, std::vector<RouteImageDownloadItem> items)
@@ -366,7 +378,8 @@ RouteImageDownloadResult download_route_image(const std::string& url,
 
 bool start_route_image_download(const std::string& asset_id,
                                 std::vector<RouteImageDownloadItem> items,
-                                std::string& out_error)
+                                std::string& out_error,
+                                RouteImageTaskPresentation presentation)
 {
     out_error.clear();
     if (!is_safe_asset_id(asset_id))
@@ -387,12 +400,14 @@ bool start_route_image_download(const std::string& asset_id,
         {
             if (s_image_batch_status.asset_id == asset_id)
             {
+                promote_batch_presentation_locked(presentation);
                 return true;
             }
             out_error = "Another route image download is running";
             return false;
         }
         s_image_batch_running = true;
+        s_image_batch_presentation = presentation;
         set_batch_status_locked(RouteImageDownloadPhase::Downloading,
                                 true,
                                 asset_id,
@@ -433,10 +448,12 @@ bool start_route_image_download(const std::string& asset_id,
 
 bool start_route_image_cache_build(const std::string& asset_id,
                                    const std::vector<RouteImageCacheItem>& items,
-                                   std::string& out_error)
+                                   std::string& out_error,
+                                   RouteImageTaskPresentation presentation)
 {
     (void)asset_id;
     (void)items;
+    (void)presentation;
     out_error = "Route image cache unsupported on host";
     return false;
 }

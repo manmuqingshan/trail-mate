@@ -26,6 +26,7 @@ using Projection = gps::ui::shell::Projection;
 #include "ui/ui_common.h"
 #include "ui/widgets/map/map_viewport.h"
 #include "ui/widgets/route_elevation_profile.h"
+#include "ui/widgets/route_image_operation_presenter.h"
 #include "ui/widgets/route_image_strip.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_gps_runtime/gps_page_runtime_pump.h"
@@ -1286,7 +1287,8 @@ void ensure_map_route_image_cache_build()
     if (platform::ui::route_storage::start_route_image_cache_build(
             s_route_asset_id,
             items,
-            error))
+            error,
+            platform::ui::route_storage::RouteImageTaskPresentation::PageOnly))
     {
         s_route_image_cache_build_running = true;
     }
@@ -3089,6 +3091,7 @@ void apply_map_drag_preview()
 void sync_map_tile_loader_pause()
 {
     const auto status = platform::ui::route_storage::route_image_download_status();
+    ::ui::widgets::route_image_operation::sync(status);
     const bool should_pause = status.busy;
     s_map_tile_loader_paused = should_pause;
     ::ui::widgets::map::set_loader_paused(s_map_runtime, should_pause);

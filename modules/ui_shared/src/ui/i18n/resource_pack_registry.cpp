@@ -15,7 +15,7 @@
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/runtime/memory_profile.h"
 #include "ui/support/lvgl_fs_utils.h"
-#include "ui/widgets/progress_overlay_presenter.h"
+#include "ui/widgets/foreground_operation_overlay.h"
 #include "ui/widgets/text_candidate_data.h"
 
 #if (defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)) && __has_include("ui/LV_Helper.h")
@@ -191,25 +191,44 @@ unsigned s_ui_helper_route_diagnostics = 0;
 unsigned s_direct_route_diagnostics = 0;
 bool s_allow_sync_external_font_activation = false;
 bool s_force_font_load_overlay = false;
+std::uint32_t s_font_load_overlay_generation = 0;
+
+std::uint32_t next_font_load_overlay_generation()
+{
+    ++s_font_load_overlay_generation;
+    if (s_font_load_overlay_generation == 0)
+    {
+        ++s_font_load_overlay_generation;
+    }
+    return s_font_load_overlay_generation;
+}
 
 class ScopedFontLoadOverlay
 {
   public:
     explicit ScopedFontLoadOverlay(const FontPackRecord& pack)
         : active_(should_show(pack)),
-          presenter_(true,
-                     kFontLoadOverlayPresentFrameCount,
-                     kFontLoadOverlayPresentFrameDelayMs)
+          generation_(next_font_load_overlay_generation())
     {
         if (!active_)
         {
             return;
         }
 
-        presenter_.show_or_update("Loading language pack...",
-                                  pack.display_name.empty()
-                                      ? pack.id.c_str()
-                                      : pack.display_name.c_str());
+        namespace foreground = ::ui::widgets::foreground_operation;
+        foreground::publish(
+            foreground::make_snapshot(foreground::Slot::I18nFontLoad,
+                                      foreground::Policy::OverlayImmediate,
+                                      foreground::Priority::Blocking,
+                                      "Loading language pack...",
+                                      pack.display_name.empty()
+                                          ? pack.id.c_str()
+                                          : pack.display_name.c_str(),
+                                      -1,
+                                      nullptr,
+                                      generation_,
+                                      kFontLoadOverlayPresentFrameCount,
+                                      kFontLoadOverlayPresentFrameDelayMs));
         std::printf("%s font load overlay show id=%s source=%s forced=%d bytes=%lu\n",
                     kLogTag,
                     pack.id.c_str(),
@@ -222,7 +241,8 @@ class ScopedFontLoadOverlay
     {
         if (active_)
         {
-            presenter_.hide();
+            namespace foreground = ::ui::widgets::foreground_operation;
+            foreground::clear(foreground::Slot::I18nFontLoad, generation_);
             std::printf("%s font load overlay hide\n", kLogTag);
         }
     }
@@ -245,7 +265,7 @@ class ScopedFontLoadOverlay
     }
 
     bool active_ = false;
-    ::ui::widgets::ProgressOverlayPresenter presenter_{};
+    std::uint32_t generation_ = 0;
 };
 
 class ScopedExternalFontActivation

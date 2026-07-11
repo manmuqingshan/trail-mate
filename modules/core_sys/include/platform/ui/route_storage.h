@@ -40,10 +40,18 @@ enum class RouteImageDownloadPhase : uint8_t
     Failed,
 };
 
+enum class RouteImageTaskPresentation : uint8_t
+{
+    Hidden = 0,
+    PageOnly,
+    UserVisible,
+};
+
 struct RouteImageDownloadStatus
 {
     RouteImageDownloadPhase phase = RouteImageDownloadPhase::Idle;
     bool busy = false;
+    RouteImageTaskPresentation presentation = RouteImageTaskPresentation::Hidden;
     std::string asset_id{};
     std::string message{};
     std::string error{};
@@ -71,10 +79,14 @@ RouteImageDownloadResult download_route_image(const std::string& url,
                                               std::uint32_t max_bytes = 4U * 1024U * 1024U);
 bool start_route_image_download(const std::string& asset_id,
                                 std::vector<RouteImageDownloadItem> items,
-                                std::string& out_error);
+                                std::string& out_error,
+                                RouteImageTaskPresentation presentation =
+                                    RouteImageTaskPresentation::UserVisible);
 bool start_route_image_cache_build(const std::string& asset_id,
                                    const std::vector<RouteImageCacheItem>& items,
-                                   std::string& out_error);
+                                   std::string& out_error,
+                                   RouteImageTaskPresentation presentation =
+                                       RouteImageTaskPresentation::PageOnly);
 RouteImageDownloadStatus route_image_download_status();
 
 } // namespace platform::ui::route_storage
