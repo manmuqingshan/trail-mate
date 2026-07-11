@@ -13,7 +13,15 @@ namespace two_pane_nav
 namespace
 {
 
+#ifndef TWO_PANE_NAV_TRACE
+#define TWO_PANE_NAV_TRACE 0
+#endif
+
+#if TWO_PANE_NAV_TRACE
 #define TWO_PANE_NAV_LOG(...) std::printf(__VA_ARGS__)
+#else
+#define TWO_PANE_NAV_LOG(...) ((void)0)
+#endif
 
 static const char* column_name(FocusColumn column)
 {
