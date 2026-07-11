@@ -105,17 +105,31 @@ class IMapTileEventSink
     virtual bool publish(const MapTileAsyncEvent& event) = 0;
 };
 
+enum class MapTileReadStatus : uint8_t
+{
+    Ready,
+    Failed,
+    ResourceBusy,
+};
+
+struct MapTileReadResult
+{
+    MapTileReadStatus status = MapTileReadStatus::Failed;
+    std::size_t size = 0;
+    MapTileFormat format = MapTileFormat::Unknown;
+    int32_t error = -1;
+    bool bus_access_retained = true;
+};
+
 class IMapTileWorkerBackend
 {
   public:
     virtual ~IMapTileWorkerBackend() = default;
 
     virtual MapTileLookupResult lookup(const MapTileRef& ref) = 0;
-    virtual bool read(const MapTileRef& ref,
-                      uint8_t* buffer,
-                      std::size_t capacity,
-                      std::size_t& out_size,
-                      MapTileFormat& out_format) = 0;
+    virtual MapTileReadResult read(const MapTileRef& ref,
+                                   uint8_t* buffer,
+                                   std::size_t capacity) = 0;
 };
 
 struct MapTileStateSnapshot

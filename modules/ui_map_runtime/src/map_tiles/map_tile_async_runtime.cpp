@@ -177,22 +177,32 @@ bool MapTileWorker::execute(const LoadTileCommand& command, uint32_t now_ms)
     event.generation = command.runtime.generation;
     event.tile = command.tile;
 
-    std::size_t out_size = 0;
-    MapTileFormat out_format = MapTileFormat::Unknown;
-    const bool ok = backend_.read(command.tile, scratch_, scratch_size_, out_size, out_format);
-    bus_.release(acquired.token);
+    const MapTileReadResult read_result =
+        backend_.read(command.tile, scratch_, scratch_size_);
+    if (read_result.bus_access_retained)
+    {
+        bus_.release(acquired.token);
+    }
 
-    event.kind = ok ? MapTileAsyncEventKind::Ready : MapTileAsyncEventKind::Failed;
-    event.format = out_format;
-    event.payload_size = out_size;
+    const bool ok = read_result.status == MapTileReadStatus::Ready;
+    if (read_result.status == MapTileReadStatus::ResourceBusy)
+    {
+        event.kind = MapTileAsyncEventKind::ResourceBusy;
+    }
+    else
+    {
+        event.kind = ok ? MapTileAsyncEventKind::Ready : MapTileAsyncEventKind::Failed;
+    }
+    event.format = read_result.format;
+    event.payload_size = read_result.size;
     if (ok)
     {
         event.payload.ref = command.tile;
-        event.payload.format = out_format;
+        event.payload.format = read_result.format;
         event.payload.data = scratch_;
-        event.payload.size = out_size;
+        event.payload.size = read_result.size;
     }
-    event.error = ok ? 0 : -1;
+    event.error = ok ? 0 : read_result.error;
     (void)events_.publish(event);
     (void)now_ms;
     return ok;

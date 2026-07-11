@@ -160,6 +160,8 @@ class PathOnlyMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
 bool yield_map_tile_sd_bus_between_chunks(const char* path,
                                           std::size_t bytes_read,
                                           std::size_t total_bytes);
+void reset_map_tile_sd_read_backpressure_state();
+void note_map_tile_sd_read_resource_busy(bool bus_access_retained);
 
 class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
 {
@@ -180,6 +182,7 @@ class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
                   std::size_t& out_size) const override
     {
         out_size = 0;
+        reset_map_tile_sd_read_backpressure_state();
         if (!path || !buffer || capacity == 0)
         {
             return false;
@@ -217,6 +220,7 @@ class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
                 !yield_map_tile_sd_bus_between_chunks(path, total_read, target_size))
             {
                 out_size = total_read;
+                note_map_tile_sd_read_resource_busy(false);
                 file.close();
                 return false;
             }
@@ -246,6 +250,8 @@ constexpr uint32_t kMapTileDiagnosticLogIntervalMs = 1000;
 constexpr TickType_t kMapTileWorkerPostCommandYieldTicks = pdMS_TO_TICKS(32);
 constexpr TickType_t kMapTileSdChunkYieldTicks = pdMS_TO_TICKS(1);
 constexpr TickType_t kMapTileSdChunkReacquireTicks = pdMS_TO_TICKS(50);
+constexpr uint32_t kMapTileSdChunkRetryReacquireMs = 100;
+constexpr uint32_t kMapTileSdChunkReacquireBudgetMs = 2000;
 constexpr uint32_t kMapTileDisplaySpiSlowHoldMs = 8;
 constexpr uint32_t kMapTileDisplaySpiNormalCooldownMs = 160;
 constexpr uint32_t kMapTileDisplaySpiSlowCooldownMs = 1500;
@@ -257,6 +263,8 @@ uint32_t g_map_tile_event_log_ms = 0;
 uint32_t g_map_tile_next_event_drain_ms = 0;
 uint32_t g_map_tile_chunk_yield_log_ms = 0;
 uint32_t g_map_tile_display_pressure_log_ms = 0;
+bool g_map_tile_sd_read_resource_busy = false;
+bool g_map_tile_sd_read_bus_access_retained = true;
 
 bool should_log_map_tile_diagnostic(uint32_t& last_ms, uint32_t now_ms)
 {
@@ -289,6 +297,28 @@ void log_map_tile_display_pressure_pause(uint32_t now_ms, const char* stage)
     std::fflush(stdout);
 }
 
+void reset_map_tile_sd_read_backpressure_state()
+{
+    g_map_tile_sd_read_resource_busy = false;
+    g_map_tile_sd_read_bus_access_retained = true;
+}
+
+void note_map_tile_sd_read_resource_busy(bool bus_access_retained)
+{
+    g_map_tile_sd_read_resource_busy = true;
+    g_map_tile_sd_read_bus_access_retained = bus_access_retained;
+}
+
+bool map_tile_sd_read_resource_busy()
+{
+    return g_map_tile_sd_read_resource_busy;
+}
+
+bool map_tile_sd_read_bus_access_retained()
+{
+    return g_map_tile_sd_read_bus_access_retained;
+}
+
 bool yield_map_tile_sd_bus_between_chunks(const char* path,
                                           std::size_t bytes_read,
                                           std::size_t total_bytes)
@@ -315,12 +345,45 @@ bool yield_map_tile_sd_bus_between_chunks(const char* path,
         std::fflush(stdout);
     }
 
-    while (!::platform::esp::common::shared_spi_lock_with_owner(pdMS_TO_TICKS(100),
-                                                                "map_tile_sd"))
+    const uint32_t wait_start_ms = now_ms;
+    const uint32_t deadline_ms = wait_start_ms + kMapTileSdChunkReacquireBudgetMs;
+    while (static_cast<int32_t>(deadline_ms - sys::millis_now()) > 0)
     {
+        const uint32_t attempt_ms = sys::millis_now();
+        const uint32_t remaining_ms =
+            static_cast<int32_t>(deadline_ms - attempt_ms) > 0 ? deadline_ms - attempt_ms
+                                                               : 0;
+        if (remaining_ms == 0)
+        {
+            break;
+        }
+        const uint32_t wait_ms =
+            std::min<uint32_t>(kMapTileSdChunkRetryReacquireMs, remaining_ms);
+        TickType_t wait_ticks = pdMS_TO_TICKS(wait_ms);
+        if (wait_ticks == 0)
+        {
+            wait_ticks = 1;
+        }
+        if (::platform::esp::common::shared_spi_lock_with_owner(wait_ticks,
+                                                                "map_tile_sd"))
+        {
+            return true;
+        }
         vTaskDelay(kMapTileSdChunkYieldTicks);
     }
-    return true;
+
+    const uint32_t timeout_ms = sys::millis_now() - wait_start_ms;
+    if (should_log_map_tile_diagnostic(g_map_tile_chunk_yield_log_ms, sys::millis_now()))
+    {
+        std::printf("[GPS][MAP][bus] chunk_reacquire_give_up path=%s bytes=%u/%u wait_ms=%lu budget_ms=%lu\n",
+                    path ? path : "",
+                    static_cast<unsigned>(bytes_read),
+                    static_cast<unsigned>(total_bytes),
+                    static_cast<unsigned long>(timeout_ms),
+                    static_cast<unsigned long>(kMapTileSdChunkReacquireBudgetMs));
+        std::fflush(stdout);
+    }
+    return false;
 }
 
 const char* map_tile_format_name(ui::map_tiles::MapTileFormat format)
@@ -1096,23 +1159,39 @@ class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBacken
         return source_.lookup(ref);
     }
 
-    bool read(const ui::map_tiles::MapTileRef& ref,
-              uint8_t* buffer,
-              std::size_t capacity,
-              std::size_t& out_size,
-              ui::map_tiles::MapTileFormat& out_format) override
+    ui::map_tiles::MapTileReadResult read(const ui::map_tiles::MapTileRef& ref,
+                                          uint8_t* buffer,
+                                          std::size_t capacity) override
     {
+        ui::map_tiles::MapTileReadResult result{};
+        result.format = ui::map_tiles::mapTileFormatForLayer(ref.layer);
+        reset_map_tile_sd_read_backpressure_state();
         if (map_tile_availability_memory().knownMissing(ref))
         {
-            out_size = 0;
-            out_format = ui::map_tiles::mapTileFormatForLayer(ref.layer);
-            return false;
+            result.error = -1;
+            return result;
         }
 
+        std::size_t out_size = 0;
+        ui::map_tiles::MapTileFormat out_format = result.format;
         if (source_.read(ref, buffer, capacity, out_size, out_format))
         {
             map_tile_availability_memory().markAvailable(ref);
-            return true;
+            result.status = ui::map_tiles::MapTileReadStatus::Ready;
+            result.size = out_size;
+            result.format = out_format;
+            result.error = 0;
+            return result;
+        }
+
+        if (map_tile_sd_read_resource_busy())
+        {
+            result.status = ui::map_tiles::MapTileReadStatus::ResourceBusy;
+            result.format = out_format;
+            result.error =
+                static_cast<int32_t>(sys::runtime::BusAcquireStatus::TimedOut);
+            result.bus_access_retained = map_tile_sd_read_bus_access_retained();
+            return result;
         }
 
         const ui::map_tiles::MapTileLookupResult lookup = source_.lookup(ref);
@@ -1120,7 +1199,10 @@ class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBacken
         {
             map_tile_availability_memory().markMissing(ref);
         }
-        return false;
+        result.status = ui::map_tiles::MapTileReadStatus::Failed;
+        result.format = out_format;
+        result.error = -1;
+        return result;
     }
 
   private:

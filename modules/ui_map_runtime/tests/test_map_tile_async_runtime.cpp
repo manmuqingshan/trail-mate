@@ -96,6 +96,9 @@ class FakeBackend final : public ui::map_tiles::IMapTileWorkerBackend
   public:
     bool available = true;
     bool read_ok = true;
+    ui::map_tiles::MapTileReadStatus read_status = ui::map_tiles::MapTileReadStatus::Ready;
+    int32_t read_error = -1;
+    bool bus_access_retained = true;
     int lookup_count = 0;
     int read_count = 0;
 
@@ -110,25 +113,34 @@ class FakeBackend final : public ui::map_tiles::IMapTileWorkerBackend
         return result;
     }
 
-    bool read(const ui::map_tiles::MapTileRef& ref,
-              uint8_t* buffer,
-              std::size_t capacity,
-              std::size_t& out_size,
-              ui::map_tiles::MapTileFormat& out_format) override
+    ui::map_tiles::MapTileReadResult read(const ui::map_tiles::MapTileRef& ref,
+                                          uint8_t* buffer,
+                                          std::size_t capacity) override
     {
         ++read_count;
         (void)ref;
-        out_size = 0;
-        out_format = ui::map_tiles::MapTileFormat::Png;
+        ui::map_tiles::MapTileReadResult result{};
+        result.status = read_status;
+        result.format = ui::map_tiles::MapTileFormat::Png;
+        result.error = read_error;
+        result.bus_access_retained = bus_access_retained;
+        if (read_status != ui::map_tiles::MapTileReadStatus::Ready)
+        {
+            return result;
+        }
         if (!available || !read_ok || !buffer || capacity < 3)
         {
-            return false;
+            result.status = ui::map_tiles::MapTileReadStatus::Failed;
+            result.error = -1;
+            result.bus_access_retained = true;
+            return result;
         }
         buffer[0] = 1;
         buffer[1] = 2;
         buffer[2] = 3;
-        out_size = 3;
-        return true;
+        result.size = 3;
+        result.error = 0;
+        return result;
     }
 };
 
@@ -379,6 +391,63 @@ void test_worker_missing_reads_once_without_lookup_probe()
     assert(events.events[0].payload_size == 0);
 }
 
+void test_worker_resource_busy_read_publishes_resource_busy()
+{
+    FakeBackend backend;
+    backend.read_status = ui::map_tiles::MapTileReadStatus::ResourceBusy;
+    backend.read_error =
+        static_cast<int32_t>(sys::runtime::BusAcquireStatus::TimedOut);
+    FakeBusArbiter bus;
+    FakeEventSink events;
+    uint8_t scratch[8]{};
+    ui::map_tiles::MapTileWorker worker(backend, bus, events, scratch, sizeof(scratch));
+
+    ui::map_tiles::LoadTileCommand command{};
+    command.runtime.command_id = 12;
+    command.runtime.kind = sys::runtime::RuntimeCommandKind::MapTileLoad;
+    command.runtime.generation = 4;
+    command.runtime.priority = sys::runtime::RuntimePriority::Normal;
+    command.tile = make_tile(42);
+
+    assert(!worker.execute(command, 320));
+    assert(bus.acquire_count == 1);
+    assert(bus.release_count == 1);
+    assert(backend.read_count == 1);
+    assert(events.count == 1);
+    assert(events.events[0].kind == ui::map_tiles::MapTileAsyncEventKind::ResourceBusy);
+    assert(events.events[0].error ==
+           static_cast<int32_t>(sys::runtime::BusAcquireStatus::TimedOut));
+    assert(events.events[0].payload.data == nullptr);
+    assert(events.events[0].payload_size == 0);
+}
+
+void test_worker_released_bus_read_skips_release()
+{
+    FakeBackend backend;
+    backend.read_status = ui::map_tiles::MapTileReadStatus::ResourceBusy;
+    backend.bus_access_retained = false;
+    backend.read_error =
+        static_cast<int32_t>(sys::runtime::BusAcquireStatus::TimedOut);
+    FakeBusArbiter bus;
+    FakeEventSink events;
+    uint8_t scratch[8]{};
+    ui::map_tiles::MapTileWorker worker(backend, bus, events, scratch, sizeof(scratch));
+
+    ui::map_tiles::LoadTileCommand command{};
+    command.runtime.command_id = 13;
+    command.runtime.kind = sys::runtime::RuntimeCommandKind::MapTileLoad;
+    command.runtime.generation = 4;
+    command.runtime.priority = sys::runtime::RuntimePriority::Normal;
+    command.tile = make_tile(43);
+
+    assert(!worker.execute(command, 330));
+    assert(bus.acquire_count == 1);
+    assert(bus.release_count == 0);
+    assert(backend.read_count == 1);
+    assert(events.count == 1);
+    assert(events.events[0].kind == ui::map_tiles::MapTileAsyncEventKind::ResourceBusy);
+}
+
 void test_runtime_and_worker_use_policy_strategy()
 {
     FakeCommandSink sink;
@@ -413,6 +482,8 @@ int main()
     test_worker_busy_does_not_read_storage();
     test_worker_success_publishes_ready();
     test_worker_missing_reads_once_without_lookup_probe();
+    test_worker_resource_busy_read_publishes_resource_busy();
+    test_worker_released_bus_read_skips_release();
     test_runtime_and_worker_use_policy_strategy();
     return 0;
 }

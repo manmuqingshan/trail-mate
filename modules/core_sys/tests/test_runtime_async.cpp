@@ -1,6 +1,8 @@
+#include "sys/bus_access_scope.h"
 #include "sys/runtime_async.h"
 
 #include <cassert>
+#include <utility>
 
 namespace
 {
@@ -314,6 +316,91 @@ void test_storage_bus_arbiter_reports_degraded_after_timeouts()
     assert(arbiter.health().status == sys::runtime::StorageHealthStatus::Degraded);
 }
 
+void test_scoped_bus_access_token_releases_on_destruction()
+{
+    FakeBusAdapter adapter;
+    sys::runtime::DefaultBusPolicyStrategy policy;
+    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
+
+    sys::runtime::BusAcquireRequest request{};
+    request.resource = 8;
+    request.command_id = 12;
+    request.policy = sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
+
+    {
+        sys::runtime::ScopedBusAccessToken scope(arbiter, request);
+        assert(scope.acquired());
+        assert(static_cast<bool>(scope));
+        assert(scope.status() == sys::runtime::BusAcquireStatus::Acquired);
+        assert(scope.token().owner == 12);
+        assert(scope.diagnostics().owner == 77);
+        assert(adapter.acquire_count == 1);
+        assert(adapter.release_count == 0);
+    }
+
+    assert(adapter.release_count == 1);
+}
+
+void test_scoped_bus_access_token_release_is_idempotent()
+{
+    FakeBusAdapter adapter;
+    sys::runtime::DefaultBusPolicyStrategy policy;
+    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
+
+    sys::runtime::BusAcquireRequest request{};
+    request.policy = sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
+
+    sys::runtime::ScopedBusAccessToken scope(arbiter, request);
+    assert(scope.acquired());
+    scope.release();
+    scope.release();
+    assert(!scope.acquired());
+    assert(adapter.release_count == 1);
+}
+
+void test_scoped_bus_access_token_move_transfers_release()
+{
+    FakeBusAdapter adapter;
+    sys::runtime::DefaultBusPolicyStrategy policy;
+    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
+
+    sys::runtime::BusAcquireRequest request{};
+    request.policy = sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
+
+    {
+        sys::runtime::ScopedBusAccessToken original(arbiter, request);
+        assert(original.acquired());
+        {
+            sys::runtime::ScopedBusAccessToken moved(std::move(original));
+            assert(!original.acquired());
+            assert(moved.acquired());
+            assert(adapter.release_count == 0);
+        }
+        assert(adapter.release_count == 1);
+    }
+
+    assert(adapter.release_count == 1);
+}
+
+void test_scoped_bus_access_token_does_not_release_failed_acquire()
+{
+    FakeBusAdapter adapter;
+    adapter.acquire_ok = false;
+    sys::runtime::DefaultBusPolicyStrategy policy;
+    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
+
+    sys::runtime::BusAcquireRequest request{};
+    request.policy = sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
+
+    {
+        sys::runtime::ScopedBusAccessToken scope(arbiter, request);
+        assert(!scope.acquired());
+        assert(scope.status() == sys::runtime::BusAcquireStatus::TimedOut);
+    }
+
+    assert(adapter.release_count == 0);
+}
+
 } // namespace
 
 int main()
@@ -328,5 +415,9 @@ int main()
     test_storage_bus_arbiter_uses_policy_timeout();
     test_map_tile_policy_is_display_frame_critical();
     test_storage_bus_arbiter_reports_degraded_after_timeouts();
+    test_scoped_bus_access_token_releases_on_destruction();
+    test_scoped_bus_access_token_release_is_idempotent();
+    test_scoped_bus_access_token_move_transfers_release();
+    test_scoped_bus_access_token_does_not_release_failed_acquire();
     return 0;
 }
