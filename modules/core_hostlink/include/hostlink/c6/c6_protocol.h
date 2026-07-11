@@ -33,6 +33,7 @@
 #define TM_C6_WIFI_SSID_LEN 32u
 #define TM_C6_WIFI_PASSWORD_LEN 64u
 #define TM_C6_WIFI_SCAN_RESULT_COUNT 6u
+#define TM_C6_WIFI_TIME_SOURCE_LEN 16u
 #define TM_C6_ESPNOW_PAYLOAD_MAX 240u
 #define TM_C6_BLE_PACKET_HEADER_LEN 4u
 
@@ -77,6 +78,7 @@ extern "C"
         TM_C6_FRAME_WIFI_CONTROL = 0x40,
         TM_C6_FRAME_WIFI_EVENT = 0x41,
         TM_C6_FRAME_WIFI_DATA = 0x42,
+        TM_C6_FRAME_WIFI_TIME_SYNC = 0x43,
 
         TM_C6_FRAME_DIAG_REQUEST = 0x50,
         TM_C6_FRAME_DIAG_REPORT = 0x51,
@@ -360,6 +362,15 @@ extern "C"
         char ssid[TM_C6_WIFI_SSID_LEN];
         tm_c6_wifi_scan_result_t results[TM_C6_WIFI_SCAN_RESULT_COUNT];
     } tm_c6_wifi_event_t;
+
+    typedef struct TM_C6_PACKED tm_c6_wifi_time_sync
+    {
+        uint32_t epoch_seconds;
+        uint16_t error_code;
+        uint8_t status;
+        uint8_t reserved;
+        char source[TM_C6_WIFI_TIME_SOURCE_LEN];
+    } tm_c6_wifi_time_sync_t;
 
     typedef struct TM_C6_PACKED tm_c6_diag_report
     {

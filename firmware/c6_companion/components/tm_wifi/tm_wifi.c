@@ -6,17 +6,32 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_sntp.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lwip/ip4_addr.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
+#include <time.h>
 
 static const char* TAG = "C6_WIFI";
+static const char* TM_WIFI_SNTP_SERVER = "pool.ntp.org";
+static const time_t TM_WIFI_MIN_VALID_EPOCH_SECONDS = 1577836800;
+static const uint32_t TM_WIFI_SNTP_TIMEOUT_MS = 15000;
+static const uint32_t TM_WIFI_SNTP_EMIT_TASK_STACK_BYTES = 3072;
 
 static bool s_netif_ready;
 static bool s_wifi_initialized;
 static bool s_wifi_started;
+static bool s_time_sync_in_progress;
+static bool s_time_sync_attempted;
+static time_t s_time_sync_epoch;
+static esp_timer_handle_t s_time_sync_timeout_timer;
+static TaskHandle_t s_time_sync_emit_task;
 static esp_netif_t* s_sta_netif;
 static esp_netif_t* s_ap_netif;
 static tm_c6_wifi_config_t s_config;
@@ -40,6 +55,177 @@ static void emit_simple_event(uint8_t kind, uint16_t error_code, const char* ssi
     };
     copy_text(event.ssid, sizeof(event.ssid), ssid);
     (void)tm_services_send_wifi_event(&event);
+}
+
+static bool valid_network_epoch(time_t epoch_seconds)
+{
+    return epoch_seconds >= TM_WIFI_MIN_VALID_EPOCH_SECONDS;
+}
+
+static void emit_time_sync_event(uint16_t error_code, uint32_t epoch_seconds, const char* source)
+{
+    tm_c6_wifi_time_sync_t event = {
+        .epoch_seconds = epoch_seconds,
+        .error_code = error_code,
+        .status = error_code == TM_C6_OK ? 1 : 0,
+    };
+    copy_text(event.source, sizeof(event.source), source);
+    (void)tm_services_send_wifi_time_sync(&event);
+}
+
+static void stop_sntp_once(void)
+{
+    if (esp_sntp_enabled())
+    {
+        esp_sntp_stop();
+    }
+    esp_sntp_set_time_sync_notification_cb(NULL);
+}
+
+static void cancel_network_time_sync(void)
+{
+    if (s_time_sync_timeout_timer != NULL)
+    {
+        (void)esp_timer_stop(s_time_sync_timeout_timer);
+    }
+    stop_sntp_once();
+    s_time_sync_in_progress = false;
+}
+
+static void time_sync_emit_task(void* arg)
+{
+    (void)arg;
+    const time_t epoch_seconds = s_time_sync_epoch;
+    stop_sntp_once();
+
+    if (valid_network_epoch(epoch_seconds))
+    {
+        ESP_LOGI(TAG, "SNTP synced epoch=%lld", (long long)epoch_seconds);
+        emit_time_sync_event(TM_C6_OK, (uint32_t)epoch_seconds, "c6_wifi_sntp");
+    }
+    else
+    {
+        ESP_LOGW(TAG, "SNTP completed with invalid epoch=%lld", (long long)epoch_seconds);
+        emit_time_sync_event(TM_C6_ERROR_INTERNAL, 0, "c6_wifi_sntp");
+    }
+
+    s_time_sync_in_progress = false;
+    s_time_sync_emit_task = NULL;
+    vTaskDelete(NULL);
+}
+
+static void time_sync_notification_cb(struct timeval* tv)
+{
+    if (!s_time_sync_in_progress)
+    {
+        return;
+    }
+
+    if (s_time_sync_timeout_timer != NULL)
+    {
+        (void)esp_timer_stop(s_time_sync_timeout_timer);
+    }
+    s_time_sync_epoch = tv != NULL ? tv->tv_sec : time(NULL);
+
+    if (s_time_sync_emit_task != NULL)
+    {
+        return;
+    }
+
+    if (xTaskCreate(time_sync_emit_task,
+                    "tm_wifi_time",
+                    TM_WIFI_SNTP_EMIT_TASK_STACK_BYTES,
+                    NULL,
+                    5,
+                    &s_time_sync_emit_task) != pdPASS)
+    {
+        stop_sntp_once();
+        s_time_sync_in_progress = false;
+        s_time_sync_emit_task = NULL;
+        ESP_LOGW(TAG, "Failed to start SNTP emit task");
+    }
+}
+
+static void time_sync_timeout_cb(void* arg)
+{
+    (void)arg;
+    if (!s_time_sync_in_progress)
+    {
+        return;
+    }
+
+    ESP_LOGW(TAG, "SNTP sync timed out server=%s", TM_WIFI_SNTP_SERVER);
+    stop_sntp_once();
+    s_time_sync_in_progress = false;
+}
+
+static bool ensure_time_sync_timer(void)
+{
+    if (s_time_sync_timeout_timer != NULL)
+    {
+        return true;
+    }
+
+    const esp_timer_create_args_t args = {
+        .callback = time_sync_timeout_cb,
+        .arg = NULL,
+        .name = "tm_wifi_time",
+    };
+    const esp_err_t err = esp_timer_create(&args, &s_time_sync_timeout_timer);
+    if (err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Failed to create SNTP timeout timer: %s", esp_err_to_name(err));
+        return false;
+    }
+    return true;
+}
+
+static void start_or_restart_sntp(void)
+{
+    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+    esp_sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+    esp_sntp_setservername(0, TM_WIFI_SNTP_SERVER);
+
+    if (!esp_sntp_enabled())
+    {
+        esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+        esp_sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
+        esp_sntp_init();
+        ESP_LOGI(TAG, "SNTP started server=%s", TM_WIFI_SNTP_SERVER);
+        return;
+    }
+
+    esp_sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
+    if (esp_sntp_restart())
+    {
+        ESP_LOGI(TAG, "SNTP restarted server=%s", TM_WIFI_SNTP_SERVER);
+    }
+}
+
+static void request_network_time_sync(void)
+{
+    if (s_time_sync_attempted || s_time_sync_in_progress)
+    {
+        return;
+    }
+
+    s_time_sync_attempted = true;
+    if (!ensure_time_sync_timer())
+    {
+        return;
+    }
+
+    s_time_sync_in_progress = true;
+    const esp_err_t timer_err =
+        esp_timer_start_once(s_time_sync_timeout_timer, (uint64_t)TM_WIFI_SNTP_TIMEOUT_MS * 1000ULL);
+    if (timer_err != ESP_OK)
+    {
+        s_time_sync_in_progress = false;
+        ESP_LOGW(TAG, "Failed to start SNTP timeout timer: %s", esp_err_to_name(timer_err));
+        return;
+    }
+
+    start_or_restart_sntp();
 }
 
 static wifi_mode_t configured_mode(void)
@@ -103,6 +289,8 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             break;
         }
         case WIFI_EVENT_STA_DISCONNECTED:
+            cancel_network_time_sync();
+            s_time_sync_attempted = false;
             emit_simple_event(TM_C6_WIFI_EVENT_STA_DISCONNECTED, TM_C6_OK, NULL, 0);
             break;
         case WIFI_EVENT_AP_START:
@@ -126,6 +314,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             ipv4 = event->ip_info.ip.addr;
         }
         emit_simple_event(TM_C6_WIFI_EVENT_STA_GOT_IP, TM_C6_OK, s_config.sta_ssid, ipv4);
+        request_network_time_sync();
     }
 }
 
@@ -268,6 +457,8 @@ esp_err_t tm_wifi_handle_control(const tm_c6_wifi_control_t* control)
         return emit_scan_results();
     case TM_C6_WIFI_CMD_CONNECT:
     {
+        cancel_network_time_sync();
+        s_time_sync_attempted = false;
         s_config.wifi_enabled = 1;
         s_config.sta_enabled = 1;
         copy_text(s_config.sta_ssid, sizeof(s_config.sta_ssid), control->ssid);
@@ -276,6 +467,8 @@ esp_err_t tm_wifi_handle_control(const tm_c6_wifi_control_t* control)
         return tm_wifi_apply_config(&s_config);
     }
     case TM_C6_WIFI_CMD_DISCONNECT:
+        cancel_network_time_sync();
+        s_time_sync_attempted = false;
         return esp_wifi_disconnect();
     case TM_C6_WIFI_CMD_GET_IP:
     {

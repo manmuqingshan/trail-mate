@@ -1,17 +1,22 @@
 #pragma once
 
 #include "app/app_facade_access.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/wifi_runtime.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
+#include <sys/time.h>
 
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
+#include "esp_sntp.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -59,6 +64,10 @@ constexpr int kWifiRetryMgmtSbufNum = 6;
 constexpr int kWifiRetryRxMgmtBufNum = 5;
 constexpr std::size_t kWifiConnectMinInternalFreeBytes = 32U * 1024U;
 constexpr std::size_t kWifiConnectMinInternalLargestBlockBytes = 8U * 1024U;
+constexpr const char* kNetworkTimeSyncServer = "pool.ntp.org";
+constexpr std::time_t kNetworkTimeMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
+constexpr uint32_t kNetworkTimeSyncTimeoutMs = 15000;
+constexpr uint32_t kNetworkTimeApplyTaskStackBytes = 3072;
 
 enum class WifiInitProfile : uint8_t
 {
@@ -73,6 +82,9 @@ struct RuntimeState
     bool wifi_started = false;
     bool wifi_initialized = false;
     bool ble_paused_for_wifi = false;
+    bool network_time_sync_in_progress = false;
+    bool network_time_sync_attempted = false;
+    std::time_t network_time_sync_epoch = 0;
     bool config_cached = false;
     bool profiles_cached = false;
     bool connected = false;
@@ -90,6 +102,8 @@ struct RuntimeState
     esp_netif_t* sta_netif = nullptr;
     esp_event_handler_instance_t wifi_event_handler = nullptr;
     esp_event_handler_instance_t ip_event_handler = nullptr;
+    esp_timer_handle_t network_time_sync_timeout_timer = nullptr;
+    TaskHandle_t network_time_apply_task = nullptr;
 };
 
 RuntimeState s_runtime{};
@@ -125,6 +139,7 @@ void log_heap_snapshot(const char* stage)
 }
 
 void set_status_message(const char* message);
+void cancel_network_time_sync();
 
 bool internal_memory_ready_for_wifi_connect(const char* stage)
 {
@@ -538,8 +553,10 @@ ConnectionState disconnected_state(bool enabled, bool has_credentials)
 
 void clear_connection_details()
 {
+    cancel_network_time_sync();
     s_runtime.connected = false;
     s_runtime.connecting = false;
+    s_runtime.network_time_sync_attempted = false;
     s_runtime.rssi = -127;
     s_runtime.ssid[0] = '\0';
     s_runtime.ip[0] = '\0';
@@ -613,6 +630,169 @@ bool runtime_ble_is_enabled()
 #else
     return false;
 #endif
+}
+
+bool is_valid_network_epoch(std::time_t epoch_seconds)
+{
+    return epoch_seconds >= kNetworkTimeMinValidEpochSeconds;
+}
+
+void stop_sntp_once()
+{
+    if (esp_sntp_enabled())
+    {
+        esp_sntp_stop();
+    }
+    esp_sntp_set_time_sync_notification_cb(nullptr);
+}
+
+void cancel_network_time_sync()
+{
+    if (s_runtime.network_time_sync_timeout_timer != nullptr)
+    {
+        (void)esp_timer_stop(s_runtime.network_time_sync_timeout_timer);
+    }
+    stop_sntp_once();
+    s_runtime.network_time_sync_in_progress = false;
+}
+
+void network_time_apply_task(void*)
+{
+    const std::time_t epoch_seconds = s_runtime.network_time_sync_epoch;
+    stop_sntp_once();
+
+    if (is_valid_network_epoch(epoch_seconds))
+    {
+        const bool applied =
+            ::platform::esp::boards::applySystemTimeAndSyncBoardRtc(epoch_seconds, "wifi_sntp");
+        std::printf("[WiFi][Time] SNTP synced epoch=%lld rtc=%s\n",
+                    static_cast<long long>(epoch_seconds),
+                    applied ? "updated" : "update_failed");
+    }
+    else
+    {
+        std::printf("[WiFi][Time] SNTP completed with invalid epoch=%lld\n",
+                    static_cast<long long>(epoch_seconds));
+    }
+
+    s_runtime.network_time_sync_in_progress = false;
+    s_runtime.network_time_apply_task = nullptr;
+    vTaskDelete(nullptr);
+}
+
+void network_time_sync_notification_cb(timeval* tv)
+{
+    if (!s_runtime.network_time_sync_in_progress)
+    {
+        return;
+    }
+
+    if (s_runtime.network_time_sync_timeout_timer != nullptr)
+    {
+        (void)esp_timer_stop(s_runtime.network_time_sync_timeout_timer);
+    }
+    s_runtime.network_time_sync_epoch = tv != nullptr ? tv->tv_sec : std::time(nullptr);
+
+    if (s_runtime.network_time_apply_task != nullptr)
+    {
+        return;
+    }
+
+    const BaseType_t created = xTaskCreate(network_time_apply_task,
+                                           "wifi_time_apply",
+                                           kNetworkTimeApplyTaskStackBytes,
+                                           nullptr,
+                                           tskIDLE_PRIORITY + 1,
+                                           &s_runtime.network_time_apply_task);
+    if (created != pdPASS)
+    {
+        stop_sntp_once();
+        s_runtime.network_time_sync_in_progress = false;
+        s_runtime.network_time_apply_task = nullptr;
+        std::printf("[WiFi][Time] failed to start SNTP apply task\n");
+    }
+}
+
+void network_time_sync_timeout_cb(void*)
+{
+    if (!s_runtime.network_time_sync_in_progress)
+    {
+        return;
+    }
+
+    std::printf("[WiFi][Time] SNTP sync timed out server=%s\n", kNetworkTimeSyncServer);
+    stop_sntp_once();
+    s_runtime.network_time_sync_in_progress = false;
+}
+
+bool ensure_network_time_sync_timer()
+{
+    if (s_runtime.network_time_sync_timeout_timer != nullptr)
+    {
+        return true;
+    }
+
+    esp_timer_create_args_t args{};
+    args.callback = &network_time_sync_timeout_cb;
+    args.name = "wifi_time";
+    const esp_err_t err = esp_timer_create(&args, &s_runtime.network_time_sync_timeout_timer);
+    if (err != ESP_OK)
+    {
+        std::printf("[WiFi][Time] failed to create SNTP timeout timer err=0x%x\n",
+                    static_cast<unsigned>(err));
+        return false;
+    }
+    return true;
+}
+
+void start_or_restart_sntp()
+{
+    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+    esp_sntp_set_time_sync_notification_cb(&network_time_sync_notification_cb);
+    esp_sntp_setservername(0, kNetworkTimeSyncServer);
+
+    if (!esp_sntp_enabled())
+    {
+        esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+        esp_sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
+        esp_sntp_init();
+        std::printf("[WiFi][Time] SNTP started server=%s\n", kNetworkTimeSyncServer);
+        return;
+    }
+
+    esp_sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
+    if (esp_sntp_restart())
+    {
+        std::printf("[WiFi][Time] SNTP restarted server=%s\n", kNetworkTimeSyncServer);
+    }
+}
+
+void request_network_time_sync()
+{
+    if (s_runtime.network_time_sync_attempted || s_runtime.network_time_sync_in_progress)
+    {
+        return;
+    }
+
+    s_runtime.network_time_sync_attempted = true;
+    if (!ensure_network_time_sync_timer())
+    {
+        return;
+    }
+
+    s_runtime.network_time_sync_in_progress = true;
+    const esp_err_t timer_err =
+        esp_timer_start_once(s_runtime.network_time_sync_timeout_timer,
+                             static_cast<uint64_t>(kNetworkTimeSyncTimeoutMs) * 1000ULL);
+    if (timer_err != ESP_OK)
+    {
+        s_runtime.network_time_sync_in_progress = false;
+        std::printf("[WiFi][Time] failed to start SNTP timeout timer err=0x%x\n",
+                    static_cast<unsigned>(timer_err));
+        return;
+    }
+
+    start_or_restart_sntp();
 }
 
 bool pause_runtime_ble_for_wifi()
@@ -805,6 +985,7 @@ void wifi_event_handler(void*,
                     s_runtime.ip[0] ? s_runtime.ip : "<none>",
                     s_runtime.ssid[0] ? s_runtime.ssid : current_config().ssid,
                     s_runtime.rssi);
+        request_network_time_sync();
     }
 }
 

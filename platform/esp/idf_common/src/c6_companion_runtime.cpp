@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,6 +24,7 @@
 #include "esp_serial_slave_link/essl_sdio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "sdmmc_cmd.h"
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "boards/tab5/tab5_board.h"
@@ -59,6 +61,7 @@ constexpr const char* kSharedSettingsNamespace = "settings";
 constexpr const char* kWifiEnabledKey = "wifi_enabled";
 constexpr const char* kWifiSsidKey = "wifi_ssid";
 constexpr const char* kWifiPasswordKey = "wifi_password";
+constexpr uint32_t kNetworkTimeMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 
 bool board_has_c6_companion()
 {
@@ -202,6 +205,42 @@ template <size_t N>
 void copy_text(char (&out)[N], const std::string& text)
 {
     copy_text(out, text.c_str());
+}
+
+void apply_c6_wifi_time_sync(const tm_c6_wifi_time_sync_t& event)
+{
+#if defined(ESP_PLATFORM)
+    char source[TM_C6_WIFI_TIME_SOURCE_LEN + 1] = {};
+    std::snprintf(source, sizeof(source), "%.*s", static_cast<int>(TM_C6_WIFI_TIME_SOURCE_LEN), event.source);
+    const char* label = source[0] != '\0' ? source : "c6_wifi_sntp";
+
+    if (event.error_code != TM_C6_OK)
+    {
+        ESP_LOGW(kTag,
+                 "C6 Wi-Fi time sync failed source=%s err=%u",
+                 label,
+                 static_cast<unsigned>(event.error_code));
+        return;
+    }
+    if (event.epoch_seconds < kNetworkTimeMinValidEpochSeconds)
+    {
+        ESP_LOGW(kTag,
+                 "C6 Wi-Fi time sync invalid epoch=%lu source=%s",
+                 static_cast<unsigned long>(event.epoch_seconds),
+                 label);
+        return;
+    }
+
+    const bool applied =
+        ::platform::esp::boards::applySystemTimeAndSyncBoardRtc(static_cast<std::time_t>(event.epoch_seconds), label);
+    ESP_LOGI(kTag,
+             "C6 Wi-Fi time sync epoch=%lu source=%s rtc=%s",
+             static_cast<unsigned long>(event.epoch_seconds),
+             label,
+             applied ? "updated" : "update_failed");
+#else
+    (void)event;
+#endif
 }
 
 void set_detail(C6CompanionStatus& status, CompanionState state, const char* detail)
@@ -1512,6 +1551,14 @@ class C6CompanionRuntime final : public WirelessCompanion
             frame.payload.size() == sizeof(tm_c6_espnow_event_t))
         {
             ++status_.espnow_event_count;
+            return;
+        }
+        if (frame.frame_type == TM_C6_FRAME_WIFI_TIME_SYNC &&
+            frame.payload.size() == sizeof(tm_c6_wifi_time_sync_t))
+        {
+            tm_c6_wifi_time_sync_t event{};
+            std::memcpy(&event, frame.payload.data(), sizeof(event));
+            apply_c6_wifi_time_sync(event);
             return;
         }
         if (frame.frame_type == TM_C6_FRAME_WIFI_EVENT &&

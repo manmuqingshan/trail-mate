@@ -400,6 +400,15 @@ bool tm_services_send_wifi_event(const tm_c6_wifi_event_t* event)
     return send_frame(TM_C6_FRAME_WIFI_EVENT, TM_C6_CH_WIFI_MGMT, (const uint8_t*)event, sizeof(*event));
 }
 
+bool tm_services_send_wifi_time_sync(const tm_c6_wifi_time_sync_t* event)
+{
+    if (event == NULL)
+    {
+        return false;
+    }
+    return send_frame(TM_C6_FRAME_WIFI_TIME_SYNC, TM_C6_CH_WIFI_MGMT, (const uint8_t*)event, sizeof(*event));
+}
+
 bool tm_services_send_log(const char* message)
 {
     const bool sent =
