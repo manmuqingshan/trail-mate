@@ -199,6 +199,8 @@ class ChatConversationScreen
     bool history_auto_load_pending_ = false;
     bool history_scroll_position_valid_ = false;
     lv_coord_t history_last_scroll_y_ = 0;
+    bool history_older_boundary_notified_ = false;
+    bool history_newer_boundary_notified_ = false;
     bool location_map_visible_ = false;
     bool location_map_created_ = false;
 

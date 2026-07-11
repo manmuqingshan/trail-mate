@@ -11,6 +11,7 @@
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/chat/chat_conversation_input.h"
 #include "ui/screens/chat/chat_conversation_layout.h"
 #include "ui/screens/chat/chat_conversation_styles.h"
@@ -785,6 +786,8 @@ void ChatConversationScreen::setHistoryPaging(bool has_older,
     history_auto_load_pending_ = false;
     history_scroll_position_valid_ = false;
     history_last_scroll_y_ = 0;
+    history_older_boundary_notified_ = false;
+    history_newer_boundary_notified_ = false;
 }
 
 void ChatConversationScreen::handleScroll()
@@ -806,24 +809,49 @@ void ChatConversationScreen::handleScroll()
     const bool scrolling_toward_newer = scroll_y > history_last_scroll_y_;
     history_last_scroll_y_ = scroll_y;
 
+    const bool at_top = scroll_y <= 0;
+    const bool at_bottom = lv_obj_get_scroll_bottom(msg_list_) <= 0;
+    if (!at_top)
+    {
+        history_older_boundary_notified_ = false;
+    }
+    if (!at_bottom)
+    {
+        history_newer_boundary_notified_ = false;
+    }
+
     if (history_auto_load_pending_ || !action_cb_)
     {
         return;
     }
 
-    if (history_has_older_ && scrolling_toward_older && scroll_y <= 0)
+    if (scrolling_toward_older && at_top)
     {
-        history_auto_load_pending_ = true;
-        schedule_action_async(ActionIntent::LoadOlder);
+        if (history_has_older_)
+        {
+            history_auto_load_pending_ = true;
+            schedule_action_async(ActionIntent::LoadOlder);
+        }
+        else if (!history_older_boundary_notified_)
+        {
+            history_older_boundary_notified_ = true;
+            ::ui::feedback::show_notice("No more messages", 1400);
+        }
         return;
     }
 
-    if (history_has_newer_ &&
-        scrolling_toward_newer &&
-        lv_obj_get_scroll_bottom(msg_list_) <= 0)
+    if (scrolling_toward_newer && at_bottom)
     {
-        history_auto_load_pending_ = true;
-        schedule_action_async(ActionIntent::LoadNewer);
+        if (history_has_newer_)
+        {
+            history_auto_load_pending_ = true;
+            schedule_action_async(ActionIntent::LoadNewer);
+        }
+        else if (!history_newer_boundary_notified_)
+        {
+            history_newer_boundary_notified_ = true;
+            ::ui::feedback::show_notice("Latest messages", 1400);
+        }
     }
 }
 
@@ -1489,6 +1517,8 @@ void ChatConversationScreen::handle_root_deleted()
     history_auto_load_pending_ = false;
     history_scroll_position_valid_ = false;
     history_last_scroll_y_ = 0;
+    history_older_boundary_notified_ = false;
+    history_newer_boundary_notified_ = false;
 
     chat::ui::conversation::input::cleanup(&input_binding_);
     ::ui::widgets::map::destroy(location_map_runtime_);

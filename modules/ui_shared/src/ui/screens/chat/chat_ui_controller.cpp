@@ -1865,12 +1865,23 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
 {
     if (intent == ChatConversationScreen::ActionIntent::LoadOlder)
     {
-        if (team_conv_active_)
+        if (team_conv_active_ || !conversation_)
         {
             return;
         }
-        if (!loadChatSnapshot() || !chat_snapshot_buffer_.has_older_messages)
+        if (!loadChatSnapshot())
         {
+            conversation_->setHistoryPaging(false, false, 0, 0);
+            ::ui::feedback::show_notice("No more messages", 1400);
+            return;
+        }
+        if (!chat_snapshot_buffer_.has_older_messages)
+        {
+            conversation_->setHistoryPaging(false,
+                                            chat_snapshot_buffer_.has_newer_messages,
+                                            chat_snapshot_buffer_.message_offset,
+                                            chat_snapshot_buffer_.message_total_count);
+            ::ui::feedback::show_notice("No more messages", 1400);
             return;
         }
         const uint16_t page_size =
@@ -1878,23 +1889,45 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
         const uint16_t total_count = chat_snapshot_buffer_.message_total_count;
         if (total_count <= page_size)
         {
+            conversation_->setHistoryPaging(false,
+                                            chat_snapshot_buffer_.has_newer_messages,
+                                            chat_snapshot_buffer_.message_offset,
+                                            total_count);
+            ::ui::feedback::show_notice("No more messages", 1400);
             return;
         }
+        const uint16_t current_offset = chat_snapshot_buffer_.message_offset;
         const uint16_t max_offset =
             static_cast<uint16_t>(total_count - page_size);
         const uint32_t requested_offset =
-            static_cast<uint32_t>(chat_snapshot_buffer_.message_offset) +
+            static_cast<uint32_t>(current_offset) +
             page_size;
         const uint16_t next_offset =
             requested_offset > max_offset
                 ? max_offset
                 : static_cast<uint16_t>(requested_offset);
-        if (next_offset == chat_snapshot_buffer_.message_offset)
+        if (next_offset == current_offset)
         {
+            conversation_->setHistoryPaging(false,
+                                            chat_snapshot_buffer_.has_newer_messages,
+                                            current_offset,
+                                            total_count);
+            ::ui::feedback::show_notice("No more messages", 1400);
             return;
         }
         chat_model_.setMessageOffset(next_offset);
-        reloadConversationView();
+        if (!loadChatSnapshot() || chat_snapshot_buffer_.message_count == 0)
+        {
+            chat_model_.setMessageOffset(current_offset);
+            (void)loadChatSnapshot();
+            conversation_->setHistoryPaging(false,
+                                            chat_snapshot_buffer_.has_newer_messages,
+                                            current_offset,
+                                            chat_snapshot_buffer_.message_total_count);
+            ::ui::feedback::show_notice("No more messages", 1400);
+            return;
+        }
+        applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
         return;
     }
 
@@ -1904,8 +1937,19 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
         {
             return;
         }
-        if (!loadChatSnapshot() || !chat_snapshot_buffer_.has_newer_messages)
+        if (!loadChatSnapshot())
         {
+            conversation_->setHistoryPaging(false, false, 0, 0);
+            ::ui::feedback::show_notice("Latest messages", 1400);
+            return;
+        }
+        if (!chat_snapshot_buffer_.has_newer_messages)
+        {
+            conversation_->setHistoryPaging(chat_snapshot_buffer_.has_older_messages,
+                                            false,
+                                            chat_snapshot_buffer_.message_offset,
+                                            chat_snapshot_buffer_.message_total_count);
+            ::ui::feedback::show_notice("Latest messages", 1400);
             return;
         }
         const uint16_t page_size =
@@ -1915,13 +1959,30 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
             current_offset > page_size
                 ? static_cast<uint16_t>(current_offset - page_size)
                 : 0;
-        chat_model_.setMessageOffset(next_offset);
-        if (loadChatSnapshot())
+        if (next_offset == current_offset)
         {
-            applySnapshotMessagesToConversation(chat_snapshot_buffer_,
-                                                *conversation_,
-                                                ConversationScrollAnchor::Top);
+            conversation_->setHistoryPaging(chat_snapshot_buffer_.has_older_messages,
+                                            false,
+                                            current_offset,
+                                            chat_snapshot_buffer_.message_total_count);
+            ::ui::feedback::show_notice("Latest messages", 1400);
+            return;
         }
+        chat_model_.setMessageOffset(next_offset);
+        if (!loadChatSnapshot() || chat_snapshot_buffer_.message_count == 0)
+        {
+            chat_model_.setMessageOffset(current_offset);
+            (void)loadChatSnapshot();
+            conversation_->setHistoryPaging(chat_snapshot_buffer_.has_older_messages,
+                                            false,
+                                            current_offset,
+                                            chat_snapshot_buffer_.message_total_count);
+            ::ui::feedback::show_notice("Latest messages", 1400);
+            return;
+        }
+        applySnapshotMessagesToConversation(chat_snapshot_buffer_,
+                                            *conversation_,
+                                            ConversationScrollAnchor::Top);
         return;
     }
 
