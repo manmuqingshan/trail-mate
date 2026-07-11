@@ -3411,11 +3411,25 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
     {
         if (!session.initiator || packet.payload_len < (reticulum::kSignatureSize + LxmfIdentity::kEncPubKeySize))
         {
+            Serial.printf("[LXMF][LinkProof] lrproof drop reason=bad_state_or_short kind=%s initiator=%u payload=%u\n",
+                          localDestinationKindLabel(session.destination),
+                          session.initiator ? 1U : 0U,
+                          static_cast<unsigned>(packet.payload_len));
             return false;
         }
 
         if (session.expected_hops != 0 && packet.hops != session.expected_hops)
         {
+            char dest_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+            formatHashHex(session.remote_destination_hash,
+                          sizeof(session.remote_destination_hash),
+                          dest_hash_hex,
+                          sizeof(dest_hash_hex));
+            Serial.printf("[LXMF][LinkProof] lrproof drop reason=hop_mismatch kind=%s dest=%s expected=%u got=%u\n",
+                          localDestinationKindLabel(session.destination),
+                          dest_hash_hex,
+                          static_cast<unsigned>(session.expected_hops),
+                          static_cast<unsigned>(packet.hops));
             return false;
         }
 
@@ -3431,6 +3445,9 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                 ? findPeerByIdentityHash(session.remote_identity_hash)
                 : findPeerByDestinationHash(session.remote_destination_hash);
         const uint8_t* peer_sig_pub = peer ? peer->sig_pub : nullptr;
+        uint8_t announce_identity_hash[reticulum::kTruncatedHashSize] = {};
+        uint8_t announce_sig_pub[LxmfIdentity::kSigPubKeySize] = {};
+        bool announce_identity_known = false;
         if (!peer_sig_pub &&
             session.destination == LocalDestinationKind::CallAudio &&
             !isZeroBytes(session.peer_identity_sig_pub,
@@ -3438,8 +3455,90 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
         {
             peer_sig_pub = session.peer_identity_sig_pub;
         }
+        if (!peer_sig_pub && session.destination == LocalDestinationKind::NomadPage)
+        {
+            char dest_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+            formatHashHex(session.remote_destination_hash,
+                          sizeof(session.remote_destination_hash),
+                          dest_hash_hex,
+                          sizeof(dest_hash_hex));
+
+            const PathEntry* path = findPath(session.remote_destination_hash);
+            if (!path)
+            {
+                Serial.printf("[LXMF][LinkProof] lrproof nomad key miss reason=path_missing dest=%s\n",
+                              dest_hash_hex);
+            }
+            else if (path->cached_announce_len == 0)
+            {
+                Serial.printf("[LXMF][LinkProof] lrproof nomad key miss reason=announce_missing dest=%s hops=%u\n",
+                              dest_hash_hex,
+                              static_cast<unsigned>(path->hops));
+            }
+            else
+            {
+                reticulum::ParsedPacket announce_packet{};
+                reticulum::ParsedAnnounce announce{};
+                const bool parsed =
+                    reticulum::parsePacket(path->cached_announce,
+                                           path->cached_announce_len,
+                                           &announce_packet) &&
+                    announce_packet.packet_type == reticulum::PacketType::Announce &&
+                    reticulum::parseAnnounce(announce_packet, &announce) &&
+                    announce.valid;
+                if (!parsed || !isNomadNetworkNodeAnnounce(announce))
+                {
+                    Serial.printf("[LXMF][LinkProof] lrproof nomad key miss reason=announce_parse_or_aspect dest=%s cached=%u\n",
+                                  dest_hash_hex,
+                                  static_cast<unsigned>(path->cached_announce_len));
+                }
+                else
+                {
+                    uint8_t expected_destination_hash[reticulum::kTruncatedHashSize] = {};
+                    reticulum::computeIdentityHash(announce.public_key,
+                                                   announce_identity_hash);
+                    reticulum::computeDestinationHash(announce.name_hash,
+                                                      announce_identity_hash,
+                                                      expected_destination_hash);
+                    if (!hashesEqual(expected_destination_hash,
+                                     session.remote_destination_hash,
+                                     reticulum::kTruncatedHashSize))
+                    {
+                        char expected_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+                        formatHashHex(expected_destination_hash,
+                                      sizeof(expected_destination_hash),
+                                      expected_hash_hex,
+                                      sizeof(expected_hash_hex));
+                        Serial.printf("[LXMF][LinkProof] lrproof nomad key miss reason=announce_dest_mismatch dest=%s expected=%s\n",
+                                      dest_hash_hex,
+                                      expected_hash_hex);
+                    }
+                    else
+                    {
+                        memcpy(announce_sig_pub,
+                               announce.public_key + reticulum::kEncryptionPublicKeySize,
+                               sizeof(announce_sig_pub));
+                        peer_sig_pub = announce_sig_pub;
+                        announce_identity_known = true;
+                        Serial.printf("[LXMF][LinkProof] lrproof nomad key resolved dest=%s hops=%u cached=%u\n",
+                                      dest_hash_hex,
+                                      static_cast<unsigned>(path->hops),
+                                      static_cast<unsigned>(path->cached_announce_len));
+                    }
+                }
+            }
+        }
         if (!peer_sig_pub)
         {
+            char dest_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+            formatHashHex(session.remote_destination_hash,
+                          sizeof(session.remote_destination_hash),
+                          dest_hash_hex,
+                          sizeof(dest_hash_hex));
+            Serial.printf("[LXMF][LinkProof] lrproof drop reason=peer_sig_missing kind=%s dest=%s identity_known=%u\n",
+                          localDestinationKindLabel(session.destination),
+                          dest_hash_hex,
+                          session.remote_identity_known ? 1U : 0U);
             return false;
         }
 
@@ -3461,6 +3560,15 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
 
         if (!LxmfIdentity::verify(peer_sig_pub, signature, signed_data.data(), used))
         {
+            char dest_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+            formatHashHex(session.remote_destination_hash,
+                          sizeof(session.remote_destination_hash),
+                          dest_hash_hex,
+                          sizeof(dest_hash_hex));
+            Serial.printf("[LXMF][LinkProof] lrproof drop reason=signature_failed kind=%s dest=%s signed=%u\n",
+                          localDestinationKindLabel(session.destination),
+                          dest_hash_hex,
+                          static_cast<unsigned>(used));
             return false;
         }
 
@@ -3474,11 +3582,19 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                      peer->identity_hash,
                      sizeof(session.remote_identity_hash));
         }
+        else if (announce_identity_known)
+        {
+            copyHash(session.remote_identity_hash,
+                     announce_identity_hash,
+                     sizeof(session.remote_identity_hash));
+        }
         session.remote_identity_known = true;
         session.mtu = signalling ? mtuFromLinkSignalling(signalling, signalling_len) : reticulum::kReticulumMtu;
         session.mdu = linkMduForMtu(session.mtu);
         if (!deriveLinkKey(session))
         {
+            Serial.printf("[LXMF][LinkProof] lrproof drop reason=derive_key_failed kind=%s\n",
+                          localDestinationKindLabel(session.destination));
             return false;
         }
 
@@ -3489,6 +3605,18 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
         session.last_keepalive_ms = 0;
         session.state = LinkState::Active;
         const bool rtt_sent = sendLinkRtt(session);
+        char link_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+        formatHashHex(session.link_id,
+                      sizeof(session.link_id),
+                      link_hash_hex,
+                      sizeof(link_hash_hex));
+        Serial.printf("[LXMF][LinkProof] lrproof active kind=%s link=%s rtt_ms=%lu mtu=%u mdu=%u rtt_tx=%u\n",
+                      localDestinationKindLabel(session.destination),
+                      link_hash_hex,
+                      static_cast<unsigned long>(millis() - session.request_ms),
+                      static_cast<unsigned>(session.mtu),
+                      static_cast<unsigned>(session.mdu),
+                      rtt_sent ? 1U : 0U);
         if (session.destination == LocalDestinationKind::CallAudio)
         {
             (void)sendLinkIdentify(session);

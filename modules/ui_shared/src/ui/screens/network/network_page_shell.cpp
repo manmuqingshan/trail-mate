@@ -723,6 +723,57 @@ lv_coord_t resolve_directory_width();
 void open_network_help_modal();
 void close_network_help_modal();
 
+void reset_state_after_destroy()
+{
+    g_state.root = nullptr;
+    g_state.header = nullptr;
+    g_state.content = nullptr;
+    g_state.directory_panel = nullptr;
+    g_state.directory_tabs = nullptr;
+    g_state.favourites_tab = nullptr;
+    g_state.announces_tab = nullptr;
+    g_state.directory_search_btn = nullptr;
+    g_state.directory_list = nullptr;
+    g_state.browser_panel = nullptr;
+    g_state.browser_toolbar = nullptr;
+    g_state.browser_back_btn = nullptr;
+    g_state.home_btn = nullptr;
+    g_state.refresh_btn = nullptr;
+    g_state.address_area = nullptr;
+    g_state.go_btn = nullptr;
+    g_state.viewport = nullptr;
+    g_state.top_bar = {};
+    g_state.search_box = {};
+    g_state.help_modal = {};
+    std::vector<rtdir::AnnounceRecord>().swap(g_state.announces);
+    std::vector<rtdir::LxmfAddressRecord>().swap(g_state.addresses);
+    std::memset(g_state.row_contexts.data(),
+                0,
+                g_state.row_contexts.size() * sizeof(g_state.row_contexts[0]));
+    std::memset(g_state.link_contexts.data(),
+                0,
+                g_state.link_contexts.size() * sizeof(g_state.link_contexts[0]));
+    std::memset(g_state.history.data(),
+                0,
+                g_state.history.size() * sizeof(g_state.history[0]));
+    std::memset(g_state.page_body.data(), 0, g_state.page_body.size());
+    g_state.announce_count = 0;
+    g_state.address_count = 0;
+    g_state.row_context_count = 0;
+    g_state.link_context_count = 0;
+    g_state.history_count = 0;
+    g_state.history_pos = 0;
+    g_state.directory_mode = DirectoryMode::Announces;
+    g_state.immersive = false;
+    g_state.directory_collapsed = false;
+    g_state.browser_collapsed = false;
+    g_state.suppress_history = false;
+    g_state.announce_status = {};
+    g_state.address_status = {};
+    copy_text(g_state.current_address, sizeof(g_state.current_address), "home:/");
+    std::memset(g_state.search_query, 0, sizeof(g_state.search_query));
+}
+
 bool object_in_subtree(lv_obj_t* root, lv_obj_t* obj)
 {
     if (!root || !obj || !lv_obj_is_valid(root) || !lv_obj_is_valid(obj))
@@ -2416,13 +2467,23 @@ void enter(void* /*user_data*/, lv_obj_t* parent)
 
 void exit(void* /*user_data*/, lv_obj_t* /*parent*/)
 {
+    NETWORK_PAGE_LOG("exit begin root=%u rows=%u links=%u history=%u\n",
+                     g_state.root && lv_obj_is_valid(g_state.root) ? 1U : 0U,
+                     static_cast<unsigned>(g_state.row_context_count),
+                     static_cast<unsigned>(g_state.link_context_count),
+                     static_cast<unsigned>(g_state.history_count));
     ::ui::components::floating_search_box::close(g_state.search_box);
     close_network_help_modal();
+    if (app_g)
+    {
+        lv_group_remove_all_objs(app_g);
+    }
     if (g_state.root && lv_obj_is_valid(g_state.root))
     {
         lv_obj_del(g_state.root);
     }
-    g_state = NetworkPageState{};
+    reset_state_after_destroy();
+    NETWORK_PAGE_LOG("exit done\n");
 }
 
 } // namespace network::ui::shell
