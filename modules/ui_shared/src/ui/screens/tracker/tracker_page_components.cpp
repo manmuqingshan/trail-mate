@@ -3366,12 +3366,12 @@ void update_route_status()
         if (!state.active_route.empty())
         {
             const std::string text = ::ui::i18n::format("Active: %s", state.active_route.c_str());
-            ::ui::i18n::set_label_text_raw(state.status_label, text.c_str());
+            ::ui::i18n::set_content_label_text_raw(state.status_label, text.c_str());
         }
         else if (!state.selected_route.empty())
         {
             const std::string text = ::ui::i18n::format("Selected: %s", state.selected_route.c_str());
-            ::ui::i18n::set_label_text_raw(state.status_label, text.c_str());
+            ::ui::i18n::set_content_label_text_raw(state.status_label, text.c_str());
         }
         else
         {
