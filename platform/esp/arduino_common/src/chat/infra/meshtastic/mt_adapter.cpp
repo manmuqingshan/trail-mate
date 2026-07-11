@@ -1531,6 +1531,45 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         return;
     }
 
+    PacketHeaderWire header;
+    if (size < sizeof(header))
+    {
+        mt_diag_log("[MT][RX_DROP] reason=parse_fail len=%u\n",
+                    static_cast<unsigned>(size));
+#if LORA_LOG_ENABLE
+        std::string raw_hex = toHex(data, size);
+        LORA_LOG("[LORA] RX parse fail len=%u hex=%s\n",
+                 (unsigned)size,
+                 raw_hex.c_str());
+#endif
+        return;
+    }
+
+    memcpy(&header, data, sizeof(header));
+    const size_t wire_payload_size = size - sizeof(header);
+    const bool matches_primary_channel = (header.channel == primary_channel_hash_);
+    const bool matches_secondary_channel =
+        (secondary_psk_len_ > 0 && header.channel == secondary_channel_hash_);
+    const bool can_try_pki =
+        (header.to == node_id_ && header.to != kBroadcastNodeId && wire_payload_size > 12);
+    const bool from_self = (header.from == node_id_);
+    if (!from_self && !(matches_primary_channel || matches_secondary_channel) && !can_try_pki)
+    {
+        char detail[64];
+        std::snprintf(detail,
+                      sizeof(detail),
+                      "primary=0x%02X secondary=0x%02X",
+                      static_cast<unsigned>(primary_channel_hash_),
+                      static_cast<unsigned>(secondary_channel_hash_));
+        mt_diag_dropf(&header, "unknown_channel", "%s", detail);
+        LORA_LOG("[LORA] RX unknown channel hash=0x%02X from=%08lX id=%08lX len=%u (early skip)\n",
+                 header.channel,
+                 (unsigned long)header.from,
+                 (unsigned long)header.id,
+                 (unsigned)wire_payload_size);
+        return;
+    }
+
     // Store raw packet data for protocol detection
     if (size <= sizeof(last_raw_packet_))
     {
@@ -1548,7 +1587,6 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
     }
 
     // Parse wire packet header
-    PacketHeaderWire header;
     auto& scratch = rx_scratch_;
     uint8_t* payload = scratch.payload.data();
     size_t payload_size = scratch.payload.size();
@@ -1565,10 +1603,6 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 #endif
         return;
     }
-
-    const bool matches_primary_channel = (header.channel == primary_channel_hash_);
-    const bool matches_secondary_channel =
-        (secondary_psk_len_ > 0 && header.channel == secondary_channel_hash_);
 
     LORA_LOG("[LORA] RX wire from=%08lX to=%08lX id=%08lX ch=0x%02X flags=0x%02X len=%u\n",
              (unsigned long)header.from,
@@ -1697,8 +1731,6 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
     std::memset(&decoded, 0, sizeof(decoded));
     ChannelId decoded_channel_id = ChannelId::PRIMARY;
     bool used_pki_transport = false;
-    const bool can_try_pki =
-        (header.to == node_id_ && header.to != kBroadcastNodeId && payload_size > 12);
     const char* last_drop_reason = nullptr;
     char last_drop_detail[96] = {};
 
