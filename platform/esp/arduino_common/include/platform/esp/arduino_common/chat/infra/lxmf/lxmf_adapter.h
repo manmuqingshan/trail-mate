@@ -151,6 +151,10 @@ class LxmfAdapter : public IMeshAdapter
     uint32_t rx_summary_parse_failed_ = 0;
     uint32_t rx_summary_deferred_ = 0;
     uint32_t rx_summary_deferred_dropped_ = 0;
+    uint32_t last_lora_discovery_detail_log_ms_ = 0;
+    uint32_t suppressed_lora_discovery_detail_logs_ = 0;
+    uint32_t last_lora_announce_ignore_log_ms_ = 0;
+    uint32_t suppressed_lora_announce_ignore_logs_ = 0;
     std::array<NodeId, kPendingPeerProjectionDepth> pending_peer_projection_nodes_{};
     std::size_t pending_peer_projection_count_ = 0;
     std::array<MeshPeerRecord, kPeerDirectoryHotLoadRecords> peer_directory_load_entries_{};
@@ -234,7 +238,8 @@ class LxmfAdapter : public IMeshAdapter
     bool sendCachedPacketReplay(const uint8_t packet_hash[reticulum::kFullHashSize]);
     bool shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& packet);
     bool shouldLogRxDetail(const reticulum::ParsedPacket& packet,
-                           reticulum::interfaces::InterfaceKind ingress_interface) const;
+                           reticulum::interfaces::InterfaceKind ingress_interface,
+                           const RuntimeBudget& budget);
     bool consumeDiscoveryBudget(reticulum::interfaces::InterfaceKind ingress_interface);
     void noteRxSummary(bool wifi_skipped = false,
                        bool duplicate = false,

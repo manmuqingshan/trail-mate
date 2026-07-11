@@ -32,6 +32,7 @@ constexpr uint8_t kTDeckBacklightStepMax = 16;
 constexpr uint32_t kTDeckBacklightOffDelayMs = 3;
 constexpr uint32_t kTDeckBacklightWakeDelayUs = 30;
 constexpr uint32_t kTDeckDisplaySpiClockMhz = 80;
+constexpr uint32_t kRadioSpiLockTimeoutLogIntervalMs = 1000;
 // LilyGo's T-Deck GPSShield reference starts the L76K/CASIC path at 9600.
 constexpr uint32_t kGpsDefaultBaud = 9600;
 constexpr uint8_t kGpsProfileAuto = 0;
@@ -41,6 +42,8 @@ constexpr uint8_t kGpsProfileUbxModern = 3;
 constexpr size_t kMessageToneMinDmaHeapBytes = 24 * 1024;
 constexpr size_t kMessageToneMinInternalHeapBytes = 48 * 1024;
 uint8_t s_backlight_level = 0;
+uint32_t s_last_radio_spi_lock_timeout_log_ms = 0;
+uint32_t s_suppressed_radio_spi_lock_timeout_logs = 0;
 
 #if DEVICE_MAX_BRIGHTNESS_LEVEL > 0
 constexpr uint32_t kBacklightLevelMax = DEVICE_MAX_BRIGHTNESS_LEVEL;
@@ -86,6 +89,40 @@ uint32_t radio_tx_timeout_ms(RadioT& radio, size_t len)
         timeout_ms = 120000ULL;
     }
     return static_cast<uint32_t>(timeout_ms);
+}
+
+void log_radio_spi_lock_timeout(const char* owner, TickType_t wait_ticks)
+{
+    const uint32_t now_ms = millis();
+    ++s_suppressed_radio_spi_lock_timeout_logs;
+    if (s_last_radio_spi_lock_timeout_log_ms != 0 &&
+        now_ms - s_last_radio_spi_lock_timeout_log_ms <
+            kRadioSpiLockTimeoutLogIntervalMs)
+    {
+        return;
+    }
+    Serial.printf("[SPI][RADIO] lock_timeout board=tdeck owner=%s wait_ticks=%lu suppressed=%lu\n",
+                  owner ? owner : "-",
+                  static_cast<unsigned long>(wait_ticks),
+                  static_cast<unsigned long>(s_suppressed_radio_spi_lock_timeout_logs - 1));
+    s_suppressed_radio_spi_lock_timeout_logs = 0;
+    s_last_radio_spi_lock_timeout_log_ms = now_ms;
+}
+
+template <typename Fn>
+bool withSharedSpiRadioAccess(LilyGoDispArduinoSPI& spi,
+                              const char* owner,
+                              TickType_t wait_ticks,
+                              Fn&& fn)
+{
+    if (!spi.lock(wait_ticks, owner))
+    {
+        log_radio_spi_lock_timeout(owner, wait_ticks);
+        return false;
+    }
+    fn();
+    spi.unlock();
+    return true;
 }
 
 void write_backlight_level(uint8_t level)
@@ -1009,10 +1046,10 @@ bool TDeckBoard::syncTimeFromGPS(uint32_t gps_task_interval_ms)
 int TDeckBoard::transmitRadio(const uint8_t* data, size_t len)
 {
     const uint32_t timeout_ms = radio_tx_timeout_ms(radio_, len);
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess(*this, "radio_tx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.startTransmit(data, len); }))
     {
-        int rc = radio_.startTransmit(data, len);
-        LilyGoDispArduinoSPI::unlock();
         if (rc != RADIOLIB_ERR_NONE)
         {
             return rc;
@@ -1028,20 +1065,18 @@ int TDeckBoard::transmitRadio(const uint8_t* data, size_t len)
     {
         if (static_cast<uint32_t>(millis() - started_ms) > timeout_ms)
         {
-            if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
-            {
-                (void)radio_.finishTransmit();
-                LilyGoDispArduinoSPI::unlock();
-            }
+            (void)withSharedSpiRadioAccess(*this, "radio_tx_finish",
+                                           pdMS_TO_TICKS(50),
+                                           [&]()
+                                           { (void)radio_.finishTransmit(); });
             return RADIOLIB_ERR_TX_TIMEOUT;
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
+    if (withSharedSpiRadioAccess(*this, "radio_tx_finish", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.finishTransmit(); }))
     {
-        const int rc = radio_.finishTransmit();
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1049,10 +1084,10 @@ int TDeckBoard::transmitRadio(const uint8_t* data, size_t len)
 
 int TDeckBoard::startRadioReceive()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess(*this, "radio_rx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.startReceive(); }))
     {
-        int rc = radio_.startReceive();
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1060,10 +1095,10 @@ int TDeckBoard::startRadioReceive()
 
 uint32_t TDeckBoard::getRadioIrqFlags()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
+    uint32_t flags = 0;
+    if (withSharedSpiRadioAccess(*this, "radio_irq", pdMS_TO_TICKS(20), [&]()
+                                 { flags = radio_.getIrqFlags(); }))
     {
-        uint32_t flags = radio_.getIrqFlags();
-        LilyGoDispArduinoSPI::unlock();
         return flags;
     }
     return 0;
@@ -1071,10 +1106,10 @@ uint32_t TDeckBoard::getRadioIrqFlags()
 
 int TDeckBoard::getRadioPacketLength(bool update)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rx"))
+    int len = 0;
+    if (withSharedSpiRadioAccess(*this, "radio_rx", pdMS_TO_TICKS(20), [&]()
+                                 { len = static_cast<int>(radio_.getPacketLength(update)); }))
     {
-        int len = static_cast<int>(radio_.getPacketLength(update));
-        LilyGoDispArduinoSPI::unlock();
         return len;
     }
     return 0;
@@ -1082,10 +1117,10 @@ int TDeckBoard::getRadioPacketLength(bool update)
 
 int TDeckBoard::readRadioData(uint8_t* buf, size_t len)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess(*this, "radio_rx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.readData(buf, len); }))
     {
-        int rc = radio_.readData(buf, len);
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1093,19 +1128,16 @@ int TDeckBoard::readRadioData(uint8_t* buf, size_t len)
 
 void TDeckBoard::clearRadioIrqFlags(uint32_t flags)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
-    {
-        radio_.clearIrqFlags(flags);
-        LilyGoDispArduinoSPI::unlock();
-    }
+    (void)withSharedSpiRadioAccess(*this, "radio_irq", pdMS_TO_TICKS(20), [&]()
+                                   { radio_.clearIrqFlags(flags); });
 }
 
 float TDeckBoard::getRadioRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
+    float rssi = std::numeric_limits<float>::quiet_NaN();
+    if (withSharedSpiRadioAccess(*this, "radio_rssi", pdMS_TO_TICKS(20), [&]()
+                                 { rssi = radio_.getRSSI(); }))
     {
-        float rssi = radio_.getRSSI();
-        LilyGoDispArduinoSPI::unlock();
         return rssi;
     }
     return std::numeric_limits<float>::quiet_NaN();
@@ -1113,10 +1145,10 @@ float TDeckBoard::getRadioRSSI()
 
 float TDeckBoard::getRadioInstantRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
+    float rssi = std::numeric_limits<float>::quiet_NaN();
+    if (withSharedSpiRadioAccess(*this, "radio_rssi", pdMS_TO_TICKS(20), [&]()
+                                 { rssi = radio_.getRSSI(false); }))
     {
-        const float rssi = radio_.getRSSI(false);
-        LilyGoDispArduinoSPI::unlock();
         return rssi;
     }
     return std::numeric_limits<float>::quiet_NaN();
@@ -1124,10 +1156,10 @@ float TDeckBoard::getRadioInstantRSSI()
 
 float TDeckBoard::getRadioSNR()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
+    float snr = std::numeric_limits<float>::quiet_NaN();
+    if (withSharedSpiRadioAccess(*this, "radio_rssi", pdMS_TO_TICKS(20), [&]()
+                                 { snr = radio_.getSNR(); }))
     {
-        float snr = radio_.getSNR();
-        LilyGoDispArduinoSPI::unlock();
         return snr;
     }
     return std::numeric_limits<float>::quiet_NaN();
@@ -1147,8 +1179,8 @@ void TDeckBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, ui
                                     int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
                                     uint8_t crc_len)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100), "radio_cfg"))
-    {
+    (void)withSharedSpiRadioAccess(*this, "radio_cfg", pdMS_TO_TICKS(100), [&]()
+                                   {
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
         radio_.setDio2AsRfSwitch(true);
         radio_.setCurrentLimit(kTDeckRadioCurrentLimitMa);
@@ -1164,9 +1196,7 @@ void TDeckBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, ui
 #endif
         radio_.setPreambleLength(preamble_len);
         radio_.setSyncWord(sync_word);
-        radio_.setCRC(crc_len);
-        LilyGoDispArduinoSPI::unlock();
-    }
+        radio_.setCRC(crc_len); });
 }
 
 RotaryMsg_t TDeckBoard::getRotary()

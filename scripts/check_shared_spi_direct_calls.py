@@ -57,6 +57,14 @@ DIRECT_CALL_PATTERNS = (
         "lilygo_display_spi_unlock",
         re.compile(r"\bLilyGoDispArduinoSPI::unlock\s*\("),
     ),
+    DirectCallPattern(
+        "lilygo_display_spi_instance_lock",
+        re.compile(r"\bspi\.lock\s*\("),
+    ),
+    DirectCallPattern(
+        "lilygo_display_spi_instance_unlock",
+        re.compile(r"\bspi\.unlock\s*\("),
+    ),
 )
 
 
@@ -118,48 +126,23 @@ LEGACY_TRANSITION_OCCURRENCES = {
     (
         "boards/tdeck/src/tdeck_board.cpp",
         "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100), "radio_cfg"))',
-    ): 1,
-    (
-        "boards/tdeck/src/tdeck_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))',
-    ): 2,
-    (
-        "boards/tdeck/src/tdeck_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))',
-    ): 3,
-    (
-        "boards/tdeck/src/tdeck_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rx"))',
-    ): 1,
-    (
-        "boards/tdeck/src/tdeck_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))',
-    ): 2,
-    (
-        "boards/tdeck/src/tdeck_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx"))',
-    ): 1,
-    (
-        "boards/tdeck/src/tdeck_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))',
-    ): 2,
-    (
-        "boards/tdeck/src/tdeck_board.cpp",
-        "lilygo_display_spi_lock",
         "if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))",
+    ): 1,
+    (
+        "boards/tdeck/src/tdeck_board.cpp",
+        "lilygo_display_spi_instance_lock",
+        "if (!spi.lock(wait_ticks, owner))",
     ): 1,
     (
         "boards/tdeck/src/tdeck_board.cpp",
         "lilygo_display_spi_unlock",
         "LilyGoDispArduinoSPI::unlock();",
-    ): 14,
+    ): 2,
+    (
+        "boards/tdeck/src/tdeck_board.cpp",
+        "lilygo_display_spi_instance_unlock",
+        "spi.unlock();",
+    ): 1,
     (
         "boards/tlora_pager/src/tlora_pager_board.cpp",
         "lilygo_display_spi_lock",
@@ -168,67 +151,22 @@ LEGACY_TRANSITION_OCCURRENCES = {
     (
         "boards/tlora_pager/src/tlora_pager_board.cpp",
         "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100), "radio_cfg"))',
-    ): 1,
-    (
-        "boards/tlora_pager/src/tlora_pager_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))',
-    ): 2,
-    (
-        "boards/tlora_pager/src/tlora_pager_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))',
-    ): 3,
-    (
-        "boards/tlora_pager/src/tlora_pager_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rx"))',
-    ): 1,
-    (
-        "boards/tlora_pager/src/tlora_pager_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(200), "radio_cfg"))',
-    ): 2,
-    (
-        "boards/tlora_pager/src/tlora_pager_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_cfg"))',
-    ): 1,
-    (
-        "boards/tlora_pager/src/tlora_pager_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))',
-    ): 2,
-    (
-        "boards/tlora_pager/src/tlora_pager_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx"))',
-    ): 2,
-    (
-        "boards/tlora_pager/src/tlora_pager_board.cpp",
-        "lilygo_display_spi_lock",
-        'if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))',
-    ): 2,
-    (
-        "boards/tlora_pager/src/tlora_pager_board.cpp",
-        "lilygo_display_spi_lock",
         "if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))",
+    ): 1,
+    (
+        "boards/tlora_pager/src/tlora_pager_board.cpp",
+        "lilygo_display_spi_instance_lock",
+        "if (!spi.lock(wait_ticks, owner))",
     ): 1,
     (
         "boards/tlora_pager/src/tlora_pager_board.cpp",
         "lilygo_display_spi_unlock",
         "LilyGoDispArduinoSPI::unlock();",
-    ): 18,
-    (
-        "platform/esp/arduino_common/src/platform_ui_usb_support_runtime.cpp",
-        "shared_spi_guard",
-        "::platform::esp::common::SharedSpiLockGuard spi_guard(pdMS_TO_TICKS(50));",
     ): 2,
     (
-        "platform/esp/arduino_common/src/sstv/sstv_service.cpp",
-        "shared_spi_guard",
-        "::platform::esp::common::SharedSpiLockGuard guard(pdMS_TO_TICKS(200));",
+        "boards/tlora_pager/src/tlora_pager_board.cpp",
+        "lilygo_display_spi_instance_unlock",
+        "spi.unlock();",
     ): 1,
 }
 

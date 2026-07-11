@@ -69,6 +69,9 @@ constexpr uint32_t kPropagationEntryTtlS = 3UL * 24UL * 60UL * 60UL;
 constexpr uint32_t kPropagationTransientTtlS = 3UL * 24UL * 60UL * 60UL;
 constexpr uint32_t kPropagationTransferLimitKb = 64;
 constexpr uint32_t kPropagationSyncLimitKb = 64;
+constexpr uint32_t kLoraDiscoveryForegroundDetailLogIntervalMs = 15000;
+constexpr uint32_t kLoraDiscoverySleepDetailLogIntervalMs = 10000;
+constexpr uint32_t kLoraAnnounceIgnoreDetailLogIntervalMs = 10000;
 constexpr uint8_t kLinkModeAes256Cbc = 0x01;
 constexpr size_t kLinkRequestBaseLen = 64;
 constexpr size_t kLinkSignallingLen = 3;
@@ -1764,7 +1767,8 @@ bool LxmfAdapter::processOneRadioPacket(
     char dest_hash[12] = {};
     formatHashPrefix(parsed.destination_hash, dest_hash, sizeof(dest_hash));
     noteRxSummary();
-    const bool log_detail = shouldLogRxDetail(parsed, ingress_interface) && !deferred_replay;
+    const bool log_detail =
+        shouldLogRxDetail(parsed, ingress_interface, budget) && !deferred_replay;
     if (log_detail)
     {
         Serial.printf("[LXMF][RawRX] packet iface=%s type=%u dest_type=%u context=%u dest=%s raw_len=%u payload_len=%u hops=%u phase=%s\n",
@@ -2421,9 +2425,34 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         }
     }
 
-    const bool log_announce_detail =
+    bool log_announce_detail =
         ingress_interface != reticulum::interfaces::InterfaceKind::WifiGateway ||
         local_destination;
+    const bool contact_announce = delivery_announce || call_audio_announce;
+    if (log_announce_detail &&
+        ingress_interface != reticulum::interfaces::InterfaceKind::WifiGateway &&
+        !local_destination &&
+        !contact_announce)
+    {
+        const uint32_t log_now_ms = millis();
+        if (last_lora_announce_ignore_log_ms_ != 0 &&
+            log_now_ms - last_lora_announce_ignore_log_ms_ <
+                kLoraAnnounceIgnoreDetailLogIntervalMs)
+        {
+            ++suppressed_lora_announce_ignore_logs_;
+            log_announce_detail = false;
+        }
+        else
+        {
+            if (suppressed_lora_announce_ignore_logs_ != 0)
+            {
+                Serial.printf("[LXMF][AnnounceRX] ignored_suppressed iface=lora suppressed=%u\n",
+                              static_cast<unsigned>(suppressed_lora_announce_ignore_logs_));
+                suppressed_lora_announce_ignore_logs_ = 0;
+            }
+            last_lora_announce_ignore_log_ms_ = log_now_ms;
+        }
+    }
     if (log_announce_detail)
     {
         Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u app_len=%u delivery=%u propagation=%u call=%u nomad=%u local=%u kind=%s\n",
@@ -2453,7 +2482,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         runtime::markPropagationPeerSeen(propagation_peer, now_s);
     }
 
-    if (!(delivery_announce || call_audio_announce) || local_destination)
+    if (!contact_announce || local_destination)
     {
         if (log_announce_detail)
         {
@@ -4802,10 +4831,34 @@ bool LxmfAdapter::shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& 
 
 bool LxmfAdapter::shouldLogRxDetail(
     const reticulum::ParsedPacket& packet,
-    reticulum::interfaces::InterfaceKind ingress_interface) const
+    reticulum::interfaces::InterfaceKind ingress_interface,
+    const RuntimeBudget& budget)
 {
     if (ingress_interface != reticulum::interfaces::InterfaceKind::WifiGateway)
     {
+        if (!isPublicDiscoveryPacket(packet))
+        {
+            return true;
+        }
+        const uint32_t now_ms = millis();
+        const uint32_t interval_ms =
+            budget.allow_persistence
+                ? kLoraDiscoverySleepDetailLogIntervalMs
+                : kLoraDiscoveryForegroundDetailLogIntervalMs;
+        if (last_lora_discovery_detail_log_ms_ != 0 &&
+            now_ms - last_lora_discovery_detail_log_ms_ < interval_ms)
+        {
+            ++suppressed_lora_discovery_detail_logs_;
+            return false;
+        }
+        if (suppressed_lora_discovery_detail_logs_ != 0)
+        {
+            Serial.printf("[LXMF][RawRX] detail_suppressed iface=lora public_discovery=1 phase=%s suppressed=%u\n",
+                          budget.phase ? budget.phase : "-",
+                          static_cast<unsigned>(suppressed_lora_discovery_detail_logs_));
+            suppressed_lora_discovery_detail_logs_ = 0;
+        }
+        last_lora_discovery_detail_log_ms_ = now_ms;
         return true;
     }
     if (!packet.destination_hash)
