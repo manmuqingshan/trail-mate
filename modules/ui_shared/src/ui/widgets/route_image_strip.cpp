@@ -631,7 +631,8 @@ void create(lv_obj_t* parent, Widget& widget, const Config& config)
     if (valid_obj(widget.root) && valid_obj(widget.list))
     {
         lv_obj_set_size(widget.root, width, LV_PCT(100));
-        lv_obj_set_style_bg_opa(widget.root, widget.config.opacity, 0);
+        lv_obj_set_style_bg_opa(widget.root, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(widget.root, 0, 0);
         return;
     }
 
@@ -643,10 +644,8 @@ void create(lv_obj_t* parent, Widget& widget, const Config& config)
     lv_obj_add_flag(widget.root, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_obj_add_flag(widget.root, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_user_data(widget.root, &widget);
-    lv_obj_set_style_bg_color(widget.root, lv_color_hex(0x17130F), 0);
-    lv_obj_set_style_bg_opa(widget.root, widget.config.opacity, 0);
-    lv_obj_set_style_border_width(widget.root, 1, 0);
-    lv_obj_set_style_border_color(widget.root, lv_color_hex(0xFFF3DF), 0);
+    lv_obj_set_style_bg_opa(widget.root, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(widget.root, 0, 0);
     lv_obj_set_style_radius(widget.root, 0, 0);
     lv_obj_set_style_pad_all(widget.root, widget.config.inset, 0);
     lv_obj_clear_flag(widget.root, LV_OBJ_FLAG_SCROLLABLE);

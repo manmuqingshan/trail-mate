@@ -1162,7 +1162,6 @@ bool route_image_context_active()
     ::ui::widgets::route_image_strip::Config config{};
     config.width = 200;
     config.item_height = ::ui::page_profile::current().dense ? 104 : 120;
-    config.opacity = LV_OPA_70;
     return config;
 }
 

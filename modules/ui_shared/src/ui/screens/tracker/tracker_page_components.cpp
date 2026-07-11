@@ -1462,7 +1462,6 @@ void set_plain_panel(lv_obj_t* obj, uint32_t bg)
     ::ui::widgets::route_image_strip::Config config{};
     config.width = 200;
     config.item_height = page_profile().dense ? 104 : 120;
-    config.opacity = LV_OPA_70;
     return config;
 }
 
