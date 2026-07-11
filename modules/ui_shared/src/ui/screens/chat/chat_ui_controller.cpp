@@ -59,7 +59,7 @@ enum class ConversationScrollAnchor
     Bottom
 };
 
-constexpr uint8_t kTeamChatChannelRaw = 2;
+constexpr uint8_t kTeamChatChannelRaw = static_cast<uint8_t>(chat::ChannelId::TEAM);
 constexpr chat::ChannelId kTeamChatChannel =
     static_cast<chat::ChannelId>(kTeamChatChannelRaw);
 
@@ -74,6 +74,16 @@ const char* channel_display_name(chat::MeshProtocol protocol, chat::ChannelId ch
     {
         return chat::meshtastic::channelName(app::configFacade().getConfig().meshtastic_config,
                                              channel);
+    }
+    if (protocol == chat::MeshProtocol::MeshCore)
+    {
+        const chat::MeshConfig& config = app::configFacade().getConfig().meshcore_config;
+        const chat::MeshCoreChannelConfig& channel_config =
+            config.meshCoreChannel(chat::meshCoreChannelSlotFromId(channel));
+        if (channel_config.name[0] != '\0')
+        {
+            return channel_config.name;
+        }
     }
     switch (channel)
     {

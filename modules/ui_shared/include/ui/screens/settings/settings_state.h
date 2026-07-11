@@ -63,9 +63,11 @@ enum class SettingId : std::uint16_t
     McMqttUplink,
     McMqttDownlink,
     McChannelSlot,
+    McChannelEnabled,
     McChannelName,
     McChannelKey,
     McChannelKeyGenerate,
+    McChannelClear,
     RtBearer,
     RtLoraEnabled,
     RtDisplayName,
@@ -281,6 +283,7 @@ struct SettingsData
     int mc_send_profile = 1;
     int mc_forward_profile = 1;
     int mc_channel_slot = 0;
+    bool mc_channel_enabled = true;
     char mc_channel_name[32] = "Public";
     char mc_channel_key[65] = {};
     bool mc_mqtt_enabled = false;

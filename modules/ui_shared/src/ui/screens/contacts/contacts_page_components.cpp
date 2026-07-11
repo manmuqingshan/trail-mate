@@ -637,7 +637,11 @@ static const char* broadcast_chat_unavailable_message(const BroadcastTargetSpec&
     {
         return "Reticulum group send unavailable";
     }
-    return "Chat unavailable";
+    if (!spec.enabled)
+    {
+        return "MC channel disabled";
+    }
+    return "MC channel key missing";
 }
 
 static size_t get_broadcast_target_count()
@@ -647,7 +651,7 @@ static size_t get_broadcast_target_count()
     case chat::MeshProtocol::Meshtastic:
         return 8U;
     case chat::MeshProtocol::MeshCore:
-        return 2U;
+        return chat::kMeshCoreChannelMaxCount;
     case chat::MeshProtocol::Reticulum:
         return 1U;
     default:
@@ -692,25 +696,21 @@ static bool get_broadcast_target_spec(int index, BroadcastTargetSpec* out)
         return true;
     }
 
-    switch (index)
+    if (index >= static_cast<int>(chat::kMeshCoreChannelMaxCount))
     {
-    case 0:
-        out->protocol = chat::MeshProtocol::MeshCore;
-        out->channel = chat::ChannelId::PRIMARY;
-        out->channel_index = 0;
-        out->enabled = true;
-        out->chat_supported = true;
-        return true;
-    case 1:
-        out->protocol = chat::MeshProtocol::MeshCore;
-        out->channel = chat::ChannelId::SECONDARY;
-        out->channel_index = 1;
-        out->enabled = true;
-        out->chat_supported = true;
-        return true;
-    default:
         return false;
     }
+    const auto& cfg = app::appFacade().getConfig().meshcore_config;
+    const uint8_t slot = static_cast<uint8_t>(index);
+    const chat::MeshCoreChannelConfig& channel = cfg.meshCoreChannel(slot);
+    const bool has_key =
+        !chat::isAllZeroKeyBytes(channel.key, chat::kMeshCoreChannelKeyLen);
+    out->protocol = chat::MeshProtocol::MeshCore;
+    out->channel = chat::meshCoreChannelIdFromSlot(slot);
+    out->channel_index = slot;
+    out->enabled = (slot == 0) ? true : channel.enabled;
+    out->chat_supported = out->enabled && (slot == 0 || has_key);
+    return true;
 }
 
 static std::string format_broadcast_target_label(const BroadcastTargetSpec& spec)
@@ -725,8 +725,18 @@ static std::string format_broadcast_target_label(const BroadcastTargetSpec& spec
     {
         return std::string("[RT] ") + ::ui::i18n::tr("Primary Group");
     }
-    return std::string("[MC] ") +
-           ::ui::i18n::tr((spec.channel == chat::ChannelId::SECONDARY) ? "Secondary" : "Primary");
+    const chat::MeshConfig& cfg = app::appFacade().getConfig().meshcore_config;
+    const chat::MeshCoreChannelConfig& channel =
+        cfg.meshCoreChannel(spec.channel_index);
+    const char* name = channel.name[0] != '\0' ? channel.name : nullptr;
+    char fallback[16] = {};
+    if (!name)
+    {
+        std::snprintf(fallback, sizeof(fallback), "Slot %u",
+                      static_cast<unsigned>(spec.channel_index));
+        name = fallback;
+    }
+    return std::string("[MC] ") + name;
 }
 
 static std::string format_broadcast_target_status(const BroadcastTargetSpec& spec)
@@ -751,6 +761,21 @@ static std::string format_broadcast_target_status(const BroadcastTargetSpec& spe
     if (chat::infra::isReticulumMeshProtocol(spec.protocol))
     {
         return ::ui::i18n::tr("Group destination");
+    }
+    const chat::MeshConfig& cfg = app::appFacade().getConfig().meshcore_config;
+    const chat::MeshCoreChannelConfig& channel =
+        cfg.meshCoreChannel(spec.channel_index);
+    if (!spec.enabled)
+    {
+        return ::ui::i18n::tr("Disabled");
+    }
+    if (spec.channel_index == 0)
+    {
+        return ::ui::i18n::tr("Public");
+    }
+    if (chat::isAllZeroKeyBytes(channel.key, chat::kMeshCoreChannelKeyLen))
+    {
+        return ::ui::i18n::tr("Key missing");
     }
     return ::ui::i18n::tr("Ready");
 }

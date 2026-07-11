@@ -256,6 +256,30 @@ void sync_meshtastic_channel_fields(const app::AppConfig& config, SettingsData& 
     settings.mt_secondary_downlink = config.secondary_downlink_enabled;
 }
 
+void sync_meshcore_channel_fields(const app::AppConfig& config, SettingsData& settings)
+{
+    const chat::MeshConfig& mesh = config.meshcore_config;
+    const uint8_t slot =
+        chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(settings.mc_channel_slot));
+    settings.mc_channel_slot = slot;
+    const chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+    settings.mc_channel_enabled = (slot == 0) ? true : channel.enabled;
+    copy_bounded(settings.mc_channel_name,
+                 sizeof(settings.mc_channel_name),
+                 channel.name);
+    if (is_zero_key(channel.key, chat::kMeshCoreChannelKeyLen))
+    {
+        settings.mc_channel_key[0] = '\0';
+    }
+    else
+    {
+        bytes_to_hex(channel.key,
+                     chat::kMeshCoreChannelKeyLen,
+                     settings.mc_channel_key,
+                     sizeof(settings.mc_channel_key));
+    }
+}
+
 bool generate_meshtastic_channel_key(app::AppConfig& config,
                                      SettingsData& settings,
                                      bool primary)
@@ -296,7 +320,18 @@ bool generate_meshcore_channel_key(app::AppConfig& config, SettingsData& setting
     {
         return false;
     }
-    std::memcpy(config.meshcore_config.secondary_key, key, sizeof(key));
+    chat::MeshConfig& mesh = config.meshcore_config;
+    const uint8_t slot =
+        chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(settings.mc_channel_slot));
+    chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+    std::memcpy(channel.key, key, sizeof(key));
+    if (slot != 0)
+    {
+        channel.enabled = true;
+    }
+    mesh.meshcore_channel_slot = slot;
+    mesh.syncMeshCoreLegacyChannelMirror();
+    settings.mc_channel_enabled = (slot == 0) ? true : channel.enabled;
     copy_bounded(settings.mc_channel_key, sizeof(settings.mc_channel_key), generated);
     return true;
 }

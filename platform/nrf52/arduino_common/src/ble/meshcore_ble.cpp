@@ -340,12 +340,17 @@ bool MeshCoreBleService::setCustomVar(const char* key, const char* value)
     }
     else if (std::strcmp(key, "channel_name") == 0)
     {
-        char next[sizeof(mesh_cfg.mesh.meshcore_channel_name)] = {};
+        auto& channel = mesh_cfg.mesh.activeMeshCoreChannel();
+        char next[sizeof(channel.name)] = {};
         copyBounded(next, sizeof(next), value);
-        if (std::strcmp(mesh_cfg.mesh.meshcore_channel_name, next) != 0)
+        if (std::strcmp(channel.name, next) != 0)
         {
-            copyBounded(mesh_cfg.mesh.meshcore_channel_name,
-                        sizeof(mesh_cfg.mesh.meshcore_channel_name), next);
+            copyBounded(channel.name, sizeof(channel.name), next);
+            if (mesh_cfg.mesh.meshcore_channel_slot != 0U && channel.name[0] != '\0')
+            {
+                channel.enabled = true;
+            }
+            mesh_cfg.mesh.syncMeshCoreLegacyChannelMirror();
             changed = true;
             mesh_changed = true;
         }

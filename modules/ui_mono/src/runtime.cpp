@@ -1815,7 +1815,8 @@ void formatMeshCoreChannelKeySummary(const chat::MeshConfig& mesh, char* out, si
     {
         return;
     }
-    if (chat::isAllZeroKeyBytes(mesh.secondary_key, chat::kMeshCoreChannelKeyLen))
+    const auto& channel = mesh.activeMeshCoreChannel();
+    if (chat::isAllZeroKeyBytes(channel.key, chat::kMeshCoreChannelKeyLen))
     {
         std::snprintf(out, out_len, "PUBLIC");
         return;
@@ -1829,12 +1830,13 @@ void formatMeshCoreChannelKeyForEdit(const chat::MeshConfig& mesh, char* out, si
     {
         return;
     }
-    if (chat::isAllZeroKeyBytes(mesh.secondary_key, chat::kMeshCoreChannelKeyLen))
+    const auto& channel = mesh.activeMeshCoreChannel();
+    if (chat::isAllZeroKeyBytes(channel.key, chat::kMeshCoreChannelKeyLen))
     {
         out[0] = '\0';
         return;
     }
-    encodeBase64Bytes(mesh.secondary_key, chat::kMeshCoreChannelKeyLen, out, out_len);
+    encodeBase64Bytes(channel.key, chat::kMeshCoreChannelKeyLen, out, out_len);
 }
 
 bool applyMeshtasticPrimaryKeyText(chat::MeshConfig& mesh, const char* input)
@@ -1898,12 +1900,17 @@ bool applyMeshCoreChannelKeyText(chat::MeshConfig& mesh, const char* input)
     char compact[kKeyTextMax] = {};
     compactKeyText(input, compact, sizeof(compact));
 
-    std::memset(mesh.secondary_key, 0, sizeof(mesh.secondary_key));
-    mesh.secondary_key_len = 0;
+    auto& channel = mesh.activeMeshCoreChannel();
+    std::memset(channel.key, 0, sizeof(channel.key));
     if (compact[0] == '\0' ||
         textEqualsIgnoreCase(compact, "PUBLIC") ||
         textEqualsIgnoreCase(compact, "NONE"))
     {
+        if (mesh.meshcore_channel_slot != 0U)
+        {
+            channel.enabled = channel.name[0] != '\0';
+        }
+        mesh.syncMeshCoreLegacyChannelMirror();
         return true;
     }
 
@@ -1918,8 +1925,12 @@ bool applyMeshCoreChannelKeyText(chat::MeshConfig& mesh, const char* input)
     {
         return false;
     }
-    std::memcpy(mesh.secondary_key, decoded, chat::kMeshCoreChannelKeyLen);
-    mesh.secondary_key_len = static_cast<uint8_t>(chat::kMeshCoreChannelKeyLen);
+    std::memcpy(channel.key, decoded, chat::kMeshCoreChannelKeyLen);
+    if (mesh.meshcore_channel_slot != 0U)
+    {
+        channel.enabled = true;
+    }
+    mesh.syncMeshCoreLegacyChannelMirror();
     return true;
 }
 
@@ -2002,10 +2013,13 @@ void formatRadioSettingValue(const app::AppConfig& cfg, RadioSettingItem item, c
         std::snprintf(out, out_len, "%ddBm", static_cast<int>(mc.tx_power));
         return;
     case RadioSettingItem::McChannelSlot:
-        std::snprintf(out, out_len, "%u", static_cast<unsigned>(mc.meshcore_channel_slot));
+        std::snprintf(out,
+                      out_len,
+                      "%u",
+                      static_cast<unsigned>(chat::normalizeMeshCoreChannelSlot(mc.meshcore_channel_slot)));
         return;
     case RadioSettingItem::McChannelName:
-        std::snprintf(out, out_len, "%s", mc.meshcore_channel_name);
+        std::snprintf(out, out_len, "%s", mc.activeMeshCoreChannel().name);
         return;
     case RadioSettingItem::McChannelKey:
         formatMeshCoreChannelKeySummary(mc, out, out_len);
@@ -3104,7 +3118,8 @@ void Runtime::handleInput(InputAction action)
             const RadioSettingItem item = radioSettingItem(radio_index_);
             if (item == RadioSettingItem::McChannelName)
             {
-                openCompose(EditTarget::MeshCoreChannelName, app()->getConfig().meshcore_config.meshcore_channel_name);
+                openCompose(EditTarget::MeshCoreChannelName,
+                            app()->getConfig().meshcore_config.activeMeshCoreChannel().name);
             }
             else if (item == RadioSettingItem::MtPrimaryKey)
             {
@@ -4885,9 +4900,10 @@ void Runtime::renderInfoPage()
     else
     {
         push_kv("PRESET", radioRegionLabel(cfg));
-        push_kv("NAME", cfg.meshcore_config.meshcore_channel_name);
+        push_kv("NAME", cfg.meshcore_config.activeMeshCoreChannel().name);
         std::snprintf(value, sizeof(value), "%u",
-                      static_cast<unsigned>(cfg.meshcore_config.meshcore_channel_slot));
+                      static_cast<unsigned>(chat::normalizeMeshCoreChannelSlot(
+                          cfg.meshcore_config.meshcore_channel_slot)));
         push_kv("SLOT", value);
         push_kv("ENCRYPT", encryptEnabled(cfg) ? "ON" : "OFF");
     }
@@ -6410,7 +6426,10 @@ void Runtime::adjustSettingPopup(int delta)
             break;
         case RadioSettingItem::McChannelSlot:
             cfg.meshcore_config.meshcore_channel_slot = static_cast<uint8_t>(clampValue<int>(
-                static_cast<int>(cfg.meshcore_config.meshcore_channel_slot) + delta, 0, 15));
+                static_cast<int>(cfg.meshcore_config.meshcore_channel_slot) + delta,
+                0,
+                static_cast<int>(chat::kMeshCoreChannelMaxCount - 1)));
+            cfg.meshcore_config.syncMeshCoreLegacyChannelMirror();
             break;
         case RadioSettingItem::McChannelName:
         case RadioSettingItem::McChannelKey:
@@ -7311,9 +7330,17 @@ bool Runtime::saveEditedTextToConfig()
     switch (edit_target_)
     {
     case EditTarget::MeshCoreChannelName:
-        copyText(cfg.meshcore_config.meshcore_channel_name, compose_buffer_);
+    {
+        auto& channel = cfg.meshcore_config.activeMeshCoreChannel();
+        copyText(channel.name, compose_buffer_);
+        if (cfg.meshcore_config.meshcore_channel_slot != 0U && channel.name[0] != '\0')
+        {
+            channel.enabled = true;
+        }
+        cfg.meshcore_config.syncMeshCoreLegacyChannelMirror();
         mesh_config_changed = true;
         break;
+    }
     case EditTarget::MeshtasticPrimaryKey:
         if (!applyMeshtasticPrimaryKeyText(cfg.meshtastic_config, compose_buffer_))
         {

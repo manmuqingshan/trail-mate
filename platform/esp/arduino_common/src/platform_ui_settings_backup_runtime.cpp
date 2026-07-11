@@ -435,6 +435,66 @@ void restore_mqtt_client_config(cJSON* object,
     copy_json_string(object, "password", password, password_len);
 }
 
+void add_meshcore_channel_config(cJSON* parent, const chat::MeshConfig& config)
+{
+    cJSON* channels = cJSON_AddArrayToObject(parent, "meshcore_channels");
+    if (!channels)
+    {
+        return;
+    }
+    for (std::size_t index = 0; index < chat::kMeshCoreChannelMaxCount; ++index)
+    {
+        cJSON* item = cJSON_CreateObject();
+        if (!item)
+        {
+            continue;
+        }
+        const chat::MeshCoreChannelConfig& channel =
+            config.meshCoreChannel(static_cast<uint8_t>(index));
+        add_int(item, "slot", static_cast<int>(index));
+        add_bool(item, "enabled", index == 0 ? true : channel.enabled);
+        add_string(item, "name", channel.name);
+        add_blob_hex(item, "key", channel.key, sizeof(channel.key));
+        cJSON_AddItemToArray(channels, item);
+    }
+}
+
+void restore_meshcore_channel_config(cJSON* parent, chat::MeshConfig& config)
+{
+    cJSON* channels = cJSON_GetObjectItemCaseSensitive(parent, "meshcore_channels");
+    if (cJSON_IsArray(channels))
+    {
+        const uint8_t active_slot =
+            chat::normalizeMeshCoreChannelSlot(config.meshcore_channel_slot);
+        config.resetMeshCoreChannels();
+        config.meshcore_channel_slot = active_slot;
+        cJSON* item = nullptr;
+        cJSON_ArrayForEach(item, channels)
+        {
+            if (!cJSON_IsObject(item))
+            {
+                continue;
+            }
+            const int slot_raw = json_int(item, "slot", -1);
+            if (slot_raw < 0 || slot_raw >= static_cast<int>(chat::kMeshCoreChannelMaxCount))
+            {
+                continue;
+            }
+            chat::MeshCoreChannelConfig& channel =
+                config.meshCoreChannel(static_cast<uint8_t>(slot_raw));
+            channel.enabled = json_bool(item, "enabled", channel.enabled);
+            copy_json_string(item, "name", channel.name, sizeof(channel.name));
+            copy_json_blob(item, "key", channel.key, sizeof(channel.key));
+        }
+    }
+    else
+    {
+        config.importMeshCoreLegacyChannelMirror();
+    }
+    config.meshCoreChannel(0).enabled = true;
+    config.syncMeshCoreLegacyChannelMirror();
+}
+
 void add_mesh_config(cJSON* parent,
                      const char* key,
                      const chat::MeshConfig& config,
@@ -487,8 +547,12 @@ void add_mesh_config(cJSON* parent,
         add_int(object, "meshcore_forward_profile",
                 static_cast<int>(static_cast<uint8_t>(config.meshcore_forward_profile)));
         add_int(object, "meshcore_channel_slot", config.meshcore_channel_slot);
-        add_string(object, "meshcore_channel_name", config.meshcore_channel_name);
-        add_blob_hex(object, "meshcore_channel_key", config.secondary_key, chat::kMeshCoreChannelKeyLen);
+        const chat::MeshCoreChannelConfig& active_channel =
+            config.activeMeshCoreChannel();
+        add_string(object, "meshcore_channel_name", active_channel.name);
+        add_blob_hex(object, "meshcore_channel_key",
+                     active_channel.key, sizeof(active_channel.key));
+        add_meshcore_channel_config(object, config);
         add_mqtt_client_config(object,
                                "meshcore_mqtt",
                                config.meshcore_mqtt_enabled,
@@ -576,6 +640,7 @@ void restore_mesh_config(cJSON* object,
             json_int(object, "meshcore_channel_slot", config.meshcore_channel_slot));
         copy_json_string(object, "meshcore_channel_name", config.meshcore_channel_name, sizeof(config.meshcore_channel_name));
         copy_json_blob(object, "meshcore_channel_key", config.secondary_key, sizeof(config.secondary_key));
+        restore_meshcore_channel_config(object, config);
         restore_mqtt_client_config(cJSON_GetObjectItemCaseSensitive(object, "meshcore_mqtt"),
                                    config.meshcore_mqtt_enabled,
                                    config.meshcore_mqtt_uplink_enabled,

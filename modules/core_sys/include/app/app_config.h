@@ -196,8 +196,8 @@ struct AppConfig
         ble_enabled = false;
         primary_enabled = true;
         secondary_enabled = false;
-        primary_uplink_enabled = false;
-        primary_downlink_enabled = false;
+        primary_uplink_enabled = true;
+        primary_downlink_enabled = true;
         secondary_uplink_enabled = false;
         secondary_downlink_enabled = false;
         primary_channel_has_module_settings = false;
@@ -277,10 +277,7 @@ struct AppConfig
         meshcore_config.meshcore_multi_acks = false;
         meshcore_config.meshcore_send_profile = chat::MeshCorePayloadSendProfile::AutoPreferV2;
         meshcore_config.meshcore_forward_profile = chat::MeshCoreForwardProfile::MultibyteOnly;
-        meshcore_config.meshcore_channel_slot = 0;
-        strncpy(meshcore_config.meshcore_channel_name, "Public",
-                sizeof(meshcore_config.meshcore_channel_name) - 1);
-        meshcore_config.meshcore_channel_name[sizeof(meshcore_config.meshcore_channel_name) - 1] = '\0';
+        meshcore_config.resetMeshCoreChannels();
         meshcore_config.meshcore_mqtt_enabled = false;
         meshcore_config.meshcore_mqtt_uplink_enabled = true;
         meshcore_config.meshcore_mqtt_downlink_enabled = true;

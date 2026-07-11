@@ -41,6 +41,16 @@ constexpr size_t kCmdQueueSize = 12;
 constexpr uint8_t kCmdTxAppFlagWantResponse = 1 << 0;
 constexpr uint8_t kCmdTxAppFlagTeamMgmtPlain = 1 << 1;
 
+uint8_t active_protocol_channel_limit()
+{
+    const chat::MeshProtocol protocol = app::appFacade().getConfig().mesh_protocol;
+    if (protocol == chat::MeshProtocol::MeshCore)
+    {
+        return static_cast<uint8_t>(chat::kMeshCoreChannelMaxCount);
+    }
+    return static_cast<uint8_t>(chat::kPrimarySecondaryChannelMaxCount);
+}
+
 struct TxItem
 {
     uint8_t* data = nullptr;
@@ -381,9 +391,7 @@ ErrorCode execute_cmd_tx_app_data(const PendingCommand& command)
 ErrorCode handle_cmd_tx_msg(const Frame& frame)
 {
     PendingCommand command{};
-    if (!parse_tx_msg_command(frame,
-                              static_cast<uint8_t>(chat::ChannelId::MAX_CHANNELS),
-                              command))
+    if (!parse_tx_msg_command(frame, active_protocol_channel_limit(), command))
     {
         return ErrorCode::InvalidParam;
     }
@@ -398,10 +406,8 @@ ErrorCode handle_cmd_tx_msg(const Frame& frame)
 ErrorCode handle_cmd_tx_app_data(const Frame& frame)
 {
     PendingCommand command{};
-    if (!parse_tx_app_data_command(frame,
-                                   static_cast<uint8_t>(chat::ChannelId::MAX_CHANNELS),
-                                   team::proto::kTeamIdSize,
-                                   command))
+    if (!parse_tx_app_data_command(
+            frame, active_protocol_channel_limit(), team::proto::kTeamIdSize, command))
     {
         return ErrorCode::InvalidParam;
     }

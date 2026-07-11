@@ -828,8 +828,13 @@ bool MeshCoreBleService::handleCustomVarSet(const char* key, const char* value)
     }
     else if (strcmp(key, "channel_name") == 0)
     {
-        copyBounded(mesh_cfg.mesh.meshcore_channel_name,
-                    sizeof(mesh_cfg.mesh.meshcore_channel_name), value);
+        auto& channel = mesh_cfg.mesh.activeMeshCoreChannel();
+        copyBounded(channel.name, sizeof(channel.name), value);
+        if (mesh_cfg.mesh.meshcore_channel_slot != 0U && channel.name[0] != '\0')
+        {
+            channel.enabled = true;
+        }
+        mesh_cfg.mesh.syncMeshCoreLegacyChannelMirror();
         save_cfg = true;
         save_mesh_cfg = true;
         apply_mesh = true;

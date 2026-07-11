@@ -84,36 +84,8 @@ void copyFixedNameBytes(char* out, size_t out_len, const char* src)
 
 bool shouldUsePublicChannelFallback(const chat::MeshConfig& cfg)
 {
-    const bool has_primary = !isZeroKey(cfg.primary_key, chat::kMeshCoreChannelKeyLen);
-    const bool has_secondary = !isZeroKey(cfg.secondary_key, chat::kMeshCoreChannelKeyLen);
-    if (!has_primary && !has_secondary)
-    {
-        return true;
-    }
-
-    if (cfg.meshcore_channel_name[0] == '\0')
-    {
-        return true;
-    }
-
-    static constexpr char kPublic[] = "public";
-    for (size_t index = 0; index < sizeof(kPublic) - 1; ++index)
-    {
-        char c = cfg.meshcore_channel_name[index];
-        if (c == '\0')
-        {
-            return false;
-        }
-        if (c >= 'A' && c <= 'Z')
-        {
-            c = static_cast<char>(c + ('a' - 'A'));
-        }
-        if (c != kPublic[index])
-        {
-            return false;
-        }
-    }
-    return true;
+    const chat::MeshCoreChannelConfig& channel = cfg.meshCoreChannel(0);
+    return channel.enabled && isZeroKey(channel.key, chat::kMeshCoreChannelKeyLen);
 }
 
 const uint8_t* publicGroupPsk()
@@ -139,21 +111,23 @@ const uint8_t* selectChannelKey(const chat::MeshConfig& cfg, size_t* out_len)
     {
         *out_len = 0;
     }
-    if (!isZeroKey(cfg.secondary_key, chat::kMeshCoreChannelKeyLen))
+    const uint8_t slot = chat::normalizeMeshCoreChannelSlot(cfg.meshcore_channel_slot);
+    const chat::MeshCoreChannelConfig& active = cfg.meshCoreChannel(slot);
+    if (active.enabled && !isZeroKey(active.key, chat::kMeshCoreChannelKeyLen))
     {
         if (out_len)
         {
             *out_len = chat::kMeshCoreChannelKeyLen;
         }
-        return cfg.secondary_key;
+        return active.key;
     }
-    if (!isZeroKey(cfg.primary_key, chat::kMeshCoreChannelKeyLen))
+    if (slot == 0 && shouldUsePublicChannelFallback(cfg))
     {
         if (out_len)
         {
             *out_len = chat::kMeshCoreChannelKeyLen;
         }
-        return cfg.primary_key;
+        return publicGroupPsk();
     }
     return nullptr;
 }

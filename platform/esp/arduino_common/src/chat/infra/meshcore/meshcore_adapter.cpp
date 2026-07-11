@@ -882,24 +882,15 @@ bool MeshCoreAdapter::resolveGroupSecret(ChannelId channel, uint8_t out_key16[16
         return false;
     }
 
+    const uint8_t slot = chat::meshCoreChannelSlotFromId(channel);
+    const chat::MeshCoreChannelConfig& channel_config = config_.meshCoreChannel(slot);
     const uint8_t* selected = nullptr;
-    if (channel == ChannelId::SECONDARY && !isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen))
+    if (channel_config.enabled &&
+        !isZeroKey(channel_config.key, chat::kMeshCoreChannelKeyLen))
     {
-        selected = config_.secondary_key;
+        selected = channel_config.key;
     }
-    else if (channel == ChannelId::PRIMARY && !isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen))
-    {
-        selected = config_.primary_key;
-    }
-    else if (!isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen))
-    {
-        selected = config_.secondary_key;
-    }
-    else if (!isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen))
-    {
-        selected = config_.primary_key;
-    }
-    else if (shouldUsePublicChannelFallback(config_))
+    else if (slot == 0 && shouldUsePublicChannelFallback(config_))
     {
         selected = publicGroupPsk();
     }
@@ -943,36 +934,35 @@ ChannelId MeshCoreAdapter::resolveChannelFromHash(PayloadProfile profile,
 
     const size_t hash_bytes = payloadHashBytes(profile);
     uint8_t expected[chat::meshcore::kMeshCoreV2HashBytes] = {};
-    if (!isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen) &&
-        computeChannelHashBytes(config_.primary_key, expected, hash_bytes) &&
-        memcmp(expected, channel_hash, hash_bytes) == 0)
+    for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
     {
-        if (out_match)
+        const chat::MeshCoreChannelConfig& channel_config = config_.meshCoreChannel(slot);
+        if (!channel_config.enabled)
         {
-            *out_match = true;
+            continue;
         }
-        return ChannelId::PRIMARY;
-    }
-    if (!isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen) &&
-        computeChannelHashBytes(config_.secondary_key, expected, hash_bytes) &&
-        memcmp(expected, channel_hash, hash_bytes) == 0)
-    {
-        if (out_match)
+        const uint8_t* key = nullptr;
+        if (!isZeroKey(channel_config.key, chat::kMeshCoreChannelKeyLen))
         {
-            *out_match = true;
+            key = channel_config.key;
         }
-        return ChannelId::SECONDARY;
-    }
-
-    if (shouldUsePublicChannelFallback(config_) &&
-        computeChannelHashBytes(publicGroupPsk(), expected, hash_bytes) &&
-        memcmp(expected, channel_hash, hash_bytes) == 0)
-    {
-        if (out_match)
+        else if (slot == 0 && shouldUsePublicChannelFallback(config_))
         {
-            *out_match = true;
+            key = publicGroupPsk();
         }
-        return ChannelId::PRIMARY;
+        if (!key)
+        {
+            continue;
+        }
+        if (computeChannelHashBytes(key, expected, hash_bytes) &&
+            memcmp(expected, channel_hash, hash_bytes) == 0)
+        {
+            if (out_match)
+            {
+                *out_match = true;
+            }
+            return chat::meshCoreChannelIdFromSlot(slot);
+        }
     }
 
     return ChannelId::PRIMARY;
@@ -1792,46 +1782,57 @@ bool MeshCoreAdapter::tryDecryptPeerPayload(PayloadProfile profile, const uint8_
         return false;
     }
 
-    ChannelId order[3] = {ChannelId::PRIMARY, ChannelId::SECONDARY, ChannelId::PRIMARY};
+    ChannelId order[chat::kMeshCoreChannelMaxCount] = {};
     size_t order_len = 0;
+    auto addCandidateChannel = [&](ChannelId candidate)
+    {
+        const uint8_t slot = chat::meshCoreChannelSlotFromId(candidate);
+        if (!config_.meshCoreChannel(slot).enabled)
+        {
+            return;
+        }
+        for (size_t j = 0; j < order_len; ++j)
+        {
+            if (order[j] == candidate)
+            {
+                return;
+            }
+        }
+        if (order_len < (sizeof(order) / sizeof(order[0])))
+        {
+            order[order_len++] = candidate;
+        }
+    };
     const PeerRouteEntry* known = findPeerRouteByHash(profile, src_hash);
     if (known)
     {
-        order[order_len++] = known->preferred_channel;
-        order[order_len++] = (known->preferred_channel == ChannelId::PRIMARY) ? ChannelId::SECONDARY : ChannelId::PRIMARY;
+        addCandidateChannel(known->preferred_channel);
     }
-    else
+    addCandidateChannel(config_.activeMeshCoreChannel().enabled
+                            ? chat::meshCoreChannelIdFromSlot(config_.meshcore_channel_slot)
+                            : ChannelId::PRIMARY);
+    for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
     {
-        order[order_len++] = ChannelId::PRIMARY;
-        order[order_len++] = ChannelId::SECONDARY;
+        addCandidateChannel(chat::meshCoreChannelIdFromSlot(slot));
     }
 
-    uint8_t tried_key16[6][16];
-    uint8_t tried_key32[6][32];
-    size_t tried = 0;
+    uint8_t tried_key16[16] = {};
+    uint8_t tried_key32[32] = {};
+    bool has_tried_key = false;
 
     auto tryCandidate = [&](ChannelId candidate_channel,
                             const uint8_t key16[16],
                             const uint8_t key32[32]) -> bool
     {
-        bool duplicate = false;
-        for (size_t j = 0; j < tried; ++j)
-        {
-            if (memcmp(tried_key16[j], key16, 16) == 0 &&
-                memcmp(tried_key32[j], key32, 32) == 0)
-            {
-                duplicate = true;
-                break;
-            }
-        }
-        if (duplicate || tried >= (sizeof(tried_key16) / sizeof(tried_key16[0])))
+        if (has_tried_key &&
+            memcmp(tried_key16, key16, sizeof(tried_key16)) == 0 &&
+            memcmp(tried_key32, key32, sizeof(tried_key32)) == 0)
         {
             return false;
         }
-
-        memcpy(tried_key16[tried], key16, 16);
-        memcpy(tried_key32[tried], key32, 32);
-        ++tried;
+        memcpy(tried_key16, key16, sizeof(tried_key16));
+        memcpy(tried_key32, key32, sizeof(tried_key32));
+        has_tried_key = true;
 
         size_t plain_len = 0;
         if (!macThenDecrypt(key16, key32, cipher, cipher_len, out_plain, &plain_len,
@@ -1857,10 +1858,6 @@ bool MeshCoreAdapter::tryDecryptPeerPayload(PayloadProfile profile, const uint8_
             {
                 return true;
             }
-        }
-        if (tried >= (sizeof(tried_key16) / sizeof(tried_key16[0])))
-        {
-            break;
         }
     }
 
@@ -3921,7 +3918,8 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
     config_.meshcore_rx_delay_base = clampValue<float>(config_.meshcore_rx_delay_base, 0.0f, 20.0f);
     config_.meshcore_airtime_factor = clampValue<float>(config_.meshcore_airtime_factor, 0.0f, 9.0f);
     config_.meshcore_flood_max = clampValue<uint8_t>(config_.meshcore_flood_max, 0, 64);
-    config_.meshcore_channel_slot = clampValue<uint8_t>(config_.meshcore_channel_slot, 0, 14);
+    config_.meshcore_channel_slot =
+        chat::normalizeMeshCoreChannelSlot(config_.meshcore_channel_slot);
     if (static_cast<uint8_t>(config_.meshcore_send_profile) >
         static_cast<uint8_t>(MeshCorePayloadSendProfile::V2Only))
     {
@@ -3933,11 +3931,23 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
         config_.meshcore_forward_profile = MeshCoreForwardProfile::MultibyteOnly;
     }
 
-    if (config_.meshcore_channel_name[0] == '\0')
+    config_.meshCoreChannel(0).enabled = true;
+    if (config_.meshCoreChannel(0).name[0] == '\0')
     {
-        strncpy(config_.meshcore_channel_name, "Public", sizeof(config_.meshcore_channel_name) - 1);
-        config_.meshcore_channel_name[sizeof(config_.meshcore_channel_name) - 1] = '\0';
+        strncpy(config_.meshCoreChannel(0).name,
+                "Public",
+                sizeof(config_.meshCoreChannel(0).name) - 1);
+        config_.meshCoreChannel(0).name[sizeof(config_.meshCoreChannel(0).name) - 1] = '\0';
     }
+    for (uint8_t slot = 1; slot < chat::kMeshCoreChannelMaxCount; ++slot)
+    {
+        chat::MeshCoreChannelConfig& channel = config_.meshCoreChannel(slot);
+        if (channel.enabled && channel.name[0] == '\0')
+        {
+            snprintf(channel.name, sizeof(channel.name), "Channel %u", static_cast<unsigned>(slot));
+        }
+    }
+    config_.syncMeshCoreLegacyChannelMirror();
 
     if (!identity_.isReady())
     {
@@ -3957,13 +3967,24 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
         self_hash_ = static_cast<uint8_t>(node_id_ & 0xFFU);
     }
 
-    const bool has_primary_key = !isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen);
-    const bool has_secondary_key = !isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen);
-    const uint8_t primary_hash = has_primary_key ? computeChannelHash(config_.primary_key) : 0xFF;
-    const uint8_t secondary_hash = has_secondary_key ? computeChannelHash(config_.secondary_key) : 0xFF;
-    const bool has_public = shouldUsePublicChannelFallback(config_);
-    const uint8_t public_hash = has_public ? computeChannelHash(publicGroupPsk()) : 0xFF;
-    MESHCORE_LOG("[MESHCORE] apply cfg preset=%u freq=%.3f bw=%.3f sf=%u cr=%u(4/%u) txp=%d tx_en=%u repeat=%u flood_max=%u multi_acks=%u send_profile=%u fwd_profile=%u slot=%u ch='%s' hash[p=%02X s=%02X pub=%02X] identity[ready=%u self=%02X]\n",
+    const chat::MeshCoreChannelConfig& active_channel = config_.activeMeshCoreChannel();
+    const bool active_has_key =
+        !isZeroKey(active_channel.key, chat::kMeshCoreChannelKeyLen);
+    const uint8_t active_hash =
+        active_has_key ? computeChannelHash(active_channel.key)
+                       : ((config_.meshcore_channel_slot == 0 &&
+                           shouldUsePublicChannelFallback(config_))
+                              ? computeChannelHash(publicGroupPsk())
+                              : 0xFF);
+    unsigned enabled_channels = 0;
+    for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
+    {
+        if (config_.meshCoreChannel(slot).enabled)
+        {
+            ++enabled_channels;
+        }
+    }
+    MESHCORE_LOG("[MESHCORE] apply cfg preset=%u freq=%.3f bw=%.3f sf=%u cr=%u(4/%u) txp=%d tx_en=%u repeat=%u flood_max=%u multi_acks=%u send_profile=%u fwd_profile=%u slot=%u ch='%s' ch_en=%u ch_key=%u ch_hash=%02X channels=%u identity[ready=%u self=%02X]\n",
                  static_cast<unsigned>(config_.meshcore_region_preset),
                  static_cast<double>(config_.meshcore_freq_mhz),
                  static_cast<double>(config_.meshcore_bw_khz),
@@ -3978,10 +3999,11 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
                  static_cast<unsigned>(static_cast<uint8_t>(config_.meshcore_send_profile)),
                  static_cast<unsigned>(static_cast<uint8_t>(config_.meshcore_forward_profile)),
                  static_cast<unsigned>(config_.meshcore_channel_slot),
-                 config_.meshcore_channel_name,
-                 static_cast<unsigned>(primary_hash),
-                 static_cast<unsigned>(secondary_hash),
-                 static_cast<unsigned>(public_hash),
+                 active_channel.name,
+                 active_channel.enabled ? 1U : 0U,
+                 active_has_key ? 1U : 0U,
+                 static_cast<unsigned>(active_hash),
+                 enabled_channels,
                  identity_.isReady() ? 1U : 0U,
                  static_cast<unsigned>(self_hash_));
 
@@ -5265,18 +5287,21 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
 
     auto logUnknownGroupHash = [&](const char* kind, const uint8_t* channel_hash) -> void
     {
-        const bool has_primary_key = !isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen);
-        const bool has_secondary_key = !isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen);
-        const uint8_t primary_hash = has_primary_key ? computeChannelHash(config_.primary_key) : 0xFF;
-        const uint8_t secondary_hash = has_secondary_key ? computeChannelHash(config_.secondary_key) : 0xFF;
-        const bool has_public = shouldUsePublicChannelFallback(config_);
-        const uint8_t public_hash = has_public ? computeChannelHash(publicGroupPsk()) : 0xFF;
-        MESHCORE_LOG("[MESHCORE] RX group %s drop unknown hash=%s local[p=%02X s=%02X pub=%02X]\n",
+        const chat::MeshCoreChannelConfig& active_channel = config_.activeMeshCoreChannel();
+        const bool active_has_key =
+            !isZeroKey(active_channel.key, chat::kMeshCoreChannelKeyLen);
+        const uint8_t active_hash =
+            active_has_key ? computeChannelHash(active_channel.key)
+                           : ((config_.meshcore_channel_slot == 0 &&
+                               shouldUsePublicChannelFallback(config_))
+                                  ? computeChannelHash(publicGroupPsk())
+                                  : 0xFF);
+        MESHCORE_LOG("[MESHCORE] RX group %s drop unknown hash=%s local[slot=%u hash=%02X enabled=%u]\n",
                      kind,
                      toHex(channel_hash, hash_bytes).c_str(),
-                     static_cast<unsigned>(primary_hash),
-                     static_cast<unsigned>(secondary_hash),
-                     static_cast<unsigned>(public_hash));
+                     static_cast<unsigned>(config_.meshcore_channel_slot),
+                     static_cast<unsigned>(active_hash),
+                     active_channel.enabled ? 1U : 0U);
     };
 
     if (is_group_text_payload)

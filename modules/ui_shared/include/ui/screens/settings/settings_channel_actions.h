@@ -25,6 +25,7 @@ bool parse_meshtastic_key_text(const char* text,
                                std::uint8_t* out_key_len);
 
 void sync_meshtastic_channel_fields(const app::AppConfig& config, SettingsData& settings);
+void sync_meshcore_channel_fields(const app::AppConfig& config, SettingsData& settings);
 bool generate_meshtastic_channel_key(app::AppConfig& config,
                                      SettingsData& settings,
                                      bool primary);

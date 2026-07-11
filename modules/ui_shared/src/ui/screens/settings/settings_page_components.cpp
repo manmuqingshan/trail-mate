@@ -1283,9 +1283,7 @@ static void reset_mesh_settings()
     app_ctx.getConfig().applyMeshCoreFactoryDefaults();
     app_ctx.getConfig().reticulumConfig() = chat::MeshConfig();
     app_ctx.getConfig().applyReticulumFactoryDefaults();
-    strncpy(app_ctx.getConfig().meshcore_config.meshcore_channel_name, "Public",
-            sizeof(app_ctx.getConfig().meshcore_config.meshcore_channel_name) - 1);
-    app_ctx.getConfig().meshcore_config.meshcore_channel_name[sizeof(app_ctx.getConfig().meshcore_config.meshcore_channel_name) - 1] = '\0';
+    app_ctx.getConfig().meshcore_config.resetMeshCoreChannels();
     app_ctx.saveConfig();
     app_ctx.applyMeshConfig();
 
@@ -1357,6 +1355,7 @@ static void reset_mesh_settings()
         "mt_mqtt_pass",
         "mc_channel_name",
         "mc_channel_key",
+        "mc_channel_clear",
         "mc_mqtt_enabled",
         "mc_mqtt_uplink",
         "mc_mqtt_downlink",
@@ -1394,6 +1393,7 @@ static void reset_mesh_settings()
         "mc_send_prof",
         "mc_fwd_prof",
         "mc_channel_slot",
+        "mc_channel_enabled",
         "mc_ch_slot",
         "rt_bearer",
         "rt_lora_enabled",
@@ -1573,7 +1573,9 @@ static void settings_load()
     size_t active_psk_len = 0;
     if (cfg.mesh_protocol == chat::MeshProtocol::MeshCore)
     {
-        active_psk = mc_cfg.secondary_key;
+        const chat::MeshCoreChannelConfig& active_channel =
+            mc_cfg.meshCoreChannel(mc_cfg.meshcore_channel_slot);
+        active_psk = active_channel.key;
         active_psk_len = chat::kMeshCoreChannelKeyLen;
     }
     else if (cfg.mesh_protocol == chat::MeshProtocol::Meshtastic)
@@ -1694,21 +1696,9 @@ static void settings_load()
     g_settings.mc_multi_acks = mc_cfg.meshcore_multi_acks;
     g_settings.mc_send_profile = static_cast<int>(static_cast<uint8_t>(mc_cfg.meshcore_send_profile));
     g_settings.mc_forward_profile = static_cast<int>(static_cast<uint8_t>(mc_cfg.meshcore_forward_profile));
-    g_settings.mc_channel_slot = mc_cfg.meshcore_channel_slot;
-    strncpy(g_settings.mc_channel_name, mc_cfg.meshcore_channel_name, sizeof(g_settings.mc_channel_name) - 1);
-    g_settings.mc_channel_name[sizeof(g_settings.mc_channel_name) - 1] = '\0';
-    if (::settings::ui::channel::is_zero_key(mc_cfg.secondary_key,
-                                             chat::kMeshCoreChannelKeyLen))
-    {
-        g_settings.mc_channel_key[0] = '\0';
-    }
-    else
-    {
-        ::settings::ui::channel::bytes_to_hex(mc_cfg.secondary_key,
-                                              chat::kMeshCoreChannelKeyLen,
-                                              g_settings.mc_channel_key,
-                                              sizeof(g_settings.mc_channel_key));
-    }
+    g_settings.mc_channel_slot =
+        chat::normalizeMeshCoreChannelSlot(mc_cfg.meshcore_channel_slot);
+    ::settings::ui::channel::sync_meshcore_channel_fields(cfg, g_settings);
     g_settings.mc_mqtt_enabled = mc_cfg.meshcore_mqtt_enabled;
     g_settings.mc_mqtt_uplink = mc_cfg.meshcore_mqtt_uplink_enabled;
     g_settings.mc_mqtt_downlink = mc_cfg.meshcore_mqtt_downlink_enabled;
@@ -2290,9 +2280,17 @@ static void on_text_save_clicked(lv_event_t* e)
             }
             if (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::MeshCore)
             {
-                memset(app_ctx.getConfig().meshcore_config.secondary_key, 0,
-                       sizeof(app_ctx.getConfig().meshcore_config.secondary_key));
-                memcpy(app_ctx.getConfig().meshcore_config.secondary_key, key, chat::kMeshCoreChannelKeyLen);
+                chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
+                const uint8_t slot =
+                    chat::normalizeMeshCoreChannelSlot(mesh.meshcore_channel_slot);
+                chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+                memset(channel.key, 0, sizeof(channel.key));
+                memcpy(channel.key, key, chat::kMeshCoreChannelKeyLen);
+                if (slot != 0)
+                {
+                    channel.enabled = true;
+                }
+                mesh.syncMeshCoreLegacyChannelMirror();
             }
             else
             {
@@ -2405,10 +2403,18 @@ static void on_text_save_clicked(lv_event_t* e)
         if (id == settings::ui::SettingId::McChannelName)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            strncpy(app_ctx.getConfig().meshcore_config.meshcore_channel_name,
-                    g_state.editing_item->text_value,
-                    sizeof(app_ctx.getConfig().meshcore_config.meshcore_channel_name) - 1);
-            app_ctx.getConfig().meshcore_config.meshcore_channel_name[sizeof(app_ctx.getConfig().meshcore_config.meshcore_channel_name) - 1] = '\0';
+            chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
+            const uint8_t slot =
+                chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(g_settings.mc_channel_slot));
+            chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+            copy_bounded(channel.name, sizeof(channel.name), g_state.editing_item->text_value);
+            if (slot != 0 && channel.name[0] != '\0')
+            {
+                channel.enabled = true;
+            }
+            mesh.meshcore_channel_slot = slot;
+            mesh.syncMeshCoreLegacyChannelMirror();
+            ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
             app_ctx.saveConfig();
             app_ctx.applyMeshConfig();
         }
@@ -2424,7 +2430,18 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            memcpy(app_ctx.getConfig().meshcore_config.secondary_key, key, sizeof(key));
+            chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
+            const uint8_t slot =
+                chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(g_settings.mc_channel_slot));
+            chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+            memcpy(channel.key, key, sizeof(key));
+            if (slot != 0)
+            {
+                channel.enabled = true;
+            }
+            mesh.meshcore_channel_slot = slot;
+            mesh.syncMeshCoreLegacyChannelMirror();
+            ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
             app_ctx.saveConfig();
             app_ctx.applyMeshConfig();
         }
@@ -3608,9 +3625,14 @@ static void on_option_clicked(lv_event_t* e)
     if (id == settings::ui::SettingId::McChannelSlot)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshcore_config.meshcore_channel_slot = static_cast<uint8_t>(payload->value);
+        chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
+        mesh.meshcore_channel_slot =
+            chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(payload->value));
+        mesh.syncMeshCoreLegacyChannelMirror();
+        ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
         app_ctx.saveConfig();
         app_ctx.applyMeshConfig();
+        refresh_visible_item_values();
     }
     if (id == settings::ui::SettingId::PrivacyEncrypt)
     {
@@ -4424,7 +4446,7 @@ static const settings::ui::SettingOption kChannelNumOptions[] = {
     {"16", 16},
 };
 static const settings::ui::SettingOption kMeshCoreChannelSlotOptions[] = {
-    {"Auto", 0},
+    {"0 Public", 0},
     {"1", 1},
     {"2", 2},
     {"3", 3},
@@ -4432,13 +4454,6 @@ static const settings::ui::SettingOption kMeshCoreChannelSlotOptions[] = {
     {"5", 5},
     {"6", 6},
     {"7", 7},
-    {"8", 8},
-    {"9", 9},
-    {"10", 10},
-    {"11", 11},
-    {"12", 12},
-    {"13", 13},
-    {"14", 14},
 };
 static const settings::ui::SettingOption kMeshCoreFloodOptions[] = {
     {"0", 0},
@@ -4549,9 +4564,11 @@ static settings::ui::SettingItem kMeshItems[] = {
     {"MC MQTT Uplink", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mc_mqtt_uplink, nullptr, 0, false, "mc_mqtt_uplink"},
     {"MC MQTT Downlink", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mc_mqtt_downlink, nullptr, 0, false, "mc_mqtt_downlink"},
     {"MC Channel Slot", settings::ui::SettingType::Enum, kMeshCoreChannelSlotOptions, sizeof(kMeshCoreChannelSlotOptions) / sizeof(kMeshCoreChannelSlotOptions[0]), &g_settings.mc_channel_slot, nullptr, nullptr, 0, false, "mc_channel_slot"},
+    {"MC Channel Enabled", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.mc_channel_enabled, nullptr, 0, false, "mc_channel_enabled"},
     {"MC Channel Name", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_channel_name, sizeof(g_settings.mc_channel_name), false, "mc_channel_name"},
     {"MC Channel Key", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.mc_channel_key, sizeof(g_settings.mc_channel_key), true, "mc_channel_key"},
     {"Generate MC Channel Key", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "mc_channel_key_generate"},
+    {"Clear MC Channel", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr, nullptr, 0, false, "mc_channel_clear"},
     {"Bearer", settings::ui::SettingType::Enum, kReticulumBearerOptions, sizeof(kReticulumBearerOptions) / sizeof(kReticulumBearerOptions[0]), &g_settings.rt_bearer_policy, nullptr, nullptr, 0, false, "rt_bearer"},
     {"Display Name", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_display_name, sizeof(g_settings.rt_display_name), false, "rt_display_name"},
     {"Identity Hash", settings::ui::SettingType::Info, nullptr, 0, nullptr, nullptr, g_settings.rt_identity_hash, sizeof(g_settings.rt_identity_hash), false, "rt_identity_hash"},
@@ -4983,6 +5000,28 @@ static void generate_meshcore_channel_key()
     ::ui::feedback::show_notice(::ui::i18n::tr("Channel key generated"), 2200);
 }
 
+static void clear_meshcore_channel()
+{
+    app::IAppFacade& app_ctx = app::appFacade();
+    chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
+    const uint8_t slot =
+        chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(g_settings.mc_channel_slot));
+    chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+    channel = chat::MeshCoreChannelConfig();
+    if (slot == 0)
+    {
+        channel.enabled = true;
+        copy_bounded(channel.name, sizeof(channel.name), "Public");
+    }
+    mesh.meshcore_channel_slot = slot;
+    mesh.syncMeshCoreLegacyChannelMirror();
+    ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
+    app_ctx.saveConfig();
+    app_ctx.applyMeshConfig();
+    refresh_visible_item_values();
+    ::ui::feedback::show_notice(::ui::i18n::tr("Channel cleared"), 1800);
+}
+
 static bool activate_item_widget(settings::ui::ItemWidget& widget)
 {
     if (!widget.def)
@@ -5105,6 +5144,22 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
                 app_ctx.getConfig().meshcore_config.meshcore_multi_acks = *item.bool_value;
                 app_ctx.saveConfig();
                 app_ctx.applyMeshConfig();
+                break;
+            }
+            case settings::ui::SettingId::McChannelEnabled:
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
+                const uint8_t slot =
+                    chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(g_settings.mc_channel_slot));
+                chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+                channel.enabled = (slot == 0) ? true : *item.bool_value;
+                mesh.meshcore_channel_slot = slot;
+                mesh.syncMeshCoreLegacyChannelMirror();
+                ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
+                app_ctx.saveConfig();
+                app_ctx.applyMeshConfig();
+                refresh_visible_item_values();
                 break;
             }
             case settings::ui::SettingId::MtPrimaryEnabled:
@@ -5264,6 +5319,9 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             break;
         case settings::ui::SettingId::McChannelKeyGenerate:
             generate_meshcore_channel_key();
+            break;
+        case settings::ui::SettingId::McChannelClear:
+            clear_meshcore_channel();
             break;
         case settings::ui::SettingId::EnabledImes:
             refresh_language_pack_options();

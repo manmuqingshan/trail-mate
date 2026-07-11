@@ -58,7 +58,7 @@ static bool use_group_navigation()
 
 static bool is_team_conversation(const chat::ConversationId& conv)
 {
-    constexpr uint8_t kTeamChatChannelRaw = 2;
+    constexpr uint8_t kTeamChatChannelRaw = static_cast<uint8_t>(chat::ChannelId::TEAM);
     constexpr chat::ChannelId kTeamChatChannel =
         static_cast<chat::ChannelId>(kTeamChatChannelRaw);
     return conv.channel == kTeamChatChannel && conv.peer == 0;

@@ -500,6 +500,19 @@ bool remove_key_logged(Preferences& prefs,
     return ok;
 }
 
+void format_meshcore_channel_key(char* out, size_t out_len, uint8_t slot, const char* suffix)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "mc_ch%u_%s",
+                  static_cast<unsigned>(chat::normalizeMeshCoreChannelSlot(slot)),
+                  suffix ? suffix : "");
+}
+
 void log_change_bool(const char* field, bool before, bool after, bool& any_change)
 {
     if (before == after)
@@ -1070,13 +1083,36 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         meshcore_config.meshcore_forward_profile = static_cast<chat::MeshCoreForwardProfile>(
             get_uchar("mc_fwd_prof",
                       static_cast<uint8_t>(meshcore_config.meshcore_forward_profile)));
-        meshcore_config.meshcore_channel_slot = get_uchar("mc_ch_slot", 0);
+        meshcore_config.meshcore_channel_slot =
+            chat::normalizeMeshCoreChannelSlot(get_uchar("mc_ch_slot", 0));
         meshcore_config.tx_enabled = get_bool("mc_tx_en", meshcore_config.tx_enabled);
         String mc_name = get_string("mc_ch_name", meshcore_config.meshcore_channel_name);
         strncpy(meshcore_config.meshcore_channel_name, mc_name.c_str(),
                 sizeof(meshcore_config.meshcore_channel_name) - 1);
         meshcore_config.meshcore_channel_name[sizeof(meshcore_config.meshcore_channel_name) - 1] = '\0';
         get_bytes("mc_ch_key", meshcore_config.secondary_key, sizeof(meshcore_config.secondary_key));
+        meshcore_config.importMeshCoreLegacyChannelMirror();
+        for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
+        {
+            char key[16] = {};
+            chat::MeshCoreChannelConfig& channel = meshcore_config.meshCoreChannel(slot);
+            format_meshcore_channel_key(key, sizeof(key), slot, "en");
+            channel.enabled = get_bool(key, channel.enabled);
+            format_meshcore_channel_key(key, sizeof(key), slot, "name");
+            String channel_name = get_string(key, channel.name);
+            strncpy(channel.name, channel_name.c_str(), sizeof(channel.name) - 1);
+            channel.name[sizeof(channel.name) - 1] = '\0';
+            format_meshcore_channel_key(key, sizeof(key), slot, "key");
+            uint8_t channel_key[chat::kMeshCoreChannelKeyLen] = {};
+            const size_t channel_key_read =
+                get_bytes(key, channel_key, sizeof(channel_key));
+            if (channel_key_read == chat::kMeshCoreChannelKeyLen)
+            {
+                memcpy(channel.key, channel_key, sizeof(channel.key));
+            }
+        }
+        meshcore_config.meshCoreChannel(0).enabled = true;
+        meshcore_config.syncMeshCoreLegacyChannelMirror();
         meshcore_config.meshcore_mqtt_enabled =
             get_bool(kChatKeyMcMqttEnabled, meshcore_config.meshcore_mqtt_enabled);
         meshcore_config.meshcore_mqtt_uplink_enabled =
@@ -1162,8 +1198,8 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         // Load channel settings
         primary_enabled = get_bool("primary_enabled", true);
         secondary_enabled = get_bool(kChatKeySecondaryEnabled, false);
-        primary_uplink_enabled = get_bool("primary_uplink", false);
-        primary_downlink_enabled = get_bool(kChatKeyPrimaryDownlink, false);
+        primary_uplink_enabled = get_bool("primary_uplink", true);
+        primary_downlink_enabled = get_bool(kChatKeyPrimaryDownlink, true);
         secondary_uplink_enabled = get_bool(kChatKeySecondaryUplink, false);
         secondary_downlink_enabled = get_bool(kChatKeySecondaryDownlink, false);
         primary_channel_has_module_settings = get_bool(kChatKeyPrimaryHasModuleSettings, false);
@@ -1527,10 +1563,25 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_bool("mc_multi_acks", meshcore_config.meshcore_multi_acks);
         put_uchar("mc_send_prof", static_cast<uint8_t>(meshcore_config.meshcore_send_profile));
         put_uchar("mc_fwd_prof", static_cast<uint8_t>(meshcore_config.meshcore_forward_profile));
-        put_uchar("mc_ch_slot", meshcore_config.meshcore_channel_slot);
+        const uint8_t mc_slot =
+            chat::normalizeMeshCoreChannelSlot(meshcore_config.meshcore_channel_slot);
+        const chat::MeshCoreChannelConfig& active_mc_channel =
+            meshcore_config.meshCoreChannel(mc_slot);
+        put_uchar("mc_ch_slot", mc_slot);
         put_bool("mc_tx_en", meshcore_config.tx_enabled);
-        put_string("mc_ch_name", meshcore_config.meshcore_channel_name);
-        put_bytes("mc_ch_key", meshcore_config.secondary_key, sizeof(meshcore_config.secondary_key));
+        put_string("mc_ch_name", active_mc_channel.name);
+        put_bytes("mc_ch_key", active_mc_channel.key, sizeof(active_mc_channel.key));
+        for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
+        {
+            char key[16] = {};
+            const chat::MeshCoreChannelConfig& channel = meshcore_config.meshCoreChannel(slot);
+            format_meshcore_channel_key(key, sizeof(key), slot, "en");
+            put_bool(key, slot == 0 ? true : channel.enabled);
+            format_meshcore_channel_key(key, sizeof(key), slot, "name");
+            put_string(key, channel.name);
+            format_meshcore_channel_key(key, sizeof(key), slot, "key");
+            put_bytes(key, channel.key, sizeof(channel.key));
+        }
         put_bool(kChatKeyMcMqttEnabled, meshcore_config.meshcore_mqtt_enabled);
         put_bool(kChatKeyMcMqttUplink, meshcore_config.meshcore_mqtt_uplink_enabled);
         put_bool(kChatKeyMcMqttDownlink, meshcore_config.meshcore_mqtt_downlink_enabled);

@@ -469,7 +469,7 @@ bool AppPhoneFacade::getCustomVars(std::string* out) const
     appendCustomVar(*out, "node_name", mesh_cfg.node_name);
     appendCustomVar(*out, "channel_name", chat::meshtastic::primaryChannelName(mt_cfg.mesh));
     appendCustomVar(*out, "meshtastic_channel_name", chat::meshtastic::primaryChannelName(mt_cfg.mesh));
-    appendCustomVar(*out, "meshcore_channel_name", mesh_cfg.mesh.meshcore_channel_name);
+    appendCustomVar(*out, "meshcore_channel_name", mesh_cfg.mesh.activeMeshCoreChannel().name);
     appendCustomVar(*out, "multi_acks", mesh_cfg.mesh.meshcore_multi_acks ? "1" : "0");
     appendCustomVar(*out, "gps", mt_cfg.gps_enabled ? "1" : "0");
 
@@ -524,11 +524,17 @@ bool AppPhoneFacade::setCustomVar(const char* key, const char* value)
     }
     else if (std::strcmp(key, "meshcore_channel_name") == 0)
     {
-        char next[sizeof(mesh_cfg.mesh.meshcore_channel_name)] = {};
+        auto& channel = mesh_cfg.mesh.activeMeshCoreChannel();
+        char next[sizeof(channel.name)] = {};
         copyBounded(next, sizeof(next), value);
-        if (std::strcmp(mesh_cfg.mesh.meshcore_channel_name, next) != 0)
+        if (std::strcmp(channel.name, next) != 0)
         {
-            copyBounded(mesh_cfg.mesh.meshcore_channel_name, sizeof(mesh_cfg.mesh.meshcore_channel_name), next);
+            copyBounded(channel.name, sizeof(channel.name), next);
+            if (mesh_cfg.mesh.meshcore_channel_slot != 0U && channel.name[0] != '\0')
+            {
+                channel.enabled = true;
+            }
+            mesh_cfg.mesh.syncMeshCoreLegacyChannelMirror();
             changed = true;
             mesh_changed = true;
         }

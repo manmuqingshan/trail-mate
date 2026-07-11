@@ -628,13 +628,17 @@ class PlainMqttRuntime
         settings.proxy_to_client_enabled = config_.configured;
         settings.encryption_enabled = false;
         settings.primary_uplink_enabled =
-            config_.uplink_enabled && config.primary_enabled;
+            config_.uplink_enabled && config.primary_enabled &&
+            config.primary_uplink_enabled;
         settings.primary_downlink_enabled =
-            config_.downlink_enabled && config.primary_enabled;
+            config_.downlink_enabled && config.primary_enabled &&
+            config.primary_downlink_enabled;
         settings.secondary_uplink_enabled =
-            config_.uplink_enabled && config.secondary_enabled;
+            config_.uplink_enabled && config.secondary_enabled &&
+            config.secondary_uplink_enabled;
         settings.secondary_downlink_enabled =
-            config_.downlink_enabled && config.secondary_enabled;
+            config_.downlink_enabled && config.secondary_enabled &&
+            config.secondary_downlink_enabled;
         settings.root = config_.root[0] ? config_.root : kDefaultMeshtasticMqttRoot;
         settings.primary_channel_id =
             chat::meshtastic::channelName(config.meshtastic_config,

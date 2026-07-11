@@ -55,9 +55,11 @@ constexpr SettingSpec kSpecs[] = {
     {SettingId::McMqttUplink, "mc_mqtt_uplink", DynamicOptionKind::None},
     {SettingId::McMqttDownlink, "mc_mqtt_downlink", DynamicOptionKind::None},
     {SettingId::McChannelSlot, "mc_channel_slot", DynamicOptionKind::None},
+    {SettingId::McChannelEnabled, "mc_channel_enabled", DynamicOptionKind::None},
     {SettingId::McChannelName, "mc_channel_name", DynamicOptionKind::None},
     {SettingId::McChannelKey, "mc_channel_key", DynamicOptionKind::None},
     {SettingId::McChannelKeyGenerate, "mc_channel_key_generate", DynamicOptionKind::None},
+    {SettingId::McChannelClear, "mc_channel_clear", DynamicOptionKind::None},
     {SettingId::RtBearer, "rt_bearer", DynamicOptionKind::None},
     {SettingId::RtLoraEnabled, "rt_lora_enabled", DynamicOptionKind::None},
     {SettingId::RtDisplayName, "rt_display_name", DynamicOptionKind::None},
@@ -247,9 +249,11 @@ bool is_meshcore_channel(SettingId id)
     switch (id)
     {
     case SettingId::McChannelSlot:
+    case SettingId::McChannelEnabled:
     case SettingId::McChannelName:
     case SettingId::McChannelKey:
     case SettingId::McChannelKeyGenerate:
+    case SettingId::McChannelClear:
         return true;
     default:
         return false;

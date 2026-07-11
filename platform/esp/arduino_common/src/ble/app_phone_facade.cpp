@@ -491,7 +491,7 @@ bool AppPhoneFacade::getCustomVars(std::string* out) const
     appendCustomVar(*out, "node_name", mesh_cfg.node_name);
     appendCustomVar(*out, "channel_name", chat::meshtastic::primaryChannelName(mt_cfg.mesh));
     appendCustomVar(*out, "meshtastic_channel_name", chat::meshtastic::primaryChannelName(mt_cfg.mesh));
-    appendCustomVar(*out, "meshcore_channel_name", mesh_cfg.mesh.meshcore_channel_name);
+    appendCustomVar(*out, "meshcore_channel_name", mesh_cfg.mesh.activeMeshCoreChannel().name);
     std::snprintf(buf, sizeof(buf), "%u", static_cast<unsigned>(mesh_cfg.mesh.meshcore_multi_acks ? 1U : 0U));
     appendCustomVar(*out, "multi_acks", buf);
     return true;
@@ -532,7 +532,13 @@ bool AppPhoneFacade::setCustomVar(const char* key, const char* value)
     }
     else if (std::strcmp(key, "meshcore_channel_name") == 0)
     {
-        copyBounded(mesh_cfg.mesh.meshcore_channel_name, sizeof(mesh_cfg.mesh.meshcore_channel_name), value);
+        auto& channel = mesh_cfg.mesh.activeMeshCoreChannel();
+        copyBounded(channel.name, sizeof(channel.name), value);
+        if (mesh_cfg.mesh.meshcore_channel_slot != 0U && channel.name[0] != '\0')
+        {
+            channel.enabled = true;
+        }
+        mesh_cfg.mesh.syncMeshCoreLegacyChannelMirror();
         changed = true;
         mesh_changed = true;
         apply_mesh = true;

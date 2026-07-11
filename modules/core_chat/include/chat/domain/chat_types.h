@@ -17,6 +17,9 @@ namespace chat
 {
 
 constexpr std::size_t kMeshCoreChannelKeyLen = 16;
+constexpr std::size_t kPrimarySecondaryChannelMaxCount = 2;
+constexpr std::size_t kMeshCoreChannelMaxCount = 8;
+constexpr std::size_t kMeshCoreChannelNameMaxLen = 32;
 constexpr std::size_t kMeshtasticChannelKeyDefaultLen = 16;
 constexpr std::size_t kMeshtasticChannelKeyMaxLen = 32;
 constexpr std::size_t kReticulumGroupNameMaxLen = 32;
@@ -79,7 +82,33 @@ enum class ChannelId : uint8_t
 {
     PRIMARY = 0,   // Public channel (default broadcast)
     SECONDARY = 1, // Squad channel (encrypted)
-    MAX_CHANNELS = 3
+    TEAM = 250,    // UI-only team pseudo-channel; never goes on the mesh.
+    MAX_CHANNELS = 255
+};
+
+inline uint8_t normalizeMeshCoreChannelSlot(uint8_t slot)
+{
+    return (slot < kMeshCoreChannelMaxCount) ? slot : 0;
+}
+
+inline ChannelId meshCoreChannelIdFromSlot(uint8_t slot)
+{
+    return static_cast<ChannelId>(normalizeMeshCoreChannelSlot(slot));
+}
+
+inline uint8_t meshCoreChannelSlotFromId(ChannelId channel)
+{
+    const uint8_t slot = static_cast<uint8_t>(channel);
+    return normalizeMeshCoreChannelSlot(slot);
+}
+
+struct MeshCoreChannelConfig
+{
+    bool enabled;
+    char name[kMeshCoreChannelNameMaxLen];
+    uint8_t key[kMeshCoreChannelKeyLen];
+
+    MeshCoreChannelConfig() : enabled(false), name{}, key{} {}
 };
 
 /**
@@ -518,7 +547,8 @@ struct MeshConfig
     MeshCorePayloadSendProfile meshcore_send_profile;
     MeshCoreForwardProfile meshcore_forward_profile;
     uint8_t meshcore_channel_slot;
-    char meshcore_channel_name[32];
+    MeshCoreChannelConfig meshcore_channels[kMeshCoreChannelMaxCount];
+    char meshcore_channel_name[32]; // Legacy mirror of the active MeshCore channel name.
     bool meshcore_mqtt_enabled;
     bool meshcore_mqtt_uplink_enabled;
     bool meshcore_mqtt_downlink_enabled;
@@ -590,13 +620,81 @@ struct MeshConfig
         secondary_channel_name[sizeof(secondary_channel_name) - 1] = '\0';
         memset(primary_key, 0, sizeof(primary_key));
         memset(secondary_key, 0, sizeof(secondary_key));
-        meshcore_channel_name[0] = '\0';
+        resetMeshCoreChannels();
         meshcore_mqtt_host[0] = '\0';
         strncpy(meshcore_mqtt_root, "meshcore", sizeof(meshcore_mqtt_root) - 1);
         meshcore_mqtt_root[sizeof(meshcore_mqtt_root) - 1] = '\0';
         meshcore_mqtt_username[0] = '\0';
         meshcore_mqtt_password[0] = '\0';
         reticulum_wifi_gateway_host[0] = '\0';
+    }
+
+    MeshCoreChannelConfig& meshCoreChannel(uint8_t slot)
+    {
+        return meshcore_channels[normalizeMeshCoreChannelSlot(slot)];
+    }
+
+    const MeshCoreChannelConfig& meshCoreChannel(uint8_t slot) const
+    {
+        return meshcore_channels[normalizeMeshCoreChannelSlot(slot)];
+    }
+
+    MeshCoreChannelConfig& activeMeshCoreChannel()
+    {
+        return meshCoreChannel(meshcore_channel_slot);
+    }
+
+    const MeshCoreChannelConfig& activeMeshCoreChannel() const
+    {
+        return meshCoreChannel(meshcore_channel_slot);
+    }
+
+    void syncMeshCoreLegacyChannelMirror()
+    {
+        meshcore_channel_slot = normalizeMeshCoreChannelSlot(meshcore_channel_slot);
+        const MeshCoreChannelConfig& active = activeMeshCoreChannel();
+        std::strncpy(meshcore_channel_name, active.name, sizeof(meshcore_channel_name) - 1);
+        meshcore_channel_name[sizeof(meshcore_channel_name) - 1] = '\0';
+        std::memset(secondary_key, 0, sizeof(secondary_key));
+        std::memcpy(secondary_key, active.key, kMeshCoreChannelKeyLen);
+    }
+
+    void importMeshCoreLegacyChannelMirror()
+    {
+        meshcore_channel_slot = normalizeMeshCoreChannelSlot(meshcore_channel_slot);
+        MeshCoreChannelConfig& active = activeMeshCoreChannel();
+        if (meshcore_channel_name[0] != '\0')
+        {
+            std::strncpy(active.name, meshcore_channel_name, sizeof(active.name) - 1);
+            active.name[sizeof(active.name) - 1] = '\0';
+        }
+        if (!isAllZeroKeyBytes(secondary_key, kMeshCoreChannelKeyLen))
+        {
+            std::memcpy(active.key, secondary_key, kMeshCoreChannelKeyLen);
+        }
+        if (meshcore_channel_slot == 0)
+        {
+            active.enabled = true;
+        }
+        else if (active.name[0] != '\0' ||
+                 !isAllZeroKeyBytes(active.key, kMeshCoreChannelKeyLen))
+        {
+            active.enabled = true;
+        }
+        syncMeshCoreLegacyChannelMirror();
+    }
+
+    void resetMeshCoreChannels()
+    {
+        meshcore_channel_slot = 0;
+        for (std::size_t index = 0; index < kMeshCoreChannelMaxCount; ++index)
+        {
+            meshcore_channels[index] = MeshCoreChannelConfig();
+        }
+        meshcore_channels[0].enabled = true;
+        std::strncpy(meshcore_channels[0].name, "Public", sizeof(meshcore_channels[0].name) - 1);
+        meshcore_channels[0].name[sizeof(meshcore_channels[0].name) - 1] = '\0';
+        syncMeshCoreLegacyChannelMirror();
     }
 };
 
