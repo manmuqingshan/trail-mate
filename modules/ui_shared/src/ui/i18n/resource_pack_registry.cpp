@@ -183,6 +183,9 @@ ImePackRecord* s_active_ime_pack = nullptr;
 FontChainState s_ui_font_chain;
 FontChainState s_content_font_chain;
 std::vector<FontPackRecord*> s_content_supplement_packs;
+FontPackRecord* s_pending_content_supplement_load = nullptr;
+bool s_content_supplement_load_async_pending = false;
+lv_timer_t* s_content_supplement_retry_timer = nullptr;
 
 bool s_registry_ready = false;
 unsigned s_missing_content_font_diagnostics = 0;
@@ -193,6 +196,17 @@ bool s_allow_sync_external_font_activation = false;
 bool s_force_font_load_overlay = false;
 bool s_defer_font_load_overlay_present = false;
 std::uint32_t s_font_load_overlay_generation = 0;
+
+void reset_deferred_content_supplement_load()
+{
+    s_pending_content_supplement_load = nullptr;
+    s_content_supplement_load_async_pending = false;
+    if (s_content_supplement_retry_timer)
+    {
+        lv_timer_del(s_content_supplement_retry_timer);
+        s_content_supplement_retry_timer = nullptr;
+    }
+}
 
 std::uint32_t next_font_load_overlay_generation()
 {
@@ -356,6 +370,27 @@ class ScopedForcedFontLoadOverlay
 
   private:
     bool previous_force_overlay_ = false;
+    bool previous_defer_present_ = false;
+};
+
+class ScopedDeferredFontLoadOverlayPresent
+{
+  public:
+    ScopedDeferredFontLoadOverlayPresent()
+        : previous_defer_present_(s_defer_font_load_overlay_present)
+    {
+        s_defer_font_load_overlay_present = true;
+    }
+
+    ~ScopedDeferredFontLoadOverlayPresent()
+    {
+        s_defer_font_load_overlay_present = previous_defer_present_;
+    }
+
+    ScopedDeferredFontLoadOverlayPresent(const ScopedDeferredFontLoadOverlayPresent&) = delete;
+    ScopedDeferredFontLoadOverlayPresent& operator=(const ScopedDeferredFontLoadOverlayPresent&) = delete;
+
+  private:
     bool previous_defer_present_ = false;
 };
 
@@ -1437,6 +1472,8 @@ bool can_preserve_content_pack(FontPackRecord* pack,
 
 void release_runtime_fonts_except(const std::vector<FontPackRecord*>& retained_packs)
 {
+    reset_deferred_content_supplement_load();
+
     for (auto& pack : s_font_packs)
     {
         if (!pack.builtin && !is_retained_pack(retained_packs, &pack))
@@ -3312,6 +3349,199 @@ void log_font_load_deferred(FontPackRecord& pack, const char* role, const char* 
                 static_cast<unsigned long>(retry_ms));
 }
 
+void deferred_content_supplement_load_cb(void* user_data);
+void deferred_content_supplement_retry_timer_cb(lv_timer_t* timer);
+void queue_deferred_content_supplement_load(FontPackRecord& pack, const char* reason);
+
+uint32_t remaining_font_load_retry_ms(const FontPackRecord& pack, uint32_t now_ms)
+{
+    return font_load_backoff_active(pack, now_ms) ? pack.load_retry_not_before_ms - now_ms : 0U;
+}
+
+void invalidate_active_screen_after_font_chain_change()
+{
+    if (lv_obj_t* screen = lv_screen_active())
+    {
+        lv_obj_invalidate(screen);
+    }
+}
+
+bool schedule_deferred_content_supplement_async(FontPackRecord& pack, const char* reason)
+{
+    if (s_content_supplement_load_async_pending || s_content_supplement_retry_timer)
+    {
+        return false;
+    }
+
+    s_pending_content_supplement_load = &pack;
+    if (lv_async_call(deferred_content_supplement_load_cb, nullptr) != LV_RESULT_OK)
+    {
+        s_pending_content_supplement_load = nullptr;
+        std::printf("%s font load deferred id=%s role=content_supplement reason=async_queue_failed active_locale=%s source=%s\n",
+                    kLogTag,
+                    pack.id.c_str(),
+                    s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                    pack.source_path.empty() ? "<none>" : pack.source_path.c_str());
+        return false;
+    }
+
+    s_content_supplement_load_async_pending = true;
+    std::printf("%s font load queued id=%s role=content_supplement reason=%s active_locale=%s source=%s\n",
+                kLogTag,
+                pack.id.c_str(),
+                safe_text(reason),
+                s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                pack.source_path.empty() ? "<none>" : pack.source_path.c_str());
+    return true;
+}
+
+void schedule_deferred_content_supplement_retry(FontPackRecord& pack, uint32_t retry_ms)
+{
+    if (!pack.load_retry_is_transient || s_content_supplement_load_async_pending ||
+        s_content_supplement_retry_timer)
+    {
+        return;
+    }
+
+    s_pending_content_supplement_load = &pack;
+    s_content_supplement_retry_timer =
+        lv_timer_create(deferred_content_supplement_retry_timer_cb, retry_ms == 0U ? 1U : retry_ms, nullptr);
+    if (s_content_supplement_retry_timer == nullptr)
+    {
+        s_pending_content_supplement_load = nullptr;
+        std::printf("%s font load deferred id=%s role=content_supplement reason=retry_timer_failed active_locale=%s source=%s\n",
+                    kLogTag,
+                    pack.id.c_str(),
+                    s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                    pack.source_path.empty() ? "<none>" : pack.source_path.c_str());
+        return;
+    }
+
+    lv_timer_set_repeat_count(s_content_supplement_retry_timer, 1);
+    std::printf("%s font load retry scheduled id=%s role=content_supplement retry_ms=%lu retry_kind=%s active_locale=%s source=%s\n",
+                kLogTag,
+                pack.id.c_str(),
+                static_cast<unsigned long>(retry_ms),
+                font_load_retry_kind_name(pack),
+                s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                pack.source_path.empty() ? "<none>" : pack.source_path.c_str());
+}
+
+void queue_deferred_content_supplement_load(FontPackRecord& pack, const char* reason)
+{
+    log_font_load_deferred(pack, "content_supplement", reason);
+
+    if (is_font_runtime_loaded(pack) || content_supplement_contains(&pack))
+    {
+        return;
+    }
+    if (!font_pack_supports_content(pack) || !can_add_content_supplement(pack))
+    {
+        std::printf("%s font load skipped id=%s role=content_supplement reason=content_budget active_locale=%s source=%s\n",
+                    kLogTag,
+                    pack.id.c_str(),
+                    s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                    pack.source_path.empty() ? "<none>" : pack.source_path.c_str());
+        return;
+    }
+    if (s_content_supplement_load_async_pending || s_content_supplement_retry_timer)
+    {
+        return;
+    }
+
+    const uint32_t now_ms = sys::millis_now();
+    if (font_load_backoff_active(pack, now_ms))
+    {
+        schedule_deferred_content_supplement_retry(pack, remaining_font_load_retry_ms(pack, now_ms));
+        return;
+    }
+
+    (void)schedule_deferred_content_supplement_async(pack, reason);
+}
+
+void deferred_content_supplement_retry_timer_cb(lv_timer_t* timer)
+{
+    if (timer)
+    {
+        lv_timer_del(timer);
+    }
+    if (timer == s_content_supplement_retry_timer)
+    {
+        s_content_supplement_retry_timer = nullptr;
+    }
+
+    FontPackRecord* pack = s_pending_content_supplement_load;
+    s_pending_content_supplement_load = nullptr;
+    if (pack == nullptr)
+    {
+        return;
+    }
+
+    queue_deferred_content_supplement_load(*pack, "retry_backoff");
+}
+
+void deferred_content_supplement_load_cb(void* user_data)
+{
+    (void)user_data;
+
+    s_content_supplement_load_async_pending = false;
+    FontPackRecord* pack = s_pending_content_supplement_load;
+    s_pending_content_supplement_load = nullptr;
+    if (pack == nullptr || is_font_runtime_loaded(*pack) || content_supplement_contains(pack))
+    {
+        return;
+    }
+    if (!font_pack_supports_content(*pack))
+    {
+        return;
+    }
+    if (!can_add_content_supplement(*pack))
+    {
+        std::printf("%s font load skipped id=%s role=content_supplement reason=content_budget active_locale=%s source=%s\n",
+                    kLogTag,
+                    pack->id.c_str(),
+                    s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                    pack->source_path.empty() ? "<none>" : pack->source_path.c_str());
+        return;
+    }
+
+    const uint32_t now_ms = sys::millis_now();
+    if (font_load_backoff_active(*pack, now_ms))
+    {
+        schedule_deferred_content_supplement_retry(*pack, remaining_font_load_retry_ms(*pack, now_ms));
+        return;
+    }
+
+    {
+        ScopedDeferredFontLoadOverlayPresent deferred_overlay_present;
+        if (!ensure_font_pack_loaded(pack))
+        {
+            const uint32_t failed_ms = sys::millis_now();
+            schedule_deferred_content_supplement_retry(*pack,
+                                                       remaining_font_load_retry_ms(*pack, failed_ms));
+            std::printf("%s font load incomplete id=%s role=content_supplement retry_kind=%s retry_ms=%lu active_locale=%s source=%s\n",
+                        kLogTag,
+                        pack->id.c_str(),
+                        font_load_retry_kind_name(*pack),
+                        static_cast<unsigned long>(
+                            remaining_font_load_retry_ms(*pack, failed_ms)),
+                        s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                        pack->source_path.empty() ? "<none>" : pack->source_path.c_str());
+            return;
+        }
+    }
+
+    append_unique_pack(s_content_supplement_packs, pack);
+    rebuild_runtime_font_chains();
+    invalidate_active_screen_after_font_chain_change();
+    std::printf("%s font load ready id=%s role=content_supplement active_locale=%s content_chain=%s source=%s\n",
+                kLogTag,
+                pack->id.c_str(),
+                s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                s_content_font_chain.desc.empty() ? "<none>" : s_content_font_chain.desc.c_str(),
+                pack->source_path.empty() ? "<none>" : pack->source_path.c_str());
+}
+
 bool ensure_content_font_for_text(const char* text)
 {
     ensure_registry();
@@ -3348,7 +3578,14 @@ bool ensure_content_font_for_text(const char* text)
         {
             const char* reason =
                 can_load_font_from_content_hot_path(*candidate) ? "content_budget" : "ui_hot_path";
-            log_font_load_deferred(*candidate, "content_supplement", reason);
+            if (can_load_font_from_content_hot_path(*candidate))
+            {
+                log_font_load_deferred(*candidate, "content_supplement", reason);
+            }
+            else
+            {
+                queue_deferred_content_supplement_load(*candidate, reason);
+            }
             break;
         }
         if (!ensure_font_pack_loaded(candidate))

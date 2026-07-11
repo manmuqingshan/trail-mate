@@ -57,6 +57,8 @@ int main(int argc, char** argv)
     assert(contains(registry, "Policy::Overlay"));
     assert(contains(registry, "Policy::OverlayImmediate"));
     assert(contains(registry, "font_load_overlay_policy(),"));
+    assert(contains(registry, "FontPackRecord* s_pending_content_supplement_load = nullptr;"));
+    assert(contains(registry, "lv_timer_t* s_content_supplement_retry_timer = nullptr;"));
 
     const std::size_t forced_overlay = position_of(registry, "class ScopedForcedFontLoadOverlay");
     const std::size_t defer_restore = position_of(registry, "previous_defer_present_");
@@ -76,9 +78,45 @@ int main(int argc, char** argv)
         "!can_activate_content_supplement_for_text(*candidate)");
     const std::size_t hot_path_reason = position_of_after(registry, "\"ui_hot_path\"", supplement_check);
     const std::size_t content_budget_reason = position_of_after(registry, "\"content_budget\"", supplement_check);
+    const std::size_t deferred_queue = position_of_after(
+        registry,
+        "queue_deferred_content_supplement_load(*candidate, reason);",
+        supplement_check);
     assert(content_ensure < supplement_check);
     assert(supplement_check < hot_path_reason);
     assert(supplement_check < content_budget_reason);
+    assert(supplement_check < deferred_queue);
+
+    const std::size_t async_schedule =
+        position_of(registry, "bool schedule_deferred_content_supplement_async");
+    const std::size_t async_call = position_of_after(
+        registry,
+        "lv_async_call(deferred_content_supplement_load_cb, nullptr)",
+        async_schedule);
+    const std::size_t retry_timer = position_of(
+        registry,
+        "lv_timer_create(deferred_content_supplement_retry_timer_cb");
+    assert(async_schedule < async_call);
+    assert(async_schedule < retry_timer);
+
+    const std::size_t async_callback =
+        position_of(registry, "void deferred_content_supplement_load_cb");
+    const std::size_t loader_call =
+        position_of_after(registry, "ensure_font_pack_loaded(pack)", async_callback);
+    const std::size_t append_call = position_of_after(
+        registry,
+        "append_unique_pack(s_content_supplement_packs, pack);",
+        async_callback);
+    const std::size_t rebuild_call =
+        position_of_after(registry, "rebuild_runtime_font_chains();", append_call);
+    const std::size_t invalidate_call = position_of_after(
+        registry,
+        "invalidate_active_screen_after_font_chain_change();",
+        rebuild_call);
+    assert(async_callback < loader_call);
+    assert(loader_call < append_call);
+    assert(append_call < rebuild_call);
+    assert(rebuild_call < invalidate_call);
 
     assert(not_contains(
         registry,
