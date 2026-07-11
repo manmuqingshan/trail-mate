@@ -1,0 +1,89 @@
+#include <cassert>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
+
+namespace
+{
+
+std::string read_file(const std::filesystem::path& path)
+{
+    std::ifstream stream(path, std::ios::binary);
+    assert(stream.is_open());
+    std::ostringstream out;
+    out << stream.rdbuf();
+    return out.str();
+}
+
+bool contains(const std::string& haystack, const char* needle)
+{
+    return haystack.find(needle) != std::string::npos;
+}
+
+bool not_contains(const std::string& haystack, const char* needle)
+{
+    return !contains(haystack, needle);
+}
+
+std::size_t position_of(const std::string& haystack, const char* needle)
+{
+    const auto pos = haystack.find(needle);
+    assert(pos != std::string::npos);
+    return pos;
+}
+
+std::size_t position_of_after(const std::string& haystack,
+                              const char* needle,
+                              std::size_t offset)
+{
+    const auto pos = haystack.find(needle, offset);
+    assert(pos != std::string::npos);
+    return pos;
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+    assert(argc == 2);
+    const std::filesystem::path repo_root = argv[1];
+
+    const std::string registry = read_file(
+        repo_root / "modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp");
+
+    assert(contains(registry, "bool s_defer_font_load_overlay_present = false;"));
+    assert(contains(registry, "font_load_overlay_policy()"));
+    assert(contains(registry, "Policy::Overlay"));
+    assert(contains(registry, "Policy::OverlayImmediate"));
+    assert(contains(registry, "font_load_overlay_policy(),"));
+
+    const std::size_t forced_overlay = position_of(registry, "class ScopedForcedFontLoadOverlay");
+    const std::size_t defer_restore = position_of(registry, "previous_defer_present_");
+    const std::size_t defer_enable = position_of(registry, "s_defer_font_load_overlay_present = true;");
+    assert(forced_overlay < defer_restore);
+    assert(defer_restore < defer_enable);
+
+    const std::size_t hot_path_guard = position_of(registry, "bool can_activate_content_supplement_for_text");
+    const std::size_t hot_path_check = position_of(registry, "can_load_font_from_content_hot_path(pack)");
+    const std::size_t budget_check = position_of(registry, "can_add_content_supplement(pack)");
+    assert(hot_path_guard < hot_path_check);
+    assert(hot_path_check < budget_check);
+
+    const std::size_t content_ensure = position_of(registry, "bool ensure_content_font_for_text");
+    const std::size_t supplement_check = position_of(
+        registry,
+        "!can_activate_content_supplement_for_text(*candidate)");
+    const std::size_t hot_path_reason = position_of_after(registry, "\"ui_hot_path\"", supplement_check);
+    const std::size_t content_budget_reason = position_of_after(registry, "\"content_budget\"", supplement_check);
+    assert(content_ensure < supplement_check);
+    assert(supplement_check < hot_path_reason);
+    assert(supplement_check < content_budget_reason);
+
+    assert(not_contains(
+        registry,
+        "foreground::make_snapshot(foreground::Slot::I18nFontLoad,\n"
+        "                                      foreground::Policy::OverlayImmediate"));
+
+    return 0;
+}

@@ -191,6 +191,7 @@ unsigned s_ui_helper_route_diagnostics = 0;
 unsigned s_direct_route_diagnostics = 0;
 bool s_allow_sync_external_font_activation = false;
 bool s_force_font_load_overlay = false;
+bool s_defer_font_load_overlay_present = false;
 std::uint32_t s_font_load_overlay_generation = 0;
 
 std::uint32_t next_font_load_overlay_generation()
@@ -201,6 +202,13 @@ std::uint32_t next_font_load_overlay_generation()
         ++s_font_load_overlay_generation;
     }
     return s_font_load_overlay_generation;
+}
+
+::ui::widgets::foreground_operation::Policy font_load_overlay_policy()
+{
+    return s_defer_font_load_overlay_present
+               ? ::ui::widgets::foreground_operation::Policy::Overlay
+               : ::ui::widgets::foreground_operation::Policy::OverlayImmediate;
 }
 
 class ScopedFontLoadOverlay
@@ -218,7 +226,7 @@ class ScopedFontLoadOverlay
         namespace foreground = ::ui::widgets::foreground_operation;
         foreground::publish(
             foreground::make_snapshot(foreground::Slot::I18nFontLoad,
-                                      foreground::Policy::OverlayImmediate,
+                                      font_load_overlay_policy(),
                                       foreground::Priority::Blocking,
                                       "Loading language pack...",
                                       pack.display_name.empty()
@@ -330,14 +338,17 @@ class ScopedForcedFontLoadOverlay
 {
   public:
     ScopedForcedFontLoadOverlay()
-        : previous_force_overlay_(s_force_font_load_overlay)
+        : previous_force_overlay_(s_force_font_load_overlay),
+          previous_defer_present_(s_defer_font_load_overlay_present)
     {
         s_force_font_load_overlay = true;
+        s_defer_font_load_overlay_present = true;
     }
 
     ~ScopedForcedFontLoadOverlay()
     {
         s_force_font_load_overlay = previous_force_overlay_;
+        s_defer_font_load_overlay_present = previous_defer_present_;
     }
 
     ScopedForcedFontLoadOverlay(const ScopedForcedFontLoadOverlay&) = delete;
@@ -345,6 +356,7 @@ class ScopedForcedFontLoadOverlay
 
   private:
     bool previous_force_overlay_ = false;
+    bool previous_defer_present_ = false;
 };
 
 const char* safe_text(const char* value)
@@ -1616,11 +1628,14 @@ bool can_activate_content_supplement_for_text(const FontPackRecord& pack)
     // Content text is data from contacts, chat, map labels, and extension pages.
     // It must not be tied to the display locale: an English UI can still need a
     // Chinese/Korean/emoji content font when those optional packs are installed.
-    // The guard here is coverage + memory-profile budget, while load_font_pack()
-    // still owns failure backoff so a missing/bad pack is not retried per label.
+    // The guard here is hot-path safety + coverage + memory-profile budget,
+    // while load_font_pack() still owns failure backoff so a missing/bad pack is
+    // not retried per label.
     return pack.builtin ||
            is_font_runtime_loaded(pack) ||
-           (font_pack_supports_content(pack) && can_add_content_supplement(pack));
+           (can_load_font_from_content_hot_path(pack) &&
+            font_pack_supports_content(pack) &&
+            can_add_content_supplement(pack));
 #else
     (void)pack;
     return true;
@@ -3331,7 +3346,9 @@ bool ensure_content_font_for_text(const char* text)
             !kAllowSynchronousContentSupplementFontLoad &&
             !can_activate_content_supplement_for_text(*candidate))
         {
-            log_font_load_deferred(*candidate, "content_supplement", "content_budget");
+            const char* reason =
+                can_load_font_from_content_hot_path(*candidate) ? "content_budget" : "ui_hot_path";
+            log_font_load_deferred(*candidate, "content_supplement", reason);
             break;
         }
         if (!ensure_font_pack_loaded(candidate))
