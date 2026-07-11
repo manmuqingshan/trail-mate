@@ -246,21 +246,6 @@ LEGACY_TRANSITION_OCCURRENCES = {
         '::platform::esp::common::SharedSpiLockGuard spi_guard(kSdPersistWait, "node_store_sd");',
     ): 2,
     (
-        "platform/esp/arduino_common/src/gps/track_recorder.cpp",
-        "shared_spi_guard",
-        '::platform::esp::common::SharedSpiLockGuard spi_guard(0, "track_sd");',
-    ): 1,
-    (
-        "platform/esp/arduino_common/src/gps/track_recorder.cpp",
-        "shared_spi_guard",
-        '::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");',
-    ): 5,
-    (
-        "platform/esp/arduino_common/src/gps/track_recorder.cpp",
-        "shared_spi_guard",
-        '::platform::esp::common::SharedSpiLockGuard spi_guard(spi_wait, "track_sd");',
-    ): 1,
-    (
         "platform/esp/arduino_common/src/platform_ui_usb_support_runtime.cpp",
         "shared_spi_guard",
         "::platform::esp::common::SharedSpiLockGuard spi_guard(pdMS_TO_TICKS(50));",

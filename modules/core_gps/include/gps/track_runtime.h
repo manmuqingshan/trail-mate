@@ -19,6 +19,13 @@ struct TrackPoint
     bool has_altitude = false;
 };
 
+enum class TrackStorageFormat : uint8_t
+{
+    Gpx = 0,
+    Csv = 1,
+    Binary = 2,
+};
+
 enum class TrackCommandKind : uint8_t
 {
     StartNewTrack,
@@ -33,6 +40,7 @@ enum class TrackEventKind : uint8_t
     Started,
     Stopped,
     PointBuffered,
+    ResourceBusy,
     FlushSucceeded,
     FlushFailed,
     ListReady,
@@ -57,11 +65,23 @@ struct TrackPointBatch
     std::size_t count = 0;
 };
 
+struct TrackStorageDescriptor
+{
+    uint32_t track_id = 0;
+    const char* path = nullptr;
+    TrackStorageFormat format = TrackStorageFormat::Gpx;
+    const char* active_state_path = nullptr;
+    bool manual_recording = false;
+    bool auto_recording = false;
+    bool persist_active_state = true;
+    bool append_footer_on_close = true;
+};
+
 struct TrackCommand
 {
     uint32_t command_id = 0;
     TrackCommandKind kind = TrackCommandKind::AppendPoint;
-    uint32_t track_id = 0;
+    TrackStorageDescriptor storage{};
     TrackPointBatch point_batch{};
     uint32_t deadline_ms = 0;
     uint32_t created_at_ms = 0;
@@ -72,6 +92,7 @@ struct TrackEvent
     TrackEventKind kind = TrackEventKind::Failed;
     uint32_t command_id = 0;
     uint32_t track_id = 0;
+    TrackStorageDescriptor storage{};
     uint32_t timestamp_ms = 0;
     int32_t error = 0;
 };
@@ -174,6 +195,9 @@ class TrackStateMachine
         case TrackEventKind::FlushSucceeded:
             state_ = TrackRecorderStatus::Recording;
             break;
+        case TrackEventKind::ResourceBusy:
+            state_ = TrackRecorderStatus::Recovering;
+            break;
         case TrackEventKind::FlushFailed:
         case TrackEventKind::Failed:
             state_ = TrackRecorderStatus::Error;
@@ -204,11 +228,13 @@ class ITrackFileAdapter
   public:
     virtual ~ITrackFileAdapter() = default;
 
-    virtual bool open(uint32_t track_id) = 0;
-    virtual bool append(uint32_t track_id, const TrackPoint* points, std::size_t count) = 0;
-    virtual bool flush(uint32_t track_id) = 0;
-    virtual bool close(uint32_t track_id) = 0;
-    virtual std::size_t list(uint32_t* track_ids, std::size_t capacity) = 0;
+    virtual bool open(const TrackStorageDescriptor& storage) = 0;
+    virtual bool append(const TrackStorageDescriptor& storage,
+                        const TrackPoint* points,
+                        std::size_t count) = 0;
+    virtual bool flush(const TrackStorageDescriptor& storage) = 0;
+    virtual bool close(const TrackStorageDescriptor& storage) = 0;
+    virtual std::size_t list(TrackStorageDescriptor* tracks, std::size_t capacity) = 0;
 };
 
 class ITrackEventSink
@@ -247,6 +273,10 @@ class TrackStorageWorker
         {
             return;
         }
+        if (static_cast<int32_t>(retry_not_before_ms_ - now_ms) > 0)
+        {
+            return;
+        }
 
         sys::runtime::BusAcquireRequest request{};
         request.command_id = pending_command_.command_id;
@@ -257,35 +287,44 @@ class TrackStorageWorker
         const sys::runtime::BusAcquireResult acquire = bus_.acquire(request);
         if (acquire.status != sys::runtime::BusAcquireStatus::Acquired)
         {
-            publish(TrackEventKind::FlushFailed, now_ms, -10);
-            pending_ = false;
+            if (expired(now_ms))
+            {
+                publish(acquireFailureKind(), now_ms, -10);
+                pending_ = false;
+                retry_not_before_ms_ = 0;
+                busy_event_published_ = false;
+                return;
+            }
+            publishResourceBusy(now_ms, acquire.status);
+            retry_not_before_ms_ = now_ms + kBusyRetryDelayMs;
             return;
         }
+
+        retry_not_before_ms_ = 0;
+        busy_event_published_ = false;
 
         bool ok = false;
         switch (pending_command_.kind)
         {
         case TrackCommandKind::StartNewTrack:
-            ok = files_.open(pending_command_.track_id);
+            ok = files_.open(pending_command_.storage);
             publish(ok ? TrackEventKind::Started : TrackEventKind::Failed,
                     now_ms,
                     ok ? 0 : -11);
             break;
         case TrackCommandKind::StopTrack:
-            ok = files_.flush(pending_command_.track_id) &&
-                 files_.close(pending_command_.track_id);
+            ok = appendBatchIfAny() && files_.flush(pending_command_.storage) &&
+                 files_.close(pending_command_.storage);
             publish(ok ? TrackEventKind::Stopped : TrackEventKind::Failed,
                     now_ms,
                     ok ? 0 : -12);
             break;
         case TrackCommandKind::AppendPoint:
         case TrackCommandKind::Flush:
-            ok = files_.append(pending_command_.track_id,
-                               pending_command_.point_batch.points,
-                               pending_command_.point_batch.count);
+            ok = appendBatchIfAny();
             if (ok)
             {
-                ok = files_.flush(pending_command_.track_id);
+                ok = files_.flush(pending_command_.storage);
             }
             publish(ok ? TrackEventKind::FlushSucceeded : TrackEventKind::FlushFailed,
                     now_ms,
@@ -293,7 +332,7 @@ class TrackStorageWorker
             break;
         case TrackCommandKind::ListTracks:
         {
-            uint32_t scratch[1]{};
+            TrackStorageDescriptor scratch[1]{};
             (void)files_.list(scratch, 0);
             publish(TrackEventKind::ListReady, now_ms, 0);
             ok = true;
@@ -311,12 +350,57 @@ class TrackStorageWorker
     }
 
   private:
+    static constexpr uint32_t kBusyRetryDelayMs = 25;
+    static constexpr uint32_t kBusyEventIntervalMs = 250;
+
+    bool appendBatchIfAny()
+    {
+        if (pending_command_.point_batch.count == 0)
+        {
+            return true;
+        }
+        return files_.append(pending_command_.storage,
+                             pending_command_.point_batch.points,
+                             pending_command_.point_batch.count);
+    }
+
+    bool expired(uint32_t now_ms) const
+    {
+        return pending_command_.deadline_ms != 0 &&
+               static_cast<int32_t>(pending_command_.deadline_ms - now_ms) <= 0;
+    }
+
+    TrackEventKind acquireFailureKind() const
+    {
+        switch (pending_command_.kind)
+        {
+        case TrackCommandKind::AppendPoint:
+        case TrackCommandKind::Flush:
+            return TrackEventKind::FlushFailed;
+        default:
+            return TrackEventKind::Failed;
+        }
+    }
+
+    void publishResourceBusy(uint32_t now_ms, sys::runtime::BusAcquireStatus status)
+    {
+        if (busy_event_published_ &&
+            static_cast<uint32_t>(now_ms - last_busy_event_ms_) < kBusyEventIntervalMs)
+        {
+            return;
+        }
+        publish(TrackEventKind::ResourceBusy, now_ms, static_cast<int32_t>(status));
+        busy_event_published_ = true;
+        last_busy_event_ms_ = now_ms;
+    }
+
     void publish(TrackEventKind kind, uint32_t now_ms, int32_t error)
     {
         TrackEvent event{};
         event.kind = kind;
         event.command_id = pending_command_.command_id;
-        event.track_id = pending_command_.track_id;
+        event.track_id = pending_command_.storage.track_id;
+        event.storage = pending_command_.storage;
         event.timestamp_ms = now_ms;
         event.error = error;
         (void)events_.publish(event);
@@ -328,6 +412,9 @@ class TrackStorageWorker
     TrackFlushPolicy& policy_;
     TrackCommand pending_command_{};
     bool pending_ = false;
+    uint32_t retry_not_before_ms_ = 0;
+    uint32_t last_busy_event_ms_ = 0;
+    bool busy_event_published_ = false;
 };
 
 template <std::size_t N>
@@ -345,14 +432,23 @@ class TrackRuntime
 
     bool startNewTrack(uint32_t track_id, uint32_t now_ms)
     {
+        return startNewTrack(makeStorage(track_id), now_ms);
+    }
+
+    bool startNewTrack(const TrackStorageDescriptor& storage, uint32_t now_ms)
+    {
         states_.setState(TrackRecorderStatus::Starting);
-        return submit(TrackCommandKind::StartNewTrack, track_id, {}, now_ms);
+        return submit(TrackCommandKind::StartNewTrack, storage, {}, now_ms);
     }
 
     bool stopTrack(uint32_t now_ms)
     {
+        if (worker_.busy())
+        {
+            return false;
+        }
         states_.setState(TrackRecorderStatus::Stopping);
-        return submit(TrackCommandKind::StopTrack, active_track_id_, points_.takeAll(), now_ms);
+        return submit(TrackCommandKind::StopTrack, active_storage_, points_.takeAll(), now_ms);
     }
 
     bool appendPoint(const TrackPoint& point, uint32_t now_ms)
@@ -363,22 +459,18 @@ class TrackRuntime
             return false;
         }
         publish(TrackEventKind::PointBuffered, now_ms, 0);
-        TrackPointBatch batch = points_.takeBatch(policy_, now_ms);
-        if (batch.count == 0)
-        {
-            return true;
-        }
-        return submit(TrackCommandKind::AppendPoint, active_track_id_, batch, now_ms);
+        return submitReadyBatch(now_ms);
     }
 
     bool listTracks(uint32_t now_ms)
     {
-        return submit(TrackCommandKind::ListTracks, active_track_id_, {}, now_ms);
+        return submit(TrackCommandKind::ListTracks, active_storage_, {}, now_ms);
     }
 
     void tick(uint32_t now_ms)
     {
         worker_.tick(now_ms);
+        (void)submitReadyBatch(now_ms);
     }
 
     void handle(const TrackEvent& event)
@@ -387,7 +479,7 @@ class TrackRuntime
         last_event_ = event;
         if (event.kind == TrackEventKind::Started)
         {
-            active_track_id_ = event.track_id;
+            active_storage_ = event.storage;
         }
     }
 
@@ -397,29 +489,51 @@ class TrackRuntime
     }
 
   private:
+    static TrackStorageDescriptor makeStorage(uint32_t track_id)
+    {
+        TrackStorageDescriptor storage{};
+        storage.track_id = track_id;
+        return storage;
+    }
+
     bool submit(TrackCommandKind kind,
-                uint32_t track_id,
+                const TrackStorageDescriptor& storage,
                 TrackPointBatch batch,
                 uint32_t now_ms)
     {
         TrackCommand command{};
         command.command_id = next_command_id_++;
         command.kind = kind;
-        command.track_id = track_id;
+        command.storage = storage;
         command.point_batch = batch;
         command.created_at_ms = now_ms;
         if (kind == TrackCommandKind::StartNewTrack)
         {
-            active_track_id_ = track_id;
+            active_storage_ = storage;
         }
         return worker_.submit(command);
+    }
+
+    bool submitReadyBatch(uint32_t now_ms)
+    {
+        if (worker_.busy())
+        {
+            return true;
+        }
+        TrackPointBatch batch = points_.takeBatch(policy_, now_ms);
+        if (batch.count == 0)
+        {
+            return true;
+        }
+        return submit(TrackCommandKind::AppendPoint, active_storage_, batch, now_ms);
     }
 
     void publish(TrackEventKind kind, uint32_t now_ms, int32_t error)
     {
         TrackEvent event{};
         event.kind = kind;
-        event.track_id = active_track_id_;
+        event.track_id = active_storage_.track_id;
+        event.storage = active_storage_;
         event.timestamp_ms = now_ms;
         event.error = error;
         last_event_ = event;
@@ -432,7 +546,7 @@ class TrackRuntime
     TrackStorageWorker& worker_;
     ITrackEventSink& events_;
     TrackEvent last_event_{};
-    uint32_t active_track_id_ = 0;
+    TrackStorageDescriptor active_storage_{};
     uint32_t next_command_id_ = 1;
 };
 

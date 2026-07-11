@@ -1,6 +1,7 @@
 #include "platform/esp/arduino_common/gps/track_recorder.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/common/shared_spi_bus_arbiter.h"
+#include "sys/bus_access_scope.h"
 
 #include <cmath>
 #include <esp_heap_caps.h>
@@ -41,9 +42,54 @@ constexpr uint8_t kActiveVersion = 1;
 constexpr uint8_t kActiveFlagManual = 0x01;
 constexpr uint8_t kActiveFlagAuto = 0x02;
 constexpr const char* kActivePath = "/trackers/active.bin";
-constexpr TickType_t kSdTransactionLockWait = pdMS_TO_TICKS(250);
+constexpr uint32_t kTrackBusAcquireMs = 250;
+constexpr uint32_t kTrackBusBackgroundAcquireMs = 25;
+constexpr uint32_t kTrackBusInteractiveAcquireMs = 5;
+constexpr uint32_t kTrackBusResource = 3;
+constexpr uint32_t kTrackBusOwnerId = 0x54524B; // 'TRK'
+constexpr const char* kTrackBusOwner = "track_sd";
 constexpr uint32_t kPendingFlushIntervalMs = 5000;
 constexpr size_t kPendingFlushThreshold = 6;
+
+::platform::esp::common::SharedSpiBusAdapter s_track_bus_adapter(kTrackBusOwner,
+                                                                 kTrackBusOwnerId);
+::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_track_bus_policy(
+    kTrackBusInteractiveAcquireMs,
+    kTrackBusBackgroundAcquireMs,
+    kTrackBusAcquireMs,
+    kTrackBusAcquireMs);
+sys::runtime::StorageBusArbiter s_track_bus_arbiter(s_track_bus_adapter,
+                                                    s_track_bus_policy);
+
+class TrackRecorderBusGate final
+{
+  public:
+    TrackRecorderBusGate(sys::runtime::RuntimeCommandKind kind,
+                         sys::runtime::BusAccessPolicy policy)
+        : scope_(s_track_bus_arbiter, makeRequest(kind, policy))
+    {
+    }
+
+    bool locked() const
+    {
+        return scope_.acquired();
+    }
+
+  private:
+    static sys::runtime::BusAcquireRequest makeRequest(
+        sys::runtime::RuntimeCommandKind kind,
+        sys::runtime::BusAccessPolicy policy)
+    {
+        sys::runtime::BusAcquireRequest request{};
+        request.resource = kTrackBusResource;
+        request.policy = policy;
+        request.command_id = static_cast<uint32_t>(kind);
+        request.origin = kTrackBusOwnerId;
+        return request;
+    }
+
+    sys::runtime::ScopedBusAccessToken scope_;
+};
 
 double deg2rad(double deg)
 {
@@ -250,8 +296,9 @@ bool TrackRecorder::start()
     bool ok = false;
     do
     {
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-        if (!spi_guard.locked())
+        TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackStart,
+                                      sys::runtime::BusAccessPolicy::DurableCommit);
+        if (!bus_gate.locked())
         {
             break;
         }
@@ -286,8 +333,9 @@ void TrackRecorder::stop()
         return;
     }
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-    if (!spi_guard.locked())
+    TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackStop,
+                                  sys::runtime::BusAccessPolicy::DurableCommit);
+    if (!bus_gate.locked())
     {
         if (mutex_)
         {
@@ -343,8 +391,12 @@ void TrackRecorder::setAutoRecording(bool enabled)
         return;
     }
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-    if (!spi_guard.locked())
+    const sys::runtime::RuntimeCommandKind command_kind =
+        enabled ? sys::runtime::RuntimeCommandKind::TrackStart
+                : sys::runtime::RuntimeCommandKind::TrackStop;
+    TrackRecorderBusGate bus_gate(command_kind,
+                                  sys::runtime::BusAccessPolicy::DurableCommit);
+    if (!bus_gate.locked())
     {
         if (mutex_)
         {
@@ -434,8 +486,9 @@ void TrackRecorder::setFormat(TrackFormat format)
         return;
     }
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-    if (!spi_guard.locked())
+    TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackFlush,
+                                  sys::runtime::BusAccessPolicy::DurableCommit);
+    if (!bus_gate.locked())
     {
         if (mutex_)
         {
@@ -573,9 +626,12 @@ void TrackRecorder::flushPending(bool force)
         return;
     }
 
-    const TickType_t spi_wait = force ? kSdTransactionLockWait : 0;
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(spi_wait, "track_sd");
-    if (!spi_guard.locked())
+    const sys::runtime::BusAccessPolicy policy =
+        force ? sys::runtime::BusAccessPolicy::DurableCommit
+              : sys::runtime::BusAccessPolicy::UiNeverBlock;
+    TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackFlush,
+                                  policy);
+    if (!bus_gate.locked())
     {
         if (mutex_)
         {
@@ -666,8 +722,9 @@ bool TrackRecorder::restoreActiveSession()
     bool ok = false;
     do
     {
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-        if (!spi_guard.locked())
+        TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackStart,
+                                      sys::runtime::BusAccessPolicy::DurableCommit);
+        if (!bus_gate.locked())
         {
             break;
         }
@@ -845,8 +902,9 @@ size_t TrackRecorder::listTracks(String* out_names, size_t max_names) const
         }
     };
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(0, "track_sd");
-    if (!spi_guard.locked())
+    TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackList,
+                                  sys::runtime::BusAccessPolicy::UiNeverBlock);
+    if (!bus_gate.locked())
     {
         release_mutex();
         return 0;
