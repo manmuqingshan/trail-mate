@@ -3,6 +3,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/http_client_runtime.h"
+#include "platform/ui/wifi_access_runtime.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -41,7 +42,7 @@ constexpr uint16_t kRouteViewHeight = 180;
 constexpr std::size_t kRouteCacheInternalReserveBytes = 96 * 1024;
 constexpr std::size_t kRouteCacheInternalSlackBytes = 8 * 1024;
 constexpr std::size_t kRouteJpegDecoderWorkBytes = 3100;
-constexpr std::size_t kRouteHttpInternalFreeTargetBytes = 24 * 1024;
+constexpr std::size_t kRouteHttpInternalFreeTargetBytes = 18 * 1024;
 constexpr std::size_t kRouteHttpInternalLargestTargetBytes = 8 * 1024;
 constexpr std::size_t kRouteImageDownloadAttempts = 2;
 constexpr int kRouteImageMemoryWaitAttempts = 16;
@@ -892,6 +893,58 @@ struct RouteImageProgressContext
     TickType_t last_tick = 0;
 };
 
+class RouteImageForegroundDownloadScope
+{
+  public:
+    RouteImageForegroundDownloadScope() = default;
+    ~RouteImageForegroundDownloadScope()
+    {
+        end();
+    }
+
+    RouteImageForegroundDownloadScope(const RouteImageForegroundDownloadScope&) = delete;
+    RouteImageForegroundDownloadScope& operator=(const RouteImageForegroundDownloadScope&) = delete;
+
+    void begin()
+    {
+        if (active_)
+        {
+            return;
+        }
+
+        platform::ui::wifi_access::Request request{};
+        request.client = platform::ui::wifi_access::Client::RouteStorage;
+        request.kind = platform::ui::wifi_access::AccessKind::HttpDownload;
+        request.priority = platform::ui::wifi_access::Priority::UserForeground;
+        request.reason = "route_image_pending";
+        platform::ui::wifi_access::Decision decision =
+            platform::ui::wifi_access::Decision::Granted;
+        active_ = platform::ui::wifi_access::begin_foreground_download(
+            request,
+            &decision);
+        if (!active_)
+        {
+            std::printf("[RouteImage][wifi] pending denied decision=%s\n",
+                        platform::ui::wifi_access::decision_name(decision));
+        }
+    }
+
+    void end()
+    {
+        if (!active_)
+        {
+            return;
+        }
+        platform::ui::wifi_access::end_foreground_download(
+            platform::ui::wifi_access::Client::RouteStorage,
+            platform::ui::wifi_access::AccessKind::HttpDownload);
+        active_ = false;
+    }
+
+  private:
+    bool active_ = false;
+};
+
 void route_image_download_progress(std::uint32_t current_bytes,
                                    std::uint32_t total_bytes,
                                    void* context)
@@ -1093,6 +1146,8 @@ void route_image_worker_task(void* param)
     }
     else
     {
+        RouteImageForegroundDownloadScope foreground_download;
+        foreground_download.begin();
         for (std::size_t index = 0; index < total;)
         {
             const RouteImageDownloadItem& item = download_items[index];

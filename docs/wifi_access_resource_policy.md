@@ -102,6 +102,7 @@ Trail Mate is a low-frequency terminal, not a desktop router node.
 | Screen on | Connected messaging is allowed with normal terminal budget. | Direct gateway traffic is allowed with terminal budget. | User foreground work is allowed; background work is deferred. |
 | Wake protected | Existing sockets may use minimal budget. New reconnects and HTTP starts are deferred. | Existing sockets may use minimal budget. New reconnects are deferred. | Deferred. |
 | Screen off | MQTT may connect and normally send/receive. | Gateway may connect and receive with expanded terminal budget. | Queued maintenance/background work may run, one transaction at a time. |
+| Foreground HTTP pending | Suspended. No connect, read, write, publish, or downlink bridge budget. | Suspended. Existing gateway socket may be closed by its budget handler. | The pending foreground download owns the next HTTP opportunity while it waits for memory/SD/UI resources. |
 | HTTP active | MQTT and Reticulum are reduced to minimal messaging budget. | Reduced to minimal gateway budget. | Exactly one HTTP transaction owns the HTTP resource. |
 | OTA active | Protocol pump budget is suspended. | Protocol pump budget is suspended. | OTA is exclusive. |
 | Reticulum call active | Suspended. MQTT sockets must not connect, pump, publish, or consume RX budget. | Exclusive `call.audio` link traffic only. Discovery, public announce ingest, route/path background noise, and non-call link work are deferred. | Denied. No HTTP, OTA, catalog, pack, language, image, or route download may start. |

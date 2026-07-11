@@ -25,9 +25,13 @@ struct RuntimeState
 {
     bool http_active = false;
     bool ota_active = false;
+    bool foreground_download_pending = false;
     Client owner = Client::Unknown;
     AccessKind active_kind = AccessKind::WifiConnect;
+    Client pending_owner = Client::Unknown;
+    AccessKind pending_kind = AccessKind::WifiConnect;
     std::uint32_t active_since_ms = 0;
+    std::uint32_t pending_since_ms = 0;
     std::uint32_t foreground_download_settle_until_ms = 0;
     std::uint32_t wake_protected_until_ms = 0;
     bool saw_screen_sample = false;
@@ -135,6 +139,18 @@ bool foreground_download_active_for_other(const Request& request)
     return active;
 }
 
+bool foreground_download_pending_for_other(const Request& request)
+{
+    bool pending = false;
+    portENTER_CRITICAL(&s_lock);
+    pending = s_state.foreground_download_pending &&
+              foreground_download_owner(s_state.pending_owner) &&
+              !(s_state.pending_owner == request.client &&
+                s_state.pending_kind == request.kind);
+    portEXIT_CRITICAL(&s_lock);
+    return pending;
+}
+
 bool foreground_download_settle_active_for(Client client, std::uint32_t now_ms)
 {
     if (!messaging_client(client))
@@ -172,6 +188,15 @@ bool acquire_http(const Request& request, ScreenPhase phase, Lease& out)
     if (s_state.http_active)
     {
         out.decision = s_state.ota_active ? Decision::OtaExclusive : Decision::Busy;
+        portEXIT_CRITICAL(&s_lock);
+        return false;
+    }
+    if (s_state.foreground_download_pending &&
+        foreground_download_owner(s_state.pending_owner) &&
+        !(s_state.pending_owner == request.client &&
+          s_state.pending_kind == request.kind))
+    {
+        out.decision = Decision::Busy;
         portEXIT_CRITICAL(&s_lock);
         return false;
     }
@@ -215,6 +240,12 @@ bool long_lived_allowed(const Request& request, ScreenPhase phase, Lease& out)
         return false;
     }
     if (foreground_download_active_for_other(request) &&
+        messaging_client(request.client))
+    {
+        out.decision = Decision::Busy;
+        return false;
+    }
+    if (foreground_download_pending_for_other(request) &&
         messaging_client(request.client))
     {
         out.decision = Decision::Busy;
@@ -306,6 +337,11 @@ bool ensure_connected(const Request& request, Decision* out_decision)
         decision = Decision::OtaExclusive;
     }
     else if (foreground_download_active_for_other(request) &&
+             messaging_client(request.client))
+    {
+        decision = Decision::Busy;
+    }
+    else if (foreground_download_pending_for_other(request) &&
              messaging_client(request.client))
     {
         decision = Decision::Busy;
@@ -445,6 +481,117 @@ void release(const Lease& lease)
                 static_cast<unsigned long>(held_ms));
 }
 
+bool begin_foreground_download(const Request& request, Decision* out_decision)
+{
+    const std::uint32_t now_ms = sys::millis_now();
+    const ScreenPhase phase = sample_screen_phase(now_ms);
+    Decision decision = Decision::Granted;
+
+    if (request.client == Client::Unknown ||
+        request.kind != AccessKind::HttpDownload ||
+        request.priority != Priority::UserForeground ||
+        !foreground_download_owner(request.client))
+    {
+        decision = Decision::InvalidRequest;
+    }
+    else if (::platform::ui::reticulum_call::realtime_mode_active())
+    {
+        decision = Decision::CallExclusive;
+    }
+    else if (phase == ScreenPhase::WakeProtected)
+    {
+        decision = Decision::DeferredForWake;
+    }
+    else
+    {
+        portENTER_CRITICAL(&s_lock);
+        if (s_state.ota_active)
+        {
+            decision = Decision::OtaExclusive;
+        }
+        else if (s_state.http_active &&
+                 !(s_state.owner == request.client &&
+                   s_state.active_kind == request.kind))
+        {
+            decision = Decision::Busy;
+        }
+        else if (s_state.foreground_download_pending &&
+                 !(s_state.pending_owner == request.client &&
+                   s_state.pending_kind == request.kind))
+        {
+            decision = Decision::Busy;
+        }
+        else
+        {
+            s_state.foreground_download_pending = true;
+            s_state.pending_owner = request.client;
+            s_state.pending_kind = request.kind;
+            if (s_state.pending_since_ms == 0)
+            {
+                s_state.pending_since_ms = now_ms;
+            }
+        }
+        portEXIT_CRITICAL(&s_lock);
+    }
+
+    if (out_decision)
+    {
+        *out_decision = decision;
+    }
+    if (decision == Decision::Granted)
+    {
+        std::printf("[WiFiAccess] foreground pending client=%s kind=%s phase=%s reason=%s\n",
+                    client_name(request.client),
+                    access_kind_name(request.kind),
+                    screen_phase_name(phase),
+                    request.reason ? request.reason : "");
+    }
+    else
+    {
+        std::printf("[WiFiAccess] foreground pending denied client=%s kind=%s phase=%s decision=%s reason=%s\n",
+                    client_name(request.client),
+                    access_kind_name(request.kind),
+                    screen_phase_name(phase),
+                    decision_name(decision),
+                    request.reason ? request.reason : "");
+    }
+    return decision == Decision::Granted;
+}
+
+void end_foreground_download(Client client, AccessKind kind)
+{
+    const std::uint32_t now_ms = sys::millis_now();
+    std::uint32_t held_ms = 0;
+    bool cleared = false;
+
+    portENTER_CRITICAL(&s_lock);
+    if (s_state.foreground_download_pending &&
+        s_state.pending_owner == client &&
+        s_state.pending_kind == kind)
+    {
+        held_ms = s_state.pending_since_ms == 0 ? 0 : now_ms - s_state.pending_since_ms;
+        s_state.foreground_download_pending = false;
+        s_state.pending_owner = Client::Unknown;
+        s_state.pending_kind = AccessKind::WifiConnect;
+        s_state.pending_since_ms = 0;
+        if (foreground_download_owner(client) && kind == AccessKind::HttpDownload)
+        {
+            s_state.foreground_download_settle_until_ms =
+                now_ms + kForegroundDownloadSettleMs;
+        }
+        cleared = true;
+    }
+    portEXIT_CRITICAL(&s_lock);
+
+    if (cleared)
+    {
+        std::printf("[WiFiAccess] foreground released client=%s kind=%s held_ms=%lu\n",
+                    client_name(client),
+                    access_kind_name(kind),
+                    static_cast<unsigned long>(held_ms));
+    }
+}
+
 TrafficBudget traffic_budget(Client client, Priority priority)
 {
     (void)priority;
@@ -457,6 +604,8 @@ TrafficBudget traffic_budget(Client client, Priority priority)
     const bool ota = s_state.ota_active;
     const Client owner = s_state.owner;
     const AccessKind active_kind = s_state.active_kind;
+    const bool foreground_pending = s_state.foreground_download_pending &&
+                                    foreground_download_owner(s_state.pending_owner);
     const std::uint32_t foreground_settle_until_ms =
         s_state.foreground_download_settle_until_ms;
     portEXIT_CRITICAL(&s_lock);
@@ -471,7 +620,9 @@ TrafficBudget traffic_budget(Client client, Priority priority)
         static_cast<std::int32_t>(foreground_settle_until_ms - now_ms) > 0;
 
     if (ota ||
-        ((foreground_download_active || foreground_download_settle_active) &&
+        ((foreground_download_active ||
+          foreground_pending ||
+          foreground_download_settle_active) &&
          messaging_client(client)))
     {
         budget.allow_connect = false;
@@ -506,9 +657,13 @@ RuntimeStatus status()
     portENTER_CRITICAL(&s_lock);
     out.http_active = s_state.http_active;
     out.ota_active = s_state.ota_active;
+    out.foreground_download_pending = s_state.foreground_download_pending;
     out.owner = s_state.owner;
     out.active_kind = s_state.active_kind;
+    out.pending_owner = s_state.pending_owner;
+    out.pending_kind = s_state.pending_kind;
     out.active_since_ms = s_state.active_since_ms;
+    out.pending_since_ms = s_state.pending_since_ms;
     out.wake_protected_until_ms = s_state.wake_protected_until_ms;
     portEXIT_CRITICAL(&s_lock);
     out.screen_phase = sample_screen_phase(now_ms);

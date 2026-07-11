@@ -95,16 +95,22 @@ struct RuntimeStatus
 {
     bool http_active = false;
     bool ota_active = false;
+    bool foreground_download_pending = false;
     Client owner = Client::Unknown;
     AccessKind active_kind = AccessKind::WifiConnect;
+    Client pending_owner = Client::Unknown;
+    AccessKind pending_kind = AccessKind::WifiConnect;
     ScreenPhase screen_phase = ScreenPhase::Unknown;
     std::uint32_t active_since_ms = 0;
+    std::uint32_t pending_since_ms = 0;
     std::uint32_t wake_protected_until_ms = 0;
 };
 
 bool ensure_connected(const Request& request, Decision* out_decision = nullptr);
 Lease acquire(const Request& request);
 void release(const Lease& lease);
+bool begin_foreground_download(const Request& request, Decision* out_decision = nullptr);
+void end_foreground_download(Client client, AccessKind kind);
 TrafficBudget traffic_budget(Client client, Priority priority);
 RuntimeStatus status();
 
