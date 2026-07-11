@@ -193,6 +193,65 @@ static bool s_firmware_overlay_owned = false;
 static firmware_update_runtime::Phase s_last_firmware_phase = firmware_update_runtime::Phase::Unsupported;
 static bool s_last_firmware_busy = false;
 static lv_obj_t* s_gps_diagnostics_label = nullptr;
+
+static void present_settings_busy_overlay_now()
+{
+    static bool s_presenting = false;
+    if (s_presenting)
+    {
+        return;
+    }
+    s_presenting = true;
+    if (lv_obj_t* top = lv_layer_top())
+    {
+        lv_obj_invalidate(top);
+    }
+    lv_timer_handler();
+    lv_refr_now(nullptr);
+    s_presenting = false;
+}
+
+class ScopedSettingsBusyOverlay
+{
+  public:
+    explicit ScopedSettingsBusyOverlay(const char* title,
+                                       const char* detail = nullptr,
+                                       int progress_percent = -1)
+    {
+        ::ui::widgets::busy_overlay::show(title, detail);
+        ::ui::widgets::busy_overlay::set_progress(progress_percent);
+        present_settings_busy_overlay_now();
+        active_ = true;
+    }
+
+    ~ScopedSettingsBusyOverlay()
+    {
+        if (!active_)
+        {
+            return;
+        }
+        ::ui::widgets::busy_overlay::hide();
+        present_settings_busy_overlay_now();
+    }
+
+    ScopedSettingsBusyOverlay(const ScopedSettingsBusyOverlay&) = delete;
+    ScopedSettingsBusyOverlay& operator=(const ScopedSettingsBusyOverlay&) = delete;
+
+    void update(const char* title, const char* detail = nullptr, int progress_percent = -1)
+    {
+        if (!active_)
+        {
+            return;
+        }
+        ::ui::widgets::busy_overlay::update(title, detail);
+        ::ui::widgets::busy_overlay::set_progress(progress_percent);
+        present_settings_busy_overlay_now();
+    }
+
+  private:
+    bool active_ = false;
+};
+
 enum ManualDateTimeField : size_t
 {
     kManualDateTimeYear = 0,
@@ -1464,6 +1523,8 @@ static void reset_node_db()
     app::IAppFacade& app_ctx = app::appFacade();
     app_ctx.clearNodeDb();
     prefs_clear_ns("chat_pki");
+    prefs_clear_ns("mc_peers");
+    prefs_clear_ns("lxmf_peers");
     ::ui::feedback::show_notice(::ui::i18n::tr("Node DB reset"), 3000);
 }
 
@@ -1483,6 +1544,8 @@ static void perform_factory_reset()
         "aprs",
         "power",
         "chat_pki",
+        "mc_peers",
+        "lxmf_peers",
     };
 
     for (const char* ns : kNamespacesToClear)
@@ -3641,6 +3704,9 @@ static void on_option_clicked(lv_event_t* e)
     }
     if (restart_now)
     {
+        ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Restarting..."),
+                                       ::ui::i18n::tr("Applying setting"),
+                                       85);
         ::ui::feedback::show_notice(::ui::i18n::tr("Restarting..."), 1500);
         platform_delay_ms(300);
         platform_restart();
@@ -3657,6 +3723,9 @@ static void on_factory_reset_confirm_clicked(lv_event_t* e)
 {
     (void)e;
     modal_close();
+    ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Resetting..."),
+                                   ::ui::i18n::tr("Clearing stored settings"),
+                                   15);
     perform_factory_reset();
 }
 
@@ -3670,6 +3739,9 @@ static void on_settings_restore_confirm_clicked(lv_event_t* e)
 {
     (void)e;
     modal_close();
+    ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Restoring settings..."),
+                                   ::ui::i18n::tr("Reading backup from SD"),
+                                   20);
     if (!settings_backup_runtime::restore())
     {
         refresh_settings_backup_state_from_runtime();
@@ -3677,6 +3749,9 @@ static void on_settings_restore_confirm_clicked(lv_event_t* e)
         refresh_visible_item_values();
         return;
     }
+    busy.update(::ui::i18n::tr("Restarting..."),
+                ::ui::i18n::tr("Settings restored"),
+                90);
     ::ui::feedback::show_notice(::ui::i18n::tr("Settings restored. Restarting..."), 1500);
     platform_delay_ms(300);
     platform_restart();
@@ -5293,6 +5368,10 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
                 copy_bounded(config.ssid, sizeof(config.ssid), g_settings.wifi_ssid);
                 copy_bounded(config.password, sizeof(config.password), g_settings.wifi_password);
                 (void)wifi_runtime::save_config(config);
+                ScopedSettingsBusyOverlay busy(
+                    ::ui::i18n::tr(config.enabled ? "Starting Wi-Fi..." : "Stopping Wi-Fi..."),
+                    config.enabled ? g_settings.wifi_ssid : nullptr,
+                    config.enabled ? 25 : 60);
                 if (!wifi_runtime::apply_enabled(config.enabled) && config.enabled)
                 {
                     ::ui::feedback::show_notice(::ui::i18n::tr("Wi-Fi start failed"), 3000);
@@ -5340,14 +5419,23 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
         }
         else if (item.pref_key && strcmp(item.pref_key, "chat_reset_mesh") == 0)
         {
+            ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Resetting mesh..."),
+                                           ::ui::i18n::tr("Applying defaults"),
+                                           15);
             reset_mesh_settings();
         }
         else if (item.pref_key && strcmp(item.pref_key, "chat_reset_nodes") == 0)
         {
+            ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Resetting nodes..."),
+                                           ::ui::i18n::tr("Clearing node database"),
+                                           35);
             reset_node_db();
         }
         else if (item.pref_key && strcmp(item.pref_key, "chat_clear_messages") == 0)
         {
+            ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Clearing messages..."),
+                                           ::ui::i18n::tr("Updating chat storage"),
+                                           35);
             clear_message_db();
         }
         else if (item.pref_key && strcmp(item.pref_key, "system_factory_reset") == 0)
@@ -5360,6 +5448,9 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
         }
         else if (item.pref_key && strcmp(item.pref_key, "c6_enter_download") == 0)
         {
+            ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Preparing companion..."),
+                                           ::ui::i18n::tr("Requesting download mode"),
+                                           45);
             const bool ok = wireless_companion_runtime::enter_download_mode();
             refresh_wireless_companion_state_from_runtime();
             refresh_visible_item_values();
@@ -5369,6 +5460,9 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
         }
         else if (item.pref_key && strcmp(item.pref_key, "wifi_scan") == 0)
         {
+            ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Scanning Wi-Fi..."),
+                                           ::ui::i18n::tr("Looking for nearby networks"),
+                                           20);
             std::vector<wifi_runtime::ScanResult> results;
             if (!wifi_runtime::scan(results))
             {
@@ -5376,6 +5470,9 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             }
             else
             {
+                busy.update(::ui::i18n::tr("Scanning Wi-Fi..."),
+                            ::ui::i18n::tr("Updating network list"),
+                            80);
                 rebuild_wifi_scan_options(results);
                 for (size_t i = 0; i < kWifiNetworkOptionCount; ++i)
                 {
@@ -5398,18 +5495,28 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             copy_bounded(config.password, sizeof(config.password), g_settings.wifi_password);
             g_settings.wifi_enabled = true;
             (void)wifi_runtime::save_config(config);
+            ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Connecting Wi-Fi..."),
+                                           config.ssid,
+                                           30);
             if (!wifi_runtime::apply_enabled(true) || !wifi_runtime::connect(&config))
             {
                 refresh_wifi_state_from_runtime();
             }
             else
             {
+                wifi_runtime::Status status = wifi_runtime::status();
+                busy.update(::ui::i18n::tr("Wi-Fi connected"),
+                            status.ip[0] != '\0' ? status.ip : status.ssid,
+                            100);
                 refresh_wifi_state_from_runtime();
             }
             build_item_list();
         }
         else if (item.pref_key && strcmp(item.pref_key, "wifi_disconnect") == 0)
         {
+            ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Disconnecting Wi-Fi..."),
+                                           g_settings.wifi_ssid,
+                                           55);
             wifi_runtime::disconnect();
             refresh_wifi_state_from_runtime();
             build_item_list();
@@ -5473,15 +5580,27 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             {
                 ::ui::feedback::show_notice(::ui::i18n::tr("Insert SD card to backup settings"), 3000);
             }
-            else if (!settings_backup_runtime::backup())
-            {
-                refresh_settings_backup_state_from_runtime();
-                ::ui::feedback::show_notice(::ui::i18n::tr("Backup failed"), 3000);
-            }
             else
             {
-                refresh_settings_backup_state_from_runtime();
-                ::ui::feedback::show_notice(::ui::i18n::tr("Settings backup saved to SD"), 2500);
+                ScopedSettingsBusyOverlay busy(::ui::i18n::tr("Backing up settings..."),
+                                               ::ui::i18n::tr("Writing to SD card"),
+                                               30);
+                if (!settings_backup_runtime::backup())
+                {
+                    busy.update(::ui::i18n::tr("Backup failed"),
+                                ::ui::i18n::tr("Check SD card"),
+                                100);
+                    refresh_settings_backup_state_from_runtime();
+                    ::ui::feedback::show_notice(::ui::i18n::tr("Backup failed"), 3000);
+                }
+                else
+                {
+                    busy.update(::ui::i18n::tr("Backup complete"),
+                                ::ui::i18n::tr("Settings saved to SD"),
+                                100);
+                    refresh_settings_backup_state_from_runtime();
+                    ::ui::feedback::show_notice(::ui::i18n::tr("Settings backup saved to SD"), 2500);
+                }
             }
             refresh_visible_item_values();
         }

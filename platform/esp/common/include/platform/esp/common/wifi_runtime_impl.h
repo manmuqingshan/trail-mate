@@ -674,12 +674,50 @@ void wifi_event_handler(void*,
         switch (event_id)
         {
         case WIFI_EVENT_STA_CONNECTED:
+        {
+            const auto* connected = static_cast<wifi_event_sta_connected_t*>(event_data);
+            char ssid[kMaxSsidLength + 1]{};
+            if (connected)
+            {
+                const std::size_t ssid_len =
+                    std::min<std::size_t>(connected->ssid_len, sizeof(ssid) - 1);
+                std::memcpy(ssid, connected->ssid, ssid_len);
+                ssid[ssid_len] = '\0';
+                std::printf("[WiFi] sta connected ssid=%s channel=%u auth=%u\n",
+                            ssid[0] ? ssid : "<hidden>",
+                            static_cast<unsigned>(connected->channel),
+                            static_cast<unsigned>(connected->authmode));
+            }
+            else
+            {
+                std::printf("[WiFi] sta connected\n");
+            }
             s_runtime.connecting = false;
             break;
+        }
         case WIFI_EVENT_STA_DISCONNECTED:
+        {
+            const auto* disconnected = static_cast<wifi_event_sta_disconnected_t*>(event_data);
+            char ssid[kMaxSsidLength + 1]{};
+            if (disconnected)
+            {
+                const std::size_t ssid_len =
+                    std::min<std::size_t>(disconnected->ssid_len, sizeof(ssid) - 1);
+                std::memcpy(ssid, disconnected->ssid, ssid_len);
+                ssid[ssid_len] = '\0';
+                std::printf("[WiFi] sta disconnected reason=%u ssid=%s\n",
+                            static_cast<unsigned>(disconnected->reason),
+                            ssid[0] ? ssid : current_config().ssid);
+            }
+            else
+            {
+                std::printf("[WiFi] sta disconnected ssid=%s\n",
+                            current_config().ssid[0] ? current_config().ssid : "<unset>");
+            }
             clear_connection_details();
             refresh_runtime_status_message();
             break;
+        }
         case WIFI_EVENT_SCAN_DONE:
             s_runtime.scanning = false;
             refresh_runtime_status_message();
@@ -709,6 +747,10 @@ void wifi_event_handler(void*,
                          reinterpret_cast<const char*>(ap_info.ssid));
         }
         refresh_runtime_status_message();
+        std::printf("[WiFi] got ip=%s ssid=%s rssi=%d\n",
+                    s_runtime.ip[0] ? s_runtime.ip : "<none>",
+                    s_runtime.ssid[0] ? s_runtime.ssid : current_config().ssid,
+                    s_runtime.rssi);
     }
 }
 
