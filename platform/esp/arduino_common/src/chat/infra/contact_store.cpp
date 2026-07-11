@@ -5,8 +5,9 @@
 
 #include "platform/esp/arduino_common/chat/infra/contact_store.h"
 #include "../internal/blob_store_io.h"
+#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/common/shared_spi_bus_arbiter.h"
 
 #include <Arduino.h>
 #include <esp_heap_caps.h>
@@ -48,8 +49,23 @@ void ContactStore::operator delete(void* ptr, std::size_t) noexcept
 
 namespace
 {
-constexpr TickType_t kSdLoadWait = pdMS_TO_TICKS(250);
-constexpr TickType_t kSdPersistWait = pdMS_TO_TICKS(100);
+constexpr uint32_t kSdLoadWaitMs = 250;
+constexpr uint32_t kSdPersistWaitMs = 100;
+constexpr uint32_t kContactStoreBusResource = 5;
+constexpr uint32_t kContactStoreBusOwnerId = 0x434F4E54u; // 'CONT'
+constexpr const char* kContactStoreBusOwner = "contact_store_sd";
+
+::platform::esp::common::SharedSpiBusAdapter s_contact_store_bus_adapter(
+    kContactStoreBusOwner,
+    kContactStoreBusOwnerId);
+::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_contact_store_bus_policy(
+    kSdLoadWaitMs,
+    kSdLoadWaitMs,
+    kSdLoadWaitMs,
+    kSdLoadWaitMs);
+sys::runtime::StorageBusArbiter s_contact_store_bus_arbiter(
+    s_contact_store_bus_adapter,
+    s_contact_store_bus_policy);
 } // namespace
 
 ContactStore::ContactStore()
@@ -177,8 +193,14 @@ ContactStore::LoadResult ContactStore::loadFromSD(std::vector<uint8_t>& out) con
         out.clear();
         return LoadResult::MissingOrInvalid;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdLoadWait, "contact_store_sd");
-    if (!spi_guard.locked())
+    ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
+        s_contact_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::BackgroundWorkerBounded,
+        kSdLoadWaitMs,
+        kContactStoreBusResource,
+        kContactStoreBusOwnerId + 1,
+        kContactStoreBusOwnerId);
+    if (!bus_gate.locked())
     {
         out.clear();
         return LoadResult::Busy;
@@ -192,8 +214,14 @@ ContactStore::LoadResult ContactStore::loadFromSD(std::vector<uint8_t>& out) con
 
 bool ContactStore::saveToSD(const uint8_t* data, size_t len) const
 {
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdPersistWait, "contact_store_sd");
-    if (!spi_guard.locked())
+    ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
+        s_contact_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::DurableCommit,
+        kSdPersistWaitMs,
+        kContactStoreBusResource,
+        kContactStoreBusOwnerId + 2,
+        kContactStoreBusOwnerId);
+    if (!bus_gate.locked())
     {
         return false;
     }

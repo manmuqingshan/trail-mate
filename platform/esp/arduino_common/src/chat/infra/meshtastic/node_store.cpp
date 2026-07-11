@@ -6,8 +6,9 @@
 #include "platform/esp/arduino_common/chat/infra/meshtastic/node_store.h"
 #include "../../internal/blob_store_io.h"
 #include "chat/infra/node_store_blob_format.h"
+#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/common/shared_spi_bus_arbiter.h"
 
 #include <Arduino.h>
 #include <algorithm>
@@ -57,11 +58,25 @@ namespace
 constexpr TickType_t kAsyncSaveMutexWait = pdMS_TO_TICKS(20);
 constexpr TickType_t kAsyncSavePollInterval = pdMS_TO_TICKS(10);
 constexpr TickType_t kAsyncSaveRetryDelay = pdMS_TO_TICKS(500);
-constexpr TickType_t kSdLoadWait = pdMS_TO_TICKS(250);
-constexpr TickType_t kSdPersistWait = pdMS_TO_TICKS(100);
+constexpr uint32_t kSdLoadWaitMs = 250;
+constexpr uint32_t kSdPersistWaitMs = 100;
 constexpr uint32_t kAsyncSaveTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kAsyncSaveTaskPriority = 2;
 constexpr size_t kSdReadChunkBytes = 256;
+constexpr uint32_t kNodeStoreBusResource = 5;
+constexpr uint32_t kNodeStoreBusOwnerId = 0x4E4F4445u; // 'NODE'
+constexpr const char* kNodeStoreBusOwner = "node_store_sd";
+
+::platform::esp::common::SharedSpiBusAdapter s_node_store_bus_adapter(
+    kNodeStoreBusOwner,
+    kNodeStoreBusOwnerId);
+::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_node_store_bus_policy(
+    kSdLoadWaitMs,
+    kSdLoadWaitMs,
+    kSdLoadWaitMs,
+    kSdLoadWaitMs);
+sys::runtime::StorageBusArbiter s_node_store_bus_arbiter(s_node_store_bus_adapter,
+                                                         s_node_store_bus_policy);
 
 void logNvsStats(const char* tag, const char* ns)
 {
@@ -258,8 +273,14 @@ void NodeStore::clearBlob()
 
     if (::platform::esp::arduino_common::storage::sd_card_ready())
     {
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdPersistWait, "node_store_sd");
-        if (spi_guard.locked() &&
+        ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
+            s_node_store_bus_arbiter,
+            sys::runtime::BusAccessPolicy::DurableCommit,
+            kSdPersistWaitMs,
+            kNodeStoreBusResource,
+            kNodeStoreBusOwnerId + 3,
+            kNodeStoreBusOwnerId);
+        if (bus_gate.locked() &&
             ::platform::esp::arduino_common::storage::sd_exists(kPersistNodesFile))
         {
             ::platform::esp::arduino_common::storage::sd_remove(kPersistNodesFile);
@@ -366,8 +387,14 @@ NodeStore::LoadResult NodeStore::loadFromSd(std::vector<uint8_t>& out) const
         return LoadResult::MissingOrInvalid;
     }
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdLoadWait, "node_store_sd");
-    if (!spi_guard.locked())
+    ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
+        s_node_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::BackgroundWorkerBounded,
+        kSdLoadWaitMs,
+        kNodeStoreBusResource,
+        kNodeStoreBusOwnerId + 1,
+        kNodeStoreBusOwnerId);
+    if (!bus_gate.locked())
     {
         NODE_STORE_LOG("[NodeStore] load SD skipped: spi busy\n");
         return LoadResult::Busy;
@@ -547,8 +574,14 @@ bool NodeStore::saveToSd(const uint8_t* data, size_t len) const
         return false;
     }
 
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdPersistWait, "node_store_sd");
-    if (!spi_guard.locked())
+    ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
+        s_node_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::DurableCommit,
+        kSdPersistWaitMs,
+        kNodeStoreBusResource,
+        kNodeStoreBusOwnerId + 2,
+        kNodeStoreBusOwnerId);
+    if (!bus_gate.locked())
     {
         NODE_STORE_LOG("[NodeStore] save SD skipped: spi busy len=%u\n",
                        static_cast<unsigned>(len));

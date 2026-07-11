@@ -18,13 +18,14 @@
 #include "platform/esp/arduino_common/device_identity.h"
 #include "platform/esp/arduino_common/gps/gps_service.h"
 #include "platform/esp/arduino_common/gps/track_recorder.h"
+#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/arduino_common/team/crypto/team_crypto.h"
 #include "platform/esp/arduino_common/team/event/team_app_data_event_bus_bridge.h"
 #include "platform/esp/arduino_common/team/event/team_event_bus_sink.h"
 #include "platform/esp/arduino_common/team/event/team_pairing_event_bus_sink.h"
 #include "platform/esp/arduino_common/team_platform_bundle.h"
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/common/shared_spi_bus_arbiter.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "team/usecase/team_controller.h"
 #include "team/usecase/team_track_sampler.h"
@@ -38,11 +39,31 @@
 namespace
 {
 
-constexpr TickType_t kMeshPeerDirectorySdWait = pdMS_TO_TICKS(50);
+constexpr uint32_t kMeshPeerDirectorySdWaitMs = 50;
 constexpr const char* kMeshPeerDirectoryDir = "/mesh";
 constexpr const char* kMeshPeerDirectoryPath = "/mesh/peers.bin";
 constexpr const char* kMeshPeerDirectoryTempPath = "/mesh/peers.tmp";
 constexpr std::size_t kMeshPeerDirectoryMaxBlobBytes = 768U * 1024U;
+constexpr uint32_t kMeshPeerDirectoryBusResource = 5;
+constexpr uint32_t kMeshPeerDirectoryBusOwnerId = 0x4D504452u; // 'MPDR'
+
+::platform::esp::common::SharedSpiBusAdapter s_mesh_peer_directory_load_adapter(
+    "mesh_peer_dir_load",
+    kMeshPeerDirectoryBusOwnerId);
+::platform::esp::common::SharedSpiBusAdapter s_mesh_peer_directory_save_adapter(
+    "mesh_peer_dir_save",
+    kMeshPeerDirectoryBusOwnerId);
+::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_mesh_peer_directory_bus_policy(
+    kMeshPeerDirectorySdWaitMs,
+    kMeshPeerDirectorySdWaitMs,
+    kMeshPeerDirectorySdWaitMs,
+    kMeshPeerDirectorySdWaitMs);
+sys::runtime::StorageBusArbiter s_mesh_peer_directory_load_arbiter(
+    s_mesh_peer_directory_load_adapter,
+    s_mesh_peer_directory_bus_policy);
+sys::runtime::StorageBusArbiter s_mesh_peer_directory_save_arbiter(
+    s_mesh_peer_directory_save_adapter,
+    s_mesh_peer_directory_bus_policy);
 
 gps::GpsReceiverInitConfig make_receiver_init_config(const app::AppConfig& config)
 {
@@ -166,10 +187,14 @@ class EspSdMeshPeerDirectoryBlobStore final
             return chat::MeshPeerDirectoryBlobLoadResult::Missing;
         }
 
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(
-            kMeshPeerDirectorySdWait,
-            "mesh_peer_dir_load");
-        if (!spi_guard.locked())
+        ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
+            s_mesh_peer_directory_load_arbiter,
+            sys::runtime::BusAccessPolicy::BackgroundWorkerBounded,
+            kMeshPeerDirectorySdWaitMs,
+            kMeshPeerDirectoryBusResource,
+            kMeshPeerDirectoryBusOwnerId + 1,
+            kMeshPeerDirectoryBusOwnerId);
+        if (!bus_gate.locked())
         {
             return chat::MeshPeerDirectoryBlobLoadResult::Unavailable;
         }
@@ -205,10 +230,14 @@ class EspSdMeshPeerDirectoryBlobStore final
             return false;
         }
 
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(
-            kMeshPeerDirectorySdWait,
-            "mesh_peer_dir_save");
-        if (!spi_guard.locked())
+        ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
+            s_mesh_peer_directory_save_arbiter,
+            sys::runtime::BusAccessPolicy::DurableCommit,
+            kMeshPeerDirectorySdWaitMs,
+            kMeshPeerDirectoryBusResource,
+            kMeshPeerDirectoryBusOwnerId + 2,
+            kMeshPeerDirectoryBusOwnerId);
+        if (!bus_gate.locked())
         {
             return false;
         }

@@ -221,31 +221,6 @@ LEGACY_TRANSITION_OCCURRENCES = {
         "LilyGoDispArduinoSPI::unlock();",
     ): 18,
     (
-        "platform/esp/arduino_common/src/app_context_platform_bindings.cpp",
-        "shared_spi_guard",
-        "::platform::esp::common::SharedSpiLockGuard spi_guard(",
-    ): 2,
-    (
-        "platform/esp/arduino_common/src/chat/infra/contact_store.cpp",
-        "shared_spi_guard",
-        '::platform::esp::common::SharedSpiLockGuard spi_guard(kSdLoadWait, "contact_store_sd");',
-    ): 1,
-    (
-        "platform/esp/arduino_common/src/chat/infra/contact_store.cpp",
-        "shared_spi_guard",
-        '::platform::esp::common::SharedSpiLockGuard spi_guard(kSdPersistWait, "contact_store_sd");',
-    ): 1,
-    (
-        "platform/esp/arduino_common/src/chat/infra/meshtastic/node_store.cpp",
-        "shared_spi_guard",
-        '::platform::esp::common::SharedSpiLockGuard spi_guard(kSdLoadWait, "node_store_sd");',
-    ): 1,
-    (
-        "platform/esp/arduino_common/src/chat/infra/meshtastic/node_store.cpp",
-        "shared_spi_guard",
-        '::platform::esp::common::SharedSpiLockGuard spi_guard(kSdPersistWait, "node_store_sd");',
-    ): 2,
-    (
         "platform/esp/arduino_common/src/platform_ui_usb_support_runtime.cpp",
         "shared_spi_guard",
         "::platform::esp::common::SharedSpiLockGuard spi_guard(pdMS_TO_TICKS(50));",
@@ -255,21 +230,6 @@ LEGACY_TRANSITION_OCCURRENCES = {
         "shared_spi_guard",
         "::platform::esp::common::SharedSpiLockGuard guard(pdMS_TO_TICKS(200));",
     ): 1,
-    (
-        "platform/esp/arduino_common/src/ui/screens/team/team_ui_store.cpp",
-        "shared_spi_guard",
-        "::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreLoadWait);",
-    ): 1,
-    (
-        "platform/esp/arduino_common/src/ui/screens/team/team_ui_store.cpp",
-        "shared_spi_guard",
-        "::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreReadWait);",
-    ): 2,
-    (
-        "platform/esp/arduino_common/src/ui/screens/team/team_ui_store.cpp",
-        "shared_spi_guard",
-        "::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);",
-    ): 9,
 }
 
 
