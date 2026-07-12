@@ -23,9 +23,12 @@ struct PeerInfo
     uint8_t identity_hash[reticulum::kTruncatedHashSize] = {};
     uint8_t enc_pub[LxmfIdentity::kEncPubKeySize] = {};
     uint8_t sig_pub[LxmfIdentity::kSigPubKeySize] = {};
+    uint8_t ratchet_pub[reticulum::kRatchetSize] = {};
     char display_name[32] = {};
     uint32_t last_seen_s = 0;
     uint32_t last_path_request_ms = 0;
+    uint32_t ratchet_seen_s = 0;
+    bool has_ratchet = false;
 };
 
 struct PathEntry
@@ -109,6 +112,7 @@ struct DeferredLinkPayload
 {
     std::vector<uint8_t> payload;
     std::vector<uint8_t> request_id;
+    uint32_t message_id = 0;
     uint8_t resource_flags = 0;
 };
 

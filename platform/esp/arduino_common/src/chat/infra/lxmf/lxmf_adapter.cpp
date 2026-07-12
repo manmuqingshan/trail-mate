@@ -505,6 +505,30 @@ bool isZeroBytes(const uint8_t* data, size_t len)
     return true;
 }
 
+bool peerHasUsableRatchet(const runtime::PeerInfo& peer)
+{
+    return peer.has_ratchet &&
+           !isZeroBytes(peer.ratchet_pub, sizeof(peer.ratchet_pub));
+}
+
+void formatRatchetIdPrefix(const uint8_t* ratchet_pub, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!ratchet_pub || isZeroBytes(ratchet_pub, reticulum::kRatchetSize))
+    {
+        snprintf(out, out_len, "-");
+        return;
+    }
+
+    uint8_t ratchet_hash[reticulum::kFullHashSize] = {};
+    reticulum::fullHash(ratchet_pub, reticulum::kRatchetSize, ratchet_hash);
+    formatHashPrefix(ratchet_hash, out, out_len);
+}
+
 bool hashesEqual(const uint8_t* a, const uint8_t* b, size_t len)
 {
     if ((!a || !b) && len != 0)
@@ -1006,10 +1030,14 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
         return MeshSendResult::fail(MeshOperationFailure::CryptoFailed);
     }
 
+    const MessageId message_id = messageIdFromHash(message_hash);
     LinkSession* active_link =
         findActiveLinkSessionByDestination(peer_info->destination_hash, LocalDestinationKind::Delivery);
     bool ok = false;
-    const char* send_path = active_link ? "link" : "opportunistic";
+    bool send_result_event_deferred = false;
+    const bool use_opportunistic = !active_link && peerHasUsableRatchet(*peer_info);
+    const char* send_path =
+        active_link ? "link" : (use_opportunistic ? "opportunistic" : "deferred_link");
     if (active_link)
     {
         if (lxmf_message_len <= active_link->mdu)
@@ -1031,7 +1059,7 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
                                        0);
         }
     }
-    else
+    else if (use_opportunistic)
     {
         uint8_t packet[kMaxPacketLen] = {};
         size_t packet_len = sizeof(packet);
@@ -1045,32 +1073,39 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
         {
             ok = true;
         }
+    }
+    else
+    {
+        Serial.printf("[LXMF][DirectTX] opportunistic_skip peer=%08lX dest=%s reason=no_ratchet\n",
+                      static_cast<unsigned long>(peer_info->node_id),
+                      peer_hash);
+    }
 
-        if (!ok)
+    if (!active_link && !ok)
+    {
+        bool started = false;
+        LinkSession* session =
+            ensureOutboundLinkSession(*peer_info, LocalDestinationKind::Delivery, &started);
+        if (session)
         {
-            bool started = false;
-            LinkSession* session =
-                ensureOutboundLinkSession(*peer_info, LocalDestinationKind::Delivery, &started);
-            if (session)
+            send_path = "deferred_link";
+            runtime::DeferredLinkPayload deferred{};
+            deferred.payload.assign(lxmf_message, lxmf_message + lxmf_message_len);
+            deferred.message_id = message_id;
+            session->deferred_payloads.push_back(std::move(deferred));
+            if (session->state == LinkState::Active)
             {
-                send_path = "deferred_link";
-                runtime::DeferredLinkPayload deferred{};
-                deferred.payload.assign(lxmf_message, lxmf_message + lxmf_message_len);
-                session->deferred_payloads.push_back(std::move(deferred));
-                if (session->state == LinkState::Active)
-                {
-                    flushDeferredLinkPayloads(*session);
-                }
-                ok = true;
+                flushDeferredLinkPayloads(*session);
             }
+            ok = true;
+            send_result_event_deferred = true;
         }
     }
 
-    const MessageId message_id = messageIdFromHash(message_hash);
     char message_hash_prefix[12] = {};
     formatHashPrefix(message_hash, message_hash_prefix, sizeof(message_hash_prefix));
     const auto& tx_result = interfaces_.lastTxResult();
-    Serial.printf("[LXMF][DirectTX] result ok=%u msg=%lu hash=%s peer=%08lX name=\"%s\" dest=%s dest_full=%s path=%s bearer=%s complete=%u payload_len=%u text=\"%s\"\n",
+    Serial.printf("[LXMF][DirectTX] result ok=%u msg=%lu hash=%s peer=%08lX name=\"%s\" dest=%s dest_full=%s path=%s event_deferred=%u bearer=%s complete=%u payload_len=%u text=\"%s\"\n",
                   ok ? 1U : 0U,
                   static_cast<unsigned long>(message_id),
                   message_hash_prefix,
@@ -1079,6 +1114,7 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
                   peer_hash,
                   peer_dest_full,
                   send_path,
+                  send_result_event_deferred ? 1U : 0U,
                   txBearerName(tx_result),
                   tx_result.reachedRequiredInterfaces() ? 1U : 0U,
                   static_cast<unsigned>(packed_payload_len),
@@ -1087,7 +1123,10 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
         ok ? MeshSendResult::success(message_id)
            : MeshSendResult::fail(MeshOperationFailure::RadioTxFailed, message_id);
     result.reticulum_identity = reticulumIdentityForPeer(*peer_info);
-    sys::EventBus::publish(new sys::ChatSendResultEvent(message_id, ok), 0);
+    if (!send_result_event_deferred)
+    {
+        sys::EventBus::publish(new sys::ChatSendResultEvent(message_id, ok), 0);
+    }
     return result;
 }
 
@@ -1106,7 +1145,7 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
                   dest_full,
                   sizeof(dest_full));
     formatLogTextPreview(text, text_preview, sizeof(text_preview));
-    Serial.printf("[LXMF][GroupTX] begin ch=%u forced=%lu dest=%s dest_full=%s len=%u ready=%u text=\"%s\"\n",
+    Serial.printf("[LXMF][DestinationTX] begin ch=%u forced=%lu dest=%s dest_full=%s len=%u ready=%u text=\"%s\"\n",
                   static_cast<unsigned>(channel),
                   static_cast<unsigned long>(forced_msg_id),
                   dest_hash,
@@ -1118,24 +1157,51 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
     if (channel != ChannelId::PRIMARY || text.empty() ||
         !hasReticulumDestinationIdentity(destination))
     {
-        Serial.printf("[LXMF][GroupTX] reject reason=invalid_input ch=%u dest=%s len=%u\n",
+        Serial.printf("[LXMF][DestinationTX] reject reason=invalid_input ch=%u dest=%s len=%u\n",
                       static_cast<unsigned>(channel),
                       dest_hash,
                       static_cast<unsigned>(text.size()));
         return MeshSendResult::fail(MeshOperationFailure::InvalidInput);
     }
 
-    if (!isConfiguredGroupDestination(destination))
-    {
-        Serial.printf("[LXMF][GroupTX] reject reason=unconfigured_group dest=%s\n",
-                      dest_hash);
-        return MeshSendResult::fail(MeshOperationFailure::Unsupported);
-    }
-
     if (!isReady())
     {
-        Serial.printf("[LXMF][GroupTX] reject reason=not_ready dest=%s\n", dest_hash);
+        Serial.printf("[LXMF][DestinationTX] reject reason=not_ready dest=%s\n", dest_hash);
         return MeshSendResult::fail(MeshOperationFailure::NotReady);
+    }
+
+    const bool configured_group = isConfiguredGroupDestination(destination);
+    if (!configured_group)
+    {
+        PeerInfo* peer_info =
+            findOrLoadPeerByDestinationHash(destination.destination_hash);
+        if (!peer_info)
+        {
+            const bool path_requested =
+                sendPathRequestForDestination(destination.destination_hash);
+            Serial.printf("[LXMF][DestinationTX] path_pending dest=%s requested=%u\n",
+                          dest_hash,
+                          path_requested ? 1U : 0U);
+            MeshSendResult result = MeshSendResult::fail(
+                MeshOperationFailure::NotReady,
+                0,
+                path_requested ? 1 : 2);
+            result.reticulum_identity =
+                makeReticulumDestinationIdentity(destination.destination_hash);
+            return result;
+        }
+
+        Serial.printf("[LXMF][DestinationTX] resolved dest=%s peer=%08lX name=\"%s\"\n",
+                      dest_hash,
+                      static_cast<unsigned long>(peer_info->node_id),
+                      peer_info->display_name[0] != '\0' ? peer_info->display_name : "<unnamed>");
+        MeshSendResult result =
+            sendTextDetailed(channel, text, forced_msg_id, peer_info->node_id);
+        if (!hasReticulumDestinationIdentity(result.reticulum_identity))
+        {
+            result.reticulum_identity = reticulumIdentityForPeer(*peer_info);
+        }
+        return result;
     }
 
     uint8_t packed_payload[kMaxLxmfMessageLen] = {};
@@ -2485,6 +2551,27 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
         copyHash(path.next_hop_transport, packet.destination_hash, sizeof(path.next_hop_transport));
     }
 
+    for (auto& session : links_.sessions)
+    {
+        if (!session.initiator ||
+            session.state != LinkState::Pending ||
+            !hashesEqual(session.remote_destination_hash,
+                         packet.destination_hash,
+                         sizeof(session.remote_destination_hash)))
+        {
+            continue;
+        }
+
+        session.expected_hops = path.hops;
+        const bool retried = sendLinkRequest(session);
+        char dest_hash[12] = {};
+        formatHashPrefix(packet.destination_hash, dest_hash, sizeof(dest_hash));
+        Serial.printf("[LXMF][LinkTX] retry_after_path dest=%s kind=%u ok=%u\n",
+                      dest_hash,
+                      static_cast<unsigned>(session.destination),
+                      retried ? 1U : 0U);
+    }
+
     if (raw_len <= sizeof(path.cached_announce))
     {
         memcpy(path.cached_announce, raw_packet, raw_len);
@@ -2506,6 +2593,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
 
     char packet_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
     char identity_hash_hex[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+    char announce_ratchet_id[12] = {};
     formatHashHex(packet.destination_hash,
                   reticulum::kTruncatedHashSize,
                   packet_hash_hex,
@@ -2514,6 +2602,14 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
                   sizeof(identity_hash),
                   identity_hash_hex,
                   sizeof(identity_hash_hex));
+    const bool packet_has_ratchet =
+        announce.has_ratchet &&
+        announce.ratchet &&
+        announce.ratchet_len == reticulum::kRatchetSize &&
+        !isZeroBytes(announce.ratchet, announce.ratchet_len);
+    formatRatchetIdPrefix(packet_has_ratchet ? announce.ratchet : nullptr,
+                          announce_ratchet_id,
+                          sizeof(announce_ratchet_id));
 
     char announce_display_name[32] = {};
     bool has_stamp_cost = false;
@@ -2642,12 +2738,15 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     }
     if (log_announce_detail)
     {
-        Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u app_len=%u delivery=%u propagation=%u call=%u nomad=%u local=%u kind=%s\n",
+        Serial.printf("[LXMF][AnnounceRX] seen dest=%s identity=%s hops=%u context=%u flag=%u app_len=%u ratchet=%u ratchet_id=%s delivery=%u propagation=%u call=%u nomad=%u local=%u kind=%s\n",
                       packet_hash_hex,
                       identity_hash_hex,
                       static_cast<unsigned>(packet.hops),
                       static_cast<unsigned>(packet.context),
+                      static_cast<unsigned>(packet.context_flag),
                       static_cast<unsigned>(announce.app_data_len),
+                      packet_has_ratchet ? 1U : 0U,
+                      announce_ratchet_id,
                       delivery_announce ? 1U : 0U,
                       propagation_announce ? 1U : 0U,
                       call_audio_announce ? 1U : 0U,
@@ -2692,6 +2791,7 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
 
     PeerInfo& peer = upsertPeer(peer_destination_hash);
     const uint32_t previous_seen_s = peer.last_seen_s;
+    const bool delivery_ratchet_available = delivery_announce && packet_has_ratchet;
     const bool identity_changed =
         isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash)) ||
         !hashesEqual(peer.identity_hash, identity_hash, sizeof(peer.identity_hash)) ||
@@ -2704,6 +2804,21 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
     memcpy(peer.enc_pub, announce.public_key, sizeof(peer.enc_pub));
     memcpy(peer.sig_pub, sig_pub, sizeof(peer.sig_pub));
     peer.last_seen_s = now_s;
+    if (delivery_announce)
+    {
+        if (delivery_ratchet_available)
+        {
+            memcpy(peer.ratchet_pub, announce.ratchet, sizeof(peer.ratchet_pub));
+            peer.has_ratchet = true;
+            peer.ratchet_seen_s = now_s;
+        }
+        else
+        {
+            memset(peer.ratchet_pub, 0, sizeof(peer.ratchet_pub));
+            peer.has_ratchet = false;
+            peer.ratchet_seen_s = 0;
+        }
+    }
 
     if (announce_display_name[0] != '\0')
     {
@@ -2750,11 +2865,17 @@ bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len
             queuePeerUpdate(peer);
         }
     }
-    Serial.printf("[LXMF][AnnounceRX] learned peer=%08lX dest=%s identity=%s name=%s peers=%u\n",
+    char peer_ratchet_id[12] = {};
+    formatRatchetIdPrefix(peerHasUsableRatchet(peer) ? peer.ratchet_pub : nullptr,
+                          peer_ratchet_id,
+                          sizeof(peer_ratchet_id));
+    Serial.printf("[LXMF][AnnounceRX] learned peer=%08lX dest=%s identity=%s name=%s ratchet=%u ratchet_id=%s peers=%u\n",
                   static_cast<unsigned long>(peer.node_id),
                   packet_hash_hex,
                   identity_hash_hex,
                   peer.display_name[0] != '\0' ? peer.display_name : "<unnamed>",
+                  peerHasUsableRatchet(peer) ? 1U : 0U,
+                  peer_ratchet_id,
                   static_cast<unsigned>(peers_.size()));
     return true;
 }
@@ -4759,13 +4880,10 @@ LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
     }
 
     const PathEntry* path = findPath(peer.destination_hash);
-    if (!path)
+    bool path_requested = false;
+    if (!path && shouldRequestPath(peer))
     {
-        if (shouldRequestPath(peer))
-        {
-            (void)sendPathRequest(peer);
-        }
-        return nullptr;
+        path_requested = sendPathRequest(peer);
     }
 
     LinkSession& session = runtime::appendLinkSession(links_, kMaxLinkSessions);
@@ -4777,7 +4895,7 @@ LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
     session.destination = kind;
     session.state = LinkState::Pending;
     session.close_reason = LinkCloseReason::None;
-    session.expected_hops = path->hops;
+    session.expected_hops = path ? path->hops : 0;
     session.remote_identity_known = !isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash));
     session.validated = false;
     session.keepalive_interval_ms = kLinkKeepaliveMaxMs;
@@ -4791,10 +4909,48 @@ LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
     memcpy(session.peer_identity_sig_pub, peer.sig_pub, sizeof(session.peer_identity_sig_pub));
 
     Curve25519::dh1(session.local_enc_pub, session.local_enc_priv);
-    if (isZeroBytes(session.local_enc_priv, sizeof(session.local_enc_priv)) ||
-        !generateLinkSigningKey(session.local_sig_pub, session.local_sig_priv) ||
-        !sendLinkRequest(session))
+    char dest_hash[12] = {};
+    formatHashPrefix(peer.destination_hash, dest_hash, sizeof(dest_hash));
+    if (isZeroBytes(session.local_enc_priv, sizeof(session.local_enc_priv)))
     {
+        Serial.printf("[LXMF][LinkTX] start_failed peer=%08lX dest=%s kind=%u reason=local_key\n",
+                      static_cast<unsigned long>(peer.node_id),
+                      dest_hash,
+                      static_cast<unsigned>(kind));
+        links_.sessions.pop_back();
+        return nullptr;
+    }
+
+    if (!generateLinkSigningKey(session.local_sig_pub, session.local_sig_priv))
+    {
+        Serial.printf("[LXMF][LinkTX] start_failed peer=%08lX dest=%s kind=%u reason=signing_key\n",
+                      static_cast<unsigned long>(peer.node_id),
+                      dest_hash,
+                      static_cast<unsigned>(kind));
+        links_.sessions.pop_back();
+        return nullptr;
+    }
+
+    if (!path)
+    {
+        Serial.printf("[LXMF][LinkTX] wait_path peer=%08lX dest=%s kind=%u requested=%u\n",
+                      static_cast<unsigned long>(peer.node_id),
+                      dest_hash,
+                      static_cast<unsigned>(kind),
+                      path_requested ? 1U : 0U);
+        if (out_started)
+        {
+            *out_started = true;
+        }
+        return &session;
+    }
+
+    if (!sendLinkRequest(session))
+    {
+        Serial.printf("[LXMF][LinkTX] start_failed peer=%08lX dest=%s kind=%u reason=request_send\n",
+                      static_cast<unsigned long>(peer.node_id),
+                      dest_hash,
+                      static_cast<unsigned>(kind));
         links_.sessions.pop_back();
         return nullptr;
     }
@@ -4810,8 +4966,17 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
 {
     if (!isReady() || isZeroBytes(session.remote_destination_hash, sizeof(session.remote_destination_hash)))
     {
+        char dest_hash[12] = {};
+        formatHashPrefix(session.remote_destination_hash, dest_hash, sizeof(dest_hash));
+        Serial.printf("[LXMF][LinkTX] request_fail dest=%s kind=%u reason=not_ready ready=%u\n",
+                      dest_hash,
+                      static_cast<unsigned>(session.destination),
+                      isReady() ? 1U : 0U);
         return false;
     }
+
+    char dest_hash[12] = {};
+    formatHashPrefix(session.remote_destination_hash, dest_hash, sizeof(dest_hash));
 
     uint8_t signalling[kLinkSignallingLen] = {};
     buildLinkSignallingBytes(reticulum::kReticulumMtu, signalling);
@@ -4835,6 +5000,9 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
                                        packet,
                                        &packet_len))
     {
+        Serial.printf("[LXMF][LinkTX] request_fail dest=%s kind=%u reason=build\n",
+                      dest_hash,
+                      static_cast<unsigned>(session.destination));
         return false;
     }
 
@@ -4842,6 +5010,10 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
     if (!reticulum::parsePacket(packet, packet_len, &parsed) ||
         !computeLinkIdFromLinkRequest(packet, packet_len, parsed, session.link_id))
     {
+        Serial.printf("[LXMF][LinkTX] request_fail dest=%s kind=%u reason=link_id raw_len=%u\n",
+                      dest_hash,
+                      static_cast<unsigned>(session.destination),
+                      static_cast<unsigned>(packet_len));
         return false;
     }
 
@@ -4851,11 +5023,27 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
                            packet_len,
                            true,
                            session.destination == LocalDestinationKind::CallAudio);
+    const auto& tx_result = interfaces_.lastTxResult();
     if (sent)
     {
         session.last_outbound_ms = session.request_ms;
         session.mtu = reticulum::kReticulumMtu;
         session.mdu = linkMduForMtu(session.mtu);
+        Serial.printf("[LXMF][LinkTX] request_sent dest=%s kind=%u raw_len=%u bearer=%s complete=%u\n",
+                      dest_hash,
+                      static_cast<unsigned>(session.destination),
+                      static_cast<unsigned>(packet_len),
+                      txBearerName(tx_result),
+                      tx_result.reachedRequiredInterfaces() ? 1U : 0U);
+    }
+    else
+    {
+        Serial.printf("[LXMF][LinkTX] request_fail dest=%s kind=%u reason=route raw_len=%u bearer=%s complete=%u\n",
+                      dest_hash,
+                      static_cast<unsigned>(session.destination),
+                      static_cast<unsigned>(packet_len),
+                      txBearerName(tx_result),
+                      tx_result.reachedRequiredInterfaces() ? 1U : 0U);
     }
     return sent;
 }
@@ -4990,8 +5178,10 @@ bool LxmfAdapter::buildEncryptedPacketForPeer(const PeerInfo& peer,
     uint8_t ephemeral_priv[LxmfIdentity::kEncPrivKeySize] = {};
     Curve25519::dh1(ephemeral_pub, ephemeral_priv);
 
+    const bool use_ratchet = peerHasUsableRatchet(peer);
+    const uint8_t* encryption_target = use_ratchet ? peer.ratchet_pub : peer.enc_pub;
     uint8_t shared_secret[LxmfIdentity::kEncPubKeySize] = {};
-    memcpy(shared_secret, peer.enc_pub, sizeof(shared_secret));
+    memcpy(shared_secret, encryption_target, sizeof(shared_secret));
     if (!Curve25519::dh2(shared_secret, ephemeral_priv))
     {
         return false;
@@ -5025,6 +5215,20 @@ bool LxmfAdapter::buildEncryptedPacketForPeer(const PeerInfo& peer,
     }
     memcpy(payload, ephemeral_pub, sizeof(ephemeral_pub));
     memcpy(payload + sizeof(ephemeral_pub), encrypted_token, encrypted_token_len);
+
+    char dest_hash[12] = {};
+    char ratchet_id[12] = {};
+    formatHashPrefix(peer.destination_hash, dest_hash, sizeof(dest_hash));
+    formatRatchetIdPrefix(use_ratchet ? peer.ratchet_pub : nullptr,
+                          ratchet_id,
+                          sizeof(ratchet_id));
+    Serial.printf("[LXMF][EncryptTX] dest=%s enc_target=%s ratchet=%u ratchet_id=%s plaintext_len=%u token_len=%u\n",
+                  dest_hash,
+                  use_ratchet ? "ratchet" : "identity",
+                  use_ratchet ? 1U : 0U,
+                  ratchet_id,
+                  static_cast<unsigned>(plaintext_len),
+                  static_cast<unsigned>(encrypted_token_len));
 
     return reticulum::buildHeader1Packet(reticulum::PacketType::Data,
                                          reticulum::DestinationType::Single,
@@ -6601,6 +6805,18 @@ void LxmfAdapter::pumpReticulumAudioCall()
 
 void LxmfAdapter::closeLinkSession(LinkSession& session, LinkCloseReason reason)
 {
+    for (const auto& deferred : session.deferred_payloads)
+    {
+        if (deferred.message_id != 0)
+        {
+            Serial.printf("[LXMF][DirectTX] deferred_failed msg=%lu reason=link_close close_reason=%u\n",
+                          static_cast<unsigned long>(deferred.message_id),
+                          static_cast<unsigned>(reason));
+            sys::EventBus::publish(
+                new sys::ChatSendResultEvent(deferred.message_id, false), 0);
+        }
+    }
+
     const bool transitioned = runtime::closeLinkSession(session, reason, millis());
     if (!transitioned)
     {
@@ -6672,6 +6888,15 @@ void LxmfAdapter::flushDeferredLinkPayloads(LinkSession& session)
         if (!sent)
         {
             break;
+        }
+
+        if (deferred.message_id != 0)
+        {
+            Serial.printf("[LXMF][DirectTX] deferred_sent msg=%lu path=link payload_len=%u\n",
+                          static_cast<unsigned long>(deferred.message_id),
+                          static_cast<unsigned>(deferred.payload.size()));
+            sys::EventBus::publish(
+                new sys::ChatSendResultEvent(deferred.message_id, true), 0);
         }
 
         session.deferred_payloads.erase(session.deferred_payloads.begin());

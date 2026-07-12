@@ -964,6 +964,7 @@ void UiController::switchToConversation(chat::ConversationId conv)
         {
             (void)team_workflow_.markRead(
                 team_chat_snapshot_buffer_.conversations[0].id);
+            conversation_list_dirty_ = true;
             sys::EventBus::publish(
                 new sys::ChatUnreadChangedEvent(kTeamChatChannelRaw, 0), 0);
         }
@@ -1005,7 +1006,10 @@ void UiController::switchToConversation(chat::ConversationId conv)
     {
         applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
     }
-    (void)chat_model_.markRead(ui_conv);
+    if (chat_model_.markRead(ui_conv).ok)
+    {
+        conversation_list_dirty_ = true;
+    }
 }
 
 void UiController::switchToCompose(chat::ConversationId conv)
