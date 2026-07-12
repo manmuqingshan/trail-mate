@@ -1427,6 +1427,30 @@ constexpr const char* kDefaultPagePath = "/page/index.mu";
 
 RequestStartHandler s_request_handler = nullptr;
 void* s_request_context = nullptr;
+constexpr std::size_t kPageProgressDepth = 4;
+
+struct PageCacheLoadSnapshot
+{
+    bool completed = false;
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char path[kReticulumPagePathSize] = {};
+    Status status{};
+    std::size_t body_len = 0;
+    char body[kReticulumPageBodyMaxBytes + 1U] = {};
+};
+
+struct PageRequestProgressSlot
+{
+    bool occupied = false;
+    uint32_t order = 0;
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char path[kReticulumPagePathSize] = {};
+    RequestProgress progress{};
+};
+
+PageCacheLoadSnapshot s_page_cache_snapshot{};
+PageRequestProgressSlot s_request_progress[kPageProgressDepth]{};
+uint32_t s_request_progress_order = 1;
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {
@@ -1441,6 +1465,16 @@ void set_status(Status& out, const char* message, const char* detail = nullptr)
 {
     copy_text(out.message, sizeof(out.message), message);
     copy_text(out.detail, sizeof(out.detail), detail);
+}
+
+bool same_page_request(const char* lhs_destination,
+                       const char* lhs_path,
+                       const char* rhs_destination,
+                       const char* rhs_path)
+{
+    return lhs_destination && lhs_path && rhs_destination && rhs_path &&
+           std::strcmp(lhs_destination, rhs_destination) == 0 &&
+           std::strcmp(lhs_path, rhs_path) == 0;
 }
 
 std::filesystem::path page_path_under_sd(const std::string& relative)
@@ -1619,6 +1653,45 @@ void set_request_status(Status& out,
     }
 }
 
+PageRequestProgressSlot* find_request_progress_slot(
+    const char* destination,
+    const char* path,
+    bool create)
+{
+    PageRequestProgressSlot* empty = nullptr;
+    PageRequestProgressSlot* oldest = nullptr;
+    for (auto& slot : s_request_progress)
+    {
+        if (slot.occupied &&
+            same_page_request(slot.destination, slot.path, destination, path))
+        {
+            return &slot;
+        }
+        if (!slot.occupied && !empty)
+        {
+            empty = &slot;
+        }
+        if (slot.occupied && (!oldest || slot.order < oldest->order))
+        {
+            oldest = &slot;
+        }
+    }
+    if (!create)
+    {
+        return nullptr;
+    }
+    PageRequestProgressSlot* slot = empty ? empty : oldest;
+    if (slot)
+    {
+        *slot = {};
+        slot->occupied = true;
+        slot->order = s_request_progress_order++;
+        copy_text(slot->destination, sizeof(slot->destination), destination);
+        copy_text(slot->path, sizeof(slot->path), path);
+    }
+    return slot;
+}
+
 } // namespace
 
 const char* cache_root_path()
@@ -1730,6 +1803,7 @@ Status load_cached_page(const char* destination_hash,
     const auto cache_path = page_path_under_sd(
         cache_relative_path(destination, normalized_path));
     out.file_present = std::filesystem::exists(cache_path);
+    out.cache_checked = true;
     if (!out.file_present)
     {
         set_status(out, "Nomad page cache miss", cache_path.string().c_str());
@@ -1752,7 +1826,109 @@ Status load_cached_page(const char* destination_hash,
     }
     out.truncated = in.peek() != std::char_traits<char>::eof();
     out.loaded = true;
+    out.progress_percent = 100;
     set_status(out, "Nomad page cache loaded", cache_path.string().c_str());
+    return out;
+}
+
+Status request_cached_page_load(const char* destination_hash,
+                                const char* path,
+                                bool force)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = true;
+
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        set_status(out, "Invalid Nomad page address", kPagesLogicalDir);
+        return out;
+    }
+
+    if (!force && s_page_cache_snapshot.completed &&
+        same_page_request(s_page_cache_snapshot.destination,
+                          s_page_cache_snapshot.path,
+                          destination,
+                          normalized_path))
+    {
+        return s_page_cache_snapshot.status;
+    }
+
+    std::size_t body_len = 0;
+    Status status = load_cached_page(destination,
+                                     normalized_path,
+                                     s_page_cache_snapshot.body,
+                                     sizeof(s_page_cache_snapshot.body),
+                                     &body_len);
+    status.busy = false;
+    s_page_cache_snapshot.completed = true;
+    copy_text(s_page_cache_snapshot.destination,
+              sizeof(s_page_cache_snapshot.destination),
+              destination);
+    copy_text(s_page_cache_snapshot.path,
+              sizeof(s_page_cache_snapshot.path),
+              normalized_path);
+    s_page_cache_snapshot.status = status;
+    s_page_cache_snapshot.body_len = body_len;
+    return status;
+}
+
+Status poll_cached_page_load(const char* destination_hash,
+                             const char* path,
+                             char* out_body,
+                             std::size_t body_capacity,
+                             std::size_t* out_body_len)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = true;
+    if (out_body_len)
+    {
+        *out_body_len = 0;
+    }
+    if (out_body && body_capacity != 0)
+    {
+        out_body[0] = '\0';
+    }
+
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)) ||
+        !out_body || body_capacity == 0)
+    {
+        set_status(out, "Invalid Nomad page address", kPagesLogicalDir);
+        return out;
+    }
+
+    if (!s_page_cache_snapshot.completed ||
+        !same_page_request(s_page_cache_snapshot.destination,
+                           s_page_cache_snapshot.path,
+                           destination,
+                           normalized_path))
+    {
+        set_status(out, "Nomad page cache idle", normalized_path);
+        return out;
+    }
+
+    out = s_page_cache_snapshot.status;
+    const std::size_t copy_len =
+        s_page_cache_snapshot.body_len < (body_capacity - 1U)
+            ? s_page_cache_snapshot.body_len
+            : body_capacity - 1U;
+    if (copy_len != 0)
+    {
+        std::memcpy(out_body, s_page_cache_snapshot.body, copy_len);
+    }
+    out_body[copy_len] = '\0';
+    if (out_body_len)
+    {
+        *out_body_len = copy_len;
+    }
+    out.truncated = out.truncated || s_page_cache_snapshot.body_len > copy_len;
     return out;
 }
 
@@ -1834,6 +2010,86 @@ Status request_page(const char* destination_hash, const char* path)
         s_request_handler(destination_bytes, normalized_path, s_request_context);
     set_request_status(out, result, normalized_path);
     return out;
+}
+
+RequestProgress get_request_progress(const char* destination_hash,
+                                     const char* path)
+{
+    RequestProgress out{};
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        copy_text(out.message, sizeof(out.message), "Invalid Nomad page address");
+        return out;
+    }
+
+    const PageRequestProgressSlot* slot =
+        find_request_progress_slot(destination, normalized_path, false);
+    if (slot)
+    {
+        out = slot->progress;
+    }
+    return out;
+}
+
+void update_request_progress(const char* destination_hash,
+                             const char* path,
+                             int progress_percent,
+                             const char* message,
+                             const char* detail,
+                             bool active,
+                             bool complete,
+                             RequestProgress::FailureKind failure)
+{
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        return;
+    }
+    if (progress_percent > 100)
+    {
+        progress_percent = 100;
+    }
+    if (progress_percent < -1)
+    {
+        progress_percent = -1;
+    }
+
+    PageRequestProgressSlot* slot =
+        find_request_progress_slot(destination, normalized_path, true);
+    if (!slot)
+    {
+        return;
+    }
+    slot->progress.active = active;
+    slot->progress.complete = complete;
+    slot->progress.failure = failure;
+    slot->progress.progress_percent = progress_percent;
+    copy_text(slot->progress.message, sizeof(slot->progress.message), message);
+    copy_text(slot->progress.detail, sizeof(slot->progress.detail), detail);
+    slot->order = s_request_progress_order++;
+}
+
+void clear_request_progress(const char* destination_hash, const char* path)
+{
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        return;
+    }
+
+    PageRequestProgressSlot* slot =
+        find_request_progress_slot(destination, normalized_path, false);
+    if (slot)
+    {
+        *slot = {};
+    }
 }
 
 } // namespace platform::ui::reticulum_page

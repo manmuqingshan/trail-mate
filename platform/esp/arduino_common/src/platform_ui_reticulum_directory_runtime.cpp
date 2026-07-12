@@ -1921,6 +1921,44 @@ sys::runtime::StorageBusArbiter s_page_cache_bus_arbiter(
 
 RequestStartHandler s_request_handler = nullptr;
 void* s_request_context = nullptr;
+constexpr std::size_t kPageProgressDepth = 4;
+constexpr TickType_t kPageCacheAsyncMutexWait = pdMS_TO_TICKS(5);
+constexpr uint32_t kPageCacheAsyncTaskStackBytes = 4 * 1024;
+constexpr UBaseType_t kPageCacheAsyncTaskPriority = tskIDLE_PRIORITY + 1;
+
+struct PageCacheLoadState
+{
+    SemaphoreHandle_t mutex = nullptr;
+    QueueHandle_t signal = nullptr;
+    TaskHandle_t task = nullptr;
+    bool pending = false;
+    bool active = false;
+    bool completed = false;
+    char pending_destination[kReticulumPageDestinationTextSize] = {};
+    char pending_path[kReticulumPagePathSize] = {};
+    char active_destination[kReticulumPageDestinationTextSize] = {};
+    char active_path[kReticulumPagePathSize] = {};
+    char completed_destination[kReticulumPageDestinationTextSize] = {};
+    char completed_path[kReticulumPagePathSize] = {};
+    Status active_status{};
+    Status completed_status{};
+    std::size_t completed_body_len = 0;
+    char completed_body[kReticulumPageBodyMaxBytes + 1U] = {};
+};
+
+struct PageRequestProgressSlot
+{
+    bool occupied = false;
+    uint32_t order = 0;
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char path[kReticulumPagePathSize] = {};
+    RequestProgress progress{};
+};
+
+PageCacheLoadState* s_page_cache_load_state = nullptr;
+PageRequestProgressSlot s_request_progress[kPageProgressDepth]{};
+uint32_t s_request_progress_order = 1;
+portMUX_TYPE s_request_progress_lock = portMUX_INITIALIZER_UNLOCKED;
 
 enum class PageCacheBusAccess : uint8_t
 {
@@ -1982,6 +2020,28 @@ bool page_sd_available()
 {
     return ::platform::ui::device::card_ready() &&
            ::platform::esp::arduino_common::storage::sd_card_ready();
+}
+
+void set_busy_status(Status& out,
+                     const char* message,
+                     const char* detail = nullptr,
+                     int progress_percent = 0)
+{
+    out.supported = true;
+    out.sd_present = page_sd_available();
+    out.busy = true;
+    out.progress_percent = progress_percent;
+    set_status(out, message, detail);
+}
+
+bool same_page_request(const char* lhs_destination,
+                       const char* lhs_path,
+                       const char* rhs_destination,
+                       const char* rhs_path)
+{
+    return lhs_destination && lhs_path && rhs_destination && rhs_path &&
+           std::strcmp(lhs_destination, rhs_destination) == 0 &&
+           std::strcmp(lhs_path, rhs_path) == 0;
 }
 
 bool is_hex_char(char ch)
@@ -2201,6 +2261,189 @@ void set_request_status(Status& out,
     }
 }
 
+PageCacheLoadState* allocate_page_cache_load_state()
+{
+    void* storage = heap_caps_malloc_prefer(sizeof(PageCacheLoadState),
+                                            2,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!storage)
+    {
+        storage = ::operator new(sizeof(PageCacheLoadState), std::nothrow);
+    }
+    return storage ? new (storage) PageCacheLoadState() : nullptr;
+}
+
+void page_cache_load_task_entry(void* context)
+{
+    auto* state = static_cast<PageCacheLoadState*>(context);
+    if (!state)
+    {
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    for (;;)
+    {
+        uint8_t signal = 0;
+        (void)xQueueReceive(state->signal, &signal, portMAX_DELAY);
+        for (;;)
+        {
+            char destination[kReticulumPageDestinationTextSize] = {};
+            char path[kReticulumPagePathSize] = {};
+            if (xSemaphoreTake(state->mutex, portMAX_DELAY) != pdTRUE)
+            {
+                break;
+            }
+            if (!state->pending)
+            {
+                xSemaphoreGive(state->mutex);
+                break;
+            }
+            copy_text(destination, sizeof(destination), state->pending_destination);
+            copy_text(path, sizeof(path), state->pending_path);
+            state->pending = false;
+            state->active = true;
+            state->completed = false;
+            copy_text(state->active_destination,
+                      sizeof(state->active_destination),
+                      destination);
+            copy_text(state->active_path, sizeof(state->active_path), path);
+            set_busy_status(state->active_status,
+                            "Nomad page cache loading",
+                            path,
+                            0);
+            xSemaphoreGive(state->mutex);
+
+            std::size_t body_len = 0;
+            Status status = load_cached_page(destination,
+                                             path,
+                                             state->completed_body,
+                                             sizeof(state->completed_body),
+                                             &body_len);
+            status.busy = false;
+            status.progress_percent = status.loaded ? 100 : -1;
+
+            if (xSemaphoreTake(state->mutex, portMAX_DELAY) == pdTRUE)
+            {
+                state->active = false;
+                state->completed = true;
+                copy_text(state->completed_destination,
+                          sizeof(state->completed_destination),
+                          destination);
+                copy_text(state->completed_path,
+                          sizeof(state->completed_path),
+                          path);
+                state->completed_status = status;
+                state->completed_body_len = body_len;
+                if (body_len < sizeof(state->completed_body))
+                {
+                    state->completed_body[body_len] = '\0';
+                }
+                xSemaphoreGive(state->mutex);
+            }
+        }
+    }
+}
+
+bool start_page_cache_load_task(PageCacheLoadState& state)
+{
+    if (state.task)
+    {
+        return true;
+    }
+    if (!state.mutex || !state.signal)
+    {
+        return false;
+    }
+
+    const BaseType_t ok = xTaskCreate(page_cache_load_task_entry,
+                                      "rtpg_cache",
+                                      kPageCacheAsyncTaskStackBytes,
+                                      &state,
+                                      kPageCacheAsyncTaskPriority,
+                                      &state.task);
+    if (ok != pdPASS)
+    {
+        state.task = nullptr;
+        std::printf("[Reticulum][PageCache] async task_create_failed rc=%ld\n",
+                    static_cast<long>(ok));
+        return false;
+    }
+    return true;
+}
+
+PageCacheLoadState* ensure_page_cache_load_state()
+{
+    if (!s_page_cache_load_state)
+    {
+        s_page_cache_load_state = allocate_page_cache_load_state();
+        if (s_page_cache_load_state)
+        {
+            std::printf("[Reticulum][PageCache] async state allocated bytes=%u\n",
+                        static_cast<unsigned>(sizeof(PageCacheLoadState)));
+        }
+    }
+    PageCacheLoadState* state = s_page_cache_load_state;
+    if (!state)
+    {
+        return nullptr;
+    }
+    if (!state->mutex)
+    {
+        state->mutex = xSemaphoreCreateMutex();
+    }
+    if (!state->signal)
+    {
+        state->signal = xQueueCreate(1, sizeof(uint8_t));
+    }
+    if (!state->mutex || !state->signal)
+    {
+        return nullptr;
+    }
+    (void)start_page_cache_load_task(*state);
+    return state;
+}
+
+PageRequestProgressSlot* find_request_progress_slot_locked(
+    const char* destination,
+    const char* path,
+    bool create)
+{
+    PageRequestProgressSlot* empty = nullptr;
+    PageRequestProgressSlot* oldest = nullptr;
+    for (auto& slot : s_request_progress)
+    {
+        if (slot.occupied &&
+            same_page_request(slot.destination, slot.path, destination, path))
+        {
+            return &slot;
+        }
+        if (!slot.occupied && !empty)
+        {
+            empty = &slot;
+        }
+        if (slot.occupied && (!oldest || slot.order < oldest->order))
+        {
+            oldest = &slot;
+        }
+    }
+    if (!create)
+    {
+        return nullptr;
+    }
+    PageRequestProgressSlot* slot = empty ? empty : oldest;
+    if (slot)
+    {
+        *slot = {};
+        slot->occupied = true;
+        slot->order = s_request_progress_order++;
+        copy_text(slot->destination, sizeof(slot->destination), destination);
+        copy_text(slot->path, sizeof(slot->path), path);
+    }
+    return slot;
+}
+
 } // namespace
 
 const char* cache_root_path()
@@ -2318,6 +2561,7 @@ Status load_cached_page(const char* destination_hash,
     PageCacheBusGate bus_gate(PageCacheBusAccess::Read);
     if (!bus_gate.locked())
     {
+        out.busy = true;
         set_status(out, "Nomad page cache busy", path_text.c_str());
         return out;
     }
@@ -2325,6 +2569,7 @@ Status load_cached_page(const char* destination_hash,
     out.file_present =
         ::platform::esp::arduino_common::storage::sd_exists(path_text.c_str()) &&
         !::platform::esp::arduino_common::storage::sd_is_directory(path_text.c_str());
+    out.cache_checked = true;
     if (!out.file_present)
     {
         set_status(out, "Nomad page cache miss", path_text.c_str());
@@ -2350,7 +2595,196 @@ Status load_cached_page(const char* destination_hash,
     }
     out.truncated = size > read;
     out.loaded = true;
+    out.progress_percent = 100;
     set_status(out, "Nomad page cache loaded", path_text.c_str());
+    return out;
+}
+
+Status request_cached_page_load(const char* destination_hash,
+                                const char* path,
+                                bool force)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = page_sd_available();
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kPagesDir);
+        return out;
+    }
+
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        set_status(out, "Invalid Nomad page address", kPagesDir);
+        return out;
+    }
+
+    PageCacheLoadState* state = ensure_page_cache_load_state();
+    if (!state || !state->mutex || !state->signal)
+    {
+        set_status(out, "Nomad page cache worker unavailable", normalized_path);
+        return out;
+    }
+
+    if (xSemaphoreTake(state->mutex, kPageCacheAsyncMutexWait) != pdTRUE)
+    {
+        set_busy_status(out,
+                        "Nomad page cache worker busy",
+                        normalized_path,
+                        0);
+        return out;
+    }
+
+    if (!force)
+    {
+        if (state->pending &&
+            same_page_request(state->pending_destination,
+                              state->pending_path,
+                              destination,
+                              normalized_path))
+        {
+            set_busy_status(out,
+                            "Nomad page cache load queued",
+                            normalized_path,
+                            0);
+            xSemaphoreGive(state->mutex);
+            return out;
+        }
+        if (state->active &&
+            same_page_request(state->active_destination,
+                              state->active_path,
+                              destination,
+                              normalized_path))
+        {
+            out = state->active_status;
+            out.busy = true;
+            xSemaphoreGive(state->mutex);
+            return out;
+        }
+        if (state->completed &&
+            same_page_request(state->completed_destination,
+                              state->completed_path,
+                              destination,
+                              normalized_path))
+        {
+            out = state->completed_status;
+            xSemaphoreGive(state->mutex);
+            return out;
+        }
+    }
+
+    copy_text(state->pending_destination,
+              sizeof(state->pending_destination),
+              destination);
+    copy_text(state->pending_path, sizeof(state->pending_path), normalized_path);
+    state->pending = true;
+    state->completed = false;
+    set_busy_status(out,
+                    "Nomad page cache load queued",
+                    normalized_path,
+                    0);
+    xSemaphoreGive(state->mutex);
+
+    const uint8_t signal = 1;
+    (void)xQueueOverwrite(state->signal, &signal);
+    return out;
+}
+
+Status poll_cached_page_load(const char* destination_hash,
+                             const char* path,
+                             char* out_body,
+                             std::size_t body_capacity,
+                             std::size_t* out_body_len)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = page_sd_available();
+    if (out_body_len)
+    {
+        *out_body_len = 0;
+    }
+    if (out_body && body_capacity != 0)
+    {
+        out_body[0] = '\0';
+    }
+
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)) ||
+        !out_body || body_capacity == 0)
+    {
+        set_status(out, "Invalid Nomad page address", kPagesDir);
+        return out;
+    }
+
+    PageCacheLoadState* state = ensure_page_cache_load_state();
+    if (!state || !state->mutex || !state->signal)
+    {
+        set_status(out, "Nomad page cache worker unavailable", normalized_path);
+        return out;
+    }
+
+    if (xSemaphoreTake(state->mutex, kPageCacheAsyncMutexWait) != pdTRUE)
+    {
+        set_busy_status(out,
+                        "Nomad page cache worker busy",
+                        normalized_path,
+                        0);
+        return out;
+    }
+
+    if (state->completed &&
+        same_page_request(state->completed_destination,
+                          state->completed_path,
+                          destination,
+                          normalized_path))
+    {
+        out = state->completed_status;
+        const std::size_t copy_len =
+            state->completed_body_len < (body_capacity - 1U)
+                ? state->completed_body_len
+                : body_capacity - 1U;
+        if (copy_len != 0)
+        {
+            std::memcpy(out_body, state->completed_body, copy_len);
+        }
+        out_body[copy_len] = '\0';
+        if (out_body_len)
+        {
+            *out_body_len = copy_len;
+        }
+        out.truncated = out.truncated || state->completed_body_len > copy_len;
+        xSemaphoreGive(state->mutex);
+        return out;
+    }
+
+    if ((state->pending &&
+         same_page_request(state->pending_destination,
+                           state->pending_path,
+                           destination,
+                           normalized_path)) ||
+        (state->active &&
+         same_page_request(state->active_destination,
+                           state->active_path,
+                           destination,
+                           normalized_path)))
+    {
+        out = state->active ? state->active_status : out;
+        set_busy_status(out,
+                        state->active ? "Nomad page cache loading"
+                                      : "Nomad page cache load queued",
+                        normalized_path,
+                        0);
+        xSemaphoreGive(state->mutex);
+        return out;
+    }
+
+    xSemaphoreGive(state->mutex);
+    set_status(out, "Nomad page cache idle", normalized_path);
     return out;
 }
 
@@ -2444,6 +2878,94 @@ Status request_page(const char* destination_hash, const char* path)
         s_request_handler(destination_bytes, normalized_path, s_request_context);
     set_request_status(out, result, normalized_path);
     return out;
+}
+
+RequestProgress get_request_progress(const char* destination_hash,
+                                     const char* path)
+{
+    RequestProgress out{};
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        copy_text(out.message, sizeof(out.message), "Invalid Nomad page address");
+        return out;
+    }
+
+    taskENTER_CRITICAL(&s_request_progress_lock);
+    const PageRequestProgressSlot* slot =
+        find_request_progress_slot_locked(destination, normalized_path, false);
+    if (slot)
+    {
+        out = slot->progress;
+    }
+    taskEXIT_CRITICAL(&s_request_progress_lock);
+    return out;
+}
+
+void update_request_progress(const char* destination_hash,
+                             const char* path,
+                             int progress_percent,
+                             const char* message,
+                             const char* detail,
+                             bool active,
+                             bool complete,
+                             RequestProgress::FailureKind failure)
+{
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        return;
+    }
+    if (progress_percent > 100)
+    {
+        progress_percent = 100;
+    }
+    if (progress_percent < -1)
+    {
+        progress_percent = -1;
+    }
+
+    RequestProgress progress{};
+    progress.active = active;
+    progress.complete = complete;
+    progress.failure = failure;
+    progress.progress_percent = progress_percent;
+    copy_text(progress.message, sizeof(progress.message), message);
+    copy_text(progress.detail, sizeof(progress.detail), detail);
+
+    taskENTER_CRITICAL(&s_request_progress_lock);
+    PageRequestProgressSlot* slot =
+        find_request_progress_slot_locked(destination, normalized_path, true);
+    if (slot)
+    {
+        slot->progress = progress;
+        slot->order = s_request_progress_order++;
+    }
+    taskEXIT_CRITICAL(&s_request_progress_lock);
+}
+
+void clear_request_progress(const char* destination_hash, const char* path)
+{
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        return;
+    }
+
+    taskENTER_CRITICAL(&s_request_progress_lock);
+    PageRequestProgressSlot* slot =
+        find_request_progress_slot_locked(destination, normalized_path, false);
+    if (slot)
+    {
+        *slot = {};
+    }
+    taskEXIT_CRITICAL(&s_request_progress_lock);
 }
 
 } // namespace platform::ui::reticulum_page

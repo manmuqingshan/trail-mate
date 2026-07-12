@@ -121,6 +121,7 @@ struct NetworkPageState
     lv_obj_t* address_area = nullptr;
     lv_obj_t* go_btn = nullptr;
     lv_obj_t* viewport = nullptr;
+    lv_timer_t* page_load_timer = nullptr;
     ::ui::widgets::TopBar top_bar;
     ::ui::components::floating_search_box::State search_box;
     ::ui::components::shortcut_help_modal::State help_modal;
@@ -141,8 +142,14 @@ struct NetworkPageState
     bool directory_collapsed = false;
     bool browser_collapsed = false;
     bool suppress_history = false;
+    bool cached_page_body_valid = false;
+    bool page_cache_load_requested = false;
     rtdir::Status announce_status{};
     rtdir::Status address_status{};
+    rtpage::Status cached_page_status{};
+    std::size_t cached_page_body_len = 0;
+    char cached_page_destination[kHashTextLen] = {};
+    char cached_page_path[rtpage::kReticulumPagePathSize] = {};
     char current_address[kAddressTextLen] = "home:/";
     char search_query[kSearchTextLen] = {};
 };
@@ -161,8 +168,24 @@ constexpr uint32_t kTerminalText = 0xE8E0CC;
 constexpr uint32_t kTerminalDim = 0x9A917F;
 constexpr uint32_t kTerminalGreen = 0x4EA646;
 constexpr uint32_t kTerminalAmber = 0xF4B443;
+constexpr uint32_t kPageLoadPollMs = 500;
 
-#define NETWORK_PAGE_LOG(...) std::printf("[UI][Network][Nomad] " __VA_ARGS__)
+#ifndef NETWORK_PAGE_TRACE
+#define NETWORK_PAGE_TRACE 0
+#endif
+
+#if NETWORK_PAGE_TRACE
+#define NETWORK_PAGE_LOG(...)                             \
+    do                                                    \
+    {                                                     \
+        std::printf("[UI][Network][Nomad] " __VA_ARGS__); \
+    } while (0)
+#else
+#define NETWORK_PAGE_LOG(...) \
+    do                        \
+    {                         \
+    } while (0)
+#endif
 
 const char* safe_tr(const char* text)
 {
@@ -183,6 +206,22 @@ const char* log_text(const char* text)
     return text ? text : "";
 }
 
+bool request_progress_retryable_failed(const rtpage::RequestProgress& progress)
+{
+    return progress.failure ==
+           rtpage::RequestProgress::FailureKind::Retryable;
+}
+
+bool request_progress_terminal_failed(const rtpage::RequestProgress& progress)
+{
+    return progress.failure == rtpage::RequestProgress::FailureKind::Terminal;
+}
+
+bool request_progress_failed(const rtpage::RequestProgress& progress)
+{
+    return progress.failure != rtpage::RequestProgress::FailureKind::None;
+}
+
 const char* directory_mode_label(DirectoryMode mode)
 {
     return mode == DirectoryMode::Favourites ? "favourites" : "announces";
@@ -195,7 +234,7 @@ void log_page_status(const char* stage,
                      uint32_t elapsed_ms)
 {
     NETWORK_PAGE_LOG(
-        "%s dest=%s path=%s elapsed_ms=%lu supported=%u sd=%u file=%u loaded=%u saved=%u request=%u truncated=%u body=%lu message=\"%s\" detail=\"%s\"\n",
+        "%s dest=%s path=%s elapsed_ms=%lu supported=%u sd=%u file=%u checked=%u loaded=%u saved=%u request=%u busy=%u progress=%d truncated=%u body=%lu message=\"%s\" detail=\"%s\"\n",
         log_text(stage),
         page_address.destination,
         page_address.path,
@@ -203,9 +242,12 @@ void log_page_status(const char* stage,
         status.supported ? 1U : 0U,
         status.sd_present ? 1U : 0U,
         status.file_present ? 1U : 0U,
+        status.cache_checked ? 1U : 0U,
         status.loaded ? 1U : 0U,
         status.saved ? 1U : 0U,
         status.request_started ? 1U : 0U,
+        status.busy ? 1U : 0U,
+        status.progress_percent,
         status.truncated ? 1U : 0U,
         static_cast<unsigned long>(body_len),
         status.message,
@@ -552,10 +594,77 @@ bool reticulum_active()
     return chat::infra::isReticulumMeshProtocol(config.mesh_protocol);
 }
 
+void page_load_timer_cb(lv_timer_t* timer);
+
+void clear_loaded_page_body()
+{
+    g_state.cached_page_body_valid = false;
+    g_state.page_cache_load_requested = false;
+    g_state.cached_page_status = {};
+    g_state.cached_page_body_len = 0;
+    std::memset(g_state.cached_page_destination,
+                0,
+                sizeof(g_state.cached_page_destination));
+    std::memset(g_state.cached_page_path, 0, sizeof(g_state.cached_page_path));
+    g_state.page_body[0] = '\0';
+}
+
+bool cached_page_matches(const RemotePageAddress& page_address)
+{
+    return g_state.cached_page_body_valid &&
+           std::strcmp(g_state.cached_page_destination,
+                       page_address.destination) == 0 &&
+           std::strcmp(g_state.cached_page_path, page_address.path) == 0;
+}
+
+bool parse_remote_page_address(const char* address, RemotePageAddress& out);
+
+void clear_request_progress_for_address(const char* address)
+{
+    RemotePageAddress page_address{};
+    if (parse_remote_page_address(address, page_address) && page_address.valid)
+    {
+        rtpage::clear_request_progress(page_address.destination,
+                                       page_address.path);
+    }
+}
+
+void stop_page_load_timer()
+{
+    if (g_state.page_load_timer)
+    {
+        lv_timer_pause(g_state.page_load_timer);
+    }
+}
+
+void ensure_page_load_timer()
+{
+    if (g_state.page_load_timer)
+    {
+        lv_timer_resume(g_state.page_load_timer);
+        return;
+    }
+    g_state.page_load_timer =
+        lv_timer_create(page_load_timer_cb, kPageLoadPollMs, nullptr);
+    if (g_state.page_load_timer)
+    {
+        lv_timer_set_repeat_count(g_state.page_load_timer, -1);
+    }
+}
+
 void set_current_address(const char* address)
 {
+    const char* next_address =
+        (address && address[0] != '\0') ? address : "home:/";
+    if (std::strncmp(g_state.current_address,
+                     next_address,
+                     sizeof(g_state.current_address)) != 0)
+    {
+        clear_request_progress_for_address(g_state.current_address);
+        clear_loaded_page_body();
+    }
     copy_text(g_state.current_address, sizeof(g_state.current_address),
-              (address && address[0] != '\0') ? address : "home:/");
+              next_address);
     if (g_state.address_area && lv_obj_is_valid(g_state.address_area))
     {
         lv_textarea_set_text(g_state.address_area, g_state.current_address);
@@ -715,6 +824,7 @@ std::size_t favourite_count()
 void render_current_page();
 void render_directory_list();
 void page_shortcut_event_cb(lv_event_t* event);
+void page_load_timer_cb(lv_timer_t* timer);
 void rebuild_focus_group(lv_obj_t* preferred = nullptr);
 void focus_browser_viewport();
 void focus_directory_panel();
@@ -722,6 +832,9 @@ void apply_layout_state();
 lv_coord_t resolve_directory_width();
 void open_network_help_modal();
 void close_network_help_modal();
+void clear_loaded_page_body();
+void ensure_page_load_timer();
+void stop_page_load_timer();
 
 void reset_state_after_destroy()
 {
@@ -742,6 +855,7 @@ void reset_state_after_destroy()
     g_state.address_area = nullptr;
     g_state.go_btn = nullptr;
     g_state.viewport = nullptr;
+    g_state.page_load_timer = nullptr;
     g_state.top_bar = {};
     g_state.search_box = {};
     g_state.help_modal = {};
@@ -768,8 +882,16 @@ void reset_state_after_destroy()
     g_state.directory_collapsed = false;
     g_state.browser_collapsed = false;
     g_state.suppress_history = false;
+    g_state.cached_page_body_valid = false;
+    g_state.page_cache_load_requested = false;
     g_state.announce_status = {};
     g_state.address_status = {};
+    g_state.cached_page_status = {};
+    g_state.cached_page_body_len = 0;
+    std::memset(g_state.cached_page_destination,
+                0,
+                sizeof(g_state.cached_page_destination));
+    std::memset(g_state.cached_page_path, 0, sizeof(g_state.cached_page_path));
     copy_text(g_state.current_address, sizeof(g_state.current_address), "home:/");
     std::memset(g_state.search_query, 0, sizeof(g_state.search_query));
 }
@@ -1278,7 +1400,8 @@ void render_remote_page_shell(const char* address,
                               const rtdir::AnnounceRecord* announce,
                               const rtdir::LxmfAddressRecord* address_record,
                               const rtpage::Status* cache_status,
-                              const rtpage::Status* request_status)
+                              const rtpage::Status* request_status,
+                              const rtpage::RequestProgress* progress)
 {
     clear_viewport();
     const char* title = "Nomad Page";
@@ -1322,9 +1445,64 @@ void render_remote_page_shell(const char* address,
                       cache_status && cache_status->message[0] != '\0'
                           ? cache_status->message
                           : "no cached page body");
+    if (cache_status && cache_status->busy)
+    {
+        char loading[32] = {};
+        if (cache_status->progress_percent >= 0)
+        {
+            std::snprintf(loading,
+                          sizeof(loading),
+                          "cache %d%%",
+                          cache_status->progress_percent);
+        }
+        else
+        {
+            copy_text(loading, sizeof(loading), "cache busy");
+        }
+        add_terminal_pair("loading", loading);
+    }
     if (request_status && request_status->message[0] != '\0')
     {
         add_terminal_pair("request", request_status->message);
+    }
+    if (progress && (progress->active || progress->complete ||
+                     request_progress_failed(*progress) ||
+                     progress->message[0] != '\0'))
+    {
+        char loading[32] = {};
+        if (progress->progress_percent >= 0)
+        {
+            std::snprintf(loading,
+                          sizeof(loading),
+                          "%d%%",
+                          progress->progress_percent);
+        }
+        else
+        {
+            copy_text(loading, sizeof(loading), "pending");
+        }
+        const char* progress_label = "loading";
+        if (request_progress_terminal_failed(*progress))
+        {
+            progress_label = "failed";
+        }
+        else if (request_progress_retryable_failed(*progress))
+        {
+            progress_label = "retrying";
+        }
+        else if (progress->complete)
+        {
+            progress_label = "loaded";
+        }
+        add_terminal_pair(progress_label, loading);
+        if (progress->message[0] != '\0')
+        {
+            add_terminal_pair("stage", progress->message);
+        }
+        if (progress->detail[0] != '\0')
+        {
+            add_terminal_pair("detail", progress->detail);
+        }
     }
     if (page_address && page_address->valid)
     {
@@ -1343,6 +1521,16 @@ void render_cached_page(const rtpage::Status& status,
     }
 }
 
+void page_load_timer_cb(lv_timer_t* /*timer*/)
+{
+    if (!g_state.root || !lv_obj_is_valid(g_state.root))
+    {
+        stop_page_load_timer();
+        return;
+    }
+    render_current_page();
+}
+
 void render_current_page()
 {
     if (!g_state.viewport)
@@ -1354,6 +1542,7 @@ void render_current_page()
     NETWORK_PAGE_LOG("render begin address=%s\n", log_text(address));
     if (!address || address[0] == '\0' || std::strcmp(address, "home:/") == 0)
     {
+        stop_page_load_timer();
         NETWORK_PAGE_LOG("render route=home announces=%lu favourites=%lu reticulum=%u\n",
                          static_cast<unsigned long>(visible_announce_count()),
                          static_cast<unsigned long>(favourite_count()),
@@ -1363,12 +1552,14 @@ void render_current_page()
     }
     if (std::strcmp(address, "home:/announces") == 0)
     {
+        stop_page_load_timer();
         NETWORK_PAGE_LOG("render route=collection type=announces\n");
         render_collection_page(false);
         return;
     }
     if (std::strcmp(address, "home:/favourites") == 0)
     {
+        stop_page_load_timer();
         NETWORK_PAGE_LOG("render route=collection type=favourites\n");
         render_collection_page(true);
         return;
@@ -1400,47 +1591,150 @@ void render_current_page()
                                      announce,
                                      known_address,
                                      &invalid_status,
+                                     nullptr,
                                      nullptr);
             return;
         }
 
         std::size_t body_len = 0;
-        NETWORK_PAGE_LOG("cache lookup begin dest=%s path=%s\n",
+        if (cached_page_matches(page_address))
+        {
+            NETWORK_PAGE_LOG("render cached-local dest=%s path=%s body=%lu truncated=%u\n",
+                             page_address.destination,
+                             page_address.path,
+                             static_cast<unsigned long>(g_state.cached_page_body_len),
+                             g_state.cached_page_status.truncated ? 1U : 0U);
+            rtpage::clear_request_progress(page_address.destination,
+                                           page_address.path);
+            stop_page_load_timer();
+            render_cached_page(g_state.cached_page_status,
+                               g_state.cached_page_body_len);
+            return;
+        }
+
+        NETWORK_PAGE_LOG("cache poll begin dest=%s path=%s\n",
                          page_address.destination,
                          page_address.path);
-        const uint32_t cache_started_ms = lv_tick_get();
         const rtpage::Status cache_status =
-            rtpage::load_cached_page(page_address.destination,
-                                     page_address.path,
-                                     g_state.page_body.data(),
-                                     g_state.page_body.size(),
-                                     &body_len);
-        log_page_status("cache lookup result",
+            rtpage::poll_cached_page_load(page_address.destination,
+                                          page_address.path,
+                                          g_state.page_body.data(),
+                                          g_state.page_body.size(),
+                                          &body_len);
+        log_page_status("cache poll result",
                         page_address,
                         cache_status,
                         body_len,
-                        lv_tick_elaps(cache_started_ms));
+                        0);
+        if (cache_status.cache_checked && !cache_status.busy)
+        {
+            g_state.page_cache_load_requested = false;
+        }
         if (cache_status.loaded)
         {
-            NETWORK_PAGE_LOG("render cached dest=%s path=%s body=%lu truncated=%u\n",
+            g_state.cached_page_body_valid = true;
+            g_state.page_cache_load_requested = false;
+            g_state.cached_page_status = cache_status;
+            g_state.cached_page_body_len = body_len;
+            copy_text(g_state.cached_page_destination,
+                      sizeof(g_state.cached_page_destination),
+                      page_address.destination);
+            copy_text(g_state.cached_page_path,
+                      sizeof(g_state.cached_page_path),
+                      page_address.path);
+            NETWORK_PAGE_LOG("render cached-async dest=%s path=%s body=%lu truncated=%u\n",
                              page_address.destination,
                              page_address.path,
                              static_cast<unsigned long>(body_len),
                              cache_status.truncated ? 1U : 0U);
+            rtpage::clear_request_progress(page_address.destination,
+                                           page_address.path);
+            stop_page_load_timer();
             render_cached_page(cache_status, body_len);
             return;
         }
-        NETWORK_PAGE_LOG("request begin dest=%s path=%s\n",
-                         page_address.destination,
-                         page_address.path);
-        const uint32_t request_started_ms = lv_tick_get();
-        const rtpage::Status request_status =
-            rtpage::request_page(page_address.destination, page_address.path);
-        log_page_status("request result",
-                        page_address,
-                        request_status,
-                        0,
-                        lv_tick_elaps(request_started_ms));
+
+        rtpage::Status active_cache_status = cache_status;
+        rtpage::Status request_status{};
+        rtpage::RequestProgress progress =
+            rtpage::get_request_progress(page_address.destination,
+                                         page_address.path);
+        bool cache_poll_requested = false;
+
+        if (!cache_status.cache_checked && !cache_status.busy &&
+            !g_state.page_cache_load_requested)
+        {
+            NETWORK_PAGE_LOG("cache async request dest=%s path=%s\n",
+                             page_address.destination,
+                             page_address.path);
+            active_cache_status =
+                rtpage::request_cached_page_load(page_address.destination,
+                                                 page_address.path);
+            g_state.page_cache_load_requested = active_cache_status.busy;
+            log_page_status("cache async request result",
+                            page_address,
+                            active_cache_status,
+                            0,
+                            0);
+            cache_poll_requested = active_cache_status.busy;
+        }
+        else if (cache_status.busy)
+        {
+            cache_poll_requested = true;
+        }
+
+        if (active_cache_status.cache_checked && !active_cache_status.loaded &&
+            !progress.active && !progress.complete &&
+            progress.failure == rtpage::RequestProgress::FailureKind::None)
+        {
+            NETWORK_PAGE_LOG("request begin dest=%s path=%s\n",
+                             page_address.destination,
+                             page_address.path);
+            const uint32_t request_started_ms = lv_tick_get();
+            request_status =
+                rtpage::request_page(page_address.destination, page_address.path);
+            log_page_status("request result",
+                            page_address,
+                            request_status,
+                            0,
+                            lv_tick_elaps(request_started_ms));
+            progress = rtpage::get_request_progress(page_address.destination,
+                                                    page_address.path);
+        }
+
+        if (progress.complete && !g_state.page_cache_load_requested)
+        {
+            active_cache_status =
+                rtpage::request_cached_page_load(page_address.destination,
+                                                 page_address.path,
+                                                 true);
+            g_state.page_cache_load_requested = active_cache_status.busy;
+            cache_poll_requested = cache_poll_requested ||
+                                   active_cache_status.busy;
+        }
+
+        const bool progress_needs_poll =
+            progress.active || progress.complete ||
+            request_progress_retryable_failed(progress);
+        const bool terminal_failed =
+            request_progress_terminal_failed(progress);
+        const bool should_poll =
+            cache_poll_requested || g_state.page_cache_load_requested ||
+            request_status.request_started || progress_needs_poll;
+        if (terminal_failed && !cache_poll_requested &&
+            !g_state.page_cache_load_requested)
+        {
+            stop_page_load_timer();
+        }
+        else if (should_poll)
+        {
+            ensure_page_load_timer();
+        }
+        else
+        {
+            stop_page_load_timer();
+        }
+
         NETWORK_PAGE_LOG("render shell reason=cache_miss dest=%s path=%s\n",
                          page_address.destination,
                          page_address.path);
@@ -1448,13 +1742,15 @@ void render_current_page()
                                  &page_address,
                                  announce,
                                  known_address,
-                                 &cache_status,
-                                 &request_status);
+                                 &active_cache_status,
+                                 request_status.message[0] != '\0' ? &request_status : nullptr,
+                                 &progress);
         return;
     }
 
+    stop_page_load_timer();
     NETWORK_PAGE_LOG("render shell reason=unrecognized_address address=%s\n", address);
-    render_remote_page_shell(address, nullptr, nullptr, nullptr, nullptr, nullptr);
+    render_remote_page_shell(address, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
 void refresh_directory_data()
@@ -2472,6 +2768,11 @@ void exit(void* /*user_data*/, lv_obj_t* /*parent*/)
                      static_cast<unsigned>(g_state.row_context_count),
                      static_cast<unsigned>(g_state.link_context_count),
                      static_cast<unsigned>(g_state.history_count));
+    if (g_state.page_load_timer)
+    {
+        lv_timer_del(g_state.page_load_timer);
+        g_state.page_load_timer = nullptr;
+    }
     ::ui::components::floating_search_box::close(g_state.search_box);
     close_network_help_modal();
     if (app_g)

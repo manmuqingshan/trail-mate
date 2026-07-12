@@ -175,6 +175,20 @@ Status load_cached_page(const char*, const char*, char*, std::size_t, std::size_
     return unsupported("Nomad page cache unsupported", kPagesPath);
 }
 
+Status request_cached_page_load(const char*, const char*, bool)
+{
+    return unsupported("Nomad page cache unsupported", kPagesPath);
+}
+
+Status poll_cached_page_load(const char*, const char*, char*, std::size_t, std::size_t* out_body_len)
+{
+    if (out_body_len)
+    {
+        *out_body_len = 0;
+    }
+    return unsupported("Nomad page cache unsupported", kPagesPath);
+}
+
 Status store_cached_page_now(const char*, const char*, const char*, std::size_t)
 {
     return unsupported("Nomad page cache unsupported", kPagesPath);
@@ -183,6 +197,26 @@ Status store_cached_page_now(const char*, const char*, const char*, std::size_t)
 Status request_page(const char*, const char*)
 {
     return unsupported("Nomad page fetch unsupported", kPagesPath);
+}
+
+RequestProgress get_request_progress(const char*, const char*)
+{
+    return {};
+}
+
+void update_request_progress(const char*,
+                             const char*,
+                             int,
+                             const char*,
+                             const char*,
+                             bool,
+                             bool,
+                             RequestProgress::FailureKind)
+{
+}
+
+void clear_request_progress(const char*, const char*)
+{
 }
 
 } // namespace platform::ui::reticulum_page

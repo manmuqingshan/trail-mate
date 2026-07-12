@@ -37,6 +37,7 @@ namespace
 namespace rtdir = ::platform::ui::reticulum_directory;
 namespace rtpage = ::platform::ui::reticulum_page;
 namespace screen_runtime = ::platform::ui::screen;
+using PageFailureKind = rtpage::RequestProgress::FailureKind;
 
 constexpr size_t kMaxPacketLen = reticulum::kReticulumMtu;
 constexpr size_t kMaxLxmfMessageLen = reticulum::kReticulumMtu;
@@ -263,6 +264,40 @@ const char* localDestinationKindLabel(runtime::LocalDestinationKind kind)
         return "delivery";
     }
 }
+
+#ifndef LXMF_NOMAD_PAGE_TRACE
+#define LXMF_NOMAD_PAGE_TRACE 0
+#endif
+#ifndef LXMF_LINK_PROOF_TRACE
+#define LXMF_LINK_PROOF_TRACE 0
+#endif
+constexpr bool kNomadPageTraceEnabled = LXMF_NOMAD_PAGE_TRACE != 0;
+
+#if LXMF_NOMAD_PAGE_TRACE
+#define LXMF_NOMAD_PAGE_LOG(...)                         \
+    do                                                   \
+    {                                                    \
+        Serial.printf("[LXMF][NomadPage] " __VA_ARGS__); \
+    } while (0)
+#else
+#define LXMF_NOMAD_PAGE_LOG(...) \
+    do                           \
+    {                            \
+    } while (0)
+#endif
+
+#if LXMF_LINK_PROOF_TRACE
+#define LXMF_LINK_PROOF_LOG(...)                         \
+    do                                                   \
+    {                                                    \
+        Serial.printf("[LXMF][LinkProof] " __VA_ARGS__); \
+    } while (0)
+#else
+#define LXMF_LINK_PROOF_LOG(...) \
+    do                           \
+    {                            \
+    } while (0)
+#endif
 
 bool appendMsgpackByte(uint8_t value, uint8_t* out, size_t out_len, size_t& used)
 {
@@ -1633,27 +1668,27 @@ MeshActionResult LxmfAdapter::requestNomadPage(
                   reticulum::kTruncatedHashSize,
                   destination_text,
                   sizeof(destination_text));
-    Serial.printf("[LXMF][NomadPage] queue begin dest=%s path=%s ready=%u pending=%u\n",
-                  destination_text,
-                  path ? path : "<null>",
-                  isReady() ? 1U : 0U,
-                  static_cast<unsigned>(pending_nomad_page_requests_.size()));
+    LXMF_NOMAD_PAGE_LOG("queue begin dest=%s path=%s ready=%u pending=%u\n",
+                        destination_text,
+                        path ? path : "<null>",
+                        isReady() ? 1U : 0U,
+                        static_cast<unsigned>(pending_nomad_page_requests_.size()));
 
     if (!destination_hash ||
         isZeroBytes(destination_hash, reticulum::kTruncatedHashSize) ||
         !path || path[0] == '\0' ||
         std::strlen(path) >= kNomadPagePathMaxLen)
     {
-        Serial.printf("[LXMF][NomadPage] queue reject reason=invalid_input dest=%s path=%s\n",
-                      destination_text,
-                      path ? path : "<null>");
+        LXMF_NOMAD_PAGE_LOG("queue reject reason=invalid_input dest=%s path=%s\n",
+                            destination_text,
+                            path ? path : "<null>");
         return MeshActionResult::fail(MeshOperationFailure::InvalidInput);
     }
     if (!isReady())
     {
-        Serial.printf("[LXMF][NomadPage] queue reject reason=not_ready dest=%s path=%s\n",
-                      destination_text,
-                      path);
+        LXMF_NOMAD_PAGE_LOG("queue reject reason=not_ready dest=%s path=%s\n",
+                            destination_text,
+                            path);
         return MeshActionResult::fail(MeshOperationFailure::NotReady);
     }
 
@@ -1664,21 +1699,28 @@ MeshActionResult LxmfAdapter::requestNomadPage(
                         reticulum::kTruncatedHashSize) &&
             std::strcmp(pending.path, path) == 0)
         {
+            updateNomadPageProgress(pending,
+                                    5,
+                                    "Queued Nomad page request",
+                                    path,
+                                    true,
+                                    false,
+                                    PageFailureKind::None);
             MeshActionResult result = MeshActionResult::success();
             result.detail = 1;
-            Serial.printf("[LXMF][NomadPage] queue duplicate dest=%s path=%s\n",
-                          destination_text,
-                          path);
+            LXMF_NOMAD_PAGE_LOG("queue duplicate dest=%s path=%s\n",
+                                destination_text,
+                                path);
             return result;
         }
     }
 
     if (pending_nomad_page_requests_.size() >= kMaxPendingNomadPageRequests)
     {
-        Serial.printf("[LXMF][NomadPage] queue reject reason=busy dest=%s path=%s depth=%u\n",
-                      destination_text,
-                      path,
-                      static_cast<unsigned>(pending_nomad_page_requests_.size()));
+        LXMF_NOMAD_PAGE_LOG("queue reject reason=busy dest=%s path=%s depth=%u\n",
+                            destination_text,
+                            path,
+                            static_cast<unsigned>(pending_nomad_page_requests_.size()));
         return MeshActionResult::fail(MeshOperationFailure::Busy);
     }
 
@@ -1689,11 +1731,18 @@ MeshActionResult LxmfAdapter::requestNomadPage(
     std::snprintf(request.path, sizeof(request.path), "%s", path);
     request.created_ms = millis();
     pending_nomad_page_requests_.push_back(request);
+    updateNomadPageProgress(pending_nomad_page_requests_.back(),
+                            5,
+                            "Queued Nomad page request",
+                            path,
+                            true,
+                            false,
+                            PageFailureKind::None);
 
-    Serial.printf("[LXMF][NomadPage] queued dest=%s path=%s pending=%u\n",
-                  destination_text,
-                  path,
-                  static_cast<unsigned>(pending_nomad_page_requests_.size()));
+    LXMF_NOMAD_PAGE_LOG("queued dest=%s path=%s pending=%u\n",
+                        destination_text,
+                        path,
+                        static_cast<unsigned>(pending_nomad_page_requests_.size()));
     pumpNomadPageRequests();
     return MeshActionResult::success();
 }
@@ -3411,10 +3460,10 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
     {
         if (!session.initiator || packet.payload_len < (reticulum::kSignatureSize + LxmfIdentity::kEncPubKeySize))
         {
-            Serial.printf("[LXMF][LinkProof] lrproof drop reason=bad_state_or_short kind=%s initiator=%u payload=%u\n",
-                          localDestinationKindLabel(session.destination),
-                          session.initiator ? 1U : 0U,
-                          static_cast<unsigned>(packet.payload_len));
+            LXMF_LINK_PROOF_LOG("lrproof drop reason=bad_state_or_short kind=%s initiator=%u payload=%u\n",
+                                localDestinationKindLabel(session.destination),
+                                session.initiator ? 1U : 0U,
+                                static_cast<unsigned>(packet.payload_len));
             return false;
         }
 
@@ -3425,11 +3474,11 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                           sizeof(session.remote_destination_hash),
                           dest_hash_hex,
                           sizeof(dest_hash_hex));
-            Serial.printf("[LXMF][LinkProof] lrproof drop reason=hop_mismatch kind=%s dest=%s expected=%u got=%u\n",
-                          localDestinationKindLabel(session.destination),
-                          dest_hash_hex,
-                          static_cast<unsigned>(session.expected_hops),
-                          static_cast<unsigned>(packet.hops));
+            LXMF_LINK_PROOF_LOG("lrproof drop reason=hop_mismatch kind=%s dest=%s expected=%u got=%u\n",
+                                localDestinationKindLabel(session.destination),
+                                dest_hash_hex,
+                                static_cast<unsigned>(session.expected_hops),
+                                static_cast<unsigned>(packet.hops));
             return false;
         }
 
@@ -3466,14 +3515,14 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
             const PathEntry* path = findPath(session.remote_destination_hash);
             if (!path)
             {
-                Serial.printf("[LXMF][LinkProof] lrproof nomad key miss reason=path_missing dest=%s\n",
-                              dest_hash_hex);
+                LXMF_LINK_PROOF_LOG("lrproof nomad key miss reason=path_missing dest=%s\n",
+                                    dest_hash_hex);
             }
             else if (path->cached_announce_len == 0)
             {
-                Serial.printf("[LXMF][LinkProof] lrproof nomad key miss reason=announce_missing dest=%s hops=%u\n",
-                              dest_hash_hex,
-                              static_cast<unsigned>(path->hops));
+                LXMF_LINK_PROOF_LOG("lrproof nomad key miss reason=announce_missing dest=%s hops=%u\n",
+                                    dest_hash_hex,
+                                    static_cast<unsigned>(path->hops));
             }
             else
             {
@@ -3488,9 +3537,9 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                     announce.valid;
                 if (!parsed || !isNomadNetworkNodeAnnounce(announce))
                 {
-                    Serial.printf("[LXMF][LinkProof] lrproof nomad key miss reason=announce_parse_or_aspect dest=%s cached=%u\n",
-                                  dest_hash_hex,
-                                  static_cast<unsigned>(path->cached_announce_len));
+                    LXMF_LINK_PROOF_LOG("lrproof nomad key miss reason=announce_parse_or_aspect dest=%s cached=%u\n",
+                                        dest_hash_hex,
+                                        static_cast<unsigned>(path->cached_announce_len));
                 }
                 else
                 {
@@ -3509,9 +3558,9 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                                       sizeof(expected_destination_hash),
                                       expected_hash_hex,
                                       sizeof(expected_hash_hex));
-                        Serial.printf("[LXMF][LinkProof] lrproof nomad key miss reason=announce_dest_mismatch dest=%s expected=%s\n",
-                                      dest_hash_hex,
-                                      expected_hash_hex);
+                        LXMF_LINK_PROOF_LOG("lrproof nomad key miss reason=announce_dest_mismatch dest=%s expected=%s\n",
+                                            dest_hash_hex,
+                                            expected_hash_hex);
                     }
                     else
                     {
@@ -3520,10 +3569,10 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                                sizeof(announce_sig_pub));
                         peer_sig_pub = announce_sig_pub;
                         announce_identity_known = true;
-                        Serial.printf("[LXMF][LinkProof] lrproof nomad key resolved dest=%s hops=%u cached=%u\n",
-                                      dest_hash_hex,
-                                      static_cast<unsigned>(path->hops),
-                                      static_cast<unsigned>(path->cached_announce_len));
+                        LXMF_LINK_PROOF_LOG("lrproof nomad key resolved dest=%s hops=%u cached=%u\n",
+                                            dest_hash_hex,
+                                            static_cast<unsigned>(path->hops),
+                                            static_cast<unsigned>(path->cached_announce_len));
                     }
                 }
             }
@@ -3535,10 +3584,10 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                           sizeof(session.remote_destination_hash),
                           dest_hash_hex,
                           sizeof(dest_hash_hex));
-            Serial.printf("[LXMF][LinkProof] lrproof drop reason=peer_sig_missing kind=%s dest=%s identity_known=%u\n",
-                          localDestinationKindLabel(session.destination),
-                          dest_hash_hex,
-                          session.remote_identity_known ? 1U : 0U);
+            LXMF_LINK_PROOF_LOG("lrproof drop reason=peer_sig_missing kind=%s dest=%s identity_known=%u\n",
+                                localDestinationKindLabel(session.destination),
+                                dest_hash_hex,
+                                session.remote_identity_known ? 1U : 0U);
             return false;
         }
 
@@ -3565,10 +3614,10 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                           sizeof(session.remote_destination_hash),
                           dest_hash_hex,
                           sizeof(dest_hash_hex));
-            Serial.printf("[LXMF][LinkProof] lrproof drop reason=signature_failed kind=%s dest=%s signed=%u\n",
-                          localDestinationKindLabel(session.destination),
-                          dest_hash_hex,
-                          static_cast<unsigned>(used));
+            LXMF_LINK_PROOF_LOG("lrproof drop reason=signature_failed kind=%s dest=%s signed=%u\n",
+                                localDestinationKindLabel(session.destination),
+                                dest_hash_hex,
+                                static_cast<unsigned>(used));
             return false;
         }
 
@@ -3593,8 +3642,8 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
         session.mdu = linkMduForMtu(session.mtu);
         if (!deriveLinkKey(session))
         {
-            Serial.printf("[LXMF][LinkProof] lrproof drop reason=derive_key_failed kind=%s\n",
-                          localDestinationKindLabel(session.destination));
+            LXMF_LINK_PROOF_LOG("lrproof drop reason=derive_key_failed kind=%s\n",
+                                localDestinationKindLabel(session.destination));
             return false;
         }
 
@@ -3610,13 +3659,23 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                       sizeof(session.link_id),
                       link_hash_hex,
                       sizeof(link_hash_hex));
-        Serial.printf("[LXMF][LinkProof] lrproof active kind=%s link=%s rtt_ms=%lu mtu=%u mdu=%u rtt_tx=%u\n",
-                      localDestinationKindLabel(session.destination),
-                      link_hash_hex,
-                      static_cast<unsigned long>(millis() - session.request_ms),
-                      static_cast<unsigned>(session.mtu),
-                      static_cast<unsigned>(session.mdu),
-                      rtt_sent ? 1U : 0U);
+        LXMF_LINK_PROOF_LOG("lrproof active kind=%s link=%s rtt_ms=%lu mtu=%u mdu=%u rtt_tx=%u\n",
+                            localDestinationKindLabel(session.destination),
+                            link_hash_hex,
+                            static_cast<unsigned long>(millis() - session.request_ms),
+                            static_cast<unsigned>(session.mtu),
+                            static_cast<unsigned>(session.mdu),
+                            rtt_sent ? 1U : 0U);
+        if (session.destination == LocalDestinationKind::NomadPage)
+        {
+            updateNomadPageProgressForDestination(session.remote_destination_hash,
+                                                  35,
+                                                  "Nomad page link active",
+                                                  "ready to request page",
+                                                  true,
+                                                  false,
+                                                  PageFailureKind::None);
+        }
         if (session.destination == LocalDestinationKind::CallAudio)
         {
             (void)sendLinkIdentify(session);
@@ -3712,7 +3771,31 @@ bool LxmfAdapter::handleLinkResourceAdvertisement(LinkSession& session,
     }
 
     session.incoming_resources.push_back(std::move(resource));
-    return requestNextResourceWindow(session, session.incoming_resources.back());
+    LinkResourceTransfer& incoming_resource = session.incoming_resources.back();
+    if (session.destination == LocalDestinationKind::NomadPage &&
+        !incoming_resource.request_id.empty())
+    {
+        if (PendingNomadPageRequest* page_request =
+                findPendingNomadPageRequestById(
+                    session.remote_destination_hash,
+                    incoming_resource.request_id.data(),
+                    incoming_resource.request_id.size()))
+        {
+            char detail[32] = {};
+            std::snprintf(detail,
+                          sizeof(detail),
+                          "0/%u parts",
+                          static_cast<unsigned>(advertisement.part_count));
+            updateNomadPageProgress(*page_request,
+                                    45,
+                                    "Receiving Nomad page",
+                                    detail,
+                                    true,
+                                    false,
+                                    PageFailureKind::None);
+        }
+    }
+    return requestNextResourceWindow(session, incoming_resource);
 }
 
 bool LxmfAdapter::requestNextResourceWindow(LinkSession& session,
@@ -3941,6 +4024,45 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
                                          &complete))
         {
             continue;
+        }
+
+        if (session.destination == LocalDestinationKind::NomadPage &&
+            !resource.request_id.empty())
+        {
+            if (PendingNomadPageRequest* page_request =
+                    findPendingNomadPageRequestById(
+                        session.remote_destination_hash,
+                        resource.request_id.data(),
+                        resource.request_id.size()))
+            {
+                uint32_t received_count = 0;
+                for (uint8_t received : resource.received_bitmap)
+                {
+                    received_count += received != 0 ? 1U : 0U;
+                }
+                const uint32_t total_count = resource.part_count != 0
+                                                 ? resource.part_count
+                                                 : 1U;
+                int progress_percent =
+                    45 + static_cast<int>((received_count * 45U) / total_count);
+                if (progress_percent > 90)
+                {
+                    progress_percent = 90;
+                }
+                char detail[40] = {};
+                std::snprintf(detail,
+                              sizeof(detail),
+                              "%u/%u parts",
+                              static_cast<unsigned>(received_count),
+                              static_cast<unsigned>(resource.part_count));
+                updateNomadPageProgress(*page_request,
+                                        complete ? 90 : progress_percent,
+                                        "Receiving Nomad page",
+                                        detail,
+                                        true,
+                                        false,
+                                        PageFailureKind::None);
+            }
         }
 
         if (!complete)
@@ -5690,6 +5812,88 @@ bool LxmfAdapter::sendNomadPageRequestPacket(
     return true;
 }
 
+LxmfAdapter::PendingNomadPageRequest*
+LxmfAdapter::findPendingNomadPageRequestById(
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    const uint8_t* request_id,
+    std::size_t request_id_len)
+{
+    if (!destination_hash || !request_id ||
+        request_id_len != reticulum::kTruncatedHashSize)
+    {
+        return nullptr;
+    }
+
+    for (auto& request : pending_nomad_page_requests_)
+    {
+        if (hashesEqual(request.destination_hash,
+                        destination_hash,
+                        reticulum::kTruncatedHashSize) &&
+            std::memcmp(request.request_id,
+                        request_id,
+                        reticulum::kTruncatedHashSize) == 0)
+        {
+            return &request;
+        }
+    }
+    return nullptr;
+}
+
+void LxmfAdapter::updateNomadPageProgress(
+    const PendingNomadPageRequest& request,
+    int progress_percent,
+    const char* message,
+    const char* detail,
+    bool active,
+    bool complete,
+    PageFailureKind failure)
+{
+    char destination_text[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
+    formatHashHex(request.destination_hash,
+                  reticulum::kTruncatedHashSize,
+                  destination_text,
+                  sizeof(destination_text));
+    rtpage::update_request_progress(destination_text,
+                                    request.path,
+                                    progress_percent,
+                                    message,
+                                    detail,
+                                    active,
+                                    complete,
+                                    failure);
+}
+
+void LxmfAdapter::updateNomadPageProgressForDestination(
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    int progress_percent,
+    const char* message,
+    const char* detail,
+    bool active,
+    bool complete,
+    PageFailureKind failure)
+{
+    if (!destination_hash)
+    {
+        return;
+    }
+
+    for (const auto& request : pending_nomad_page_requests_)
+    {
+        if (hashesEqual(request.destination_hash,
+                        destination_hash,
+                        reticulum::kTruncatedHashSize))
+        {
+            updateNomadPageProgress(request,
+                                    progress_percent,
+                                    message,
+                                    detail,
+                                    active,
+                                    complete,
+                                    failure);
+        }
+    }
+}
+
 void LxmfAdapter::completeNomadPageRequest(
     PendingNomadPageRequest& request,
     const std::vector<uint8_t>& packed_response)
@@ -5703,29 +5907,52 @@ void LxmfAdapter::completeNomadPageRequest(
     std::vector<uint8_t> page_body;
     if (!decodeMsgpackByteString(packed_response, &page_body))
     {
-        Serial.printf("[LXMF][NomadPage] response decode failed dest=%s path=%s packed=%u\n",
-                      destination_text,
-                      request.path,
-                      static_cast<unsigned>(packed_response.size()));
+        updateNomadPageProgress(request,
+                                100,
+                                "Nomad page response decode failed",
+                                request.path,
+                                false,
+                                false,
+                                PageFailureKind::Terminal);
+        LXMF_NOMAD_PAGE_LOG("response decode failed dest=%s path=%s packed=%u\n",
+                            destination_text,
+                            request.path,
+                            static_cast<unsigned>(packed_response.size()));
         return;
     }
 
     const char* body =
         page_body.empty() ? "" : reinterpret_cast<const char*>(page_body.data());
+    updateNomadPageProgress(request,
+                            95,
+                            "Caching Nomad page",
+                            request.path,
+                            true,
+                            false,
+                            PageFailureKind::None);
     const rtpage::Status status =
         rtpage::store_cached_page_now(destination_text,
                                       request.path,
                                       body,
                                       page_body.size());
-    Serial.printf("[LXMF][NomadPage] response store dest=%s path=%s body=%u saved=%u sd=%u file=%u msg=\"%s\" detail=\"%s\"\n",
-                  destination_text,
-                  request.path,
-                  static_cast<unsigned>(page_body.size()),
-                  status.saved ? 1U : 0U,
-                  status.sd_present ? 1U : 0U,
-                  status.file_present ? 1U : 0U,
-                  status.message,
-                  status.detail);
+    updateNomadPageProgress(request,
+                            status.saved ? 100 : 95,
+                            status.saved ? "Nomad page loaded"
+                                         : "Nomad page cache write failed",
+                            status.detail,
+                            false,
+                            status.saved,
+                            status.saved ? PageFailureKind::None
+                                         : PageFailureKind::Terminal);
+    LXMF_NOMAD_PAGE_LOG("response store dest=%s path=%s body=%u saved=%u sd=%u file=%u msg=\"%s\" detail=\"%s\"\n",
+                        destination_text,
+                        request.path,
+                        static_cast<unsigned>(page_body.size()),
+                        status.saved ? 1U : 0U,
+                        status.sd_present ? 1U : 0U,
+                        status.file_present ? 1U : 0U,
+                        status.message,
+                        status.detail);
 }
 
 void LxmfAdapter::pumpNomadPageRequests()
@@ -5734,20 +5961,31 @@ void LxmfAdapter::pumpNomadPageRequests()
     for (std::size_t index = 0; index < pending_nomad_page_requests_.size();)
     {
         PendingNomadPageRequest& request = pending_nomad_page_requests_[index];
-        char destination_text[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
-        formatHashHex(request.destination_hash,
-                      reticulum::kTruncatedHashSize,
-                      destination_text,
-                      sizeof(destination_text));
 
         if (request.created_ms != 0 &&
             (now_ms - request.created_ms) > kNomadPageRequestTtlMs)
         {
-            Serial.printf("[LXMF][NomadPage] timeout dest=%s path=%s sent=%u link=%u\n",
-                          destination_text,
-                          request.path,
-                          request.request_sent ? 1U : 0U,
-                          request.link_started ? 1U : 0U);
+            updateNomadPageProgress(request,
+                                    100,
+                                    "Nomad page request timed out",
+                                    request.path,
+                                    false,
+                                    false,
+                                    PageFailureKind::Terminal);
+            if (kNomadPageTraceEnabled)
+            {
+                char destination_text[(reticulum::kTruncatedHashSize * 2U) +
+                                      1U] = {};
+                formatHashHex(request.destination_hash,
+                              reticulum::kTruncatedHashSize,
+                              destination_text,
+                              sizeof(destination_text));
+                LXMF_NOMAD_PAGE_LOG("timeout dest=%s path=%s sent=%u link=%u\n",
+                                    destination_text,
+                                    request.path,
+                                    request.request_sent ? 1U : 0U,
+                                    request.link_started ? 1U : 0U);
+            }
             pending_nomad_page_requests_.erase(
                 pending_nomad_page_requests_.begin() +
                 static_cast<std::ptrdiff_t>(index));
@@ -5797,11 +6035,29 @@ void LxmfAdapter::pumpNomadPageRequests()
         {
             request.last_attempt_ms = now_ms;
             const bool sent = sendNomadPageRequestPacket(*active_link, request);
-            Serial.printf("[LXMF][NomadPage] request tx dest=%s path=%s ok=%u pending_link_requests=%u\n",
-                          destination_text,
-                          request.path,
-                          sent ? 1U : 0U,
-                          static_cast<unsigned>(active_link->pending_requests.size()));
+            updateNomadPageProgress(request,
+                                    sent ? 40 : 35,
+                                    sent ? "Nomad page request sent"
+                                         : "Nomad page request TX failed",
+                                    request.path,
+                                    sent,
+                                    false,
+                                    sent ? PageFailureKind::None
+                                         : PageFailureKind::Retryable);
+            if (kNomadPageTraceEnabled)
+            {
+                char destination_text[(reticulum::kTruncatedHashSize * 2U) +
+                                      1U] = {};
+                formatHashHex(request.destination_hash,
+                              reticulum::kTruncatedHashSize,
+                              destination_text,
+                              sizeof(destination_text));
+                LXMF_NOMAD_PAGE_LOG("request tx dest=%s path=%s ok=%u pending_link_requests=%u\n",
+                                    destination_text,
+                                    request.path,
+                                    sent ? 1U : 0U,
+                                    static_cast<unsigned>(active_link->pending_requests.size()));
+            }
         }
         else if (!active_link)
         {
@@ -5815,10 +6071,29 @@ void LxmfAdapter::pumpNomadPageRequests()
                     const bool path_sent =
                         sendPathRequestForDestination(request.destination_hash);
                     request.path_requested = request.path_requested || path_sent;
-                    Serial.printf("[LXMF][NomadPage] path request dest=%s path=%s ok=%u\n",
-                                  destination_text,
-                                  request.path,
-                                  path_sent ? 1U : 0U);
+                    updateNomadPageProgress(request,
+                                            path_sent ? 10 : 5,
+                                            path_sent ? "Resolving Nomad page path"
+                                                      : "Nomad page path request failed",
+                                            request.path,
+                                            true,
+                                            false,
+                                            path_sent ? PageFailureKind::None
+                                                      : PageFailureKind::Retryable);
+                    if (kNomadPageTraceEnabled)
+                    {
+                        char destination_text[(reticulum::kTruncatedHashSize *
+                                               2U) +
+                                              1U] = {};
+                        formatHashHex(request.destination_hash,
+                                      reticulum::kTruncatedHashSize,
+                                      destination_text,
+                                      sizeof(destination_text));
+                        LXMF_NOMAD_PAGE_LOG("path request dest=%s path=%s ok=%u\n",
+                                            destination_text,
+                                            request.path,
+                                            path_sent ? 1U : 0U);
+                    }
                 }
             }
             else if (!runtime::findOpenLinkSessionByDestination(
@@ -5859,11 +6134,29 @@ void LxmfAdapter::pumpNomadPageRequests()
                     links_.sessions.pop_back();
                 }
                 request.link_started = link_sent;
-                Serial.printf("[LXMF][NomadPage] link start dest=%s path=%s ok=%u hops=%u\n",
-                              destination_text,
-                              request.path,
-                              link_sent ? 1U : 0U,
-                              static_cast<unsigned>(path->hops));
+                updateNomadPageProgress(request,
+                                        link_sent ? 25 : 10,
+                                        link_sent ? "Opening Nomad page link"
+                                                  : "Nomad page link start failed",
+                                        request.path,
+                                        link_sent,
+                                        false,
+                                        link_sent ? PageFailureKind::None
+                                                  : PageFailureKind::Retryable);
+                if (kNomadPageTraceEnabled)
+                {
+                    char destination_text[(reticulum::kTruncatedHashSize * 2U) +
+                                          1U] = {};
+                    formatHashHex(request.destination_hash,
+                                  reticulum::kTruncatedHashSize,
+                                  destination_text,
+                                  sizeof(destination_text));
+                    LXMF_NOMAD_PAGE_LOG("link start dest=%s path=%s ok=%u hops=%u\n",
+                                        destination_text,
+                                        request.path,
+                                        link_sent ? 1U : 0U,
+                                        static_cast<unsigned>(path->hops));
+                }
             }
         }
 

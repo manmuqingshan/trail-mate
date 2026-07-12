@@ -13,6 +13,7 @@
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_state.h"
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
+#include "platform/ui/reticulum_page_runtime.h"
 #include "sys/ringbuf.h"
 
 #include <array>
@@ -352,6 +353,26 @@ class LxmfAdapter : public IMeshAdapter
     void pumpNomadPageRequests();
     void completeNomadPageRequest(PendingNomadPageRequest& request,
                                   const std::vector<uint8_t>& packed_response);
+    PendingNomadPageRequest* findPendingNomadPageRequestById(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+        const uint8_t* request_id,
+        std::size_t request_id_len);
+    void updateNomadPageProgress(const PendingNomadPageRequest& request,
+                                 int progress_percent,
+                                 const char* message,
+                                 const char* detail,
+                                 bool active,
+                                 bool complete,
+                                 platform::ui::reticulum_page::RequestProgress::
+                                     FailureKind failure);
+    void updateNomadPageProgressForDestination(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+        int progress_percent,
+        const char* message,
+        const char* detail,
+        bool active,
+        bool complete,
+        platform::ui::reticulum_page::RequestProgress::FailureKind failure);
     bool sendLinkHandshakeProof(LinkSession& session);
     bool sendLinkRtt(LinkSession& session);
     bool sendLinkKeepalive(LinkSession& session);
