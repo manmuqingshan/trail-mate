@@ -276,12 +276,20 @@ constexpr uint32_t kPagerRotateUpKey = 19;
 constexpr uint32_t kPagerRotateDownKey = 20;
 constexpr lv_coord_t kViewportScrollStep = 28;
 constexpr lv_coord_t kViewportPageScrollPadding = 12;
-constexpr BuiltInFavourite kBuiltInFavourites[] = {{
-    "47850a3b99243cfb1147e8856bab2691:/page/index.mu",
-    "47850A3B /page",
-    "built-in Nomad",
-    LV_SYMBOL_STAR,
-}};
+constexpr BuiltInFavourite kBuiltInFavourites[] = {
+    {
+        "47850a3b99243cfb1147e8856bab2691:/page/index.mu",
+        "47850A3B /page",
+        "built-in Nomad",
+        LV_SYMBOL_STAR,
+    },
+    {
+        "287567d883e0a893ab468c547bc8f09e:/page/index.mu",
+        "Trail Mate Showcase",
+        "vicliu-pi Nomad",
+        LV_SYMBOL_STAR,
+    },
+};
 
 #ifndef NETWORK_PAGE_TRACE
 #define NETWORK_PAGE_TRACE 0
