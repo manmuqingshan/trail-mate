@@ -461,13 +461,22 @@ void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
 {
     ensure_overlay();
     const auto state = snapshot.state;
-    const bool incoming = state == ::platform::ui::reticulum_call::State::Incoming;
-    const bool active = state == ::platform::ui::reticulum_call::State::Active;
+    const auto phase = snapshot.realtime_phase;
+    const bool incoming =
+        phase == ::platform::ui::reticulum_call::RealtimePhase::IncomingRinging;
+    const bool starting =
+        phase == ::platform::ui::reticulum_call::RealtimePhase::AcceptedStarting;
+    const bool active =
+        phase == ::platform::ui::reticulum_call::RealtimePhase::ActiveCall;
+    const bool closing =
+        phase == ::platform::ui::reticulum_call::RealtimePhase::ClosingCall;
     const bool outgoing = state == ::platform::ui::reticulum_call::State::Outgoing;
     const bool state_changed = s_overlay.last_state != state;
 
     apply_label(s_overlay.title,
-                incoming ? "Incoming call" : (outgoing ? "Calling" : "Reticulum call"),
+                incoming ? "Incoming call"
+                         : (closing ? "Closing call"
+                                    : (outgoing ? "Calling" : "Reticulum call")),
                 kText,
                 body_font());
 
@@ -483,6 +492,14 @@ void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
     else if (!snapshot.media_supported)
     {
         std::snprintf(status, sizeof(status), "%s", "Audio hardware unavailable");
+    }
+    else if (closing)
+    {
+        std::snprintf(status, sizeof(status), "%s", "Hanging up");
+    }
+    else if (starting)
+    {
+        std::snprintf(status, sizeof(status), "%s", "Connecting call.audio");
     }
     else if (active)
     {
@@ -505,6 +522,12 @@ void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
         lv_obj_add_flag(s_overlay.hangup_btn, LV_OBJ_FLAG_HIDDEN);
         focus_default_action(true, state_changed);
     }
+    else if (closing)
+    {
+        lv_obj_add_flag(s_overlay.answer_btn, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_overlay.decline_btn, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_overlay.hangup_btn, LV_OBJ_FLAG_HIDDEN);
+    }
     else
     {
         lv_obj_add_flag(s_overlay.answer_btn, LV_OBJ_FLAG_HIDDEN);
@@ -520,9 +543,8 @@ void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
 void tick()
 {
     const auto snapshot = ::platform::ui::reticulum_call::snapshot();
-    if (snapshot.state == ::platform::ui::reticulum_call::State::Idle ||
-        snapshot.state == ::platform::ui::reticulum_call::State::Ended ||
-        snapshot.state == ::platform::ui::reticulum_call::State::Failed)
+    if (snapshot.realtime_phase ==
+        ::platform::ui::reticulum_call::RealtimePhase::Idle)
     {
         destroy_overlay();
         return;

@@ -19,6 +19,7 @@
 #include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/tracker_runtime.h"
+#include "platform/ui/wifi_access_runtime.h"
 #include "sys/clock.h"
 #include "sys/event_bus.h"
 #include "team/usecase/team_pairing_service.h"
@@ -57,19 +58,86 @@ constexpr int kContactAlertsAll = 2;
 constexpr uint32_t kContactAlertModeCacheMs = 10000;
 
 bool s_call_realtime_resources_held = false;
+bool s_call_realtime_hooks_registered = false;
+
+void pauseCallRealtimeResources()
+{
+    if (s_call_realtime_resources_held)
+    {
+        return;
+    }
+    ::platform::ui::gps::suspend_runtime();
+    app::AppTasks::setRadioReceiveSuppressed(true);
+    s_call_realtime_resources_held = true;
+}
+
+void resumeCallRealtimeResources()
+{
+    if (!s_call_realtime_resources_held)
+    {
+        return;
+    }
+    ::platform::ui::gps::resume_runtime();
+    app::AppTasks::setRadioReceiveSuppressed(false);
+    s_call_realtime_resources_held = false;
+}
+
+bool callRealtimeBeginRinging(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
+{
+    pauseCallRealtimeResources();
+    return ::platform::ui::wifi_access::enter_call_ringing(link_id);
+}
+
+bool callRealtimeBeginExclusive(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
+{
+    if (!::platform::ui::wifi_access::enter_call_exclusive(link_id))
+    {
+        return false;
+    }
+    pauseCallRealtimeResources();
+    return true;
+}
+
+void callRealtimeBeginClosing(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize],
+                              bool keep_exclusive)
+{
+    pauseCallRealtimeResources();
+    ::platform::ui::wifi_access::enter_call_closing(link_id, keep_exclusive);
+}
+
+void callRealtimeEnd(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
+{
+    ::platform::ui::wifi_access::exit_call(link_id);
+    resumeCallRealtimeResources();
+}
+
+void ensureCallRealtimeHooksRegistered()
+{
+    if (s_call_realtime_hooks_registered)
+    {
+        return;
+    }
+    ::platform::ui::reticulum_call::RealtimeHooks hooks{};
+    hooks.begin_ringing = callRealtimeBeginRinging;
+    hooks.begin_exclusive = callRealtimeBeginExclusive;
+    hooks.begin_closing = callRealtimeBeginClosing;
+    hooks.end = callRealtimeEnd;
+    ::platform::ui::reticulum_call::set_realtime_hooks(hooks);
+    s_call_realtime_hooks_registered = true;
+}
 
 bool applyCallRealtimeResourceGuard()
 {
-    const bool active = ::platform::ui::reticulum_call::realtime_mode_active();
-    if (active && !s_call_realtime_resources_held)
+    ensureCallRealtimeHooksRegistered();
+    const bool active = ::platform::ui::reticulum_call::resource_preempt_active() ||
+                        ::platform::ui::wifi_access::call_soft_preempt_active();
+    if (active)
     {
-        ::platform::ui::gps::suspend_runtime();
-        s_call_realtime_resources_held = true;
+        pauseCallRealtimeResources();
     }
-    else if (!active && s_call_realtime_resources_held)
+    else
     {
-        ::platform::ui::gps::resume_runtime();
-        s_call_realtime_resources_held = false;
+        resumeCallRealtimeResources();
     }
     return active;
 }
@@ -174,6 +242,7 @@ void notifyNodeInfoUpdate(app::IAppFacade& app_context, const sys::NodeInfoUpdat
 
 BackgroundTaskStartResult startBackgroundTasks(LoraBoard* board, chat::IMeshAdapter* adapter)
 {
+    ensureCallRealtimeHooksRegistered();
     if (!board)
     {
         return BackgroundTaskStartResult::NotSupported;
@@ -197,6 +266,7 @@ void tickBoundLifecycle(std::size_t max_events)
 
 void tickRuntime(app::IAppFacade& app_context)
 {
+    ensureCallRealtimeHooksRegistered();
     ensureReticulumCallAudioRuntimeRegistered();
     if (applyCallRealtimeResourceGuard())
     {
@@ -216,7 +286,8 @@ void tickRuntime(app::IAppFacade& app_context)
 
 void updateCoreServices(app::IAppFacade& app_context)
 {
-    if (::platform::ui::reticulum_call::realtime_mode_active())
+    ensureCallRealtimeHooksRegistered();
+    if (::platform::ui::reticulum_call::resource_preempt_active())
     {
         return;
     }

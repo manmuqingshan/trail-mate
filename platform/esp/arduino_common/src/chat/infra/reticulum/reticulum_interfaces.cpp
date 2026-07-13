@@ -7,6 +7,7 @@
 
 #include "chat/time_utils.h"
 #include "platform/esp/arduino_common/app_tasks.h"
+#include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 
@@ -238,7 +239,9 @@ bool WifiGatewayReticulumInterface::isConfigured() const
     return enabled_ && host_[0] != '\0';
 }
 
-bool WifiGatewayReticulumInterface::sendPacket(const uint8_t* data, size_t len)
+bool WifiGatewayReticulumInterface::sendPacket(const uint8_t* data,
+                                               size_t len,
+                                               const uint8_t* call_link_id)
 {
     if (!data || len == 0 || len > reticulum::kReticulumMtu)
     {
@@ -254,7 +257,8 @@ bool WifiGatewayReticulumInterface::sendPacket(const uint8_t* data, size_t len)
     }
     const auto budget = platform::ui::wifi_access::traffic_budget(
         platform::ui::wifi_access::Client::ReticulumGateway,
-        platform::ui::wifi_access::Priority::Messaging);
+        platform::ui::wifi_access::Priority::Messaging,
+        call_link_id);
     if (!budget.allow_write || budget.tx_byte_budget == 0)
     {
         return false;
@@ -743,7 +747,9 @@ bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
     return sent;
 }
 
-bool ReticulumInterfaceSet::sendPacketWifiOnly(const uint8_t* data, size_t len)
+bool ReticulumInterfaceSet::sendPacketWifiOnly(const uint8_t* data,
+                                               size_t len,
+                                               const uint8_t* call_link_id)
 {
     last_tx_result_ = {};
     if (!data || len == 0)
@@ -757,7 +763,7 @@ bool ReticulumInterfaceSet::sendPacketWifiOnly(const uint8_t* data, size_t len)
     last_tx_result_.wifi_ready = last_tx_result_.wifi_required && wifi_.isReady();
     if (last_tx_result_.wifi_ready)
     {
-        last_tx_result_.wifi_ok = wifi_.sendPacket(data, len);
+        last_tx_result_.wifi_ok = wifi_.sendPacket(data, len, call_link_id);
     }
 
     const bool sent = last_tx_result_.sent();
@@ -877,7 +883,8 @@ bool ReticulumInterfaceSet::wifiSelectedForRuntime() const
 
 void ReticulumInterfaceSet::syncSharedLoRaRxGate()
 {
-    const bool suppress = !loraSelectedForRuntime();
+    const bool suppress = !loraSelectedForRuntime() ||
+                          ::platform::ui::reticulum_call::resource_preempt_active();
     if (shared_lora_rx_suppressed_ == suppress &&
         app::AppTasks::isRadioReceiveSuppressed() == suppress)
     {

@@ -17,6 +17,7 @@
 #include "mbedtls/sha256.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/http_client_runtime.h"
+#include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 
 #ifndef TRAIL_MATE_ENABLE_BLE
@@ -742,6 +743,23 @@ struct OtaDownloadContext
     std::string error{};
 };
 
+class ScopedNonPreemptibleActivity
+{
+  public:
+    explicit ScopedNonPreemptibleActivity(const char* reason)
+    {
+        platform::ui::wifi_access::set_non_preemptible_activity(true, reason);
+    }
+
+    ~ScopedNonPreemptibleActivity()
+    {
+        platform::ui::wifi_access::set_non_preemptible_activity(false);
+    }
+
+    ScopedNonPreemptibleActivity(const ScopedNonPreemptibleActivity&) = delete;
+    ScopedNonPreemptibleActivity& operator=(const ScopedNonPreemptibleActivity&) = delete;
+};
+
 bool write_ota_chunk(const std::uint8_t* data, std::size_t len, void* context)
 {
     auto* ota = static_cast<OtaDownloadContext*>(context);
@@ -750,6 +768,7 @@ bool write_ota_chunk(const std::uint8_t* data, std::size_t len, void* context)
         return false;
     }
 
+    ScopedNonPreemptibleActivity non_preemptible("firmware_ota_write");
     const esp_err_t write_err = esp_ota_write(ota->ota_handle, data, len);
     if (write_err != ESP_OK)
     {
@@ -923,6 +942,7 @@ bool begin_ota_download(const ReleaseMetadata& metadata, std::string& out_error)
 
     set_progress_status(Phase::Installing, "Verifying update...", "Finalizing image", 100);
     {
+        ScopedNonPreemptibleActivity non_preemptible("firmware_ota_finalize");
         const esp_err_t end_err = esp_ota_end(ota_handle);
         if (end_err != ESP_OK)
         {
@@ -937,6 +957,7 @@ bool begin_ota_download(const ReleaseMetadata& metadata, std::string& out_error)
     ota_started = false;
 
     {
+        ScopedNonPreemptibleActivity non_preemptible("firmware_ota_activate");
         const esp_err_t boot_err = esp_ota_set_boot_partition(update_partition);
         if (boot_err != ESP_OK)
         {

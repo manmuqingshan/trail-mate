@@ -114,9 +114,33 @@ visible UI stalls.
 
 ## Reticulum Call Realtime Mode
 
-Reticulum calls are a realtime resource mode, not a Contacts-page feature. When
-a MeshChat-compatible `call.audio` link is dialing, ringing, active, or closing,
-the device must protect the audio path first:
+Reticulum calls are a realtime resource mode, not a Contacts-page feature. The
+incoming-call panel is the visible entry point for this mode, but it is not the
+owner of Wi-Fi, LoRa, GPS, BLE, or audio resources. Resource ownership is held by
+runtime leases underneath the call runtime.
+
+The runtime state is:
+
+| Call realtime phase | UI ownership | Resource ownership |
+| --- | --- | --- |
+| `IncomingRinging` | Global modal owns focus. The background remains visible through a scrim and is inert. | Soft preempt. New non-call Wi-Fi work is denied. Existing non-call Wi-Fi work reaches its normal poll/revoke point. LoRa, GPS, and BLE runtime work are paused. |
+| `AcceptedStarting` | The modal remains focused and shows the call is connecting. | Hard preempt. The current `call.audio` link starts the Reticulum call Wi-Fi exclusive lease. Non-call Wi-Fi leases are revoked. |
+| `ActiveCall` | Active call modal owns focus. | Exclusive call lease. Only Reticulum gateway traffic serving the current `call.audio` link may read or write. |
+| `ClosingCall` | The modal may show closing or hanging up. | The previous ownership remains in force until `LinkClose` is sent or cleanup finishes. Rejecting an incoming call that never entered hard preempt keeps only the soft preempt while close signalling is attempted. |
+| `Idle` | No call modal. | Normal Wi-Fi scheduling resumes and deferred work may be queued again. |
+
+Outgoing calls enter `AcceptedStarting` immediately. The user explicitly asked to
+place the call, so the call runtime must acquire the hard Wi-Fi preempt lease
+before dialing proceeds.
+
+Incoming calls enter `IncomingRinging` first. This phase still pauses LoRa, GPS,
+and BLE runtime work so the device is quiet for the user-visible interruption,
+but it does not revoke already-running Wi-Fi work unless that work reaches a
+normal lease or budget poll point. If the user declines, the runtime must not
+escalate to hard Wi-Fi preempt.
+
+When a MeshChat-compatible `call.audio` link is accepted, active, or closing
+after acceptance, the device must protect the audio path first:
 
 - Wi-Fi access grants budget only to the Reticulum gateway client, and only for
   the call link's Reticulum packets.
@@ -128,6 +152,20 @@ the device must protect the audio path first:
   hardware users must not start while the call overlay is active.
 - Incoming calls may wake the screen and show the call overlay, but they must
   not trigger unrelated Wi-Fi reconnect storms, SD scans, or UI-heavy refreshes.
+
+Wi-Fi users are grouped by preemption safety:
+
+- `Preemptible`: MQTT, catalog refresh, route image downloads, language-pack
+  downloads, ordinary HTTP metadata/downloads, ordinary Reticulum discovery,
+  path requests, announces, and non-call LXMF pump work. These must stop,
+  pause, or be denied after hard preempt.
+- `GracefulAbort`: foreground HTTP downloads and larger resumable transfers.
+  These receive revoke at a poll point, close their socket, and leave resumable
+  state with their owner.
+- `NonPreemptible`: OTA write/finalize/switch critical sections and short
+  critical persistence commits. A call cannot directly interrupt this class.
+  Accepting or placing the call fails while such an activity is active, and the
+  UI reports the call as unavailable or busy.
 
 After hangup, the runtime may flush deferred SD/cache work and resume normal
 low-frequency terminal budgets. Hangup signalling itself remains inside the

@@ -25,6 +25,15 @@ enum class State : uint8_t
     Failed = 5,
 };
 
+enum class RealtimePhase : uint8_t
+{
+    Idle = 0,
+    IncomingRinging,
+    AcceptedStarting,
+    ActiveCall,
+    ClosingCall,
+};
+
 struct Peer
 {
     uint8_t link_id[kHashSize] = {};
@@ -43,6 +52,7 @@ struct Snapshot
     bool incoming = false;
     bool accepted = false;
     bool media_active = false;
+    RealtimePhase realtime_phase = RealtimePhase::Idle;
     uint8_t link_id[kHashSize] = {};
     uint8_t peer_destination_hash[kHashSize] = {};
     uint8_t peer_identity_hash[kHashSize] = {};
@@ -68,7 +78,17 @@ struct MediaHooks
     void (*stop)() = nullptr;
 };
 
+struct RealtimeHooks
+{
+    bool (*begin_ringing)(const uint8_t link_id[kHashSize]) = nullptr;
+    bool (*begin_exclusive)(const uint8_t link_id[kHashSize]) = nullptr;
+    void (*begin_closing)(const uint8_t link_id[kHashSize],
+                          bool keep_exclusive) = nullptr;
+    void (*end)(const uint8_t link_id[kHashSize]) = nullptr;
+};
+
 void set_media_hooks(const MediaHooks& hooks);
+void set_realtime_hooks(const RealtimeHooks& hooks);
 void set_wifi_ready(bool ready);
 
 bool begin_incoming(const Peer& peer);
@@ -84,8 +104,13 @@ bool consume_hangup_request(uint8_t out_link_id[kHashSize]);
 
 Snapshot snapshot();
 State state();
+RealtimePhase realtime_phase();
 bool media_should_run();
 bool realtime_mode_active();
+bool modal_active();
+bool resource_preempt_active();
+bool wifi_exclusive_active();
+bool current_link_id(uint8_t out_link_id[kHashSize]);
 
 bool enqueue_inbound_audio(const uint8_t link_id[kHashSize],
                            const uint8_t* data,

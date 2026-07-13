@@ -1854,7 +1854,7 @@ MeshActionResult LxmfAdapter::startReticulumAudioCall(
                  sizeof(call_peer.identity_hash));
     }
     call_peer.incoming = false;
-    (void)::platform::ui::reticulum_call::begin_outgoing(call_peer);
+    ::platform::ui::reticulum_call::update_peer(call_peer);
 
     return MeshActionResult::success();
 }
@@ -2288,6 +2288,30 @@ bool LxmfAdapter::processOneRadioPacket(
 
     char dest_hash[12] = {};
     formatHashPrefix(parsed.destination_hash, dest_hash, sizeof(dest_hash));
+    if (::platform::ui::reticulum_call::resource_preempt_active())
+    {
+        uint8_t call_link_id[reticulum::kTruncatedHashSize] = {};
+        const bool has_call_link =
+            ::platform::ui::reticulum_call::current_link_id(call_link_id);
+        LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
+        const bool call_link_request =
+            ingress_wifi &&
+            parsed.packet_type == reticulum::PacketType::LinkRequest &&
+            isLocalDestinationHash(parsed.destination_hash, &local_kind) &&
+            local_kind == LocalDestinationKind::CallAudio;
+        const bool current_call_link_packet =
+            has_call_link &&
+            parsed.destination_type == reticulum::DestinationType::Link &&
+            parsed.destination_hash &&
+            hashesEqual(parsed.destination_hash,
+                        call_link_id,
+                        reticulum::kTruncatedHashSize);
+        if (!call_link_request && !current_call_link_packet)
+        {
+            noteRxSummary(true, false, false);
+            return false;
+        }
+    }
     if (budget.drop_public_discovery &&
         isPublicDiscoveryPacket(parsed) &&
         !isForegroundDiscoveryDestination(parsed.destination_hash))
@@ -5629,7 +5653,28 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
 
     session.request_ms = millis();
     const bool wifi_only = session.destination == LocalDestinationKind::CallAudio;
-    const bool sent = wifi_only ? interfaces_.sendPacketWifiOnly(tx_packet, tx_packet_len)
+    if (wifi_only)
+    {
+        ::platform::ui::reticulum_call::Peer call_peer{};
+        copyHash(call_peer.link_id, session.link_id, sizeof(call_peer.link_id));
+        copyHash(call_peer.destination_hash,
+                 session.remote_destination_hash,
+                 sizeof(call_peer.destination_hash));
+        copyHash(call_peer.identity_hash,
+                 session.remote_identity_hash,
+                 sizeof(call_peer.identity_hash));
+        call_peer.incoming = false;
+        if (!::platform::ui::reticulum_call::begin_outgoing(call_peer))
+        {
+            Serial.printf("[LXMF][LinkTX] request_fail dest=%s kind=%u reason=call_realtime_busy\n",
+                          dest_hash,
+                          static_cast<unsigned>(session.destination));
+            return false;
+        }
+    }
+    const bool sent = wifi_only ? interfaces_.sendPacketWifiOnly(tx_packet,
+                                                                 tx_packet_len,
+                                                                 session.link_id)
                                 : interfaces_.sendPacket(tx_packet, tx_packet_len);
     const auto& tx_result = interfaces_.lastTxResult();
     if (sent)
@@ -5664,6 +5709,10 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
     }
     else
     {
+        if (wifi_only)
+        {
+            ::platform::ui::reticulum_call::notify_link_closed(session.link_id);
+        }
         Serial.printf("[LXMF][LinkTX] request_fail dest=%s kind=%u reason=send raw_len=%u routed=%u bearer=%s complete=%u\n",
                       dest_hash,
                       static_cast<unsigned>(session.destination),
@@ -6601,7 +6650,9 @@ bool LxmfAdapter::sendLinkPacket(LinkSession& session,
     }
 
     const bool ok = session.destination == LocalDestinationKind::CallAudio
-                        ? interfaces_.sendPacketWifiOnly(packet, packet_len)
+                        ? interfaces_.sendPacketWifiOnly(packet,
+                                                         packet_len,
+                                                         session.link_id)
                         : interfaces_.sendPacket(packet, packet_len);
     if (ok)
     {
@@ -7520,6 +7571,14 @@ void LxmfAdapter::pumpReticulumAudioCall()
                                      true);
                 closeLinkSession(*session, LinkCloseReason::LocalClose);
             }
+            else
+            {
+                ::platform::ui::reticulum_call::notify_link_closed(hangup_link_id);
+            }
+        }
+        else
+        {
+            ::platform::ui::reticulum_call::notify_link_closed(hangup_link_id);
         }
     }
 

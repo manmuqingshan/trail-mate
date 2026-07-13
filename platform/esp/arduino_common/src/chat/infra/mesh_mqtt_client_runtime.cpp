@@ -758,6 +758,14 @@ class PlainMqttRuntime
         const auto budget = platform::ui::wifi_access::traffic_budget(
             platform::ui::wifi_access::Client::MeshMqtt,
             platform::ui::wifi_access::Priority::Messaging);
+        if (client_.connected() &&
+            !budget.allow_connect &&
+            !budget.allow_read &&
+            !budget.allow_write)
+        {
+            stop("wifi_revoke");
+            return false;
+        }
         if (client_.connected() && mqtt_ready_)
         {
             return true;

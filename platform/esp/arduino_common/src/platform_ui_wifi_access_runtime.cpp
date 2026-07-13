@@ -1,12 +1,12 @@
 #include "platform/ui/wifi_access_runtime.h"
 
-#include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "sys/clock.h"
 
 #include <cstddef>
 #include <cstdio>
+#include <cstring>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
@@ -34,6 +34,12 @@ struct RuntimeState
     std::uint32_t pending_since_ms = 0;
     std::uint32_t foreground_download_settle_until_ms = 0;
     std::uint32_t wake_protected_until_ms = 0;
+    std::uint32_t revoke_generation = 1;
+    CallPreemptPhase call_phase = CallPreemptPhase::Idle;
+    ExclusiveOwner exclusive_owner = ExclusiveOwner::None;
+    bool non_preemptible_active = false;
+    const char* non_preemptible_reason = nullptr;
+    std::uint8_t call_link_id[kCallLinkIdSize] = {};
     bool saw_screen_sample = false;
     bool last_sleeping = false;
     bool last_saver = false;
@@ -54,6 +60,78 @@ std::size_t client_index(Client client)
 {
     const std::size_t index = static_cast<std::size_t>(client);
     return index < kClientCount ? index : 0;
+}
+
+bool link_is_empty(const std::uint8_t* link_id)
+{
+    if (!link_id)
+    {
+        return true;
+    }
+    for (std::uint8_t index = 0; index < kCallLinkIdSize; ++index)
+    {
+        if (link_id[index] != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void copy_link(std::uint8_t* out, const std::uint8_t* in)
+{
+    if (out && in)
+    {
+        std::memcpy(out, in, kCallLinkIdSize);
+    }
+}
+
+bool links_equal(const std::uint8_t* lhs, const std::uint8_t* rhs)
+{
+    return lhs && rhs && std::memcmp(lhs, rhs, kCallLinkIdSize) == 0;
+}
+
+bool call_soft_preempt_active_locked()
+{
+    return s_state.call_phase != CallPreemptPhase::Idle;
+}
+
+bool call_exclusive_active_locked()
+{
+    return s_state.exclusive_owner == ExclusiveOwner::ReticulumCallAudio &&
+           (s_state.call_phase == CallPreemptPhase::Exclusive ||
+            s_state.call_phase == CallPreemptPhase::ClosingExclusive);
+}
+
+bool call_link_matches_locked(const std::uint8_t* link_id)
+{
+    return !link_is_empty(link_id) && links_equal(link_id, s_state.call_link_id);
+}
+
+bool request_is_call_audio_locked(const Request& request)
+{
+    return request.client == Client::ReticulumGateway &&
+           request.kind == AccessKind::ReticulumGatewayCallAudio &&
+           call_link_matches_locked(request.call_link_id);
+}
+
+bool call_allows_request_locked(const Request& request)
+{
+    if (!call_soft_preempt_active_locked())
+    {
+        return true;
+    }
+    if (request.client != Client::ReticulumGateway)
+    {
+        return false;
+    }
+    if (!call_exclusive_active_locked())
+    {
+        return true;
+    }
+    return request.kind == AccessKind::WifiConnect ||
+           request.kind == AccessKind::LongLivedSocket ||
+           request_is_call_audio_locked(request);
 }
 
 ScreenPhase sample_screen_phase(std::uint32_t now_ms)
@@ -166,7 +244,10 @@ bool foreground_download_settle_active_for(Client client, std::uint32_t now_ms)
 
 bool acquire_http(const Request& request, ScreenPhase phase, Lease& out)
 {
-    if (::platform::ui::reticulum_call::realtime_mode_active())
+    portENTER_CRITICAL(&s_lock);
+    const bool call_preempt = call_soft_preempt_active_locked();
+    portEXIT_CRITICAL(&s_lock);
+    if (call_preempt)
     {
         out.decision = Decision::CallExclusive;
         return false;
@@ -205,12 +286,14 @@ bool acquire_http(const Request& request, ScreenPhase phase, Lease& out)
     s_state.owner = request.client;
     s_state.active_kind = request.kind;
     s_state.active_since_ms = now_ms;
+    const std::uint32_t revoke_generation = s_state.revoke_generation;
     portEXIT_CRITICAL(&s_lock);
 
     out.granted = true;
     out.release_required = true;
     out.decision = Decision::Granted;
     out.granted_ms = now_ms;
+    out.revoke_generation = revoke_generation;
     std::printf("[WiFiAccess] acquire client=%s kind=%s priority=%s phase=%s reason=%s\n",
                 client_name(request.client),
                 access_kind_name(request.kind),
@@ -228,8 +311,12 @@ bool long_lived_allowed(const Request& request, ScreenPhase phase, Lease& out)
         out.decision = Decision::InvalidRequest;
         return false;
     }
-    if (::platform::ui::reticulum_call::realtime_mode_active() &&
-        request.client != Client::ReticulumGateway)
+    portENTER_CRITICAL(&s_lock);
+    const bool allowed_by_call = call_allows_request_locked(request);
+    const std::uint32_t revoke_generation = s_state.revoke_generation;
+    const bool call_audio = request_is_call_audio_locked(request);
+    portEXIT_CRITICAL(&s_lock);
+    if (!allowed_by_call)
     {
         out.decision = Decision::CallExclusive;
         return false;
@@ -259,21 +346,35 @@ bool long_lived_allowed(const Request& request, ScreenPhase phase, Lease& out)
     out.granted = true;
     out.decision = Decision::Granted;
     out.granted_ms = sys::millis_now();
+    out.revoke_generation = revoke_generation;
+    out.call_audio = call_audio;
+    if (request.call_link_id)
+    {
+        copy_link(out.call_link_id, request.call_link_id);
+    }
     return true;
 }
 
-TrafficBudget base_budget(Client client, ScreenPhase phase)
+TrafficBudget base_budget(Client client,
+                          ScreenPhase phase,
+                          const std::uint8_t* call_link_id)
 {
     TrafficBudget budget{};
     budget.screen_phase = phase;
 
-    if (::platform::ui::reticulum_call::realtime_mode_active())
+    portENTER_CRITICAL(&s_lock);
+    const bool call_preempt = call_soft_preempt_active_locked();
+    const bool call_exclusive = call_exclusive_active_locked();
+    const bool link_matches = call_link_matches_locked(call_link_id);
+    portEXIT_CRITICAL(&s_lock);
+
+    if (call_preempt)
     {
         if (client == Client::ReticulumGateway)
         {
             budget.allow_connect = true;
             budget.allow_read = true;
-            budget.allow_write = true;
+            budget.allow_write = !call_exclusive || link_matches;
             budget.rx_packet_budget = 0;
             budget.tx_packet_budget = 8;
             budget.rx_byte_budget = 768;
@@ -322,6 +423,154 @@ TrafficBudget base_budget(Client client, ScreenPhase phase)
 
 } // namespace
 
+bool enter_call_ringing(const std::uint8_t link_id[kCallLinkIdSize])
+{
+    if (link_is_empty(link_id))
+    {
+        return false;
+    }
+    portENTER_CRITICAL(&s_lock);
+    s_state.call_phase = CallPreemptPhase::RingingSoft;
+    s_state.exclusive_owner = ExclusiveOwner::None;
+    copy_link(s_state.call_link_id, link_id);
+    s_state.foreground_download_pending = false;
+    s_state.pending_owner = Client::Unknown;
+    s_state.pending_kind = AccessKind::WifiConnect;
+    s_state.pending_since_ms = 0;
+    portEXIT_CRITICAL(&s_lock);
+    std::printf("[WiFiAccess] call ringing soft_preempt link=%02X%02X%02X%02X\n",
+                link_id[0],
+                link_id[1],
+                link_id[2],
+                link_id[3]);
+    return true;
+}
+
+bool call_accept_available()
+{
+    bool available = false;
+    portENTER_CRITICAL(&s_lock);
+    available = !s_state.non_preemptible_active;
+    portEXIT_CRITICAL(&s_lock);
+    return available;
+}
+
+bool enter_call_exclusive(const std::uint8_t link_id[kCallLinkIdSize])
+{
+    if (link_is_empty(link_id))
+    {
+        return false;
+    }
+
+    const char* busy_reason = nullptr;
+    std::uint32_t generation = 0;
+    portENTER_CRITICAL(&s_lock);
+    if (s_state.non_preemptible_active)
+    {
+        busy_reason = s_state.non_preemptible_reason;
+        portEXIT_CRITICAL(&s_lock);
+        std::printf("[WiFiAccess] call exclusive denied reason=non_preemptible activity=%s\n",
+                    busy_reason ? busy_reason : "unknown");
+        return false;
+    }
+    s_state.call_phase = CallPreemptPhase::Exclusive;
+    s_state.exclusive_owner = ExclusiveOwner::ReticulumCallAudio;
+    copy_link(s_state.call_link_id, link_id);
+    ++s_state.revoke_generation;
+    s_state.foreground_download_pending = false;
+    s_state.pending_owner = Client::Unknown;
+    s_state.pending_kind = AccessKind::WifiConnect;
+    s_state.pending_since_ms = 0;
+    generation = s_state.revoke_generation;
+    portEXIT_CRITICAL(&s_lock);
+
+    std::printf("[WiFiAccess] call exclusive enter owner=%s generation=%lu link=%02X%02X%02X%02X\n",
+                exclusive_owner_name(ExclusiveOwner::ReticulumCallAudio),
+                static_cast<unsigned long>(generation),
+                link_id[0],
+                link_id[1],
+                link_id[2],
+                link_id[3]);
+    return true;
+}
+
+void enter_call_closing(const std::uint8_t link_id[kCallLinkIdSize],
+                        bool keep_exclusive)
+{
+    if (link_is_empty(link_id))
+    {
+        return;
+    }
+    portENTER_CRITICAL(&s_lock);
+    s_state.call_phase = keep_exclusive ? CallPreemptPhase::ClosingExclusive
+                                        : CallPreemptPhase::ClosingSoft;
+    s_state.exclusive_owner = keep_exclusive ? ExclusiveOwner::ReticulumCallAudio
+                                             : ExclusiveOwner::None;
+    copy_link(s_state.call_link_id, link_id);
+    if (keep_exclusive)
+    {
+        ++s_state.revoke_generation;
+    }
+    portEXIT_CRITICAL(&s_lock);
+    std::printf("[WiFiAccess] call closing phase=%s link=%02X%02X%02X%02X\n",
+                keep_exclusive ? "exclusive" : "soft",
+                link_id[0],
+                link_id[1],
+                link_id[2],
+                link_id[3]);
+}
+
+void exit_call(const std::uint8_t link_id[kCallLinkIdSize])
+{
+    std::uint32_t generation = 0;
+    portENTER_CRITICAL(&s_lock);
+    if (!link_is_empty(link_id) &&
+        !link_is_empty(s_state.call_link_id) &&
+        !links_equal(link_id, s_state.call_link_id))
+    {
+        portEXIT_CRITICAL(&s_lock);
+        return;
+    }
+    const bool was_exclusive = call_exclusive_active_locked();
+    s_state.call_phase = CallPreemptPhase::Idle;
+    s_state.exclusive_owner = ExclusiveOwner::None;
+    std::memset(s_state.call_link_id, 0, sizeof(s_state.call_link_id));
+    if (was_exclusive)
+    {
+        ++s_state.revoke_generation;
+    }
+    generation = s_state.revoke_generation;
+    portEXIT_CRITICAL(&s_lock);
+    std::printf("[WiFiAccess] call exit generation=%lu\n",
+                static_cast<unsigned long>(generation));
+}
+
+void set_non_preemptible_activity(bool active, const char* reason)
+{
+    portENTER_CRITICAL(&s_lock);
+    s_state.non_preemptible_active = active;
+    s_state.non_preemptible_reason = active ? reason : nullptr;
+    portEXIT_CRITICAL(&s_lock);
+}
+
+bool call_soft_preempt_active()
+{
+    bool active = false;
+    portENTER_CRITICAL(&s_lock);
+    active = call_soft_preempt_active_locked();
+    portEXIT_CRITICAL(&s_lock);
+    return active;
+}
+
+bool call_exclusive_active()
+{
+    bool active = false;
+    portENTER_CRITICAL(&s_lock);
+    active = call_exclusive_active_locked();
+    portEXIT_CRITICAL(&s_lock);
+    return active;
+}
+
 bool ensure_connected(const Request& request, Decision* out_decision)
 {
     const std::uint32_t now_ms = sys::millis_now();
@@ -350,12 +599,18 @@ bool ensure_connected(const Request& request, Decision* out_decision)
     {
         decision = Decision::Busy;
     }
-    else if (::platform::ui::reticulum_call::realtime_mode_active() &&
-             request.client != Client::ReticulumGateway)
-    {
-        decision = Decision::CallExclusive;
-    }
     else
+    {
+        portENTER_CRITICAL(&s_lock);
+        const bool allowed_by_call = call_allows_request_locked(request);
+        portEXIT_CRITICAL(&s_lock);
+        if (!allowed_by_call)
+        {
+            decision = Decision::CallExclusive;
+        }
+    }
+
+    if (decision == Decision::Granted)
     {
         const ::platform::ui::wifi::Status wifi_status = ::platform::ui::wifi::status();
         if (!wifi_status.supported)
@@ -481,6 +736,27 @@ void release(const Lease& lease)
                 static_cast<unsigned long>(held_ms));
 }
 
+bool lease_revoked(const Lease& lease)
+{
+    if (!lease.granted)
+    {
+        return false;
+    }
+    bool revoked = false;
+    portENTER_CRITICAL(&s_lock);
+    if (lease.revoke_generation != s_state.revoke_generation)
+    {
+        revoked = true;
+    }
+    if (call_exclusive_active_locked())
+    {
+        revoked = !lease.call_audio ||
+                  !links_equal(lease.call_link_id, s_state.call_link_id);
+    }
+    portEXIT_CRITICAL(&s_lock);
+    return revoked;
+}
+
 bool begin_foreground_download(const Request& request, Decision* out_decision)
 {
     const std::uint32_t now_ms = sys::millis_now();
@@ -494,7 +770,7 @@ bool begin_foreground_download(const Request& request, Decision* out_decision)
     {
         decision = Decision::InvalidRequest;
     }
-    else if (::platform::ui::reticulum_call::realtime_mode_active())
+    else if (call_soft_preempt_active())
     {
         decision = Decision::CallExclusive;
     }
@@ -592,11 +868,13 @@ void end_foreground_download(Client client, AccessKind kind)
     }
 }
 
-TrafficBudget traffic_budget(Client client, Priority priority)
+TrafficBudget traffic_budget(Client client,
+                             Priority priority,
+                             const std::uint8_t* call_link_id)
 {
     (void)priority;
     const ScreenPhase phase = sample_screen_phase(sys::millis_now());
-    TrafficBudget budget = base_budget(client, phase);
+    TrafficBudget budget = base_budget(client, phase, call_link_id);
 
     portENTER_CRITICAL(&s_lock);
     const std::uint32_t now_ms = sys::millis_now();
@@ -665,6 +943,11 @@ RuntimeStatus status()
     out.active_since_ms = s_state.active_since_ms;
     out.pending_since_ms = s_state.pending_since_ms;
     out.wake_protected_until_ms = s_state.wake_protected_until_ms;
+    out.revoke_generation = s_state.revoke_generation;
+    out.call_phase = s_state.call_phase;
+    out.exclusive_owner = s_state.exclusive_owner;
+    out.non_preemptible_active = s_state.non_preemptible_active;
+    out.non_preemptible_reason = s_state.non_preemptible_reason;
     portEXIT_CRITICAL(&s_lock);
     out.screen_phase = sample_screen_phase(now_ms);
     return out;
@@ -704,6 +987,8 @@ const char* access_kind_name(AccessKind kind)
         return "http_download";
     case AccessKind::OtaDownload:
         return "ota_download";
+    case AccessKind::ReticulumGatewayCallAudio:
+        return "reticulum_gateway_call_audio";
     default:
         return "unknown";
     }
@@ -774,6 +1059,40 @@ const char* decision_name(Decision decision)
         return "ota_exclusive";
     case Decision::CallExclusive:
         return "call_exclusive";
+    case Decision::NonPreemptibleBusy:
+        return "non_preemptible_busy";
+    default:
+        return "unknown";
+    }
+}
+
+const char* call_preempt_phase_name(CallPreemptPhase phase)
+{
+    switch (phase)
+    {
+    case CallPreemptPhase::Idle:
+        return "idle";
+    case CallPreemptPhase::RingingSoft:
+        return "ringing_soft";
+    case CallPreemptPhase::Exclusive:
+        return "exclusive";
+    case CallPreemptPhase::ClosingSoft:
+        return "closing_soft";
+    case CallPreemptPhase::ClosingExclusive:
+        return "closing_exclusive";
+    default:
+        return "unknown";
+    }
+}
+
+const char* exclusive_owner_name(ExclusiveOwner owner)
+{
+    switch (owner)
+    {
+    case ExclusiveOwner::None:
+        return "none";
+    case ExclusiveOwner::ReticulumCallAudio:
+        return "reticulum_call_audio";
     default:
         return "unknown";
     }

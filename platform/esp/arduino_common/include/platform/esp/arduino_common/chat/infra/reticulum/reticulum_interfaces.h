@@ -85,7 +85,9 @@ class WifiGatewayReticulumInterface
     void maintain();
     bool isReady() const;
     bool isConfigured() const;
-    bool sendPacket(const uint8_t* data, size_t len);
+    bool sendPacket(const uint8_t* data,
+                    size_t len,
+                    const uint8_t* call_link_id = nullptr);
     bool pollPacket(RxPacket* out);
     const char* host() const { return host_; }
     uint16_t port() const { return port_; }
@@ -156,7 +158,9 @@ class ReticulumInterfaceSet
     bool hasReadyWifiGateway() const;
     bool wifiGatewayConfigured() const;
     bool sendPacket(const uint8_t* data, size_t len);
-    bool sendPacketWifiOnly(const uint8_t* data, size_t len);
+    bool sendPacketWifiOnly(const uint8_t* data,
+                            size_t len,
+                            const uint8_t* call_link_id = nullptr);
     bool pollIncomingPacket(RxPacket* out);
     bool pollLegacyIncomingData(MeshIncomingData* out);
     void handleRawPacket(const uint8_t* data, size_t size);

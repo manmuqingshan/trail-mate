@@ -351,6 +351,12 @@ bool download(const Request& request,
             }
             while (out_error.empty())
             {
+                if (wifi_access::lease_revoked(lease))
+                {
+                    out_error = wifi_access::decision_name(
+                        wifi_access::Decision::CallExclusive);
+                    break;
+                }
                 const int read = esp_http_client_read(
                     client,
                     reinterpret_cast<char*>(buffer.data()),
@@ -381,6 +387,12 @@ bool download(const Request& request,
                 if (request.progress)
                 {
                     request.progress(bytes, total_bytes, request.progress_context);
+                }
+                if (wifi_access::lease_revoked(lease))
+                {
+                    out_error = wifi_access::decision_name(
+                        wifi_access::Decision::CallExclusive);
+                    break;
                 }
             }
         }
