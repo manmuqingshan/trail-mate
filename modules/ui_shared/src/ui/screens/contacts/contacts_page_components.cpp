@@ -71,9 +71,6 @@ static constexpr int kItemsPerPage = 4;
 static constexpr int kButtonHeight = 28;
 static constexpr int kBottomBtnMinWidth = 50;
 static constexpr int kBottomBtnPadH = 8;
-static constexpr int kVirtualListThreshold = 12;
-static constexpr int kVirtualListWindowRows = 14;
-static constexpr int kVirtualListOverscanRows = 3;
 static constexpr intptr_t kBackListItemUserData = -2;
 static constexpr intptr_t kAddReticulumGroupUserData = -3;
 
@@ -101,59 +98,6 @@ static lv_coord_t page_button_height()
 static lv_coord_t page_button_min_width()
 {
     return ::ui::page_profile::resolve_compact_button_min_width();
-}
-
-static lv_coord_t virtual_list_row_extent()
-{
-    const auto& profile = ::ui::page_profile::current();
-    const lv_coord_t gap = profile.dense ? 1 : 2;
-    return profile.list_item_height + gap;
-}
-
-static bool mode_uses_virtual_window(ContactsMode mode, std::size_t item_count)
-{
-    if (item_count <= static_cast<std::size_t>(kVirtualListThreshold))
-    {
-        return false;
-    }
-    return mode == ContactsMode::Contacts ||
-           mode == ContactsMode::Nearby ||
-           mode == ContactsMode::Ignored;
-}
-
-static int virtual_start_for_scroll(int scroll_y, std::size_t item_count)
-{
-    if (scroll_y < 0)
-    {
-        scroll_y = 0;
-    }
-    const lv_coord_t row_extent = virtual_list_row_extent();
-    int start = row_extent > 0 ? (scroll_y / row_extent) - kVirtualListOverscanRows : 0;
-    if (start < 0)
-    {
-        start = 0;
-    }
-    const int max_start =
-        item_count > static_cast<std::size_t>(kVirtualListWindowRows)
-            ? static_cast<int>(item_count) - kVirtualListWindowRows
-            : 0;
-    if (start > max_start)
-    {
-        start = max_start;
-    }
-    return start;
-}
-
-static lv_obj_t* create_virtual_spacer(lv_obj_t* parent, int rows)
-{
-    lv_obj_t* spacer = lv_obj_create(parent);
-    lv_obj_set_width(spacer, LV_PCT(100));
-    lv_obj_set_height(spacer, rows > 0 ? rows * virtual_list_row_extent() : 0);
-    lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(spacer, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(spacer, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
-    return spacer;
 }
 
 static lv_group_t* s_conv_group = nullptr;
@@ -317,7 +261,6 @@ static std::string format_time_status(uint32_t last_seen);
 static void on_filter_focused(lv_event_t* e);
 static void on_list_item_clicked(lv_event_t* e);
 static void on_list_item_focused(lv_event_t* e);
-static void on_list_scrolled(lv_event_t* e);
 static void on_prev_clicked(lv_event_t* e);
 static void on_next_clicked(lv_event_t* e);
 static void on_back_clicked(lv_event_t* e);
@@ -1486,28 +1429,6 @@ static void on_list_item_focused(lv_event_t* e)
         g_contacts_state.selected_index = static_cast<int>(user_data);
     }
     lv_obj_scroll_to_view(item, LV_ANIM_OFF);
-}
-
-static void on_list_scrolled(lv_event_t* e)
-{
-    if (!e || s_refreshing_ui || !g_contacts_state.virtual_list_active)
-    {
-        return;
-    }
-    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
-    if (!target || target != g_contacts_state.sub_container)
-    {
-        return;
-    }
-    const int scroll_y = lv_obj_get_scroll_y(target);
-    const int next_start =
-        virtual_start_for_scroll(scroll_y, g_contacts_state.total_items);
-    if (next_start == g_contacts_state.list_window_start_index)
-    {
-        return;
-    }
-    g_contacts_state.list_scroll_y = scroll_y;
-    refresh_ui();
 }
 
 static void on_prev_clicked(lv_event_t* /*e*/)
@@ -4382,6 +4303,17 @@ void refresh_ui()
         CONTACTS_LOG("[Contacts] WARNING: list_panel is invalid\n");
     }
 
+    const bool same_render_context =
+        g_contacts_state.rendered_mode_valid &&
+        g_contacts_state.rendered_mode == g_contacts_state.current_mode &&
+        std::strcmp(g_contacts_state.rendered_search_query,
+                    g_contacts_state.search_query) == 0;
+    const int saved_scroll_y =
+        same_render_context && g_contacts_state.sub_container &&
+                lv_obj_is_valid(g_contacts_state.sub_container)
+            ? lv_obj_get_scroll_y(g_contacts_state.sub_container)
+            : 0;
+
     lv_obj_clear_flag(g_contacts_state.list_panel, LV_OBJ_FLAG_SCROLLABLE);
     if (g_contacts_state.sub_container)
     {
@@ -4466,21 +4398,6 @@ void refresh_ui()
 
     // Ensure list containers exist (structure handled in layout)
     contacts::ui::layout::ensure_list_subcontainers();
-    if (g_contacts_state.sub_container)
-    {
-        lv_obj_remove_event_cb(g_contacts_state.sub_container, on_list_scrolled);
-        lv_obj_add_event_cb(g_contacts_state.sub_container, on_list_scrolled, LV_EVENT_SCROLL, nullptr);
-    }
-
-    const bool same_render_context =
-        g_contacts_state.rendered_mode_valid &&
-        g_contacts_state.rendered_mode == g_contacts_state.current_mode &&
-        std::strcmp(g_contacts_state.rendered_search_query,
-                    g_contacts_state.search_query) == 0;
-    const int saved_scroll_y =
-        same_render_context && g_contacts_state.sub_container
-            ? lv_obj_get_scroll_y(g_contacts_state.sub_container)
-            : 0;
 
     if (g_contacts_state.empty_label != nullptr)
     {
@@ -4619,11 +4536,7 @@ void refresh_ui()
     {
         g_contacts_state.total_items += 1;
     }
-    const bool use_virtual_window =
-        use_scroll_list &&
-        !show_reticulum_group_add_item &&
-        !append_back_item &&
-        mode_uses_virtual_window(g_contacts_state.current_mode, current_list->size());
+    const bool use_virtual_window = false;
     int target_scroll_y = same_render_context ? saved_scroll_y : 0;
     if (target_scroll_y < 0)
     {
@@ -4650,11 +4563,6 @@ void refresh_ui()
 
     int start_idx = use_scroll_list ? 0 : (g_contacts_state.current_page * kItemsPerPage);
     int end_idx = use_scroll_list ? static_cast<int>(current_list->size()) : (start_idx + kItemsPerPage);
-    if (use_virtual_window)
-    {
-        start_idx = virtual_start_for_scroll(target_scroll_y, current_list->size());
-        end_idx = start_idx + kVirtualListWindowRows;
-    }
     if (end_idx > static_cast<int>(current_list->size()))
     {
         end_idx = static_cast<int>(current_list->size());
@@ -4664,12 +4572,6 @@ void refresh_ui()
     g_contacts_state.list_window_end_index =
         use_virtual_window ? end_idx : static_cast<int>(current_list->size());
     g_contacts_state.list_scroll_y = target_scroll_y;
-
-    if (use_virtual_window && start_idx > 0)
-    {
-        g_contacts_state.virtual_top_spacer =
-            create_virtual_spacer(g_contacts_state.sub_container, start_idx);
-    }
 
     if (show_reticulum_group_add_item)
     {
@@ -4779,16 +4681,6 @@ void refresh_ui()
         lv_obj_add_event_cb(item, on_list_item_clicked, LV_EVENT_CLICKED, nullptr);
         lv_obj_add_event_cb(item, on_list_item_focused, LV_EVENT_FOCUSED, nullptr);
         bind_page_shortcuts(item);
-    }
-
-    if (use_virtual_window)
-    {
-        const int remaining = static_cast<int>(current_list->size()) - end_idx;
-        if (remaining > 0)
-        {
-            g_contacts_state.virtual_bottom_spacer =
-                create_virtual_spacer(g_contacts_state.sub_container, remaining);
-        }
     }
 
     if (append_back_item)

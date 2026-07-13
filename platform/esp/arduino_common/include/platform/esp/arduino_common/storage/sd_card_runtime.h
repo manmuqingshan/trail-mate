@@ -40,6 +40,8 @@ SdCardBackend sd_card_backend();
 SdCardInfo sd_card_info();
 const char* sd_card_backend_name();
 const char* sd_card_filesystem_name();
+bool sd_external_block_owner_active();
+void sd_set_external_block_owner_active(bool active);
 
 bool sd_exists(const char* path);
 bool sd_is_directory(const char* path);

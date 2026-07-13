@@ -54,6 +54,7 @@ constexpr TickType_t kSdRuntimeLockWait = pdMS_TO_TICKS(250);
 SdFs s_sdfat;
 SdCardInfo s_info{};
 bool s_sdfat_mounted = false;
+volatile bool s_external_block_owner_active = false;
 uint32_t s_last_sd_io_log_ms = 0;
 uint32_t s_suppressed_sd_io_logs = 0;
 
@@ -211,6 +212,29 @@ const char* normalize_sd_path(const char* path)
         return "/";
     }
     return path;
+}
+
+bool open_mode_mutates(const char* mode)
+{
+    if (mode == nullptr)
+    {
+        return false;
+    }
+    return std::strchr(mode, 'w') != nullptr || std::strchr(mode, 'a') != nullptr ||
+           std::strchr(mode, '+') != nullptr;
+}
+
+bool sd_mutation_blocked_by_external_owner(const char* op,
+                                           const char* path,
+                                           uint32_t start_ms,
+                                           std::size_t bytes = 0)
+{
+    if (!s_external_block_owner_active)
+    {
+        return false;
+    }
+    sd_io_end(op, path, start_ms, false, bytes, -4);
+    return true;
 }
 
 oflag_t sdfat_open_flags(const char* mode)
@@ -391,6 +415,7 @@ bool mount_sd_card(int sd_cs,
 {
     (void)mount_point;
     (void)max_files;
+    s_external_block_owner_active = false;
     clear_sdfat();
     reset_info();
 
@@ -446,6 +471,7 @@ bool mount_sd_card(int sd_cs,
 
 void unmount_sd_card()
 {
+    s_external_block_owner_active = false;
     SdRuntimeBusGuard guard("sd_unmount");
     if (!guard.locked())
     {
@@ -515,6 +541,16 @@ const char* sd_card_filesystem_name()
     return "none";
 }
 
+bool sd_external_block_owner_active()
+{
+    return s_external_block_owner_active;
+}
+
+void sd_set_external_block_owner_active(bool active)
+{
+    s_external_block_owner_active = active;
+}
+
 bool sd_exists(const char* path)
 {
     const char* normalized = normalize_sd_path(path);
@@ -563,6 +599,10 @@ bool sd_mkdir(const char* path)
 {
     const char* normalized = normalize_sd_path(path);
     const uint32_t start_ms = sd_io_begin("mkdir", normalized);
+    if (sd_mutation_blocked_by_external_owner("mkdir", normalized, start_ms))
+    {
+        return false;
+    }
     bool result = false;
     SdRuntimeBusGuard guard("sd_mkdir");
     if (!guard.locked())
@@ -584,6 +624,10 @@ bool sd_rmdir(const char* path)
 {
     const char* normalized = normalize_sd_path(path);
     const uint32_t start_ms = sd_io_begin("rmdir", normalized);
+    if (sd_mutation_blocked_by_external_owner("rmdir", normalized, start_ms))
+    {
+        return false;
+    }
     bool result = false;
     SdRuntimeBusGuard guard("sd_rmdir");
     if (!guard.locked())
@@ -605,6 +649,10 @@ bool sd_remove(const char* path)
 {
     const char* normalized = normalize_sd_path(path);
     const uint32_t start_ms = sd_io_begin("remove", normalized);
+    if (sd_mutation_blocked_by_external_owner("remove", normalized, start_ms))
+    {
+        return false;
+    }
     bool result = false;
     SdRuntimeBusGuard guard("sd_remove");
     if (!guard.locked())
@@ -627,6 +675,10 @@ bool sd_rename(const char* old_path, const char* new_path)
     const char* normalized_old = normalize_sd_path(old_path);
     const char* normalized_new = normalize_sd_path(new_path);
     const uint32_t start_ms = sd_io_begin("rename", normalized_old);
+    if (sd_mutation_blocked_by_external_owner("rename", normalized_old, start_ms))
+    {
+        return false;
+    }
     bool result = false;
     SdRuntimeBusGuard guard("sd_rename");
     if (!guard.locked())
@@ -676,6 +728,11 @@ bool SdRuntimeFile::open(const char* path, const char* mode)
     copy_path(impl_->path, sizeof(impl_->path), normalized);
     copy_path(impl_->mode, sizeof(impl_->mode), mode ? mode : "r");
     const uint32_t start_ms = sd_io_begin("file_open", impl_->path);
+    if (open_mode_mutates(mode) &&
+        sd_mutation_blocked_by_external_owner("file_open", impl_->path, start_ms))
+    {
+        return false;
+    }
     SdRuntimeBusGuard guard("sd_file_open");
     if (!guard.locked())
     {
@@ -813,6 +870,11 @@ std::size_t SdRuntimeFile::write(const void* buffer, std::size_t bytes_to_write)
     if (impl_->backend == SdCardBackend::SdFat)
     {
         const uint32_t start_ms = sd_io_begin("file_write", impl_->path, bytes_to_write);
+        if (sd_mutation_blocked_by_external_owner(
+                "file_write", impl_->path, start_ms, bytes_to_write))
+        {
+            return 0;
+        }
         SdRuntimeBusGuard guard("sd_file_write");
         if (!guard.locked())
         {
@@ -834,6 +896,10 @@ std::size_t SdRuntimeFile::write_byte(uint8_t value)
     }
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        if (s_external_block_owner_active)
+        {
+            return 0;
+        }
         SdRuntimeBusGuard guard("sd_file_write_byte");
         if (!guard.locked())
         {
@@ -852,6 +918,10 @@ std::size_t SdRuntimeFile::print(const char* text)
     }
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        if (s_external_block_owner_active)
+        {
+            return 0;
+        }
         SdRuntimeBusGuard guard("sd_file_print");
         if (!guard.locked())
         {
@@ -871,6 +941,10 @@ std::size_t SdRuntimeFile::print(double value, int digits)
     const uint8_t precision = digits < 0 ? 0 : static_cast<uint8_t>(digits);
     if (impl_->backend == SdCardBackend::SdFat)
     {
+        if (s_external_block_owner_active)
+        {
+            return 0;
+        }
         SdRuntimeBusGuard guard("sd_file_print");
         if (!guard.locked())
         {
@@ -969,6 +1043,10 @@ bool SdRuntimeFile::flush()
     if (impl_->backend == SdCardBackend::SdFat)
     {
         const uint32_t start_ms = sd_io_begin("file_flush", impl_->path);
+        if (sd_mutation_blocked_by_external_owner("file_flush", impl_->path, start_ms))
+        {
+            return false;
+        }
         SdRuntimeBusGuard guard("sd_file_flush");
         if (!guard.locked())
         {

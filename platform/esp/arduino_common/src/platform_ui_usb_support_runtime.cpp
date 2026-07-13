@@ -7,9 +7,11 @@
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/gps/gps_service_api.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/common/shared_spi_bus_arbiter.h"
 #include "platform/ui/device_runtime.h"
 #include "screen_sleep.h"
+#include "sys/bus_access_scope.h"
+#include "sys/clock.h"
 #include "team/usecase/team_pairing_service.h"
 
 #include <cstdio>
@@ -53,11 +55,116 @@ void stop_pairing()
 USBMSC s_msc;
 bool s_backend_started = false;
 
+constexpr uint32_t kUsbMscSectorWaitMs = 50;
+constexpr uint32_t kUsbMscSessionWaitMs = 250;
+constexpr uint32_t kUsbMscBusResource = 7;
+constexpr uint32_t kUsbMscBusOwnerId = 0x555342u; // 'USB'
+constexpr const char* kUsbMscBusOwner = "usb_msc_sd";
+
+::platform::esp::common::SharedSpiBusAdapter s_usb_msc_bus_adapter(
+    kUsbMscBusOwner,
+    kUsbMscBusOwnerId);
+::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_usb_msc_bus_policy(
+    kUsbMscSectorWaitMs,
+    kUsbMscSectorWaitMs,
+    kUsbMscSessionWaitMs,
+    kUsbMscSessionWaitMs);
+sys::runtime::StorageBusArbiter s_usb_msc_bus_arbiter(s_usb_msc_bus_adapter,
+                                                      s_usb_msc_bus_policy);
+
+enum class UsbMscBusCommand : uint8_t
+{
+    SectorRead = 1,
+    SectorWrite,
+    SessionStart,
+};
+
+class UsbMscBusGate final
+{
+  public:
+    UsbMscBusGate(UsbMscBusCommand command,
+                  sys::runtime::BusAccessPolicy policy,
+                  uint32_t wait_ms)
+        : scope_(s_usb_msc_bus_arbiter, makeRequest(command, policy, wait_ms))
+    {
+    }
+
+    bool locked() const
+    {
+        return scope_.acquired();
+    }
+
+  private:
+    static sys::runtime::BusAcquireRequest makeRequest(
+        UsbMscBusCommand command,
+        sys::runtime::BusAccessPolicy policy,
+        uint32_t wait_ms)
+    {
+        sys::runtime::BusAcquireRequest request{};
+        request.resource = kUsbMscBusResource;
+        request.policy = policy;
+        request.command_id = kUsbMscBusOwnerId + static_cast<uint32_t>(command);
+        request.origin = kUsbMscBusOwnerId;
+        request.deadline_ms = sys::millis_now() + wait_ms;
+        return request;
+    }
+
+    sys::runtime::ScopedBusAccessToken scope_;
+};
+
+class UsbMscStorageSession final
+{
+  public:
+    bool begin()
+    {
+        if (active_)
+        {
+            return true;
+        }
+
+        UsbMscBusGate gate(UsbMscBusCommand::SessionStart,
+                           sys::runtime::BusAccessPolicy::RecoveryExclusive,
+                           kUsbMscSessionWaitMs);
+        if (!gate.locked())
+        {
+            return false;
+        }
+
+        ::platform::esp::arduino_common::storage::sd_set_external_block_owner_active(
+            true);
+        active_ = true;
+        return true;
+    }
+
+    void end()
+    {
+        if (!active_)
+        {
+            return;
+        }
+        ::platform::esp::arduino_common::storage::sd_set_external_block_owner_active(
+            false);
+        active_ = false;
+    }
+
+    bool active() const
+    {
+        return active_;
+    }
+
+  private:
+    bool active_ = false;
+};
+
+UsbMscStorageSession s_storage_session;
+uint8_t s_usb_msc_sector_scratch[512];
+
 int32_t usbReadCallback(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize)
 {
-    (void)offset;
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(pdMS_TO_TICKS(50));
-    if (!spi_guard.locked())
+    UsbMscBusGate bus_gate(UsbMscBusCommand::SectorRead,
+                           sys::runtime::BusAccessPolicy::RecoveryExclusive,
+                           kUsbMscSectorWaitMs);
+    if (!bus_gate.locked())
     {
         USB_MSC_LOG("read lock failed lba=%lu size=%lu\n",
                     static_cast<unsigned long>(lba),
@@ -71,14 +178,47 @@ int32_t usbReadCallback(uint32_t lba, uint32_t offset, void* buffer, uint32_t bu
     {
         return -1;
     }
-
-    for (uint32_t index = 0; index < bufsize / sec_size; ++index)
+    if (sec_size > 512)
     {
-        if (!::platform::esp::arduino_common::storage::sd_read_raw(
-                lba + index, reinterpret_cast<uint8_t*>(buffer) + (index * sec_size)))
+        return -1;
+    }
+
+    const uint32_t lba_delta = offset / sec_size;
+    if (lba_delta > (0xFFFFFFFFu - lba))
+    {
+        return -1;
+    }
+
+    uint32_t current_lba = lba + lba_delta;
+    uint32_t sector_offset = offset % sec_size;
+    uint8_t* out = reinterpret_cast<uint8_t*>(buffer);
+    uint32_t remaining = bufsize;
+
+    while (remaining > 0)
+    {
+        const uint32_t capacity = sec_size - sector_offset;
+        const uint32_t chunk = remaining < capacity ? remaining : capacity;
+        if (sector_offset == 0 && chunk == sec_size)
         {
-            return -1;
+            if (!::platform::esp::arduino_common::storage::sd_read_raw(current_lba, out))
+            {
+                return -1;
+            }
         }
+        else
+        {
+            if (!::platform::esp::arduino_common::storage::sd_read_raw(current_lba,
+                                                                       s_usb_msc_sector_scratch))
+            {
+                return -1;
+            }
+            std::memcpy(out, s_usb_msc_sector_scratch + sector_offset, chunk);
+        }
+
+        out += chunk;
+        remaining -= chunk;
+        ++current_lba;
+        sector_offset = 0;
     }
 
     return static_cast<int32_t>(bufsize);
@@ -86,9 +226,10 @@ int32_t usbReadCallback(uint32_t lba, uint32_t offset, void* buffer, uint32_t bu
 
 int32_t usbWriteCallback(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize)
 {
-    (void)offset;
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(pdMS_TO_TICKS(50));
-    if (!spi_guard.locked())
+    UsbMscBusGate bus_gate(UsbMscBusCommand::SectorWrite,
+                           sys::runtime::BusAccessPolicy::RecoveryExclusive,
+                           kUsbMscSectorWaitMs);
+    if (!bus_gate.locked())
     {
         USB_MSC_LOG("write lock failed lba=%lu size=%lu\n",
                     static_cast<unsigned long>(lba),
@@ -96,33 +237,60 @@ int32_t usbWriteCallback(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_
         return -1;
     }
 
-    const auto card_info = ::platform::esp::arduino_common::storage::sd_card_info();
-    uint64_t free_space =
-        card_info.total_bytes > card_info.used_bytes ? card_info.total_bytes - card_info.used_bytes
-                                                     : 0;
-    if (bufsize > free_space)
-    {
-        return -1;
-    }
-
-    const uint32_t sec_size = card_info.sector_size;
+    // USB MSC writes raw sectors, including filesystem metadata and already
+    // allocated blocks. SdFat free-space accounting is not valid at this layer.
+    const uint32_t sec_size =
+        ::platform::esp::arduino_common::storage::sd_card_info().sector_size;
     if (sec_size == 0)
     {
         return -1;
     }
-
-    for (uint32_t index = 0; index < bufsize / sec_size; ++index)
+    if (sec_size > 512)
     {
-        uint8_t blk_buffer[512];
-        if (sec_size > sizeof(blk_buffer))
+        return -1;
+    }
+
+    const uint32_t lba_delta = offset / sec_size;
+    if (lba_delta > (0xFFFFFFFFu - lba))
+    {
+        return -1;
+    }
+
+    uint32_t current_lba = lba + lba_delta;
+    uint32_t sector_offset = offset % sec_size;
+    uint8_t* in = buffer;
+    uint32_t remaining = bufsize;
+
+    while (remaining > 0)
+    {
+        const uint32_t capacity = sec_size - sector_offset;
+        const uint32_t chunk = remaining < capacity ? remaining : capacity;
+        if (sector_offset == 0 && chunk == sec_size)
         {
-            return -1;
+            if (!::platform::esp::arduino_common::storage::sd_write_raw(current_lba, in))
+            {
+                return -1;
+            }
         }
-        std::memcpy(blk_buffer, buffer + sec_size * index, sec_size);
-        if (!::platform::esp::arduino_common::storage::sd_write_raw(lba + index, blk_buffer))
+        else
         {
-            return -1;
+            if (!::platform::esp::arduino_common::storage::sd_read_raw(current_lba,
+                                                                       s_usb_msc_sector_scratch))
+            {
+                return -1;
+            }
+            std::memcpy(s_usb_msc_sector_scratch + sector_offset, in, chunk);
+            if (!::platform::esp::arduino_common::storage::sd_write_raw(current_lba,
+                                                                        s_usb_msc_sector_scratch))
+            {
+                return -1;
+            }
         }
+
+        in += chunk;
+        remaining -= chunk;
+        ++current_lba;
+        sector_offset = 0;
     }
 
     return static_cast<int32_t>(bufsize);
@@ -288,6 +456,12 @@ bool start()
 #if defined(ARDUINO_USB_MODE)
     if (s_backend_started)
     {
+        if (!s_storage_session.active() && !s_storage_session.begin())
+        {
+            set_status_message("SD busy");
+            s_status.active = false;
+            return false;
+        }
         s_status.active = true;
         return true;
     }
@@ -300,8 +474,17 @@ bool start()
 
     prepare_mass_storage_mode();
     s_prepared = true;
+    if (!s_storage_session.begin())
+    {
+        restore_mass_storage_mode();
+        s_prepared = false;
+        s_status.active = false;
+        set_status_message("SD busy");
+        return false;
+    }
     if (!setup_usb_msc())
     {
+        s_storage_session.end();
         restore_mass_storage_mode();
         s_prepared = false;
         s_status.active = false;
@@ -328,6 +511,7 @@ void stop()
         s_msc.end();
         s_backend_started = false;
     }
+    s_storage_session.end();
 #endif
 
     if (s_prepared)
