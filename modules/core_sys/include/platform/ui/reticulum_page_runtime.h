@@ -94,6 +94,8 @@ Status store_cached_page_now(const char* destination_hash,
                              const char* body,
                              std::size_t body_len);
 
+Status clear_cached_page(const char* destination_hash, const char* path);
+
 Status request_page(const char* destination_hash, const char* path);
 
 RequestProgress get_request_progress(const char* destination_hash,

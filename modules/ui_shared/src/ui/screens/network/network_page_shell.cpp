@@ -1030,6 +1030,31 @@ void clear_request_progress_for_address(const char* address)
     }
 }
 
+void clear_current_remote_page_cache()
+{
+    RemotePageAddress page_address{};
+    if (!parse_remote_page_address(g_state.current_address, page_address) ||
+        !page_address.valid)
+    {
+        return;
+    }
+
+    clear_loaded_page_body();
+    rtpage::clear_request_progress(page_address.destination, page_address.path);
+    const rtpage::Status status =
+        rtpage::clear_cached_page(page_address.destination, page_address.path);
+    NETWORK_PAGE_LOG("clear page cache dest=%s path=%s supported=%u sd=%u checked=%u file=%u busy=%u msg=%s detail=%s\n",
+                     page_address.destination,
+                     page_address.path,
+                     status.supported ? 1U : 0U,
+                     status.sd_present ? 1U : 0U,
+                     status.cache_checked ? 1U : 0U,
+                     status.file_present ? 1U : 0U,
+                     status.busy ? 1U : 0U,
+                     status.message,
+                     status.detail);
+}
+
 void stop_page_load_timer()
 {
     if (g_state.page_load_timer)
@@ -3976,10 +4001,14 @@ void render_directory_list()
     rebuild_focus_group(nullptr);
 }
 
-void refresh_all()
+void refresh_all(bool force_current_page_reload = false)
 {
     refresh_directory_data();
     render_directory_list();
+    if (force_current_page_reload)
+    {
+        clear_current_remote_page_cache();
+    }
     render_current_page();
     rebuild_focus_group(nullptr);
 }
@@ -4016,7 +4045,7 @@ void refresh_event_cb(lv_event_t* event)
     {
         return;
     }
-    refresh_all();
+    refresh_all(true);
     ::ui::feedback::show_notice(safe_tr("Network refreshed"), 1200);
     lv_event_stop_processing(event);
 }
@@ -4568,7 +4597,7 @@ void page_shortcut_event_cb(lv_event_t* event)
     }
     if (key == 'r' || key == 'R')
     {
-        refresh_all();
+        refresh_all(true);
         ::ui::feedback::show_notice(safe_tr("Network refreshed"), 1200);
         lv_event_stop_processing(event);
         return;

@@ -159,6 +159,47 @@ int main()
     assert(page_status.truncated);
     assert(loaded_len == sizeof(tiny_page) - 1U);
 
+    page_status =
+        rtpage::request_cached_page_load(alpha_destination, "/page/index.mu");
+    assert(page_status.loaded);
+    loaded_len = 0;
+    std::memset(loaded_page, 0, sizeof(loaded_page));
+    page_status = rtpage::poll_cached_page_load(alpha_destination,
+                                                "/page/index.mu",
+                                                loaded_page,
+                                                sizeof(loaded_page),
+                                                &loaded_len);
+    assert(page_status.loaded);
+    assert(loaded_len == std::strlen(page_body));
+    assert(std::strcmp(loaded_page, page_body) == 0);
+
+    page_status = rtpage::clear_cached_page(alpha_destination, "/page/index.mu");
+    assert(page_status.supported);
+    assert(page_status.cache_checked);
+    assert(!page_status.file_present);
+    assert(std::strcmp(page_status.message, "Nomad page cache cleared") == 0);
+    assert(!std::filesystem::exists(sd / "trailmate" / "reticulum" / "pages" /
+                                    alpha_destination / "page" / "index.mu"));
+
+    loaded_len = 0;
+    std::memset(loaded_page, 0, sizeof(loaded_page));
+    page_status = rtpage::poll_cached_page_load(alpha_destination,
+                                                "/page/index.mu",
+                                                loaded_page,
+                                                sizeof(loaded_page),
+                                                &loaded_len);
+    assert(!page_status.loaded);
+    assert(loaded_len == 0);
+
+    page_status = rtpage::load_cached_page(alpha_destination,
+                                           "/page/index.mu",
+                                           loaded_page,
+                                           sizeof(loaded_page),
+                                           &loaded_len);
+    assert(page_status.cache_checked);
+    assert(!page_status.file_present);
+    assert(!page_status.loaded);
+
     page_status = rtpage::request_page(alpha_destination, "/page/index.mu");
     assert(!page_status.request_started);
     assert(std::strcmp(page_status.message, "Nomad page fetch unavailable") == 0);

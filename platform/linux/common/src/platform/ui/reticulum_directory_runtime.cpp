@@ -1979,6 +1979,52 @@ Status store_cached_page_now(const char* destination_hash,
     return out;
 }
 
+Status clear_cached_page(const char* destination_hash, const char* path)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = true;
+
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        set_status(out, "Invalid Nomad page address", kPagesLogicalDir);
+        return out;
+    }
+
+    if (s_page_cache_snapshot.completed &&
+        same_page_request(s_page_cache_snapshot.destination,
+                          s_page_cache_snapshot.path,
+                          destination,
+                          normalized_path))
+    {
+        s_page_cache_snapshot = {};
+    }
+
+    const auto cache_path = page_path_under_sd(
+        cache_relative_path(destination, normalized_path));
+    out.cache_checked = true;
+    out.file_present = std::filesystem::exists(cache_path);
+    if (!out.file_present)
+    {
+        set_status(out,
+                   "Nomad page cache already clear",
+                   cache_path.string().c_str());
+        return out;
+    }
+
+    std::error_code ec;
+    const bool removed = std::filesystem::remove(cache_path, ec);
+    out.file_present = !removed;
+    set_status(out,
+               removed && !ec ? "Nomad page cache cleared"
+                              : "Cannot clear Nomad page cache",
+               cache_path.string().c_str());
+    return out;
+}
+
 Status request_page(const char* destination_hash, const char* path)
 {
     Status out{};

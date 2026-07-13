@@ -1944,6 +1944,8 @@ struct PageCacheLoadState
     Status completed_status{};
     std::size_t completed_body_len = 0;
     char completed_body[kReticulumPageBodyMaxBytes + 1U] = {};
+    uint32_t invalidation_epoch = 0;
+    uint32_t active_invalidation_epoch = 0;
 };
 
 struct PageRequestProgressSlot
@@ -2305,6 +2307,7 @@ void page_cache_load_task_entry(void* context)
             state->pending = false;
             state->active = true;
             state->completed = false;
+            state->active_invalidation_epoch = state->invalidation_epoch;
             copy_text(state->active_destination,
                       sizeof(state->active_destination),
                       destination);
@@ -2326,19 +2329,36 @@ void page_cache_load_task_entry(void* context)
 
             if (xSemaphoreTake(state->mutex, portMAX_DELAY) == pdTRUE)
             {
+                const bool publish =
+                    state->active_invalidation_epoch ==
+                        state->invalidation_epoch &&
+                    same_page_request(state->active_destination,
+                                      state->active_path,
+                                      destination,
+                                      path);
                 state->active = false;
-                state->completed = true;
-                copy_text(state->completed_destination,
-                          sizeof(state->completed_destination),
-                          destination);
-                copy_text(state->completed_path,
-                          sizeof(state->completed_path),
-                          path);
-                state->completed_status = status;
-                state->completed_body_len = body_len;
-                if (body_len < sizeof(state->completed_body))
+                if (publish)
                 {
-                    state->completed_body[body_len] = '\0';
+                    state->completed = true;
+                    copy_text(state->completed_destination,
+                              sizeof(state->completed_destination),
+                              destination);
+                    copy_text(state->completed_path,
+                              sizeof(state->completed_path),
+                              path);
+                    state->completed_status = status;
+                    state->completed_body_len = body_len;
+                    if (body_len < sizeof(state->completed_body))
+                    {
+                        state->completed_body[body_len] = '\0';
+                    }
+                }
+                else
+                {
+                    state->completed = false;
+                    state->completed_status = {};
+                    state->completed_body_len = 0;
+                    state->completed_body[0] = '\0';
                 }
                 xSemaphoreGive(state->mutex);
             }
@@ -2403,6 +2423,61 @@ PageCacheLoadState* ensure_page_cache_load_state()
     }
     (void)start_page_cache_load_task(*state);
     return state;
+}
+
+bool clear_page_cache_load_state_for_page(const char* destination,
+                                          const char* path)
+{
+    PageCacheLoadState* state = s_page_cache_load_state;
+    if (!state || !state->mutex)
+    {
+        return true;
+    }
+    if (xSemaphoreTake(state->mutex, pdMS_TO_TICKS(100)) != pdTRUE)
+    {
+        return false;
+    }
+
+    bool invalidated = false;
+    if (state->pending &&
+        same_page_request(state->pending_destination,
+                          state->pending_path,
+                          destination,
+                          path))
+    {
+        state->pending = false;
+        state->pending_destination[0] = '\0';
+        state->pending_path[0] = '\0';
+        invalidated = true;
+    }
+    if (state->active &&
+        same_page_request(state->active_destination,
+                          state->active_path,
+                          destination,
+                          path))
+    {
+        invalidated = true;
+    }
+    if (state->completed &&
+        same_page_request(state->completed_destination,
+                          state->completed_path,
+                          destination,
+                          path))
+    {
+        state->completed = false;
+        state->completed_destination[0] = '\0';
+        state->completed_path[0] = '\0';
+        state->completed_status = {};
+        state->completed_body_len = 0;
+        state->completed_body[0] = '\0';
+        invalidated = true;
+    }
+    if (invalidated)
+    {
+        ++state->invalidation_epoch;
+    }
+    xSemaphoreGive(state->mutex);
+    return true;
 }
 
 PageRequestProgressSlot* find_request_progress_slot_locked(
@@ -2838,6 +2913,63 @@ Status store_cached_page_now(const char* destination_hash,
     set_status(out,
                out.saved ? "Nomad page cache saved"
                          : "Nomad page cache write failed",
+               path_text.c_str());
+    return out;
+}
+
+Status clear_cached_page(const char* destination_hash, const char* path)
+{
+    Status out{};
+    out.supported = true;
+    out.sd_present = page_sd_available();
+    if (!out.sd_present)
+    {
+        set_status(out, "SD card required", kPagesDir);
+        return out;
+    }
+
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        set_status(out, "Invalid Nomad page address", kPagesDir);
+        return out;
+    }
+
+    if (!clear_page_cache_load_state_for_page(destination, normalized_path))
+    {
+        out.busy = true;
+        set_status(out, "Nomad page cache busy", normalized_path);
+        return out;
+    }
+
+    const std::string path_text = cache_path(destination, normalized_path);
+    PageCacheBusGate bus_gate(PageCacheBusAccess::Write);
+    if (!bus_gate.locked())
+    {
+        out.busy = true;
+        set_status(out, "Nomad page cache busy", path_text.c_str());
+        return out;
+    }
+
+    out.cache_checked = true;
+    out.file_present =
+        ::platform::esp::arduino_common::storage::sd_exists(path_text.c_str()) &&
+        !::platform::esp::arduino_common::storage::sd_is_directory(path_text.c_str());
+    const bool file_existed = out.file_present;
+    bool removed = true;
+    if (file_existed)
+    {
+        removed = ::platform::esp::arduino_common::storage::sd_remove(
+            path_text.c_str());
+    }
+    out.file_present = file_existed && !removed;
+    set_status(out,
+               !file_existed
+                   ? "Nomad page cache already clear"
+                   : (removed ? "Nomad page cache cleared"
+                              : "Cannot clear Nomad page cache"),
                path_text.c_str());
     return out;
 }

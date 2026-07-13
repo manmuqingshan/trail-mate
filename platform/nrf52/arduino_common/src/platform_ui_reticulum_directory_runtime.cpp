@@ -194,6 +194,11 @@ Status store_cached_page_now(const char*, const char*, const char*, std::size_t)
     return unsupported("Nomad page cache unsupported", kPagesPath);
 }
 
+Status clear_cached_page(const char*, const char*)
+{
+    return unsupported("Nomad page cache unsupported", kPagesPath);
+}
+
 Status request_page(const char*, const char*)
 {
     return unsupported("Nomad page fetch unsupported", kPagesPath);
