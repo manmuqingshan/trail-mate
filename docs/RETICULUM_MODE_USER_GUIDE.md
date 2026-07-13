@@ -109,16 +109,75 @@ When the active protocol is `Reticulum`, the main menu also shows a `Network`
 app with the Nomad-style network icon. That app is the Reticulum network view,
 not the source of truth for local identity addresses.
 
-Current boundary: the `Network` app renders Reticulum status and the latest
-SD-backed announce directory entries. It shows at most the newest 100 announces
-so the UI stays responsive on the device. Use the search shortcut (`/` or `s`)
-or the search button to filter by announce display name, destination hash,
-identity hash, or announce aspect.
+Current boundary: the `Network` app renders Reticulum status, the latest
+SD-backed announce directory entries, and a small Nomad/Micron page browser.
+It shows at most the newest 100 announces so the UI stays responsive on the
+device. Use the search shortcut (`/` or `s`) or the search button to filter by
+announce display name, destination hash, identity hash, or announce aspect.
 
-The `Network` app is not yet a full NomadNet/MeshChat-style browser. It does
-not yet provide Favorites editing, a manual address bar, hyperlink navigation,
-or Nomad page content rendering. The SD-backed Reticulum directory described
-below is the storage foundation for those features.
+The browser address bar accepts a Reticulum destination hash followed by a
+Nomad page path such as `<destination>:/page/index.mu`. Hyperlinks in cached
+Micron pages are navigable, and relative links such as `/page/about.mu` resolve
+against the current destination. Page bodies are loaded from the SD cache under
+`/trailmate/reticulum/pages/<destination>/...`; if a page is not cached yet,
+the browser first shows an explicit cache-miss/loading state instead of falling
+back to the node summary. On ESP Reticulum builds, a cache miss can start a
+bounded, best-effort Nomad page request through the Reticulum runtime; the page
+is rendered only after the response is saved back into the same SD cache. If
+the runtime is not ready, the request times out, or the build has no request
+handler, the browser keeps the failure state visible.
+
+Trail Mate intentionally supports a small Micron subset here, not a complete
+NomadNet desktop browser. The table below compares the upstream NomadNet
+Micron surface with Trail Mate's device browser boundary.
+
+| Upstream Micron area | Upstream syntax / behavior | Trail Mate today | Boundary decision |
+| --- | --- | --- | --- |
+| Page color headers | `#!fg=<color>` and `#!bg=<color>` before the first non-header line | Supported | Keep |
+| Color values | `RGB`, `RRGGBB`, and grayscale-style values used by the parser | Supported as `RGB`, `RRGGBB`, and `gNN` | Keep |
+| Comments | Lines beginning with `#` | Supported after page color headers are parsed | Keep |
+| Blank lines | Empty line | Supported as a small spacer | Keep |
+| Literal blocks | A line containing only `` `= `` toggles literal mode; <code>\`=</code> inside a literal emits `` `= `` | Supported | Keep |
+| Section headings | Leading `>`, `>>`, `>>>`, and deeper levels set section depth and render heading rows; empty headings can create indented blocks | Supported up to eight levels | Keep |
+| Section reset | `<` at the start of a line resets section depth | Supported | Keep |
+| Dividers | `-` renders a divider; `-x` uses `x` as the divider glyph | Supported for `-` and `-x` | Keep |
+| Tables | `` `t ``, optionally with alignment `l`/`c`/`r` and max width, buffers following Markdown-style rows and renders a formatted table | Partially supported: toggles table mode and renders compact rows; no real grid, no alignment/max-width handling | Do not expand unless a real device use case appears |
+| Bold | `` `! `` toggles bold | Supported | Keep |
+| Underline | `` `_ `` toggles underline | Supported | Keep |
+| Italic | `` `* `` toggles italics | Parsed, but no separate italic font rendering | Keep as muted visual support |
+| Foreground color | `` `Fabc `` and `` `FTaabbcc `` | Supported | Keep |
+| Background color | `` `Babc `` and `` `BTaabbcc `` | Supported | Keep |
+| Color reset | `` `f `` and `` `b `` reset foreground/background | Supported | Keep |
+| Alignment | `` `l ``, `` `c ``, `` `r ``, and `` `a `` set left, center, right, or default alignment | Supported | Keep |
+| Inline reset | Two consecutive backticks reset formatting, colors, and alignment | Supported | Keep |
+| Escaping | `\x` emits `x` literally inside inline content | Supported | Keep |
+| Links | <code>`[target]</code> and <code>`[label`target]</code> | Supported until the page link budget is exhausted | Keep; add a visible link-budget notice if needed |
+| Link request fields | <code>`[label`target`fields]</code>, where `fields` can include `*`, field names, or `key=value` request variables | Target navigation works, but request fields are ignored | Do not submit fields; make ignored request fields explicit if this becomes confusing |
+| Relative links | Paths such as `/page/name.mu` and same-destination targets such as `:/page/name.mu` | Supported against the current destination hash | Keep |
+| Link schemes | `nomadnetwork://...` and `lxmf://...` | Scheme is stripped before navigation | Keep |
+| Anchors | `` `:name `` declares an anchor; headings get automatic anchors; `#name`, `#`, and external `anchor=...` links can jump within pages | Not supported; anchor targets render as text or normal navigation without scrolling | Do not implement for now |
+| Text fields | <code>`&lt;name`data&gt;</code> and <code>`&lt;width&#124;name`data&gt;</code> | Rendered as local LVGL text areas | Keep rendered-only; make read-only/visual-only clearer |
+| Masked fields | <code>`&lt;!&#124;name`data&gt;</code> or <code>`&lt;!width&#124;name`data&gt;</code> | Rendered as local password-style fields | Keep rendered-only |
+| Checkboxes | <code>`&lt;?&#124;name&#124;value`label&gt;</code>, optional trailing `&#124;*` for prechecked | Rendered as local checkboxes | Keep rendered-only |
+| Radio groups | <code>`&lt;^&#124;name&#124;value`label&gt;</code>, optional trailing `&#124;*` for prechecked | Rendered as local radio controls | Keep rendered-only |
+| Form submission | Link request fields submit local field values to node-side pages | Not supported | Do not implement on this device browser |
+| Partials | A line starting with `` `{ `` embeds a partial: `url`, optional refresh seconds, optional submitted fields, optional `pid=` identity | Renders `[unsupported block]` | Do not implement dynamic partials |
+| Unsupported inline blocks | Inline `` `{...} `` style constructs in parser-compatible surfaces | Renders `[unsupported inline]` | Keep as explicit fallback |
+| UTF-8 / glyph output | Upstream expects UTF-8 and recommends Nerd Font glyph support | UTF-8 text is chunked safely; glyph support depends on available LVGL fonts | Keep best-effort |
+| Browser/page resources | NomadNet can browse pages, files, dynamic node-side pages, and cached content | Trail Mate renders Micron page bodies from SD cache and can start bounded ESP page requests | Keep page-only, cache-first |
+
+This table is the support ceiling for the device browser unless the product
+boundary is explicitly revised. Trail Mate should not silently grow toward full
+NomadNet browser behavior just because upstream Micron supports a feature.
+
+The browser does not support form submission, scripts, images, attachments,
+embedded resources, complex table layout, anchor scrolling, dynamic partials,
+large streaming pages, or unlimited links. The current device budget is
+intentionally small: page bodies are rendered from a 4096-byte buffer, each
+visible page can claim at most 32 clickable links, and longer cached pages
+render with a `page truncated` notice. Unsupported Micron constructs render an
+explicit placeholder so the user can tell the page asked for something this
+device does not implement.
 
 ## Anonymous Peer
 

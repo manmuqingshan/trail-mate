@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted for Phase 8 baseline.
+Accepted for Phase 8 baseline; amended after ESP-IDF root entrypoint
+validation.
 
 ## Context
 
@@ -32,9 +33,13 @@ The authoritative build entrypoint families are:
 
 | Target family | Authoritative build entrypoint | Build host |
 | --- | --- | --- |
-| ESP / ESP32-P4 | `builds/esp_idf` | ESP-IDF |
+| ESP / ESP32-P4 | root `CMakeLists.txt` with `TRAIL_MATE_IDF_TARGET` | ESP-IDF |
 | nRF52 | `builds/pio_nrf52` | PlatformIO |
 | Linux | `builds/linux_cmake` | CMake |
+
+For ESP-IDF, `builds/esp_idf` is not a second project entrypoint. It owns the
+IDF main component, migrated source-list manifest, and target
+`sdkconfig.defaults` files consumed by the root ESP-IDF project.
 
 `legacy/app_implementations/esp_idf and legacy/app_implementations/esp_pio are transitional historical build entrypoints.`
 They are not final product app shells.
@@ -56,7 +61,9 @@ implementation requirement.
 ## Rationale
 
 ESP / ESP32-P4 -> ESP-IDF because ESP32-P4 support and modern ESP targets are
-best represented by ESP-IDF as the authoritative SDK and build host.
+best represented by ESP-IDF as the authoritative SDK and build host. The
+current executable entrypoint is the repository root `CMakeLists.txt`; board
+selection is explicit through `TRAIL_MATE_IDF_TARGET`.
 
 nRF52 -> PlatformIO because the current nRF-compatible build and board flow is
 anchored in PlatformIO and should not be destabilized by Phase 8 directory
@@ -146,4 +153,5 @@ It does not:
 - change runtime behavior
 
 Later Phase 8 work may migrate one build family at a time once wrappers can be
-validated against existing build gates.
+validated against existing build gates. Until such a migration is proven, ESP-IDF
+must not grow another `idf.py` entrypoint under `builds/esp_idf`.

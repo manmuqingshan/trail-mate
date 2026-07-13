@@ -27,8 +27,8 @@ appears in `legacy/app_implementations/LEGACY_IMPLEMENTATION_INDEX.md`.
 
 Known build references that still touch legacy roots:
 
-- `CMakeLists.txt` references `legacy/app_implementations/esp_idf`
-- `builds/esp_idf/CMakeLists.txt` documents `legacy/app_implementations/esp_idf`
+- root `CMakeLists.txt` consumes `builds/esp_idf/main` as the ESP-IDF component
+  owner.
 - `builds/pio_nrf52/platformio.ini` records `legacy/app_implementations/esp_pio`
   as historical source identity only.
 - `builds/pio_nrf52/platformio.ini` records
@@ -38,8 +38,8 @@ Known build references that still touch legacy roots:
   for `legacy/app_implementations/linux_sim`,
   `legacy/app_implementations/linux_rpi`, and
   `legacy/app_implementations/linux_uconsole`
-- `apps/esp32_lvgl/CMakeLists.txt` references `legacy/app_implementations/esp_idf`
-- `legacy/app_implementations/esp_idf/CMakeLists.txt` is the ESP-IDF historical component root
+- `builds/esp_idf/main/CMakeLists.txt` is the current ESP-IDF main component
+  registration owner.
 - `legacy/app_implementations/linux_sim/CMakeLists.txt` is the simulator historical CMake root
 - `legacy/app_implementations/linux_uconsole/CMakeLists.txt` is the uConsole historical CMake root
 
@@ -48,12 +48,12 @@ Known build references that still touch legacy roots:
 - Current purpose: ESP-IDF historical component and target configuration root.
   It still owns ESP-IDF component registration, target descriptors, sdkconfig
   defaults, and compatibility adapter source for the `apps/esp32_lvgl` shell.
-- Current build callers: root `CMakeLists.txt`, `builds/esp_idf/CMakeLists.txt`,
-  ESP-IDF component registration under this root, and `apps/esp32_lvgl/CMakeLists.txt`.
+- Current build callers: root `CMakeLists.txt` and
+  `builds/esp_idf/main/CMakeLists.txt`.
 - Current app shell callers: `apps/esp32_lvgl` uses the transitional source
   string and legacy implementation adapter.
-- Current CMake / PlatformIO callers: root `CMakeLists.txt`,
-  `builds/esp_idf/CMakeLists.txt`, and `apps/esp32_lvgl/CMakeLists.txt`.
+- Current CMake / PlatformIO callers: root `CMakeLists.txt` and
+  `builds/esp_idf/main/CMakeLists.txt`.
 - Current include callers: `apps/esp32_lvgl/CMakeLists.txt` adds the legacy
   adapter include directory for `esp_idf_legacy_implementation_adapter.h`.
 - Runtime ownership status: transitional embedded build root; reusable runtime

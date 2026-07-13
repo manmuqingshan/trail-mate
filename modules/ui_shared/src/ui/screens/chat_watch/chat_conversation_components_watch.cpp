@@ -219,7 +219,10 @@ ChatConversationScreen::~ChatConversationScreen()
         lv_obj_del(container_);
         container_ = nullptr;
     }
-    delete guard_;
+    if (guard_ && guard_->pending_async == 0)
+    {
+        delete guard_;
+    }
     guard_ = nullptr;
 }
 
@@ -414,7 +417,7 @@ void ChatConversationScreen::setHistoryPaging(bool has_older,
 
 void ChatConversationScreen::schedule_action_async(ActionIntent intent)
 {
-    if (!action_cb_)
+    if (!guard_ || !guard_->alive || !action_cb_)
     {
         return;
     }
@@ -423,12 +426,17 @@ void ChatConversationScreen::schedule_action_async(ActionIntent intent)
     payload->action_cb = action_cb_;
     payload->user_data = action_cb_user_data_;
     payload->intent = intent;
-    lv_async_call(async_action_cb, payload);
+    guard_->pending_async++;
+    if (lv_async_call(async_action_cb, payload) != LV_RESULT_OK)
+    {
+        release_async_guard(payload->guard);
+        delete payload;
+    }
 }
 
 void ChatConversationScreen::schedule_back_async()
 {
-    if (!back_cb_)
+    if (!guard_ || !guard_->alive || !back_cb_)
     {
         return;
     }
@@ -436,7 +444,12 @@ void ChatConversationScreen::schedule_back_async()
     payload->guard = guard_;
     payload->back_cb = back_cb_;
     payload->user_data = back_cb_user_data_;
-    lv_async_call(async_back_cb, payload);
+    guard_->pending_async++;
+    if (lv_async_call(async_back_cb, payload) != LV_RESULT_OK)
+    {
+        release_async_guard(payload->guard);
+        delete payload;
+    }
 }
 
 void ChatConversationScreen::action_event_cb(lv_event_t* e)
@@ -471,6 +484,22 @@ void ChatConversationScreen::back_event_cb(lv_event_t* e)
     screen->schedule_back_async();
 }
 
+void ChatConversationScreen::release_async_guard(LifetimeGuard* guard)
+{
+    if (!guard)
+    {
+        return;
+    }
+    if (guard->pending_async > 0)
+    {
+        guard->pending_async--;
+    }
+    if (!guard->alive && guard->pending_async == 0)
+    {
+        delete guard;
+    }
+}
+
 void ChatConversationScreen::async_action_cb(void* user_data)
 {
     auto* payload = static_cast<ActionPayload*>(user_data);
@@ -478,10 +507,12 @@ void ChatConversationScreen::async_action_cb(void* user_data)
     {
         return;
     }
-    if (payload->guard && payload->guard->alive && payload->action_cb)
+    LifetimeGuard* guard = payload->guard;
+    if (guard && guard->alive && payload->action_cb)
     {
         payload->action_cb(payload->intent, payload->user_data);
     }
+    release_async_guard(guard);
     delete payload;
 }
 
@@ -492,10 +523,12 @@ void ChatConversationScreen::async_back_cb(void* user_data)
     {
         return;
     }
-    if (payload->guard && payload->guard->alive && payload->back_cb)
+    LifetimeGuard* guard = payload->guard;
+    if (guard && guard->alive && payload->back_cb)
     {
         payload->back_cb(payload->user_data);
     }
+    release_async_guard(guard);
     delete payload;
 }
 

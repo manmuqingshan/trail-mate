@@ -310,19 +310,24 @@ Phase 8.2 establishes builds/ skeleton but does not move build host files.
 The intended authoritative build entrypoint families are:
 
 ```text
-ESP / ESP32-P4 -> builds/esp_idf
+ESP / ESP32-P4 -> root CMakeLists.txt with TRAIL_MATE_IDF_TARGET
 nRF52 -> builds/pio_nrf52
 Linux -> builds/linux_cmake
 ```
+
+For ESP-IDF, `builds/esp_idf` is a component-asset owner, not a second
+executable build wrapper. It contains the root project's IDF main component,
+source-list manifest, and target `sdkconfig.defaults` files.
 
 Historical `legacy/app_implementations/esp_idf` and
 `legacy/app_implementations/esp_pio` are no longer valid wrapper locations.
 Future wrapper migration must move toward final `builds/` and `apps/` owners,
 not back toward removed roots.
 
-`builds/esp_idf`, `builds/pio_nrf52`, and `builds/linux_cmake` are thin wrapper
-slots. They must not assemble Chat, Map, Team, or GPS runtime, choose UX packs,
-define board facts, or become product app shells.
+`builds/pio_nrf52` and `builds/linux_cmake` are thin wrapper slots.
+`builds/esp_idf` is the ESP-IDF asset slot consumed by the root IDF entrypoint.
+None of these paths may assemble Chat, Map, Team, or GPS runtime, choose UX
+packs, define board facts, or become product app shells.
 
 Phase 8.2 does not change ESP-IDF CMake, PlatformIO, Linux CMake, app runtime
 behavior, or existing target startup paths.

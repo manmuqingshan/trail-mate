@@ -49,6 +49,7 @@ class ChatMessageListScreen
     struct LifetimeGuard
     {
         bool alive = false;
+        int pending_async = 0;
     };
 
     struct ActionPayload
@@ -110,6 +111,7 @@ class ChatMessageListScreen
     void rebuildList();
     void refreshTargets();
     void schedule_action_async(ActionIntent intent, const chat::ConversationId& conv);
+    static void release_async_guard(LifetimeGuard* guard);
 
     static void menu_event_cb(lv_event_t* e);
     static void async_action_cb(void* user_data);

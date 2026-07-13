@@ -2846,7 +2846,7 @@ void append_route_image_overlay(::ui::map::MapOverlaySnapshot& snapshot)
         item.stable_id = static_cast<uint32_t>(0x494D0000U + index);
         if (selected)
         {
-            char label[12]{};
+            char label[24]{};
             std::snprintf(label,
                           sizeof(label),
                           "%u/%u",

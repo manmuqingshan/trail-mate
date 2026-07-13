@@ -7,7 +7,13 @@
 #include "ui/localization.h"
 
 #if !defined(LV_FONT_MONTSERRAT_36) || !LV_FONT_MONTSERRAT_36
+#if defined(LV_FONT_MONTSERRAT_28) && LV_FONT_MONTSERRAT_28
 #define lv_font_montserrat_36 lv_font_montserrat_28
+#elif defined(LV_FONT_MONTSERRAT_20) && LV_FONT_MONTSERRAT_20
+#define lv_font_montserrat_36 lv_font_montserrat_20
+#else
+#define lv_font_montserrat_36 lv_font_montserrat_14
+#endif
 #endif
 
 #if !defined(LV_FONT_MONTSERRAT_20) || !LV_FONT_MONTSERRAT_20

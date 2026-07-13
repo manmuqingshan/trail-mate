@@ -777,6 +777,46 @@ static void reset_contacts_team_action_seam()
     s_team_snapshot_source.reset();
 }
 
+static void reset_contacts_team_chat_runtime()
+{
+    reset_contacts_team_action_seam();
+    s_team_chat_source.reset();
+}
+
+static void delete_static_group(lv_group_t*& group)
+{
+    if (!group)
+    {
+        return;
+    }
+    if (lv_group_get_default() == group)
+    {
+        set_default_group(nullptr);
+    }
+    lv_group_remove_all_objs(group);
+    lv_group_del(group);
+    group = nullptr;
+}
+
+static void reset_compose_runtime_state()
+{
+    delete_static_group(s_compose_group);
+    s_compose_prev_group = nullptr;
+    s_compose_peer_id = 0;
+    s_compose_channel = chat::ChannelId::PRIMARY;
+    s_compose_protocol = chat::MeshProtocol::Meshtastic;
+    s_compose_conversation = chat::ConversationId{};
+    s_compose_target_display_name.clear();
+    s_compose_from_conversation = false;
+    s_compose_is_team = false;
+}
+
+static void reset_conversation_runtime_state()
+{
+    delete_static_group(s_conv_group);
+    s_conv_prev_group = nullptr;
+}
+
 static ::ui::team_actions::ITeamActionSink* contacts_team_action_sink()
 {
     team::TeamController* controller = app::teamFacade().getTeamController();
@@ -4889,4 +4929,7 @@ void cleanup_modals()
         g_contacts_state.modal_group = nullptr;
     }
     g_contacts_state.prev_group = nullptr;
+    reset_compose_runtime_state();
+    reset_conversation_runtime_state();
+    reset_contacts_team_chat_runtime();
 }

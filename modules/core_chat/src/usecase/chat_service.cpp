@@ -4,6 +4,7 @@
  */
 
 #include "chat/usecase/chat_service.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "chat/time_utils.h"
 #include <algorithm>
 #include <cstdio>
@@ -97,16 +98,8 @@ const char* failure_name(MeshOperationFailure failure)
 
 const char* protocol_name(MeshProtocol protocol)
 {
-    switch (protocol)
-    {
-    case MeshProtocol::Meshtastic:
-        return "Meshtastic";
-    case MeshProtocol::MeshCore:
-        return "MeshCore";
-    case MeshProtocol::Reticulum:
-        return "Reticulum";
-    }
-    return "Unknown";
+    return infra::isValidMeshProtocol(protocol) ? infra::meshProtocolName(protocol)
+                                                : "Unknown";
 }
 
 void format_reticulum_hash_prefix(const ReticulumPeerIdentity* identity,

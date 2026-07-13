@@ -17,7 +17,7 @@ App Shell composes.
 
 | Path | Transitional role | Final direction | Rule |
 | --- | --- | --- | --- |
-| `legacy/app_implementations/esp_idf` | transitional legacy build entrypoint for ESP-IDF and ESP app/runtime compatibility | `builds/esp_idf` thin wrapper invokes a future ESP LVGL app shell | New code must not treat this as final app shell semantics |
+| `legacy/app_implementations/esp_idf` | transitional legacy build entrypoint for ESP-IDF and ESP app/runtime compatibility | root ESP-IDF entrypoint consumes `builds/esp_idf` component assets | New code must not treat this as final app shell semantics |
 | `legacy/app_implementations/esp_pio` | transitional legacy build entrypoint for PlatformIO/Arduino compatibility | `builds/pio_nrf52` thin wrapper invokes a future nRF52 node app shell; legacy ESP PIO compatibility may be split later | New code must not treat this as final app shell semantics |
 | `legacy/app_implementations/linux_sim` | transitional Linux simulator implementation root | `apps/linux_sim_shell` remains the final app shell descriptor | New code must not re-add simulator implementation files under `apps/` |
 | `legacy/app_implementations/linux_uconsole` | transitional Linux uConsole implementation root | `apps/linux_uconsole_gtk` remains the final app shell descriptor | New code must not re-add uConsole implementation files under `apps/` |
@@ -59,9 +59,9 @@ New code must not:
 
 `legacy/app_implementations/esp_idf` can stop being transitional when:
 
-- `builds/esp_idf` contains the authoritative ESP-IDF wrapper
-- the wrapper invokes a product app shell
-- existing ESP-IDF target builds are proven through the wrapper
+- the root ESP-IDF entrypoint no longer depends on historical implementation roots
+- `builds/esp_idf` owns only component assets and target defaults
+- existing ESP-IDF target builds are proven through the root entrypoint
 - target descriptors and sdkconfig defaults have a stable final location
 
 `legacy/app_implementations/esp_pio` can stop being transitional when:

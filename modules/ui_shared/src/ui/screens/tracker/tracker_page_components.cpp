@@ -32,6 +32,14 @@
 #include <utility>
 #include <vector>
 
+#if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
+#define lv_font_montserrat_12 lv_font_montserrat_14
+#endif
+
+#if !defined(LV_FONT_MONTSERRAT_10) || !LV_FONT_MONTSERRAT_10
+#define lv_font_montserrat_10 lv_font_montserrat_14
+#endif
+
 namespace tracker
 {
 namespace ui
@@ -1521,22 +1529,31 @@ void on_route_preview_image_strip_selected(std::size_t index, void*)
     update_route_preview_status();
 }
 
+void destroy_route_preview_image_strip(bool reset_visibility)
+{
+    ::ui::widgets::route_image_strip::destroy(s_preview_image_strip);
+    ::ui::widgets::route_image_strip::reset(s_preview_image_strip);
+    s_preview_image_strip_items.clear();
+    s_preview_image_strip_items_hash = 0;
+    if (reset_visibility)
+    {
+        s_preview_image_strip_visible = false;
+    }
+}
+
 void sync_route_preview_image_strip()
 {
     auto& state = g_tracker_state;
     if (!state.route_preview_map_host ||
         !lv_obj_is_valid(state.route_preview_map_host))
     {
-        ::ui::widgets::route_image_strip::destroy(s_preview_image_strip);
-        s_preview_image_strip_items_hash = 0;
+        destroy_route_preview_image_strip(true);
         return;
     }
 
     if (s_preview_images.empty())
     {
-        s_preview_image_strip_visible = false;
-        ::ui::widgets::route_image_strip::destroy(s_preview_image_strip);
-        s_preview_image_strip_items_hash = 0;
+        destroy_route_preview_image_strip(true);
         return;
     }
 
@@ -1887,6 +1904,14 @@ void ensure_route_preview_download_poll_timer()
     if (s_preview_download_poll_timer)
     {
         lv_timer_set_repeat_count(s_preview_download_poll_timer, -1);
+    }
+}
+
+void pause_route_preview_download_poll_timer()
+{
+    if (s_preview_download_poll_timer)
+    {
+        lv_timer_pause(s_preview_download_poll_timer);
     }
 }
 
@@ -2472,9 +2497,8 @@ void close_route_preview_page()
     {
         modal_close(state.route_preview_help_modal);
     }
-    ::ui::widgets::route_image_strip::destroy(s_preview_image_strip);
-    s_preview_image_strip_items_hash = 0;
-    s_preview_image_strip_visible = false;
+    pause_route_preview_download_poll_timer();
+    destroy_route_preview_image_strip(true);
     ::ui::widgets::map::destroy(s_preview_map_runtime);
     unbind_route_preview_key_handler(state.top_bar.back_btn);
     if (state.route_preview_page)
@@ -2741,8 +2765,7 @@ void render_route_preview_page()
     {
         return;
     }
-    ::ui::widgets::route_image_strip::destroy(s_preview_image_strip);
-    s_preview_image_strip_items_hash = 0;
+    destroy_route_preview_image_strip(false);
     ::ui::widgets::map::destroy(s_preview_map_runtime);
     lv_obj_clean(state.route_preview_page);
     ::ui::widgets::route_elevation_profile::reset(s_preview_elevation_profile);
@@ -4218,8 +4241,7 @@ void cleanup_page()
         lv_timer_del(s_preview_download_poll_timer);
         s_preview_download_poll_timer = nullptr;
     }
-    ::ui::widgets::route_image_strip::destroy(s_preview_image_strip);
-    s_preview_image_strip_items_hash = 0;
+    destroy_route_preview_image_strip(true);
     ::ui::widgets::map::destroy(s_preview_map_runtime);
     s_preview_map_loader_paused = false;
     if (state.route_preview_page)

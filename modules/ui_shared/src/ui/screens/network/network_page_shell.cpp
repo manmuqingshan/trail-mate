@@ -229,6 +229,10 @@ constexpr uint32_t kMicronHeading2Fg = 0x111111;
 constexpr uint32_t kMicronHeading2Bg = 0x999999;
 constexpr uint32_t kMicronHeading3Fg = 0x000000;
 constexpr uint32_t kMicronHeading3Bg = 0x777777;
+// Keep unsupported Micron constructs visible without expanding the renderer
+// into a full NomadNet client on constrained devices.
+constexpr const char* kMicronUnsupportedInline = "[unsupported inline]";
+constexpr const char* kMicronUnsupportedBlock = "[unsupported block]";
 constexpr uint32_t kPageLoadPollMs = 500;
 constexpr uint32_t kPagerRotateUpKey = 19;
 constexpr uint32_t kPagerRotateDownKey = 20;
@@ -2200,7 +2204,11 @@ void render_micron_inline(lv_obj_t* row,
             }
             break;
         case '{':
-            emit_micron_text(row, "[partial]", state.style, state.default_bg, font);
+            emit_micron_text(row,
+                             kMicronUnsupportedInline,
+                             state.style,
+                             state.default_bg,
+                             font);
             while (i < line_len && line[i] != '}')
             {
                 ++i;
@@ -2344,7 +2352,11 @@ void render_micron_line(const char* line, MicronRenderState& state)
     if (line[0] == '`' && line[1] == '{')
     {
         lv_obj_t* row = create_micron_row(state);
-        emit_micron_text(row, "[partial]", state.style, state.default_bg, caption_font());
+        emit_micron_text(row,
+                         kMicronUnsupportedBlock,
+                         state.style,
+                         state.default_bg,
+                         caption_font());
         return;
     }
 

@@ -67,6 +67,7 @@ class ChatConversationScreen
     struct LifetimeGuard
     {
         bool alive = false;
+        int pending_async = 0;
     };
 
     struct ActionPayload
@@ -117,6 +118,7 @@ class ChatConversationScreen
 
     void schedule_action_async(ActionIntent intent);
     void schedule_back_async();
+    static void release_async_guard(LifetimeGuard* guard);
 
     static void action_event_cb(lv_event_t* e);
     static void back_event_cb(lv_event_t* e);
