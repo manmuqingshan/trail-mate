@@ -67,6 +67,7 @@ class LxmfAdapter : public IMeshAdapter
         const char* path);
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
+    bool setWifiTransportEnabled(bool enabled) override;
     bool isReady() const override;
     bool pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len) override;
     void handleRawPacket(const uint8_t* data, size_t size) override;

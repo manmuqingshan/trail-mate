@@ -3,6 +3,7 @@
 #include "app/app_facade_access.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/ui/settings_store.h"
+#include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 
 #include <algorithm>
@@ -1214,6 +1215,12 @@ bool apply_enabled(bool enabled)
 
     if (!enabled)
     {
+        if (!::platform::ui::wifi_access::set_transport_enabled(false))
+        {
+            std::printf("[WiFi] transport clients failed to quiesce; keeping driver active\n");
+            set_status_message("Wi-Fi clients busy");
+            return false;
+        }
         if (s_runtime.wifi_started)
         {
             (void)esp_wifi_disconnect();
@@ -1245,6 +1252,11 @@ bool apply_enabled(bool enabled)
 
     if (!ensure_wifi_started())
     {
+        return false;
+    }
+    if (!::platform::ui::wifi_access::set_transport_enabled(true))
+    {
+        set_status_message("Wi-Fi clients unavailable");
         return false;
     }
 

@@ -82,6 +82,7 @@ class WifiGatewayReticulumInterface
     WifiGatewayReticulumInterface();
 
     void applyConfig(const MeshConfig& config);
+    void setTransportEnabled(bool enabled);
     void maintain();
     bool isReady() const;
     bool isConfigured() const;
@@ -110,6 +111,7 @@ class WifiGatewayReticulumInterface
     static constexpr int32_t kSocketConnectTimeoutMs = 5000;
 
     bool enabled_ = false;
+    bool transport_enabled_ = true;
     bool auto_connect_wifi_ = true;
     char host_[kReticulumGatewayHostMaxLen + 1] = {};
     uint16_t port_ = 4242;
@@ -153,6 +155,7 @@ class ReticulumInterfaceSet
     explicit ReticulumInterfaceSet(LoraBoard& board);
 
     void applyConfig(const MeshConfig& config);
+    void setWifiTransportEnabled(bool enabled);
     void maintain();
     bool hasReadyInterface() const;
     bool hasReadyWifiGateway() const;

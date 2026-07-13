@@ -343,6 +343,18 @@ class IMeshAdapter
     }
 
     /**
+     * @brief Notify the adapter that the platform Wi-Fi transport became available or unavailable.
+     *
+     * Implementations with Wi-Fi-owned sockets must close them synchronously when disabled.
+     * The default keeps adapters without Wi-Fi dependencies source-compatible.
+     */
+    virtual bool setWifiTransportEnabled(bool enabled)
+    {
+        (void)enabled;
+        return true;
+    }
+
+    /**
      * @brief Check if adapter is ready
      */
     virtual bool isReady() const = 0;

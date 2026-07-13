@@ -180,6 +180,11 @@ void ReticulumAdapter::setUserInfo(const char* long_name, const char* short_name
     service_->setUserInfo(long_name, short_name);
 }
 
+bool ReticulumAdapter::setWifiTransportEnabled(bool enabled)
+{
+    return service_->setWifiTransportEnabled(enabled);
+}
+
 bool ReticulumAdapter::isReady() const
 {
     return service_->isReady();

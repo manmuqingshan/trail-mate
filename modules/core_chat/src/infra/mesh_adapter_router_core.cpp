@@ -291,6 +291,24 @@ void MeshAdapterRouterCore::setPrivacyConfig(uint8_t encrypt_mode)
     }
 }
 
+bool MeshAdapterRouterCore::setWifiTransportEnabled(bool enabled)
+{
+    bool ok = true;
+    IMeshAdapter* const backends[] = {
+        meshtastic_backend_.get(),
+        meshcore_backend_.get(),
+        reticulum_backend_.get(),
+    };
+    for (IMeshAdapter* backend : backends)
+    {
+        if (backend && !backend->setWifiTransportEnabled(enabled))
+        {
+            ok = false;
+        }
+    }
+    return ok;
+}
+
 bool MeshAdapterRouterCore::isReady() const
 {
     const IMeshAdapter* backend = activeBackend();

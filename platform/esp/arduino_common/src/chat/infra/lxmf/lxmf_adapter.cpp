@@ -2119,6 +2119,12 @@ void LxmfAdapter::setUserInfo(const char* long_name, const char* short_name)
     announce_pending_ = true;
 }
 
+bool LxmfAdapter::setWifiTransportEnabled(bool enabled)
+{
+    interfaces_.setWifiTransportEnabled(enabled);
+    return true;
+}
+
 bool LxmfAdapter::isReady() const
 {
     return identity_.isReady() && interfaces_.hasReadyInterface();

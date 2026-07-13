@@ -206,9 +206,20 @@ void WifiGatewayReticulumInterface::applyConfig(const MeshConfig& config)
                   boolLabel(TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE != 0));
 }
 
+void WifiGatewayReticulumInterface::setTransportEnabled(bool enabled)
+{
+    transport_enabled_ = enabled;
+    if (!transport_enabled_)
+    {
+        stop();
+        last_reconnect_ms_ = 0;
+        last_wifi_connect_ms_ = 0;
+    }
+}
+
 void WifiGatewayReticulumInterface::maintain()
 {
-    if (!enabled_)
+    if (!transport_enabled_ || !enabled_)
     {
         stop();
         return;
@@ -231,7 +242,7 @@ void WifiGatewayReticulumInterface::maintain()
 
 bool WifiGatewayReticulumInterface::isReady() const
 {
-    return enabled_ && host_[0] != '\0' && socket_online_;
+    return transport_enabled_ && enabled_ && host_[0] != '\0' && socket_online_;
 }
 
 bool WifiGatewayReticulumInterface::isConfigured() const
@@ -402,7 +413,7 @@ bool WifiGatewayReticulumInterface::resolveHost(IPAddress* out)
 
 bool WifiGatewayReticulumInterface::ensureSocket()
 {
-    if (!enabled_ || host_[0] == '\0')
+    if (!transport_enabled_ || !enabled_ || host_[0] == '\0')
     {
         return false;
     }
@@ -680,6 +691,12 @@ void ReticulumInterfaceSet::applyConfig(const MeshConfig& config)
     lora_.applyConfig(config_);
     wifi_.applyConfig(config_);
     maintain();
+    syncSharedLoRaRxGate();
+}
+
+void ReticulumInterfaceSet::setWifiTransportEnabled(bool enabled)
+{
+    wifi_.setTransportEnabled(enabled);
     syncSharedLoRaRxGate();
 }
 

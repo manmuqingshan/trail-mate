@@ -1,5 +1,8 @@
 #include "platform/ui/wifi_access_runtime.h"
 
+#include "app/app_facade_access.h"
+#include "chat/ports/i_mesh_adapter.h"
+#include "platform/esp/arduino_common/chat/infra/mesh_mqtt_client_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "sys/clock.h"
@@ -23,6 +26,7 @@ constexpr std::size_t kClientCount = 6;
 
 struct RuntimeState
 {
+    bool transport_enabled = true;
     bool http_active = false;
     bool ota_active = false;
     bool foreground_download_pending = false;
@@ -48,6 +52,15 @@ struct RuntimeState
 
 RuntimeState s_state{};
 portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+
+bool transport_enabled()
+{
+    bool enabled = false;
+    portENTER_CRITICAL(&s_lock);
+    enabled = s_state.transport_enabled;
+    portEXIT_CRITICAL(&s_lock);
+    return enabled;
+}
 
 bool is_http_kind(AccessKind kind)
 {
@@ -571,13 +584,57 @@ bool call_exclusive_active()
     return active;
 }
 
+bool set_transport_enabled(bool enabled)
+{
+    if (!enabled)
+    {
+        portENTER_CRITICAL(&s_lock);
+        if (s_state.transport_enabled)
+        {
+            ++s_state.revoke_generation;
+        }
+        s_state.transport_enabled = false;
+        s_state.foreground_download_pending = false;
+        s_state.pending_owner = Client::Unknown;
+        s_state.pending_kind = AccessKind::WifiConnect;
+        s_state.pending_since_ms = 0;
+        portEXIT_CRITICAL(&s_lock);
+    }
+
+    bool clients_ready = true;
+    ::platform::esp::arduino_common::mesh_mqtt::setWifiTransportEnabled(enabled);
+    if (app::hasAppFacade())
+    {
+        if (chat::IMeshAdapter* adapter = app::appFacade().getMeshAdapter())
+        {
+            clients_ready = adapter->setWifiTransportEnabled(enabled);
+        }
+    }
+
+    if (enabled)
+    {
+        portENTER_CRITICAL(&s_lock);
+        s_state.transport_enabled = clients_ready;
+        portEXIT_CRITICAL(&s_lock);
+    }
+
+    std::printf("[WiFiAccess] transport enabled=%u clients_ready=%u\n",
+                enabled ? 1U : 0U,
+                clients_ready ? 1U : 0U);
+    return clients_ready;
+}
+
 bool ensure_connected(const Request& request, Decision* out_decision)
 {
     const std::uint32_t now_ms = sys::millis_now();
     const ScreenPhase phase = sample_screen_phase(now_ms);
     Decision decision = Decision::Granted;
 
-    if (request.client == Client::Unknown)
+    if (!transport_enabled())
+    {
+        decision = Decision::WifiDisabled;
+    }
+    else if (request.client == Client::Unknown)
     {
         decision = Decision::InvalidRequest;
     }
@@ -676,6 +733,11 @@ Lease acquire(const Request& request)
     out.kind = request.kind;
     out.screen_phase = phase;
 
+    if (!transport_enabled())
+    {
+        out.decision = Decision::WifiDisabled;
+        return out;
+    }
     if (request.client == Client::Unknown)
     {
         out.decision = Decision::InvalidRequest;
@@ -884,9 +946,22 @@ TrafficBudget traffic_budget(Client client,
     const AccessKind active_kind = s_state.active_kind;
     const bool foreground_pending = s_state.foreground_download_pending &&
                                     foreground_download_owner(s_state.pending_owner);
+    const bool transport_available = s_state.transport_enabled;
     const std::uint32_t foreground_settle_until_ms =
         s_state.foreground_download_settle_until_ms;
     portEXIT_CRITICAL(&s_lock);
+
+    if (!transport_available)
+    {
+        budget.allow_connect = false;
+        budget.allow_read = false;
+        budget.allow_write = false;
+        budget.rx_packet_budget = 0;
+        budget.tx_packet_budget = 0;
+        budget.rx_byte_budget = 0;
+        budget.tx_byte_budget = 0;
+        return budget;
+    }
 
     const bool foreground_download_active =
         http_active &&

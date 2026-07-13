@@ -271,6 +271,12 @@ void MeshAdapterRouter::setPrivacyConfig(uint8_t encrypt_mode)
     }
 }
 
+bool MeshAdapterRouter::setWifiTransportEnabled(bool enabled)
+{
+    LockGuard lock(mutex_);
+    return lock.locked() && core_.setWifiTransportEnabled(enabled);
+}
+
 bool MeshAdapterRouter::isReady() const
 {
     LockGuard lock(mutex_);

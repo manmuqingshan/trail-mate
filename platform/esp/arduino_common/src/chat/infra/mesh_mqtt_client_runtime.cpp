@@ -180,6 +180,14 @@ bool sameConfig(const EffectiveConfig& lhs, const EffectiveConfig& rhs)
 class PlainMqttRuntime
 {
   public:
+    void setWifiTransportEnabled(bool enabled)
+    {
+        if (!enabled)
+        {
+            stop("wifi_disabled");
+        }
+    }
+
     bool wantsStandaloneMode(app::IAppFacade& app_context)
     {
         if (app_context.getMeshProtocol() == chat::MeshProtocol::Meshtastic)
@@ -1629,6 +1637,11 @@ PlainMqttRuntime& runtime()
 bool wantsStandaloneMode(app::IAppFacade& app_context)
 {
     return runtime().wantsStandaloneMode(app_context);
+}
+
+void setWifiTransportEnabled(bool enabled)
+{
+    runtime().setWifiTransportEnabled(enabled);
 }
 
 void update(app::IAppFacade& app_context)

@@ -100,6 +100,13 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
 
     void applyConfig(const chat::MeshConfig&) override {}
 
+    bool setWifiTransportEnabled(bool enabled) override
+    {
+        ++wifi_transport_change_count;
+        wifi_transport_enabled = enabled;
+        return wifi_transport_change_ok;
+    }
+
     bool isReady() const override
     {
         return ready;
@@ -137,6 +144,8 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
     int self_identity_broadcast_count = 0;
     bool node_info_request_ok = true;
     bool self_identity_broadcast_ok = true;
+    bool wifi_transport_enabled = true;
+    bool wifi_transport_change_ok = true;
     chat::MessageId next_message_id = 42;
     chat::ChannelId last_channel = chat::ChannelId::PRIMARY;
     chat::NodeId last_peer = 0;
@@ -150,6 +159,7 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
     chat::MeshDiscoveryAction last_discovery = chat::MeshDiscoveryAction::ScanLocal;
     chat::MeshActionResult discovery_result = chat::MeshActionResult::success();
     chat::MeshActionResult ping_result = chat::MeshActionResult::success();
+    int wifi_transport_change_count = 0;
 };
 
 chat::ReticulumPeerIdentity makeReticulumDestination(std::uint8_t base)
@@ -258,6 +268,24 @@ int main()
     assert(reticulum->ping_count == 1);
     assert(chat::sameReticulumDestinationHash(reticulum->last_destination,
                                               ping_destination));
+
+    assert(router.setWifiTransportEnabled(false));
+    assert(!meshtastic->wifi_transport_enabled);
+    assert(!meshcore->wifi_transport_enabled);
+    assert(!reticulum->wifi_transport_enabled);
+    assert(meshtastic->wifi_transport_change_count == 1);
+    assert(meshcore->wifi_transport_change_count == 1);
+    assert(reticulum->wifi_transport_change_count == 1);
+
+    reticulum->wifi_transport_change_ok = false;
+    assert(!router.setWifiTransportEnabled(true));
+    assert(meshtastic->wifi_transport_enabled);
+    assert(meshcore->wifi_transport_enabled);
+    assert(reticulum->wifi_transport_enabled);
+    assert(meshtastic->wifi_transport_change_count == 2);
+    assert(meshcore->wifi_transport_change_count == 2);
+    assert(reticulum->wifi_transport_change_count == 2);
+    reticulum->wifi_transport_change_ok = true;
 
     router.setActiveProtocol(chat::MeshProtocol::Meshtastic);
     assert(router.backendProtocol() == chat::MeshProtocol::Meshtastic);
