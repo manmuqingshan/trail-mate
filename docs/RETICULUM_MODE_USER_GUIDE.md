@@ -127,9 +127,9 @@ is rendered only after the response is saved back into the same SD cache. If
 the runtime is not ready, the request times out, or the build has no request
 handler, the browser keeps the failure state visible.
 
-Trail Mate intentionally supports a small Micron subset here, not a complete
-NomadNet desktop browser. The table below compares the upstream NomadNet
-Micron surface with Trail Mate's device browser boundary.
+Trail Mate intentionally supports a bounded static Micron subset here, not a
+complete NomadNet desktop browser. The table below compares the upstream
+NomadNet Micron surface with Trail Mate's device browser boundary.
 
 | Upstream Micron area | Upstream syntax / behavior | Trail Mate today | Boundary decision |
 | --- | --- | --- | --- |
@@ -141,7 +141,7 @@ Micron surface with Trail Mate's device browser boundary.
 | Section headings | Leading `>`, `>>`, `>>>`, and deeper levels set section depth and render heading rows; empty headings can create indented blocks | Supported up to eight levels | Keep |
 | Section reset | `<` at the start of a line resets section depth | Supported | Keep |
 | Dividers | `-` renders a divider; `-x` uses `x` as the divider glyph | Supported for `-` and `-x` | Keep |
-| Tables | `` `t ``, optionally with alignment `l`/`c`/`r` and max width, buffers following Markdown-style rows and renders a formatted table | Partially supported: toggles table mode and renders compact rows; no real grid, no alignment/max-width handling | Do not expand unless a real device use case appears |
+| Tables | `` `t ``, optionally with alignment `l`/`c`/`r` and max width, buffers following Markdown-style rows and renders a formatted table | Partially supported: toggles table mode, parses opening-tag alignment/max-width intent, splits Markdown-style rows into up to six cells, treats the first data row as a visual header, and honors separator-row left/center/right alignment; no desktop-grade table layout | Keep the bounded cell renderer; do not add full table layout unless a real device use case appears |
 | Bold | `` `! `` toggles bold | Supported | Keep |
 | Underline | `` `_ `` toggles underline | Supported | Keep |
 | Italic | `` `* `` toggles italics | Parsed, but no separate italic font rendering | Keep as muted visual support |
@@ -151,18 +151,20 @@ Micron surface with Trail Mate's device browser boundary.
 | Alignment | `` `l ``, `` `c ``, `` `r ``, and `` `a `` set left, center, right, or default alignment | Supported | Keep |
 | Inline reset | Two consecutive backticks reset formatting, colors, and alignment | Supported | Keep |
 | Escaping | `\x` emits `x` literally inside inline content | Supported | Keep |
-| Links | <code>`[target]</code> and <code>`[label`target]</code> | Supported until the page link budget is exhausted | Keep; add a visible link-budget notice if needed |
-| Link request fields | <code>`[label`target`fields]</code>, where `fields` can include `*`, field names, or `key=value` request variables | Target navigation works, but request fields are ignored | Do not submit fields; make ignored request fields explicit if this becomes confusing |
+| Links | <code>`[target]</code> and <code>`[label`target]</code> | Supported until the page link budget is exhausted, including nested Micron links inside rendered rows; exhausted pages show `link limit reached` | Keep the 32-link budget and explicit degradation |
+| Link request fields | <code>`[label`target`fields]</code>, where `fields` can include `*`, field names, or `key=value` request variables | Target navigation works; `anchor=...` is treated as a display/navigation hint; submit-field links are detected and marked `[no submit]` because fields are not sent | Do not submit fields on this device browser |
 | Relative links | Paths such as `/page/name.mu` and same-destination targets such as `:/page/name.mu` | Supported against the current destination hash | Keep |
 | Link schemes | `nomadnetwork://...` and `lxmf://...` | Scheme is stripped before navigation | Keep |
-| Anchors | `` `:name `` declares an anchor; headings get automatic anchors; `#name`, `#`, and external `anchor=...` links can jump within pages | Not supported; anchor targets render as text or normal navigation without scrolling | Do not implement for now |
-| Text fields | <code>`&lt;name`data&gt;</code> and <code>`&lt;width&#124;name`data&gt;</code> | Rendered as local LVGL text areas | Keep rendered-only; make read-only/visual-only clearer |
-| Masked fields | <code>`&lt;!&#124;name`data&gt;</code> or <code>`&lt;!width&#124;name`data&gt;</code> | Rendered as local password-style fields | Keep rendered-only |
-| Checkboxes | <code>`&lt;?&#124;name&#124;value`label&gt;</code>, optional trailing `&#124;*` for prechecked | Rendered as local checkboxes | Keep rendered-only |
-| Radio groups | <code>`&lt;^&#124;name&#124;value`label&gt;</code>, optional trailing `&#124;*` for prechecked | Rendered as local radio controls | Keep rendered-only |
+| Page resource links | `/file/...`, attachment/resource paths, and non-page remote paths | Rendered as static text with `[resource unsupported]` and counted in the page notice area | Keep page-only navigation |
+| Anchors | `` `:name `` declares an anchor; headings get automatic anchors; `#name`, `#`, and external `anchor=...` links can jump within pages | Partially supported: explicit anchors and heading auto-anchors are registered locally; `#name` jumps within the current page; bare `#` jumps to the next heading; `anchor=...` appends `#anchor` to the opened page and scrolls after render | Keep local/static anchor navigation; do not add node-side anchor request semantics |
+| Text fields | <code>`&lt;name`data&gt;</code> and <code>`&lt;width&#124;name`data&gt;</code> | Rendered as non-focusable local LVGL text areas; pages with fields show `fields are display-only` once | Keep rendered-only |
+| Masked fields | <code>`&lt;!&#124;name`data&gt;</code> or <code>`&lt;!width&#124;name`data&gt;</code> | Rendered as non-focusable local password-style fields | Keep rendered-only |
+| Checkboxes | <code>`&lt;?&#124;name&#124;value`label&gt;</code>, optional trailing `&#124;*` for prechecked | Rendered as non-focusable local checkboxes | Keep rendered-only |
+| Radio groups | <code>`&lt;^&#124;name&#124;value`label&gt;</code>, optional trailing `&#124;*` for prechecked | Rendered as non-focusable local radio controls | Keep rendered-only |
 | Form submission | Link request fields submit local field values to node-side pages | Not supported | Do not implement on this device browser |
-| Partials | A line starting with `` `{ `` embeds a partial: `url`, optional refresh seconds, optional submitted fields, optional `pid=` identity | Renders `[unsupported block]` | Do not implement dynamic partials |
+| Partials | A line starting with `` `{ `` embeds a partial: `url`, optional refresh seconds, optional submitted fields, optional `pid=` identity | Renders `[unsupported partial: <url>]` when the URL can be extracted, otherwise `[unsupported block]`; partials are counted in the page notice area | Do not implement dynamic partials |
 | Unsupported inline blocks | Inline `` `{...} `` style constructs in parser-compatible surfaces | Renders `[unsupported inline]` | Keep as explicit fallback |
+| Unknown Micron tags | Any inline Micron tag outside this bounded renderer | Skipped and counted as `unsupported Micron tags: N` at the bottom of the page | Keep as explanatory degradation |
 | UTF-8 / glyph output | Upstream expects UTF-8 and recommends Nerd Font glyph support | UTF-8 text is chunked safely; glyph support depends on available LVGL fonts | Keep best-effort |
 | Browser/page resources | NomadNet can browse pages, files, dynamic node-side pages, and cached content | Trail Mate renders Micron page bodies from SD cache and can start bounded ESP page requests | Keep page-only, cache-first |
 
@@ -171,13 +173,16 @@ boundary is explicitly revised. Trail Mate should not silently grow toward full
 NomadNet browser behavior just because upstream Micron supports a feature.
 
 The browser does not support form submission, scripts, images, attachments,
-embedded resources, complex table layout, anchor scrolling, dynamic partials,
-large streaming pages, or unlimited links. The current device budget is
-intentionally small: page bodies are rendered from a 4096-byte buffer, each
-visible page can claim at most 32 clickable links, and longer cached pages
-render with a `page truncated` notice. Unsupported Micron constructs render an
-explicit placeholder so the user can tell the page asked for something this
-device does not implement.
+embedded resources, complex table layout, dynamic partials, large streaming
+pages, or unlimited links. The current device budget is intentionally small:
+page bodies are rendered from a 4096-byte buffer, each visible page can claim
+at most 32 clickable links, 32 local anchors, 180 rendered rows, and 520
+renderer-created LVGL objects. Tables render at most six cells per row.
+Longer cached page bodies render with a `page truncated` notice; pages that hit
+the renderer row/object budget render `Micron page truncated by device render
+limit`. Unsupported Micron constructs render an explicit placeholder or notice
+so the user can tell the page asked for something this device does not
+implement.
 
 ## Anonymous Peer
 

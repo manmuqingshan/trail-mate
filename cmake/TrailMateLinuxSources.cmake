@@ -435,6 +435,7 @@ set(TRAIL_MATE_LINUX_UI_SHELL_SOURCES
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/node_info/node_info_page_components.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/node_info/node_info_page_layout.cpp"
     # network
+    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/network/micron_markup_contract.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/network/network_page_shell.cpp"
     # settings
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/settings/settings_page_components.cpp"

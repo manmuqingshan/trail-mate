@@ -14,6 +14,7 @@
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/runtime/ui_feedback.h"
+#include "ui/screens/network/micron_markup_contract.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/top_bar.h"
 
@@ -65,17 +66,24 @@ namespace
 
 namespace rtdir = ::platform::ui::reticulum_directory;
 namespace rtpage = ::platform::ui::reticulum_page;
+namespace micron = ::ui::screens::network::micron;
 
 constexpr std::size_t kMaxVisibleAnnounces = 100;
 constexpr std::size_t kMaxVisibleAddresses = 100;
 constexpr std::size_t kMaxDirectoryRows = 100;
 constexpr std::size_t kInitialPageLinks = 8;
 constexpr std::size_t kMaxPageLinks = 32;
+constexpr std::size_t kInitialPageAnchors = 8;
+constexpr std::size_t kMaxPageAnchors = 32;
 constexpr std::size_t kMaxHistoryEntries = 8;
 constexpr std::size_t kAddressTextLen = 160;
 constexpr std::size_t kSearchTextLen = 32;
 constexpr std::size_t kHashTextLen = (rtdir::kReticulumHashSize * 2U) + 1U;
 constexpr std::size_t kMicronTextChunkBytes = 112;
+constexpr std::size_t kMicronTableMaxCells = micron::kMaxTableCells;
+constexpr std::size_t kMicronTableCellTextBytes = 96;
+constexpr uint16_t kMicronMaxRenderedRows = 180;
+constexpr uint16_t kMicronMaxRenderedObjects = 520;
 
 enum class DirectoryMode : uint8_t
 {
@@ -106,6 +114,14 @@ struct DirectoryRowContext
 struct LinkContext
 {
     char target[kAddressTextLen] = {};
+    lv_obj_t* source = nullptr;
+};
+
+struct MicronAnchor
+{
+    char name[micron::kMaxAnchorNameBytes] = {};
+    lv_obj_t* target = nullptr;
+    bool heading = false;
 };
 
 struct HistoryEntry
@@ -118,6 +134,7 @@ struct RemotePageAddress
     bool valid = false;
     char destination[kHashTextLen] = {};
     char path[rtpage::kReticulumPagePathSize] = {};
+    char anchor[micron::kMaxAnchorNameBytes] = {};
 };
 
 struct BuiltInFavourite
@@ -145,9 +162,27 @@ struct MicronRenderState
     MicronAlign default_align = MicronAlign::Left;
     MicronAlign align = MicronAlign::Left;
     MicronStyle table_restore_style{};
+    MicronAlign table_restore_align = MicronAlign::Left;
+    std::array<MicronAlign, kMicronTableMaxCells> table_column_align{};
     uint8_t depth = 0;
+    uint8_t table_column_count = 0;
+    uint16_t rendered_rows = 0;
+    uint16_t rendered_objects = 0;
+    uint16_t table_max_width_chars = 0;
+    uint16_t unsupported_unknown_tags = 0;
+    uint16_t unsupported_inline_blocks = 0;
+    uint16_t unsupported_block_count = 0;
+    uint16_t unsupported_partial_count = 0;
+    uint16_t unsupported_resource_links = 0;
+    MicronAlign table_default_align = MicronAlign::Left;
     bool literal = false;
     bool table_mode = false;
+    bool table_first_row = false;
+    bool row_limit_reached = false;
+    bool object_limit_reached = false;
+    bool link_limit_reached = false;
+    bool saw_fields = false;
+    bool saw_submit_links = false;
 };
 
 struct NetworkPageState
@@ -181,11 +216,14 @@ struct NetworkPageState
     std::vector<rtdir::LxmfAddressRecord> addresses;
     std::array<DirectoryRowContext, kMaxDirectoryRows> row_contexts{};
     LinkContext* link_contexts = nullptr;
+    MicronAnchor* page_anchors = nullptr;
     std::array<HistoryEntry, kMaxHistoryEntries> history{};
     std::array<char, rtpage::kReticulumPageBodyMaxBytes + 1U> page_body{};
     std::size_t announce_count = 0;
     std::size_t address_count = 0;
     std::size_t row_context_count = 0;
+    std::size_t page_anchor_capacity = 0;
+    std::size_t page_anchor_count = 0;
     std::size_t link_context_capacity = 0;
     std::size_t link_context_count = 0;
     std::size_t history_count = 0;
@@ -313,6 +351,67 @@ void release_link_context_pool()
     g_state.link_context_count = 0;
 }
 
+void release_micron_anchor_registry()
+{
+    network_page_free(g_state.page_anchors);
+    g_state.page_anchors = nullptr;
+    g_state.page_anchor_capacity = 0;
+    g_state.page_anchor_count = 0;
+}
+
+void clear_micron_anchor_registry()
+{
+    g_state.page_anchor_count = 0;
+    if (g_state.page_anchors && g_state.page_anchor_capacity > 0)
+    {
+        std::memset(g_state.page_anchors,
+                    0,
+                    g_state.page_anchor_capacity * sizeof(MicronAnchor));
+    }
+}
+
+bool reserve_micron_anchors(std::size_t required)
+{
+    if (required <= g_state.page_anchor_capacity)
+    {
+        return true;
+    }
+    if (required > kMaxPageAnchors)
+    {
+        return false;
+    }
+
+    std::size_t next_capacity =
+        g_state.page_anchor_capacity == 0 ? kInitialPageAnchors
+                                          : g_state.page_anchor_capacity * 2U;
+    if (next_capacity < required)
+    {
+        next_capacity = required;
+    }
+    if (next_capacity > kMaxPageAnchors)
+    {
+        next_capacity = kMaxPageAnchors;
+    }
+
+    void* storage = network_page_alloc(next_capacity * sizeof(MicronAnchor));
+    if (!storage)
+    {
+        return false;
+    }
+    auto* next_anchors = static_cast<MicronAnchor*>(storage);
+    std::memset(next_anchors, 0, next_capacity * sizeof(MicronAnchor));
+    if (g_state.page_anchors && g_state.page_anchor_count > 0)
+    {
+        std::memcpy(next_anchors,
+                    g_state.page_anchors,
+                    g_state.page_anchor_count * sizeof(MicronAnchor));
+    }
+    network_page_free(g_state.page_anchors);
+    g_state.page_anchors = next_anchors;
+    g_state.page_anchor_capacity = next_capacity;
+    return true;
+}
+
 bool reserve_link_contexts(std::size_t required)
 {
     if (required <= g_state.link_context_capacity)
@@ -368,6 +467,114 @@ LinkContext* claim_link_context()
     LinkContext* context = &g_state.link_contexts[g_state.link_context_count++];
     std::memset(context, 0, sizeof(*context));
     return context;
+}
+
+void register_micron_anchor(const char* name, lv_obj_t* target, bool heading)
+{
+    if (!name || name[0] == '\0' || !target)
+    {
+        return;
+    }
+    for (std::size_t i = 0; i < g_state.page_anchor_count; ++i)
+    {
+        if (std::strcmp(g_state.page_anchors[i].name, name) == 0)
+        {
+            return;
+        }
+    }
+    if (g_state.page_anchor_count >= kMaxPageAnchors ||
+        !reserve_micron_anchors(g_state.page_anchor_count + 1U))
+    {
+        return;
+    }
+
+    MicronAnchor& anchor = g_state.page_anchors[g_state.page_anchor_count++];
+    copy_text(anchor.name, sizeof(anchor.name), name);
+    anchor.target = target;
+    anchor.heading = heading;
+}
+
+lv_obj_t* find_micron_anchor(const char* name)
+{
+    if (!name || name[0] == '\0')
+    {
+        return nullptr;
+    }
+    for (std::size_t i = 0; i < g_state.page_anchor_count; ++i)
+    {
+        MicronAnchor& anchor = g_state.page_anchors[i];
+        if (std::strcmp(anchor.name, name) == 0 && anchor.target &&
+            lv_obj_is_valid(anchor.target))
+        {
+            return anchor.target;
+        }
+    }
+    return nullptr;
+}
+
+int32_t viewport_child_index(lv_obj_t* obj)
+{
+    if (!obj || !g_state.viewport || !lv_obj_is_valid(g_state.viewport))
+    {
+        return -1;
+    }
+
+    lv_obj_t* direct_child = obj;
+    while (direct_child && lv_obj_get_parent(direct_child) != g_state.viewport)
+    {
+        direct_child = lv_obj_get_parent(direct_child);
+    }
+    if (!direct_child)
+    {
+        return -1;
+    }
+
+    const uint32_t child_count = lv_obj_get_child_count(g_state.viewport);
+    for (uint32_t index = 0; index < child_count; ++index)
+    {
+        if (lv_obj_get_child(g_state.viewport, index) == direct_child)
+        {
+            return static_cast<int32_t>(index);
+        }
+    }
+    return -1;
+}
+
+lv_obj_t* find_next_micron_heading_anchor(lv_obj_t* source)
+{
+    const int32_t source_index = viewport_child_index(source);
+    for (std::size_t i = 0; i < g_state.page_anchor_count; ++i)
+    {
+        MicronAnchor& anchor = g_state.page_anchors[i];
+        if (!anchor.heading || !anchor.target || !lv_obj_is_valid(anchor.target))
+        {
+            continue;
+        }
+        const int32_t anchor_index = viewport_child_index(anchor.target);
+        if (source_index < 0 || anchor_index > source_index)
+        {
+            return anchor.target;
+        }
+    }
+    return nullptr;
+}
+
+bool jump_to_micron_anchor(const char* target, lv_obj_t* source)
+{
+    if (!target || target[0] != '#')
+    {
+        return false;
+    }
+
+    lv_obj_t* anchor =
+        target[1] == '\0' ? find_next_micron_heading_anchor(source)
+                          : find_micron_anchor(target + 1);
+    if (!anchor)
+    {
+        return false;
+    }
+    lv_obj_scroll_to_view(anchor, LV_ANIM_ON);
+    return true;
 }
 
 const char* log_text(const char* text)
@@ -792,7 +999,18 @@ bool cached_page_matches(const RemotePageAddress& page_address)
            std::strcmp(g_state.cached_page_path, page_address.path) == 0;
 }
 
+void copy_range(char* out, std::size_t out_len, const char* start, std::size_t len);
 bool parse_remote_page_address(const char* address, RemotePageAddress& out);
+
+bool same_remote_page_identity(const char* lhs, const char* rhs)
+{
+    RemotePageAddress lhs_page{};
+    RemotePageAddress rhs_page{};
+    return parse_remote_page_address(lhs, lhs_page) && lhs_page.valid &&
+           parse_remote_page_address(rhs, rhs_page) && rhs_page.valid &&
+           std::strcmp(lhs_page.destination, rhs_page.destination) == 0 &&
+           std::strcmp(lhs_page.path, rhs_page.path) == 0;
+}
 
 void clear_request_progress_for_address(const char* address)
 {
@@ -833,7 +1051,8 @@ void set_current_address(const char* address)
         (address && address[0] != '\0') ? address : "home:/";
     if (std::strncmp(g_state.current_address,
                      next_address,
-                     sizeof(g_state.current_address)) != 0)
+                     sizeof(g_state.current_address)) != 0 &&
+        !same_remote_page_identity(g_state.current_address, next_address))
     {
         clear_request_progress_for_address(g_state.current_address);
         clear_loaded_page_body();
@@ -941,6 +1160,25 @@ bool parse_remote_page_address(const char* address, RemotePageAddress& out)
         ++cursor;
     }
     const char* path = (*cursor != '\0') ? cursor : "/page/index.mu";
+    const char* anchor = std::strchr(path, '#');
+    char path_without_anchor[rtpage::kReticulumPagePathSize] = {};
+    if (anchor)
+    {
+        const std::size_t path_len = static_cast<std::size_t>(anchor - path);
+        copy_range(path_without_anchor,
+                   sizeof(path_without_anchor),
+                   path_len == 0 ? "/page/index.mu" : path,
+                   path_len == 0 ? std::strlen("/page/index.mu") : path_len);
+        const char* anchor_start = anchor + 1;
+        std::size_t anchor_len = 0;
+        while (anchor_start[anchor_len] != '\0' &&
+               micron::anchor_name_char(anchor_start[anchor_len]))
+        {
+            ++anchor_len;
+        }
+        copy_range(out.anchor, sizeof(out.anchor), anchor_start, anchor_len);
+        path = path_without_anchor;
+    }
     if (!rtpage::normalize_path(path, out.path, sizeof(out.path)))
     {
         return false;
@@ -1042,6 +1280,7 @@ void reset_state_after_destroy()
     std::vector<rtdir::AnnounceRecord>().swap(g_state.announces);
     std::vector<rtdir::LxmfAddressRecord>().swap(g_state.addresses);
     release_link_context_pool();
+    release_micron_anchor_registry();
     std::memset(g_state.row_contexts.data(),
                 0,
                 g_state.row_contexts.size() * sizeof(g_state.row_contexts[0]));
@@ -1140,6 +1379,23 @@ void add_directory_focusables()
     }
 }
 
+void add_clickable_descendants_to_group(lv_obj_t* obj)
+{
+    if (!obj || !lv_obj_is_valid(obj) || !object_visible(obj))
+    {
+        return;
+    }
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICKABLE))
+    {
+        add_visible_to_group(obj);
+    }
+    const uint32_t child_count = lv_obj_get_child_count(obj);
+    for (uint32_t index = 0; index < child_count; ++index)
+    {
+        add_clickable_descendants_to_group(lv_obj_get_child(obj, index));
+    }
+}
+
 void add_viewport_links_to_group()
 {
     if (!g_state.viewport || !lv_obj_is_valid(g_state.viewport))
@@ -1150,10 +1406,7 @@ void add_viewport_links_to_group()
     for (uint32_t index = 0; index < child_count; ++index)
     {
         lv_obj_t* child = lv_obj_get_child(g_state.viewport, index);
-        if (child && lv_obj_has_flag(child, LV_OBJ_FLAG_CLICKABLE))
-        {
-            add_visible_to_group(child);
-        }
+        add_clickable_descendants_to_group(child);
     }
 }
 
@@ -1307,6 +1560,12 @@ void link_event_cb(lv_event_t* event)
     {
         return;
     }
+    if (context->target[0] == '#')
+    {
+        (void)jump_to_micron_anchor(context->target, context->source);
+        lv_event_stop_processing(event);
+        return;
+    }
     char resolved[kAddressTextLen] = {};
     resolve_link_target(context->target, resolved, sizeof(resolved));
     navigate_to_address(resolved, true);
@@ -1322,6 +1581,7 @@ void clear_viewport()
     lv_obj_set_style_bg_color(g_state.viewport, lv_color_hex(kTerminalBg), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(g_state.viewport, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clean(g_state.viewport);
+    release_micron_anchor_registry();
     release_link_context_pool();
 }
 
@@ -1641,10 +1901,59 @@ void apply_micron_label_style(lv_obj_t* label,
     }
 }
 
-lv_obj_t* create_micron_row(const MicronRenderState& state,
+MicronAlign micron_align_from_contract(micron::Align align)
+{
+    switch (align)
+    {
+    case micron::Align::Center:
+        return MicronAlign::Center;
+    case micron::Align::Right:
+        return MicronAlign::Right;
+    case micron::Align::Left:
+    default:
+        return MicronAlign::Left;
+    }
+}
+
+bool claim_micron_objects(MicronRenderState& state, uint16_t count = 1)
+{
+    if (count == 0)
+    {
+        return true;
+    }
+    if (count > kMicronMaxRenderedObjects ||
+        state.rendered_objects > kMicronMaxRenderedObjects - count)
+    {
+        state.object_limit_reached = true;
+        return false;
+    }
+    state.rendered_objects = static_cast<uint16_t>(state.rendered_objects + count);
+    return true;
+}
+
+bool claim_micron_row(MicronRenderState& state)
+{
+    if (state.rendered_rows >= kMicronMaxRenderedRows)
+    {
+        state.row_limit_reached = true;
+        return false;
+    }
+    if (!claim_micron_objects(state))
+    {
+        return false;
+    }
+    ++state.rendered_rows;
+    return true;
+}
+
+lv_obj_t* create_micron_row(MicronRenderState& state,
                             bool use_line_background = false,
                             uint32_t line_bg = kTerminalBg)
 {
+    if (!claim_micron_row(state))
+    {
+        return nullptr;
+    }
     lv_obj_t* row = lv_obj_create(g_state.viewport);
     lv_obj_set_width(row, LV_PCT(100));
     lv_obj_set_height(row, LV_SIZE_CONTENT);
@@ -1670,9 +1979,14 @@ void emit_micron_text_token(lv_obj_t* row,
                             const char* text,
                             const MicronStyle& style,
                             uint32_t default_bg,
-                            const lv_font_t* font = nullptr)
+                            const lv_font_t* font = nullptr,
+                            MicronRenderState* budget = nullptr)
 {
     if (!row || !text || text[0] == '\0')
+    {
+        return;
+    }
+    if (budget && !claim_micron_objects(*budget))
     {
         return;
     }
@@ -1691,7 +2005,8 @@ void emit_micron_text(lv_obj_t* row,
                       const char* text,
                       const MicronStyle& style,
                       uint32_t default_bg,
-                      const lv_font_t* font = nullptr)
+                      const lv_font_t* font = nullptr,
+                      MicronRenderState* budget = nullptr)
 {
     if (!row || !text || text[0] == '\0')
     {
@@ -1716,7 +2031,7 @@ void emit_micron_text(lv_obj_t* row,
                 *ch = ' ';
             }
         }
-        emit_micron_text_token(row, chunk, style, default_bg, font);
+        emit_micron_text_token(row, chunk, style, default_bg, font, budget);
         cursor += chunk_len;
         remaining -= chunk_len;
     }
@@ -1770,26 +2085,65 @@ void normalize_micron_link_target(const char* target,
 void emit_micron_link(lv_obj_t* row,
                       const char* target,
                       const char* label,
-                      const MicronStyle& style,
-                      uint32_t default_bg)
+                      MicronRenderState& state,
+                      bool request_fields)
 {
     if (!row || !target || target[0] == '\0')
     {
         return;
     }
-    if (target[0] == '#')
+    const MicronStyle& style = state.style;
+    const uint32_t default_bg = state.default_bg;
+
+    if (micron::classify_link_target(target) == micron::LinkTargetKind::Resource)
     {
-        emit_micron_text(row, label && label[0] ? label : target, style, default_bg);
+        state.unsupported_resource_links++;
+        emit_micron_text(row,
+                         label && label[0] ? label : target,
+                         style,
+                         default_bg,
+                         nullptr,
+                         &state);
+        MicronStyle note_style = style;
+        note_style.fg = kTerminalDim;
+        note_style.bg = default_bg;
+        note_style.bold = false;
+        note_style.underline = false;
+        emit_micron_text(row,
+                         " [resource unsupported]",
+                         note_style,
+                         default_bg,
+                         tiny_font(),
+                         &state);
         return;
     }
+
+    if (state.rendered_objects > kMicronMaxRenderedObjects - 2U)
+    {
+        state.object_limit_reached = true;
+        return;
+    }
+
     LinkContext* context = claim_link_context();
     if (!context)
     {
-        emit_micron_text(row, label && label[0] ? label : target, style, default_bg);
+        state.link_limit_reached = true;
+        emit_micron_text(row,
+                         label && label[0] ? label : target,
+                         style,
+                         default_bg,
+                         nullptr,
+                         &state);
+        return;
+    }
+
+    if (!claim_micron_objects(state, 2))
+    {
         return;
     }
 
     normalize_micron_link_target(target, context->target, sizeof(context->target));
+    context->source = row;
 
     lv_obj_t* btn = lv_btn_create(row);
     lv_obj_set_height(btn, LV_SIZE_CONTENT);
@@ -1811,6 +2165,7 @@ void emit_micron_link(lv_obj_t* row,
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(btn, link_event_cb, LV_EVENT_CLICKED, context);
     lv_obj_add_event_cb(btn, link_event_cb, LV_EVENT_KEY, context);
+    lv_obj_add_event_cb(btn, page_shortcut_event_cb, LV_EVENT_KEY, nullptr);
 
     lv_obj_t* text = lv_label_create(btn);
     const char* visible = label && label[0] ? label : target;
@@ -1822,18 +2177,35 @@ void emit_micron_link(lv_obj_t* row,
                                       visible,
                                       style.bold ? body_font() : caption_font());
     lv_obj_center(text);
+
+    if (request_fields)
+    {
+        MicronStyle note_style = style;
+        note_style.fg = kTerminalDim;
+        note_style.bg = default_bg;
+        note_style.bold = false;
+        note_style.underline = false;
+        emit_micron_text(row,
+                         " [no submit]",
+                         note_style,
+                         default_bg,
+                         tiny_font(),
+                         &state);
+    }
 }
 
 void emit_micron_field(lv_obj_t* row,
                        const char* spec,
                        const char* data,
-                       const MicronStyle& style,
-                       uint32_t default_bg)
+                       MicronRenderState& state)
 {
     if (!row || !spec)
     {
         return;
     }
+    state.saw_fields = true;
+    const MicronStyle& style = state.style;
+    const uint32_t default_bg = state.default_bg;
     bool checkbox = false;
     bool radio = false;
     bool masked = false;
@@ -1892,6 +2264,10 @@ void emit_micron_field(lv_obj_t* row,
 
     if (checkbox || radio)
     {
+        if (!claim_micron_objects(state))
+        {
+            return;
+        }
         lv_obj_t* cb = lv_checkbox_create(row);
         lv_checkbox_set_text(cb, data && data[0] ? data : (value_buf[0] ? value_buf : name));
         if (checked)
@@ -1900,6 +2276,10 @@ void emit_micron_field(lv_obj_t* row,
         }
         lv_obj_set_style_text_color(cb, lv_color_hex(style.fg), LV_PART_MAIN);
         lv_obj_set_style_text_font(cb, caption_font(), LV_PART_MAIN);
+        lv_obj_set_style_text_opa(cb, LV_OPA_70, LV_PART_MAIN);
+        lv_obj_clear_flag(cb, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(cb, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        lv_obj_add_state(cb, LV_STATE_DISABLED);
         if (style.bg != default_bg)
         {
             lv_obj_set_style_bg_color(cb, lv_color_hex(style.bg), LV_PART_MAIN);
@@ -1908,6 +2288,10 @@ void emit_micron_field(lv_obj_t* row,
         return;
     }
 
+    if (!claim_micron_objects(state))
+    {
+        return;
+    }
     lv_obj_t* field = lv_textarea_create(row);
     lv_textarea_set_one_line(field, true);
     lv_textarea_set_text(field, data ? data : "");
@@ -1921,17 +2305,21 @@ void emit_micron_field(lv_obj_t* row,
         LV_PART_MAIN);
     lv_obj_set_style_bg_opa(field, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(field, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(field, lv_color_hex(style.fg), LV_PART_MAIN);
+    lv_obj_set_style_border_color(field, lv_color_hex(kTerminalDim), LV_PART_MAIN);
     lv_obj_set_style_radius(field, 2, LV_PART_MAIN);
     lv_obj_set_style_text_color(field, lv_color_hex(style.fg), LV_PART_MAIN);
+    lv_obj_set_style_text_opa(field, LV_OPA_70, LV_PART_MAIN);
     lv_obj_set_style_text_font(field, caption_font(), LV_PART_MAIN);
     lv_obj_set_style_pad_all(field, 1, LV_PART_MAIN);
+    lv_obj_clear_flag(field, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(field, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_add_state(field, LV_STATE_DISABLED);
 }
 
 void flush_micron_part(lv_obj_t* row,
                        char* part,
                        std::size_t& part_len,
-                       const MicronRenderState& state,
+                       MicronRenderState& state,
                        const lv_font_t* font = nullptr)
 {
     if (part_len == 0)
@@ -1939,7 +2327,7 @@ void flush_micron_part(lv_obj_t* row,
         return;
     }
     part[part_len] = '\0';
-    emit_micron_text(row, part, state.style, state.default_bg, font);
+    emit_micron_text(row, part, state.style, state.default_bg, font, &state);
     part_len = 0;
 }
 
@@ -1947,7 +2335,7 @@ void append_micron_part_char(lv_obj_t* row,
                              char* part,
                              std::size_t& part_len,
                              char ch,
-                             const MicronRenderState& state,
+                             MicronRenderState& state,
                              const lv_font_t* font = nullptr)
 {
     if (part_len + 1U >= 384U)
@@ -1961,7 +2349,7 @@ bool parse_micron_link(lv_obj_t* row,
                        const char* line,
                        std::size_t line_len,
                        std::size_t start,
-                       const MicronRenderState& state,
+                       MicronRenderState& state,
                        std::size_t* consumed)
 {
     if (!row || !line || !consumed)
@@ -1980,6 +2368,7 @@ bool parse_micron_link(lv_obj_t* row,
 
     char label[96] = {};
     char target[kAddressTextLen] = {};
+    char fields[96] = {};
     const char* first_tick = std::strchr(data, '`');
     if (!first_tick)
     {
@@ -1999,6 +2388,7 @@ bool parse_micron_link(lv_obj_t* row,
                        sizeof(target),
                        first_tick + 1,
                        static_cast<std::size_t>(second_tick - first_tick - 1));
+            copy_text(fields, sizeof(fields), second_tick + 1);
         }
         else
         {
@@ -2010,7 +2400,24 @@ bool parse_micron_link(lv_obj_t* row,
         }
     }
 
-    emit_micron_link(row, target, label, state.style, state.default_bg);
+    const micron::LinkFields link_fields = micron::parse_link_fields(fields);
+    char navigation_target[kAddressTextLen] = {};
+    if (link_fields.has_anchor)
+    {
+        (void)micron::append_anchor_to_target(
+            target, link_fields.anchor, navigation_target, sizeof(navigation_target));
+    }
+    if (navigation_target[0] == '\0')
+    {
+        copy_text(navigation_target, sizeof(navigation_target), target);
+    }
+    if (link_fields.submits_fields)
+    {
+        state.saw_submit_links = true;
+    }
+
+    emit_micron_link(
+        row, navigation_target, label, state, link_fields.submits_fields);
     *consumed = static_cast<std::size_t>(close - (line + start)) + 1U;
     (void)line_len;
     return true;
@@ -2019,7 +2426,7 @@ bool parse_micron_link(lv_obj_t* row,
 bool parse_micron_field(lv_obj_t* row,
                         const char* line,
                         std::size_t start,
-                        const MicronRenderState& state,
+                        MicronRenderState& state,
                         std::size_t* consumed)
 {
     if (!row || !line || !consumed)
@@ -2046,7 +2453,7 @@ bool parse_micron_field(lv_obj_t* row,
                sizeof(data),
                tick + 1U,
                static_cast<std::size_t>(close - (tick + 1U)));
-    emit_micron_field(row, spec, data, state.style, state.default_bg);
+    emit_micron_field(row, spec, data, state);
     *consumed = static_cast<std::size_t>(close - (line + start)) + 1U;
     return true;
 }
@@ -2196,19 +2603,31 @@ void render_micron_inline(lv_obj_t* row,
             break;
         }
         case ':':
-            while (i < line_len &&
-                   (std::isalnum(static_cast<unsigned char>(line[i])) ||
-                    line[i] == '_' || line[i] == '-' || line[i] == ':'))
+        {
+            char anchor[micron::kMaxAnchorNameBytes] = {};
+            const std::size_t anchor_start = i + 1U;
+            std::size_t anchor_len = 0;
+            while (anchor_start + anchor_len < line_len &&
+                   micron::anchor_name_char(line[anchor_start + anchor_len]))
             {
-                ++i;
+                ++anchor_len;
             }
+            if (anchor_len > 0)
+            {
+                copy_range(anchor, sizeof(anchor), line + anchor_start, anchor_len);
+                register_micron_anchor(anchor, row, false);
+            }
+            i = anchor_start + anchor_len;
             break;
+        }
         case '{':
+            state.unsupported_inline_blocks++;
             emit_micron_text(row,
                              kMicronUnsupportedInline,
                              state.style,
                              state.default_bg,
-                             font);
+                             font,
+                             &state);
             while (i < line_len && line[i] != '}')
             {
                 ++i;
@@ -2224,6 +2643,7 @@ void render_micron_inline(lv_obj_t* row,
             ++i;
             break;
         default:
+            state.unsupported_unknown_tags++;
             ++i;
             break;
         }
@@ -2262,11 +2682,20 @@ void render_micron_divider(MicronRenderState& state, const char* line)
         divider[i] = fill >= 32 ? fill : '-';
     }
     lv_obj_t* row = create_micron_row(state);
-    emit_micron_text(row, divider, state.style, state.default_bg, caption_font());
+    emit_micron_text(row,
+                     divider,
+                     state.style,
+                     state.default_bg,
+                     caption_font(),
+                     &state);
 }
 
-void render_micron_empty_line(const MicronRenderState& state)
+void render_micron_empty_line(MicronRenderState& state)
 {
+    if (!claim_micron_row(state))
+    {
+        return;
+    }
     lv_obj_t* spacer = lv_obj_create(g_state.viewport);
     lv_obj_set_size(spacer, LV_PCT(100), 8);
     style_plain_container(spacer,
@@ -2310,7 +2739,12 @@ void render_micron_line(const char* line, MicronRenderState& state)
             text = line + 1;
         }
         lv_obj_t* row = create_micron_row(state);
-        emit_micron_text(row, text, state.style, state.default_bg, caption_font());
+        emit_micron_text(row,
+                         text,
+                         state.style,
+                         state.default_bg,
+                         caption_font(),
+                         &state);
         return;
     }
     if (line[0] == '<')
@@ -2340,6 +2774,9 @@ void render_micron_line(const char* line, MicronRenderState& state)
         const MicronStyle saved_style = state.style;
         state.style = micron_heading_style(depth);
         lv_obj_t* row = create_micron_row(state, true, state.style.bg);
+        char anchor[micron::kMaxAnchorNameBytes] = {};
+        micron::slug_from_text(text, anchor, sizeof(anchor));
+        register_micron_anchor(anchor, row, true);
         render_micron_inline(row, text, state, depth <= 1U ? body_font() : caption_font());
         state.style = saved_style;
         return;
@@ -2352,11 +2789,29 @@ void render_micron_line(const char* line, MicronRenderState& state)
     if (line[0] == '`' && line[1] == '{')
     {
         lv_obj_t* row = create_micron_row(state);
+        char partial_url[kAddressTextLen] = {};
+        const bool has_partial_url =
+            micron::extract_partial_url(line, partial_url, sizeof(partial_url));
+        char notice[192] = {};
+        if (has_partial_url)
+        {
+            std::snprintf(notice,
+                          sizeof(notice),
+                          "[unsupported partial: %s]",
+                          partial_url);
+            state.unsupported_partial_count++;
+        }
+        else
+        {
+            copy_text(notice, sizeof(notice), kMicronUnsupportedBlock);
+            state.unsupported_block_count++;
+        }
         emit_micron_text(row,
-                         kMicronUnsupportedBlock,
+                         notice,
                          state.style,
                          state.default_bg,
-                         caption_font());
+                         caption_font(),
+                         &state);
         return;
     }
 
@@ -2364,22 +2819,146 @@ void render_micron_line(const char* line, MicronRenderState& state)
     render_micron_inline(row, line, state, caption_font());
 }
 
-void begin_micron_table(MicronRenderState& state)
+void begin_micron_table(MicronRenderState& state,
+                        const micron::TableOpenOptions& options)
 {
     state.table_restore_style = state.style;
+    state.table_restore_align = state.align;
     state.style.bg = state.style.bg != state.default_bg ? state.style.bg : 0x151515;
+    state.table_default_align =
+        options.has_align ? micron_align_from_contract(options.align) : MicronAlign::Left;
+    state.table_max_width_chars = options.has_max_width ? options.max_width : 0;
+    state.align = state.table_default_align;
+    state.table_column_count = 0;
+    for (auto& align : state.table_column_align)
+    {
+        align = state.table_default_align;
+    }
+    state.table_first_row = true;
     state.table_mode = true;
 }
 
 void finish_micron_table(MicronRenderState& state)
 {
     state.style = state.table_restore_style;
+    state.align = state.table_restore_align;
+    state.table_column_count = 0;
+    state.table_default_align = MicronAlign::Left;
+    state.table_max_width_chars = 0;
+    state.table_first_row = false;
     state.table_mode = false;
+}
+
+void apply_micron_table_width(lv_obj_t* row, const MicronRenderState& state)
+{
+    if (!row || state.table_max_width_chars == 0)
+    {
+        return;
+    }
+    lv_obj_set_width(row,
+                     static_cast<lv_coord_t>(state.table_max_width_chars * 6U));
+}
+
+void update_micron_table_alignment(
+    MicronRenderState& state,
+    const std::array<micron::Span, kMicronTableMaxCells>& cells,
+    std::size_t count)
+{
+    state.table_column_count = static_cast<uint8_t>(
+        count < state.table_column_align.size() ? count
+                                                : state.table_column_align.size());
+    for (std::size_t i = 0; i < state.table_column_count; ++i)
+    {
+        state.table_column_align[i] =
+            micron_align_from_contract(micron::table_separator_align(cells[i]));
+    }
 }
 
 void render_micron_table_row(MicronRenderState& state, const char* row_text)
 {
+    std::array<micron::Span, kMicronTableMaxCells> cells{};
+    const std::size_t cell_count =
+        micron::parse_table_cells(row_text, cells.data(), cells.size());
+    if (micron::table_separator_row(cells.data(), cell_count))
+    {
+        update_micron_table_alignment(state, cells, cell_count);
+        return;
+    }
+    if (cell_count > 0)
+    {
+        const bool header_row = state.table_first_row;
+        state.table_first_row = false;
+        lv_obj_t* row = create_micron_row(state, true, state.style.bg);
+        if (!row)
+        {
+            return;
+        }
+        apply_micron_table_width(row, state);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(row, 1, LV_PART_MAIN);
+        for (std::size_t i = 0; i < cell_count; ++i)
+        {
+            char cell_text[kMicronTableCellTextBytes] = {};
+            copy_range(cell_text, sizeof(cell_text), cells[i].start, cells[i].len);
+
+            if (!claim_micron_objects(state))
+            {
+                return;
+            }
+            lv_obj_t* cell = lv_obj_create(row);
+            lv_obj_set_width(cell, 0);
+            lv_obj_set_height(cell, LV_SIZE_CONTENT);
+            lv_obj_set_flex_grow(cell, 1);
+            style_plain_container(cell,
+                                  header_row ? 0x242424 : state.style.bg,
+                                  LV_OPA_COVER);
+            lv_obj_set_style_border_width(cell, 1, LV_PART_MAIN);
+            lv_obj_set_style_border_color(
+                cell,
+                lv_color_hex(header_row ? kTerminalAmber : 0x333333),
+                LV_PART_MAIN);
+            lv_obj_set_style_radius(cell, 1, LV_PART_MAIN);
+            lv_obj_set_style_pad_left(cell, 2, LV_PART_MAIN);
+            lv_obj_set_style_pad_right(cell, 2, LV_PART_MAIN);
+            lv_obj_set_style_pad_top(cell, 1, LV_PART_MAIN);
+            lv_obj_set_style_pad_bottom(cell, 1, LV_PART_MAIN);
+            lv_obj_set_style_pad_row(cell, 0, LV_PART_MAIN);
+            lv_obj_set_style_pad_column(cell, 0, LV_PART_MAIN);
+            lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_ROW_WRAP);
+
+            MicronRenderState cell_state = state;
+            cell_state.depth = 0;
+            cell_state.align = i < state.table_column_count
+                                   ? state.table_column_align[i]
+                                   : state.table_default_align;
+            cell_state.default_align = cell_state.align;
+            cell_state.style.bold = cell_state.style.bold || header_row;
+            if (header_row)
+            {
+                cell_state.style.fg = kTerminalAmber;
+                cell_state.style.bg = 0x242424;
+            }
+            apply_micron_row_align(cell, cell_state.align);
+            render_micron_inline(cell, cell_text, cell_state, tiny_font());
+            state.rendered_objects = cell_state.rendered_objects;
+            state.unsupported_unknown_tags = cell_state.unsupported_unknown_tags;
+            state.unsupported_inline_blocks = cell_state.unsupported_inline_blocks;
+            state.unsupported_block_count = cell_state.unsupported_block_count;
+            state.unsupported_partial_count = cell_state.unsupported_partial_count;
+            state.unsupported_resource_links = cell_state.unsupported_resource_links;
+            state.object_limit_reached =
+                state.object_limit_reached || cell_state.object_limit_reached;
+            state.link_limit_reached =
+                state.link_limit_reached || cell_state.link_limit_reached;
+            state.saw_fields = state.saw_fields || cell_state.saw_fields;
+            state.saw_submit_links =
+                state.saw_submit_links || cell_state.saw_submit_links;
+        }
+        return;
+    }
+
     lv_obj_t* row = create_micron_row(state, true, state.style.bg);
+    apply_micron_table_width(row, state);
     render_micron_inline(row, row_text ? row_text : "", state, tiny_font());
 }
 
@@ -2447,6 +3026,81 @@ void parse_micron_header_colors(const char* body,
     }
 }
 
+void add_micron_notice(const char* text)
+{
+    add_terminal_label(text, kTerminalDim, tiny_font(), LV_LABEL_LONG_WRAP);
+}
+
+void render_micron_notices(const MicronRenderState& state)
+{
+    const bool has_notice =
+        state.link_limit_reached || state.saw_fields || state.saw_submit_links ||
+        state.unsupported_partial_count > 0 || state.unsupported_resource_links > 0 ||
+        state.unsupported_inline_blocks > 0 || state.unsupported_block_count > 0 ||
+        state.unsupported_unknown_tags > 0 || state.row_limit_reached ||
+        state.object_limit_reached;
+    if (!has_notice)
+    {
+        return;
+    }
+
+    add_terminal_spacer(4);
+    if (state.link_limit_reached)
+    {
+        add_micron_notice("link limit reached");
+    }
+    if (state.saw_fields)
+    {
+        add_micron_notice("fields are display-only");
+    }
+    if (state.saw_submit_links)
+    {
+        add_micron_notice("form submit not supported");
+    }
+    if (state.unsupported_resource_links > 0)
+    {
+        char line[64] = {};
+        std::snprintf(line,
+                      sizeof(line),
+                      "unsupported resource links: %u",
+                      static_cast<unsigned>(state.unsupported_resource_links));
+        add_micron_notice(line);
+    }
+    if (state.unsupported_partial_count > 0)
+    {
+        char line[64] = {};
+        std::snprintf(line,
+                      sizeof(line),
+                      "unsupported partials: %u",
+                      static_cast<unsigned>(state.unsupported_partial_count));
+        add_micron_notice(line);
+    }
+    const uint16_t unsupported_blocks = static_cast<uint16_t>(
+        state.unsupported_inline_blocks + state.unsupported_block_count);
+    if (unsupported_blocks > 0)
+    {
+        char line[64] = {};
+        std::snprintf(line,
+                      sizeof(line),
+                      "unsupported Micron blocks: %u",
+                      static_cast<unsigned>(unsupported_blocks));
+        add_micron_notice(line);
+    }
+    if (state.unsupported_unknown_tags > 0)
+    {
+        char line[64] = {};
+        std::snprintf(line,
+                      sizeof(line),
+                      "unsupported Micron tags: %u",
+                      static_cast<unsigned>(state.unsupported_unknown_tags));
+        add_micron_notice(line);
+    }
+    if (state.row_limit_reached || state.object_limit_reached)
+    {
+        add_micron_notice("Micron page truncated by device render limit");
+    }
+}
+
 void render_micron_body(char* body, std::size_t body_len, bool truncated)
 {
     if (!body)
@@ -2459,6 +3113,7 @@ void render_micron_body(char* body, std::size_t body_len, bool truncated)
         return;
     }
 
+    clear_micron_anchor_registry();
     MicronRenderState state{};
     state.default_fg = kMicronDefaultFg;
     state.default_bg = kTerminalBg;
@@ -2482,7 +3137,9 @@ void render_micron_body(char* body, std::size_t body_len, bool truncated)
             {
                 line[len - 1U] = '\0';
             }
-            if (!state.literal && line[0] == '`' && line[1] == 't')
+            const micron::TableOpenOptions table_options =
+                micron::parse_table_opening_tag(line);
+            if (!state.literal && table_options.valid)
             {
                 if (state.table_mode)
                 {
@@ -2490,7 +3147,7 @@ void render_micron_body(char* body, std::size_t body_len, bool truncated)
                 }
                 else
                 {
-                    begin_micron_table(state);
+                    begin_micron_table(state, table_options);
                 }
             }
             else if (state.table_mode)
@@ -2500,6 +3157,10 @@ void render_micron_body(char* body, std::size_t body_len, bool truncated)
             else
             {
                 render_micron_line(line, state);
+            }
+            if (state.row_limit_reached || state.object_limit_reached)
+            {
+                break;
             }
             if (saved == '\0')
             {
@@ -2514,6 +3175,8 @@ void render_micron_body(char* body, std::size_t body_len, bool truncated)
     {
         finish_micron_table(state);
     }
+
+    render_micron_notices(state);
 
     if (truncated)
     {
@@ -2728,12 +3391,29 @@ void render_remote_page_shell(const char* address,
     }
 }
 
+void jump_to_rendered_micron_anchor(const char* anchor)
+{
+    if (!anchor || anchor[0] == '\0')
+    {
+        return;
+    }
+    char target[micron::kMaxAnchorNameBytes + 2U] = {};
+    std::snprintf(target, sizeof(target), "#%s", anchor);
+    if (g_state.viewport && lv_obj_is_valid(g_state.viewport))
+    {
+        lv_obj_update_layout(g_state.viewport);
+    }
+    (void)jump_to_micron_anchor(target, nullptr);
+}
+
 void render_cached_page(const rtpage::Status& status,
-                        std::size_t body_len)
+                        std::size_t body_len,
+                        const char* anchor = nullptr)
 {
     clear_viewport();
     g_state.rendered_shell_address[0] = '\0';
     render_micron_body(g_state.page_body.data(), body_len, status.truncated);
+    jump_to_rendered_micron_anchor(anchor);
 }
 
 void page_load_timer_cb(lv_timer_t* /*timer*/)
@@ -2823,7 +3503,8 @@ void render_current_page()
                                            page_address.path);
             stop_page_load_timer();
             render_cached_page(g_state.cached_page_status,
-                               g_state.cached_page_body_len);
+                               g_state.cached_page_body_len,
+                               page_address.anchor);
             return;
         }
 
@@ -2865,7 +3546,7 @@ void render_current_page()
             rtpage::clear_request_progress(page_address.destination,
                                            page_address.path);
             stop_page_load_timer();
-            render_cached_page(cache_status, body_len);
+            render_cached_page(cache_status, body_len, page_address.anchor);
             return;
         }
 

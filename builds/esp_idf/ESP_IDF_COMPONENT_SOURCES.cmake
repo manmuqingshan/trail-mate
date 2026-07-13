@@ -253,6 +253,7 @@ set(TRAILMATE_ESP_IDF_UI_SHARED_SOURCES
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/gnss/gnss_skyplot_page_shell.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/gps/gps_page_runtime.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/gps/gps_page_shell.cpp"
+    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/network/micron_markup_contract.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/network/network_page_shell.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/node_info/node_info_page_components.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/screens/node_info/node_info_page_layout.cpp"
