@@ -553,6 +553,49 @@ const char* local_text_send_failure_message(::ui::UiActionResult result)
     }
 }
 
+const char* reticulum_ping_failure_message(const chat::MeshActionResult& result)
+{
+    if (result.failure == chat::MeshOperationFailure::NotReady && result.detail == 1)
+    {
+        return "Path requested";
+    }
+    if (result.failure == chat::MeshOperationFailure::NotReady && result.detail == 2)
+    {
+        return "Path pending";
+    }
+    switch (result.failure)
+    {
+    case chat::MeshOperationFailure::InvalidInput:
+        return "Ping unavailable";
+    case chat::MeshOperationFailure::Unsupported:
+        return "Ping unsupported";
+    case chat::MeshOperationFailure::PeerKeyMissing:
+        return "Peer identity missing";
+    case chat::MeshOperationFailure::NotReady:
+        return "Radio not ready";
+    case chat::MeshOperationFailure::CryptoFailed:
+        return "Ping setup failed";
+    case chat::MeshOperationFailure::RadioTxFailed:
+        return "Ping send failed";
+    case chat::MeshOperationFailure::TxDisabled:
+        return "TX disabled";
+    case chat::MeshOperationFailure::RadioOffline:
+        return "Radio offline";
+    case chat::MeshOperationFailure::DutyCycleLimited:
+        return "TX rate limited";
+    case chat::MeshOperationFailure::Busy:
+        return "Radio busy";
+    case chat::MeshOperationFailure::ChannelKeyMissing:
+        return "Key missing";
+    case chat::MeshOperationFailure::EncodeFailed:
+    case chat::MeshOperationFailure::LocalIdentityMissing:
+    case chat::MeshOperationFailure::None:
+    case chat::MeshOperationFailure::Unknown:
+    default:
+        return "Ping failed";
+    }
+}
+
 const char* delivery_retry_failure_message(
     ::chat::delivery::ChatDeliveryActionFailure failure)
 {
@@ -729,6 +772,9 @@ void UiController::handleMessageListAction(
         break;
     case ChatMessageListScreen::ActionIntent::ShowInfo:
         openConversationInfoModal(conv);
+        break;
+    case ChatMessageListScreen::ActionIntent::PingDestination:
+        handlePingDestination(conv);
         break;
     case ChatMessageListScreen::ActionIntent::DeleteConversation:
         handleDeleteConversation(conv);
@@ -1142,6 +1188,22 @@ void UiController::switchToCompose(chat::ConversationId conv)
 void UiController::handleChannelSelected(const chat::ConversationId& conv)
 {
     switchToConversation(conv);
+}
+
+void UiController::handlePingDestination(const chat::ConversationId& conv)
+{
+    if (!has_reticulum_destination(conv) ||
+        !chat_support::supports_reticulum_destination_ping())
+    {
+        ::ui::feedback::show_notice("Ping unavailable", 1800);
+        return;
+    }
+
+    const chat::MeshActionResult result =
+        service_.pingReticulumDestination(conv.reticulum_identity);
+    ::ui::feedback::show_notice(result.ok ? "Ping sent"
+                                          : reticulum_ping_failure_message(result),
+                                result.ok ? 1400 : 2200);
 }
 
 void UiController::handleDeleteConversation(const chat::ConversationId& conv)

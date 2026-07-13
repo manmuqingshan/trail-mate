@@ -15,7 +15,7 @@ namespace contacts
 class NodeStoreCore : public INodeStore
 {
   public:
-    static constexpr size_t kMaxNodes = 24;
+    static constexpr size_t kMaxNodes = 200;
     static constexpr size_t kSerializedEntrySizeV8 = 144;
     static constexpr size_t kSerializedEntrySizeV9 = 180;
     static constexpr size_t kSerializedEntrySize = kSerializedEntrySizeV9;

@@ -27,6 +27,11 @@ bool supports_reticulum_destination_text()
     return active_mesh_capabilities().supports_reticulum_destination_text;
 }
 
+bool supports_reticulum_destination_ping()
+{
+    return active_mesh_capabilities().supports_reticulum_destination_ping;
+}
+
 bool supports_reticulum_audio_call()
 {
     return active_mesh_capabilities().supports_reticulum_audio_call;
@@ -44,7 +49,7 @@ const char* local_text_chat_unavailable_message()
 
 const char* reticulum_destination_text_unavailable_message()
 {
-    return "Reticulum group chat unavailable";
+    return "Reticulum chat unavailable";
 }
 
 const char* team_chat_unavailable_message()

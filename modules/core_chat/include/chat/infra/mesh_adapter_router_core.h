@@ -50,6 +50,8 @@ class MeshAdapterRouterCore : public IMeshAdapter
     MeshActionResult triggerDiscoveryActionDetailed(MeshDiscoveryAction action) override;
     MeshActionResult startReticulumAudioCall(
         const ReticulumPeerIdentity& destination) override;
+    MeshActionResult pingReticulumDestination(
+        const ReticulumPeerIdentity& destination) override;
     MeshActionResult persistReticulumPeer(
         const ReticulumPeerIdentity& destination,
         bool favorite) override;

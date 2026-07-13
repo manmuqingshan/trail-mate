@@ -39,6 +39,7 @@ struct MeshCapabilities
     bool supports_meshcore_identity_keys = false;
     bool supports_meshcore_peer_secret_derivation = false;
     bool supports_meshcore_rich_trace_projection = false;
+    bool supports_reticulum_destination_ping = false;
     bool supports_reticulum_audio_call = false;
 };
 
@@ -275,6 +276,21 @@ class IMeshAdapter
     {
         (void)destination;
         return MeshActionResult::fail(MeshOperationFailure::Unsupported);
+    }
+
+    /**
+     * @brief Send a MeshChat-compatible Reticulum Ping Destination probe.
+     *
+     * This is a protocol action: it sends an empty encrypted packet to an
+     * LXMF delivery destination so the remote can answer with a Reticulum
+     * proof. It is not a chat message and does not mutate contact state.
+     */
+    virtual MeshActionResult pingReticulumDestination(
+        const ReticulumPeerIdentity& destination)
+    {
+        return hasReticulumDestinationIdentity(destination)
+                   ? MeshActionResult::fail(MeshOperationFailure::Unsupported)
+                   : MeshActionResult::fail(MeshOperationFailure::InvalidInput);
     }
 
     /**

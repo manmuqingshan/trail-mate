@@ -54,21 +54,25 @@ bool ContactStoreCore::setNickname(uint32_t node_id, const char* nickname)
         return false;
     }
 
-    for (const auto& entry : entries_)
-    {
-        if (entry.node_id != node_id && strcmp(entry.nickname, nickname) == 0)
-        {
-            return false;
-        }
-    }
-
     for (auto& entry : entries_)
     {
         if (entry.node_id == node_id)
         {
+            if (strcmp(entry.nickname, nickname) == 0)
+            {
+                return true;
+            }
+            char previous[sizeof(entry.nickname)] = {};
+            strncpy(previous, entry.nickname, sizeof(previous) - 1);
             strncpy(entry.nickname, nickname, sizeof(entry.nickname) - 1);
             entry.nickname[sizeof(entry.nickname) - 1] = '\0';
-            return saveEntries();
+            if (saveEntries())
+            {
+                return true;
+            }
+            strncpy(entry.nickname, previous, sizeof(entry.nickname) - 1);
+            entry.nickname[sizeof(entry.nickname) - 1] = '\0';
+            return false;
         }
     }
 
@@ -82,7 +86,12 @@ bool ContactStoreCore::setNickname(uint32_t node_id, const char* nickname)
     strncpy(entry.nickname, nickname, sizeof(entry.nickname) - 1);
     entry.nickname[sizeof(entry.nickname) - 1] = '\0';
     entries_.push_back(entry);
-    return saveEntries();
+    if (saveEntries())
+    {
+        return true;
+    }
+    entries_.pop_back();
+    return false;
 }
 
 bool ContactStoreCore::removeNickname(uint32_t node_id)

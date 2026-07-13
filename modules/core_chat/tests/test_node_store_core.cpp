@@ -1,3 +1,4 @@
+#include "chat/infra/contact_store_core.h"
 #include "chat/infra/node_store_core.h"
 #include "chat/usecase/contact_service.h"
 #include "sys/clock.h"
@@ -43,6 +44,28 @@ class CountingBlobStore final : public chat::contacts::INodeBlobStore
     bool save_ok = true;
     int save_count = 0;
     int clear_count = 0;
+};
+
+class CountingContactBlobStore final : public chat::IContactBlobStore
+{
+  public:
+    bool loadBlob(std::vector<uint8_t>& out) override
+    {
+        out = blob;
+        return load_ok;
+    }
+
+    bool saveBlob(const uint8_t* data, size_t len) override
+    {
+        blob.assign(data, data + len);
+        ++save_count;
+        return save_ok;
+    }
+
+    std::vector<uint8_t> blob;
+    bool load_ok = false;
+    bool save_ok = true;
+    int save_count = 0;
 };
 
 class EmptyContactStore final : public chat::contacts::IContactStore
@@ -263,10 +286,10 @@ void v8_node_blobs_decode_without_reticulum_identity()
     assert(!decoded.front().reticulum_identity.valid);
 }
 
-void node_store_capacity_is_limited_to_24_entries()
+void node_store_capacity_is_limited_to_200_entries()
 {
-    static_assert(chat::contacts::NodeStoreCore::kMaxNodes == 24,
-                  "nRF node persistence budget is sized for 24 nodes");
+    static_assert(chat::contacts::NodeStoreCore::kMaxNodes == 200,
+                  "Node persistence budget is sized for 200 nodes");
 
     CountingBlobStore blob;
     chat::contacts::NodeStoreCore store(blob);
@@ -307,6 +330,45 @@ void node_store_capacity_is_limited_to_24_entries()
     assert(oldest_evicted);
 }
 
+void contact_store_allows_reapplying_and_duplicate_display_names()
+{
+    CountingContactBlobStore blob;
+    chat::contacts::ContactStoreCore store(blob);
+    store.begin();
+
+    assert(store.setNickname(0x01020304U, "Unknown Peer"));
+    assert(blob.save_count == 1);
+    assert(store.setNickname(0x01020304U, "Unknown Peer"));
+    assert(blob.save_count == 1);
+    assert(store.setNickname(0x05060708U, "Unknown Peer"));
+    assert(blob.save_count == 2);
+    assert(store.getCount() == 2);
+    assert(store.getNickname(0x01020304U) == "Unknown Peer");
+    assert(store.getNickname(0x05060708U) == "Unknown Peer");
+}
+
+void contact_store_rolls_back_failed_saves()
+{
+    CountingContactBlobStore blob;
+    chat::contacts::ContactStoreCore store(blob);
+    store.begin();
+
+    blob.save_ok = false;
+    assert(!store.setNickname(0x01020304U, "RT-01020304"));
+    assert(store.getCount() == 0);
+    assert(store.getNickname(0x01020304U).empty());
+
+    blob.save_ok = true;
+    assert(store.setNickname(0x01020304U, "RT-01020304"));
+    assert(store.getCount() == 1);
+    assert(store.getNickname(0x01020304U) == "RT-01020304");
+
+    blob.save_ok = false;
+    assert(!store.setNickname(0x01020304U, "RT-05060708"));
+    assert(store.getCount() == 1);
+    assert(store.getNickname(0x01020304U) == "RT-01020304");
+}
+
 } // namespace
 
 int main()
@@ -316,6 +378,8 @@ int main()
     persistent_node_updates_still_flush();
     reticulum_identity_updates_are_persisted_and_lookupable();
     v8_node_blobs_decode_without_reticulum_identity();
-    node_store_capacity_is_limited_to_24_entries();
+    node_store_capacity_is_limited_to_200_entries();
+    contact_store_allows_reapplying_and_duplicate_display_names();
+    contact_store_rolls_back_failed_saves();
     return 0;
 }

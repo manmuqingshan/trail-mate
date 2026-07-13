@@ -90,6 +90,14 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
         return discovery_result;
     }
 
+    chat::MeshActionResult pingReticulumDestination(
+        const chat::ReticulumPeerIdentity& destination) override
+    {
+        ++ping_count;
+        last_destination = destination;
+        return ping_result;
+    }
+
     void applyConfig(const chat::MeshConfig&) override {}
 
     bool isReady() const override
@@ -124,6 +132,7 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
     int send_count = 0;
     int destination_send_count = 0;
     int discovery_count = 0;
+    int ping_count = 0;
     int node_info_request_count = 0;
     int self_identity_broadcast_count = 0;
     bool node_info_request_ok = true;
@@ -140,6 +149,7 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
     chat::ReticulumLocalIdentityInfo reticulum_info{};
     chat::MeshDiscoveryAction last_discovery = chat::MeshDiscoveryAction::ScanLocal;
     chat::MeshActionResult discovery_result = chat::MeshActionResult::success();
+    chat::MeshActionResult ping_result = chat::MeshActionResult::success();
 };
 
 chat::ReticulumPeerIdentity makeReticulumDestination(std::uint8_t base)
@@ -239,6 +249,15 @@ int main()
     assert(std::strcmp(info.display_name, "vic uconsole") == 0);
     assert(info.identity_hash[0] == 0x10U);
     assert(info.lxmf_address[0] == 0x40U);
+
+    const chat::ReticulumPeerIdentity ping_destination =
+        makeReticulumDestination(0x90);
+    chat::MeshActionResult ping =
+        router.pingReticulumDestination(ping_destination);
+    assert(ping.ok);
+    assert(reticulum->ping_count == 1);
+    assert(chat::sameReticulumDestinationHash(reticulum->last_destination,
+                                              ping_destination));
 
     router.setActiveProtocol(chat::MeshProtocol::Meshtastic);
     assert(router.backendProtocol() == chat::MeshProtocol::Meshtastic);

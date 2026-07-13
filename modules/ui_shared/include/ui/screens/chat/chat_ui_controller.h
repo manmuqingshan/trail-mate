@@ -130,6 +130,7 @@ class UiController : public IChatUiRefreshSink
     void switchToConversation(chat::ConversationId conv);
     void switchToCompose(chat::ConversationId conv);
     void handleChannelSelected(const chat::ConversationId& conv);
+    void handlePingDestination(const chat::ConversationId& conv);
     void handleDeleteConversation(const chat::ConversationId& conv);
     void openConversationInfoModal(const chat::ConversationId& conv);
     void closeConversationInfoModal(bool restore_group);

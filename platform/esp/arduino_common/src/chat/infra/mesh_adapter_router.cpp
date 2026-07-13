@@ -220,6 +220,17 @@ MeshActionResult MeshAdapterRouter::startReticulumAudioCall(
     return core_.startReticulumAudioCall(destination);
 }
 
+MeshActionResult MeshAdapterRouter::pingReticulumDestination(
+    const ReticulumPeerIdentity& destination)
+{
+    LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        return MeshActionResult::fail(MeshOperationFailure::Busy);
+    }
+    return core_.pingReticulumDestination(destination);
+}
+
 void MeshAdapterRouter::applyConfig(const MeshConfig& config)
 {
     LockGuard lock(mutex_);

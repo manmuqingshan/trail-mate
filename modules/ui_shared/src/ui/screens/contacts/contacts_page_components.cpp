@@ -944,6 +944,19 @@ static const char* local_text_failure_message(chat::MeshOperationFailure failure
     return "Send failed";
 }
 
+static const char* compose_text_failure_message(chat::MeshOperationFailure failure,
+                                                bool reticulum_destination_send,
+                                                int detail)
+{
+    if (reticulum_destination_send &&
+        failure == chat::MeshOperationFailure::NotReady &&
+        detail > 0)
+    {
+        return detail == 1 ? "Path requested" : "Path pending";
+    }
+    return local_text_failure_message(failure);
+}
+
 static uint32_t current_timestamp_seconds()
 {
     uint32_t ts = sys::epoch_seconds_now();
@@ -954,7 +967,7 @@ static uint32_t current_timestamp_seconds()
     return ts;
 }
 
-static bool is_reticulum_group_conversation(const chat::ConversationId& conversation)
+static bool is_reticulum_destination_conversation(const chat::ConversationId& conversation)
 {
     return conversation.protocol == chat::MeshProtocol::Reticulum &&
            conversation.peer == 0 &&
@@ -2861,11 +2874,6 @@ static void open_chat_compose()
     }
     else
     {
-        if (!chat_support::supports_local_text_chat())
-        {
-            ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
-            return;
-        }
         channel = chat::ChannelId::PRIMARY;
         peer_id = node->node_id;
         chat::MeshProtocol node_protocol = protocol;
@@ -2877,6 +2885,27 @@ static void open_chat_compose()
                                    chat::infra::meshProtocolName(node_protocol));
             ::ui::feedback::show_notice(msg.c_str(), 2200);
             return;
+        }
+        const bool use_reticulum_destination =
+            protocol == chat::MeshProtocol::Reticulum &&
+            chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+        const bool text_supported =
+            use_reticulum_destination
+                ? chat_support::supports_reticulum_destination_text()
+                : chat_support::supports_local_text_chat();
+        if (!text_supported)
+        {
+            ::ui::feedback::show_notice(
+                use_reticulum_destination
+                    ? chat_support::reticulum_destination_text_unavailable_message()
+                    : chat_support::local_text_chat_unavailable_message(),
+                2200);
+            return;
+        }
+        if (use_reticulum_destination)
+        {
+            peer_id = 0;
+            reticulum_destination = node->reticulum_identity;
         }
         if (g_contacts_state.contact_service)
         {
@@ -2897,7 +2926,7 @@ static void open_chat_compose()
     set_default_group(s_compose_group);
 
     chat::ConversationId conv(channel, peer_id, protocol);
-    if (g_contacts_state.current_mode == ContactsMode::Groups)
+    if (chat::hasReticulumDestinationIdentity(reticulum_destination))
     {
         conv.reticulum_identity = reticulum_destination;
     }
@@ -3108,16 +3137,16 @@ static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, 
             return;
         }
 
-        const bool reticulum_group_send =
-            is_reticulum_group_conversation(s_compose_conversation);
+        const bool reticulum_destination_send =
+            is_reticulum_destination_conversation(s_compose_conversation);
         const bool send_supported =
-            reticulum_group_send
+            reticulum_destination_send
                 ? chat_support::supports_reticulum_destination_text()
                 : chat_support::supports_local_text_chat();
         if (!send_supported)
         {
             ::ui::feedback::show_notice(
-                reticulum_group_send
+                reticulum_destination_send
                     ? chat_support::reticulum_destination_text_unavailable_message()
                     : chat_support::local_text_chat_unavailable_message(),
                 2200);
@@ -3136,8 +3165,8 @@ static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, 
                                              dest_hash,
                                              sizeof(dest_hash));
                 format_log_text_preview(text, text_preview, sizeof(text_preview));
-                std::printf("[Contacts][TX] send_begin group=%u protocol=%s target=\"%s\" ch=%u peer=%08lX dest=%s len=%u text=\"%s\"\n",
-                            reticulum_group_send ? 1U : 0U,
+                std::printf("[Contacts][TX] send_begin destination=%u protocol=%s target=\"%s\" ch=%u peer=%08lX dest=%s len=%u text=\"%s\"\n",
+                            reticulum_destination_send ? 1U : 0U,
                             chat::infra::meshProtocolName(s_compose_protocol),
                             s_compose_target_display_name.c_str(),
                             static_cast<unsigned>(s_compose_channel),
@@ -3159,7 +3188,9 @@ static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, 
                 if (!result.ok || result.msg_id == 0)
                 {
                     ::ui::feedback::show_notice(
-                        local_text_failure_message(result.failure),
+                        compose_text_failure_message(result.failure,
+                                                     reticulum_destination_send,
+                                                     result.detail),
                         2000);
                 }
                 close_chat_compose();
@@ -3849,9 +3880,53 @@ enum class ActionMenuCommand : uint8_t
     Add = 5,
     Delete = 6,
     ToggleIgnore = 7,
-    Call = 8,
-    Cancel = 9,
+    Ping = 8,
+    Call = 9,
+    Cancel = 10,
 };
+
+static const char* reticulum_ping_failure_message(const chat::MeshActionResult& result)
+{
+    if (result.failure == chat::MeshOperationFailure::NotReady && result.detail == 1)
+    {
+        return "Path requested";
+    }
+    if (result.failure == chat::MeshOperationFailure::NotReady && result.detail == 2)
+    {
+        return "Path pending";
+    }
+    switch (result.failure)
+    {
+    case chat::MeshOperationFailure::InvalidInput:
+        return "Ping unavailable";
+    case chat::MeshOperationFailure::Unsupported:
+        return "Ping unsupported";
+    case chat::MeshOperationFailure::NotReady:
+        return "Radio not ready";
+    case chat::MeshOperationFailure::PeerKeyMissing:
+        return "Peer identity missing";
+    case chat::MeshOperationFailure::CryptoFailed:
+        return "Ping setup failed";
+    case chat::MeshOperationFailure::RadioTxFailed:
+        return "Ping send failed";
+    case chat::MeshOperationFailure::TxDisabled:
+        return "TX disabled";
+    case chat::MeshOperationFailure::RadioOffline:
+        return "Radio offline";
+    case chat::MeshOperationFailure::DutyCycleLimited:
+        return "TX rate limited";
+    case chat::MeshOperationFailure::Busy:
+        return "Radio busy";
+    case chat::MeshOperationFailure::ChannelKeyMissing:
+        return "Key missing";
+    case chat::MeshOperationFailure::EncodeFailed:
+    case chat::MeshOperationFailure::LocalIdentityMissing:
+    case chat::MeshOperationFailure::None:
+    case chat::MeshOperationFailure::Unknown:
+        break;
+    }
+    return "Ping failed";
+}
 
 static const char* reticulum_call_failure_message(const chat::MeshActionResult& result)
 {
@@ -3907,6 +3982,40 @@ static bool selected_node_supports_reticulum_call(const chat::contacts::NodeInfo
     }
     return chat_support::supports_reticulum_audio_call() &&
            chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+}
+
+static bool selected_node_supports_reticulum_ping(const chat::contacts::NodeInfo* node)
+{
+    if (!node || chat_support::active_mesh_protocol() != chat::MeshProtocol::Reticulum)
+    {
+        return false;
+    }
+    if (g_contacts_state.current_mode != ContactsMode::Contacts &&
+        g_contacts_state.current_mode != ContactsMode::Nearby &&
+        g_contacts_state.current_mode != ContactsMode::Ignored)
+    {
+        return false;
+    }
+    return chat_support::supports_reticulum_destination_ping() &&
+           chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+}
+
+static void start_reticulum_ping_for_selected_node()
+{
+    const auto* node = get_selected_node();
+    if (!selected_node_supports_reticulum_ping(node) || !g_contacts_state.chat_service)
+    {
+        ::ui::feedback::show_notice("Ping unavailable", 1800);
+        contacts_focus_to_list();
+        return;
+    }
+
+    const chat::MeshActionResult result =
+        g_contacts_state.chat_service->pingReticulumDestination(node->reticulum_identity);
+    ::ui::feedback::show_notice(result.ok ? "Ping sent"
+                                          : reticulum_ping_failure_message(result),
+                                result.ok ? 1400 : 2200);
+    contacts_focus_to_list();
 }
 
 static void start_reticulum_call_for_selected_node()
@@ -4039,6 +4148,9 @@ static void on_action_menu_item_clicked(lv_event_t* e)
     case ActionMenuCommand::ToggleIgnore:
         toggle_selected_node_ignore();
         break;
+    case ActionMenuCommand::Ping:
+        start_reticulum_ping_for_selected_node();
+        break;
     case ActionMenuCommand::Call:
         start_reticulum_call_for_selected_node();
         break;
@@ -4070,6 +4182,7 @@ static void open_action_menu_modal()
                              (g_contacts_state.current_mode == ContactsMode::Contacts ||
                               g_contacts_state.current_mode == ContactsMode::Nearby);
     const bool allow_reticulum_call = selected_node_supports_reticulum_call(node);
+    const bool allow_reticulum_ping = selected_node_supports_reticulum_ping(node);
 
     const bool allow_chat_action =
         (g_contacts_state.current_mode == ContactsMode::Team)
@@ -4079,6 +4192,10 @@ static void open_action_menu_modal()
             : chat_support::supports_local_text_chat();
     int action_count = allow_chat_action ? 2 : 1; // Chat + Cancel
     if (allow_reticulum_call)
+    {
+        action_count += 1;
+    }
+    if (allow_reticulum_ping)
     {
         action_count += 1;
     }
@@ -4194,6 +4311,10 @@ static void open_action_menu_modal()
     if (allow_chat_action)
     {
         add_action(ActionMenuCommand::Chat, "Chat");
+    }
+    if (allow_reticulum_ping)
+    {
+        add_action(ActionMenuCommand::Ping, "Ping");
     }
     if (allow_reticulum_call)
     {

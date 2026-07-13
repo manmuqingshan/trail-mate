@@ -232,6 +232,17 @@ MeshActionResult MeshAdapterRouterCore::startReticulumAudioCall(
     return backend->startReticulumAudioCall(destination);
 }
 
+MeshActionResult MeshAdapterRouterCore::pingReticulumDestination(
+    const ReticulumPeerIdentity& destination)
+{
+    IMeshAdapter* backend = activeBackend();
+    if (!backend)
+    {
+        return MeshActionResult::fail(MeshOperationFailure::NotReady);
+    }
+    return backend->pingReticulumDestination(destination);
+}
+
 MeshActionResult MeshAdapterRouterCore::persistReticulumPeer(
     const ReticulumPeerIdentity& destination,
     bool favorite)

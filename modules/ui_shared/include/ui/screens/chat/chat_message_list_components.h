@@ -30,6 +30,7 @@ class ChatMessageListScreen
     {
         SelectConversation,
         ShowInfo,
+        PingDestination,
         DeleteConversation,
         Back
     };
@@ -106,6 +107,7 @@ class ChatMessageListScreen
     {
         Chat,
         Info,
+        PingDestination,
         Delete,
         Cancel
     };
@@ -129,7 +131,7 @@ class ChatMessageListScreen
     lv_group_t* modal_group_ = nullptr;
     lv_group_t* modal_prev_group_ = nullptr;
     chat::ConversationId modal_conv_{};
-    ModalButtonContext modal_button_contexts_[4]{};
+    ModalButtonContext modal_button_contexts_[5]{};
     ::ui::components::air_status_footer::Footer air_status_footer_{};
 
     int selected_index_ = -1;

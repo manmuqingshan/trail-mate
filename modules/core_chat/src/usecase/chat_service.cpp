@@ -243,17 +243,18 @@ MeshSendResult ChatService::sendTextToConversationDetailed(
     }
 
     const ReticulumPeerIdentity* reticulum_destination = nullptr;
+    NodeId routed_peer = conversation.peer;
     if (conversation.protocol == MeshProtocol::Reticulum &&
-        normalize_conversation_peer(conversation.peer) == 0 &&
         hasReticulumDestinationIdentity(conversation.reticulum_identity))
     {
         reticulum_destination = &conversation.reticulum_identity;
+        routed_peer = 0;
     }
 
     return sendTextResolvedDetailed(conversation.channel,
                                     text,
                                     0,
-                                    conversation.peer,
+                                    routed_peer,
                                     reticulum_destination);
 }
 
@@ -386,6 +387,16 @@ MeshActionResult ChatService::startReticulumAudioCall(
     return adapter_.startReticulumAudioCall(destination);
 }
 
+MeshActionResult ChatService::pingReticulumDestination(
+    const ReticulumPeerIdentity& destination)
+{
+    if (active_protocol_ != MeshProtocol::Reticulum)
+    {
+        return MeshActionResult::fail(MeshOperationFailure::Unsupported);
+    }
+    return adapter_.pingReticulumDestination(destination);
+}
+
 MeshActionResult ChatService::persistReticulumPeer(
     const ReticulumPeerIdentity& destination,
     bool favorite)
@@ -425,7 +436,6 @@ bool ChatService::resendFailed(MessageId msg_id)
 
     const bool resend_reticulum_destination =
         msg.protocol == MeshProtocol::Reticulum &&
-        normalize_conversation_peer(msg.peer) == 0 &&
         hasReticulumDestinationIdentity(msg.reticulum_identity);
     const ReticulumPeerIdentity* resend_destination =
         resend_reticulum_destination ? &msg.reticulum_identity : nullptr;

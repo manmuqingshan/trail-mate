@@ -225,7 +225,8 @@ Still intentionally narrower than full upstream desktop/service parity:
 
 - no shared-instance service runtime parity
 - no management destinations or tunnel handling
-- no metadata/compressed resource handling yet
+- no metadata resource handling yet; incoming compressed RNS resources are
+  decompressed for link responses
 - legacy v2 Reticulum SD logs that only contain the `NodeId` projection are not
   automatically merged into newer destination-keyed conversations
 - ESP SDStore still needs target-firmware build/runtime verification on actual

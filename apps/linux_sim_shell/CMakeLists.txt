@@ -187,6 +187,7 @@ if(BUILD_TESTING)
 
     add_executable(trailmate_node_store_core_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_node_store_core.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/contact_store_core.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/node_store_blob_format.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/node_store_core.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/contact_service.cpp"
@@ -336,6 +337,25 @@ if(BUILD_TESTING)
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_reticulum_supported_subset_vectors_smoke
              COMMAND trailmate_reticulum_supported_subset_vectors_smoke)
+
+    if(OpenSSL_FOUND)
+        add_executable(trailmate_reticulum_token_crypto_smoke
+            "${TRAIL_MATE_REPO_ROOT}/tests/reticulum_conformance/test_reticulum_token_crypto.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/reticulum_wire.cpp")
+        target_include_directories(trailmate_reticulum_token_crypto_smoke
+            PRIVATE
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+        target_compile_definitions(trailmate_reticulum_token_crypto_smoke
+            PRIVATE
+                TRAIL_MATE_HAS_OPENSSL=1
+                TRAIL_MATE_RETICULUM_SOFTWARE_AES=1)
+        target_link_libraries(trailmate_reticulum_token_crypto_smoke
+            PRIVATE OpenSSL::Crypto)
+        target_compile_features(trailmate_reticulum_token_crypto_smoke
+            PRIVATE cxx_std_17)
+        add_test(NAME trailmate_reticulum_token_crypto_smoke
+                 COMMAND trailmate_reticulum_token_crypto_smoke)
+    endif()
 
     add_executable(trailmate_reticulum_runtime_state_contract_smoke
         "${TRAIL_MATE_REPO_ROOT}/tests/reticulum_conformance/test_reticulum_runtime_state_contract.cpp"

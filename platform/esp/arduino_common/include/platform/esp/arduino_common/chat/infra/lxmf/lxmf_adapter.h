@@ -57,6 +57,8 @@ class LxmfAdapter : public IMeshAdapter
     bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     MeshActionResult startReticulumAudioCall(
         const ReticulumPeerIdentity& destination) override;
+    MeshActionResult pingReticulumDestination(
+        const ReticulumPeerIdentity& destination) override;
     MeshActionResult persistReticulumPeer(
         const ReticulumPeerIdentity& destination,
         bool favorite) override;
@@ -114,6 +116,7 @@ class LxmfAdapter : public IMeshAdapter
         bool allow_persistence = false;
         bool allow_peer_projection = false;
         bool allow_announce_tx = true;
+        bool drop_public_discovery = false;
         const char* phase = "screen";
     };
 
@@ -172,6 +175,7 @@ class LxmfAdapter : public IMeshAdapter
     uint32_t rx_summary_parse_failed_ = 0;
     uint32_t rx_summary_deferred_ = 0;
     uint32_t rx_summary_deferred_dropped_ = 0;
+    uint32_t rx_summary_throttled_discovery_ = 0;
     uint32_t last_lora_discovery_detail_log_ms_ = 0;
     uint32_t suppressed_lora_discovery_detail_logs_ = 0;
     uint32_t last_lora_announce_ignore_log_ms_ = 0;
@@ -266,11 +270,14 @@ class LxmfAdapter : public IMeshAdapter
                            reticulum::interfaces::InterfaceKind ingress_interface,
                            const RuntimeBudget& budget);
     bool consumeDiscoveryBudget(reticulum::interfaces::InterfaceKind ingress_interface);
+    bool isForegroundDiscoveryDestination(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize]) const;
     void noteRxSummary(bool wifi_skipped = false,
                        bool duplicate = false,
                        bool parse_failed = false,
                        bool deferred = false,
-                       bool deferred_dropped = false);
+                       bool deferred_dropped = false,
+                       bool throttled_discovery = false);
     bool shouldRebroadcastAnnounce(
         const reticulum::ParsedPacket& packet,
         reticulum::interfaces::InterfaceKind ingress_interface) const;

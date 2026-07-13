@@ -1,0 +1,29 @@
+{
+  "name": "trail_mate_bzip2",
+  "version": "1.0.8",
+  "description": "Vendored libbzip2 dependency for Reticulum resource decompression.",
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "espressif32"
+  ],
+  "build": {
+    "includeDir": "src",
+    "srcDir": "src",
+    "flags": [
+      "-DBZ_NO_STDIO=1"
+    ],
+    "srcFilter": [
+      "-<*>",
+      "+<blocksort.c>",
+      "+<huffman.c>",
+      "+<crctable.c>",
+      "+<randtable.c>",
+      "+<bz_internal_error.c>",
+      "+<compress.c>",
+      "+<decompress.c>",
+      "+<bzlib.c>"
+    ]
+  }
+}

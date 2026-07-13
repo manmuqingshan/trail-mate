@@ -164,6 +164,12 @@ MeshActionResult ReticulumAdapter::startReticulumAudioCall(
     return service_->startReticulumAudioCall(destination);
 }
 
+MeshActionResult ReticulumAdapter::pingReticulumDestination(
+    const ReticulumPeerIdentity& destination)
+{
+    return service_->pingReticulumDestination(destination);
+}
+
 void ReticulumAdapter::applyConfig(const MeshConfig& config)
 {
     service_->applyConfig(config);

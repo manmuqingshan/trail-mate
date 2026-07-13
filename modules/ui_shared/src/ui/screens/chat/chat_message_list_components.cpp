@@ -15,6 +15,7 @@
 #include "ui/screens/chat/chat_message_list_input.h"
 #include "ui/screens/chat/chat_message_list_layout.h"
 #include "ui/screens/chat/chat_message_list_styles.h"
+#include "ui/screens/chat/chat_protocol_support.h"
 #include "ui/ui_common.h"
 
 #include <algorithm>
@@ -175,6 +176,26 @@ static const chat::ReticulumPeerIdentity& conversation_reticulum_identity(
         return conv.reticulum_identity;
     }
     return conv.id.reticulum_identity;
+}
+
+static chat::ConversationId conversation_id_for_item(
+    const chat::ConversationMeta& conv)
+{
+    chat::ConversationId id = conv.id;
+    if (!chat::hasReticulumDestinationIdentity(id.reticulum_identity) &&
+        chat::hasReticulumDestinationIdentity(conv.reticulum_identity))
+    {
+        id.reticulum_identity = conv.reticulum_identity;
+    }
+    return id;
+}
+
+static bool conversation_supports_reticulum_ping(const chat::ConversationId& conv)
+{
+    return conv.protocol == chat::MeshProtocol::Reticulum &&
+           support::active_mesh_protocol() == chat::MeshProtocol::Reticulum &&
+           support::supports_reticulum_destination_ping() &&
+           chat::hasReticulumDestinationIdentity(conv.reticulum_identity);
 }
 
 static void format_hash_text(const uint8_t* hash, char* out, size_t out_len)
@@ -933,7 +954,9 @@ void ChatMessageListScreen::openActionMenu(const chat::ConversationId& conv)
     modal_conv_ = conv;
     prepareModalGroup();
     const int row_gap = ::ui::page_profile::current().large_touch_hitbox ? 8 : 4;
-    const int modal_h = 58 + 4 * (action_button_height() + row_gap);
+    const bool allow_ping = conversation_supports_reticulum_ping(conv);
+    const int action_count = allow_ping ? 5 : 4;
+    const int modal_h = 58 + action_count * (action_button_height() + row_gap);
     action_menu_modal_ = create_modal_root(container_, 190, modal_h);
     lv_obj_t* win = action_menu_modal_ ? lv_obj_get_child(action_menu_modal_, 0) : nullptr;
     if (!win)
@@ -999,6 +1022,10 @@ void ChatMessageListScreen::openActionMenu(const chat::ConversationId& conv)
 
     lv_obj_t* first = add_action(ModalCommand::Chat, "Chat");
     add_action(ModalCommand::Info, "Info");
+    if (allow_ping)
+    {
+        add_action(ModalCommand::PingDestination, "Ping");
+    }
     add_action(ModalCommand::Delete, "Delete");
     add_action(ModalCommand::Cancel, "Cancel");
     if (first)
@@ -1089,7 +1116,7 @@ void ChatMessageListScreen::rebuildList()
     for (const auto& conv : filtered)
     {
         MessageItem item{};
-        item.conv = conv.id;
+        item.conv = conversation_id_for_item(conv);
         item.unread_count = conv.unread;
 
         // ----- Layout -----
@@ -1214,7 +1241,7 @@ bool ChatMessageListScreen::updateListInPlace(const std::vector<chat::Conversati
 
     for (size_t index = 0; index < filtered.size(); ++index)
     {
-        if (!(items_[index].conv == filtered[index].id))
+        if (!(items_[index].conv == conversation_id_for_item(filtered[index])))
         {
             return false;
         }
@@ -1236,6 +1263,7 @@ void ChatMessageListScreen::updateListItem(const size_t index,
     }
 
     MessageItem& item = items_[index];
+    item.conv = conversation_id_for_item(conv);
     chat::ui::layout::MessageItemWidgets widgets{
         item.btn,
         item.name_label,
@@ -1359,6 +1387,10 @@ void ChatMessageListScreen::action_menu_button_cb(lv_event_t* e)
         screen->closeActionMenu();
         screen->schedule_action_async(ActionIntent::ShowInfo, conv);
         break;
+    case ModalCommand::PingDestination:
+        screen->closeActionMenu();
+        screen->schedule_action_async(ActionIntent::PingDestination, conv);
+        break;
     case ModalCommand::Delete:
         screen->openDeleteConfirm(conv);
         break;
@@ -1448,6 +1480,13 @@ void ChatMessageListScreen::page_shortcut_cb(lv_event_t* e)
     if ((key == 'i' || key == 'I') && has_selected)
     {
         screen->schedule_action_async(ActionIntent::ShowInfo, conv);
+        lv_event_stop_processing(e);
+        return;
+    }
+    if ((key == 'p' || key == 'P') && has_selected &&
+        conversation_supports_reticulum_ping(conv))
+    {
+        screen->schedule_action_async(ActionIntent::PingDestination, conv);
         lv_event_stop_processing(e);
         return;
     }

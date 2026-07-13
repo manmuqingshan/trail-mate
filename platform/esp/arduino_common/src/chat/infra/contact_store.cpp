@@ -50,7 +50,7 @@ void ContactStore::operator delete(void* ptr, std::size_t) noexcept
 namespace
 {
 constexpr uint32_t kSdLoadWaitMs = 250;
-constexpr uint32_t kSdPersistWaitMs = 100;
+constexpr uint32_t kSdPersistWaitMs = 750;
 constexpr uint32_t kContactStoreBusResource = 5;
 constexpr uint32_t kContactStoreBusOwnerId = 0x434F4E54u; // 'CONT'
 constexpr const char* kContactStoreBusOwner = "contact_store_sd";
@@ -223,6 +223,8 @@ bool ContactStore::saveToSD(const uint8_t* data, size_t len) const
         kContactStoreBusOwnerId);
     if (!bus_gate.locked())
     {
+        CONTACT_STORE_LOG("[ContactStore] save SD skipped: spi busy len=%u\n",
+                          static_cast<unsigned>(len));
         return false;
     }
     return chat::infra::saveRawBlobToSd(kSdPath, data, len);

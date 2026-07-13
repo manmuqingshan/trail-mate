@@ -30,6 +30,8 @@ constexpr uint32_t kText = 0x6B4A1E;
 constexpr uint32_t kTextDim = 0x8A6A3A;
 constexpr uint32_t kWarn = 0xB94A2C;
 constexpr uint32_t kOk = 0x3E7D3E;
+constexpr int kEncoderKeyRotateUp = 19;
+constexpr int kEncoderKeyRotateDown = 20;
 
 struct OverlayState
 {
@@ -41,6 +43,9 @@ struct OverlayState
     lv_obj_t* answer_btn = nullptr;
     lv_obj_t* hangup_btn = nullptr;
     lv_obj_t* decline_btn = nullptr;
+    lv_group_t* group = nullptr;
+    lv_group_t* previous_group = nullptr;
+    AppScreen* owner_app = nullptr;
     ::platform::ui::reticulum_call::State last_state =
         ::platform::ui::reticulum_call::State::Idle;
 };
@@ -85,6 +90,113 @@ void style_button(lv_obj_t* btn, uint32_t bg, uint32_t bg_pressed)
     lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUS_KEY);
 }
 
+void stop_input_event(lv_event_t* event)
+{
+    if (!event)
+    {
+        return;
+    }
+    lv_event_stop_bubbling(event);
+    lv_event_stop_processing(event);
+    if (lv_indev_t* indev = lv_event_get_indev(event))
+    {
+        lv_indev_stop_processing(indev);
+    }
+}
+
+void swallow_event_cb(lv_event_t* event)
+{
+    stop_input_event(event);
+}
+
+void add_swallow_input_callbacks(lv_obj_t* obj)
+{
+    if (!obj)
+    {
+        return;
+    }
+
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_PRESSING, nullptr);
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_PRESS_LOST, nullptr);
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_RELEASED, nullptr);
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_SHORT_CLICKED, nullptr);
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_LONG_PRESSED, nullptr);
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, nullptr);
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_GESTURE, nullptr);
+    lv_obj_add_event_cb(obj, swallow_event_cb, LV_EVENT_KEY, nullptr);
+}
+
+bool focus_previous_key(uint32_t key)
+{
+    return key == LV_KEY_UP || key == LV_KEY_LEFT || key == LV_KEY_PREV ||
+           key == static_cast<uint32_t>(kEncoderKeyRotateUp);
+}
+
+bool focus_next_key(uint32_t key)
+{
+    return key == LV_KEY_DOWN || key == LV_KEY_RIGHT || key == LV_KEY_NEXT ||
+           key == static_cast<uint32_t>(kEncoderKeyRotateDown);
+}
+
+bool handle_focus_key(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_KEY || !s_overlay.group)
+    {
+        return false;
+    }
+    const uint32_t key = lv_event_get_key(event);
+    if (focus_previous_key(key))
+    {
+        lv_group_focus_prev(s_overlay.group);
+        lv_group_set_editing(s_overlay.group, false);
+        stop_input_event(event);
+        return true;
+    }
+    if (focus_next_key(key))
+    {
+        lv_group_focus_next(s_overlay.group);
+        lv_group_set_editing(s_overlay.group, false);
+        stop_input_event(event);
+        return true;
+    }
+    return false;
+}
+
+bool visible_action(lv_obj_t* obj, bool incoming)
+{
+    if (!obj || !lv_obj_is_valid(obj) || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN))
+    {
+        return false;
+    }
+    if (incoming)
+    {
+        return obj == s_overlay.answer_btn || obj == s_overlay.decline_btn;
+    }
+    return obj == s_overlay.hangup_btn;
+}
+
+void focus_default_action(bool incoming, bool force)
+{
+    if (!s_overlay.group)
+    {
+        return;
+    }
+    lv_obj_t* focused = lv_group_get_focused(s_overlay.group);
+    if (!force && visible_action(focused, incoming))
+    {
+        return;
+    }
+    lv_obj_t* target = incoming ? s_overlay.answer_btn : s_overlay.hangup_btn;
+    if (target && lv_obj_is_valid(target) &&
+        !lv_obj_has_flag(target, LV_OBJ_FLAG_HIDDEN))
+    {
+        lv_group_focus_obj(target);
+        lv_group_set_editing(s_overlay.group, false);
+    }
+}
+
 lv_obj_t* make_button(lv_obj_t* parent,
                       const char* text,
                       uint32_t bg,
@@ -102,9 +214,13 @@ lv_obj_t* make_button(lv_obj_t* parent,
     lv_obj_center(label);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_KEY, nullptr);
-    if (app_g)
+    lv_obj_add_event_cb(btn, swallow_event_cb, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(btn, swallow_event_cb, LV_EVENT_PRESSING, nullptr);
+    lv_obj_add_event_cb(btn, swallow_event_cb, LV_EVENT_PRESS_LOST, nullptr);
+    lv_obj_add_event_cb(btn, swallow_event_cb, LV_EVENT_RELEASED, nullptr);
+    if (s_overlay.group)
     {
-        lv_group_add_obj(app_g, btn);
+        lv_group_add_obj(s_overlay.group, btn);
     }
     return btn;
 }
@@ -124,15 +240,20 @@ bool activation_event(lv_event_t* event)
         return false;
     }
     const uint32_t key = lv_event_get_key(event);
-    return key == LV_KEY_ENTER || key == LV_KEY_RIGHT;
+    return key == LV_KEY_ENTER;
 }
 
 void answer_cb(lv_event_t* event)
 {
+    if (handle_focus_key(event))
+    {
+        return;
+    }
     if (!activation_event(event))
     {
         return;
     }
+    stop_input_event(event);
     if (!::platform::ui::reticulum_call::accept())
     {
         ::ui::feedback::show_notice(::ui::i18n::tr("Call unavailable"), 1800);
@@ -141,19 +262,29 @@ void answer_cb(lv_event_t* event)
 
 void hangup_cb(lv_event_t* event)
 {
+    if (handle_focus_key(event))
+    {
+        return;
+    }
     if (!activation_event(event))
     {
         return;
     }
+    stop_input_event(event);
     ::platform::ui::reticulum_call::hangup();
 }
 
 void decline_cb(lv_event_t* event)
 {
+    if (handle_focus_key(event))
+    {
+        return;
+    }
     if (!activation_event(event))
     {
         return;
     }
+    stop_input_event(event);
     ::platform::ui::reticulum_call::reject();
 }
 
@@ -163,39 +294,89 @@ void root_key_cb(lv_event_t* event)
     {
         return;
     }
+    if (handle_focus_key(event))
+    {
+        return;
+    }
     const uint32_t key = lv_event_get_key(event);
     const auto snapshot = ::platform::ui::reticulum_call::snapshot();
     if ((key == LV_KEY_ESC || key == LV_KEY_BACKSPACE) &&
         snapshot.state != ::platform::ui::reticulum_call::State::Idle)
     {
+        stop_input_event(event);
         ::platform::ui::reticulum_call::hangup();
     }
 }
 
 void destroy_overlay()
 {
+    if (!s_overlay.root && !s_overlay.group)
+    {
+        if (ui_is_overlay_active())
+        {
+            ui_set_overlay_active(false);
+        }
+        return;
+    }
+
+    lv_group_t* group = s_overlay.group;
+    lv_group_t* previous_group = s_overlay.previous_group;
+    AppScreen* owner_app = s_overlay.owner_app;
     if (s_overlay.root)
     {
         lv_obj_del(s_overlay.root);
     }
     s_overlay = OverlayState{};
+
+    // Page-owned LVGL groups are deleted during page cleanup; only restore within
+    // the same active app.
+    const bool overlay_still_owns_input = group && lv_group_get_default() == group;
+    const bool previous_group_still_owned =
+        previous_group && owner_app == ui_get_active_app();
+    if (overlay_still_owns_input && previous_group_still_owned)
+    {
+        set_default_group(previous_group);
+    }
+    else if (overlay_still_owns_input)
+    {
+        set_default_group(nullptr);
+    }
+    if (group)
+    {
+        lv_group_del(group);
+    }
+    ui_set_overlay_active(false);
 }
 
 void ensure_overlay()
 {
     if (s_overlay.root && lv_obj_is_valid(s_overlay.root))
     {
+        ui_set_overlay_active(true);
+        lv_obj_move_foreground(s_overlay.root);
         return;
     }
 
+    s_overlay.previous_group = lv_group_get_default();
+    s_overlay.owner_app = ui_get_active_app();
+    s_overlay.group = lv_group_create();
+    if (s_overlay.group)
+    {
+        set_default_group(s_overlay.group);
+    }
+    ui_set_overlay_active(true);
+
     s_overlay.root = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_overlay.root);
     lv_obj_set_size(s_overlay.root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_color(s_overlay.root, lv_color_hex(kScrim), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_overlay.root, LV_OPA_70, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_overlay.root, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_overlay.root, 8, LV_PART_MAIN);
+    lv_obj_clear_flag(s_overlay.root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_overlay.root, root_key_cb, LV_EVENT_KEY, nullptr);
     lv_obj_add_flag(s_overlay.root, LV_OBJ_FLAG_CLICKABLE);
+    add_swallow_input_callbacks(s_overlay.root);
 
     s_overlay.panel = lv_obj_create(s_overlay.root);
     const bool dense = ::ui::page_profile::current().dense;
@@ -213,6 +394,9 @@ void ensure_overlay()
     lv_obj_set_style_radius(s_overlay.panel, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_overlay.panel, dense ? 8 : 12, LV_PART_MAIN);
     lv_obj_set_style_pad_row(s_overlay.panel, dense ? 4 : 6, LV_PART_MAIN);
+    lv_obj_clear_flag(s_overlay.panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_overlay.panel, LV_OBJ_FLAG_CLICKABLE);
+    add_swallow_input_callbacks(s_overlay.panel);
 
     s_overlay.title = lv_label_create(s_overlay.panel);
     lv_obj_set_width(s_overlay.title, LV_PCT(100));
@@ -241,10 +425,14 @@ void ensure_overlay()
     lv_obj_set_style_bg_opa(actions, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(actions, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(actions, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(actions, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(actions, LV_OBJ_FLAG_CLICKABLE);
+    add_swallow_input_callbacks(actions);
 
     s_overlay.answer_btn = make_button(actions, "Answer", kOk, 0x2F662F, answer_cb);
     s_overlay.hangup_btn = make_button(actions, "Hang up", kWarn, 0x95351F, hangup_cb);
     s_overlay.decline_btn = make_button(actions, "Decline", kAmber, kAmberDark, decline_cb);
+    lv_obj_move_foreground(s_overlay.root);
 }
 
 void format_peer_name(const ::platform::ui::reticulum_call::Snapshot& snapshot,
@@ -276,6 +464,7 @@ void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
     const bool incoming = state == ::platform::ui::reticulum_call::State::Incoming;
     const bool active = state == ::platform::ui::reticulum_call::State::Active;
     const bool outgoing = state == ::platform::ui::reticulum_call::State::Outgoing;
+    const bool state_changed = s_overlay.last_state != state;
 
     apply_label(s_overlay.title,
                 incoming ? "Incoming call" : (outgoing ? "Calling" : "Reticulum call"),
@@ -314,20 +503,14 @@ void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
         lv_obj_clear_flag(s_overlay.answer_btn, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_overlay.decline_btn, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_overlay.hangup_btn, LV_OBJ_FLAG_HIDDEN);
-        if (app_g)
-        {
-            lv_group_focus_obj(s_overlay.answer_btn);
-        }
+        focus_default_action(true, state_changed);
     }
     else
     {
         lv_obj_add_flag(s_overlay.answer_btn, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_overlay.decline_btn, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_overlay.hangup_btn, LV_OBJ_FLAG_HIDDEN);
-        if (app_g)
-        {
-            lv_group_focus_obj(s_overlay.hangup_btn);
-        }
+        focus_default_action(false, state_changed);
     }
     s_overlay.last_state = state;
 }

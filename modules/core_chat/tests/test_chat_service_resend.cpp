@@ -67,6 +67,14 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
         return result;
     }
 
+    chat::MeshActionResult pingReticulumDestination(
+        const chat::ReticulumPeerIdentity& destination) override
+    {
+        ++ping_count;
+        last_destination = destination;
+        return next_ping_result;
+    }
+
     void pushIncoming(chat::NodeId from,
                       chat::MessageId msg_id,
                       const std::string& text,
@@ -127,8 +135,10 @@ class FakeMeshAdapter final : public chat::IMeshAdapter
     chat::MeshOperationFailure next_failure = chat::MeshOperationFailure::Unknown;
     chat::MessageId next_msg_id = 100;
     chat::ReticulumPeerIdentity next_reticulum_identity{};
+    chat::MeshActionResult next_ping_result = chat::MeshActionResult::success();
     int send_count = 0;
     int destination_send_count = 0;
+    int ping_count = 0;
     chat::ChannelId last_channel = chat::ChannelId::PRIMARY;
     std::string last_text;
     chat::MessageId last_forced_id = 0;
@@ -269,6 +279,22 @@ int main()
     service.setActiveProtocol(chat::MeshProtocol::Meshtastic);
     mesh.next_reticulum_identity = {};
 
+    const chat::ReticulumPeerIdentity ping_identity =
+        makeReticulumDestination(0x88);
+    chat::MeshActionResult ping =
+        service.pingReticulumDestination(ping_identity);
+    assert(!ping.ok);
+    assert(ping.failure == chat::MeshOperationFailure::Unsupported);
+    assert(mesh.ping_count == 0);
+
+    service.setActiveProtocol(chat::MeshProtocol::Reticulum);
+    mesh.next_ping_result = chat::MeshActionResult::success();
+    ping = service.pingReticulumDestination(ping_identity);
+    assert(ping.ok);
+    assert(mesh.ping_count == 1);
+    assertReticulumIdentityEquals(mesh.last_destination, ping_identity);
+    service.setActiveProtocol(chat::MeshProtocol::Meshtastic);
+
     {
         chat::ChatModel group_model;
         FakeMeshAdapter group_mesh;
@@ -298,6 +324,69 @@ int main()
         assert(group_msg->peer == 0);
         assert(group_msg->status == chat::MessageStatus::Queued);
         assertReticulumIdentityEquals(group_msg->reticulum_identity, group_identity);
+    }
+
+    {
+        chat::ChatModel direct_model;
+        FakeMeshAdapter direct_mesh;
+        chat::RamStore direct_store;
+        chat::ChatService direct_service(direct_model,
+                                         direct_mesh,
+                                         direct_store,
+                                         chat::MeshProtocol::Reticulum);
+        const chat::ReticulumPeerIdentity direct_identity =
+            makeReticulumDestination(0x98);
+        chat::ConversationId direct_conv(chat::ChannelId::PRIMARY,
+                                         0xDEAD0001UL,
+                                         chat::MeshProtocol::Reticulum);
+        direct_conv.reticulum_identity = direct_identity;
+
+        direct_mesh.next_send_ok = true;
+        direct_mesh.next_msg_id = 750;
+        const chat::MeshSendResult direct_send =
+            direct_service.sendTextToConversationDetailed(direct_conv,
+                                                          "direct destination");
+        assert(direct_send.ok);
+        assert(direct_send.msg_id == 750);
+        assert(direct_mesh.send_count == 0);
+        assert(direct_mesh.destination_send_count == 1);
+        assert(direct_mesh.last_peer == 0);
+        assertReticulumIdentityEquals(direct_mesh.last_destination, direct_identity);
+
+        const chat::ChatMessage* direct_msg =
+            onlyMessage(direct_service, direct_conv);
+        assert(direct_msg->peer == 0);
+        assert(direct_msg->status == chat::MessageStatus::Queued);
+        assertReticulumIdentityEquals(direct_msg->reticulum_identity,
+                                      direct_identity);
+    }
+
+    {
+        chat::ChatModel old_model;
+        FakeMeshAdapter old_mesh;
+        chat::RamStore old_store;
+        chat::ChatService old_service(old_model,
+                                      old_mesh,
+                                      old_store,
+                                      chat::MeshProtocol::Reticulum);
+        const chat::ReticulumPeerIdentity old_identity =
+            makeReticulumDestination(0x99);
+        chat::ChatMessage old_msg{};
+        old_msg.protocol = chat::MeshProtocol::Reticulum;
+        old_msg.channel = chat::ChannelId::PRIMARY;
+        old_msg.peer = 0xDEAD0002UL;
+        old_msg.msg_id = 760;
+        old_msg.text = "old direct destination";
+        old_msg.status = chat::MessageStatus::Failed;
+        old_msg.reticulum_identity = old_identity;
+        old_store.append(old_msg);
+
+        old_mesh.next_send_ok = true;
+        assert(old_service.resendFailed(760));
+        assert(old_mesh.send_count == 0);
+        assert(old_mesh.destination_send_count == 1);
+        assert(old_mesh.last_forced_id == 760);
+        assertReticulumIdentityEquals(old_mesh.last_destination, old_identity);
     }
 
     {

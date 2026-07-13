@@ -23,6 +23,8 @@ constexpr uint32_t kKeycap = 0xF8E6C3;
 constexpr uint32_t kBorder = 0x8A6E43;
 constexpr uint32_t kText = 0x25170D;
 constexpr uint32_t kTextDim = 0x3E2B18;
+constexpr uint32_t kPagerRotateUpKey = 19;
+constexpr uint32_t kPagerRotateDownKey = 20;
 
 bool close_key(uint32_t key)
 {
@@ -35,12 +37,12 @@ bool close_key(uint32_t key)
 
 bool up_key(uint32_t key)
 {
-    return key == LV_KEY_UP || key == 'w' || key == 'W';
+    return key == LV_KEY_UP || key == kPagerRotateUpKey || key == 'w' || key == 'W';
 }
 
 bool down_key(uint32_t key)
 {
-    return key == LV_KEY_DOWN || key == 's' || key == 'S';
+    return key == LV_KEY_DOWN || key == kPagerRotateDownKey || key == 's' || key == 'S';
 }
 
 void consume(lv_event_t* event)
@@ -139,17 +141,6 @@ void add_row(lv_obj_t* parent, const Row& row)
     lv_obj_set_style_text_color(text, lv_color_hex(kTextDim), 0);
     lv_label_set_long_mode(text, LV_LABEL_LONG_DOT);
     lv_label_set_text(text, row.description ? row.description : "");
-}
-
-void on_close_clicked(lv_event_t* event)
-{
-    auto* state = static_cast<State*>(lv_event_get_user_data(event));
-    if (!state || lv_event_get_code(event) != LV_EVENT_CLICKED)
-    {
-        return;
-    }
-    close(*state);
-    consume(event);
 }
 
 void on_key(lv_event_t* event)
@@ -274,24 +265,6 @@ bool open(State& state, lv_obj_t* parent, const Config& config)
     lv_obj_set_style_text_font(title, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(kText), 0);
 
-    lv_obj_t* close_btn = lv_btn_create(title_row);
-    lv_obj_set_size(close_btn, 54, 18);
-    lv_obj_set_style_bg_color(close_btn, lv_color_hex(kKeycap), 0);
-    lv_obj_set_style_bg_opa(close_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(close_btn, 1, 0);
-    lv_obj_set_style_border_color(close_btn, lv_color_hex(kBorder), 0);
-    lv_obj_set_style_radius(close_btn, 4, 0);
-    lv_obj_set_style_shadow_width(close_btn, 0, 0);
-    lv_obj_set_style_pad_all(close_btn, 0, 0);
-    lv_obj_add_event_cb(close_btn, on_close_clicked, LV_EVENT_CLICKED, &state);
-    lv_obj_add_event_cb(close_btn, on_key, LV_EVENT_KEY, &state);
-
-    lv_obj_t* close_label = lv_label_create(close_btn);
-    lv_label_set_text(close_label, "Close");
-    lv_obj_set_style_text_font(close_label, &lv_font_montserrat_10, 0);
-    lv_obj_set_style_text_color(close_label, lv_color_hex(kText), 0);
-    lv_obj_center(close_label);
-
     state.body = lv_obj_create(state.panel);
     lv_obj_set_width(state.body, LV_PCT(100));
     lv_obj_set_height(state.body, 0);
@@ -315,8 +288,8 @@ bool open(State& state, lv_obj_t* parent, const Config& config)
     if (state.group)
     {
         lv_group_add_obj(state.group, state.panel);
-        lv_group_add_obj(state.group, close_btn);
         lv_group_focus_obj(state.panel);
+        lv_group_set_editing(state.group, true);
     }
     return true;
 }
