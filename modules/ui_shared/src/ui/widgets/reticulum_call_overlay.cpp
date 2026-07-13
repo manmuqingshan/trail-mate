@@ -32,6 +32,8 @@ constexpr uint32_t kWarn = 0xB94A2C;
 constexpr uint32_t kOk = 0x3E7D3E;
 constexpr int kEncoderKeyRotateUp = 19;
 constexpr int kEncoderKeyRotateDown = 20;
+constexpr lv_coord_t kFallbackScreenW = 320;
+constexpr lv_coord_t kFallbackScreenH = 240;
 
 struct OverlayState
 {
@@ -46,11 +48,89 @@ struct OverlayState
     lv_group_t* group = nullptr;
     lv_group_t* previous_group = nullptr;
     AppScreen* owner_app = nullptr;
+    bool needs_present = false;
     ::platform::ui::reticulum_call::State last_state =
         ::platform::ui::reticulum_call::State::Idle;
 };
 
 OverlayState s_overlay;
+
+lv_coord_t display_width()
+{
+    const lv_coord_t width = lv_display_get_horizontal_resolution(nullptr);
+    if (width > 0)
+    {
+        return width;
+    }
+    if (lv_obj_t* screen = lv_scr_act())
+    {
+        const lv_coord_t screen_width = lv_obj_get_width(screen);
+        if (screen_width > 0)
+        {
+            return screen_width;
+        }
+    }
+    return kFallbackScreenW;
+}
+
+lv_coord_t display_height()
+{
+    const lv_coord_t height = lv_display_get_vertical_resolution(nullptr);
+    if (height > 0)
+    {
+        return height;
+    }
+    if (lv_obj_t* screen = lv_scr_act())
+    {
+        const lv_coord_t screen_height = lv_obj_get_height(screen);
+        if (screen_height > 0)
+        {
+            return screen_height;
+        }
+    }
+    return kFallbackScreenH;
+}
+
+lv_coord_t clamp_panel_width(lv_coord_t preferred, lv_coord_t screen_width)
+{
+    const lv_coord_t max_width = screen_width > 24 ? screen_width - 16 : screen_width;
+    if (max_width > 0 && preferred > max_width)
+    {
+        return max_width;
+    }
+    return preferred;
+}
+
+void cover_display(lv_obj_t* obj)
+{
+    if (!obj || !lv_obj_is_valid(obj))
+    {
+        return;
+    }
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, display_width(), display_height());
+}
+
+void normalize_top_layer()
+{
+    if (lv_obj_t* top = lv_layer_top())
+    {
+        cover_display(top);
+    }
+}
+
+void present_overlay_now()
+{
+    if (s_overlay.root && lv_obj_is_valid(s_overlay.root))
+    {
+        lv_obj_invalidate(s_overlay.root);
+    }
+    if (lv_obj_t* top = lv_layer_top())
+    {
+        lv_obj_invalidate(top);
+    }
+    lv_refr_now(nullptr);
+}
 
 const lv_font_t* body_font()
 {
@@ -350,9 +430,11 @@ void destroy_overlay()
 
 void ensure_overlay()
 {
+    normalize_top_layer();
     if (s_overlay.root && lv_obj_is_valid(s_overlay.root))
     {
         ui_set_overlay_active(true);
+        cover_display(s_overlay.root);
         lv_obj_move_foreground(s_overlay.root);
         return;
     }
@@ -368,11 +450,11 @@ void ensure_overlay()
 
     s_overlay.root = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s_overlay.root);
-    lv_obj_set_size(s_overlay.root, LV_PCT(100), LV_PCT(100));
+    cover_display(s_overlay.root);
     lv_obj_set_style_bg_color(s_overlay.root, lv_color_hex(kScrim), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_overlay.root, LV_OPA_70, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_overlay.root, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(s_overlay.root, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_overlay.root, 0, LV_PART_MAIN);
     lv_obj_clear_flag(s_overlay.root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_overlay.root, root_key_cb, LV_EVENT_KEY, nullptr);
     lv_obj_add_flag(s_overlay.root, LV_OBJ_FLAG_CLICKABLE);
@@ -380,7 +462,10 @@ void ensure_overlay()
 
     s_overlay.panel = lv_obj_create(s_overlay.root);
     const bool dense = ::ui::page_profile::current().dense;
-    lv_obj_set_size(s_overlay.panel, dense ? 220 : 260, LV_SIZE_CONTENT);
+    const lv_coord_t screen_w = display_width();
+    lv_obj_set_size(s_overlay.panel,
+                    clamp_panel_width(dense ? 220 : 260, screen_w),
+                    LV_SIZE_CONTENT);
     lv_obj_align(s_overlay.panel, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_flex_flow(s_overlay.panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(s_overlay.panel,
@@ -433,6 +518,7 @@ void ensure_overlay()
     s_overlay.hangup_btn = make_button(actions, "Hang up", kWarn, 0x95351F, hangup_cb);
     s_overlay.decline_btn = make_button(actions, "Decline", kAmber, kAmberDark, decline_cb);
     lv_obj_move_foreground(s_overlay.root);
+    s_overlay.needs_present = true;
 }
 
 void format_peer_name(const ::platform::ui::reticulum_call::Snapshot& snapshot,
@@ -536,6 +622,11 @@ void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
         focus_default_action(false, state_changed);
     }
     s_overlay.last_state = state;
+    if (s_overlay.needs_present || state_changed)
+    {
+        s_overlay.needs_present = false;
+        present_overlay_now();
+    }
 }
 
 } // namespace

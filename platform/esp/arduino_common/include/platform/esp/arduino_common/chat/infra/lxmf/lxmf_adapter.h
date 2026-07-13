@@ -95,7 +95,8 @@ class LxmfAdapter : public IMeshAdapter
     static constexpr uint32_t kAnnounceIntervalMs = 120000;
     static constexpr uint32_t kInitialAnnounceDelayMs = 1500;
     static constexpr uint32_t kPendingAnnounceRetryMs = 30000;
-    static constexpr uint8_t kMaxIngressPacketsPerPoll = 2;
+    static constexpr uint8_t kMaxIngressPacketsPerPoll = 4;
+    static constexpr uint8_t kCallIngressPacketsPerPoll = 8;
     static constexpr uint32_t kDiscoverySampleIntervalMs = 10000;
     static constexpr uint32_t kRxSummaryIntervalMs = 5000;
     static constexpr uint32_t kAnnounceRebroadcastIntervalMs = 60000;

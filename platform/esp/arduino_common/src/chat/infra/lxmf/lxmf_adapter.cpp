@@ -2158,7 +2158,7 @@ LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
     RuntimeBudget budget{};
     if (::platform::ui::reticulum_call::realtime_mode_active())
     {
-        budget.live_packet_limit = 2;
+        budget.live_packet_limit = kCallIngressPacketsPerPoll;
         budget.deferred_discovery_limit = 0;
         budget.allow_public_discovery = false;
         budget.allow_persistence = false;
@@ -2187,7 +2187,7 @@ LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
     if (maintenance_window)
     {
         budget.live_packet_limit = kMaxIngressPacketsPerPoll;
-        budget.deferred_discovery_limit = 2;
+        budget.deferred_discovery_limit = 1;
         budget.allow_public_discovery = true;
         budget.allow_persistence = true;
         budget.allow_peer_projection = true;

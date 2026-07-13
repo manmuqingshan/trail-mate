@@ -101,7 +101,8 @@ class WifiGatewayReticulumInterface
         RxMeta rx_meta{};
     };
 
-    static constexpr size_t kRxQueueDepth = 4;
+    static constexpr size_t kRxQueueDepth = 8;
+    static constexpr size_t kRxPriorityQueueDepth = 4;
     static constexpr uint8_t kHdlcFlag = 0x7E;
     static constexpr uint8_t kHdlcEscape = 0x7D;
     static constexpr uint8_t kHdlcEscapeMask = 0x20;
@@ -124,6 +125,7 @@ class WifiGatewayReticulumInterface
     size_t hdlc_frame_len_ = 0;
     uint32_t rx_stats_last_log_ms_ = 0;
     uint32_t rx_stats_frames_ = 0;
+    uint32_t rx_stats_priority_frames_ = 0;
     uint32_t rx_stats_drops_ = 0;
     uint32_t rx_stats_bytes_ = 0;
     uint32_t rx_stats_read_skips_ = 0;
@@ -131,6 +133,7 @@ class WifiGatewayReticulumInterface
     uint8_t tx_frame_[(reticulum::kReticulumMtu * 2U) + 2U] = {};
     QueuedPacket poll_scratch_{};
     QueuedPacket enqueue_scratch_{};
+    sys::RingBuffer<QueuedPacket, kRxPriorityQueueDepth> rx_priority_queue_;
     sys::RingBuffer<QueuedPacket, kRxQueueDepth> rx_queue_;
 
 #if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE

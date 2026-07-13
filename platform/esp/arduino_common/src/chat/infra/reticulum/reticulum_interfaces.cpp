@@ -46,6 +46,24 @@ const char* txBearerName(const TxResult& result)
     return "none";
 }
 
+bool isPriorityRxFrame(const uint8_t* data, size_t len)
+{
+    if (!data || len == 0)
+    {
+        return false;
+    }
+
+    ::chat::reticulum::ParsedPacket parsed{};
+    if (!::chat::reticulum::parsePacket(data, len, &parsed))
+    {
+        return false;
+    }
+
+    return parsed.packet_type == ::chat::reticulum::PacketType::LinkRequest ||
+           parsed.packet_type == ::chat::reticulum::PacketType::Proof ||
+           parsed.destination_type == ::chat::reticulum::DestinationType::Link;
+}
+
 bool copyHost(char* out, size_t out_len, const char* value)
 {
     if (!out || out_len == 0)
@@ -328,7 +346,8 @@ bool WifiGatewayReticulumInterface::pollPacket(RxPacket* out)
     maintain();
 
     poll_scratch_ = QueuedPacket{};
-    if (!rx_queue_.popOldest(&poll_scratch_))
+    if (!rx_priority_queue_.popOldest(&poll_scratch_) &&
+        !rx_queue_.popOldest(&poll_scratch_))
     {
         return false;
     }
@@ -636,7 +655,16 @@ void WifiGatewayReticulumInterface::enqueueFrame(const uint8_t* data, size_t len
     enqueue_scratch_.len = len;
     fillRxMeta(&enqueue_scratch_.rx_meta);
     bool dropped = false;
-    rx_queue_.append(enqueue_scratch_, &dropped);
+    const bool priority = isPriorityRxFrame(data, len);
+    if (priority)
+    {
+        rx_priority_queue_.append(enqueue_scratch_, &dropped);
+        ++rx_stats_priority_frames_;
+    }
+    else
+    {
+        rx_queue_.append(enqueue_scratch_, &dropped);
+    }
 
     ++rx_stats_frames_;
     if (dropped)
@@ -647,15 +675,18 @@ void WifiGatewayReticulumInterface::enqueueFrame(const uint8_t* data, size_t len
     if (rx_stats_last_log_ms_ == 0 ||
         (now_ms - rx_stats_last_log_ms_) >= kRxStatsLogIntervalMs)
     {
-        Serial.printf("[Reticulum][IF][WiFi][RX] stats frames=%u drops=%u bytes=%u read_skips=%u depth=%u last_len=%u\n",
+        Serial.printf("[Reticulum][IF][WiFi][RX] stats frames=%u priority=%u drops=%u bytes=%u read_skips=%u depth=%u prio_depth=%u last_len=%u\n",
                       static_cast<unsigned>(rx_stats_frames_),
+                      static_cast<unsigned>(rx_stats_priority_frames_),
                       static_cast<unsigned>(rx_stats_drops_),
                       static_cast<unsigned>(rx_stats_bytes_),
                       static_cast<unsigned>(rx_stats_read_skips_),
                       static_cast<unsigned>(rx_queue_.size()),
+                      static_cast<unsigned>(rx_priority_queue_.size()),
                       static_cast<unsigned>(len));
         rx_stats_last_log_ms_ = now_ms;
         rx_stats_frames_ = 0;
+        rx_stats_priority_frames_ = 0;
         rx_stats_drops_ = 0;
         rx_stats_bytes_ = 0;
         rx_stats_read_skips_ = 0;
