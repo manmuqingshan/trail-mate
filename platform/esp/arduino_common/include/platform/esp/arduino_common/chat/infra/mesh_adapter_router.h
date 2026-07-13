@@ -76,7 +76,8 @@ class MeshAdapterRouter : public IMeshAdapter
     class LockGuard
     {
       public:
-        explicit LockGuard(SemaphoreHandle_t mutex);
+        explicit LockGuard(SemaphoreHandle_t mutex,
+                           TickType_t wait_ticks = portMAX_DELAY);
         ~LockGuard();
         bool locked() const { return locked_; }
 

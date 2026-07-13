@@ -8,11 +8,13 @@
 namespace chat
 {
 
-MeshAdapterRouter::LockGuard::LockGuard(SemaphoreHandle_t mutex) : mutex_(mutex)
+MeshAdapterRouter::LockGuard::LockGuard(SemaphoreHandle_t mutex,
+                                        TickType_t wait_ticks)
+    : mutex_(mutex)
 {
     if (mutex_ != nullptr)
     {
-        locked_ = (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE);
+        locked_ = (xSemaphoreTake(mutex_, wait_ticks) == pdTRUE);
     }
 }
 
@@ -116,7 +118,9 @@ MeshSendResult MeshAdapterRouter::sendTextToReticulumDestination(
 
 bool MeshAdapterRouter::pollIncomingText(MeshIncomingText* out)
 {
-    LockGuard lock(mutex_);
+    // UI/runtime polls must not wait behind synchronous radio work that can
+    // retain the router lock for the full LoRa airtime.
+    LockGuard lock(mutex_, 0);
     return lock.locked() && core_.pollIncomingText(out);
 }
 
@@ -133,7 +137,7 @@ bool MeshAdapterRouter::sendAppData(ChannelId channel, uint32_t portnum,
 
 bool MeshAdapterRouter::pollIncomingData(MeshIncomingData* out)
 {
-    LockGuard lock(mutex_);
+    LockGuard lock(mutex_, 0);
     return lock.locked() && core_.pollIncomingData(out);
 }
 
@@ -275,7 +279,7 @@ bool MeshAdapterRouter::isReady() const
 
 bool MeshAdapterRouter::pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len)
 {
-    LockGuard lock(mutex_);
+    LockGuard lock(mutex_, 0);
     return lock.locked() && core_.pollIncomingRawPacket(out_data, out_len, max_len);
 }
 
