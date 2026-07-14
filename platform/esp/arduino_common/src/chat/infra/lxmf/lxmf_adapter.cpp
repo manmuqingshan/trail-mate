@@ -3930,14 +3930,21 @@ bool LxmfAdapter::handleLinkRequestPacket(
         return false;
     }
 
-    if (packet.transport_id &&
-        !hashesEqual(packet.transport_id, identity_.identityHash(), reticulum::kTruncatedHashSize))
+    LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
+    const bool local_destination =
+        isLocalDestinationHash(packet.destination_hash, &local_kind);
+    const bool wifi_final_delivery =
+        local_destination &&
+        ingress_interface == reticulum::interfaces::InterfaceKind::WifiGateway;
+    if (packet.transport_id && !wifi_final_delivery &&
+        !hashesEqual(packet.transport_id,
+                     identity_.identityHash(),
+                     reticulum::kTruncatedHashSize))
     {
         return false;
     }
 
-    LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
-    if (isLocalDestinationHash(packet.destination_hash, &local_kind))
+    if (local_destination)
     {
         if (local_kind == LocalDestinationKind::CallAudio &&
             ingress_interface != reticulum::interfaces::InterfaceKind::WifiGateway)

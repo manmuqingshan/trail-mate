@@ -19,14 +19,15 @@ namespace
 {
 
 constexpr uint8_t kBitsPerSample = 16;
-constexpr uint8_t kCodecChannels = 2;
+constexpr uint8_t kCodecChannels = 1;
 constexpr std::size_t kMaxCodec2SamplesPerFrame = 320;
 constexpr uint8_t kDefaultVolume = 78;
 constexpr float kDefaultGainDb = 36.0f;
+constexpr auto kAudioOwner =
+    ::boards::tlora_pager::PagerAudioOwner::ReticulumCall;
 
 bool s_registered = false;
 ::boards::tlora_pager::TLoRaPagerBoard* s_board = nullptr;
-int16_t s_codec_pcm[kMaxCodec2SamplesPerFrame * kCodecChannels] = {};
 
 ::boards::tlora_pager::TLoRaPagerBoard* resolve_board()
 {
@@ -49,16 +50,26 @@ bool open_audio(uint32_t sample_rate_hz)
 {
     s_board = resolve_board();
     if (!s_board ||
-        s_board->codec.open(kBitsPerSample, kCodecChannels, sample_rate_hz) != 0)
+        s_board->openAudioSession(kAudioOwner,
+                                  kBitsPerSample,
+                                  kCodecChannels,
+                                  sample_rate_hz,
+                                  true) != 0)
     {
         s_board = nullptr;
         return false;
     }
 
-    s_board->codec.setVolume(s_board->getMessageToneVolume());
-    s_board->codec.setGain(kDefaultGainDb);
-    s_board->codec.setMute(false);
-    s_board->codec.setOutMute(false);
+    if (!s_board->audioSetVolume(kAudioOwner,
+                                 s_board->getMessageToneVolume()) ||
+        !s_board->audioSetGain(kAudioOwner, kDefaultGainDb) ||
+        !s_board->audioSetMute(kAudioOwner, false) ||
+        !s_board->audioSetOutMute(kAudioOwner, false))
+    {
+        s_board->closeAudioSession(kAudioOwner);
+        s_board = nullptr;
+        return false;
+    }
     return true;
 }
 
@@ -66,9 +77,7 @@ void close_audio()
 {
     if (s_board)
     {
-        s_board->codec.setMute(true);
-        s_board->codec.setOutMute(true);
-        s_board->codec.close();
+        s_board->closeAudioSession(kAudioOwner);
     }
     s_board = nullptr;
 }
@@ -77,17 +86,11 @@ bool read_mono(int16_t* pcm, std::size_t sample_count)
 {
     if (!s_board || !pcm || sample_count == 0 ||
         sample_count > kMaxCodec2SamplesPerFrame ||
-        s_board->codec.read(reinterpret_cast<uint8_t*>(s_codec_pcm),
-                            sample_count * kCodecChannels * sizeof(int16_t)) != 0)
+        s_board->audioRead(kAudioOwner,
+                           reinterpret_cast<uint8_t*>(pcm),
+                           sample_count * sizeof(int16_t)) != 0)
     {
         return false;
-    }
-
-    for (std::size_t index = 0; index < sample_count; ++index)
-    {
-        const int32_t left = s_codec_pcm[index * kCodecChannels];
-        const int32_t right = s_codec_pcm[(index * kCodecChannels) + 1U];
-        pcm[index] = static_cast<int16_t>((left + right) / 2);
     }
     return true;
 }
@@ -100,14 +103,9 @@ bool write_mono(const int16_t* pcm, std::size_t sample_count)
         return false;
     }
 
-    for (std::size_t index = 0; index < sample_count; ++index)
-    {
-        s_codec_pcm[index * kCodecChannels] = pcm[index];
-        s_codec_pcm[(index * kCodecChannels) + 1U] = pcm[index];
-    }
-    return s_board->codec.write(reinterpret_cast<uint8_t*>(s_codec_pcm),
-                                sample_count * kCodecChannels *
-                                    sizeof(int16_t)) == 0;
+    return s_board->audioWrite(kAudioOwner,
+                               reinterpret_cast<const uint8_t*>(pcm),
+                               sample_count * sizeof(int16_t)) == 0;
 }
 
 uint8_t speaker_volume()
@@ -126,7 +124,7 @@ void set_speaker_volume(uint8_t volume_percent)
     }
     if (s_board)
     {
-        s_board->codec.setVolume(volume);
+        (void)s_board->audioSetVolume(kAudioOwner, volume);
     }
 }
 

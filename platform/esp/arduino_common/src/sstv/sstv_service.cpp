@@ -183,6 +183,13 @@ uint32_t millis()
     return sys::millis_now();
 }
 #endif
+
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+using SstvBoard = TLoRaPagerBoard;
+#else
+using SstvBoard = boards::tlora_pager::TLoRaPagerBoard;
+#endif
+
 constexpr uint32_t kTaskStack = 12288;
 constexpr uint32_t kTaskDelayMs = 2;
 constexpr uint32_t kCompleteHoldMs = 2000;
@@ -966,17 +973,71 @@ void render_line_from_buffer(uint8_t line_rgb[320][4], e_mode mode, uint16_t lin
     s_has_image = true;
 }
 
-void sstv_task(void*)
+bool open_sstv_audio(SstvBoard* board)
+{
+    if (!board)
+    {
+        return false;
+    }
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    if (board->codec.open(kBitsPerSample, kChannels, kCodecSampleRate) != 0)
+    {
+        return false;
+    }
+    board->codec.setGain(kMicGainDb);
+    board->codec.setMute(false);
+    board->codec.setOutMute(true);
+    board->codec.setVolume(0);
+    board->powerControl(POWER_SPEAK, false);
+    return true;
+#else
+    constexpr auto kOwner = boards::tlora_pager::PagerAudioOwner::Sstv;
+    if (board->openAudioSession(
+            kOwner, kBitsPerSample, kChannels, kCodecSampleRate, false) != 0)
+    {
+        return false;
+    }
+    if (!board->audioSetGain(kOwner, kMicGainDb) ||
+        !board->audioSetMute(kOwner, false) ||
+        !board->audioSetOutMute(kOwner, true) ||
+        !board->audioSetVolume(kOwner, 0))
+    {
+        board->closeAudioSession(kOwner);
+        return false;
+    }
+    return true;
+#endif
+}
+
+int read_sstv_audio(SstvBoard* board, uint8_t* buffer, size_t size)
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    TLoRaPagerBoard* board = TLoRaPagerBoard::getInstance();
+    return board ? board->codec.read(buffer, size) : -1;
 #else
-    boards::tlora_pager::TLoRaPagerBoard* board = boards::tlora_pager::TLoRaPagerBoard::getInstance();
+    return board ? board->audioRead(
+                       boards::tlora_pager::PagerAudioOwner::Sstv,
+                       buffer,
+                       size)
+                 : -1;
 #endif
-    int prev_volume = -1;
-    bool prev_out_mute = false;
-    bool restore_amp = false;
-    bool prev_amp = true;
+}
+
+void close_sstv_audio(SstvBoard* board)
+{
+    if (!board)
+    {
+        return;
+    }
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    board->codec.close();
+#else
+    board->closeAudioSession(boards::tlora_pager::PagerAudioOwner::Sstv);
+#endif
+}
+
+void sstv_task(void*)
+{
+    SstvBoard* board = SstvBoard::getInstance();
     if (!board)
     {
         set_error("Board not ready");
@@ -986,7 +1047,7 @@ void sstv_task(void*)
         return;
     }
 
-    if (board->codec.open(kBitsPerSample, kChannels, kCodecSampleRate) != 0)
+    if (!open_sstv_audio(board))
     {
         set_error("Codec open failed");
         set_status(sstv::State::Error, 0, 0.0f, 0.0f, false);
@@ -996,18 +1057,6 @@ void sstv_task(void*)
     }
 
     s_codec_open = true;
-    board->codec.setGain(kMicGainDb);
-    board->codec.setMute(false);
-    prev_volume = board->codec.getVolume();
-    prev_out_mute = board->codec.getOutMute();
-    board->codec.setOutMute(true);
-    board->codec.setVolume(0);
-#ifdef USING_XL9555_EXPANDS
-    prev_amp = board->io.digitalRead(EXPANDS_AMP_EN);
-    restore_amp = true;
-#endif
-    // Disable speaker amplifier during RX to avoid feedback/noise.
-    board->powerControl(POWER_SPEAK, false);
     SSTV_LOG("[SSTV] codec open ok (rate=%lu, decode=%lu, bits=%u, ch=%u)\n",
              static_cast<unsigned long>(kCodecSampleRate),
              static_cast<unsigned long>(kSampleRate),
@@ -1023,7 +1072,7 @@ void sstv_task(void*)
         set_error("No audio buffer");
         set_status(sstv::State::Error, 0, 0.0f, 0.0f, false);
         s_codec_open = false;
-        board->codec.close();
+        close_sstv_audio(board);
         s_active = false;
         vTaskDelete(nullptr);
         return;
@@ -1040,7 +1089,7 @@ void sstv_task(void*)
         set_error("No decode buffers");
         set_status(sstv::State::Error, 0, 0.0f, 0.0f, false);
         s_codec_open = false;
-        board->codec.close();
+        close_sstv_audio(board);
         s_active = false;
         vTaskDelete(nullptr);
         return;
@@ -1063,7 +1112,7 @@ void sstv_task(void*)
         set_error("No framebuffer");
         set_status(sstv::State::Error, 0, 0.0f, 0.0f, false);
         s_codec_open = false;
-        board->codec.close();
+        close_sstv_audio(board);
         s_active = false;
         vTaskDelete(nullptr);
         return;
@@ -1123,8 +1172,9 @@ void sstv_task(void*)
 
     while (!s_stop)
     {
-        int read_state = board->codec.read(reinterpret_cast<uint8_t*>(buffer),
-                                           samples_per_read * sizeof(int16_t));
+        int read_state = read_sstv_audio(board,
+                                         reinterpret_cast<uint8_t*>(buffer),
+                                         samples_per_read * sizeof(int16_t));
         if (read_state != 0)
         {
             set_error("Audio read failed");
@@ -1489,16 +1539,7 @@ void sstv_task(void*)
 
     if (s_codec_open)
     {
-        if (prev_volume >= 0)
-        {
-            board->codec.setVolume(static_cast<uint8_t>(prev_volume));
-        }
-        board->codec.setOutMute(prev_out_mute);
-        if (restore_amp)
-        {
-            board->powerControl(POWER_SPEAK, prev_amp);
-        }
-        board->codec.close();
+        close_sstv_audio(board);
         s_codec_open = false;
     }
 

@@ -8,7 +8,9 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <esp_sleep.h>
@@ -76,6 +78,82 @@ static int s_gauge_error_streak = 0;
 static int s_gauge_reinit_count = 0;
 static uint32_t s_last_radio_spi_lock_timeout_log_ms = 0;
 static uint32_t s_suppressed_radio_spi_lock_timeout_logs = 0;
+static portMUX_TYPE s_audio_owner_mux = portMUX_INITIALIZER_UNLOCKED;
+static PagerAudioOwner s_audio_owner = PagerAudioOwner::None;
+static uint8_t s_audio_logical_channels = 0;
+static constexpr size_t kAudioConversionFrames = 256;
+static int16_t s_audio_read_scratch[kAudioConversionFrames * 2] = {};
+static int16_t s_audio_write_scratch[kAudioConversionFrames * 2] = {};
+
+const char* audioOwnerLabel(PagerAudioOwner owner)
+{
+    switch (owner)
+    {
+    case PagerAudioOwner::MessageTone:
+        return "message_tone";
+    case PagerAudioOwner::IncomingCallTone:
+        return "incoming_call_tone";
+    case PagerAudioOwner::ReticulumCall:
+        return "reticulum_call";
+    case PagerAudioOwner::Walkie:
+        return "walkie";
+    case PagerAudioOwner::Sstv:
+        return "sstv";
+    case PagerAudioOwner::None:
+    default:
+        return "none";
+    }
+}
+
+PagerAudioOwner currentAudioOwner()
+{
+    portENTER_CRITICAL(&s_audio_owner_mux);
+    const PagerAudioOwner owner = s_audio_owner;
+    portEXIT_CRITICAL(&s_audio_owner_mux);
+    return owner;
+}
+
+bool claimAudioOwner(PagerAudioOwner owner, uint8_t logical_channels)
+{
+    if (owner == PagerAudioOwner::None || logical_channels == 0)
+    {
+        return false;
+    }
+
+    portENTER_CRITICAL(&s_audio_owner_mux);
+    const bool claimed = s_audio_owner == PagerAudioOwner::None;
+    if (claimed)
+    {
+        s_audio_owner = owner;
+        s_audio_logical_channels = logical_channels;
+    }
+    portEXIT_CRITICAL(&s_audio_owner_mux);
+    return claimed;
+}
+
+bool audioOwnerMatches(PagerAudioOwner owner)
+{
+    return owner != PagerAudioOwner::None && currentAudioOwner() == owner;
+}
+
+uint8_t audioLogicalChannels(PagerAudioOwner owner)
+{
+    portENTER_CRITICAL(&s_audio_owner_mux);
+    const uint8_t channels = s_audio_owner == owner ? s_audio_logical_channels : 0;
+    portEXIT_CRITICAL(&s_audio_owner_mux);
+    return channels;
+}
+
+void releaseAudioOwner(PagerAudioOwner owner)
+{
+    portENTER_CRITICAL(&s_audio_owner_mux);
+    if (s_audio_owner == owner)
+    {
+        s_audio_owner = PagerAudioOwner::None;
+        s_audio_logical_channels = 0;
+    }
+    portEXIT_CRITICAL(&s_audio_owner_mux);
+}
 
 // Temperature state (from BQ27220), used for safety / UI hints / brightness caps.
 static float s_last_temp_c = NAN;
@@ -590,13 +668,9 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
         if (codec.begin(Wire, 0x18, CODEC_TYPE_ES8311))
         {
             devices_probe |= HW_CODEC_ONLINE;
+            powerControl(POWER_SPEAK, false);
             log_d("Audio codec (ES8311) initialized successfully");
             Serial.printf("[TLoRaPagerBoard::begin] audio codec init end ok=1\n");
-
-            // Set power amplifier control callback
-            codec.setPaPinCallback([](bool enable, void* user_data)
-                                   { ((ExtensionIOXL9555*)user_data)->digitalWrite(EXPANDS_AMP_EN, enable); },
-                                   &io);
         }
         else
         {
@@ -1101,6 +1175,268 @@ void TLoRaPagerBoard::stopVibrator()
     log_d("[stopVibrator] Power disabled, function completed");
 }
 
+int TLoRaPagerBoard::openAudioSession(PagerAudioOwner owner, uint8_t bits_per_sample,
+                                      uint8_t channels, uint32_t sample_rate,
+                                      bool speaker_enabled)
+{
+#ifndef USING_AUDIO_CODEC
+    (void)owner;
+    (void)bits_per_sample;
+    (void)channels;
+    (void)sample_rate;
+    (void)speaker_enabled;
+    return -1;
+#else
+    if (!(devices_probe & HW_CODEC_ONLINE) || owner == PagerAudioOwner::None)
+    {
+        return -1;
+    }
+    if (!claimAudioOwner(owner, channels))
+    {
+        Serial.printf("[Audio][Pager] busy requested=%s owner=%s\n",
+                      audioOwnerLabel(owner),
+                      audioOwnerLabel(currentAudioOwner()));
+        return -2;
+    }
+
+    powerControl(POWER_SPEAK, false);
+    const uint8_t hardware_channels = channels == 1 ? 2 : channels;
+    int state = -1;
+    {
+        I2CGuard i2c;
+        state = codec.open(bits_per_sample, hardware_channels, sample_rate);
+        if (state == 0)
+        {
+            codec.setMute(true);
+            codec.setOutMute(true);
+        }
+    }
+    if (state != 0)
+    {
+        releaseAudioOwner(owner);
+        Serial.printf("[Audio][Pager] open failed owner=%s rc=%d rate=%lu logical_ch=%u hw_ch=%u\n",
+                      audioOwnerLabel(owner),
+                      state,
+                      static_cast<unsigned long>(sample_rate),
+                      static_cast<unsigned>(channels),
+                      static_cast<unsigned>(hardware_channels));
+        return state;
+    }
+
+    if (speaker_enabled)
+    {
+        powerControl(POWER_SPEAK, true);
+        delay(10);
+    }
+    Serial.printf("[Audio][Pager] open owner=%s rate=%lu logical_ch=%u hw_ch=%u speaker=%u\n",
+                  audioOwnerLabel(owner),
+                  static_cast<unsigned long>(sample_rate),
+                  static_cast<unsigned>(channels),
+                  static_cast<unsigned>(hardware_channels),
+                  speaker_enabled ? 1U : 0U);
+    return 0;
+#endif
+}
+
+void TLoRaPagerBoard::closeAudioSession(PagerAudioOwner owner)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return;
+    }
+
+    {
+        I2CGuard i2c;
+        codec.setMute(true);
+        codec.setOutMute(true);
+    }
+    powerControl(POWER_SPEAK, false);
+    {
+        I2CGuard i2c;
+        codec.close();
+    }
+    releaseAudioOwner(owner);
+    Serial.printf("[Audio][Pager] close owner=%s\n", audioOwnerLabel(owner));
+#else
+    (void)owner;
+#endif
+}
+
+int TLoRaPagerBoard::audioRead(PagerAudioOwner owner, uint8_t* buffer, size_t size)
+{
+#ifdef USING_AUDIO_CODEC
+    const uint8_t logical_channels = audioLogicalChannels(owner);
+    if (!buffer || size == 0 || logical_channels == 0)
+    {
+        return -1;
+    }
+    if (logical_channels != 1)
+    {
+        return codec.read(buffer, size);
+    }
+    if ((size % sizeof(int16_t)) != 0)
+    {
+        return -1;
+    }
+
+    auto* mono = reinterpret_cast<int16_t*>(buffer);
+    const size_t frame_count = size / sizeof(int16_t);
+    size_t frame_offset = 0;
+    while (frame_offset < frame_count)
+    {
+        const size_t chunk_frames =
+            std::min(kAudioConversionFrames, frame_count - frame_offset);
+        const int state = codec.read(
+            reinterpret_cast<uint8_t*>(s_audio_read_scratch),
+            chunk_frames * 2 * sizeof(int16_t));
+        if (state != 0)
+        {
+            return state;
+        }
+
+        int64_t left_energy = 0;
+        int64_t right_energy = 0;
+        for (size_t index = 0; index < chunk_frames; ++index)
+        {
+            const int32_t left = s_audio_read_scratch[index * 2];
+            const int32_t right = s_audio_read_scratch[(index * 2) + 1];
+            left_energy += left < 0 ? -left : left;
+            right_energy += right < 0 ? -right : right;
+        }
+        const size_t active_channel = right_energy > left_energy ? 1 : 0;
+        for (size_t index = 0; index < chunk_frames; ++index)
+        {
+            mono[frame_offset + index] =
+                s_audio_read_scratch[(index * 2) + active_channel];
+        }
+        frame_offset += chunk_frames;
+    }
+    return 0;
+#else
+    (void)owner;
+    (void)buffer;
+    (void)size;
+    return -1;
+#endif
+}
+
+int TLoRaPagerBoard::audioWrite(PagerAudioOwner owner, const uint8_t* buffer, size_t size)
+{
+#ifdef USING_AUDIO_CODEC
+    const uint8_t logical_channels = audioLogicalChannels(owner);
+    if (!buffer || size == 0 || logical_channels == 0)
+    {
+        return -1;
+    }
+    if (logical_channels != 1)
+    {
+        return codec.write(const_cast<uint8_t*>(buffer), size);
+    }
+    if ((size % sizeof(int16_t)) != 0)
+    {
+        return -1;
+    }
+
+    const auto* mono = reinterpret_cast<const int16_t*>(buffer);
+    const size_t frame_count = size / sizeof(int16_t);
+    size_t frame_offset = 0;
+    while (frame_offset < frame_count)
+    {
+        const size_t chunk_frames =
+            std::min(kAudioConversionFrames, frame_count - frame_offset);
+        for (size_t index = 0; index < chunk_frames; ++index)
+        {
+            const int16_t sample = mono[frame_offset + index];
+            s_audio_write_scratch[index * 2] = sample;
+            s_audio_write_scratch[(index * 2) + 1] = sample;
+        }
+        const int state = codec.write(
+            reinterpret_cast<uint8_t*>(s_audio_write_scratch),
+            chunk_frames * 2 * sizeof(int16_t));
+        if (state != 0)
+        {
+            return state;
+        }
+        frame_offset += chunk_frames;
+    }
+    return 0;
+#else
+    (void)owner;
+    (void)buffer;
+    (void)size;
+    return -1;
+#endif
+}
+
+bool TLoRaPagerBoard::audioSetVolume(PagerAudioOwner owner, uint8_t level)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return false;
+    }
+    I2CGuard i2c;
+    codec.setVolume(level);
+    return true;
+#else
+    (void)owner;
+    (void)level;
+    return false;
+#endif
+}
+
+bool TLoRaPagerBoard::audioSetGain(PagerAudioOwner owner, float db_value)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return false;
+    }
+    I2CGuard i2c;
+    codec.setGain(db_value);
+    return true;
+#else
+    (void)owner;
+    (void)db_value;
+    return false;
+#endif
+}
+
+bool TLoRaPagerBoard::audioSetMute(PagerAudioOwner owner, bool enabled)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return false;
+    }
+    I2CGuard i2c;
+    codec.setMute(enabled);
+    return true;
+#else
+    (void)owner;
+    (void)enabled;
+    return false;
+#endif
+}
+
+bool TLoRaPagerBoard::audioSetOutMute(PagerAudioOwner owner, bool enabled)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return false;
+    }
+    I2CGuard i2c;
+    codec.setOutMute(enabled);
+    return true;
+#else
+    (void)owner;
+    (void)enabled;
+    return false;
+#endif
+}
+
 void TLoRaPagerBoard::playMessageTone()
 {
 #ifndef USING_AUDIO_CODEC
@@ -1135,42 +1471,43 @@ void TLoRaPagerBoard::playMessageTone()
     static constexpr size_t kFramesPerChunk = 128;
     namespace pager_tone = ::platform::ui::audio::pager_notification;
 
-    int prev_volume = codec.getVolume();
-    if (prev_volume < 0 || prev_volume > 100)
-    {
-        prev_volume = 50;
-    }
-    bool prev_out_mute = codec.getOutMute();
-
-    const int open_result =
-        codec.open(16, pager_tone::kChannels, pager_tone::kPlaybackSampleRateHz);
+    constexpr PagerAudioOwner kOwner = PagerAudioOwner::MessageTone;
+    const int open_result = openAudioSession(
+        kOwner, 16, 1, pager_tone::kPlaybackSampleRateHz, true);
     if (open_result != 0)
     {
-        Serial.printf("[Audio][PagerTone] open failed kind=message rc=%d rate=%lu channels=%u\n",
+        Serial.printf("[Audio][PagerTone] open failed kind=message rc=%d rate=%lu channels=1\n",
                       open_result,
-                      static_cast<unsigned long>(pager_tone::kPlaybackSampleRateHz),
-                      static_cast<unsigned>(pager_tone::kChannels));
+                      static_cast<unsigned long>(pager_tone::kPlaybackSampleRateHz));
         s_playing = false;
         return;
     }
 
-    codec.setOutMute(false);
-    codec.setVolume(_message_tone_volume);
-    delay(10);
+    if (!audioSetMute(kOwner, true) ||
+        !audioSetVolume(kOwner, _message_tone_volume) ||
+        !audioSetOutMute(kOwner, false))
+    {
+        closeAudioSession(kOwner);
+        s_playing = false;
+        return;
+    }
 
-    int16_t pcm[kFramesPerChunk * pager_tone::kChannels];
+    int16_t pcm[kFramesPerChunk];
     pager_tone::AdpcmPlaybackState tone_state{};
     while (pager_tone::hasMore(tone_state))
     {
-        const uint16_t frames = pager_tone::fillStereoInterleaved(
-            tone_state, pcm, static_cast<uint16_t>(kFramesPerChunk));
+        uint16_t frames = 0;
+        while (frames < kFramesPerChunk &&
+               pager_tone::nextPlaybackSample(tone_state, pcm[frames]))
+        {
+            ++frames;
+        }
         if (frames == 0)
         {
             break;
         }
-        const int write_result = codec.write(reinterpret_cast<uint8_t*>(pcm),
-                                             frames * pager_tone::kChannels *
-                                                 sizeof(int16_t));
+        const int write_result = audioWrite(
+            kOwner, reinterpret_cast<const uint8_t*>(pcm), frames * sizeof(int16_t));
         if (write_result != 0)
         {
             Serial.printf("[Audio][PagerTone] write failed kind=message rc=%d frames=%u\n",
@@ -1178,12 +1515,14 @@ void TLoRaPagerBoard::playMessageTone()
                           static_cast<unsigned>(frames));
             break;
         }
+        delay(1);
     }
 
-    delay(5);
-    codec.setVolume(static_cast<uint8_t>(prev_volume));
-    codec.setOutMute(prev_out_mute);
-    codec.close();
+    memset(pcm, 0, sizeof(pcm));
+    (void)audioWrite(kOwner, reinterpret_cast<const uint8_t*>(pcm), sizeof(pcm));
+    (void)audioWrite(kOwner, reinterpret_cast<const uint8_t*>(pcm), sizeof(pcm));
+    delay(7);
+    closeAudioSession(kOwner);
     s_playing = false;
 #endif
 }
@@ -1222,30 +1561,28 @@ void TLoRaPagerBoard::playIncomingCallTone(const volatile bool* stop_requested)
     static constexpr size_t kFramesPerChunk = 128;
     namespace call_tone = ::platform::ui::audio::call_notification;
 
-    int prev_volume = codec.getVolume();
-    if (prev_volume < 0 || prev_volume > 100)
-    {
-        prev_volume = 50;
-    }
-    bool prev_out_mute = codec.getOutMute();
-
-    const int open_result =
-        codec.open(16, call_tone::kChannels, call_tone::kPlaybackSampleRateHz);
+    constexpr PagerAudioOwner kOwner = PagerAudioOwner::IncomingCallTone;
+    const int open_result = openAudioSession(
+        kOwner, 16, 1, call_tone::kPlaybackSampleRateHz, true);
     if (open_result != 0)
     {
-        Serial.printf("[Audio][PagerTone] open failed kind=call rc=%d rate=%lu channels=%u\n",
+        Serial.printf("[Audio][PagerTone] open failed kind=call rc=%d rate=%lu channels=1\n",
                       open_result,
-                      static_cast<unsigned long>(call_tone::kPlaybackSampleRateHz),
-                      static_cast<unsigned>(call_tone::kChannels));
+                      static_cast<unsigned long>(call_tone::kPlaybackSampleRateHz));
         s_playing = false;
         return;
     }
 
-    codec.setOutMute(false);
-    codec.setVolume(_message_tone_volume);
-    delay(10);
+    if (!audioSetMute(kOwner, true) ||
+        !audioSetVolume(kOwner, _message_tone_volume) ||
+        !audioSetOutMute(kOwner, false))
+    {
+        closeAudioSession(kOwner);
+        s_playing = false;
+        return;
+    }
 
-    int16_t pcm[kFramesPerChunk * call_tone::kChannels];
+    int16_t pcm[kFramesPerChunk];
     call_tone::AdpcmPlaybackState tone_state{};
     while (call_tone::hasMore(tone_state))
     {
@@ -1253,15 +1590,18 @@ void TLoRaPagerBoard::playIncomingCallTone(const volatile bool* stop_requested)
         {
             break;
         }
-        const uint16_t frames = call_tone::fillStereoInterleaved(
-            tone_state, pcm, static_cast<uint16_t>(kFramesPerChunk));
+        uint16_t frames = 0;
+        while (frames < kFramesPerChunk &&
+               call_tone::nextPlaybackSample(tone_state, pcm[frames]))
+        {
+            ++frames;
+        }
         if (frames == 0)
         {
             break;
         }
-        const int write_result = codec.write(reinterpret_cast<uint8_t*>(pcm),
-                                             frames * call_tone::kChannels *
-                                                 sizeof(int16_t));
+        const int write_result = audioWrite(
+            kOwner, reinterpret_cast<const uint8_t*>(pcm), frames * sizeof(int16_t));
         if (write_result != 0)
         {
             Serial.printf("[Audio][PagerTone] write failed kind=call rc=%d frames=%u\n",
@@ -1269,12 +1609,14 @@ void TLoRaPagerBoard::playIncomingCallTone(const volatile bool* stop_requested)
                           static_cast<unsigned>(frames));
             break;
         }
+        delay(1);
     }
 
-    delay(5);
-    codec.setVolume(static_cast<uint8_t>(prev_volume));
-    codec.setOutMute(prev_out_mute);
-    codec.close();
+    memset(pcm, 0, sizeof(pcm));
+    (void)audioWrite(kOwner, reinterpret_cast<const uint8_t*>(pcm), sizeof(pcm));
+    (void)audioWrite(kOwner, reinterpret_cast<const uint8_t*>(pcm), sizeof(pcm));
+    delay(7);
+    closeAudioSession(kOwner);
     s_playing = false;
 #endif
 }

@@ -70,6 +70,16 @@ class SX1262Access : public SX1262
 namespace boards::tlora_pager
 {
 
+enum class PagerAudioOwner : uint8_t
+{
+    None,
+    MessageTone,
+    IncomingCallTone,
+    ReticulumCall,
+    Walkie,
+    Sstv,
+};
+
 /**
  * @class TLoRaPagerBoard
  * @brief Main board class for T-LoRa-Pager hardware
@@ -234,6 +244,17 @@ class TLoRaPagerBoard : public BoardBase,
     void playIncomingCallTone(const volatile bool* stop_requested = nullptr);
     void setMessageToneVolume(uint8_t volume_percent) override;
     uint8_t getMessageToneVolume() const override;
+
+    int openAudioSession(PagerAudioOwner owner, uint8_t bits_per_sample,
+                         uint8_t channels, uint32_t sample_rate,
+                         bool speaker_enabled);
+    void closeAudioSession(PagerAudioOwner owner);
+    int audioRead(PagerAudioOwner owner, uint8_t* buffer, size_t size);
+    int audioWrite(PagerAudioOwner owner, const uint8_t* buffer, size_t size);
+    bool audioSetVolume(PagerAudioOwner owner, uint8_t level);
+    bool audioSetGain(PagerAudioOwner owner, float db_value);
+    bool audioSetMute(PagerAudioOwner owner, bool enabled);
+    bool audioSetOutMute(PagerAudioOwner owner, bool enabled);
 
     /**
      * @brief Set haptic effect waveform
