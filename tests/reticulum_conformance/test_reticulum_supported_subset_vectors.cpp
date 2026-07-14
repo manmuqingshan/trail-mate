@@ -35,6 +35,8 @@ constexpr const char* kDestinationHashPropagation =
     "025ce3c73c4780881210b492df17d70d";
 constexpr const char* kPlainDestinationHashDelivery =
     "9497d16c52ac5faec04c36db5c301e8e";
+constexpr const char* kPathRequestDestinationHash =
+    "6b9f66014d9853faab220fba47d02761";
 constexpr const char* kOfferPathHash =
     "94fd9fd7b04a5caae5882616446bb9ef";
 constexpr const char* kGetPathHash =
@@ -253,6 +255,10 @@ void expectReticulumHashAndDestinationVectors()
     uint8_t plain_destination_hash[reticulum::kTruncatedHashSize] = {};
     reticulum::computePlainDestinationHash(delivery_name_hash, plain_destination_hash);
     expectArray(plain_destination_hash, kPlainDestinationHashDelivery);
+
+    uint8_t path_request_destination_hash[reticulum::kTruncatedHashSize] = {};
+    reticulum::computePathRequestDestinationHash(path_request_destination_hash);
+    expectArray(path_request_destination_hash, kPathRequestDestinationHash);
 
     uint8_t offer_path_hash[reticulum::kTruncatedHashSize] = {};
     reticulum::truncatedHash(reinterpret_cast<const uint8_t*>("/offer"), 6, offer_path_hash);

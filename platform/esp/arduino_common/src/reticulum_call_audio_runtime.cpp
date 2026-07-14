@@ -19,12 +19,14 @@ namespace
 {
 
 constexpr uint8_t kBitsPerSample = 16;
-constexpr uint8_t kChannels = 1;
+constexpr uint8_t kCodecChannels = 2;
+constexpr std::size_t kMaxCodec2SamplesPerFrame = 320;
 constexpr uint8_t kDefaultVolume = 78;
 constexpr float kDefaultGainDb = 36.0f;
 
 bool s_registered = false;
 ::boards::tlora_pager::TLoRaPagerBoard* s_board = nullptr;
+int16_t s_codec_pcm[kMaxCodec2SamplesPerFrame * kCodecChannels] = {};
 
 ::boards::tlora_pager::TLoRaPagerBoard* resolve_board()
 {
@@ -47,7 +49,7 @@ bool open_audio(uint32_t sample_rate_hz)
 {
     s_board = resolve_board();
     if (!s_board ||
-        s_board->codec.open(kBitsPerSample, kChannels, sample_rate_hz) != 0)
+        s_board->codec.open(kBitsPerSample, kCodecChannels, sample_rate_hz) != 0)
     {
         s_board = nullptr;
         return false;
@@ -73,16 +75,39 @@ void close_audio()
 
 bool read_mono(int16_t* pcm, std::size_t sample_count)
 {
-    return s_board && pcm && sample_count > 0 &&
-           s_board->codec.read(reinterpret_cast<uint8_t*>(pcm),
-                               sample_count * sizeof(int16_t)) == 0;
+    if (!s_board || !pcm || sample_count == 0 ||
+        sample_count > kMaxCodec2SamplesPerFrame ||
+        s_board->codec.read(reinterpret_cast<uint8_t*>(s_codec_pcm),
+                            sample_count * kCodecChannels * sizeof(int16_t)) != 0)
+    {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < sample_count; ++index)
+    {
+        const int32_t left = s_codec_pcm[index * kCodecChannels];
+        const int32_t right = s_codec_pcm[(index * kCodecChannels) + 1U];
+        pcm[index] = static_cast<int16_t>((left + right) / 2);
+    }
+    return true;
 }
 
 bool write_mono(const int16_t* pcm, std::size_t sample_count)
 {
-    return s_board && pcm && sample_count > 0 &&
-           s_board->codec.write(reinterpret_cast<uint8_t*>(const_cast<int16_t*>(pcm)),
-                                sample_count * sizeof(int16_t)) == 0;
+    if (!s_board || !pcm || sample_count == 0 ||
+        sample_count > kMaxCodec2SamplesPerFrame)
+    {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < sample_count; ++index)
+    {
+        s_codec_pcm[index * kCodecChannels] = pcm[index];
+        s_codec_pcm[(index * kCodecChannels) + 1U] = pcm[index];
+    }
+    return s_board->codec.write(reinterpret_cast<uint8_t*>(s_codec_pcm),
+                                sample_count * kCodecChannels *
+                                    sizeof(int16_t)) == 0;
 }
 
 uint8_t speaker_volume()

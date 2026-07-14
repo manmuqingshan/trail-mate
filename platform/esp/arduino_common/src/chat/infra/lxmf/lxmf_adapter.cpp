@@ -9832,9 +9832,7 @@ void LxmfAdapter::pathRequestDestinationHash(uint8_t out_hash[reticulum::kTrunca
         return;
     }
 
-    uint8_t name_hash[reticulum::kNameHashSize] = {};
-    reticulum::computeNameHash("rnstransport", "path.request", name_hash);
-    reticulum::computePlainDestinationHash(name_hash, out_hash);
+    reticulum::computePathRequestDestinationHash(out_hash);
 }
 
 } // namespace chat::lxmf

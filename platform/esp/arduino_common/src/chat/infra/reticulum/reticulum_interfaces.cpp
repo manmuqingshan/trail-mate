@@ -19,6 +19,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <lwip/netdb.h>
@@ -64,9 +65,29 @@ bool isPriorityRxFrame(const uint8_t* data, size_t len)
         return false;
     }
 
-    return parsed.packet_type == ::chat::reticulum::PacketType::LinkRequest ||
-           parsed.packet_type == ::chat::reticulum::PacketType::Proof ||
-           parsed.destination_type == ::chat::reticulum::DestinationType::Link;
+    if (parsed.packet_type == ::chat::reticulum::PacketType::LinkRequest ||
+        parsed.packet_type == ::chat::reticulum::PacketType::Proof ||
+        parsed.destination_type == ::chat::reticulum::DestinationType::Link)
+    {
+        return true;
+    }
+
+    if (parsed.packet_type != ::chat::reticulum::PacketType::Data ||
+        parsed.destination_type != ::chat::reticulum::DestinationType::Plain ||
+        !parsed.destination_hash)
+    {
+        return false;
+    }
+
+    static const auto path_request_hash = []
+    {
+        std::array<uint8_t, ::chat::reticulum::kTruncatedHashSize> hash{};
+        ::chat::reticulum::computePathRequestDestinationHash(hash.data());
+        return hash;
+    }();
+    return std::memcmp(parsed.destination_hash,
+                       path_request_hash.data(),
+                       path_request_hash.size()) == 0;
 }
 
 bool copyHost(char* out, size_t out_len, const char* value)

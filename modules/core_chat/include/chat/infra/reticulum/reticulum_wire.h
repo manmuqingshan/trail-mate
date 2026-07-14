@@ -120,6 +120,7 @@ void computeIdentityHash(const uint8_t public_key[kCombinedPublicKeySize],
                          uint8_t out_hash[kTruncatedHashSize]);
 void computePlainDestinationHash(const uint8_t name_hash[kNameHashSize],
                                  uint8_t out_hash[kTruncatedHashSize]);
+void computePathRequestDestinationHash(uint8_t out_hash[kTruncatedHashSize]);
 void computeDestinationHash(const uint8_t name_hash[kNameHashSize],
                             const uint8_t identity_hash[kTruncatedHashSize],
                             uint8_t out_hash[kTruncatedHashSize]);

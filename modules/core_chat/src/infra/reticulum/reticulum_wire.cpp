@@ -929,6 +929,13 @@ void computePlainDestinationHash(const uint8_t name_hash[kNameHashSize],
     truncatedHash(name_hash, kNameHashSize, out_hash);
 }
 
+void computePathRequestDestinationHash(uint8_t out_hash[kTruncatedHashSize])
+{
+    uint8_t name_hash[kNameHashSize] = {};
+    computeNameHash("rnstransport", "path.request", name_hash);
+    computePlainDestinationHash(name_hash, out_hash);
+}
+
 void computeDestinationHash(const uint8_t name_hash[kNameHashSize],
                             const uint8_t identity_hash[kTruncatedHashSize],
                             uint8_t out_hash[kTruncatedHashSize])
