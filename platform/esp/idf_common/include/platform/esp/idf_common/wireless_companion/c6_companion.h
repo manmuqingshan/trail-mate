@@ -149,6 +149,38 @@ struct C6CompanionStatus
     const char* detail = "unsupported";
 };
 
+enum class WifiTcpState : uint8_t
+{
+    Unsupported = 0,
+    Disconnected = 1,
+    Opening = 2,
+    Connected = 3,
+    Closing = 4,
+    Error = 5,
+};
+
+struct WifiTcpStatus
+{
+    WifiTcpState state = WifiTcpState::Unsupported;
+    uint8_t connection_id = 0;
+    uint16_t error_code = 0;
+    size_t buffered_bytes = 0;
+    uint32_t received_bytes = 0;
+    uint32_t transmitted_bytes = 0;
+    const char* detail = "unsupported";
+};
+
+class WifiTcpTransport
+{
+  public:
+    virtual bool openTcp(const char* host, uint16_t port) = 0;
+    virtual bool writeTcp(const uint8_t* data, size_t len) = 0;
+    virtual size_t readTcp(uint8_t* out, size_t max_len) = 0;
+    virtual void closeTcp() = 0;
+    virtual WifiTcpStatus tcpStatus() const = 0;
+    virtual ~WifiTcpTransport() = default;
+};
+
 class WirelessCompanion
 {
   public:
@@ -167,6 +199,7 @@ class WirelessCompanion
 };
 
 WirelessCompanion& c6_companion();
+WifiTcpTransport& c6_wifi_tcp_transport();
 bool ensure_c6_companion_started();
 bool enter_c6_companion_download_mode();
 C6CompanionStatus get_c6_companion_status();

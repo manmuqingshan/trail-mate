@@ -37,6 +37,9 @@
               },
     "dependencies":  [
                          {
+                             "name":  "esp_common"
+                         },
+                         {
                              "name":  "esp_boards"
                          },
                          {

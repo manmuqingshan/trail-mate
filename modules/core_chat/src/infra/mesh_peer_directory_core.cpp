@@ -97,6 +97,10 @@ struct PersistedMeshPeerEntryV1
     uint8_t reticulum_identity_hash2[kReticulumPeerHashSize] = {};
     uint8_t reticulum_enc_pub[kMeshPeerReticulumPublicKeyLen] = {};
     uint8_t reticulum_sig_pub[kMeshPeerReticulumPublicKeyLen] = {};
+    uint8_t reticulum_has_ratchet = 0;
+    uint8_t reticulum_reserved[3] = {};
+    uint32_t reticulum_ratchet_seen_s = 0;
+    uint8_t reticulum_ratchet_pub[kMeshPeerReticulumRatchetLen] = {};
 } TRAILMATE_PACKED;
 TRAILMATE_PACK_POP
 
@@ -204,6 +208,11 @@ void copyIntoPersisted(PersistedMeshPeerEntryV1& dst,
     std::memcpy(dst.reticulum_sig_pub,
                 src.reticulum.sig_pub,
                 sizeof(dst.reticulum_sig_pub));
+    dst.reticulum_has_ratchet = src.reticulum.has_ratchet ? 1U : 0U;
+    dst.reticulum_ratchet_seen_s = src.reticulum.ratchet_seen_s;
+    std::memcpy(dst.reticulum_ratchet_pub,
+                src.reticulum.ratchet_pub,
+                sizeof(dst.reticulum_ratchet_pub));
 }
 
 bool copyFromPersisted(MeshPeerRecord& dst,
@@ -266,6 +275,17 @@ bool copyFromPersisted(MeshPeerRecord& dst,
     std::memcpy(dst.reticulum.sig_pub,
                 src.reticulum_sig_pub,
                 sizeof(dst.reticulum.sig_pub));
+    dst.reticulum.has_ratchet =
+        src.reticulum_has_ratchet != 0 &&
+        meshPeerHasNonZeroBytes(src.reticulum_ratchet_pub,
+                                sizeof(src.reticulum_ratchet_pub));
+    if (dst.reticulum.has_ratchet)
+    {
+        std::memcpy(dst.reticulum.ratchet_pub,
+                    src.reticulum_ratchet_pub,
+                    sizeof(dst.reticulum.ratchet_pub));
+        dst.reticulum.ratchet_seen_s = src.reticulum_ratchet_seen_s;
+    }
     return meshPeerRecordIsValid(dst);
 }
 

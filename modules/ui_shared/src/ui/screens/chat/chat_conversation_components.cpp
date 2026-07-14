@@ -1219,7 +1219,8 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
 
     lv_obj_t* bubble = chat::ui::layout::create_bubble(item.container);
     item.bubble = bubble;
-    chat::ui::conversation::styles::apply_bubble(bubble, is_self);
+    chat::ui::conversation::styles::apply_bubble(
+        bubble, is_self, row.source_unverified);
     chat::ui::layout::set_bubble_max_width(bubble, max_bubble_w);
 
     char time_buf[24];

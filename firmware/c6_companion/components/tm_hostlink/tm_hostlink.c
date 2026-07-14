@@ -7,6 +7,7 @@
 #include "tm_espnow.h"
 #include "tm_services.h"
 #include "tm_wifi.h"
+#include "tm_wifi_tcp.h"
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -388,6 +389,26 @@ static bool handle_wifi_control(const tm_c6_frame_view_t* frame)
     return true;
 }
 
+static bool handle_wifi_data(const tm_c6_frame_view_t* frame)
+{
+    if (s_state != TM_HOSTLINK_READY ||
+        frame->channel != TM_C6_CH_WIFI_DATA ||
+        frame->payload_len < sizeof(tm_c6_wifi_tcp_header_t))
+    {
+        return send_error_frame(frame, TM_C6_ERROR_UNSUPPORTED_FRAME, "bad_wifi_data");
+    }
+    const esp_err_t err = tm_wifi_tcp_handle_frame(frame->payload, frame->payload_len);
+    if (err == ESP_ERR_NO_MEM)
+    {
+        return send_error_frame(frame, TM_C6_ERROR_QUEUE_FULL, "wifi_tcp_queue_full");
+    }
+    if (err != ESP_OK)
+    {
+        return send_error_frame(frame, TM_C6_ERROR_UNSUPPORTED_FRAME, "wifi_tcp_frame_invalid");
+    }
+    return true;
+}
+
 static bool handle_diag_request(const tm_c6_frame_view_t* frame)
 {
     tm_c6_diag_report_t report = {};
@@ -472,6 +493,9 @@ static void hostlink_task(void* arg)
             break;
         case TM_C6_FRAME_WIFI_CONTROL:
             (void)handle_wifi_control(&decoded.frame);
+            break;
+        case TM_C6_FRAME_WIFI_DATA:
+            (void)handle_wifi_data(&decoded.frame);
             break;
         case TM_C6_FRAME_DIAG_REQUEST:
             (void)handle_diag_request(&decoded.frame);

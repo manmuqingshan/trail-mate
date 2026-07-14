@@ -1,6 +1,6 @@
 /**
  * @file lxmf_delivery_runtime.h
- * @brief Product ingress materialisation for verified LXMF deliveries.
+ * @brief Product ingress materialisation for authenticated and source-unknown LXMF deliveries.
  */
 
 #pragma once
@@ -33,6 +33,7 @@ struct LxmfDeliveryContext
     ReticulumPeerIdentity conversation_identity{};
     bool destination_is_group = false;
     bool encrypted = true;
+    bool source_unverified = false;
     RxMeta rx_meta{};
 };
 
@@ -40,6 +41,7 @@ struct LxmfMaterialisedText
 {
     MeshIncomingText incoming{};
     std::string text;
+    DecodedTextPayload payload{};
 };
 
 struct LxmfMaterialisedAppData

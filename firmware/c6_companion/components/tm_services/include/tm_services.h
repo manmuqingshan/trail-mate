@@ -55,6 +55,7 @@ extern "C"
     bool tm_services_send_espnow_uplink(const tm_c6_espnow_packet_t* packet);
     bool tm_services_send_espnow_event(const tm_c6_espnow_event_t* event);
     bool tm_services_send_wifi_event(const tm_c6_wifi_event_t* event);
+    bool tm_services_send_wifi_data(const uint8_t* payload, size_t payload_len);
     bool tm_services_send_wifi_time_sync(const tm_c6_wifi_time_sync_t* event);
     bool tm_services_send_log(const char* message);
     void tm_services_flush_logs(void);

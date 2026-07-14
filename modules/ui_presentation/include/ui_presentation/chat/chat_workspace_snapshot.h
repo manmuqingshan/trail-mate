@@ -88,6 +88,7 @@ struct MessageRow
     MessageDeliveryState delivery = MessageDeliveryState::Unknown;
     MessageFailureKind failure = MessageFailureKind::None;
     MessageIngressTransport ingress_transport = MessageIngressTransport::Unknown;
+    bool source_unverified = false;
 
     uint32_t sender_node_id = 0;
     ui::FixedText<160> text;

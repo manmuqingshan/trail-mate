@@ -23,6 +23,7 @@
 #include "ui/screens/chat/chat_team_workflow.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/ime/ime_widget.h"
+#include "ui/widgets/reticulum_ping_overlay.h"
 #include "ui_chat_runtime/chat_delivery_action_port_adapter.h"
 #include "ui_lvgl_ux_packs/common/key_verification_modal_renderer.h"
 #include "ui_lvgl_ux_packs/common/team_position_picker_renderer.h"
@@ -1199,11 +1200,17 @@ void UiController::handlePingDestination(const chat::ConversationId& conv)
         return;
     }
 
+    const std::string display_name = base_conversation_name(conv);
+    ::ui::widgets::reticulum_ping::show_loading(
+        conv.reticulum_identity.destination_hash,
+        display_name.c_str());
     const chat::MeshActionResult result =
         service_.pingReticulumDestination(conv.reticulum_identity);
-    ::ui::feedback::show_notice(result.ok ? "Ping sent"
-                                          : reticulum_ping_failure_message(result),
-                                result.ok ? 1400 : 2200);
+    if (!result.ok)
+    {
+        ::ui::widgets::reticulum_ping::show_send_failure(
+            reticulum_ping_failure_message(result));
+    }
 }
 
 void UiController::handleDeleteConversation(const chat::ConversationId& conv)

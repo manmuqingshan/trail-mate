@@ -231,6 +231,7 @@ class TLoRaPagerBoard : public BoardBase,
      * @brief Play incoming-message prompt tone
      */
     void playMessageTone() override;
+    void playIncomingCallTone(const volatile bool* stop_requested = nullptr);
     void setMessageToneVolume(uint8_t volume_percent) override;
     uint8_t getMessageToneVolume() const override;
 

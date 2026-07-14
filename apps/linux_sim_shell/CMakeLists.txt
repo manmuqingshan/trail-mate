@@ -326,6 +326,7 @@ if(BUILD_TESTING)
     add_executable(trailmate_reticulum_supported_subset_vectors_smoke
         "${TRAIL_MATE_REPO_ROOT}/tests/reticulum_conformance/test_reticulum_supported_subset_vectors.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/lxmf/lxmf_wire.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/lxst_telephony_wire.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/reticulum_wire.cpp")
     target_include_directories(trailmate_reticulum_supported_subset_vectors_smoke
         PRIVATE
@@ -562,6 +563,35 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_runtime_async_smoke
              COMMAND trailmate_runtime_async_smoke)
 
+    add_executable(trailmate_app_config_defaults_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_app_config_defaults.cpp")
+    target_include_directories(trailmate_app_config_defaults_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_definitions(trailmate_app_config_defaults_smoke
+        PRIVATE TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22)
+    target_compile_features(trailmate_app_config_defaults_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_app_config_defaults_smoke
+             COMMAND trailmate_app_config_defaults_smoke)
+
+    # MinGW.org's libstdc++ is built without gthreads and does not expose
+    # std::mutex. Linux and modern host toolchains exercise this runtime test.
+    if(NOT MINGW)
+        add_executable(trailmate_reticulum_call_runtime_smoke
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_reticulum_call_runtime.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/platform/ui/reticulum_call_runtime.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+        target_include_directories(trailmate_reticulum_call_runtime_smoke
+            PRIVATE
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+        target_compile_features(trailmate_reticulum_call_runtime_smoke
+            PRIVATE cxx_std_17)
+        add_test(NAME trailmate_reticulum_call_runtime_smoke
+                 COMMAND trailmate_reticulum_call_runtime_smoke)
+    endif()
+
     add_executable(trailmate_storage_event_runtime_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_storage_event_runtime.cpp")
     target_include_directories(trailmate_storage_event_runtime_smoke
@@ -644,6 +674,17 @@ if(BUILD_TESTING)
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_network_micron_markup_contract_smoke
              COMMAND trailmate_network_micron_markup_contract_smoke)
+
+    add_executable(trailmate_network_micron_renderer_fixture_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_network_micron_renderer_fixture.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/screens/network/micron_markup_contract.cpp")
+    target_include_directories(trailmate_network_micron_renderer_fixture_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/include")
+    target_compile_features(trailmate_network_micron_renderer_fixture_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_network_micron_renderer_fixture_smoke
+             COMMAND trailmate_network_micron_renderer_fixture_smoke)
 
     add_executable(trailmate_pinyin_lookup_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_pinyin_lookup.cpp")

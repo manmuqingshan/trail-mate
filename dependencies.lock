@@ -113,6 +113,36 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.1.2
+  espressif/esp_tinyusb:
+    component_hash: 6a50305bc61c7a361da8c0833642be824e92dacb0a6001719a832a4e96e471bf
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    - name: espressif/tinyusb
+      registry_url: https://components.espressif.com
+      require: public
+      version: '>=0.14.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.6~2
+  espressif/tinyusb:
+    component_hash: a40b7f67df6ac254a4afd96c6401cc56f2059ae747d6d7e66b568bca53ad0edc
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32p4
+    - esp32h4
+    - esp32s31
+    version: 0.19.0~3
   espressif/usb_host_hid:
     component_hash: 99d9ec2c6799ec4c8b366af5271b6e50700f6de3f5258e157de2b6799639cf66
     dependencies:
@@ -139,7 +169,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.5.3
+    version: 5.5.4
   lvgl/lvgl:
     component_hash: 184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae
     dependencies: []
@@ -155,8 +185,9 @@ direct_dependencies:
 - espressif/esp_lcd_touch_st7123
 - espressif/esp_lvgl_port
 - espressif/esp_serial_slave_link
+- espressif/esp_tinyusb
 - espressif/usb_host_hid
 - idf
-manifest_hash: 494230f4f62e4af99b62d8b0a3baaab488edc4bbdf31ded1de2e17c3e49d2c85
+manifest_hash: 0f53e41a9df3bf85334919dbd5eb656fe86761f6aec28bc3cbd86311c5718cb0
 target: esp32p4
 version: 2.0.0

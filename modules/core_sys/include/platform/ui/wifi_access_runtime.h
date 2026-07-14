@@ -25,6 +25,7 @@ enum class AccessKind : std::uint8_t
     HttpDownload,
     OtaDownload,
     ReticulumGatewayCallAudio,
+    ReticulumGatewayCallControl,
 };
 
 enum class Priority : std::uint8_t
@@ -153,7 +154,8 @@ bool begin_foreground_download(const Request& request, Decision* out_decision = 
 void end_foreground_download(Client client, AccessKind kind);
 TrafficBudget traffic_budget(Client client,
                              Priority priority,
-                             const std::uint8_t* call_link_id = nullptr);
+                             const std::uint8_t* call_link_id = nullptr,
+                             AccessKind access_kind = AccessKind::LongLivedSocket);
 RuntimeStatus status();
 
 const char* client_name(Client client);

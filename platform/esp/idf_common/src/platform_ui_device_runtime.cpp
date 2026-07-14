@@ -13,6 +13,7 @@
 #include "platform/esp/common/build_info.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/idf_common/gps_runtime.h"
+#include "platform/esp/idf_common/reticulum_call_runtime_support.h"
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "bsp/m5stack_tab5.h"
@@ -173,10 +174,17 @@ uint8_t default_message_tone_volume()
 
 void set_message_tone_volume(uint8_t volume_percent)
 {
-    (void)volume_percent;
+    const uint8_t volume = volume_percent > 100U ? 100U : volume_percent;
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    ::boards::t_display_p4::TDisplayP4Board::instance().setMessageToneVolume(volume);
+#endif
+    ::platform::esp::idf_common::reticulum_call_support::set_speaker_volume(volume);
 }
 
-void play_message_tone() {}
+void play_message_tone()
+{
+    (void)::platform::esp::idf_common::reticulum_call_support::play_message_notification();
+}
 
 bool sd_ready()
 {

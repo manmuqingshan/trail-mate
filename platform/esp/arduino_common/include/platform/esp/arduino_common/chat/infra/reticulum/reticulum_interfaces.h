@@ -16,10 +16,19 @@
 
 #if __has_include(<WiFi.h>)
 #include <WiFi.h>
-#define TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE 1
+#define TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE 1
 #else
-#define TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE 0
+#define TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE 0
 #endif
+
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+#define TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE 1
+#else
+#define TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE 0
+#endif
+
+#define TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE \
+    (TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE || TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE)
 
 namespace chat::reticulum::interfaces
 {
@@ -88,7 +97,8 @@ class WifiGatewayReticulumInterface
     bool isConfigured() const;
     bool sendPacket(const uint8_t* data,
                     size_t len,
-                    const uint8_t* call_link_id = nullptr);
+                    const uint8_t* call_link_id = nullptr,
+                    bool call_admission_control = false);
     bool pollPacket(RxPacket* out);
     const char* host() const { return host_; }
     uint16_t port() const { return port_; }
@@ -117,6 +127,7 @@ class WifiGatewayReticulumInterface
     char host_[kReticulumGatewayHostMaxLen + 1] = {};
     uint16_t port_ = 4242;
     bool socket_online_ = false;
+    bool socket_open_pending_ = false;
     uint32_t last_reconnect_ms_ = 0;
     uint32_t last_wifi_connect_ms_ = 0;
     uint32_t last_socket_read_ms_ = 0;
@@ -131,20 +142,22 @@ class WifiGatewayReticulumInterface
     uint32_t rx_stats_read_skips_ = 0;
     uint8_t hdlc_frame_[reticulum::kReticulumMtu] = {};
     uint8_t tx_frame_[(reticulum::kReticulumMtu * 2U) + 2U] = {};
+    uint8_t socket_rx_scratch_[256] = {};
     QueuedPacket poll_scratch_{};
     QueuedPacket enqueue_scratch_{};
     sys::RingBuffer<QueuedPacket, kRxPriorityQueueDepth> rx_priority_queue_;
     sys::RingBuffer<QueuedPacket, kRxQueueDepth> rx_queue_;
 
-#if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
     WiFiClient client_;
 #endif
 
     void stop();
     bool connected() const;
-#if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
     bool resolveHost(IPAddress* out);
 #endif
+    void syncSocketState();
     bool ensureSocket();
     void readAvailable();
     void feedHdlcByte(uint8_t byte);
@@ -166,7 +179,8 @@ class ReticulumInterfaceSet
     bool sendPacket(const uint8_t* data, size_t len);
     bool sendPacketWifiOnly(const uint8_t* data,
                             size_t len,
-                            const uint8_t* call_link_id = nullptr);
+                            const uint8_t* call_link_id = nullptr,
+                            bool call_admission_control = false);
     bool pollIncomingPacket(RxPacket* out);
     bool pollLegacyIncomingData(MeshIncomingData* out);
     void handleRawPacket(const uint8_t* data, size_t size);

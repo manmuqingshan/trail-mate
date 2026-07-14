@@ -1,4 +1,5 @@
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "chat/infra/reticulum/lxst_telephony_wire.h"
 #include "chat/infra/reticulum/reticulum_wire.h"
 #include "team/protocol/team_portnum.h"
 
@@ -15,6 +16,7 @@ namespace
 {
 
 namespace lxmf = chat::lxmf;
+namespace lxst = chat::reticulum::lxst;
 namespace reticulum = chat::reticulum;
 
 constexpr const char* kFullHashTrailMate =
@@ -54,6 +56,20 @@ constexpr const char* kProofPacket =
 
 constexpr const char* kTextPayload =
     "94cb40934a0000000000c405547261696cc40f68656c6c6f207265746963756c756d80";
+constexpr const char* kSidebandTelemetryTextPayload =
+    "94cb0000000000000000c400c4008102c42a810297"
+    "c40403956940"
+    "c404017831f1"
+    "c40400003039"
+    "c40400000000"
+    "c40400000000"
+    "c40200fa"
+    "ce65ec8780";
+constexpr const char* kSidebandTelemetryRequestPayload =
+    "94cb0000000000000000c400c400810991810192ce65ec8780c3";
+constexpr const char* kLxstAvailableSignal = "81009103";
+constexpr const char* kLxstPreferredLowSignal = "810091cd012f";
+constexpr const char* kLxstCodec2Frames = "8101c4050206aabbcc";
 constexpr const char* kPeerAnnounceAppData =
     "92c4087669636c69752d31c0";
 constexpr const char* kAppDataPayload =
@@ -361,6 +377,93 @@ void expectLxmfEnvelopeVectors()
     assert(decoded_text.title == "Trail");
     assert(decoded_text.content == "hello reticulum");
     assert(decoded_text.fields_empty);
+
+    const std::vector<uint8_t> sideband_telemetry =
+        fromHex(kSidebandTelemetryTextPayload);
+    assert(lxmf::unpackTextPayload(sideband_telemetry.data(),
+                                   sideband_telemetry.size(),
+                                   &decoded_text));
+    assert(decoded_text.content.empty());
+    assert(!decoded_text.fields_empty);
+    assert(decoded_text.fields.size() == 1);
+    assert(lxmf::findField(decoded_text, lxmf::kFieldTelemetry) != nullptr);
+
+    lxmf::SidebandTelemetryLocation location{};
+    assert(lxmf::decodeSidebandTelemetryLocation(decoded_text, &location));
+    assert(location.valid);
+    assert(location.latitude_e6 == 60123456);
+    assert(location.longitude_e6 == 24654321);
+    assert(location.altitude_cm == 12345);
+    assert(location.accuracy_cm == 250);
+    assert(location.timestamp == 1710000000UL);
+
+    std::vector<uint8_t> encoded_sideband_telemetry = encodeBuffer(96);
+    std::size_t encoded_sideband_telemetry_len = encoded_sideband_telemetry.size();
+    assert(lxmf::encodeSidebandTelemetryLocationPayload(
+        0.0,
+        location,
+        encoded_sideband_telemetry.data(),
+        &encoded_sideband_telemetry_len));
+    encoded_sideband_telemetry.resize(encoded_sideband_telemetry_len);
+    expectBytes(encoded_sideband_telemetry.data(),
+                encoded_sideband_telemetry.size(),
+                kSidebandTelemetryTextPayload);
+
+    const std::vector<uint8_t> sideband_request =
+        fromHex(kSidebandTelemetryRequestPayload);
+    assert(lxmf::unpackTextPayload(sideband_request.data(),
+                                   sideband_request.size(),
+                                   &decoded_text));
+    lxmf::SidebandTelemetryRequest telemetry_request{};
+    assert(lxmf::decodeSidebandTelemetryRequest(decoded_text,
+                                                &telemetry_request));
+    assert(telemetry_request.valid);
+    assert(telemetry_request.timebase == 1710000000UL);
+    assert(telemetry_request.collector_request);
+
+    std::vector<uint8_t> lxst_wire = encodeBuffer(32);
+    std::size_t lxst_wire_len = lxst_wire.size();
+    assert(lxst::encodeSignalling(lxst::kStatusAvailable,
+                                  lxst_wire.data(),
+                                  &lxst_wire_len));
+    lxst_wire.resize(lxst_wire_len);
+    expectBytes(lxst_wire.data(), lxst_wire.size(), kLxstAvailableSignal);
+
+    lxst::DecodedPacket lxst_packet{};
+    assert(lxst::decodePacket(lxst_wire.data(), lxst_wire.size(), &lxst_packet));
+    assert(lxst_packet.signal_count == 1);
+    assert(lxst_packet.signals[0] == lxst::kStatusAvailable);
+
+    lxst_wire.assign(32, 0);
+    lxst_wire_len = lxst_wire.size();
+    assert(lxst::encodeSignalling(
+        lxst::kPreferredProfile + lxst::kProfileBandwidthLow,
+        lxst_wire.data(),
+        &lxst_wire_len));
+    lxst_wire.resize(lxst_wire_len);
+    expectBytes(lxst_wire.data(), lxst_wire.size(), kLxstPreferredLowSignal);
+
+    const uint8_t codec2_frames[] = {0xAA, 0xBB, 0xCC};
+    lxst_wire.assign(32, 0);
+    lxst_wire_len = lxst_wire.size();
+    assert(lxst::encodeCodec2Frames(
+        chat::reticulum::audio_call::Codec2Mode::Mode3200,
+        codec2_frames,
+        sizeof(codec2_frames),
+        lxst_wire.data(),
+        &lxst_wire_len));
+    lxst_wire.resize(lxst_wire_len);
+    expectBytes(lxst_wire.data(), lxst_wire.size(), kLxstCodec2Frames);
+    assert(lxst::decodePacket(lxst_wire.data(), lxst_wire.size(), &lxst_packet));
+    assert(lxst_packet.frame_count == 1);
+    assert(lxst_packet.frames[0].codec == lxst::kCodec2);
+    assert(lxst_packet.frames[0].codec2_mode_valid);
+    assert(lxst_packet.frames[0].codec2_mode ==
+           chat::reticulum::audio_call::Codec2Mode::Mode3200);
+    assert(lxst_packet.frames[0].encoded_len == sizeof(codec2_frames));
+    assert(std::memcmp(lxst_packet.frames[0].encoded,
+                       codec2_frames,
+                       sizeof(codec2_frames)) == 0);
 
     std::vector<uint8_t> peer_announce = encodeBuffer(32);
     std::size_t peer_announce_len = peer_announce.size();

@@ -16,6 +16,7 @@
 #include "ui/localization.h"
 #include "ui/runtime/ui_feedback.h"
 #include "ui/screens/team/team_page_shell.h"
+#include "ui/widgets/reticulum_ping_overlay.h"
 #include "ui/widgets/top_bar_power_presenter.h"
 #include "ui_chat_runtime/chat_delivery_feedback_controller.h"
 
@@ -196,6 +197,26 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
 
     switch (event->type)
     {
+    case sys::EventType::ReticulumPingResult:
+    {
+        const auto* ping_event =
+            static_cast<sys::ReticulumPingResultEvent*>(event);
+        if (ping_event->result == sys::ReticulumPingResult::Delivered)
+        {
+            ::ui::widgets::reticulum_ping::show_delivered(
+                ping_event->destination_hash,
+                ping_event->elapsed_ms,
+                ping_event->hops);
+        }
+        else
+        {
+            ::ui::widgets::reticulum_ping::show_timeout(
+                ping_event->destination_hash,
+                ping_event->elapsed_ms);
+        }
+        delete event;
+        return true;
+    }
     case sys::EventType::ChatSendResult:
         handleChatSendResultFeedback(
             app_context,

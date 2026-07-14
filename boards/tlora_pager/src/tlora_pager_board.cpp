@@ -19,6 +19,7 @@
 #include "pins_arduino.h"
 #include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/ui/audio/call_notification_tone.h"
 #include "platform/ui/audio/pager_notification_tone.h"
 #include "platform/ui/settings_store.h"
 #include "ui/runtime/ui_feedback.h"
@@ -132,6 +133,20 @@ bool withSharedSpiRadioAccess(LilyGoDispArduinoSPI& spi,
     fn();
     spi.unlock();
     return true;
+}
+
+template <typename PlaybackState, typename NextSample>
+uint16_t fillMonoPlayback(PlaybackState& state,
+                          int16_t* pcm,
+                          uint16_t max_frames,
+                          NextSample next_sample)
+{
+    uint16_t frames = 0;
+    while (frames < max_frames && next_sample(state, pcm[frames]))
+    {
+        ++frames;
+    }
+    return frames;
 }
 
 #ifdef USING_XL9555_EXPANDS
@@ -1132,6 +1147,7 @@ void TLoRaPagerBoard::playMessageTone()
     s_last_play_ms = now;
 
     static constexpr size_t kFramesPerChunk = 128;
+    static constexpr uint8_t kCodecChannels = 1;
     namespace pager_tone = ::platform::ui::audio::pager_notification;
 
     int prev_volume = codec.getVolume();
@@ -1141,32 +1157,139 @@ void TLoRaPagerBoard::playMessageTone()
     }
     bool prev_out_mute = codec.getOutMute();
 
-    bool opened =
-        (codec.open(16, pager_tone::kChannels, pager_tone::kPlaybackSampleRateHz) == 0);
-    if (!opened)
+    const int open_result =
+        codec.open(16, kCodecChannels, pager_tone::kPlaybackSampleRateHz);
+    if (open_result != 0)
     {
+        Serial.printf("[Audio][PagerTone] open failed kind=message rc=%d rate=%lu channels=%u\n",
+                      open_result,
+                      static_cast<unsigned long>(pager_tone::kPlaybackSampleRateHz),
+                      static_cast<unsigned>(kCodecChannels));
         s_playing = false;
         return;
     }
 
     codec.setOutMute(false);
     codec.setVolume(_message_tone_volume);
+    delay(10);
 
-    int16_t pcm[kFramesPerChunk * pager_tone::kChannels];
+    int16_t pcm[kFramesPerChunk];
     pager_tone::AdpcmPlaybackState tone_state{};
     while (pager_tone::hasMore(tone_state))
     {
-        const uint16_t frames = pager_tone::fillStereoInterleaved(
-            tone_state, pcm, static_cast<uint16_t>(kFramesPerChunk));
+        const uint16_t frames = fillMonoPlayback(tone_state,
+                                                 pcm,
+                                                 static_cast<uint16_t>(kFramesPerChunk),
+                                                 pager_tone::nextPlaybackSample);
         if (frames == 0)
         {
             break;
         }
-        codec.write(reinterpret_cast<uint8_t*>(pcm),
-                    frames * pager_tone::kChannels * sizeof(int16_t));
-        delay(1);
+        const int write_result = codec.write(reinterpret_cast<uint8_t*>(pcm),
+                                             frames * sizeof(int16_t));
+        if (write_result != 0)
+        {
+            Serial.printf("[Audio][PagerTone] write failed kind=message rc=%d frames=%u\n",
+                          write_result,
+                          static_cast<unsigned>(frames));
+            break;
+        }
     }
 
+    delay(5);
+    codec.setVolume(static_cast<uint8_t>(prev_volume));
+    codec.setOutMute(prev_out_mute);
+    codec.close();
+    s_playing = false;
+#endif
+}
+
+void TLoRaPagerBoard::playIncomingCallTone(const volatile bool* stop_requested)
+{
+#ifndef USING_AUDIO_CODEC
+    return;
+#else
+    if ((stop_requested && *stop_requested) || _message_tone_volume == 0)
+    {
+        return;
+    }
+    if (!(devices_probe & HW_CODEC_ONLINE))
+    {
+        return;
+    }
+
+    static bool s_playing = false;
+    static uint32_t s_last_play_ms = 0;
+
+    if (s_playing)
+    {
+        return;
+    }
+
+    const uint32_t now = millis();
+    if ((now - s_last_play_ms) < 240)
+    {
+        return;
+    }
+
+    s_playing = true;
+    s_last_play_ms = now;
+
+    static constexpr size_t kFramesPerChunk = 128;
+    static constexpr uint8_t kCodecChannels = 1;
+    namespace call_tone = ::platform::ui::audio::call_notification;
+
+    int prev_volume = codec.getVolume();
+    if (prev_volume < 0 || prev_volume > 100)
+    {
+        prev_volume = 50;
+    }
+    bool prev_out_mute = codec.getOutMute();
+
+    const int open_result =
+        codec.open(16, kCodecChannels, call_tone::kPlaybackSampleRateHz);
+    if (open_result != 0)
+    {
+        Serial.printf("[Audio][PagerTone] open failed kind=call rc=%d rate=%lu channels=%u\n",
+                      open_result,
+                      static_cast<unsigned long>(call_tone::kPlaybackSampleRateHz),
+                      static_cast<unsigned>(kCodecChannels));
+        s_playing = false;
+        return;
+    }
+
+    codec.setOutMute(false);
+    codec.setVolume(_message_tone_volume);
+    delay(10);
+
+    int16_t pcm[kFramesPerChunk];
+    call_tone::AdpcmPlaybackState tone_state{};
+    while (call_tone::hasMore(tone_state))
+    {
+        if (stop_requested && *stop_requested)
+        {
+            break;
+        }
+        const uint16_t frames = fillMonoPlayback(tone_state,
+                                                 pcm,
+                                                 static_cast<uint16_t>(kFramesPerChunk),
+                                                 call_tone::nextPlaybackSample);
+        if (frames == 0)
+        {
+            break;
+        }
+        const int write_result = codec.write(reinterpret_cast<uint8_t*>(pcm),
+                                             frames * sizeof(int16_t));
+        if (write_result != 0)
+        {
+            Serial.printf("[Audio][PagerTone] write failed kind=call rc=%d frames=%u\n",
+                          write_result,
+                          static_cast<unsigned>(frames));
+            break;
+        }
+    }
+
+    delay(5);
     codec.setVolume(static_cast<uint8_t>(prev_volume));
     codec.setOutMute(prev_out_mute);
     codec.close();

@@ -78,6 +78,11 @@ void enter_from_saver()
     enterFromScreenSaver();
 }
 
+void wake_for_modal()
+{
+    wakeScreenForModal();
+}
+
 void update_user_activity()
 {
     updateUserActivity();

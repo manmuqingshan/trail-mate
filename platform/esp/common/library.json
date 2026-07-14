@@ -1,0 +1,19 @@
+{
+  "name": "esp_common",
+  "version": "0.1.0",
+  "frameworks": [
+    "arduino"
+  ],
+  "build": {
+    "includeDir": "include",
+    "srcDir": "src"
+  },
+  "dependencies": [
+    {
+      "name": "core_sys"
+    },
+    {
+      "name": "trail_mate_codec2"
+    }
+  ]
+}

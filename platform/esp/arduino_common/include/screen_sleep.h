@@ -49,6 +49,9 @@ void wakeScreenSaver();
 /** Enter the UI from the transient screen saver state. */
 void enterFromScreenSaver();
 
+/** Wake for a modal without navigating the background UI. */
+void wakeScreenForModal();
+
 /** Refresh the user-activity timestamp and wake the screen if needed. */
 void updateUserActivity();
 

@@ -1,6 +1,6 @@
 /**
  * @file lxmf_delivery_runtime.cpp
- * @brief Product ingress materialisation for verified LXMF deliveries.
+ * @brief Product ingress materialisation for authenticated and source-unknown LXMF deliveries.
  */
 
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_runtime.h"
@@ -31,9 +31,11 @@ bool materialiseLxmfTextDelivery(const DecodedTextPayload& payload,
         hasReticulumDestinationIdentity(context.conversation_identity)
             ? context.conversation_identity
             : context.peer_identity;
+    delivery.incoming.source_unverified = context.source_unverified;
     delivery.incoming.rx_meta = context.rx_meta;
     delivery.text = payload.content;
     delivery.incoming.text = delivery.text;
+    delivery.payload = payload;
 
     *out_delivery = std::move(delivery);
     return true;

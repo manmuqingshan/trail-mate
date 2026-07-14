@@ -54,6 +54,22 @@ void copy_hash(uint8_t (&out)[N], const std::array<uint8_t, N>& value)
     std::memcpy(out, value.data(), N);
 }
 
+std::array<uint8_t, chat::lxmf::runtime::kAnnounceRandomBlobSize>
+announce_blob(uint8_t seed, uint64_t emitted)
+{
+    std::array<uint8_t, chat::lxmf::runtime::kAnnounceRandomBlobSize> out = {};
+    for (std::size_t index = 0; index < 5; ++index)
+    {
+        out[index] = static_cast<uint8_t>(seed + index);
+    }
+    for (std::size_t index = out.size(); index > 5; --index)
+    {
+        out[index - 1U] = static_cast<uint8_t>(emitted & 0xFFU);
+        emitted >>= 8U;
+    }
+    return out;
+}
+
 } // namespace
 
 int main()
@@ -66,6 +82,7 @@ int main()
     assert(transport.packet_filter.empty());
     assert(transport.reverse_table.empty());
     assert(transport.pending_path_requests.empty());
+    assert(transport.pending_ping_receipts.empty());
     assert(transport.link_relays.empty());
 
     const TransportRuntimeLimits limits{
@@ -77,23 +94,72 @@ int main()
         30000,
         45000,
         60000,
-        300000};
+        300000,
+        4,
+        1000,
+        500};
 
     const auto destination = filled_hash<reticulum::kTruncatedHashSize>(0x10);
     PathEntry& path = upsertPath(transport, destination.data(), limits.max_paths);
     path.cached_announce_len = 42;
-    path.hops = 2;
-    path.last_seen_s = 1234;
+    const auto first_announce = announce_blob(0xA0, 100);
+    assert(evaluatePathAnnounce(nullptr,
+                                2,
+                                first_announce.data(),
+                                100,
+                                limits.path_ttl_ms) ==
+           PathAnnounceDecision::AcceptNew);
+    applyPathAnnounce(path, 2, first_announce.data(), 100, 1234);
     path.direct = false;
     assert(transport.paths.size() == 1);
     assert(same_hash(transport.paths.front().destination_hash, destination));
     assert(transport.paths.front().cached_announce_len == 42);
     assert(findPath(transport, destination.data()) == &transport.paths.front());
+    assert(!pathExpired(path, 1100, limits.path_ttl_ms));
+    assert(pathExpired(path, 1101, limits.path_ttl_ms));
+    assert(evaluatePathAnnounce(&path,
+                                2,
+                                first_announce.data(),
+                                200,
+                                limits.path_ttl_ms) ==
+           PathAnnounceDecision::RejectReplay);
+    const auto stale_better_announce = announce_blob(0xB0, 99);
+    assert(evaluatePathAnnounce(&path,
+                                1,
+                                stale_better_announce.data(),
+                                200,
+                                limits.path_ttl_ms) ==
+           PathAnnounceDecision::RejectStale);
+    const auto newer_worse_announce = announce_blob(0xC0, 101);
+    assert(evaluatePathAnnounce(&path,
+                                3,
+                                newer_worse_announce.data(),
+                                200,
+                                limits.path_ttl_ms) ==
+           PathAnnounceDecision::AcceptNewer);
+    applyPathAnnounce(path, 3, newer_worse_announce.data(), 200, 1235);
+    assert(path.hops == 3);
+    assert(path.announce_timebase == 101);
+    assert(evaluatePathAnnounce(&path,
+                                1,
+                                stale_better_announce.data(),
+                                1201,
+                                limits.path_ttl_ms) ==
+           PathAnnounceDecision::RejectStale);
+    assert(evaluatePathAnnounce(&path,
+                                4,
+                                stale_better_announce.data(),
+                                1201,
+                                limits.path_ttl_ms) ==
+           PathAnnounceDecision::AcceptExpired);
 
     const auto packet_hash = filled_hash<reticulum::kFullHashSize>(0x20);
     rememberPacket(transport, packet_hash.data(), 100, limits.max_packet_filter);
     assert(same_hash(transport.packet_filter.front().packet_hash, packet_hash));
     assert(isDuplicatePacket(transport, packet_hash.data()));
+    forgetPacket(transport, packet_hash.data());
+    assert(!isDuplicatePacket(transport, packet_hash.data()));
+    rememberPacket(transport, packet_hash.data(), 100, limits.max_packet_filter);
 
     rememberReversePath(transport, destination.data(), 3, 200, limits.max_reverse_entries);
     ReverseEntry* reverse = findReversePath(transport, destination.data());
@@ -111,6 +177,21 @@ int main()
     resolvePendingPathRequest(transport, destination.data());
     assert(findPendingPathRequest(transport, destination.data()) == nullptr);
 
+    const auto peer_sig_pub =
+        filled_hash<chat::lxmf::LxmfIdentity::kSigPubKeySize>(0x55);
+    notePendingPingReceipt(transport,
+                           packet_hash.data(),
+                           destination.data(),
+                           peer_sig_pub.data(),
+                           350,
+                           limits.max_pending_ping_receipts);
+    PendingPingReceipt* ping_receipt =
+        findPendingPingReceipt(transport, packet_hash.data());
+    assert(ping_receipt != nullptr);
+    assert(same_hash(ping_receipt->packet_hash, packet_hash));
+    assert(same_hash(ping_receipt->destination_hash, destination));
+    assert(same_hash(ping_receipt->peer_sig_pub, peer_sig_pub));
+
     LinkRelayEntry& relay = upsertLinkRelay(transport, destination.data(), limits.max_link_relays);
     relay.initiator_hops = 1;
     relay.responder_hops = 2;
@@ -122,8 +203,9 @@ int main()
     assert(transport.packet_filter.empty());
     assert(transport.reverse_table.empty());
     assert(transport.pending_path_requests.empty());
+    assert(transport.pending_ping_receipts.empty());
     assert(transport.link_relays.empty());
-    assert(transport.paths.size() == 1);
+    assert(transport.paths.empty());
 
     LinkRuntime links{};
     assert(links.sessions.empty());
@@ -987,6 +1069,7 @@ int main()
     assert(text_delivery.incoming.timestamp == delivery_context.timestamp_s);
     assert(text_delivery.incoming.hop_limit == 0xFF);
     assert(text_delivery.incoming.encrypted);
+    assert(!text_delivery.incoming.source_unverified);
     assert(text_delivery.incoming.text == text_payload.content);
     assert(::chat::sameReticulumPeerIdentity(text_delivery.incoming.reticulum_identity,
                                              delivery_context.peer_identity));
@@ -1002,9 +1085,46 @@ int main()
     ::chat::MeshIncomingText popped_text{};
     assert(text_queue.pop(&popped_text));
     assert(popped_text.text == text_payload.content);
+    assert(!popped_text.source_unverified);
     assert(::chat::sameReticulumPeerIdentity(popped_text.reticulum_identity,
                                              delivery_context.peer_identity));
     assert(popped_text.rx_meta.rssi_dbm_x10 == -710);
+
+    LxmfDeliveryContext unverified_context = delivery_context;
+    unverified_context.source_unverified = true;
+    unverified_context.peer_identity =
+        ::chat::makeReticulumDestinationIdentity(delivery_hash.data());
+    LxmfMaterialisedText unverified_text{};
+    assert(materialiseLxmfTextDelivery(text_payload,
+                                       unverified_context,
+                                       &unverified_text));
+    assert(unverified_text.incoming.source_unverified);
+    ::chat::infra::IncomingTextQueue<1, 64> unverified_text_queue{};
+    assert(unverified_text_queue.push(unverified_text.incoming,
+                                      unverified_text.text.data(),
+                                      unverified_text.text.size(),
+                                      ::chat::infra::IncomingQueuePriority::P0Critical));
+    assert(unverified_text_queue.pop(&popped_text));
+    assert(popped_text.source_unverified);
+    assert(::chat::sameReticulumPeerIdentity(
+        popped_text.reticulum_identity,
+        unverified_context.peer_identity));
+
+    ::chat::infra::IncomingTextQueue<1, 64> accepted_text_queue{};
+    assert(accepted_text_queue.push(text_delivery.incoming,
+                                    text_delivery.text.data(),
+                                    text_delivery.text.size(),
+                                    ::chat::infra::IncomingQueuePriority::P0Critical,
+                                    &text_report));
+    assert(!accepted_text_queue.push(text_delivery.incoming,
+                                     text_delivery.text.data(),
+                                     text_delivery.text.size(),
+                                     ::chat::infra::IncomingQueuePriority::P0Critical,
+                                     &text_report));
+    assert(text_report.dropped_new);
+    assert(!text_report.dropped_existing);
+    assert(accepted_text_queue.pop(&popped_text));
+    assert(popped_text.text == text_payload.content);
 
     ::chat::lxmf::DecodedAppData app_payload{};
     app_payload.portnum = 77;

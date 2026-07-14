@@ -151,6 +151,8 @@ class SdStore final : public IChatStore
 
     bool ensureFs() const;
     bool ensureDir() const;
+    bool recoverIndex() const;
+    bool reconcileIndexUnread(std::vector<IndexEntry>& entries) const;
     bool readIndex(std::vector<IndexEntry>& entries) const;
     bool writeIndex(const std::vector<IndexEntry>& entries) const;
     bool ensureIndex(std::vector<IndexEntry>& entries);
@@ -160,7 +162,7 @@ class SdStore final : public IChatStore
     bool findIndexEntry(const ConversationId& conv,
                         const std::vector<IndexEntry>& entries,
                         size_t* out_idx) const;
-    void updateIndexForMessage(const ChatMessage& msg);
+    void updateIndexForMessage(const ChatMessage& msg, uint16_t unread);
     void rebuildIndex();
     bool loadFileHeader(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
                         FileHeader& header) const;
@@ -178,6 +180,8 @@ class SdStore final : public IChatStore
     bool openConversationForUpdate(const ConversationId& conv,
                                    ::platform::esp::arduino_common::storage::SdRuntimeFile& file,
                                    FileHeader& header) const;
+    bool readConversationUnread(const ConversationId& conv, uint16_t* unread) const;
+    bool writeConversationUnread(const ConversationId& conv, uint16_t unread) const;
     void buildConversationPath(const ConversationId& conv, char* out, size_t out_len) const;
     const char* channelName(ChannelId channel) const;
     static ChatMessage messageFromRecord(const Record& rec);
@@ -190,6 +194,7 @@ class SdStore final : public IChatStore
     static bool hasLogSuffix(const char* name);
 
     bool ready_ = false;
+    bool unread_reconcile_pending_ = false;
 };
 
 } // namespace chat

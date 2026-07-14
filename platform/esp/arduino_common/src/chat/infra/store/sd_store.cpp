@@ -22,7 +22,35 @@ namespace
 namespace storage = ::platform::esp::arduino_common::storage;
 
 constexpr uint8_t kRecordHasReticulumIdentityFlag = 0x01U;
+constexpr uint8_t kRecordSourceUnverifiedFlag = 0x02U;
 constexpr uint8_t kIndexHasReticulumIdentityFlag = 0x01U;
+// FileHeader::reserved is a durable unread count once the valid bit is set.
+constexpr uint16_t kUnreadStateValidMask = 0x8000U;
+constexpr uint16_t kUnreadStateCountMask = 0x7FFFU;
+constexpr const char* kTempIndexFile = "/chat/index.tmp";
+constexpr const char* kBackupIndexFile = "/chat/index.bak";
+
+static_assert(SdStore::kMaxMessagesPerConv <= kUnreadStateCountMask,
+              "Unread state must cover a full conversation ring");
+
+uint16_t encodeUnreadState(uint16_t unread)
+{
+    return static_cast<uint16_t>(kUnreadStateValidMask |
+                                 std::min<uint16_t>(unread, kUnreadStateCountMask));
+}
+
+bool decodeUnreadState(uint16_t state, uint16_t* unread)
+{
+    if ((state & kUnreadStateValidMask) == 0)
+    {
+        return false;
+    }
+    if (unread)
+    {
+        *unread = static_cast<uint16_t>(state & kUnreadStateCountMask);
+    }
+    return true;
+}
 
 bool readExact(storage::SdRuntimeFile& file, void* out, size_t len)
 {
@@ -112,10 +140,15 @@ SdStore::SdStore()
     }
 
     std::vector<IndexEntry> entries;
-    if (!readIndex(entries))
+    if (!readIndex(entries) &&
+        (!recoverIndex() || !readIndex(entries)))
     {
         rebuildIndex();
         (void)readIndex(entries);
+    }
+    if (reconcileIndexUnread(entries))
+    {
+        unread_reconcile_pending_ = !writeIndex(entries);
     }
     Serial.printf("[AppContext] chat store=SdStore layout=logs root=%s index=%u\n",
                   kDir,
@@ -137,6 +170,18 @@ void SdStore::append(const ChatMessage& msg)
         return;
     }
 
+    uint16_t unread = 0;
+    if (!decodeUnreadState(header.reserved, &unread))
+    {
+        unread = static_cast<uint16_t>(
+            std::min<int>(std::max(0, getUnread(conv)), kUnreadStateCountMask));
+    }
+    if (msg.status == MessageStatus::Incoming && unread < kUnreadStateCountMask)
+    {
+        unread = static_cast<uint16_t>(unread + 1U);
+    }
+    header.reserved = encodeUnreadState(unread);
+
     const Record rec = recordFromMessage(msg);
     if (!writeRecord(file, header.head, rec))
     {
@@ -155,10 +200,14 @@ void SdStore::append(const ChatMessage& msg)
         file.close();
         return;
     }
-    file.flush();
+    if (!file.flush())
+    {
+        file.close();
+        return;
+    }
     file.close();
 
-    updateIndexForMessage(msg);
+    updateIndexForMessage(msg, unread);
 }
 
 std::vector<ChatMessage> SdStore::loadRecent(const ConversationId& conv, size_t n)
@@ -291,8 +340,24 @@ void SdStore::setUnread(const ConversationId& conv, int unread)
     {
         return;
     }
-    entries[index].unread = static_cast<uint16_t>(std::max(0, unread));
-    (void)writeIndex(entries);
+    const uint16_t unread_count = static_cast<uint16_t>(
+        std::min<int>(std::max(0, unread), kUnreadStateCountMask));
+    const bool header_written = writeConversationUnread(conv, unread_count);
+    if (!header_written)
+    {
+        Serial.printf("[AppContext] chat unread persist failed stage=conversation_header unread=%u\n",
+                      static_cast<unsigned>(unread_count));
+        return;
+    }
+    entries[index].unread = unread_count;
+    const bool index_written = writeIndex(entries);
+    if (!index_written)
+    {
+        Serial.printf("[AppContext] chat unread persist failed stage=index unread=%u\n",
+                      static_cast<unsigned>(unread_count));
+        unread_reconcile_pending_ = true;
+        rebuildIndex();
+    }
 }
 
 int SdStore::getUnread(const ConversationId& conv) const
@@ -351,6 +416,14 @@ void SdStore::clearAll()
     {
         storage::sd_remove(kIndexFile);
     }
+    if (storage::sd_exists(kTempIndexFile))
+    {
+        storage::sd_remove(kTempIndexFile);
+    }
+    if (storage::sd_exists(kBackupIndexFile))
+    {
+        storage::sd_remove(kBackupIndexFile);
+    }
 
     std::vector<std::string> log_paths;
     storage::SdRuntimeDir dir;
@@ -375,6 +448,7 @@ void SdStore::clearAll()
             storage::sd_remove(path.c_str());
         }
     }
+    unread_reconcile_pending_ = false;
 }
 
 bool SdStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
@@ -536,6 +610,52 @@ bool SdStore::ensureDir() const
     return storage::sd_mkdir(kDir);
 }
 
+bool SdStore::recoverIndex() const
+{
+    if (storage::sd_exists(kIndexFile))
+    {
+        return false;
+    }
+    const auto restore_candidate = [this](const char* path, const char* source)
+    {
+        if (!storage::sd_exists(path) || !storage::sd_rename(path, kIndexFile))
+        {
+            return false;
+        }
+        std::vector<IndexEntry> recovered;
+        if (readIndex(recovered))
+        {
+            Serial.printf("[AppContext] chat store=SdStore recovered index source=%s\n",
+                          source);
+            return true;
+        }
+        (void)storage::sd_remove(kIndexFile);
+        return false;
+    };
+
+    if (restore_candidate(kTempIndexFile, "temp"))
+    {
+        return true;
+    }
+    return restore_candidate(kBackupIndexFile, "backup");
+}
+
+bool SdStore::reconcileIndexUnread(std::vector<IndexEntry>& entries) const
+{
+    bool changed = false;
+    for (auto& entry : entries)
+    {
+        uint16_t durable_unread = 0;
+        if (readConversationUnread(conversationFromIndexEntry(entry), &durable_unread) &&
+            entry.unread != durable_unread)
+        {
+            entry.unread = durable_unread;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 bool SdStore::readIndex(std::vector<IndexEntry>& entries) const
 {
     entries.clear();
@@ -609,7 +729,6 @@ bool SdStore::writeIndex(const std::vector<IndexEntry>& entries) const
         return false;
     }
 
-    static constexpr const char* kTempIndexFile = "/chat/index.tmp";
     if (storage::sd_exists(kTempIndexFile))
     {
         storage::sd_remove(kTempIndexFile);
@@ -639,26 +758,62 @@ bool SdStore::writeIndex(const std::vector<IndexEntry>& entries) const
         return false;
     }
 
-    if (storage::sd_exists(kIndexFile))
+    const bool had_index = storage::sd_exists(kIndexFile);
+    if (had_index)
     {
-        storage::sd_remove(kIndexFile);
+        if (storage::sd_exists(kBackupIndexFile) &&
+            !storage::sd_remove(kBackupIndexFile))
+        {
+            storage::sd_remove(kTempIndexFile);
+            return false;
+        }
+        if (!storage::sd_rename(kIndexFile, kBackupIndexFile))
+        {
+            storage::sd_remove(kTempIndexFile);
+            return false;
+        }
     }
     if (!storage::sd_rename(kTempIndexFile, kIndexFile))
     {
+        if (had_index && !storage::sd_exists(kIndexFile))
+        {
+            (void)storage::sd_rename(kBackupIndexFile, kIndexFile);
+        }
         storage::sd_remove(kTempIndexFile);
         return false;
+    }
+    if (storage::sd_exists(kBackupIndexFile))
+    {
+        (void)storage::sd_remove(kBackupIndexFile);
     }
     return true;
 }
 
 bool SdStore::ensureIndex(std::vector<IndexEntry>& entries)
 {
-    if (readIndex(entries))
+    bool loaded = readIndex(entries);
+    if (!loaded && recoverIndex())
     {
-        return true;
+        loaded = readIndex(entries);
     }
-    rebuildIndex();
-    return readIndex(entries);
+    if (!loaded)
+    {
+        rebuildIndex();
+        loaded = readIndex(entries);
+    }
+    if (!loaded)
+    {
+        return false;
+    }
+    if (unread_reconcile_pending_)
+    {
+        const bool changed = reconcileIndexUnread(entries);
+        if (!changed || writeIndex(entries))
+        {
+            unread_reconcile_pending_ = false;
+        }
+    }
+    return true;
 }
 
 bool SdStore::findIndexEntry(const ConversationId& conv,
@@ -689,7 +844,7 @@ bool SdStore::findIndexEntry(const ConversationId& conv,
     return false;
 }
 
-void SdStore::updateIndexForMessage(const ChatMessage& msg)
+void SdStore::updateIndexForMessage(const ChatMessage& msg, uint16_t unread)
 {
     std::vector<IndexEntry> entries;
     if (!ensureIndex(entries))
@@ -717,6 +872,7 @@ void SdStore::updateIndexForMessage(const ChatMessage& msg)
     }
 
     IndexEntry& entry = entries[index];
+    entry.unread = std::min<uint16_t>(unread, kUnreadStateCountMask);
     entry.protocol = static_cast<uint8_t>(msg.protocol);
     entry.channel = static_cast<uint8_t>(msg.channel);
     entry.status = static_cast<uint8_t>(msg.status);
@@ -740,12 +896,12 @@ void SdStore::updateIndexForMessage(const ChatMessage& msg)
     {
         std::memcpy(entry.preview, msg.text.data(), entry.preview_len);
     }
-    if (msg.status == MessageStatus::Incoming && entry.unread < 0xFFFFU)
+    const bool index_written = writeIndex(entries);
+    if (!index_written)
     {
-        entry.unread = static_cast<uint16_t>(entry.unread + 1U);
+        unread_reconcile_pending_ = true;
+        rebuildIndex();
     }
-
-    (void)writeIndex(entries);
 }
 
 void SdStore::rebuildIndex()
@@ -788,6 +944,7 @@ void SdStore::rebuildIndex()
         ChatMessage last_msg;
         bool have_last = false;
         uint16_t unread = 0;
+        const bool has_durable_unread = decodeUnreadState(header.reserved, &unread);
         for (uint16_t index = 0; index < header.count; ++index)
         {
             const uint16_t slot =
@@ -799,7 +956,9 @@ void SdStore::rebuildIndex()
                 continue;
             }
             ChatMessage msg = messageFromRecord(rec);
-            if (msg.status == MessageStatus::Incoming && unread < 0xFFFFU)
+            if (!has_durable_unread &&
+                msg.status == MessageStatus::Incoming &&
+                unread < kUnreadStateCountMask)
             {
                 ++unread;
             }
@@ -839,10 +998,14 @@ void SdStore::rebuildIndex()
             std::memcpy(entry.preview, last_msg.text.data(), entry.preview_len);
         }
         entries.push_back(entry);
+        if (!has_durable_unread)
+        {
+            (void)writeConversationUnread(conversationIdForMessage(last_msg), unread);
+        }
     }
     dir.close();
 
-    (void)writeIndex(entries);
+    unread_reconcile_pending_ = !writeIndex(entries);
     Serial.printf("[AppContext] chat store=SdStore rebuild index entries=%u\n",
                   static_cast<unsigned>(entries.size()));
 }
@@ -1051,6 +1214,53 @@ bool SdStore::openConversationForUpdate(const ConversationId& conv,
     return loadFileHeader(file, header);
 }
 
+bool SdStore::readConversationUnread(const ConversationId& conv, uint16_t* unread) const
+{
+    if (!unread)
+    {
+        return false;
+    }
+
+    char path[96]{};
+    buildConversationPath(conv, path, sizeof(path));
+    storage::SdRuntimeFile file;
+    if (!storage::sd_exists(path) || !file.open(path, "r"))
+    {
+        return false;
+    }
+
+    FileHeader header{};
+    const bool ok = loadFileHeader(file, header) &&
+                    decodeUnreadState(header.reserved, unread);
+    file.close();
+    return ok;
+}
+
+bool SdStore::writeConversationUnread(const ConversationId& conv, uint16_t unread) const
+{
+    char path[96]{};
+    buildConversationPath(conv, path, sizeof(path));
+    storage::SdRuntimeFile file;
+    if (!storage::sd_exists(path) || !file.open(path, "r+"))
+    {
+        return false;
+    }
+
+    FileHeader header{};
+    if (!loadFileHeader(file, header) ||
+        !upgradeConversationFile(file, path, header))
+    {
+        file.close();
+        return false;
+    }
+    header.reserved = encodeUnreadState(unread);
+    const bool ok = file.seek(0) &&
+                    writeExact(file, &header, sizeof(header)) &&
+                    file.flush();
+    file.close();
+    return ok;
+}
+
 void SdStore::buildConversationPath(const ConversationId& conv, char* out, size_t out_len) const
 {
     if (!out || out_len == 0)
@@ -1116,6 +1326,7 @@ ChatMessage SdStore::messageFromRecord(const Record& rec)
     msg.text.assign(rec.text, std::min<size_t>(rec.text_len, sizeof(rec.text)));
     msg.status = static_cast<MessageStatus>(rec.status);
     msg.rx_origin = static_cast<RxOrigin>(rec.rx_origin);
+    msg.source_unverified = (rec.flags & kRecordSourceUnverifiedFlag) != 0;
     if ((rec.flags & kRecordHasReticulumIdentityFlag) != 0)
     {
         readReticulumIdentityFromStorage(msg.reticulum_identity,
@@ -1137,6 +1348,10 @@ SdStore::Record SdStore::recordFromMessage(const ChatMessage& msg)
     rec.msg_id = msg.msg_id;
     rec.timestamp = msg.timestamp;
     rec.rx_origin = static_cast<uint8_t>(msg.rx_origin);
+    if (msg.source_unverified)
+    {
+        rec.flags |= kRecordSourceUnverifiedFlag;
+    }
     if (msg.protocol == MeshProtocol::Reticulum &&
         hasReticulumDestinationIdentity(msg.reticulum_identity))
     {

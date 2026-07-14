@@ -475,6 +475,7 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
                 }
             }
             row.outgoing = message.status != ::chat::MessageStatus::Incoming;
+            row.source_unverified = !row.outgoing && message.source_unverified;
             row.sender_node_id = row.outgoing ? 0 : message.from;
             copyString(row.text, message.text);
             copyTimeLabel(row.time_label, message.timestamp);

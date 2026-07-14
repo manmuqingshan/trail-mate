@@ -5,11 +5,10 @@
 
 #pragma once
 
-#include <Arduino.h>
-
 #include "chat/domain/chat_types.h"
 #include "chat/infra/mesh_adapter_router_core.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 namespace chat

@@ -6,6 +6,13 @@
 #include <cstdint>
 #include <cstdio>
 
+#if !defined(LV_FONT_MONTSERRAT_10) || !LV_FONT_MONTSERRAT_10
+#define lv_font_montserrat_10 lv_font_montserrat_14
+#endif
+#if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
+#define lv_font_montserrat_12 lv_font_montserrat_14
+#endif
+
 namespace ui::widgets::route_image_strip
 {
 namespace

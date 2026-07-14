@@ -21,6 +21,7 @@ static lv_style_t s_row;
 static lv_style_t s_bubble_base;
 static lv_style_t s_bubble_self;
 static lv_style_t s_bubble_other;
+static lv_style_t s_bubble_unverified;
 static lv_style_t s_bubble_text;
 static lv_style_t s_bubble_time;
 static lv_style_t s_bubble_status;
@@ -124,6 +125,10 @@ void init_once()
     lv_style_set_bg_color(&s_bubble_other, kBubbleOther);
     lv_style_set_border_color(&s_bubble_other, lv_color_hex(0xE2C487));
 
+    lv_style_init(&s_bubble_unverified);
+    lv_style_set_bg_color(&s_bubble_unverified, lv_color_hex(0xF4E1DE));
+    lv_style_set_border_color(&s_bubble_unverified, lv_color_hex(0xC47D70));
+
     lv_style_init(&s_bubble_text);
     lv_style_set_text_color(&s_bubble_text, kTextColor);
     lv_style_set_text_align(&s_bubble_text, LV_TEXT_ALIGN_LEFT);
@@ -177,11 +182,14 @@ void apply_message_row(lv_obj_t* row)
     lv_obj_add_style(row, &s_row, 0);
 }
 
-void apply_bubble(lv_obj_t* bubble, bool is_self)
+void apply_bubble(lv_obj_t* bubble, bool is_self, bool source_unverified)
 {
     init_once();
     lv_obj_add_style(bubble, &s_bubble_base, LV_PART_MAIN);
-    lv_obj_add_style(bubble, is_self ? &s_bubble_self : &s_bubble_other, LV_PART_MAIN);
+    lv_style_t* message_style =
+        is_self ? &s_bubble_self
+                : (source_unverified ? &s_bubble_unverified : &s_bubble_other);
+    lv_obj_add_style(bubble, message_style, LV_PART_MAIN);
 }
 
 void apply_bubble_text(lv_obj_t* label)

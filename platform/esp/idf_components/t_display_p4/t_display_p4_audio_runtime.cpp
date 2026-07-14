@@ -1,0 +1,358 @@
+#include "bsp/trail_mate_t_display_p4_runtime.h"
+
+#include "boards/t_display_p4/t_display_p4_board.h"
+
+#include "driver/i2s_std.h"
+#include "esp_codec_dev.h"
+#include "esp_codec_dev_defaults.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
+#include <algorithm>
+#include <array>
+
+namespace
+{
+
+constexpr char kTag[] = "p4_audio";
+constexpr i2s_port_t kI2sPort = I2S_NUM_0;
+constexpr uint32_t kInitialSampleRateHz = 16000;
+constexpr int kBitsPerSample = 16;
+constexpr int kPhysicalChannels = 2;
+constexpr int kMclkMultiple = 384;
+constexpr float kMicrophoneGainDb = 36.0f;
+constexpr std::size_t kScratchFrames = 320;
+
+struct AudioRuntime
+{
+    StaticSemaphore_t mutex_storage{};
+    SemaphoreHandle_t mutex = nullptr;
+    i2s_chan_handle_t tx = nullptr;
+    i2s_chan_handle_t rx = nullptr;
+    const audio_codec_data_if_t* data_if = nullptr;
+    const audio_codec_ctrl_if_t* ctrl_if = nullptr;
+    const audio_codec_if_t* codec_if = nullptr;
+    esp_codec_dev_handle_t codec = nullptr;
+    trail_mate_t_display_p4_audio_owner_t owner =
+        TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_NONE;
+    uint32_t sample_rate_hz = 0;
+    uint8_t volume_percent = 45;
+    bool init_attempted = false;
+    bool ready = false;
+    std::array<int16_t, kScratchFrames * kPhysicalChannels> stereo_scratch{};
+};
+
+AudioRuntime s_audio{};
+
+SemaphoreHandle_t audio_mutex()
+{
+    if (!s_audio.mutex)
+    {
+        s_audio.mutex = xSemaphoreCreateMutexStatic(&s_audio.mutex_storage);
+    }
+    return s_audio.mutex;
+}
+
+class AudioLock
+{
+  public:
+    AudioLock()
+    {
+        SemaphoreHandle_t mutex = audio_mutex();
+        locked_ = mutex && xSemaphoreTake(mutex, pdMS_TO_TICKS(1000)) == pdTRUE;
+    }
+
+    ~AudioLock()
+    {
+        if (locked_)
+        {
+            xSemaphoreGive(s_audio.mutex);
+        }
+    }
+
+    explicit operator bool() const { return locked_; }
+
+  private:
+    bool locked_ = false;
+};
+
+bool initialize_audio_locked()
+{
+    if (s_audio.ready)
+    {
+        return true;
+    }
+    if (s_audio.init_attempted)
+    {
+        return false;
+    }
+    s_audio.init_attempted = true;
+
+    auto& board = ::boards::t_display_p4::TDisplayP4Board::instance();
+    if (!board.ensureExternal3v3Power() || !board.externalI2cHandle())
+    {
+        ESP_LOGE(kTag, "external 3V3 or I2C bus unavailable");
+        return false;
+    }
+
+    i2s_chan_config_t channel_config = I2S_CHANNEL_DEFAULT_CONFIG(kI2sPort, I2S_ROLE_MASTER);
+    channel_config.auto_clear = true;
+    if (i2s_new_channel(&channel_config, &s_audio.tx, &s_audio.rx) != ESP_OK)
+    {
+        ESP_LOGE(kTag, "I2S channel creation failed");
+        return false;
+    }
+
+    const auto& pins = board.profile().audio_i2s;
+    i2s_std_config_t i2s_config{};
+    i2s_config.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(kInitialSampleRateHz);
+    i2s_config.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_384;
+    i2s_config.slot_cfg =
+        I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
+                                            I2S_SLOT_MODE_STEREO);
+    i2s_config.gpio_cfg.mclk = static_cast<gpio_num_t>(pins.mclk);
+    i2s_config.gpio_cfg.bclk = static_cast<gpio_num_t>(pins.bclk);
+    i2s_config.gpio_cfg.ws = static_cast<gpio_num_t>(pins.ws);
+    i2s_config.gpio_cfg.dout = static_cast<gpio_num_t>(pins.dout);
+    i2s_config.gpio_cfg.din = static_cast<gpio_num_t>(pins.din);
+    i2s_config.gpio_cfg.invert_flags = {};
+
+    if (i2s_channel_init_std_mode(s_audio.tx, &i2s_config) != ESP_OK ||
+        i2s_channel_init_std_mode(s_audio.rx, &i2s_config) != ESP_OK)
+    {
+        ESP_LOGE(kTag, "I2S standard mode initialization failed");
+        return false;
+    }
+
+    audio_codec_i2s_cfg_t data_config{};
+    data_config.port = static_cast<uint8_t>(kI2sPort);
+    data_config.rx_handle = s_audio.rx;
+    data_config.tx_handle = s_audio.tx;
+    s_audio.data_if = audio_codec_new_i2s_data(&data_config);
+    if (!s_audio.data_if)
+    {
+        ESP_LOGE(kTag, "codec I2S data interface unavailable");
+        return false;
+    }
+
+    audio_codec_i2c_cfg_t control_config{};
+    control_config.port = static_cast<uint8_t>(board.externalI2c().port);
+    control_config.addr = ES8311_CODEC_DEFAULT_ADDR;
+    control_config.bus_handle = board.externalI2cHandle();
+    s_audio.ctrl_if = audio_codec_new_i2c_ctrl(&control_config);
+    if (!s_audio.ctrl_if)
+    {
+        ESP_LOGE(kTag, "ES8311 I2C control interface unavailable");
+        return false;
+    }
+
+    es8311_codec_cfg_t codec_config{};
+    codec_config.ctrl_if = s_audio.ctrl_if;
+    codec_config.codec_mode = ESP_CODEC_DEV_WORK_MODE_BOTH;
+    codec_config.pa_pin = -1;
+    codec_config.master_mode = false;
+    codec_config.use_mclk = true;
+    codec_config.digital_mic = false;
+    codec_config.no_dac_ref = true;
+    codec_config.mclk_div = kMclkMultiple;
+    s_audio.codec_if = es8311_codec_new(&codec_config);
+    if (!s_audio.codec_if)
+    {
+        ESP_LOGE(kTag, "ES8311 codec interface unavailable");
+        return false;
+    }
+
+    esp_codec_dev_cfg_t device_config{};
+    device_config.dev_type = ESP_CODEC_DEV_TYPE_IN_OUT;
+    device_config.codec_if = s_audio.codec_if;
+    device_config.data_if = s_audio.data_if;
+    s_audio.codec = esp_codec_dev_new(&device_config);
+    if (!s_audio.codec)
+    {
+        ESP_LOGE(kTag, "ES8311 codec device unavailable");
+        return false;
+    }
+
+    s_audio.ready = true;
+    ESP_LOGI(kTag,
+             "ES8311 ready i2c=%d pins(mclk=%d bclk=%d ws=%d dout=%d din=%d)",
+             board.externalI2c().port,
+             pins.mclk,
+             pins.bclk,
+             pins.ws,
+             pins.dout,
+             pins.din);
+    return true;
+}
+
+bool owner_active_locked(trail_mate_t_display_p4_audio_owner_t owner)
+{
+    return owner != TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_NONE &&
+           s_audio.owner == owner && s_audio.codec;
+}
+
+} // namespace
+
+extern "C" bool trail_mate_t_display_p4_audio_is_ready(void)
+{
+    AudioLock lock;
+    return lock && initialize_audio_locked();
+}
+
+extern "C" bool trail_mate_t_display_p4_audio_begin(
+    trail_mate_t_display_p4_audio_owner_t owner,
+    uint32_t sample_rate_hz)
+{
+    if (owner == TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_NONE || sample_rate_hz == 0)
+    {
+        return false;
+    }
+
+    AudioLock lock;
+    if (!lock || !initialize_audio_locked())
+    {
+        return false;
+    }
+    if (s_audio.owner != TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_NONE)
+    {
+        return s_audio.owner == owner && s_audio.sample_rate_hz == sample_rate_hz;
+    }
+
+    esp_codec_dev_sample_info_t sample_info{};
+    sample_info.bits_per_sample = kBitsPerSample;
+    sample_info.channel = kPhysicalChannels;
+    sample_info.sample_rate = sample_rate_hz;
+    sample_info.mclk_multiple = kMclkMultiple;
+    const int open_result = esp_codec_dev_open(s_audio.codec, &sample_info);
+    if (open_result != ESP_CODEC_DEV_OK)
+    {
+        ESP_LOGE(kTag,
+                 "open failed owner=%u rate=%lu rc=%d",
+                 static_cast<unsigned>(owner),
+                 static_cast<unsigned long>(sample_rate_hz),
+                 open_result);
+        (void)esp_codec_dev_close(s_audio.codec);
+        return false;
+    }
+
+    (void)esp_codec_dev_set_in_gain(s_audio.codec, kMicrophoneGainDb);
+    (void)esp_codec_dev_set_out_vol(s_audio.codec, s_audio.volume_percent);
+    (void)esp_codec_dev_set_out_mute(s_audio.codec, s_audio.volume_percent == 0);
+    s_audio.owner = owner;
+    s_audio.sample_rate_hz = sample_rate_hz;
+    ESP_LOGI(kTag,
+             "session begin owner=%u rate=%lu volume=%u",
+             static_cast<unsigned>(owner),
+             static_cast<unsigned long>(sample_rate_hz),
+             static_cast<unsigned>(s_audio.volume_percent));
+    return true;
+}
+
+extern "C" void trail_mate_t_display_p4_audio_end(
+    trail_mate_t_display_p4_audio_owner_t owner)
+{
+    AudioLock lock;
+    if (!lock || !owner_active_locked(owner))
+    {
+        return;
+    }
+
+    (void)esp_codec_dev_set_out_mute(s_audio.codec, true);
+    (void)esp_codec_dev_close(s_audio.codec);
+    s_audio.owner = TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_NONE;
+    s_audio.sample_rate_hz = 0;
+    ESP_LOGI(kTag, "session end owner=%u", static_cast<unsigned>(owner));
+}
+
+extern "C" bool trail_mate_t_display_p4_audio_read_mono(
+    trail_mate_t_display_p4_audio_owner_t owner,
+    int16_t* pcm,
+    size_t sample_count)
+{
+    if (!pcm || sample_count == 0)
+    {
+        return false;
+    }
+
+    AudioLock lock;
+    if (!lock || !owner_active_locked(owner))
+    {
+        return false;
+    }
+
+    std::size_t offset = 0;
+    while (offset < sample_count)
+    {
+        const std::size_t frames = std::min(kScratchFrames, sample_count - offset);
+        const int result = esp_codec_dev_read(s_audio.codec,
+                                              s_audio.stereo_scratch.data(),
+                                              static_cast<int>(frames * kPhysicalChannels *
+                                                               sizeof(int16_t)));
+        if (result != ESP_CODEC_DEV_OK)
+        {
+            return false;
+        }
+        for (std::size_t index = 0; index < frames; ++index)
+        {
+            pcm[offset + index] = s_audio.stereo_scratch[index * kPhysicalChannels];
+        }
+        offset += frames;
+    }
+    return true;
+}
+
+extern "C" bool trail_mate_t_display_p4_audio_write_mono(
+    trail_mate_t_display_p4_audio_owner_t owner,
+    const int16_t* pcm,
+    size_t sample_count)
+{
+    if (!pcm || sample_count == 0)
+    {
+        return false;
+    }
+
+    AudioLock lock;
+    if (!lock || !owner_active_locked(owner))
+    {
+        return false;
+    }
+
+    std::size_t offset = 0;
+    while (offset < sample_count)
+    {
+        const std::size_t frames = std::min(kScratchFrames, sample_count - offset);
+        for (std::size_t index = 0; index < frames; ++index)
+        {
+            const int16_t sample = pcm[offset + index];
+            s_audio.stereo_scratch[index * kPhysicalChannels] = sample;
+            s_audio.stereo_scratch[(index * kPhysicalChannels) + 1] = sample;
+        }
+        const int result = esp_codec_dev_write(s_audio.codec,
+                                               s_audio.stereo_scratch.data(),
+                                               static_cast<int>(frames * kPhysicalChannels *
+                                                                sizeof(int16_t)));
+        if (result != ESP_CODEC_DEV_OK)
+        {
+            return false;
+        }
+        offset += frames;
+    }
+    return true;
+}
+
+extern "C" void trail_mate_t_display_p4_audio_set_volume_percent(uint8_t volume_percent)
+{
+    AudioLock lock;
+    if (!lock)
+    {
+        return;
+    }
+
+    s_audio.volume_percent = volume_percent > 100U ? 100U : volume_percent;
+    if (s_audio.ready && s_audio.owner != TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_NONE)
+    {
+        (void)esp_codec_dev_set_out_vol(s_audio.codec, s_audio.volume_percent);
+        (void)esp_codec_dev_set_out_mute(s_audio.codec, s_audio.volume_percent == 0);
+    }
+}

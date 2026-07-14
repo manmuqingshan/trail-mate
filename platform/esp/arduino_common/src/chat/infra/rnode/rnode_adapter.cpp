@@ -6,9 +6,10 @@
 #include "platform/esp/arduino_common/chat/infra/rnode/rnode_adapter.h"
 
 #include "chat/time_utils.h"
+#if defined(ARDUINO)
 #include "platform/esp/arduino_common/app_tasks.h"
-#include <Arduino.h>
-#include <RadioLib.h>
+#endif
+#include "platform/esp/common/reticulum_runtime_compat.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -27,6 +28,8 @@ constexpr float kDefaultBandwidthKHz = 125.0f;
 constexpr uint8_t kDefaultSpreadingFactor = 9;
 constexpr uint8_t kDefaultCodingRate = 5;
 constexpr int8_t kDefaultTxPowerDbm = 17;
+constexpr int kRadioOk = 0;
+constexpr int kRadioUnsupported = -1;
 
 template <typename T>
 T clampValue(T value, T min_value, T max_value)
@@ -127,17 +130,19 @@ bool RNodeAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                   static_cast<unsigned>(air_packets.first_len),
                   static_cast<unsigned>(air_packets.second_len));
 
-    int first_state = RADIOLIB_ERR_UNSUPPORTED;
-    int second_state = RADIOLIB_ERR_NONE;
+    int first_state = kRadioUnsupported;
+    int second_state = kRadioOk;
     {
+#if defined(ARDUINO)
         app::AppTasks::ScopedRadioTransmitActivity tx_activity;
+#endif
         first_state = board_.transmitRadio(air_packets.first, air_packets.first_len);
-        if (first_state == RADIOLIB_ERR_NONE && air_packets.count > 1U)
+        if (first_state == kRadioOk && air_packets.count > 1U)
         {
             second_state = board_.transmitRadio(air_packets.second, air_packets.second_len);
         }
     }
-    if (first_state != RADIOLIB_ERR_NONE)
+    if (first_state != kRadioOk)
     {
         Serial.printf("[RNode][TX] result ok=0 first=%d second=%d\n",
                       first_state,
@@ -146,7 +151,7 @@ bool RNodeAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         return false;
     }
 
-    if (second_state != RADIOLIB_ERR_NONE)
+    if (second_state != kRadioOk)
     {
         Serial.printf("[RNode][TX] result ok=0 first=%d second=%d\n",
                       first_state,

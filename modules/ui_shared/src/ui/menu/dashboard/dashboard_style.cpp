@@ -7,6 +7,10 @@
 
 #include "ui/assets/fonts/font_utils.h"
 
+#if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
+#define lv_font_montserrat_12 lv_font_montserrat_14
+#endif
+
 namespace ui::menu::dashboard
 {
 namespace

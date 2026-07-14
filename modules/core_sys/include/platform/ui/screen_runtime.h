@@ -28,6 +28,7 @@ bool is_sleep_disabled();
 bool is_saver_active();
 void wake_saver();
 void enter_from_saver();
+void wake_for_modal();
 void update_user_activity();
 void disable_sleep();
 void enable_sleep();

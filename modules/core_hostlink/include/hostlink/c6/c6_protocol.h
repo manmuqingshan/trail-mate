@@ -25,6 +25,7 @@
 #define TM_C6_FEATURE_DIAG_LOG (1u << 6)
 #define TM_C6_FEATURE_HOSTLINK_PING (1u << 7)
 #define TM_C6_FEATURE_SLAVE_OTA (1u << 8)
+#define TM_C6_FEATURE_WIFI_TCP_PROXY (1u << 9)
 
 #define TM_C6_P4_FIRMWARE_VERSION_UNKNOWN 0u
 
@@ -34,8 +35,11 @@
 #define TM_C6_WIFI_PASSWORD_LEN 64u
 #define TM_C6_WIFI_SCAN_RESULT_COUNT 6u
 #define TM_C6_WIFI_TIME_SOURCE_LEN 16u
+#define TM_C6_WIFI_TCP_HOST_LEN 64u
 #define TM_C6_ESPNOW_PAYLOAD_MAX 240u
 #define TM_C6_BLE_PACKET_HEADER_LEN 4u
+#define TM_C6_WIFI_TCP_HEADER_LEN 72u
+#define TM_C6_WIFI_TCP_PAYLOAD_MAX (TM_C6_MAX_PAYLOAD - TM_C6_WIFI_TCP_HEADER_LEN)
 
 #if defined(_MSC_VER)
 #define TM_C6_PACKED_BEGIN __pragma(pack(push, 1))
@@ -180,6 +184,17 @@ extern "C"
         TM_C6_WIFI_EVENT_AP_STOPPED = 8,
         TM_C6_WIFI_EVENT_ERROR = 9,
     } tm_c6_wifi_event_kind_t;
+
+    typedef enum tm_c6_wifi_tcp_operation
+    {
+        TM_C6_WIFI_TCP_OPEN = 1,
+        TM_C6_WIFI_TCP_WRITE = 2,
+        TM_C6_WIFI_TCP_CLOSE = 3,
+        TM_C6_WIFI_TCP_OPENED = 4,
+        TM_C6_WIFI_TCP_DATA = 5,
+        TM_C6_WIFI_TCP_CLOSED = 6,
+        TM_C6_WIFI_TCP_ERROR = 7,
+    } tm_c6_wifi_tcp_operation_t;
 
     TM_C6_PACKED_BEGIN
     typedef struct TM_C6_PACKED tm_c6_frame_header
@@ -372,6 +387,16 @@ extern "C"
         char source[TM_C6_WIFI_TIME_SOURCE_LEN];
     } tm_c6_wifi_time_sync_t;
 
+    typedef struct TM_C6_PACKED tm_c6_wifi_tcp_header
+    {
+        uint8_t operation;
+        uint8_t connection_id;
+        uint16_t payload_len;
+        uint16_t port;
+        uint16_t error_code;
+        char host[TM_C6_WIFI_TCP_HOST_LEN];
+    } tm_c6_wifi_tcp_header_t;
+
     typedef struct TM_C6_PACKED tm_c6_diag_report
     {
         uint32_t uptime_ms;
@@ -398,4 +423,6 @@ static_assert(sizeof(tm_c6_frame_header_t) == TM_C6_FRAME_HEADER_LEN,
               "tm_c6_frame_header_t must stay wire-compatible");
 static_assert(sizeof(tm_c6_ble_packet_header_t) == TM_C6_BLE_PACKET_HEADER_LEN,
               "tm_c6_ble_packet_header_t must stay wire-compatible");
+static_assert(sizeof(tm_c6_wifi_tcp_header_t) == TM_C6_WIFI_TCP_HEADER_LEN,
+              "tm_c6_wifi_tcp_header_t must stay wire-compatible");
 #endif

@@ -44,6 +44,7 @@
 #include "ui/ui_common.h"
 #include "ui/widgets/busy_overlay.h"
 #include "ui/widgets/ime/ime_widget.h"
+#include "ui/widgets/reticulum_ping_overlay.h"
 #include "ui/widgets/top_bar.h"
 
 #include <cctype>
@@ -1844,21 +1845,21 @@ static void on_lxmf_address_apply(const char* text, void* /*user_data*/)
     char generated_nickname[13] = {};
     make_lxmf_short_name(identity, node_id, short_name, sizeof(short_name));
     make_lxmf_contact_nickname(identity, generated_nickname, sizeof(generated_nickname));
-    std::snprintf(nickname, sizeof(nickname), "%s", generated_nickname);
+    lv_strlcpy(nickname, generated_nickname, sizeof(nickname));
     const char* address_display_name =
         has_full_address && address_record.display_name[0] != '\0'
             ? address_record.display_name
             : nullptr;
     if (address_display_name && std::strlen(address_display_name) <= 12U)
     {
-        std::snprintf(nickname, sizeof(nickname), "%s", address_display_name);
+        lv_strlcpy(nickname, address_display_name, sizeof(nickname));
     }
     else if (existing_node)
     {
         const std::string existing_name = node_display_name_for_contacts(*existing_node);
         if (!existing_name.empty() && existing_name.size() <= 12U)
         {
-            std::snprintf(nickname, sizeof(nickname), "%s", existing_name.c_str());
+            lv_strlcpy(nickname, existing_name.c_str(), sizeof(nickname));
         }
     }
 
@@ -3971,11 +3972,16 @@ static void start_reticulum_ping_for_selected_node()
         return;
     }
 
+    ::ui::widgets::reticulum_ping::show_loading(
+        node->reticulum_identity.destination_hash,
+        node->display_name.empty() ? node->long_name : node->display_name.c_str());
     const chat::MeshActionResult result =
         g_contacts_state.chat_service->pingReticulumDestination(node->reticulum_identity);
-    ::ui::feedback::show_notice(result.ok ? "Ping sent"
-                                          : reticulum_ping_failure_message(result),
-                                result.ok ? 1400 : 2200);
+    if (!result.ok)
+    {
+        ::ui::widgets::reticulum_ping::show_send_failure(
+            reticulum_ping_failure_message(result));
+    }
     contacts_focus_to_list();
 }
 

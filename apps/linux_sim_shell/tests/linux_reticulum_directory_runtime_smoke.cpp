@@ -111,6 +111,48 @@ int main()
     rtdir::bind_mesh_peer_directory(nullptr);
     assert(std::strcmp(rtdir::lxmf_addresses_path(), "/mesh/peers.bin") == 0);
 
+    rtdir::AnnounceRecord announce{};
+    announce.valid = true;
+    for (std::size_t index = 0; index < rtdir::kReticulumHashSize; ++index)
+    {
+        announce.destination_hash[index] = static_cast<uint8_t>(0x10U + index);
+        announce.identity_hash[index] = static_cast<uint8_t>(0x30U + index);
+    }
+    announce.aspect = rtdir::AnnounceAspect::LxmfDelivery;
+    announce.source = rtdir::EntrySource::RuntimeRx;
+    announce.first_seen_s = 10;
+    announce.last_seen_s = 20;
+    announce.hops = 2;
+    announce.delivery = true;
+    std::snprintf(announce.display_name,
+                  sizeof(announce.display_name),
+                  "%s",
+                  "first announce");
+    assert(rtdir::record_announce(announce).saved);
+
+    announce.first_seen_s = 30;
+    announce.last_seen_s = 40;
+    announce.hops = 1;
+    std::snprintf(announce.display_name,
+                  sizeof(announce.display_name),
+                  "%s",
+                  "updated announce");
+    assert(rtdir::record_announce(announce).saved);
+
+    rtdir::AnnounceRecord loaded_announces[2] = {};
+    std::size_t loaded_announce_count = 0;
+    const rtdir::Status announce_load_status =
+        rtdir::load_announces(loaded_announces,
+                              2,
+                              &loaded_announce_count);
+    assert(announce_load_status.loaded);
+    assert(loaded_announce_count == 1);
+    assert(loaded_announces[0].first_seen_s == 10);
+    assert(loaded_announces[0].last_seen_s == 40);
+    assert(loaded_announces[0].hops == 1);
+    assert(std::strcmp(loaded_announces[0].display_name,
+                       "updated announce") == 0);
+
     rtdir::LxmfAddressRecord alpha = make_address("alpha trail", true, true);
     char alpha_destination[rtpage::kReticulumPageDestinationTextSize] = {};
     format_hash_hex(alpha.destination_hash,

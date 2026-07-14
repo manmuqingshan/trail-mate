@@ -34,6 +34,20 @@ enum class RealtimePhase : uint8_t
     ClosingCall,
 };
 
+enum class WireProfile : uint8_t
+{
+    SidebandLxst = 0,
+    MeshChatCallAudio = 1,
+};
+
+enum class Codec2Mode : uint8_t
+{
+    Mode700C = 0,
+    Mode1200 = 1,
+    Mode1600 = 2,
+    Mode3200 = 3,
+};
+
 struct Peer
 {
     uint8_t link_id[kHashSize] = {};
@@ -41,6 +55,8 @@ struct Peer
     uint8_t identity_hash[kHashSize] = {};
     const char* display_name = nullptr;
     bool incoming = false;
+    WireProfile wire_profile = WireProfile::SidebandLxst;
+    Codec2Mode codec2_mode = Codec2Mode::Mode3200;
 };
 
 struct Snapshot
@@ -51,7 +67,10 @@ struct Snapshot
     State state = State::Idle;
     bool incoming = false;
     bool accepted = false;
+    bool link_active = false;
     bool media_active = false;
+    WireProfile wire_profile = WireProfile::SidebandLxst;
+    Codec2Mode codec2_mode = Codec2Mode::Mode3200;
     RealtimePhase realtime_phase = RealtimePhase::Idle;
     uint8_t link_id[kHashSize] = {};
     uint8_t peer_destination_hash[kHashSize] = {};
@@ -76,6 +95,8 @@ struct MediaHooks
     bool (*is_supported)() = nullptr;
     bool (*start)() = nullptr;
     void (*stop)() = nullptr;
+    uint8_t (*speaker_volume)() = nullptr;
+    void (*set_speaker_volume)(uint8_t volume_percent) = nullptr;
 };
 
 struct RealtimeHooks
@@ -89,6 +110,8 @@ struct RealtimeHooks
 
 void set_media_hooks(const MediaHooks& hooks);
 void set_realtime_hooks(const RealtimeHooks& hooks);
+uint8_t speaker_volume();
+void set_speaker_volume(uint8_t volume_percent);
 void set_wifi_ready(bool ready);
 
 bool begin_incoming(const Peer& peer);
@@ -96,6 +119,8 @@ bool begin_outgoing(const Peer& peer);
 void update_peer(const Peer& peer);
 void mark_link_active(const uint8_t link_id[kHashSize]);
 void notify_link_closed(const uint8_t link_id[kHashSize]);
+void notify_media_failed();
+void service_ui_runtime();
 
 bool accept();
 void reject();

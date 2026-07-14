@@ -5,6 +5,7 @@
 # this file.
 
 set(TRAILMATE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../..")
+include("${TRAILMATE_ROOT}/third_party/codec2/codec2_sources.cmake")
 
 set(TRAILMATE_ESP_IDF_APP_SHELL_SOURCES
     "${TRAILMATE_ROOT}/apps/esp32_lvgl/src/esp32_lvgl_idf_app_registry.cpp"
@@ -54,6 +55,7 @@ set(TRAILMATE_ESP_IDF_CORE_CHAT_SOURCES
     "${TRAILMATE_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/contact_store_core.cpp"
+    "${TRAILMATE_ROOT}/modules/core_chat/src/infra/mesh_adapter_router_core.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshcore/mc_region_presets.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshcore/meshcore_identity_crypto.cpp"
@@ -78,7 +80,12 @@ set(TRAILMATE_ESP_IDF_CORE_CHAT_SOURCES
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_region.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/node_store_blob_format.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/node_store_core.cpp"
+    "${TRAILMATE_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp"
+    "${TRAILMATE_ROOT}/modules/core_chat/src/infra/lxmf/lxmf_wire.cpp"
+    "${TRAILMATE_ROOT}/modules/core_chat/src/infra/reticulum/audio_call_wire.cpp"
+    "${TRAILMATE_ROOT}/modules/core_chat/src/infra/reticulum/lxst_telephony_wire.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/reticulum/reticulum_wire.cpp"
+    "${TRAILMATE_ROOT}/modules/core_chat/src/infra/rnode/rnode_packet_wire.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/store/ram_store.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/runtime/meshtastic_position_core.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/runtime/meshtastic_self_announcement_core.cpp"
@@ -315,7 +322,9 @@ set(TRAILMATE_ESP_IDF_UI_SHARED_SOURCES
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/ime/ime_widget.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/ime/pinyin_ime.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/map/map_viewport.cpp"
+    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/progress_overlay_presenter.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/reticulum_call_overlay.cpp"
+    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/reticulum_ping_overlay.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/route_elevation_profile.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/route_image_strip.cpp"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/widgets/route_image_operation_presenter.cpp"
@@ -375,6 +384,7 @@ set(TRAILMATE_ESP_IDF_PLATFORM_COMMON_SOURCES
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/ble_manager_stub.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/bsp_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/c6_companion_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/idf_common/src/chat_blob_store_io.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/debug/sd_coredump_export.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/shared_spi_lock.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/gps_runtime.cpp"
@@ -397,6 +407,9 @@ set(TRAILMATE_ESP_IDF_PLATFORM_COMMON_SOURCES
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_usb_support_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_walkie_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_wifi_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/idf_common/src/reticulum_crypto_compat.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/idf_common/src/reticulum_call_runtime_support.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/idf_common/src/reticulum_runtime_compat.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/startup_support.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/screen_sleep.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/sx126x_radio.cpp"
@@ -405,16 +418,40 @@ set(TRAILMATE_ESP_IDF_PLATFORM_COMMON_SOURCES
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/ui_common.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/ui_dispatcher.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/usb_cdc_transport.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/idf_common/src/usb_console_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/walkie_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/platform_ui_screen_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/platform_ui_wifi_access_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/mesh_adapter_router.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_adapter.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_delivery_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_identity.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_link_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_propagation_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_propagation_service_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_resource_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_transport_runtime.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/reticulum/reticulum_adapter.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/reticulum/reticulum_interfaces.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/chat/infra/rnode/rnode_adapter.cpp"
     "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/sstv/cordic.cpp"
     "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/sstv/decode_sstv.cpp"
     "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/sstv/half_band_filter2.cpp"
     "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/sstv/sstv_service.cpp"
     "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp"
     "${TRAILMATE_ROOT}/platform/esp/arduino_common/src/walkie/walkie_service.cpp"
+    "${TRAILMATE_ROOT}/platform/esp/common/src/reticulum_call_audio_engine.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_wireless_companion_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/radio/meshtastic_radio_adapter.cpp")
+
+list(APPEND TRAILMATE_ESP_IDF_PLATFORM_COMMON_SOURCES
+    ${trail_mate_codec2_sources}
+    "${TRAILMATE_ROOT}/third_party/bzip2/src/bz_internal_error.c"
+    "${TRAILMATE_ROOT}/third_party/bzip2/src/bzlib.c"
+    "${TRAILMATE_ROOT}/third_party/bzip2/src/crctable.c"
+    "${TRAILMATE_ROOT}/third_party/bzip2/src/decompress.c"
+    "${TRAILMATE_ROOT}/third_party/bzip2/src/huffman.c"
+    "${TRAILMATE_ROOT}/third_party/bzip2/src/randtable.c")
 
 set(TRAILMATE_ESP_IDF_TAB5_BOARD_SOURCES
     "${TRAILMATE_ROOT}/boards/tab5/src/codec_compat.cpp"
@@ -434,6 +471,8 @@ set(TRAILMATE_ESP_IDF_FINAL_INCLUDE_DIRS
     "${TRAILMATE_ROOT}/modules/core_chat/include"
     "${TRAILMATE_ROOT}/modules/core_chat/generated"
     "${TRAILMATE_ROOT}/modules/core_chat/third_party/nanopb"
+    "${TRAILMATE_ROOT}/third_party/bzip2/src"
+    "${TRAILMATE_ROOT}/third_party/codec2/src"
     "${TRAILMATE_ROOT}/modules/core_device/include"
     "${TRAILMATE_ROOT}/modules/core_gps/include"
     "${TRAILMATE_ROOT}/modules/core_mesh/include"

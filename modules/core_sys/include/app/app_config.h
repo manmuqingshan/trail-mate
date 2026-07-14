@@ -189,7 +189,7 @@ struct AppConfig
         applyMeshCoreFactoryDefaults();
         rnode_config = chat::MeshConfig();
         applyReticulumFactoryDefaults();
-        mesh_protocol = chat::MeshProtocol::Meshtastic;
+        mesh_protocol = chat::MeshProtocol::Reticulum;
         applyMeshtasticMqttFactoryDefaults();
         node_name[0] = '\0';
         short_name[0] = '\0';

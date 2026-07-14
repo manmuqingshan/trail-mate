@@ -1310,6 +1310,10 @@ static void reset_mesh_settings()
         app_ctx.getConfig().reticulumConfig().reticulum_wifi_auto_connect;
     g_settings.rt_anonymous_peer =
         app_ctx.getConfig().reticulumConfig().reticulum_anonymous_peer;
+    g_settings.rt_call_wire = static_cast<int>(
+        app_ctx.getConfig().reticulumConfig().reticulum_call_wire_profile);
+    g_settings.rt_location_requests =
+        app_ctx.getConfig().reticulumConfig().reticulum_allow_location_requests;
     g_settings.mt_mqtt_enabled = app_ctx.getConfig().meshtastic_mqtt_enabled;
     g_settings.mt_mqtt_uplink = app_ctx.getConfig().meshtastic_mqtt_uplink_enabled;
     g_settings.mt_mqtt_downlink = app_ctx.getConfig().meshtastic_mqtt_downlink_enabled;
@@ -1614,6 +1618,10 @@ static void settings_load()
         g_settings.rt_wifi_gateway_enabled = reticulum_cfg.reticulum_wifi_gateway_enabled;
         g_settings.rt_wifi_auto_connect = reticulum_cfg.reticulum_wifi_auto_connect;
         g_settings.rt_anonymous_peer = reticulum_cfg.reticulum_anonymous_peer;
+        g_settings.rt_call_wire =
+            static_cast<int>(reticulum_cfg.reticulum_call_wire_profile);
+        g_settings.rt_location_requests =
+            reticulum_cfg.reticulum_allow_location_requests;
         copy_bounded(g_settings.rt_wifi_gateway_host,
                      sizeof(g_settings.rt_wifi_gateway_host),
                      reticulum_cfg.reticulum_wifi_gateway_host);
@@ -3241,6 +3249,20 @@ static void on_option_clicked(lv_event_t* e)
         app_ctx.applyMeshConfig();
         rebuild_list = true;
     }
+    if (id == settings::ui::SettingId::RtCallWire)
+    {
+        app::IAppFacade& app_ctx = app::appFacade();
+        const int clamped = payload->value == static_cast<int>(
+                                                  chat::ReticulumCallWireProfile::MeshChatCallAudio)
+                                ? payload->value
+                                : static_cast<int>(
+                                      chat::ReticulumCallWireProfile::SidebandLxst);
+        g_settings.rt_call_wire = clamped;
+        app_ctx.getConfig().reticulumConfig().reticulum_call_wire_profile =
+            static_cast<chat::ReticulumCallWireProfile>(clamped);
+        app_ctx.saveConfig();
+        app_ctx.applyMeshConfig();
+    }
     if (id == settings::ui::SettingId::MeshProtocol)
     {
         app::IAppFacade& app_ctx = app::appFacade();
@@ -4388,6 +4410,10 @@ static const settings::ui::SettingOption kReticulumBearerOptions[] = {
     {"LoRa", static_cast<int>(chat::ReticulumInterfacePolicy::LoRaOnly)},
     {"Wi-Fi", static_cast<int>(chat::ReticulumInterfacePolicy::WifiGatewayOnly)},
 };
+static const settings::ui::SettingOption kReticulumCallWireOptions[] = {
+    {"Sideband", static_cast<int>(chat::ReticulumCallWireProfile::SidebandLxst)},
+    {"MeshChat", static_cast<int>(chat::ReticulumCallWireProfile::MeshChatCallAudio)},
+};
 static const settings::ui::SettingOption kChatContactAlertOptions[] = {
     {"OFF", kChatContactAlertsNone},
     {"Contacts Only", kChatContactAlertsContacts},
@@ -4577,6 +4603,8 @@ static settings::ui::SettingItem kMeshItems[] = {
     {"Gateway Port", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.rt_wifi_gateway_port, sizeof(g_settings.rt_wifi_gateway_port), false, "rt_wifi_port"},
     {"Auto Wi-Fi", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_wifi_auto_connect, nullptr, 0, false, "rt_wifi_auto"},
     {"Anonymous Peer", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_anonymous_peer, nullptr, 0, false, "rt_anonymous_peer"},
+    {"Call Protocol", settings::ui::SettingType::Enum, kReticulumCallWireOptions, sizeof(kReticulumCallWireOptions) / sizeof(kReticulumCallWireOptions[0]), &g_settings.rt_call_wire, nullptr, nullptr, 0, false, "rt_call_wire"},
+    {"Location Requests", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.rt_location_requests, nullptr, 0, false, "rt_location_requests"},
 };
 
 static settings::ui::SettingItem kRadioItems[] = {
@@ -5117,6 +5145,15 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             {
                 app::IAppFacade& app_ctx = app::appFacade();
                 app_ctx.getConfig().reticulumConfig().reticulum_anonymous_peer = *item.bool_value;
+                app_ctx.saveConfig();
+                app_ctx.applyMeshConfig();
+                break;
+            }
+            case settings::ui::SettingId::RtLocationRequests:
+            {
+                app::IAppFacade& app_ctx = app::appFacade();
+                app_ctx.getConfig().reticulumConfig().reticulum_allow_location_requests =
+                    *item.bool_value;
                 app_ctx.saveConfig();
                 app_ctx.applyMeshConfig();
                 break;

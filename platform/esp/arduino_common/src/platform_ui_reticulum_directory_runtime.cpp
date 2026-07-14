@@ -1135,8 +1135,22 @@ void reverse_records(Record* records, std::size_t count)
 uint32_t find_existing_first_seen(const char* path,
                                   const std::string& destination,
                                   std::size_t first_seen_field,
-                                  uint32_t fallback)
+                                  uint32_t fallback,
+                                  DirectoryIoGate io_gate,
+                                  bool* out_deferred)
 {
+    if (out_deferred)
+    {
+        *out_deferred = false;
+    }
+    if (!io_gate_open(io_gate))
+    {
+        if (out_deferred)
+        {
+            *out_deferred = true;
+        }
+        return fallback;
+    }
     if (!::platform::esp::arduino_common::storage::sd_exists(path))
     {
         return fallback;
@@ -1148,8 +1162,21 @@ uint32_t find_existing_first_seen(const char* path,
     }
     std::string line;
     LineReader reader(file);
-    while (reader.read_line(line))
+    for (;;)
     {
+        if (!io_gate_open(io_gate))
+        {
+            file.close();
+            if (out_deferred)
+            {
+                *out_deferred = true;
+            }
+            return fallback;
+        }
+        if (!reader.read_line(line))
+        {
+            break;
+        }
         const std::string_view view = trim_view(line);
         if (data_line(view) && first_field_matches(view, destination))
         {
@@ -1444,12 +1471,21 @@ Status record_announce_sync(const AnnounceRecord& record, bool require_maintenan
     const std::string destination = hex_text(record.destination_hash, kReticulumHashSize);
     const uint32_t fallback_first_seen =
         record.first_seen_s != 0 ? record.first_seen_s : record.last_seen_s;
-    const uint32_t first_seen_s = out.sd_present && !require_maintenance
-                                      ? find_existing_first_seen(kAnnouncesPath,
-                                                                 destination,
-                                                                 4,
-                                                                 fallback_first_seen)
-                                      : fallback_first_seen;
+    bool first_seen_scan_deferred = false;
+    const uint32_t first_seen_s =
+        out.sd_present
+            ? find_existing_first_seen(kAnnouncesPath,
+                                       destination,
+                                       4,
+                                       fallback_first_seen,
+                                       io_gate,
+                                       &first_seen_scan_deferred)
+            : fallback_first_seen;
+    if (first_seen_scan_deferred)
+    {
+        set_maintenance_deferred(out, kAnnouncesPath);
+        return out;
+    }
     return stream_upsert_line(kAnnouncesPath,
                               kAnnouncesTempPath,
                               "announces",

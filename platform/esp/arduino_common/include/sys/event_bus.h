@@ -47,7 +47,8 @@ enum class EventType
     TeamPairing,                  // Team pairing state update
     TeamError,                    // Team protocol error
     InputEvent,                   // Input event (keyboard/rotary)
-    SystemTick                    // System tick (for periodic tasks)
+    SystemTick,                   // System tick (for periodic tasks)
+    ReticulumPingResult           // Reticulum destination proof or timeout
 };
 
 /**
@@ -102,6 +103,38 @@ struct ChatSendResultEvent : public Event
 
     ChatSendResultEvent(uint32_t id, bool ok)
         : Event(EventType::ChatSendResult), msg_id(id), success(ok) {}
+};
+
+enum class ReticulumPingResult : uint8_t
+{
+    Delivered = 0,
+    Timeout,
+};
+
+struct ReticulumPingResultEvent : public Event
+{
+    uint8_t destination_hash[chat::kReticulumPeerHashSize] = {};
+    ReticulumPingResult result = ReticulumPingResult::Timeout;
+    uint32_t elapsed_ms = 0;
+    uint8_t hops = 0;
+
+    ReticulumPingResultEvent(
+        const uint8_t hash[chat::kReticulumPeerHashSize],
+        ReticulumPingResult result_value,
+        uint32_t elapsed_ms_value,
+        uint8_t hops_value = 0)
+        : Event(EventType::ReticulumPingResult),
+          result(result_value),
+          elapsed_ms(elapsed_ms_value),
+          hops(hops_value)
+    {
+        if (hash)
+        {
+            std::memcpy(destination_hash,
+                        hash,
+                        sizeof(destination_hash));
+        }
+    }
 };
 
 /**

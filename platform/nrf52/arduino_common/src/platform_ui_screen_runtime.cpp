@@ -83,6 +83,10 @@ void enter_from_saver()
 {
 }
 
+void wake_for_modal()
+{
+}
+
 void update_user_activity()
 {
 }

@@ -598,6 +598,7 @@ int main()
     incoming.to = 0xFFFFFFFFUL;
     incoming.msg_id = 900;
     incoming.text = "broadcast hello";
+    incoming.source_unverified = true;
     incoming.rx_meta.origin = ::chat::RxOrigin::LoRa;
     contacts.updateNodeInfo(0x648144D4,
                             "44D4",
@@ -622,6 +623,7 @@ int main()
     assert(!snapshot.messages[0].outgoing);
     assert(snapshot.messages[0].ingress_transport ==
            ui::chat::MessageIngressTransport::LoRa);
+    assert(snapshot.messages[0].source_unverified);
     assert(snapshot.messages[0].sender_node_id == 0x648144D4);
     assert(std::strcmp(snapshot.messages[0].sender_label.c_str(), "Mother") == 0);
 

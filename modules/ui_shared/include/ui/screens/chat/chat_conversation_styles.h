@@ -18,7 +18,7 @@ void apply_reply_label(lv_obj_t* label);
 
 // message row + bubble
 void apply_message_row(lv_obj_t* row);
-void apply_bubble(lv_obj_t* bubble, bool is_self);
+void apply_bubble(lv_obj_t* bubble, bool is_self, bool source_unverified = false);
 void apply_bubble_text(lv_obj_t* label);
 void apply_bubble_time(lv_obj_t* label);
 void apply_bubble_status(lv_obj_t* label);

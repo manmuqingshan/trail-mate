@@ -2,7 +2,9 @@
 
 #include "app/app_facade_access.h"
 #include "chat/ports/i_mesh_adapter.h"
+#if defined(ARDUINO)
 #include "platform/esp/arduino_common/chat/infra/mesh_mqtt_client_runtime.h"
+#endif
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "sys/clock.h"
@@ -128,6 +130,14 @@ bool request_is_call_audio_locked(const Request& request)
            call_link_matches_locked(request.call_link_id);
 }
 
+bool request_is_call_control_locked(const Request& request)
+{
+    return request.client == Client::ReticulumGateway &&
+           request.kind == AccessKind::ReticulumGatewayCallControl &&
+           !link_is_empty(request.call_link_id) &&
+           !call_link_matches_locked(request.call_link_id);
+}
+
 bool call_allows_request_locked(const Request& request)
 {
     if (!call_soft_preempt_active_locked())
@@ -144,7 +154,8 @@ bool call_allows_request_locked(const Request& request)
     }
     return request.kind == AccessKind::WifiConnect ||
            request.kind == AccessKind::LongLivedSocket ||
-           request_is_call_audio_locked(request);
+           request_is_call_audio_locked(request) ||
+           request_is_call_control_locked(request);
 }
 
 ScreenPhase sample_screen_phase(std::uint32_t now_ms)
@@ -370,7 +381,8 @@ bool long_lived_allowed(const Request& request, ScreenPhase phase, Lease& out)
 
 TrafficBudget base_budget(Client client,
                           ScreenPhase phase,
-                          const std::uint8_t* call_link_id)
+                          const std::uint8_t* call_link_id,
+                          AccessKind access_kind)
 {
     TrafficBudget budget{};
     budget.screen_phase = phase;
@@ -379,6 +391,10 @@ TrafficBudget base_budget(Client client,
     const bool call_preempt = call_soft_preempt_active_locked();
     const bool call_exclusive = call_exclusive_active_locked();
     const bool link_matches = call_link_matches_locked(call_link_id);
+    const bool call_control =
+        client == Client::ReticulumGateway &&
+        access_kind == AccessKind::ReticulumGatewayCallControl &&
+        !link_is_empty(call_link_id) && !link_matches;
     portEXIT_CRITICAL(&s_lock);
 
     if (call_preempt)
@@ -387,11 +403,11 @@ TrafficBudget base_budget(Client client,
         {
             budget.allow_connect = true;
             budget.allow_read = true;
-            budget.allow_write = !call_exclusive || link_matches;
+            budget.allow_write = !call_exclusive || link_matches || call_control;
             budget.rx_packet_budget = 0;
-            budget.tx_packet_budget = 8;
+            budget.tx_packet_budget = call_control ? 2 : 8;
             budget.rx_byte_budget = 768;
-            budget.tx_byte_budget = 1024;
+            budget.tx_byte_budget = call_control ? 512 : 1024;
             budget.min_read_interval_ms = 0;
         }
         return budget;
@@ -602,7 +618,9 @@ bool set_transport_enabled(bool enabled)
     }
 
     bool clients_ready = true;
+#if defined(ARDUINO)
     ::platform::esp::arduino_common::mesh_mqtt::setWifiTransportEnabled(enabled);
+#endif
     if (app::hasAppFacade())
     {
         if (chat::IMeshAdapter* adapter = app::appFacade().getMeshAdapter())
@@ -932,11 +950,12 @@ void end_foreground_download(Client client, AccessKind kind)
 
 TrafficBudget traffic_budget(Client client,
                              Priority priority,
-                             const std::uint8_t* call_link_id)
+                             const std::uint8_t* call_link_id,
+                             AccessKind access_kind)
 {
     (void)priority;
     const ScreenPhase phase = sample_screen_phase(sys::millis_now());
-    TrafficBudget budget = base_budget(client, phase, call_link_id);
+    TrafficBudget budget = base_budget(client, phase, call_link_id, access_kind);
 
     portENTER_CRITICAL(&s_lock);
     const std::uint32_t now_ms = sys::millis_now();
@@ -1064,6 +1083,8 @@ const char* access_kind_name(AccessKind kind)
         return "ota_download";
     case AccessKind::ReticulumGatewayCallAudio:
         return "reticulum_gateway_call_audio";
+    case AccessKind::ReticulumGatewayCallControl:
+        return "reticulum_gateway_call_control";
     default:
         return "unknown";
     }

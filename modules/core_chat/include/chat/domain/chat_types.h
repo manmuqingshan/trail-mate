@@ -387,6 +387,7 @@ struct ChatMessage
     int32_t geo_lat_e7;
     int32_t geo_lon_e7;
     ReticulumPeerIdentity reticulum_identity{};
+    bool source_unverified;
     RxOrigin rx_origin;
     MessageStatus status;
 
@@ -397,6 +398,7 @@ struct ChatMessage
                     has_geo(false),
                     geo_lat_e7(0),
                     geo_lon_e7(0),
+                    source_unverified(false),
                     rx_origin(RxOrigin::Unknown),
                     status(MessageStatus::Incoming) {}
 };
@@ -441,6 +443,7 @@ struct MeshIncomingText
     uint8_t hop_limit; // Remaining hops
     bool encrypted;    // Whether message was encrypted
     ReticulumPeerIdentity reticulum_identity{};
+    bool source_unverified = false;
     RxMeta rx_meta;
 };
 
@@ -501,6 +504,12 @@ enum class ReticulumInterfacePolicy : uint8_t
     All = 0,
     LoRaOnly = 1,
     WifiGatewayOnly = 2,
+};
+
+enum class ReticulumCallWireProfile : uint8_t
+{
+    SidebandLxst = 0,
+    MeshChatCallAudio = 1,
 };
 
 struct MeshConfig
@@ -567,6 +576,8 @@ struct MeshConfig
     char reticulum_wifi_gateway_host[kReticulumGatewayHostMaxLen + 1];
     uint16_t reticulum_wifi_gateway_port;
     ReticulumInterfacePolicy reticulum_interface_policy;
+    ReticulumCallWireProfile reticulum_call_wire_profile;
+    bool reticulum_allow_location_requests;
     ReticulumGroupDestinationConfig reticulum_groups[kReticulumGroupDestinationMaxCount];
 
     MeshConfig()
@@ -612,7 +623,9 @@ struct MeshConfig
           reticulum_wifi_auto_connect(true),
           reticulum_anonymous_peer(false),
           reticulum_wifi_gateway_port(4242),
-          reticulum_interface_policy(ReticulumInterfacePolicy::All)
+          reticulum_interface_policy(ReticulumInterfacePolicy::All),
+          reticulum_call_wire_profile(ReticulumCallWireProfile::SidebandLxst),
+          reticulum_allow_location_requests(false)
     {
         strncpy(primary_channel_name, "LongFast", sizeof(primary_channel_name) - 1);
         primary_channel_name[sizeof(primary_channel_name) - 1] = '\0';

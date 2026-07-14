@@ -15,6 +15,16 @@
 namespace chat::lxmf
 {
 
+constexpr uint32_t kFieldTelemetry = 0x02;
+constexpr uint32_t kFieldTelemetryStream = 0x03;
+constexpr uint32_t kFieldCommands = 0x09;
+
+struct DecodedField
+{
+    uint32_t key = 0;
+    std::vector<uint8_t> encoded_value;
+};
+
 struct DecodedEnvelope
 {
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
@@ -31,6 +41,7 @@ struct DecodedTextPayload
     bool has_stamp = false;
     std::vector<uint8_t> stamp;
     bool fields_empty = true;
+    std::vector<DecodedField> fields;
 };
 
 struct DecodedMessage : public DecodedEnvelope
@@ -41,6 +52,24 @@ struct DecodedMessage : public DecodedEnvelope
     bool has_stamp = false;
     std::vector<uint8_t> stamp;
     bool fields_empty = true;
+    std::vector<DecodedField> fields;
+};
+
+struct SidebandTelemetryLocation
+{
+    bool valid = false;
+    int32_t latitude_e6 = 0;
+    int32_t longitude_e6 = 0;
+    int32_t altitude_cm = 0;
+    uint32_t accuracy_cm = 0;
+    uint32_t timestamp = 0;
+};
+
+struct SidebandTelemetryRequest
+{
+    bool valid = false;
+    uint32_t timebase = 0;
+    bool collector_request = false;
 };
 
 struct DecodedAppData
@@ -240,6 +269,16 @@ bool packMessage(const uint8_t destination_hash[reticulum::kTruncatedHashSize],
 
 bool unpackMessageEnvelope(const uint8_t* data, size_t len, DecodedEnvelope* out_envelope);
 bool unpackTextPayload(const uint8_t* data, size_t len, DecodedTextPayload* out_payload);
+bool encodeSidebandTelemetryLocationPayload(
+    double message_timestamp,
+    const SidebandTelemetryLocation& location,
+    uint8_t* out_payload,
+    size_t* inout_len);
+const DecodedField* findField(const DecodedTextPayload& payload, uint32_t key);
+bool decodeSidebandTelemetryLocation(const DecodedTextPayload& payload,
+                                     SidebandTelemetryLocation* out_location);
+bool decodeSidebandTelemetryRequest(const DecodedTextPayload& payload,
+                                    SidebandTelemetryRequest* out_request);
 bool decodeAppDataPayload(const uint8_t* data, size_t len, DecodedAppData* out_payload);
 bool unpackMessage(const uint8_t* data, size_t len, DecodedMessage* out_message);
 

@@ -5,6 +5,7 @@
 #include "tm_hostlink.h"
 #include "tm_services.h"
 #include "tm_wifi.h"
+#include "tm_wifi_tcp.h"
 
 #include "esp_event.h"
 #include "esp_log.h"
@@ -37,6 +38,7 @@ void app_main(void)
     tm_diag_init();
     ESP_ERROR_CHECK(tm_services_init());
     ESP_ERROR_CHECK(tm_wifi_init());
+    ESP_ERROR_CHECK(tm_wifi_tcp_init());
     ESP_ERROR_CHECK(tm_espnow_init());
     ESP_ERROR_CHECK(tm_ble_init());
     tm_hostlink_init();

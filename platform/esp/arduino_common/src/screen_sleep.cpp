@@ -403,6 +403,11 @@ void enterFromScreenSaver()
     updateUserActivity();
 }
 
+void wakeScreenForModal()
+{
+    enterFromScreenSaver();
+}
+
 void disableScreenSleep()
 {
     bool hide_saver = false;

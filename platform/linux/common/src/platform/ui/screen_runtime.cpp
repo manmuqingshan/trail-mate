@@ -126,6 +126,11 @@ void enter_from_saver()
     wake_saver();
 }
 
+void wake_for_modal()
+{
+    wake_saver();
+}
+
 void update_user_activity()
 {
     wake_saver();

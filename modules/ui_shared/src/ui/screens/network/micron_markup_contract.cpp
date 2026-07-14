@@ -48,6 +48,23 @@ bool is_hex_text(const char* text, std::size_t len)
     return true;
 }
 
+uint8_t hex_nibble(char ch)
+{
+    if (ch >= '0' && ch <= '9')
+    {
+        return static_cast<uint8_t>(ch - '0');
+    }
+    if (ch >= 'A' && ch <= 'F')
+    {
+        return static_cast<uint8_t>(ch - 'A' + 10);
+    }
+    if (ch >= 'a' && ch <= 'f')
+    {
+        return static_cast<uint8_t>(ch - 'a' + 10);
+    }
+    return 0xFF;
+}
+
 std::size_t utf8_step_len(unsigned char lead)
 {
     if ((lead & 0x80U) == 0)
@@ -347,6 +364,88 @@ void slug_from_text(const char* text, char* out, std::size_t out_len)
     out[out_pos] = '\0';
 }
 
+bool parse_color_text(const char* text, std::size_t len, std::uint32_t* out)
+{
+    if (!text || !out)
+    {
+        return false;
+    }
+    if (len == 3 && (text[0] == 'g' || text[0] == 'G') &&
+        std::isdigit(static_cast<unsigned char>(text[1])) &&
+        std::isdigit(static_cast<unsigned char>(text[2])))
+    {
+        const std::uint32_t value =
+            static_cast<std::uint32_t>((text[1] - '0') * 10 + (text[2] - '0'));
+        const std::uint32_t byte = value > 99U ? 255U : (value * 255U) / 99U;
+        *out = (byte << 16U) | (byte << 8U) | byte;
+        return true;
+    }
+    if (len == 3 && is_hex_text(text, len))
+    {
+        const std::uint32_t r = static_cast<std::uint32_t>(hex_nibble(text[0]) * 17U);
+        const std::uint32_t g = static_cast<std::uint32_t>(hex_nibble(text[1]) * 17U);
+        const std::uint32_t b = static_cast<std::uint32_t>(hex_nibble(text[2]) * 17U);
+        *out = (r << 16U) | (g << 8U) | b;
+        return true;
+    }
+    if (len == 6 && is_hex_text(text, len))
+    {
+        std::uint32_t value = 0;
+        for (std::size_t i = 0; i < 6; ++i)
+        {
+            value = (value << 4U) | hex_nibble(text[i]);
+        }
+        *out = value;
+        return true;
+    }
+    return false;
+}
+
+ColorToken parse_color_token(const char* line, std::size_t len, std::size_t index)
+{
+    ColorToken token{};
+    if (!line || index >= len)
+    {
+        return token;
+    }
+    std::uint32_t rgb = 0;
+    if (index + 8U <= len && (line[index + 1U] == 'T' || line[index + 1U] == 't') &&
+        parse_color_text(line + index + 2U, 6, &rgb))
+    {
+        token.valid = true;
+        token.rgb = rgb;
+        token.consumed = 8;
+        return token;
+    }
+    if (index + 9U <= len && line[index + 4U] == '`' &&
+        line[index + 5U] == line[index] && is_hex_text(line + index + 1U, 3) &&
+        is_hex_text(line + index + 6U, 3))
+    {
+        char expanded[6] = {
+            line[index + 6U],
+            line[index + 1U],
+            line[index + 7U],
+            line[index + 2U],
+            line[index + 8U],
+            line[index + 3U],
+        };
+        if (parse_color_text(expanded, sizeof(expanded), &rgb))
+        {
+            token.valid = true;
+            token.rgb = rgb;
+            token.consumed = 9;
+            return token;
+        }
+    }
+    if (index + 4U <= len && parse_color_text(line + index + 1U, 3, &rgb))
+    {
+        token.valid = true;
+        token.rgb = rgb;
+        token.consumed = 4;
+    }
+    return token;
+}
+
 TableOpenOptions parse_table_opening_tag(const char* line)
 {
     TableOpenOptions options{};
@@ -607,6 +706,22 @@ LinkTargetKind classify_link_target(const char* target)
     return LinkTargetKind::Unknown;
 }
 
+const char* link_target_kind_label(LinkTargetKind kind)
+{
+    switch (kind)
+    {
+    case LinkTargetKind::Page:
+        return "page";
+    case LinkTargetKind::Anchor:
+        return "anchor";
+    case LinkTargetKind::Resource:
+        return "resource";
+    case LinkTargetKind::Unknown:
+    default:
+        return "unknown";
+    }
+}
+
 bool extract_partial_url(const char* line, char* out, std::size_t out_len)
 {
     if (!out || out_len == 0)
@@ -614,9 +729,21 @@ bool extract_partial_url(const char* line, char* out, std::size_t out_len)
         return false;
     }
     out[0] = '\0';
-    if (!line || line[0] != '`' || line[1] != '{')
+    const PartialReference partial = parse_partial_reference(line);
+    if (!partial.valid)
     {
         return false;
+    }
+    copy_range(out, out_len, partial.target, std::strlen(partial.target));
+    return out[0] != '\0';
+}
+
+PartialReference parse_partial_reference(const char* line)
+{
+    PartialReference partial{};
+    if (!line || line[0] != '`' || line[1] != '{')
+    {
+        return partial;
     }
 
     const char* start = line + 2;
@@ -633,8 +760,36 @@ bool extract_partial_url(const char* line, char* out, std::size_t out_len)
     {
         ++start;
     }
-    copy_range(out, out_len, start, static_cast<std::size_t>(end - start));
-    return out[0] != '\0';
+    copy_range(partial.target,
+               sizeof(partial.target),
+               start,
+               static_cast<std::size_t>(end - start));
+    if (partial.target[0] == '\0')
+    {
+        return partial;
+    }
+    partial.valid = true;
+    partial.target_kind = classify_link_target(partial.target);
+
+    if (*end == '`')
+    {
+        const char* hint = end + 1;
+        while (ascii_space(*hint))
+        {
+            ++hint;
+        }
+        while (std::isdigit(static_cast<unsigned char>(*hint)))
+        {
+            partial.has_display_hint = true;
+            const unsigned value =
+                static_cast<unsigned>(partial.display_hint) * 10U +
+                static_cast<unsigned>(*hint - '0');
+            partial.display_hint =
+                static_cast<std::uint16_t>(value > 999U ? 999U : value);
+            ++hint;
+        }
+    }
+    return partial;
 }
 
 } // namespace ui::screens::network::micron

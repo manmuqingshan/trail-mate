@@ -6,12 +6,17 @@
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
 
 #include "chat/time_utils.h"
+#if defined(ARDUINO)
 #include "platform/esp/arduino_common/app_tasks.h"
+#endif
+#include "platform/esp/common/reticulum_runtime_compat.h"
 #include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 
-#include <Arduino.h>
+#if TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE
+#include "platform/esp/idf_common/wireless_companion/c6_companion.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -249,9 +254,15 @@ void WifiGatewayReticulumInterface::maintain()
         return;
     }
 
+    syncSocketState();
     if (connected())
     {
         readAvailable();
+        return;
+    }
+
+    if (socket_open_pending_)
+    {
         return;
     }
 
@@ -270,7 +281,8 @@ bool WifiGatewayReticulumInterface::isConfigured() const
 
 bool WifiGatewayReticulumInterface::sendPacket(const uint8_t* data,
                                                size_t len,
-                                               const uint8_t* call_link_id)
+                                               const uint8_t* call_link_id,
+                                               bool call_admission_control)
 {
     if (!data || len == 0 || len > reticulum::kReticulumMtu)
     {
@@ -287,7 +299,12 @@ bool WifiGatewayReticulumInterface::sendPacket(const uint8_t* data,
     const auto budget = platform::ui::wifi_access::traffic_budget(
         platform::ui::wifi_access::Client::ReticulumGateway,
         platform::ui::wifi_access::Priority::Messaging,
-        call_link_id);
+        call_link_id,
+        call_admission_control
+            ? platform::ui::wifi_access::AccessKind::ReticulumGatewayCallControl
+            : (call_link_id
+                   ? platform::ui::wifi_access::AccessKind::ReticulumGatewayCallAudio
+                   : platform::ui::wifi_access::AccessKind::LongLivedSocket));
     if (!budget.allow_write || budget.tx_byte_budget == 0)
     {
         return false;
@@ -314,7 +331,7 @@ bool WifiGatewayReticulumInterface::sendPacket(const uint8_t* data,
     }
     tx_frame_[tx_len++] = kHdlcFlag;
 
-#if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
     const size_t written = client_.write(tx_frame_, tx_len);
     if (written != tx_len)
     {
@@ -326,6 +343,27 @@ bool WifiGatewayReticulumInterface::sendPacket(const uint8_t* data,
         return false;
     }
     Serial.printf("[Reticulum][IF][WiFi][TX] ok raw_len=%u frame_len=%u host=%s:%u\n",
+                  static_cast<unsigned>(len),
+                  static_cast<unsigned>(tx_len),
+                  host_,
+                  static_cast<unsigned>(port_));
+    return true;
+#elif TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE
+    auto& transport =
+        ::platform::esp::idf_common::wireless_companion::c6_wifi_tcp_transport();
+    if (!transport.writeTcp(tx_frame_, tx_len))
+    {
+        const auto status = transport.tcpStatus();
+        Serial.printf("[Reticulum][IF][WiFi][TX] failed raw_len=%u frame_len=%u state=%u error=%u detail=%s\n",
+                      static_cast<unsigned>(len),
+                      static_cast<unsigned>(tx_len),
+                      static_cast<unsigned>(status.state),
+                      static_cast<unsigned>(status.error_code),
+                      status.detail ? status.detail : "-");
+        stop();
+        return false;
+    }
+    Serial.printf("[Reticulum][IF][WiFi][TX] ok raw_len=%u frame_len=%u host=%s:%u transport=c6\n",
                   static_cast<unsigned>(len),
                   static_cast<unsigned>(tx_len),
                   host_,
@@ -361,10 +399,16 @@ bool WifiGatewayReticulumInterface::pollPacket(RxPacket* out)
 
 void WifiGatewayReticulumInterface::stop()
 {
-#if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
     client_.stop();
+#elif TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE
+    if (socket_online_ || socket_open_pending_)
+    {
+        ::platform::esp::idf_common::wireless_companion::c6_wifi_tcp_transport().closeTcp();
+    }
 #endif
     socket_online_ = false;
+    socket_open_pending_ = false;
 }
 
 bool WifiGatewayReticulumInterface::connected() const
@@ -372,7 +416,7 @@ bool WifiGatewayReticulumInterface::connected() const
     return socket_online_;
 }
 
-#if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
 bool WifiGatewayReticulumInterface::resolveHost(IPAddress* out)
 {
     if (!out || host_[0] == '\0')
@@ -430,6 +474,59 @@ bool WifiGatewayReticulumInterface::resolveHost(IPAddress* out)
 }
 #endif
 
+void WifiGatewayReticulumInterface::syncSocketState()
+{
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
+    if (socket_online_ && !client_.connected())
+    {
+        Serial.printf("[Reticulum][IF][WiFi] gateway disconnected host=%s port=%u\n",
+                      host_,
+                      static_cast<unsigned>(port_));
+        client_.stop();
+        socket_online_ = false;
+        socket_open_pending_ = false;
+    }
+#elif TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE
+    using ::platform::esp::idf_common::wireless_companion::WifiTcpState;
+    auto& transport =
+        ::platform::esp::idf_common::wireless_companion::c6_wifi_tcp_transport();
+    const auto status = transport.tcpStatus();
+    if (status.state == WifiTcpState::Connected)
+    {
+        if (!socket_online_)
+        {
+            hdlc_in_frame_ = false;
+            hdlc_escape_ = false;
+            hdlc_frame_len_ = 0;
+            Serial.printf("[Reticulum][IF][WiFi] gateway connected host=%s port=%u transport=c6\n",
+                          host_,
+                          static_cast<unsigned>(port_));
+        }
+        socket_online_ = true;
+        socket_open_pending_ = false;
+        return;
+    }
+    if (status.state == WifiTcpState::Opening)
+    {
+        socket_online_ = false;
+        socket_open_pending_ = true;
+        return;
+    }
+
+    if (socket_online_ || socket_open_pending_)
+    {
+        Serial.printf("[Reticulum][IF][WiFi] gateway disconnected host=%s port=%u state=%u error=%u detail=%s\n",
+                      host_,
+                      static_cast<unsigned>(port_),
+                      static_cast<unsigned>(status.state),
+                      static_cast<unsigned>(status.error_code),
+                      status.detail ? status.detail : "-");
+    }
+    socket_online_ = false;
+    socket_open_pending_ = false;
+#endif
+}
+
 bool WifiGatewayReticulumInterface::ensureSocket()
 {
     if (!transport_enabled_ || !enabled_ || host_[0] == '\0')
@@ -484,16 +581,6 @@ bool WifiGatewayReticulumInterface::ensureSocket()
     }
 
     last_reconnect_ms_ = now_ms;
-    client_.stop();
-
-    IPAddress remote_ip{};
-    if (!resolveHost(&remote_ip))
-    {
-        socket_online_ = false;
-        client_.stop();
-        return false;
-    }
-
     platform::ui::wifi_access::Request socket_request{};
     socket_request.client = platform::ui::wifi_access::Client::ReticulumGateway;
     socket_request.kind = platform::ui::wifi_access::AccessKind::LongLivedSocket;
@@ -503,11 +590,22 @@ bool WifiGatewayReticulumInterface::ensureSocket()
     if (!lease.granted)
     {
         socket_online_ = false;
-        client_.stop();
+        socket_open_pending_ = false;
         Serial.printf("[Reticulum][IF][WiFi] gateway connect deferred decision=%s host=%s port=%u\n",
                       platform::ui::wifi_access::decision_name(lease.decision),
                       host_,
                       static_cast<unsigned>(port_));
+        return false;
+    }
+
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
+    client_.stop();
+
+    IPAddress remote_ip{};
+    if (!resolveHost(&remote_ip))
+    {
+        socket_online_ = false;
+        client_.stop();
         return false;
     }
 
@@ -533,12 +631,50 @@ bool WifiGatewayReticulumInterface::ensureSocket()
                   host_,
                   static_cast<unsigned>(port_));
     return true;
+#elif TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE
+    auto& transport =
+        ::platform::esp::idf_common::wireless_companion::c6_wifi_tcp_transport();
+    const auto tcp_status = transport.tcpStatus();
+    using ::platform::esp::idf_common::wireless_companion::WifiTcpState;
+    if (tcp_status.state == WifiTcpState::Connected)
+    {
+        socket_online_ = true;
+        socket_open_pending_ = false;
+        return true;
+    }
+    if (tcp_status.state == WifiTcpState::Opening)
+    {
+        socket_open_pending_ = true;
+        return true;
+    }
+
+    Serial.printf("[Reticulum][IF][WiFi] gateway connect host=%s port=%u transport=c6\n",
+                  host_,
+                  static_cast<unsigned>(port_));
+    if (!transport.openTcp(host_, port_))
+    {
+        const auto failed = transport.tcpStatus();
+        socket_online_ = false;
+        socket_open_pending_ = false;
+        Serial.printf("[Reticulum][IF][WiFi] gateway connect failed host=%s port=%u state=%u error=%u detail=%s\n",
+                      host_,
+                      static_cast<unsigned>(port_),
+                      static_cast<unsigned>(failed.state),
+                      static_cast<unsigned>(failed.error_code),
+                      failed.detail ? failed.detail : "-");
+        return false;
+    }
+    socket_open_pending_ = true;
+    return true;
+#else
+    return false;
+#endif
 #endif
 }
 
 void WifiGatewayReticulumInterface::readAvailable()
 {
-#if TRAIL_MATE_RETICULUM_WIFI_GATEWAY_AVAILABLE
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
     if (!socket_online_)
     {
         return;
@@ -596,6 +732,52 @@ void WifiGatewayReticulumInterface::readAvailable()
         --remaining;
     }
     rx_stats_bytes_ += static_cast<uint32_t>(processed);
+#elif TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE
+    if (!socket_online_)
+    {
+        return;
+    }
+
+    auto& transport =
+        ::platform::esp::idf_common::wireless_companion::c6_wifi_tcp_transport();
+    const auto tcp_status = transport.tcpStatus();
+    const int remaining = static_cast<int>(tcp_status.buffered_bytes);
+    const uint32_t now_ms = millis();
+    const auto budget = platform::ui::wifi_access::traffic_budget(
+        platform::ui::wifi_access::Client::ReticulumGateway,
+        platform::ui::wifi_access::Priority::Messaging);
+    if (!budget.allow_read || budget.rx_byte_budget == 0)
+    {
+        if (remaining > 0)
+        {
+            ++rx_stats_read_skips_;
+        }
+        if (!budget.allow_connect && !budget.allow_write)
+        {
+            stop();
+            last_reconnect_ms_ = now_ms;
+        }
+        return;
+    }
+    if (remaining > 0 && last_socket_read_ms_ != 0 &&
+        (now_ms - last_socket_read_ms_) < budget.min_read_interval_ms)
+    {
+        ++rx_stats_read_skips_;
+        return;
+    }
+    if (remaining > 0)
+    {
+        last_socket_read_ms_ = now_ms;
+    }
+
+    const size_t read_budget = std::min<size_t>(budget.rx_byte_budget,
+                                                sizeof(socket_rx_scratch_));
+    const size_t read = transport.readTcp(socket_rx_scratch_, read_budget);
+    for (size_t index = 0; index < read; ++index)
+    {
+        feedHdlcByte(socket_rx_scratch_[index]);
+    }
+    rx_stats_bytes_ += static_cast<uint32_t>(read);
 #endif
 }
 
@@ -797,7 +979,8 @@ bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
 
 bool ReticulumInterfaceSet::sendPacketWifiOnly(const uint8_t* data,
                                                size_t len,
-                                               const uint8_t* call_link_id)
+                                               const uint8_t* call_link_id,
+                                               bool call_admission_control)
 {
     last_tx_result_ = {};
     if (!data || len == 0)
@@ -811,7 +994,8 @@ bool ReticulumInterfaceSet::sendPacketWifiOnly(const uint8_t* data,
     last_tx_result_.wifi_ready = last_tx_result_.wifi_required && wifi_.isReady();
     if (last_tx_result_.wifi_ready)
     {
-        last_tx_result_.wifi_ok = wifi_.sendPacket(data, len, call_link_id);
+        last_tx_result_.wifi_ok =
+            wifi_.sendPacket(data, len, call_link_id, call_admission_control);
     }
 
     const bool sent = last_tx_result_.sent();
@@ -911,7 +1095,7 @@ bool ReticulumInterfaceSet::wifiAllowed() const
 
 bool ReticulumInterfaceSet::loraSelectedForRuntime() const
 {
-    if (!loraAllowed())
+    if (!loraAllowed() || ::platform::ui::reticulum_call::resource_preempt_active())
     {
         return false;
     }
@@ -931,8 +1115,8 @@ bool ReticulumInterfaceSet::wifiSelectedForRuntime() const
 
 void ReticulumInterfaceSet::syncSharedLoRaRxGate()
 {
-    const bool suppress = !loraSelectedForRuntime() ||
-                          ::platform::ui::reticulum_call::resource_preempt_active();
+    const bool suppress = !loraSelectedForRuntime();
+#if defined(ARDUINO)
     if (shared_lora_rx_suppressed_ == suppress &&
         app::AppTasks::isRadioReceiveSuppressed() == suppress)
     {
@@ -940,6 +1124,9 @@ void ReticulumInterfaceSet::syncSharedLoRaRxGate()
     }
     shared_lora_rx_suppressed_ = suppress;
     app::AppTasks::setRadioReceiveSuppressed(suppress);
+#else
+    shared_lora_rx_suppressed_ = suppress;
+#endif
 }
 
 } // namespace chat::reticulum::interfaces

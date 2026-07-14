@@ -532,6 +532,7 @@ void ChatService::processIncoming()
         msg.timestamp = persistable_incoming_timestamp(incoming_text);
         msg.text = incoming_text.text;
         msg.reticulum_identity = incoming_text.reticulum_identity;
+        msg.source_unverified = incoming_text.source_unverified;
         msg.rx_origin = incoming_text.rx_meta.origin;
         msg.status = MessageStatus::Incoming;
 
@@ -543,7 +544,7 @@ void ChatService::processIncoming()
         format_reticulum_hash_prefix(incoming_identity,
                                      incoming_dest_hash,
                                      sizeof(incoming_dest_hash));
-        CHAT_SERVICE_DIAG_LOG("[ChatService][RX] text protocol=%s msg=%lu from=%08lX to=%08lX peer=%08lX dest=%s len=%u encrypted=%u\n",
+        CHAT_SERVICE_DIAG_LOG("[ChatService][RX] text protocol=%s msg=%lu from=%08lX to=%08lX peer=%08lX dest=%s len=%u encrypted=%u unverified=%u\n",
                               protocol_name(active_protocol_),
                               static_cast<unsigned long>(msg.msg_id),
                               static_cast<unsigned long>(msg.from),
@@ -551,7 +552,8 @@ void ChatService::processIncoming()
                               static_cast<unsigned long>(msg.peer),
                               incoming_dest_hash,
                               static_cast<unsigned>(msg.text.size()),
-                              incoming_text.encrypted ? 1U : 0U);
+                              incoming_text.encrypted ? 1U : 0U,
+                              incoming_text.source_unverified ? 1U : 0U);
 
         CHAT_SERVICE_LOG("[ChatService] incoming text ch=%u from=%08lX to=%08lX peer=%08lX ts=%lu len=%u\n",
                          static_cast<unsigned>(msg.channel),

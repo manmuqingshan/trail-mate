@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <vector>
 
 #if defined(ESP_PLATFORM)
@@ -82,8 +83,12 @@ constexpr std::size_t kHashTextLen = (rtdir::kReticulumHashSize * 2U) + 1U;
 constexpr std::size_t kMicronTextChunkBytes = 112;
 constexpr std::size_t kMicronTableMaxCells = micron::kMaxTableCells;
 constexpr std::size_t kMicronTableCellTextBytes = 96;
+constexpr std::size_t kMicronUnsupportedTagSamples = 3;
+constexpr std::size_t kMicronUnsupportedTagSampleBytes = 8;
 constexpr uint16_t kMicronMaxRenderedRows = 180;
 constexpr uint16_t kMicronMaxRenderedObjects = 520;
+
+void copy_range(char* out, std::size_t out_len, const char* start, std::size_t len);
 
 enum class DirectoryMode : uint8_t
 {
@@ -174,7 +179,13 @@ struct MicronRenderState
     uint16_t unsupported_block_count = 0;
     uint16_t unsupported_partial_count = 0;
     uint16_t unsupported_resource_links = 0;
+    uint16_t unsupported_unknown_links = 0;
+    std::array<std::array<char, kMicronUnsupportedTagSampleBytes>,
+               kMicronUnsupportedTagSamples>
+        unsupported_tag_samples{};
     MicronAlign table_default_align = MicronAlign::Left;
+    uint8_t unsupported_tag_sample_count = 0;
+    uint8_t table_row_index = 0;
     bool literal = false;
     bool table_mode = false;
     bool table_first_row = false;
@@ -232,6 +243,7 @@ struct NetworkPageState
     bool immersive = false;
     bool directory_collapsed = true;
     bool browser_collapsed = false;
+    bool viewport_scroll_locked = false;
     bool suppress_history = false;
     bool cached_page_body_valid = false;
     bool page_cache_load_requested = false;
@@ -351,9 +363,40 @@ void network_page_free(void* ptr)
 #endif
 }
 
+template <typename T>
+T* allocate_object_array(std::size_t count)
+{
+    void* storage = network_page_alloc(count * sizeof(T));
+    if (!storage)
+    {
+        return nullptr;
+    }
+
+    T* objects = static_cast<T*>(storage);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        new (&objects[i]) T{};
+    }
+    return objects;
+}
+
+template <typename T>
+void release_object_array(T* objects, std::size_t count)
+{
+    if (!objects)
+    {
+        return;
+    }
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        objects[i].~T();
+    }
+    network_page_free(objects);
+}
+
 void release_link_context_pool()
 {
-    network_page_free(g_state.link_contexts);
+    release_object_array(g_state.link_contexts, g_state.link_context_capacity);
     g_state.link_contexts = nullptr;
     g_state.link_context_capacity = 0;
     g_state.link_context_count = 0;
@@ -361,7 +404,7 @@ void release_link_context_pool()
 
 void release_micron_anchor_registry()
 {
-    network_page_free(g_state.page_anchors);
+    release_object_array(g_state.page_anchors, g_state.page_anchor_capacity);
     g_state.page_anchors = nullptr;
     g_state.page_anchor_capacity = 0;
     g_state.page_anchor_count = 0;
@@ -370,11 +413,9 @@ void release_micron_anchor_registry()
 void clear_micron_anchor_registry()
 {
     g_state.page_anchor_count = 0;
-    if (g_state.page_anchors && g_state.page_anchor_capacity > 0)
+    for (std::size_t i = 0; i < g_state.page_anchor_capacity; ++i)
     {
-        std::memset(g_state.page_anchors,
-                    0,
-                    g_state.page_anchor_capacity * sizeof(MicronAnchor));
+        g_state.page_anchors[i] = MicronAnchor{};
     }
 }
 
@@ -401,20 +442,19 @@ bool reserve_micron_anchors(std::size_t required)
         next_capacity = kMaxPageAnchors;
     }
 
-    void* storage = network_page_alloc(next_capacity * sizeof(MicronAnchor));
-    if (!storage)
+    MicronAnchor* next_anchors = allocate_object_array<MicronAnchor>(next_capacity);
+    if (!next_anchors)
     {
         return false;
     }
-    auto* next_anchors = static_cast<MicronAnchor*>(storage);
-    std::memset(next_anchors, 0, next_capacity * sizeof(MicronAnchor));
     if (g_state.page_anchors && g_state.page_anchor_count > 0)
     {
-        std::memcpy(next_anchors,
-                    g_state.page_anchors,
-                    g_state.page_anchor_count * sizeof(MicronAnchor));
+        for (std::size_t i = 0; i < g_state.page_anchor_count; ++i)
+        {
+            next_anchors[i] = g_state.page_anchors[i];
+        }
     }
-    network_page_free(g_state.page_anchors);
+    release_object_array(g_state.page_anchors, g_state.page_anchor_capacity);
     g_state.page_anchors = next_anchors;
     g_state.page_anchor_capacity = next_capacity;
     return true;
@@ -443,20 +483,19 @@ bool reserve_link_contexts(std::size_t required)
         next_capacity = kMaxPageLinks;
     }
 
-    void* storage = network_page_alloc(next_capacity * sizeof(LinkContext));
-    if (!storage)
+    LinkContext* next_contexts = allocate_object_array<LinkContext>(next_capacity);
+    if (!next_contexts)
     {
         return false;
     }
-    auto* next_contexts = static_cast<LinkContext*>(storage);
-    std::memset(next_contexts, 0, next_capacity * sizeof(LinkContext));
     if (g_state.link_contexts && g_state.link_context_count > 0)
     {
-        std::memcpy(next_contexts,
-                    g_state.link_contexts,
-                    g_state.link_context_count * sizeof(LinkContext));
+        for (std::size_t i = 0; i < g_state.link_context_count; ++i)
+        {
+            next_contexts[i] = g_state.link_contexts[i];
+        }
     }
-    network_page_free(g_state.link_contexts);
+    release_object_array(g_state.link_contexts, g_state.link_context_capacity);
     g_state.link_contexts = next_contexts;
     g_state.link_context_capacity = next_capacity;
     return true;
@@ -473,8 +512,24 @@ LinkContext* claim_link_context()
         return nullptr;
     }
     LinkContext* context = &g_state.link_contexts[g_state.link_context_count++];
-    std::memset(context, 0, sizeof(*context));
+    *context = LinkContext{};
     return context;
+}
+
+bool micron_anchor_name_exists(const char* name)
+{
+    if (!name || name[0] == '\0')
+    {
+        return false;
+    }
+    for (std::size_t i = 0; i < g_state.page_anchor_count; ++i)
+    {
+        if (std::strcmp(g_state.page_anchors[i].name, name) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void register_micron_anchor(const char* name, lv_obj_t* target, bool heading)
@@ -483,12 +538,9 @@ void register_micron_anchor(const char* name, lv_obj_t* target, bool heading)
     {
         return;
     }
-    for (std::size_t i = 0; i < g_state.page_anchor_count; ++i)
+    if (micron_anchor_name_exists(name))
     {
-        if (std::strcmp(g_state.page_anchors[i].name, name) == 0)
-        {
-            return;
-        }
+        return;
     }
     if (g_state.page_anchor_count >= kMaxPageAnchors ||
         !reserve_micron_anchors(g_state.page_anchor_count + 1U))
@@ -500,6 +552,42 @@ void register_micron_anchor(const char* name, lv_obj_t* target, bool heading)
     copy_text(anchor.name, sizeof(anchor.name), name);
     anchor.target = target;
     anchor.heading = heading;
+}
+
+void register_micron_heading_anchor(const char* base_name, lv_obj_t* target)
+{
+    if (!base_name || base_name[0] == '\0' || !target)
+    {
+        return;
+    }
+    if (!micron_anchor_name_exists(base_name))
+    {
+        register_micron_anchor(base_name, target, true);
+        return;
+    }
+    for (uint8_t suffix = 2; suffix <= kMaxPageAnchors; ++suffix)
+    {
+        char candidate[micron::kMaxAnchorNameBytes] = {};
+        char suffix_text[8] = {};
+        std::snprintf(suffix_text, sizeof(suffix_text), "-%u", static_cast<unsigned>(suffix));
+        const std::size_t suffix_len = std::strlen(suffix_text);
+        const std::size_t max_base_len =
+            sizeof(candidate) > suffix_len + 1U ? sizeof(candidate) - suffix_len - 1U : 0;
+        const std::size_t base_len = std::strlen(base_name);
+        copy_range(candidate,
+                   sizeof(candidate),
+                   base_name,
+                   base_len < max_base_len ? base_len : max_base_len);
+        std::snprintf(candidate + std::strlen(candidate),
+                      sizeof(candidate) - std::strlen(candidate),
+                      "%s",
+                      suffix_text);
+        if (!micron_anchor_name_exists(candidate))
+        {
+            register_micron_anchor(candidate, target, true);
+            return;
+        }
+    }
 }
 
 lv_obj_t* find_micron_anchor(const char* name)
@@ -1007,7 +1095,6 @@ bool cached_page_matches(const RemotePageAddress& page_address)
            std::strcmp(g_state.cached_page_path, page_address.path) == 0;
 }
 
-void copy_range(char* out, std::size_t out_len, const char* start, std::size_t len);
 bool parse_remote_page_address(const char* address, RemotePageAddress& out);
 
 bool same_remote_page_identity(const char* lhs, const char* rhs)
@@ -1274,6 +1361,7 @@ void page_load_timer_cb(lv_timer_t* timer);
 void rebuild_focus_group(lv_obj_t* preferred = nullptr);
 void focus_browser_viewport();
 void focus_directory_panel();
+void focus_locked_viewport();
 void apply_layout_state();
 void open_node_list_page();
 lv_coord_t resolve_directory_width();
@@ -1314,13 +1402,9 @@ void reset_state_after_destroy()
     std::vector<rtdir::LxmfAddressRecord>().swap(g_state.addresses);
     release_link_context_pool();
     release_micron_anchor_registry();
-    std::memset(g_state.row_contexts.data(),
-                0,
-                g_state.row_contexts.size() * sizeof(g_state.row_contexts[0]));
-    std::memset(g_state.history.data(),
-                0,
-                g_state.history.size() * sizeof(g_state.history[0]));
-    std::memset(g_state.page_body.data(), 0, g_state.page_body.size());
+    g_state.row_contexts.fill(DirectoryRowContext{});
+    g_state.history.fill(HistoryEntry{});
+    g_state.page_body.fill('\0');
     g_state.announce_count = 0;
     g_state.address_count = 0;
     g_state.row_context_count = 0;
@@ -1332,6 +1416,7 @@ void reset_state_after_destroy()
     g_state.immersive = false;
     g_state.directory_collapsed = true;
     g_state.browser_collapsed = false;
+    g_state.viewport_scroll_locked = false;
     g_state.suppress_history = false;
     g_state.cached_page_body_valid = false;
     g_state.page_cache_load_requested = false;
@@ -1588,6 +1673,13 @@ void link_event_cb(lv_event_t* event)
     {
         return;
     }
+    if (g_state.viewport_scroll_locked)
+    {
+        focus_locked_viewport();
+        lv_event_stop_bubbling(event);
+        lv_event_stop_processing(event);
+        return;
+    }
     auto* context = static_cast<LinkContext*>(lv_event_get_user_data(event));
     if (!context)
     {
@@ -1691,6 +1783,7 @@ void add_terminal_link(const char* target, const char* label, bool interactive =
     lv_obj_add_event_cb(btn, link_event_cb, LV_EVENT_CLICKED, context);
     lv_obj_add_event_cb(btn, link_event_cb, LV_EVENT_KEY, context);
     lv_obj_add_event_cb(btn, page_shortcut_event_cb, LV_EVENT_KEY, nullptr);
+    lv_obj_add_event_cb(btn, page_shortcut_event_cb, LV_EVENT_ROTARY, nullptr);
     add_to_group(btn);
 
     char text[192] = {};
@@ -1700,89 +1793,6 @@ void add_terminal_link(const char* target, const char* label, bool interactive =
     lv_label_set_long_mode(link_label, LV_LABEL_LONG_DOT);
     lv_obj_set_width(link_label, LV_PCT(100));
     lv_obj_center(link_label);
-}
-
-bool micron_color_from_text(const char* text,
-                            std::size_t len,
-                            uint32_t* out)
-{
-    if (!text || !out)
-    {
-        return false;
-    }
-    if (len == 3 && (text[0] == 'g' || text[0] == 'G') &&
-        std::isdigit(static_cast<unsigned char>(text[1])) &&
-        std::isdigit(static_cast<unsigned char>(text[2])))
-    {
-        const uint32_t value =
-            static_cast<uint32_t>((text[1] - '0') * 10 + (text[2] - '0'));
-        const uint32_t byte = value > 99U ? 255U : (value * 255U) / 99U;
-        *out = (byte << 16U) | (byte << 8U) | byte;
-        return true;
-    }
-    if (len == 3 && is_hex_text(text, len))
-    {
-        const uint32_t r = static_cast<uint32_t>(hex_nibble(text[0]) * 17U);
-        const uint32_t g = static_cast<uint32_t>(hex_nibble(text[1]) * 17U);
-        const uint32_t b = static_cast<uint32_t>(hex_nibble(text[2]) * 17U);
-        *out = (r << 16U) | (g << 8U) | b;
-        return true;
-    }
-    if (len == 6 && is_hex_text(text, len))
-    {
-        uint32_t value = 0;
-        for (std::size_t i = 0; i < 6; ++i)
-        {
-            value = (value << 4U) | hex_nibble(text[i]);
-        }
-        *out = value;
-        return true;
-    }
-    return false;
-}
-
-bool parse_micron_color_token(const char* line,
-                              std::size_t len,
-                              std::size_t index,
-                              uint32_t* out,
-                              std::size_t* consumed)
-{
-    if (!line || !out || !consumed || index >= len)
-    {
-        return false;
-    }
-    if (index + 8U <= len && line[index + 1U] == 'T' &&
-        micron_color_from_text(line + index + 2U, 6, out))
-    {
-        *consumed = 8;
-        return true;
-    }
-    if (index + 9U <= len && line[index + 4U] == '`' &&
-        line[index + 5U] == line[index] &&
-        is_hex_text(line + index + 1U, 3) &&
-        is_hex_text(line + index + 6U, 3))
-    {
-        char expanded[6] = {
-            line[index + 6U],
-            line[index + 1U],
-            line[index + 7U],
-            line[index + 2U],
-            line[index + 8U],
-            line[index + 3U],
-        };
-        if (micron_color_from_text(expanded, sizeof(expanded), out))
-        {
-            *consumed = 9;
-            return true;
-        }
-    }
-    if (index + 4U <= len &&
-        micron_color_from_text(line + index + 1U, 3, out))
-    {
-        *consumed = 4;
-        return true;
-    }
-    return false;
 }
 
 void copy_range(char* out,
@@ -2080,6 +2090,42 @@ void reset_micron_style(MicronRenderState& state)
     state.align = state.default_align;
 }
 
+void format_micron_tag_sample(char tag, char* out, std::size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    const auto value = static_cast<unsigned char>(tag);
+    if (std::isprint(value))
+    {
+        std::snprintf(out, out_len, "`%c", tag);
+        return;
+    }
+    std::snprintf(out, out_len, "0x%02X", static_cast<unsigned>(value));
+}
+
+void record_unsupported_micron_tag(MicronRenderState& state, char tag)
+{
+    ++state.unsupported_unknown_tags;
+    char sample[kMicronUnsupportedTagSampleBytes] = {};
+    format_micron_tag_sample(tag, sample, sizeof(sample));
+    for (uint8_t i = 0; i < state.unsupported_tag_sample_count; ++i)
+    {
+        if (std::strcmp(state.unsupported_tag_samples[i].data(), sample) == 0)
+        {
+            return;
+        }
+    }
+    if (state.unsupported_tag_sample_count < state.unsupported_tag_samples.size())
+    {
+        copy_text(state.unsupported_tag_samples[state.unsupported_tag_sample_count].data(),
+                  state.unsupported_tag_samples[state.unsupported_tag_sample_count].size(),
+                  sample);
+        ++state.unsupported_tag_sample_count;
+    }
+}
+
 void normalize_micron_link_target(const char* target,
                                   char* out,
                                   std::size_t out_len)
@@ -2128,9 +2174,18 @@ void emit_micron_link(lv_obj_t* row,
     const MicronStyle& style = state.style;
     const uint32_t default_bg = state.default_bg;
 
-    if (micron::classify_link_target(target) == micron::LinkTargetKind::Resource)
+    const micron::LinkTargetKind target_kind = micron::classify_link_target(target);
+    if (target_kind == micron::LinkTargetKind::Resource ||
+        target_kind == micron::LinkTargetKind::Unknown)
     {
-        state.unsupported_resource_links++;
+        if (target_kind == micron::LinkTargetKind::Resource)
+        {
+            state.unsupported_resource_links++;
+        }
+        else
+        {
+            state.unsupported_unknown_links++;
+        }
         emit_micron_text(row,
                          label && label[0] ? label : target,
                          style,
@@ -2143,7 +2198,9 @@ void emit_micron_link(lv_obj_t* row,
         note_style.bold = false;
         note_style.underline = false;
         emit_micron_text(row,
-                         " [resource unsupported]",
+                         target_kind == micron::LinkTargetKind::Resource
+                             ? " [resource unsupported]"
+                             : " [link unsupported]",
                          note_style,
                          default_bg,
                          tiny_font(),
@@ -2199,6 +2256,7 @@ void emit_micron_link(lv_obj_t* row,
     lv_obj_add_event_cb(btn, link_event_cb, LV_EVENT_CLICKED, context);
     lv_obj_add_event_cb(btn, link_event_cb, LV_EVENT_KEY, context);
     lv_obj_add_event_cb(btn, page_shortcut_event_cb, LV_EVENT_KEY, nullptr);
+    lv_obj_add_event_cb(btn, page_shortcut_event_cb, LV_EVENT_ROTARY, nullptr);
 
     lv_obj_t* text = lv_label_create(btn);
     const char* visible = label && label[0] ? label : target;
@@ -2310,6 +2368,15 @@ void emit_micron_field(lv_obj_t* row,
         lv_obj_set_style_text_color(cb, lv_color_hex(style.fg), LV_PART_MAIN);
         lv_obj_set_style_text_font(cb, caption_font(), LV_PART_MAIN);
         lv_obj_set_style_text_opa(cb, LV_OPA_70, LV_PART_MAIN);
+        lv_obj_set_style_text_opa(cb, LV_OPA_60, LV_PART_MAIN | LV_STATE_DISABLED);
+        lv_obj_set_style_border_width(cb, 1, LV_PART_INDICATOR);
+        lv_obj_set_style_border_color(cb, lv_color_hex(kTerminalDim), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(cb, lv_color_hex(0x101010), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(cb, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(cb,
+                                  lv_color_hex(kTerminalDim),
+                                  LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_opa(cb, LV_OPA_70, LV_PART_INDICATOR | LV_STATE_CHECKED);
         lv_obj_clear_flag(cb, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_clear_flag(cb, LV_OBJ_FLAG_CLICK_FOCUSABLE);
         lv_obj_add_state(cb, LV_STATE_DISABLED);
@@ -2339,9 +2406,15 @@ void emit_micron_field(lv_obj_t* row,
     lv_obj_set_style_bg_opa(field, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(field, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(field, lv_color_hex(kTerminalDim), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(field, lv_color_hex(0x151515), LV_PART_MAIN | LV_STATE_DISABLED);
+    lv_obj_set_style_bg_opa(field, LV_OPA_80, LV_PART_MAIN | LV_STATE_DISABLED);
+    lv_obj_set_style_border_color(field,
+                                  lv_color_hex(0x555555),
+                                  LV_PART_MAIN | LV_STATE_DISABLED);
     lv_obj_set_style_radius(field, 2, LV_PART_MAIN);
     lv_obj_set_style_text_color(field, lv_color_hex(style.fg), LV_PART_MAIN);
     lv_obj_set_style_text_opa(field, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_text_opa(field, LV_OPA_60, LV_PART_MAIN | LV_STATE_DISABLED);
     lv_obj_set_style_text_font(field, caption_font(), LV_PART_MAIN);
     lv_obj_set_style_pad_all(field, 1, LV_PART_MAIN);
     lv_obj_clear_flag(field, LV_OBJ_FLAG_CLICKABLE);
@@ -2402,18 +2475,19 @@ bool parse_micron_link(lv_obj_t* row,
     char label[96] = {};
     char target[kAddressTextLen] = {};
     char fields[96] = {};
-    const char* first_tick = std::strchr(data, '`');
+    const char* link_data = data[0] == '`' ? data + 1 : data;
+    const char* first_tick = std::strchr(link_data, '`');
     if (!first_tick)
     {
-        copy_text(target, sizeof(target), data);
-        copy_text(label, sizeof(label), data);
+        copy_text(target, sizeof(target), link_data);
+        copy_text(label, sizeof(label), link_data);
     }
     else
     {
         copy_range(label,
                    sizeof(label),
-                   data,
-                   static_cast<std::size_t>(first_tick - data));
+                   link_data,
+                   static_cast<std::size_t>(first_tick - link_data));
         const char* second_tick = std::strchr(first_tick + 1, '`');
         if (second_tick)
         {
@@ -2561,22 +2635,22 @@ void render_micron_inline(lv_obj_t* row,
         case 'F':
         case 'B':
         {
-            uint32_t color = 0;
-            std::size_t consumed = 0;
-            if (parse_micron_color_token(line, line_len, i, &color, &consumed))
+            const micron::ColorToken color = micron::parse_color_token(line, line_len, i);
+            if (color.valid)
             {
                 if (tag == 'F')
                 {
-                    state.style.fg = color;
+                    state.style.fg = color.rgb;
                 }
                 else
                 {
-                    state.style.bg = color;
+                    state.style.bg = color.rgb;
                 }
-                i += consumed;
+                i += color.consumed;
             }
             else
             {
+                record_unsupported_micron_tag(state, tag);
                 ++i;
             }
             break;
@@ -2676,7 +2750,7 @@ void render_micron_inline(lv_obj_t* row,
             ++i;
             break;
         default:
-            state.unsupported_unknown_tags++;
+            record_unsupported_micron_tag(state, tag);
             ++i;
             break;
         }
@@ -2771,12 +2845,21 @@ void render_micron_line(const char* line, MicronRenderState& state)
         {
             text = line + 1;
         }
-        lv_obj_t* row = create_micron_row(state);
+        lv_obj_t* row = create_micron_row(state, true, 0x101418);
+        if (row)
+        {
+            lv_obj_set_style_pad_left(row, 4, LV_PART_MAIN);
+            lv_obj_set_style_pad_top(row, 1, LV_PART_MAIN);
+            lv_obj_set_style_pad_bottom(row, 1, LV_PART_MAIN);
+            lv_obj_set_style_border_width(row, 2, LV_PART_MAIN);
+            lv_obj_set_style_border_side(row, LV_BORDER_SIDE_LEFT, LV_PART_MAIN);
+            lv_obj_set_style_border_color(row, lv_color_hex(kTerminalDim), LV_PART_MAIN);
+        }
         emit_micron_text(row,
                          text,
                          state.style,
                          state.default_bg,
-                         caption_font(),
+                         tiny_font(),
                          &state);
         return;
     }
@@ -2809,7 +2892,7 @@ void render_micron_line(const char* line, MicronRenderState& state)
         lv_obj_t* row = create_micron_row(state, true, state.style.bg);
         char anchor[micron::kMaxAnchorNameBytes] = {};
         micron::slug_from_text(text, anchor, sizeof(anchor));
-        register_micron_anchor(anchor, row, true);
+        register_micron_heading_anchor(anchor, row);
         render_micron_inline(row, text, state, depth <= 1U ? body_font() : caption_font());
         state.style = saved_style;
         return;
@@ -2822,16 +2905,15 @@ void render_micron_line(const char* line, MicronRenderState& state)
     if (line[0] == '`' && line[1] == '{')
     {
         lv_obj_t* row = create_micron_row(state);
-        char partial_url[kAddressTextLen] = {};
-        const bool has_partial_url =
-            micron::extract_partial_url(line, partial_url, sizeof(partial_url));
+        const micron::PartialReference partial = micron::parse_partial_reference(line);
         char notice[192] = {};
-        if (has_partial_url)
+        if (partial.valid)
         {
             std::snprintf(notice,
                           sizeof(notice),
-                          "[unsupported partial: %s]",
-                          partial_url);
+                          "[unsupported %s partial: %s]",
+                          micron::link_target_kind_label(partial.target_kind),
+                          partial.target);
             state.unsupported_partial_count++;
         }
         else
@@ -2845,6 +2927,16 @@ void render_micron_line(const char* line, MicronRenderState& state)
                          state.default_bg,
                          caption_font(),
                          &state);
+        if (partial.valid && partial.target_kind == micron::LinkTargetKind::Page)
+        {
+            emit_micron_text(row,
+                             " ",
+                             state.style,
+                             state.default_bg,
+                             caption_font(),
+                             &state);
+            emit_micron_link(row, partial.target, "Open partial", state, false);
+        }
         return;
     }
 
@@ -2867,6 +2959,7 @@ void begin_micron_table(MicronRenderState& state,
     {
         align = state.table_default_align;
     }
+    state.table_row_index = 0;
     state.table_first_row = true;
     state.table_mode = true;
 }
@@ -2878,6 +2971,7 @@ void finish_micron_table(MicronRenderState& state)
     state.table_column_count = 0;
     state.table_default_align = MicronAlign::Left;
     state.table_max_width_chars = 0;
+    state.table_row_index = 0;
     state.table_first_row = false;
     state.table_mode = false;
 }
@@ -2888,8 +2982,17 @@ void apply_micron_table_width(lv_obj_t* row, const MicronRenderState& state)
     {
         return;
     }
-    lv_obj_set_width(row,
-                     static_cast<lv_coord_t>(state.table_max_width_chars * 6U));
+    const lv_coord_t requested =
+        static_cast<lv_coord_t>(state.table_max_width_chars * 6U);
+    const lv_coord_t viewport_width =
+        g_state.viewport ? lv_obj_get_content_width(g_state.viewport) : 0;
+    lv_obj_set_style_max_width(row, LV_PCT(100), LV_PART_MAIN);
+    if (viewport_width > 0 && requested > viewport_width)
+    {
+        lv_obj_set_width(row, LV_PCT(100));
+        return;
+    }
+    lv_obj_set_width(row, requested);
 }
 
 void update_micron_table_alignment(
@@ -2928,7 +3031,13 @@ void render_micron_table_row(MicronRenderState& state, const char* row_text)
         }
         apply_micron_table_width(row, state);
         lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-        lv_obj_set_style_pad_column(row, 1, LV_PART_MAIN);
+        lv_obj_set_style_pad_column(row, 2, LV_PART_MAIN);
+        lv_obj_set_style_pad_top(row, header_row ? 1 : 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_bottom(row, header_row ? 1 : 0, LV_PART_MAIN);
+        const uint32_t row_bg = header_row ? 0x302814
+                                : (state.table_row_index % 2U == 0U)
+                                    ? state.style.bg
+                                    : 0x101010;
         for (std::size_t i = 0; i < cell_count; ++i)
         {
             char cell_text[kMicronTableCellTextBytes] = {};
@@ -2942,19 +3051,17 @@ void render_micron_table_row(MicronRenderState& state, const char* row_text)
             lv_obj_set_width(cell, 0);
             lv_obj_set_height(cell, LV_SIZE_CONTENT);
             lv_obj_set_flex_grow(cell, 1);
-            style_plain_container(cell,
-                                  header_row ? 0x242424 : state.style.bg,
-                                  LV_OPA_COVER);
-            lv_obj_set_style_border_width(cell, 1, LV_PART_MAIN);
+            style_plain_container(cell, row_bg, LV_OPA_COVER);
+            lv_obj_set_style_border_width(cell, header_row ? 2 : 1, LV_PART_MAIN);
             lv_obj_set_style_border_color(
                 cell,
-                lv_color_hex(header_row ? kTerminalAmber : 0x333333),
+                lv_color_hex(header_row ? kTerminalAmber : 0x3A3A3A),
                 LV_PART_MAIN);
             lv_obj_set_style_radius(cell, 1, LV_PART_MAIN);
-            lv_obj_set_style_pad_left(cell, 2, LV_PART_MAIN);
-            lv_obj_set_style_pad_right(cell, 2, LV_PART_MAIN);
-            lv_obj_set_style_pad_top(cell, 1, LV_PART_MAIN);
-            lv_obj_set_style_pad_bottom(cell, 1, LV_PART_MAIN);
+            lv_obj_set_style_pad_left(cell, header_row ? 3 : 2, LV_PART_MAIN);
+            lv_obj_set_style_pad_right(cell, header_row ? 3 : 2, LV_PART_MAIN);
+            lv_obj_set_style_pad_top(cell, header_row ? 2 : 1, LV_PART_MAIN);
+            lv_obj_set_style_pad_bottom(cell, header_row ? 2 : 1, LV_PART_MAIN);
             lv_obj_set_style_pad_row(cell, 0, LV_PART_MAIN);
             lv_obj_set_style_pad_column(cell, 0, LV_PART_MAIN);
             lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_ROW_WRAP);
@@ -2969,7 +3076,7 @@ void render_micron_table_row(MicronRenderState& state, const char* row_text)
             if (header_row)
             {
                 cell_state.style.fg = kTerminalAmber;
-                cell_state.style.bg = 0x242424;
+                cell_state.style.bg = row_bg;
             }
             apply_micron_row_align(cell, cell_state.align);
             render_micron_inline(cell, cell_text, cell_state, tiny_font());
@@ -2979,6 +3086,9 @@ void render_micron_table_row(MicronRenderState& state, const char* row_text)
             state.unsupported_block_count = cell_state.unsupported_block_count;
             state.unsupported_partial_count = cell_state.unsupported_partial_count;
             state.unsupported_resource_links = cell_state.unsupported_resource_links;
+            state.unsupported_unknown_links = cell_state.unsupported_unknown_links;
+            state.unsupported_tag_samples = cell_state.unsupported_tag_samples;
+            state.unsupported_tag_sample_count = cell_state.unsupported_tag_sample_count;
             state.object_limit_reached =
                 state.object_limit_reached || cell_state.object_limit_reached;
             state.link_limit_reached =
@@ -2987,6 +3097,7 @@ void render_micron_table_row(MicronRenderState& state, const char* row_text)
             state.saw_submit_links =
                 state.saw_submit_links || cell_state.saw_submit_links;
         }
+        ++state.table_row_index;
         return;
     }
 
@@ -3041,16 +3152,18 @@ void parse_micron_header_colors(const char* body,
         if (line_end - line_start >= 6 &&
             std::strncmp(line_start, "#!fg=", 5) == 0)
         {
-            (void)micron_color_from_text(line_start + 5,
-                                         static_cast<std::size_t>(line_end - line_start - 5),
-                                         fg);
+            (void)micron::parse_color_text(
+                line_start + 5,
+                static_cast<std::size_t>(line_end - line_start - 5),
+                fg);
         }
         else if (line_end - line_start >= 6 &&
                  std::strncmp(line_start, "#!bg=", 5) == 0)
         {
-            (void)micron_color_from_text(line_start + 5,
-                                         static_cast<std::size_t>(line_end - line_start - 5),
-                                         bg);
+            (void)micron::parse_color_text(
+                line_start + 5,
+                static_cast<std::size_t>(line_end - line_start - 5),
+                bg);
         }
         if (cursor < end)
         {
@@ -3069,9 +3182,9 @@ void render_micron_notices(const MicronRenderState& state)
     const bool has_notice =
         state.link_limit_reached || state.saw_fields || state.saw_submit_links ||
         state.unsupported_partial_count > 0 || state.unsupported_resource_links > 0 ||
-        state.unsupported_inline_blocks > 0 || state.unsupported_block_count > 0 ||
-        state.unsupported_unknown_tags > 0 || state.row_limit_reached ||
-        state.object_limit_reached;
+        state.unsupported_unknown_links > 0 || state.unsupported_inline_blocks > 0 ||
+        state.unsupported_block_count > 0 || state.unsupported_unknown_tags > 0 ||
+        state.row_limit_reached || state.object_limit_reached;
     if (!has_notice)
     {
         return;
@@ -3099,6 +3212,15 @@ void render_micron_notices(const MicronRenderState& state)
                       static_cast<unsigned>(state.unsupported_resource_links));
         add_micron_notice(line);
     }
+    if (state.unsupported_unknown_links > 0)
+    {
+        char line[64] = {};
+        std::snprintf(line,
+                      sizeof(line),
+                      "unsupported links: %u",
+                      static_cast<unsigned>(state.unsupported_unknown_links));
+        add_micron_notice(line);
+    }
     if (state.unsupported_partial_count > 0)
     {
         char line[64] = {};
@@ -3121,11 +3243,27 @@ void render_micron_notices(const MicronRenderState& state)
     }
     if (state.unsupported_unknown_tags > 0)
     {
-        char line[64] = {};
+        char line[96] = {};
         std::snprintf(line,
                       sizeof(line),
                       "unsupported Micron tags: %u",
                       static_cast<unsigned>(state.unsupported_unknown_tags));
+        if (state.unsupported_tag_sample_count > 0)
+        {
+            std::size_t used = std::strlen(line);
+            std::snprintf(line + used, sizeof(line) - used, " (");
+            used = std::strlen(line);
+            for (uint8_t i = 0; i < state.unsupported_tag_sample_count; ++i)
+            {
+                std::snprintf(line + used,
+                              sizeof(line) - used,
+                              "%s%s",
+                              i == 0 ? "" : ", ",
+                              state.unsupported_tag_samples[i].data());
+                used = std::strlen(line);
+            }
+            std::snprintf(line + used, sizeof(line) - used, ")");
+        }
         add_micron_notice(line);
     }
     if (state.row_limit_reached || state.object_limit_reached)
@@ -4314,9 +4452,9 @@ void open_network_help_modal()
     rows[row_count++] = {"S", "/", "Search announces"};
     rows[row_count++] = {"C", nullptr, "Nodes"};
     rows[row_count++] = {"I", nullptr, "Immersive browser"};
-    rows[row_count++] = {"Rotary", nullptr, "Move focus"};
-    rows[row_count++] = {"Enter", nullptr, "Open or lock page scroll"};
-    rows[row_count++] = {"Back", nullptr, "Unlock scroll or return"};
+    rows[row_count++] = {"Rotary", nullptr, "Scroll page"};
+    rows[row_count++] = {"Enter", nullptr, "Open link or lock page"};
+    rows[row_count++] = {"Back", nullptr, "Unlock page or return"};
     rows[row_count++] = {"R", nullptr, "Refresh network"};
     rows[row_count++] = {"F", nullptr, "Favourites"};
     rows[row_count++] = {"A", nullptr, "Nodes"};
@@ -4375,6 +4513,21 @@ bool viewport_scroll_delta_for_key(uint32_t key, lv_coord_t* delta)
     return false;
 }
 
+bool target_in_viewport(lv_obj_t* target)
+{
+    return object_in_subtree(g_state.viewport, target);
+}
+
+void focus_locked_viewport()
+{
+    if (!app_g || !g_state.viewport || !lv_obj_is_valid(g_state.viewport))
+    {
+        return;
+    }
+    lv_group_focus_obj(g_state.viewport);
+    lv_group_set_editing(app_g, true);
+}
+
 bool scroll_viewport_by_key(lv_event_t* event)
 {
     if (!event || lv_event_get_code(event) != LV_EVENT_KEY || !g_state.viewport ||
@@ -4391,6 +4544,30 @@ bool scroll_viewport_by_key(lv_event_t* event)
     lv_event_stop_bubbling(event);
     lv_event_stop_processing(event);
     return true;
+}
+
+bool route_key_to_viewport_scroll(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_KEY)
+    {
+        return false;
+    }
+    lv_coord_t delta = 0;
+    const uint32_t key = lv_event_get_key(event);
+    if (!viewport_scroll_delta_for_key(key, &delta))
+    {
+        return false;
+    }
+    lv_obj_t* target = lv_event_get_target_obj(event);
+    if (!g_state.viewport_scroll_locked && !target_in_viewport(target))
+    {
+        return false;
+    }
+    if (g_state.viewport_scroll_locked)
+    {
+        focus_locked_viewport();
+    }
+    return scroll_viewport_by_key(event);
 }
 
 bool scroll_viewport_by_rotary(lv_event_t* event)
@@ -4414,14 +4591,46 @@ bool scroll_viewport_by_rotary(lv_event_t* event)
     return true;
 }
 
+bool route_rotary_to_viewport_scroll(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_ROTARY)
+    {
+        return false;
+    }
+    lv_obj_t* target = lv_event_get_target_obj(event);
+    if (!g_state.viewport_scroll_locked && !target_in_viewport(target))
+    {
+        return false;
+    }
+    if (g_state.viewport_scroll_locked)
+    {
+        focus_locked_viewport();
+    }
+    return scroll_viewport_by_rotary(event);
+}
+
+void unlock_viewport_scroll(lv_event_t* event = nullptr)
+{
+    g_state.viewport_scroll_locked = false;
+    if (app_g)
+    {
+        lv_group_set_editing(app_g, false);
+    }
+    if (event)
+    {
+        lv_event_stop_bubbling(event);
+        lv_event_stop_processing(event);
+    }
+}
+
 void lock_viewport_scroll(lv_event_t* event)
 {
     if (!app_g || !g_state.viewport || !lv_obj_is_valid(g_state.viewport))
     {
         return;
     }
-    lv_group_focus_obj(g_state.viewport);
-    lv_group_set_editing(app_g, true);
+    g_state.viewport_scroll_locked = true;
+    focus_locked_viewport();
     if (event)
     {
         lv_event_stop_bubbling(event);
@@ -4461,8 +4670,9 @@ bool move_focus_by_pager_key(lv_event_t* event)
 
 bool viewport_is_editing()
 {
-    return app_g && lv_group_get_focused(app_g) == g_state.viewport &&
-           lv_group_get_editing(app_g);
+    return g_state.viewport_scroll_locked ||
+           (app_g && lv_group_get_focused(app_g) == g_state.viewport &&
+            lv_group_get_editing(app_g));
 }
 
 void viewport_event_cb(lv_event_t* event)
@@ -4475,13 +4685,13 @@ void viewport_event_cb(lv_event_t* event)
     {
         if (app_g)
         {
-            lv_group_set_editing(app_g, false);
+            lv_group_set_editing(app_g, g_state.viewport_scroll_locked);
         }
         return;
     }
     if (lv_event_get_code(event) == LV_EVENT_DEFOCUSED)
     {
-        if (app_g)
+        if (app_g && !g_state.viewport_scroll_locked)
         {
             lv_group_set_editing(app_g, false);
         }
@@ -4496,10 +4706,7 @@ void viewport_event_cb(lv_event_t* event)
     }
     if (lv_event_get_code(event) == LV_EVENT_ROTARY)
     {
-        if (viewport_is_editing())
-        {
-            (void)scroll_viewport_by_rotary(event);
-        }
+        (void)route_rotary_to_viewport_scroll(event);
         return;
     }
     if (lv_event_get_code(event) != LV_EVENT_KEY || !app_g)
@@ -4515,25 +4722,49 @@ void viewport_event_cb(lv_event_t* event)
     }
     if (viewport_is_editing() && (key == LV_KEY_BACKSPACE || key == LV_KEY_ESC))
     {
-        lv_group_set_editing(app_g, false);
-        lv_event_stop_bubbling(event);
-        lv_event_stop_processing(event);
+        unlock_viewport_scroll(event);
         return;
     }
-    if (viewport_is_editing())
+    if (viewport_is_editing() || target_in_viewport(lv_event_get_target_obj(event)))
     {
-        (void)scroll_viewport_by_key(event);
+        (void)route_key_to_viewport_scroll(event);
     }
 }
 
 void page_shortcut_event_cb(lv_event_t* event)
 {
-    if (!event || lv_event_get_code(event) != LV_EVENT_KEY)
+    if (!event)
+    {
+        return;
+    }
+    if (lv_event_get_code(event) == LV_EVENT_ROTARY)
+    {
+        (void)route_rotary_to_viewport_scroll(event);
+        return;
+    }
+    if (lv_event_get_code(event) != LV_EVENT_KEY)
     {
         return;
     }
     const uint32_t key = lv_event_get_key(event);
     lv_obj_t* target = lv_event_get_target_obj(event);
+    if (g_state.viewport_scroll_locked && (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE))
+    {
+        unlock_viewport_scroll(event);
+        return;
+    }
+    if (route_key_to_viewport_scroll(event))
+    {
+        return;
+    }
+    if (g_state.viewport_scroll_locked &&
+        (key == LV_KEY_LEFT || key == LV_KEY_RIGHT || key == LV_KEY_ENTER))
+    {
+        focus_locked_viewport();
+        lv_event_stop_bubbling(event);
+        lv_event_stop_processing(event);
+        return;
+    }
     if (is_help_shortcut_key(key))
     {
         open_network_help_modal();

@@ -32,6 +32,8 @@ constexpr uint32_t kWarn = 0xB94A2C;
 constexpr uint32_t kOk = 0x3E7D3E;
 constexpr int kEncoderKeyRotateUp = 19;
 constexpr int kEncoderKeyRotateDown = 20;
+constexpr uint8_t kVolumeStep = 5;
+constexpr uint32_t kActivationGuardMs = 400;
 constexpr lv_coord_t kFallbackScreenW = 320;
 constexpr lv_coord_t kFallbackScreenH = 240;
 
@@ -42,6 +44,7 @@ struct OverlayState
     lv_obj_t* title = nullptr;
     lv_obj_t* peer = nullptr;
     lv_obj_t* status = nullptr;
+    lv_obj_t* shortcut_hint = nullptr;
     lv_obj_t* answer_btn = nullptr;
     lv_obj_t* hangup_btn = nullptr;
     lv_obj_t* decline_btn = nullptr;
@@ -49,6 +52,7 @@ struct OverlayState
     lv_group_t* previous_group = nullptr;
     AppScreen* owner_app = nullptr;
     bool needs_present = false;
+    uint32_t activation_armed_ms = 0;
     ::platform::ui::reticulum_call::State last_state =
         ::platform::ui::reticulum_call::State::Idle;
 };
@@ -244,6 +248,52 @@ bool handle_focus_key(lv_event_t* event)
     return false;
 }
 
+void update_shortcut_hint()
+{
+    if (!s_overlay.shortcut_hint)
+    {
+        return;
+    }
+    char hint[48] = {};
+    std::snprintf(hint,
+                  sizeof(hint),
+                  "+/- Volume %u%%",
+                  static_cast<unsigned>(
+                      ::platform::ui::reticulum_call::speaker_volume()));
+    apply_label(s_overlay.shortcut_hint, hint, kTextDim, caption_font());
+}
+
+bool handle_volume_key(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_KEY)
+    {
+        return false;
+    }
+    const uint32_t key = lv_event_get_key(event);
+    const bool louder = key == '+' || key == '=';
+    const bool quieter = key == '-' || key == '_';
+    if (!louder && !quieter)
+    {
+        return false;
+    }
+
+    const uint8_t current = ::platform::ui::reticulum_call::speaker_volume();
+    const int delta = louder ? static_cast<int>(kVolumeStep) : -static_cast<int>(kVolumeStep);
+    int next = static_cast<int>(current) + delta;
+    if (next < 0)
+    {
+        next = 0;
+    }
+    else if (next > 100)
+    {
+        next = 100;
+    }
+    ::platform::ui::reticulum_call::set_speaker_volume(static_cast<uint8_t>(next));
+    update_shortcut_hint();
+    stop_input_event(event);
+    return true;
+}
+
 bool visible_action(lv_obj_t* obj, bool incoming)
 {
     if (!obj || !lv_obj_is_valid(obj) || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN))
@@ -311,6 +361,11 @@ bool activation_event(lv_event_t* event)
     {
         return false;
     }
+    if (static_cast<int32_t>(lv_tick_get() - s_overlay.activation_armed_ms) < 0)
+    {
+        stop_input_event(event);
+        return false;
+    }
     if (lv_event_get_code(event) == LV_EVENT_CLICKED)
     {
         return true;
@@ -325,6 +380,10 @@ bool activation_event(lv_event_t* event)
 
 void answer_cb(lv_event_t* event)
 {
+    if (handle_volume_key(event))
+    {
+        return;
+    }
     if (handle_focus_key(event))
     {
         return;
@@ -342,6 +401,10 @@ void answer_cb(lv_event_t* event)
 
 void hangup_cb(lv_event_t* event)
 {
+    if (handle_volume_key(event))
+    {
+        return;
+    }
     if (handle_focus_key(event))
     {
         return;
@@ -356,6 +419,10 @@ void hangup_cb(lv_event_t* event)
 
 void decline_cb(lv_event_t* event)
 {
+    if (handle_volume_key(event))
+    {
+        return;
+    }
     if (handle_focus_key(event))
     {
         return;
@@ -375,6 +442,10 @@ void root_key_cb(lv_event_t* event)
         return;
     }
     if (handle_focus_key(event))
+    {
+        return;
+    }
+    if (handle_volume_key(event))
     {
         return;
     }
@@ -517,8 +588,47 @@ void ensure_overlay()
     s_overlay.answer_btn = make_button(actions, "Answer", kOk, 0x2F662F, answer_cb);
     s_overlay.hangup_btn = make_button(actions, "Hang up", kWarn, 0x95351F, hangup_cb);
     s_overlay.decline_btn = make_button(actions, "Decline", kAmber, kAmberDark, decline_cb);
+
+    s_overlay.shortcut_hint = lv_label_create(s_overlay.panel);
+    lv_obj_set_width(s_overlay.shortcut_hint, LV_PCT(100));
+    lv_label_set_long_mode(s_overlay.shortcut_hint, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(s_overlay.shortcut_hint,
+                                LV_TEXT_ALIGN_CENTER,
+                                LV_PART_MAIN);
     lv_obj_move_foreground(s_overlay.root);
     s_overlay.needs_present = true;
+    s_overlay.activation_armed_ms = lv_tick_get() + kActivationGuardMs;
+}
+
+bool hash_has_value(const uint8_t* hash)
+{
+    if (!hash)
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < ::platform::ui::reticulum_call::kHashSize; ++index)
+    {
+        if (hash[index] != 0U)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void format_hash_prefix(const char* label,
+                        const uint8_t* hash,
+                        char* out,
+                        std::size_t out_len)
+{
+    std::snprintf(out,
+                  out_len,
+                  "%s %.2X%.2X%.2X%.2X",
+                  label,
+                  static_cast<unsigned>(hash[0]),
+                  static_cast<unsigned>(hash[1]),
+                  static_cast<unsigned>(hash[2]),
+                  static_cast<unsigned>(hash[3]));
 }
 
 void format_peer_name(const ::platform::ui::reticulum_call::Snapshot& snapshot,
@@ -534,13 +644,22 @@ void format_peer_name(const ::platform::ui::reticulum_call::Snapshot& snapshot,
         std::snprintf(out, out_len, "%s", snapshot.peer_name);
         return;
     }
-    std::snprintf(out,
-                  out_len,
-                  "%.2X%.2X%.2X%.2X",
-                  static_cast<unsigned>(snapshot.peer_destination_hash[0]),
-                  static_cast<unsigned>(snapshot.peer_destination_hash[1]),
-                  static_cast<unsigned>(snapshot.peer_destination_hash[2]),
-                  static_cast<unsigned>(snapshot.peer_destination_hash[3]));
+    if (hash_has_value(snapshot.peer_destination_hash))
+    {
+        format_hash_prefix("Dest", snapshot.peer_destination_hash, out, out_len);
+        return;
+    }
+    if (hash_has_value(snapshot.peer_identity_hash))
+    {
+        format_hash_prefix("ID", snapshot.peer_identity_hash, out, out_len);
+        return;
+    }
+    if (hash_has_value(snapshot.link_id))
+    {
+        format_hash_prefix("Link", snapshot.link_id, out, out_len);
+        return;
+    }
+    std::snprintf(out, out_len, "%s", "Unknown caller");
 }
 
 void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
@@ -600,6 +719,7 @@ void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
         std::snprintf(status, sizeof(status), "%s", "Wi-Fi call.audio");
     }
     apply_label(s_overlay.status, status, kTextDim, caption_font());
+    update_shortcut_hint();
 
     if (incoming)
     {
@@ -633,6 +753,7 @@ void update_overlay(const ::platform::ui::reticulum_call::Snapshot& snapshot)
 
 void tick()
 {
+    ::platform::ui::reticulum_call::service_ui_runtime();
     const auto snapshot = ::platform::ui::reticulum_call::snapshot();
     if (snapshot.realtime_phase ==
         ::platform::ui::reticulum_call::RealtimePhase::Idle)

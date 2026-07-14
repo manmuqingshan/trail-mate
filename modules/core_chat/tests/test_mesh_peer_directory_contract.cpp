@@ -446,6 +446,15 @@ chat::MeshPeerRecord makeReticulumPeer(uint8_t seed,
         record.reticulum.sig_pub[index] =
             static_cast<uint8_t>(seed + 0x20 + index);
     }
+    record.reticulum.has_ratchet = true;
+    for (std::size_t index = 0;
+         index < chat::kMeshPeerReticulumRatchetLen;
+         ++index)
+    {
+        record.reticulum.ratchet_pub[index] =
+            static_cast<uint8_t>(seed + 0x60 + index);
+    }
+    record.reticulum.ratchet_seen_s = seen_s;
     record.reticulum.delivery = true;
     return record;
 }
@@ -501,7 +510,34 @@ void protocol_identity_shapes_do_not_collapse()
     assert(loaded.identity.kind ==
            chat::MeshPeerIdentityKind::ReticulumDestination);
     assert(loaded.reticulum.has_public_keys);
+    assert(loaded.reticulum.has_ratchet);
     assert(loaded.reticulum.delivery);
+}
+
+void core_persists_reticulum_ratchet()
+{
+    CountingMeshPeerDirectoryBlobStore blob;
+    chat::MeshPeerDirectoryCore::Options options{};
+    options.auto_save = true;
+    const auto original = makeReticulumPeer(0x71, "ratchet peer", 55);
+
+    {
+        chat::MeshPeerDirectoryCore directory(blob, options);
+        assert(directory.begin().succeeded());
+        assert(directory.record(original).succeeded());
+    }
+
+    {
+        chat::MeshPeerDirectoryCore directory(blob, options);
+        assert(directory.begin().succeeded());
+        chat::MeshPeerRecord loaded{};
+        assert(directory.find(original.identity, loaded).succeeded());
+        assert(loaded.reticulum.has_ratchet);
+        assert(loaded.reticulum.ratchet_seen_s == 55);
+        assert(std::memcmp(loaded.reticulum.ratchet_pub,
+                           original.reticulum.ratchet_pub,
+                           chat::kMeshPeerReticulumRatchetLen) == 0);
+    }
 }
 
 void capacity_is_protocol_policy_not_interface_shape()
@@ -680,6 +716,7 @@ int main()
 {
     upsert_preserves_first_seen_and_updates_peer_facts();
     protocol_identity_shapes_do_not_collapse();
+    core_persists_reticulum_ratchet();
     capacity_is_protocol_policy_not_interface_shape();
     search_and_user_flags_are_directory_behaviors();
     find_by_node_id_preserves_reticulum_destination_identity();

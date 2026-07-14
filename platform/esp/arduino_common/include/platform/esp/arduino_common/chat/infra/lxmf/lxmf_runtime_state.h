@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "chat/domain/chat_types.h"
 #include "chat/infra/lxmf/lxmf_wire.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
 
@@ -15,6 +16,9 @@
 
 namespace chat::lxmf::runtime
 {
+
+constexpr std::size_t kAnnounceRandomBlobSize = 10;
+constexpr std::size_t kPathRandomBlobHistory = 4;
 
 struct PeerInfo
 {
@@ -38,8 +42,12 @@ struct PathEntry
     uint8_t cached_packet_hash[reticulum::kFullHashSize] = {};
     uint8_t cached_announce[reticulum::kReticulumMtu] = {};
     size_t cached_announce_len = 0;
+    uint8_t announce_random_blobs[kPathRandomBlobHistory][kAnnounceRandomBlobSize] = {};
+    uint8_t announce_random_blob_count = 0;
     uint8_t hops = 0;
     uint32_t last_seen_s = 0;
+    uint32_t updated_ms = 0;
+    uint64_t announce_timebase = 0;
     bool direct = false;
 };
 
@@ -63,6 +71,15 @@ struct PendingPathRequest
     uint32_t last_attempt_ms = 0;
     uint8_t attempts = 0;
     bool resolved = false;
+};
+
+struct PendingPingReceipt
+{
+    uint8_t packet_hash[reticulum::kFullHashSize] = {};
+    uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t peer_sig_pub[LxmfIdentity::kSigPubKeySize] = {};
+    uint32_t created_ms = 0;
 };
 
 struct LinkRelayEntry
@@ -186,8 +203,17 @@ struct LinkSession
     uint32_t last_keepalive_ms = 0;
     uint8_t expected_hops = 0;
     bool initiator = false;
+    bool local_identity_sent = false;
     bool remote_identity_known = false;
     bool validated = false;
+    ReticulumCallWireProfile call_wire_profile =
+        ReticulumCallWireProfile::SidebandLxst;
+    uint16_t lxst_profile = 0x30;
+    uint16_t lxst_local_status = 0x02;
+    uint16_t lxst_remote_status = 0x02;
+    uint32_t call_status_ms = 0;
+    bool call_runtime_started = false;
+    bool lxst_preferred_sent = false;
     LocalDestinationKind destination = LocalDestinationKind::Delivery;
     LinkState state = LinkState::Pending;
     LinkCloseReason close_reason = LinkCloseReason::None;
@@ -231,6 +257,7 @@ struct TransportRuntime
     std::vector<PacketFilterEntry> packet_filter;
     std::vector<ReverseEntry> reverse_table;
     std::vector<PendingPathRequest> pending_path_requests;
+    std::vector<PendingPingReceipt> pending_ping_receipts;
     std::vector<LinkRelayEntry> link_relays;
 };
 

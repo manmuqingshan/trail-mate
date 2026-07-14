@@ -28,6 +28,7 @@ struct RuntimeState
     bool hangup_requested = false;
     bool closing_keep_exclusive = false;
     bool sleep_wake_lease = false;
+    bool sleep_wake_lease_applied = false;
     sys::RingBuffer<AudioPacket, kQueueDepth> inbound;
     sys::RingBuffer<AudioPacket, kQueueDepth> outbound;
 };
@@ -83,6 +84,11 @@ uint32_t now_ms()
     return sys::millis_now();
 }
 
+uint8_t clamp_volume(uint8_t volume_percent)
+{
+    return volume_percent > 100U ? 100U : volume_percent;
+}
+
 void clear_queues_locked()
 {
     s_state.inbound.clear();
@@ -106,6 +112,8 @@ void apply_peer_locked(const Peer& peer)
                   sizeof(s_state.snapshot.peer_name),
                   peer.display_name);
     }
+    s_state.snapshot.wire_profile = peer.wire_profile;
+    s_state.snapshot.codec2_mode = peer.codec2_mode;
     s_state.snapshot.updated_ms = now_ms();
 }
 
@@ -148,18 +156,6 @@ void end_realtime_outside_lock(RealtimeHooks hooks,
     }
 }
 
-void acquire_sleep_wake_lease_outside_lock()
-{
-    screen::disable_sleep();
-    screen::enter_from_saver();
-    screen::update_user_activity();
-}
-
-void release_sleep_wake_lease_outside_lock()
-{
-    screen::enable_sleep();
-}
-
 bool acquire_sleep_wake_lease_locked()
 {
     if (s_state.sleep_wake_lease)
@@ -180,6 +176,8 @@ bool release_sleep_wake_lease_locked()
     return true;
 }
 
+void close_call(State final_state, bool request_remote_close);
+
 bool start_media_if_needed()
 {
     MediaHooks hooks{};
@@ -191,7 +189,15 @@ bool start_media_if_needed()
             hooks.is_supported ? hooks.is_supported() : false;
         should_start = s_state.snapshot.accepted &&
                        s_state.snapshot.state == State::Active &&
+                       s_state.snapshot.link_active &&
                        !s_state.snapshot.media_active;
+        if (should_start)
+        {
+            // Reserve media ownership before the task starts so a newly scheduled
+            // task cannot observe a transient inactive state and exit immediately.
+            s_state.snapshot.media_active = true;
+            s_state.snapshot.updated_ms = now_ms();
+        }
     }
     if (!should_start)
     {
@@ -199,37 +205,9 @@ bool start_media_if_needed()
     }
     if (!hooks.start || !hooks.start())
     {
-        RealtimeHooks realtime_hooks{};
-        uint8_t link_id[kHashSize] = {};
-        bool end_realtime = false;
-        bool release_sleep_wake = false;
-        {
-            std::lock_guard<std::mutex> lock(s_state.mutex);
-            realtime_hooks = s_state.realtime_hooks;
-            copy_hash(link_id, s_state.snapshot.link_id);
-            end_realtime = s_state.snapshot.realtime_phase != RealtimePhase::Idle &&
-                           !hash_is_empty(link_id);
-            s_state.snapshot.state = State::Failed;
-            s_state.snapshot.media_active = false;
-            s_state.snapshot.accepted = false;
-            s_state.snapshot.realtime_phase = RealtimePhase::Idle;
-            s_state.closing_keep_exclusive = false;
-            release_sleep_wake = release_sleep_wake_lease_locked();
-            s_state.snapshot.updated_ms = now_ms();
-        }
-        if (end_realtime)
-        {
-            end_realtime_outside_lock(realtime_hooks, link_id);
-        }
-        if (release_sleep_wake)
-        {
-            release_sleep_wake_lease_outside_lock();
-        }
+        close_call(State::Failed, true);
         return false;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
-    s_state.snapshot.media_active = true;
-    s_state.snapshot.updated_ms = now_ms();
     return true;
 }
 
@@ -242,7 +220,6 @@ void close_call(State final_state, bool request_remote_close)
     bool end_realtime = false;
     bool begin_closing = false;
     bool keep_exclusive = false;
-    bool release_sleep_wake = false;
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
         hooks = s_state.hooks;
@@ -255,6 +232,7 @@ void close_call(State final_state, bool request_remote_close)
             s_state.snapshot.realtime_phase == RealtimePhase::ClosingCall;
         s_state.snapshot.media_active = false;
         s_state.snapshot.accepted = false;
+        s_state.snapshot.link_active = false;
         s_state.snapshot.state = final_state;
         s_state.snapshot.updated_ms = now_ms();
         s_state.hangup_requested = request_remote_close &&
@@ -272,7 +250,7 @@ void close_call(State final_state, bool request_remote_close)
                 !hash_is_empty(link_id);
             s_state.snapshot.realtime_phase = RealtimePhase::Idle;
             s_state.closing_keep_exclusive = false;
-            release_sleep_wake = release_sleep_wake_lease_locked();
+            (void)release_sleep_wake_lease_locked();
         }
         clear_queues_locked();
     }
@@ -287,10 +265,6 @@ void close_call(State final_state, bool request_remote_close)
     else if (end_realtime)
     {
         end_realtime_outside_lock(realtime_hooks, link_id);
-    }
-    if (release_sleep_wake)
-    {
-        release_sleep_wake_lease_outside_lock();
     }
 }
 
@@ -342,6 +316,29 @@ void set_media_hooks(const MediaHooks& hooks)
         hooks.is_supported ? hooks.is_supported() : false;
 }
 
+uint8_t speaker_volume()
+{
+    MediaHooks hooks{};
+    {
+        std::lock_guard<std::mutex> lock(s_state.mutex);
+        hooks = s_state.hooks;
+    }
+    return hooks.speaker_volume ? hooks.speaker_volume() : 0U;
+}
+
+void set_speaker_volume(uint8_t volume_percent)
+{
+    MediaHooks hooks{};
+    {
+        std::lock_guard<std::mutex> lock(s_state.mutex);
+        hooks = s_state.hooks;
+    }
+    if (hooks.set_speaker_volume)
+    {
+        hooks.set_speaker_volume(clamp_volume(volume_percent));
+    }
+}
+
 void set_realtime_hooks(const RealtimeHooks& hooks)
 {
     std::lock_guard<std::mutex> lock(s_state.mutex);
@@ -364,7 +361,6 @@ bool begin_incoming(const Peer& peer)
     RealtimeHooks realtime_hooks{};
     uint8_t link_id[kHashSize] = {};
     bool start_ringing = false;
-    bool acquire_sleep_wake = false;
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
         if (s_state.snapshot.state == State::Active ||
@@ -386,12 +382,8 @@ bool begin_incoming(const Peer& peer)
         clear_queues_locked();
         s_state.hangup_requested = false;
         s_state.closing_keep_exclusive = false;
-        acquire_sleep_wake = acquire_sleep_wake_lease_locked();
+        (void)acquire_sleep_wake_lease_locked();
         start_ringing = true;
-    }
-    if (acquire_sleep_wake)
-    {
-        acquire_sleep_wake_lease_outside_lock();
     }
     if (start_ringing)
     {
@@ -422,7 +414,6 @@ bool begin_outgoing(const Peer& peer)
         return false;
     }
     bool started = false;
-    bool acquire_sleep_wake = false;
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
         if (s_state.snapshot.state == State::Active ||
@@ -449,16 +440,12 @@ bool begin_outgoing(const Peer& peer)
             clear_queues_locked();
             s_state.hangup_requested = false;
             s_state.closing_keep_exclusive = false;
-            acquire_sleep_wake = acquire_sleep_wake_lease_locked();
+            (void)acquire_sleep_wake_lease_locked();
             started = true;
         }
     }
     if (started)
     {
-        if (acquire_sleep_wake)
-        {
-            acquire_sleep_wake_lease_outside_lock();
-        }
         return true;
     }
     end_realtime_outside_lock(realtime_hooks, peer.link_id);
@@ -492,6 +479,13 @@ void mark_link_active(const uint8_t link_id[kHashSize])
         {
             return;
         }
+        if (s_state.snapshot.state != State::Incoming &&
+            s_state.snapshot.state != State::Outgoing &&
+            s_state.snapshot.state != State::Active)
+        {
+            return;
+        }
+        s_state.snapshot.link_active = true;
         if (s_state.snapshot.state == State::Outgoing)
         {
             s_state.snapshot.accepted = true;
@@ -505,6 +499,12 @@ void mark_link_active(const uint8_t link_id[kHashSize])
             s_state.snapshot.state = State::Active;
             s_state.snapshot.realtime_phase = RealtimePhase::ActiveCall;
             should_start = true;
+        }
+        else if (s_state.snapshot.state == State::Active &&
+                 s_state.snapshot.accepted)
+        {
+            s_state.snapshot.realtime_phase = RealtimePhase::ActiveCall;
+            should_start = !s_state.snapshot.media_active;
         }
         s_state.snapshot.updated_ms = now_ms();
     }
@@ -530,6 +530,47 @@ void notify_link_closed(const uint8_t link_id[kHashSize])
     close_call(State::Ended, false);
 }
 
+void notify_media_failed()
+{
+    bool should_close = false;
+    {
+        std::lock_guard<std::mutex> lock(s_state.mutex);
+        should_close = s_state.snapshot.state == State::Active &&
+                       s_state.snapshot.accepted &&
+                       s_state.snapshot.media_active;
+    }
+    if (should_close)
+    {
+        close_call(State::Failed, true);
+    }
+}
+
+void service_ui_runtime()
+{
+    bool apply_lease = false;
+    bool release_lease = false;
+    {
+        std::lock_guard<std::mutex> lock(s_state.mutex);
+        if (s_state.sleep_wake_lease_applied != s_state.sleep_wake_lease)
+        {
+            s_state.sleep_wake_lease_applied = s_state.sleep_wake_lease;
+            apply_lease = s_state.sleep_wake_lease;
+            release_lease = !s_state.sleep_wake_lease;
+        }
+    }
+
+    if (apply_lease)
+    {
+        screen::wake_for_modal();
+        screen::disable_sleep();
+        screen::update_user_activity();
+    }
+    else if (release_lease)
+    {
+        screen::enable_sleep();
+    }
+}
+
 bool accept()
 {
     RealtimeHooks realtime_hooks{};
@@ -546,10 +587,10 @@ bool accept()
     }
     if (!begin_exclusive_outside_lock(realtime_hooks, link_id))
     {
+        close_call(State::Failed, true);
         return false;
     }
     bool accepted = false;
-    bool acquire_sleep_wake = false;
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
         if (!hashes_equal(s_state.snapshot.link_id, link_id) ||
@@ -562,18 +603,16 @@ bool accept()
         {
             s_state.snapshot.accepted = true;
             s_state.snapshot.state = State::Active;
-            s_state.snapshot.realtime_phase = RealtimePhase::AcceptedStarting;
+            s_state.snapshot.realtime_phase =
+                s_state.snapshot.link_active ? RealtimePhase::ActiveCall
+                                             : RealtimePhase::AcceptedStarting;
             s_state.snapshot.updated_ms = now_ms();
-            acquire_sleep_wake = acquire_sleep_wake_lease_locked();
+            (void)acquire_sleep_wake_lease_locked();
             accepted = true;
         }
     }
     if (accepted)
     {
-        if (acquire_sleep_wake)
-        {
-            acquire_sleep_wake_lease_outside_lock();
-        }
         return start_media_if_needed();
     }
     end_realtime_outside_lock(realtime_hooks, link_id);
@@ -633,6 +672,7 @@ bool media_should_run()
     std::lock_guard<std::mutex> lock(s_state.mutex);
     return s_state.snapshot.state == State::Active &&
            s_state.snapshot.accepted &&
+           s_state.snapshot.link_active &&
            s_state.snapshot.media_active;
 }
 

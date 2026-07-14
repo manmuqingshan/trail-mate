@@ -9,12 +9,16 @@
 #include "app/app_facades.h"
 #include "ble/ble_manager.h"
 #include "board/BoardBase.h"
+#if defined(ARDUINO_T_LORA_PAGER)
+#include "boards/tlora_pager/tlora_pager_board.h"
+#endif
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/chat/infra/mesh_mqtt_client_runtime.h"
 #include "platform/esp/arduino_common/device_identity.h"
 #include "platform/esp/arduino_common/reticulum_call_audio_runtime.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "platform/ui/gps_runtime.h"
 #include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/settings_store.h"
@@ -27,6 +31,9 @@
 #include "team/usecase/team_track_sampler.h"
 #include "ui/localization.h"
 #include "ui/runtime/ui_feedback.h"
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #ifndef APP_EVENT_LOG_ENABLE
 #define APP_EVENT_LOG_ENABLE 0
@@ -56,9 +63,15 @@ constexpr int kContactAlertsNone = 0;
 constexpr int kContactAlertsContacts = 1;
 constexpr int kContactAlertsAll = 2;
 constexpr uint32_t kContactAlertModeCacheMs = 10000;
+constexpr uint32_t kIncomingCallToneGapMs = 600;
+constexpr uint32_t kIncomingCallToneStopTimeoutMs = 500;
+constexpr uint32_t kIncomingCallToneTaskStackBytes = 5 * 1024;
+constexpr UBaseType_t kIncomingCallToneTaskPriority = tskIDLE_PRIORITY + 1;
 
 bool s_call_realtime_resources_held = false;
 bool s_call_realtime_hooks_registered = false;
+TaskHandle_t s_incoming_call_tone_task = nullptr;
+volatile bool s_incoming_call_tone_stop_requested = false;
 
 void pauseCallRealtimeResources()
 {
@@ -82,16 +95,123 @@ void resumeCallRealtimeResources()
     s_call_realtime_resources_held = false;
 }
 
+BoardBase* resolveCallBoard()
+{
+    const auto handles = ::platform::esp::boards::resolveAppContextInitHandles();
+    return handles.board;
+}
+
+void playIncomingCallTone(BoardBase& board)
+{
+#if defined(ARDUINO_T_LORA_PAGER)
+    static_cast<::boards::tlora_pager::TLoRaPagerBoard&>(board).playIncomingCallTone(
+        &s_incoming_call_tone_stop_requested);
+#else
+    if (!s_incoming_call_tone_stop_requested)
+    {
+        board.playMessageTone();
+    }
+#endif
+}
+
+void incomingCallToneTask(void* argument)
+{
+    auto* board = static_cast<BoardBase*>(argument);
+    while (!s_incoming_call_tone_stop_requested &&
+           ::platform::ui::reticulum_call::realtime_phase() ==
+               ::platform::ui::reticulum_call::RealtimePhase::IncomingRinging)
+    {
+        playIncomingCallTone(*board);
+        const TickType_t gap_started = xTaskGetTickCount();
+        while (!s_incoming_call_tone_stop_requested &&
+               ::platform::ui::reticulum_call::realtime_phase() ==
+                   ::platform::ui::reticulum_call::RealtimePhase::IncomingRinging &&
+               pdTICKS_TO_MS(xTaskGetTickCount() - gap_started) <
+                   kIncomingCallToneGapMs)
+        {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+    s_incoming_call_tone_task = nullptr;
+    vTaskDelete(nullptr);
+}
+
+bool startIncomingCallTone()
+{
+    if (s_incoming_call_tone_task)
+    {
+        return true;
+    }
+    BoardBase* board = resolveCallBoard();
+    if (!board)
+    {
+        return false;
+    }
+    s_incoming_call_tone_stop_requested = false;
+    const BaseType_t rc = xTaskCreate(incomingCallToneTask,
+                                      "rt_call_ring",
+                                      kIncomingCallToneTaskStackBytes,
+                                      board,
+                                      kIncomingCallToneTaskPriority,
+                                      &s_incoming_call_tone_task);
+    if (rc != pdPASS)
+    {
+        s_incoming_call_tone_task = nullptr;
+        return false;
+    }
+    return true;
+}
+
+bool stopIncomingCallTone()
+{
+    s_incoming_call_tone_stop_requested = true;
+    const TaskHandle_t task = s_incoming_call_tone_task;
+    if (!task)
+    {
+        return true;
+    }
+    if (xTaskGetCurrentTaskHandle() == task)
+    {
+        return false;
+    }
+
+    const TickType_t started = xTaskGetTickCount();
+    while (s_incoming_call_tone_task &&
+           pdTICKS_TO_MS(xTaskGetTickCount() - started) <
+               kIncomingCallToneStopTimeoutMs)
+    {
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return s_incoming_call_tone_task == nullptr;
+}
+
 bool callRealtimeBeginRinging(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
 {
     pauseCallRealtimeResources();
-    return ::platform::ui::wifi_access::enter_call_ringing(link_id);
+    const bool entered = ::platform::ui::wifi_access::enter_call_ringing(link_id);
+    if (entered && !startIncomingCallTone())
+    {
+        std::printf("[Reticulum][CallTone] start failed\n");
+    }
+    return entered;
 }
 
 bool callRealtimeBeginExclusive(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
 {
+    const bool was_ringing =
+        ::platform::ui::reticulum_call::realtime_phase() ==
+        ::platform::ui::reticulum_call::RealtimePhase::IncomingRinging;
+    if (!stopIncomingCallTone())
+    {
+        std::printf("[Reticulum][CallTone] stop timeout\n");
+        return false;
+    }
     if (!::platform::ui::wifi_access::enter_call_exclusive(link_id))
     {
+        if (was_ringing)
+        {
+            (void)startIncomingCallTone();
+        }
         return false;
     }
     pauseCallRealtimeResources();
@@ -101,12 +221,14 @@ bool callRealtimeBeginExclusive(const uint8_t link_id[::platform::ui::reticulum_
 void callRealtimeBeginClosing(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize],
                               bool keep_exclusive)
 {
+    (void)stopIncomingCallTone();
     pauseCallRealtimeResources();
     ::platform::ui::wifi_access::enter_call_closing(link_id, keep_exclusive);
 }
 
 void callRealtimeEnd(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
 {
+    (void)stopIncomingCallTone();
     ::platform::ui::wifi_access::exit_call(link_id);
     resumeCallRealtimeResources();
 }
@@ -243,6 +365,7 @@ void notifyNodeInfoUpdate(app::IAppFacade& app_context, const sys::NodeInfoUpdat
 BackgroundTaskStartResult startBackgroundTasks(LoraBoard* board, chat::IMeshAdapter* adapter)
 {
     ensureCallRealtimeHooksRegistered();
+    ensureReticulumCallAudioRuntimeRegistered();
     if (!board)
     {
         return BackgroundTaskStartResult::NotSupported;

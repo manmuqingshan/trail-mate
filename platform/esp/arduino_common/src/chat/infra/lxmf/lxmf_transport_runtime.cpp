@@ -38,7 +38,123 @@ void copyHash(uint8_t* out, const uint8_t* in, std::size_t len)
     std::memcpy(out, in, len);
 }
 
+uint64_t announceTimebase(
+    const uint8_t random_blob[kAnnounceRandomBlobSize])
+{
+    uint64_t emitted = 0;
+    for (std::size_t index = 5; index < kAnnounceRandomBlobSize; ++index)
+    {
+        emitted = (emitted << 8U) | random_blob[index];
+    }
+    return emitted;
+}
+
+bool hasRandomBlob(const PathEntry& path,
+                   const uint8_t random_blob[kAnnounceRandomBlobSize])
+{
+    for (std::size_t index = 0; index < path.announce_random_blob_count; ++index)
+    {
+        if (hashesEqual(path.announce_random_blobs[index],
+                        random_blob,
+                        kAnnounceRandomBlobSize))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void appendRandomBlob(PathEntry& path,
+                      const uint8_t random_blob[kAnnounceRandomBlobSize])
+{
+    if (hasRandomBlob(path, random_blob))
+    {
+        return;
+    }
+
+    if (path.announce_random_blob_count < kPathRandomBlobHistory)
+    {
+        copyHash(path.announce_random_blobs[path.announce_random_blob_count],
+                 random_blob,
+                 kAnnounceRandomBlobSize);
+        ++path.announce_random_blob_count;
+        return;
+    }
+
+    std::memmove(path.announce_random_blobs[0],
+                 path.announce_random_blobs[1],
+                 (kPathRandomBlobHistory - 1U) * kAnnounceRandomBlobSize);
+    copyHash(path.announce_random_blobs[kPathRandomBlobHistory - 1U],
+             random_blob,
+             kAnnounceRandomBlobSize);
+}
+
 } // namespace
+
+bool pathAnnounceAccepted(PathAnnounceDecision decision)
+{
+    return decision == PathAnnounceDecision::AcceptNew ||
+           decision == PathAnnounceDecision::AcceptNewer ||
+           decision == PathAnnounceDecision::AcceptExpired;
+}
+
+bool pathExpired(const PathEntry& path, uint32_t now_ms, uint32_t path_ttl_ms)
+{
+    if (path.updated_ms == 0)
+    {
+        return true;
+    }
+    return path_ttl_ms != 0 && (now_ms - path.updated_ms) > path_ttl_ms;
+}
+
+PathAnnounceDecision evaluatePathAnnounce(
+    const PathEntry* existing,
+    uint8_t hops,
+    const uint8_t random_blob[kAnnounceRandomBlobSize],
+    uint32_t now_ms,
+    uint32_t path_ttl_ms)
+{
+    if (!existing)
+    {
+        return PathAnnounceDecision::AcceptNew;
+    }
+    if (!random_blob || hasRandomBlob(*existing, random_blob))
+    {
+        return PathAnnounceDecision::RejectReplay;
+    }
+
+    const uint64_t emitted = announceTimebase(random_blob);
+    if (hops <= existing->hops)
+    {
+        return emitted > existing->announce_timebase
+                   ? PathAnnounceDecision::AcceptNewer
+                   : PathAnnounceDecision::RejectStale;
+    }
+    if (pathExpired(*existing, now_ms, path_ttl_ms))
+    {
+        return PathAnnounceDecision::AcceptExpired;
+    }
+    return emitted > existing->announce_timebase
+               ? PathAnnounceDecision::AcceptNewer
+               : PathAnnounceDecision::RejectStale;
+}
+
+void applyPathAnnounce(PathEntry& path,
+                       uint8_t hops,
+                       const uint8_t random_blob[kAnnounceRandomBlobSize],
+                       uint32_t now_ms,
+                       uint32_t last_seen_s)
+{
+    path.hops = hops;
+    path.last_seen_s = last_seen_s;
+    path.updated_ms = now_ms == 0 ? 1U : now_ms;
+    if (random_blob)
+    {
+        path.announce_timebase =
+            std::max(path.announce_timebase, announceTimebase(random_blob));
+        appendRandomBlob(path, random_blob);
+    }
+}
 
 bool isDuplicatePacket(const TransportRuntime& transport,
                        const uint8_t packet_hash[reticulum::kFullHashSize])
@@ -77,6 +193,25 @@ void rememberPacket(TransportRuntime& transport,
     copyHash(entry.packet_hash, packet_hash, sizeof(entry.packet_hash));
     entry.seen_ms = now_ms;
     transport.packet_filter.push_back(entry);
+}
+
+void forgetPacket(TransportRuntime& transport,
+                  const uint8_t packet_hash[reticulum::kFullHashSize])
+{
+    if (!packet_hash)
+    {
+        return;
+    }
+    transport.packet_filter.erase(
+        std::remove_if(transport.packet_filter.begin(),
+                       transport.packet_filter.end(),
+                       [packet_hash](const PacketFilterEntry& entry)
+                       {
+                           return hashesEqual(entry.packet_hash,
+                                              packet_hash,
+                                              sizeof(entry.packet_hash));
+                       }),
+        transport.packet_filter.end());
 }
 
 void rememberReversePath(TransportRuntime& transport,
@@ -221,6 +356,78 @@ void resolvePendingPathRequest(TransportRuntime& transport,
         transport.pending_path_requests.end());
 }
 
+void notePendingPingReceipt(
+    TransportRuntime& transport,
+    const uint8_t packet_hash[reticulum::kFullHashSize],
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    const uint8_t peer_sig_pub[LxmfIdentity::kSigPubKeySize],
+    uint32_t now_ms,
+    std::size_t max_pending_ping_receipts)
+{
+    if (!packet_hash || !destination_hash || !peer_sig_pub)
+    {
+        return;
+    }
+
+    uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
+    copyHash(proof_hash, packet_hash, sizeof(proof_hash));
+    removePendingPingReceipt(transport, proof_hash);
+    if (max_pending_ping_receipts != 0 &&
+        transport.pending_ping_receipts.size() >= max_pending_ping_receipts)
+    {
+        transport.pending_ping_receipts.erase(transport.pending_ping_receipts.begin());
+    }
+
+    transport.pending_ping_receipts.push_back(PendingPingReceipt{});
+    PendingPingReceipt& receipt = transport.pending_ping_receipts.back();
+    copyHash(receipt.packet_hash, packet_hash, sizeof(receipt.packet_hash));
+    copyHash(receipt.proof_hash, proof_hash, sizeof(receipt.proof_hash));
+    copyHash(receipt.destination_hash,
+             destination_hash,
+             sizeof(receipt.destination_hash));
+    copyHash(receipt.peer_sig_pub, peer_sig_pub, sizeof(receipt.peer_sig_pub));
+    receipt.created_ms = now_ms == 0 ? 1U : now_ms;
+}
+
+PendingPingReceipt* findPendingPingReceipt(
+    TransportRuntime& transport,
+    const uint8_t proof_hash[reticulum::kTruncatedHashSize])
+{
+    if (!proof_hash)
+    {
+        return nullptr;
+    }
+    for (auto& receipt : transport.pending_ping_receipts)
+    {
+        if (receipt.created_ms != 0 &&
+            hashesEqual(receipt.proof_hash, proof_hash, sizeof(receipt.proof_hash)))
+        {
+            return &receipt;
+        }
+    }
+    return nullptr;
+}
+
+void removePendingPingReceipt(
+    TransportRuntime& transport,
+    const uint8_t proof_hash[reticulum::kTruncatedHashSize])
+{
+    if (!proof_hash)
+    {
+        return;
+    }
+    transport.pending_ping_receipts.erase(
+        std::remove_if(transport.pending_ping_receipts.begin(),
+                       transport.pending_ping_receipts.end(),
+                       [proof_hash](const PendingPingReceipt& receipt)
+                       {
+                           return hashesEqual(receipt.proof_hash,
+                                              proof_hash,
+                                              sizeof(receipt.proof_hash));
+                       }),
+        transport.pending_ping_receipts.end());
+}
+
 PathEntry& upsertPath(TransportRuntime& transport,
                       const uint8_t destination_hash[reticulum::kTruncatedHashSize],
                       std::size_t max_paths)
@@ -235,7 +442,14 @@ PathEntry& upsertPath(TransportRuntime& transport,
 
     if (max_paths != 0 && transport.paths.size() >= max_paths)
     {
-        transport.paths.erase(transport.paths.begin());
+        const auto oldest = std::min_element(
+            transport.paths.begin(),
+            transport.paths.end(),
+            [](const PathEntry& lhs, const PathEntry& rhs)
+            {
+                return lhs.updated_ms < rhs.updated_ms;
+            });
+        transport.paths.erase(oldest);
     }
 
     transport.paths.push_back(PathEntry{});
@@ -305,6 +519,18 @@ void cullTransportRuntime(TransportRuntime& transport,
                           uint32_t now_ms,
                           const TransportRuntimeLimits& limits)
 {
+    if (limits.path_ttl_ms != 0)
+    {
+        transport.paths.erase(
+            std::remove_if(transport.paths.begin(),
+                           transport.paths.end(),
+                           [now_ms, &limits](const PathEntry& path)
+                           {
+                               return pathExpired(path, now_ms, limits.path_ttl_ms);
+                           }),
+            transport.paths.end());
+    }
+
     transport.packet_filter.erase(
         std::remove_if(transport.packet_filter.begin(), transport.packet_filter.end(),
                        [now_ms, &limits](const PacketFilterEntry& entry)
@@ -342,6 +568,29 @@ void cullTransportRuntime(TransportRuntime& transport,
                                       limits.pending_path_request_ttl_ms;
                        }),
         transport.pending_path_requests.end());
+
+    if (limits.pending_ping_receipt_ttl_ms != 0)
+    {
+        transport.pending_ping_receipts.erase(
+            std::remove_if(transport.pending_ping_receipts.begin(),
+                           transport.pending_ping_receipts.end(),
+                           [now_ms, &limits](const PendingPingReceipt& receipt)
+                           {
+                               return receipt.created_ms == 0 ||
+                                      (now_ms - receipt.created_ms) >
+                                          limits.pending_ping_receipt_ttl_ms;
+                           }),
+            transport.pending_ping_receipts.end());
+    }
+    if (limits.max_pending_ping_receipts != 0 &&
+        transport.pending_ping_receipts.size() > limits.max_pending_ping_receipts)
+    {
+        const std::size_t excess =
+            transport.pending_ping_receipts.size() - limits.max_pending_ping_receipts;
+        transport.pending_ping_receipts.erase(
+            transport.pending_ping_receipts.begin(),
+            transport.pending_ping_receipts.begin() + excess);
+    }
 }
 
 } // namespace chat::lxmf::runtime

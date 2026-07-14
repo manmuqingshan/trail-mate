@@ -303,8 +303,16 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     lv_label_set_text(item.text_label, display_text.c_str());
     lv_obj_set_style_text_color(item.text_label, ::ui::theme::text(), 0);
     lv_obj_set_style_bg_color(item.text_label,
-                              is_self ? ::ui::theme::surface_alt() : ::ui::theme::surface(),
+                              is_self ? ::ui::theme::surface_alt()
+                                      : (row.source_unverified
+                                             ? lv_color_hex(0xF4E1DE)
+                                             : ::ui::theme::surface()),
                               0);
+    if (!is_self && row.source_unverified)
+    {
+        lv_obj_set_style_border_width(item.text_label, 1, 0);
+        lv_obj_set_style_border_color(item.text_label, lv_color_hex(0xC47D70), 0);
+    }
     lv_obj_set_style_bg_opa(item.text_label, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(item.text_label, 6, 0);
     lv_obj_set_style_radius(item.text_label, 6, 0);

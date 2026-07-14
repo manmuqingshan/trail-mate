@@ -4,6 +4,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #include <string.h>
 
@@ -22,6 +23,7 @@ static sdio_slave_buf_handle_t s_rx_handles[TM_C6_SDIO_RX_BUFFER_NUM];
 static uint8_t* s_tx_buffers[TM_C6_SDIO_TX_BUFFER_NUM];
 static bool s_tx_busy[TM_C6_SDIO_TX_BUFFER_NUM];
 static bool s_initialized = false;
+static SemaphoreHandle_t s_tx_mutex;
 
 static TickType_t ticks_from_ms(uint32_t timeout_ms)
 {
@@ -42,6 +44,15 @@ esp_err_t tm_hostlink_sdio_init(void)
     if (s_initialized)
     {
         return ESP_OK;
+    }
+
+    if (s_tx_mutex == NULL)
+    {
+        s_tx_mutex = xSemaphoreCreateMutex();
+        if (s_tx_mutex == NULL)
+        {
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     sdio_slave_config_t config = {
@@ -111,7 +122,7 @@ esp_err_t tm_hostlink_sdio_init(void)
     return ESP_OK;
 }
 
-void tm_hostlink_sdio_poll_tx_done(void)
+static void poll_tx_done_locked(void)
 {
     void* arg = NULL;
     while (sdio_slave_send_get_finished(&arg, 0) == ESP_OK)
@@ -123,6 +134,16 @@ void tm_hostlink_sdio_poll_tx_done(void)
             ESP_LOGI(TAG, "tx done index=%u", (unsigned)index);
         }
     }
+}
+
+void tm_hostlink_sdio_poll_tx_done(void)
+{
+    if (s_tx_mutex == NULL || xSemaphoreTake(s_tx_mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return;
+    }
+    poll_tx_done_locked();
+    xSemaphoreGive(s_tx_mutex);
 }
 
 esp_err_t tm_hostlink_sdio_recv(uint8_t* data, size_t max_len, size_t* out_len, uint32_t timeout_ms)
@@ -171,7 +192,12 @@ esp_err_t tm_hostlink_sdio_send(const uint8_t* data, size_t len, uint32_t timeou
         return ESP_ERR_INVALID_ARG;
     }
 
-    tm_hostlink_sdio_poll_tx_done();
+    if (s_tx_mutex == NULL || xSemaphoreTake(s_tx_mutex, ticks_from_ms(timeout_ms)) != pdTRUE)
+    {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    poll_tx_done_locked();
 
     size_t tx_index = TM_C6_SDIO_TX_BUFFER_NUM;
     for (size_t i = 0; i < TM_C6_SDIO_TX_BUFFER_NUM; ++i)
@@ -185,6 +211,7 @@ esp_err_t tm_hostlink_sdio_send(const uint8_t* data, size_t len, uint32_t timeou
     if (tx_index == TM_C6_SDIO_TX_BUFFER_NUM)
     {
         ESP_LOGW(TAG, "send no free tx buffer len=%u timeout_ms=%lu", (unsigned)len, (unsigned long)timeout_ms);
+        xSemaphoreGive(s_tx_mutex);
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -205,6 +232,7 @@ esp_err_t tm_hostlink_sdio_send(const uint8_t* data, size_t len, uint32_t timeou
                  (unsigned)tx_index,
                  (unsigned)len,
                  esp_err_to_name(err));
+        xSemaphoreGive(s_tx_mutex);
         return err;
     }
     ESP_LOGI(TAG, "send queue ok index=%u len=%u", (unsigned)tx_index, (unsigned)len);
@@ -217,5 +245,6 @@ esp_err_t tm_hostlink_sdio_send(const uint8_t* data, size_t len, uint32_t timeou
     {
         ESP_LOGI(TAG, "send host int ok index=%u", (unsigned)tx_index);
     }
+    xSemaphoreGive(s_tx_mutex);
     return ESP_OK;
 }

@@ -6,6 +6,7 @@
 #include "app/app_facades.h"
 #include "board/BoardBase.h"
 #include "chat/infra/contact_store_core.h"
+#include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/infra/meshcore/mc_region_presets.h"
 #include "chat/infra/meshtastic/mt_region.h"
@@ -14,6 +15,7 @@
 #include "chat/infra/store/ram_store.h"
 #include "chat/ports/i_contact_blob_store.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/ports/i_mesh_peer_directory_blob_store.h"
 #include "chat/ports/i_node_blob_store.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
@@ -24,10 +26,13 @@
 #include "esp_timer.h"
 #include "mbedtls/chachapoly.h"
 #include "mbedtls/sha256.h"
+#include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
+#include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/radio/meshtastic_radio_adapter.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/team_ui_store_runtime.h"
@@ -47,12 +52,14 @@
 #include "ui/widgets/top_bar_power_presenter.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <memory>
 #include <string>
+#include <sys/stat.h>
 #include <vector>
 #endif
 
@@ -70,6 +77,8 @@ constexpr const char* kIdfNodesNvsKey = "nodes_blob";
 constexpr const char* kIdfContactsNvsKey = "contacts";
 constexpr const char* kIdfContactsFile = "/contacts.dat";
 constexpr const char* kIdfNodesFile = "/nodes.bin";
+constexpr const char* kIdfMeshPeersDir = "/mesh";
+constexpr const char* kIdfMeshPeersFile = "/mesh/peers.bin";
 constexpr size_t kIdfReadChunkBytes = 256;
 constexpr uint32_t kIdfAppConfigMagic = 0x50344346UL; // P4CF
 constexpr uint16_t kIdfAppConfigVersion = 1;
@@ -81,6 +90,7 @@ constexpr size_t kIdfMaxNodeFileBytes =
     sizeof(chat::contacts::NodeStoreSdHeader) +
     chat::contacts::NodeStoreCore::kMaxNodes *
         chat::contacts::NodeStoreCore::kSerializedEntrySize;
+constexpr size_t kIdfMaxMeshPeerBlobBytes = 768U * 1024U;
 constexpr const char* kIdfTeamTag = "idf-team";
 constexpr size_t kTeamAeadTagBytes = 16;
 constexpr size_t kTeamAeadKeyBytes = 32;
@@ -124,7 +134,8 @@ int8_t clampTxPower(int8_t value)
 
 bool idfSupportsMeshProtocol(chat::MeshProtocol protocol)
 {
-    return protocol == chat::MeshProtocol::Meshtastic;
+    return protocol == chat::MeshProtocol::Reticulum ||
+           protocol == chat::MeshProtocol::Meshtastic;
 }
 
 void syncReticulumGroupConfig(app::AppConfig& config)
@@ -152,9 +163,9 @@ void normalizeIdfAppConfig(app::AppConfig& config)
         !idfSupportsMeshProtocol(config.mesh_protocol))
     {
         ESP_LOGW(kIdfConfigTag,
-                 "unsupported mesh protocol=%u; falling back to Meshtastic",
+                 "unsupported mesh protocol=%u; falling back to Reticulum",
                  static_cast<unsigned>(config.mesh_protocol));
-        config.mesh_protocol = chat::MeshProtocol::Meshtastic;
+        config.mesh_protocol = chat::MeshProtocol::Reticulum;
     }
 
     if (chat::meshtastic::findRegion(
@@ -640,6 +651,87 @@ class IdfSdContactBlobStore final : public chat::IContactBlobStore
     }
 };
 
+class IdfSdMeshPeerDirectoryBlobStore final
+    : public chat::IMeshPeerDirectoryBlobStore
+{
+  public:
+    chat::MeshPeerDirectoryBlobLoadResult loadBlob(
+        std::vector<uint8_t>& out) override
+    {
+        out.clear();
+        if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::Unavailable;
+        }
+
+        const std::string path = makeSdPath(kIdfMeshPeersFile);
+        struct stat info = {};
+        if (::stat(path.c_str(), &info) != 0)
+        {
+            return errno == ENOENT
+                       ? chat::MeshPeerDirectoryBlobLoadResult::Missing
+                       : chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+        if (!S_ISREG(info.st_mode) || info.st_size <= 0 ||
+            static_cast<size_t>(info.st_size) > kIdfMaxMeshPeerBlobBytes)
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+        if (!readSdFile(kIdfMeshPeersFile, out, kIdfMaxMeshPeerBlobBytes))
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+
+        ESP_LOGI(kIdfStoreTag,
+                 "mesh peer load path=%s len=%u",
+                 kIdfMeshPeersFile,
+                 static_cast<unsigned>(out.size()));
+        return chat::MeshPeerDirectoryBlobLoadResult::Loaded;
+    }
+
+    bool saveBlob(const uint8_t* data, size_t len) override
+    {
+        if ((!data && len != 0) || len > kIdfMaxMeshPeerBlobBytes ||
+            !ensureDirectory())
+        {
+            return false;
+        }
+        const bool ok = writeSdFileAtomic(kIdfMeshPeersFile, data, len);
+        ESP_LOGI(kIdfStoreTag,
+                 "mesh peer save path=%s len=%u ok=%u",
+                 kIdfMeshPeersFile,
+                 static_cast<unsigned>(len),
+                 ok ? 1U : 0U);
+        return ok;
+    }
+
+    void clearBlob() override
+    {
+        (void)removeSdFile(kIdfMeshPeersFile);
+    }
+
+  private:
+    static bool ensureDirectory()
+    {
+        if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
+        {
+            return false;
+        }
+
+        const std::string path = makeSdPath(kIdfMeshPeersDir);
+        struct stat info = {};
+        if (::stat(path.c_str(), &info) == 0)
+        {
+            return S_ISDIR(info.st_mode);
+        }
+        if (::mkdir(path.c_str(), 0775) == 0)
+        {
+            return true;
+        }
+        return ::stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+    }
+};
+
 class IdfNullMeshAdapter final : public chat::IMeshAdapter
 {
   public:
@@ -1070,6 +1162,17 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         }
         syncReticulumGroupConfig(config_);
 
+        mesh_peer_directory_.setAutoSaveEnabled(false);
+        const chat::MeshPeerDirectoryStatus peer_directory_status =
+            mesh_peer_directory_.begin();
+        mesh_peer_directory_ready_ = peer_directory_status.succeeded();
+        platform::ui::reticulum_directory::bind_mesh_peer_directory(
+            mesh_peer_directory_ready_ ? &mesh_peer_directory_ : nullptr);
+        ESP_LOGI(kIdfStoreTag,
+                 "mesh peer directory path=%s status=%u",
+                 kIdfMeshPeersFile,
+                 static_cast<unsigned>(peer_directory_status.code));
+
         if (!sys::EventBus::init())
         {
             return false;
@@ -1085,7 +1188,13 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             copyString(config_.short_name, sizeof(config_.short_name), identity.short_name);
         }
 
-        installMeshAdapter();
+        if (!installMeshAdapter())
+        {
+            ESP_LOGE(kIdfConfigTag,
+                     "mesh backend install failed proto=%u",
+                     static_cast<unsigned>(config_.mesh_protocol));
+            return false;
+        }
         applyMeshConfig();
         applyUserInfo();
         applyNetworkLimits();
@@ -1126,7 +1235,21 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     {
         normalizeIdfAppConfig(config_);
         syncReticulumGroupConfig(config_);
-        meshAdapter().applyConfig(config_.activeMeshConfig());
+        if (!mesh_router_.hasBackend() ||
+            mesh_router_.backendProtocol() != config_.mesh_protocol)
+        {
+            if (!switchMeshProtocol(config_.mesh_protocol, false))
+            {
+                ESP_LOGE(kIdfConfigTag,
+                         "mesh backend switch failed proto=%u",
+                         static_cast<unsigned>(config_.mesh_protocol));
+                return;
+            }
+        }
+        else
+        {
+            meshAdapter().applyConfig(config_.activeMeshConfig());
+        }
         if (board_)
         {
             board_->applyRadioConfig(config_.mesh_protocol, config_.activeMeshConfig());
@@ -1183,8 +1306,10 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     bool switchMeshProtocol(chat::MeshProtocol protocol, bool persist = true) override
     {
-        if (!chat::infra::isValidMeshProtocol(protocol) ||
-            !idfSupportsMeshProtocol(protocol))
+        const chat::MeshProtocol normalized =
+            chat::infra::normalizeMeshProtocol(protocol);
+        if (!chat::infra::isValidMeshProtocol(normalized) ||
+            !idfSupportsMeshProtocol(normalized))
         {
             ESP_LOGW(kIdfConfigTag,
                      "reject mesh protocol switch proto=%u",
@@ -1192,12 +1317,43 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             return false;
         }
 
-        config_.mesh_protocol = protocol;
+        std::unique_ptr<chat::IMeshAdapter> backend =
+            createMeshBackend(normalized);
+        if (!backend)
+        {
+            return false;
+        }
+
+        const chat::MeshProtocol previous_protocol = config_.mesh_protocol;
+        config_.mesh_protocol = normalized;
+        syncReticulumGroupConfig(config_);
+        backend->applyConfig(config_.activeMeshConfig());
+
+        char long_name[sizeof(config_.node_name)] = {};
+        char short_name[sizeof(config_.short_name)] = {};
+        getEffectiveUserInfo(long_name,
+                             sizeof(long_name),
+                             short_name,
+                             sizeof(short_name));
+        backend->setUserInfo(long_name, short_name);
+        backend->setNetworkLimits(config_.net_duty_cycle, config_.net_channel_util);
+        backend->setPrivacyConfig(config_.privacy_encrypt_mode);
+
+        if (!mesh_router_.installBackend(normalized, std::move(backend)))
+        {
+            config_.mesh_protocol = previous_protocol;
+            return false;
+        }
+        mesh_adapter_ = &mesh_router_;
+
+        if (board_)
+        {
+            board_->applyRadioConfig(normalized, config_.activeMeshConfig());
+        }
         if (chat_service_)
         {
-            chat_service_->setActiveProtocol(protocol);
+            chat_service_->setActiveProtocol(normalized);
         }
-        applyMeshConfig();
         if (persist)
         {
             saveConfig();
@@ -1424,16 +1580,43 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         }
     }
 
-    void installMeshAdapter()
+    std::unique_ptr<chat::IMeshAdapter> createMeshBackend(
+        chat::MeshProtocol protocol)
+    {
+        if (lora_board_ == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (protocol == chat::MeshProtocol::Reticulum)
+        {
+            return std::unique_ptr<chat::IMeshAdapter>(
+                new chat::reticulum::ReticulumAdapter(
+                    *lora_board_,
+                    mesh_peer_directory_ready_ ? &mesh_peer_directory_ : nullptr));
+        }
+        if (protocol == chat::MeshProtocol::Meshtastic)
+        {
+            return std::unique_ptr<chat::IMeshAdapter>(
+                new platform::esp::radio::MeshtasticRadioAdapter(*lora_board_));
+        }
+        return nullptr;
+    }
+
+    bool installMeshAdapter()
     {
         null_mesh_adapter_.setSelfNodeId(resolveSelfNodeId());
         mesh_adapter_ = &null_mesh_adapter_;
 
-        if (lora_board_ != nullptr)
+        std::unique_ptr<chat::IMeshAdapter> backend =
+            createMeshBackend(config_.mesh_protocol);
+        if (!backend ||
+            !mesh_router_.installBackend(config_.mesh_protocol, std::move(backend)))
         {
-            radio_mesh_adapter_.reset(new platform::esp::radio::MeshtasticRadioAdapter(*lora_board_));
-            mesh_adapter_ = radio_mesh_adapter_.get();
+            return false;
         }
+        mesh_adapter_ = &mesh_router_;
+        return true;
     }
 
     chat::IMeshAdapter& meshAdapter()
@@ -1461,6 +1644,11 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         if (!node_store_.flush())
         {
             ESP_LOGW(kIdfStoreTag, "node flush failed");
+        }
+        if (mesh_peer_directory_ready_ &&
+            !mesh_peer_directory_.flush().succeeded())
+        {
+            ESP_LOGW(kIdfStoreTag, "mesh peer directory flush failed");
         }
     }
 
@@ -1595,13 +1783,15 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     app::AppConfig config_{};
     IdfSdNodeBlobStore node_blob_store_{};
     IdfSdContactBlobStore contact_blob_store_{};
+    IdfSdMeshPeerDirectoryBlobStore mesh_peer_directory_blob_store_{};
     chat::contacts::NodeStoreCore node_store_{node_blob_store_};
     chat::contacts::ContactStoreCore contact_store_{contact_blob_store_};
+    chat::MeshPeerDirectoryCore mesh_peer_directory_{mesh_peer_directory_blob_store_};
     chat::contacts::ContactService contact_service_{node_store_, contact_store_};
     chat::ChatModel chat_model_{};
     chat::RamStore chat_store_{};
     IdfNullMeshAdapter null_mesh_adapter_{};
-    std::unique_ptr<platform::esp::radio::MeshtasticRadioAdapter> radio_mesh_adapter_{};
+    chat::MeshAdapterRouter mesh_router_{};
     chat::IMeshAdapter* mesh_adapter_ = &null_mesh_adapter_;
     std::unique_ptr<chat::ChatService> chat_service_{};
     std::unique_ptr<team::ITeamCrypto> team_crypto_{};
@@ -1614,6 +1804,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     std::unique_ptr<team::TeamController> team_controller_{};
     std::unique_ptr<team::TeamTrackSampler> team_track_sampler_{};
     chat::ui::IChatUiRuntime* chat_ui_runtime_ = nullptr;
+    bool mesh_peer_directory_ready_ = false;
     uint32_t last_node_store_flush_ms_ = 0;
 };
 
@@ -1649,7 +1840,7 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
              config.target_name,
              static_cast<unsigned long>(s_runtime.getSelfNodeId()),
              s_runtime.getMeshAdapter() != nullptr && s_runtime.getMeshAdapter()->isReady()
-                 ? "meshtastic_radio"
+                 ? chat::infra::meshProtocolName(s_runtime.getMeshProtocol())
                  : "not_ready");
     return true;
 #else

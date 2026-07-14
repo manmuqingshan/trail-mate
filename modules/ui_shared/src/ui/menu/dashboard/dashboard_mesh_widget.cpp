@@ -10,6 +10,10 @@
 #include "ui/presentation_sources/runtime_mesh_status_source.h"
 #include "ui_presentation/mesh/mesh_status_model.h"
 
+#if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
+#define lv_font_montserrat_12 lv_font_montserrat_14
+#endif
+
 namespace ui::menu::dashboard
 {
 namespace

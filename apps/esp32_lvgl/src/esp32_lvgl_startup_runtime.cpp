@@ -11,7 +11,9 @@
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/idf_common/debug/sd_coredump_export.h"
+#include "platform/esp/idf_common/reticulum_call_runtime_support.h"
 #include "platform/esp/idf_common/startup_support.h"
+#include "platform/esp/idf_common/usb_console_runtime.h"
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
@@ -150,6 +152,8 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
 #if defined(ESP_PLATFORM)
     constexpr bool waking_from_sleep = false;
 
+    (void)platform::esp::idf_common::usb_console::ensure_started();
+    platform::esp::idf_common::startup_support::initializeClockProviders();
     platform::esp::idf_common::startup_support::logStartupBanner(config.log_tag);
     (void)platform::esp::idf_common::bsp_runtime::ensure_nvs_ready();
     platform::esp::boards::initializeBoard(waking_from_sleep);
@@ -180,6 +184,7 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
     }
 
     idf_app_runtime_access::initialize(config);
+    platform::esp::idf_common::reticulum_call_support::ensure_registered();
     applyPlatformRuntimeConfig(config);
 
     const ui::startup_shell::Hooks shell_hooks = buildShellHooks(config);

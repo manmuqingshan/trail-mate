@@ -350,6 +350,18 @@ void enterFromScreenSaver()
         platform::esp::idf_common::ui_dispatcher::Event::ShowMainMenu);
 }
 
+void wakeScreenForModal()
+{
+    ensure_mutex();
+    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        enter_ui_locked();
+        xSemaphoreGive(s_mutex);
+    }
+    platform::esp::idf_common::ui_dispatcher::post(
+        platform::esp::idf_common::ui_dispatcher::Event::HideScreenSaver);
+}
+
 void updateUserActivity()
 {
     bool woke_from_sleep = false;
@@ -439,6 +451,7 @@ bool is_sleep_disabled() { return isScreenSleepDisabled(); }
 bool is_saver_active() { return isScreenSaverActive(); }
 void wake_saver() { wakeScreenSaver(); }
 void enter_from_saver() { enterFromScreenSaver(); }
+void wake_for_modal() { wakeScreenForModal(); }
 void update_user_activity() { updateUserActivity(); }
 void disable_sleep() { disableScreenSleep(); }
 void enable_sleep() { enableScreenSleep(); }

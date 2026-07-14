@@ -3,6 +3,7 @@
 #include "hostlink/c6/c6_frame_codec.h"
 #include "hostlink/c6/c6_protocol.h"
 #include "platform/ui/settings_store.h"
+#include "platform/ui/wifi_runtime.h"
 
 #include <algorithm>
 #include <array>
@@ -54,13 +55,10 @@ constexpr uint32_t kRequestedFeatures = TM_C6_FEATURE_BLE_MESHTASTIC |
                                         TM_C6_FEATURE_WIFI_STA |
                                         TM_C6_FEATURE_WIFI_AP |
                                         TM_C6_FEATURE_DIAG_LOG |
-                                        TM_C6_FEATURE_HOSTLINK_PING;
+                                        TM_C6_FEATURE_HOSTLINK_PING |
+                                        TM_C6_FEATURE_WIFI_TCP_PROXY;
 constexpr uint32_t kDefaultConfigSequence = 1;
 constexpr const char* kSettingsNamespace = "c6_companion";
-constexpr const char* kSharedSettingsNamespace = "settings";
-constexpr const char* kWifiEnabledKey = "wifi_enabled";
-constexpr const char* kWifiSsidKey = "wifi_ssid";
-constexpr const char* kWifiPasswordKey = "wifi_password";
 constexpr uint32_t kNetworkTimeMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 
 bool board_has_c6_companion()
@@ -327,8 +325,12 @@ WifiCompanionConfig load_wifi_config_from_p4_settings()
 {
     WifiCompanionConfig config{};
 #if defined(ESP_PLATFORM)
+    ::platform::ui::wifi::Config shared_wifi{};
+    (void)::platform::ui::wifi::load_config(shared_wifi);
     config.enabled =
-        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_enabled", config.enabled);
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace,
+                                                 "wifi_enabled",
+                                                 shared_wifi.enabled);
     config.sta_enabled =
         ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_sta_enabled", config.enabled);
     config.ap_enabled =
@@ -337,16 +339,26 @@ WifiCompanionConfig load_wifi_config_from_p4_settings()
         ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_persist_credentials", false);
 
     std::string value;
-    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_sta_ssid", value) ||
-        ::platform::ui::settings_store::get_string(kSharedSettingsNamespace, kWifiSsidKey, value))
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace,
+                                                   "wifi_sta_ssid",
+                                                   value))
     {
         copy_text(config.sta_ssid, value);
     }
+    else
+    {
+        copy_text(config.sta_ssid, shared_wifi.ssid);
+    }
     value.clear();
-    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_sta_password", value) ||
-        ::platform::ui::settings_store::get_string(kSharedSettingsNamespace, kWifiPasswordKey, value))
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace,
+                                                   "wifi_sta_password",
+                                                   value))
     {
         copy_text(config.sta_password, value);
+    }
+    else
+    {
+        copy_text(config.sta_password, shared_wifi.password);
     }
     value.clear();
     if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_ap_ssid", value))
@@ -359,9 +371,7 @@ WifiCompanionConfig load_wifi_config_from_p4_settings()
         copy_text(config.ap_password, value);
     }
 
-    const bool shared_wifi_enabled =
-        ::platform::ui::settings_store::get_bool(kSharedSettingsNamespace, kWifiEnabledKey, false);
-    if (shared_wifi_enabled && config.sta_ssid[0] != '\0')
+    if (shared_wifi.enabled && config.sta_ssid[0] != '\0')
     {
         config.enabled = true;
         config.sta_enabled = true;
@@ -409,7 +419,7 @@ uint32_t requested_features_for(const BleCompanionConfig& ble,
     {
         if (wifi.sta_enabled)
         {
-            features |= TM_C6_FEATURE_WIFI_STA;
+            features |= TM_C6_FEATURE_WIFI_STA | TM_C6_FEATURE_WIFI_TCP_PROXY;
         }
         if (wifi.ap_enabled)
         {
@@ -900,7 +910,7 @@ class SdioC6Transport final : public C6Transport
 };
 #endif
 
-class C6CompanionRuntime final : public WirelessCompanion
+class C6CompanionRuntime final : public WirelessCompanion, public WifiTcpTransport
 {
   public:
     bool begin() override
@@ -933,6 +943,7 @@ class C6CompanionRuntime final : public WirelessCompanion
         status_.wifi_ipv4_addr = 0;
         status_.wifi_scan_result_count = 0;
         status_.wifi_ssid[0] = '\0';
+        reset_tcp_state(WifiTcpState::Disconnected, "not_connected");
         for (auto& result : status_.wifi_scan_results)
         {
             result = WifiScanResult{};
@@ -1140,6 +1151,115 @@ class C6CompanionRuntime final : public WirelessCompanion
         return sent;
     }
 
+    bool openTcp(const char* host, uint16_t port) override
+    {
+        if (!host || host[0] == '\0' || std::strlen(host) >= TM_C6_WIFI_TCP_HOST_LEN || port == 0)
+        {
+            set_tcp_state(WifiTcpState::Error, TM_C6_ERROR_INTERNAL, "invalid_endpoint");
+            return false;
+        }
+        if (!status_.started)
+        {
+            (void)begin();
+        }
+        if (!status_.present || !status_.wifi_connected ||
+            (status_.supported_features & TM_C6_FEATURE_WIFI_TCP_PROXY) == 0)
+        {
+            set_tcp_state(WifiTcpState::Disconnected, TM_C6_ERROR_NOT_CONNECTED, "wifi_not_ready");
+            return false;
+        }
+
+        reset_tcp_state(WifiTcpState::Disconnected, "opening_reset");
+        tcp_status_.connection_id = next_tcp_connection_id_++;
+        if (next_tcp_connection_id_ == 0)
+        {
+            next_tcp_connection_id_ = 1;
+        }
+
+        tm_c6_wifi_tcp_header_t header{};
+        header.operation = TM_C6_WIFI_TCP_OPEN;
+        header.connection_id = tcp_status_.connection_id;
+        header.port = port;
+        copy_text(header.host, host);
+        if (!send_wifi_tcp_command(header, nullptr, 0))
+        {
+            set_tcp_state(WifiTcpState::Error, TM_C6_ERROR_INTERNAL, "open_send_failed");
+            return false;
+        }
+        set_tcp_state(WifiTcpState::Opening, TM_C6_OK, "opening");
+        return true;
+    }
+
+    bool writeTcp(const uint8_t* data, size_t len) override
+    {
+        if (tcp_status_.state != WifiTcpState::Connected || (data == nullptr && len != 0) ||
+            len == 0)
+        {
+            return false;
+        }
+
+        size_t offset = 0;
+        while (offset < len)
+        {
+            const size_t chunk = std::min<size_t>(TM_C6_WIFI_TCP_PAYLOAD_MAX, len - offset);
+            tm_c6_wifi_tcp_header_t header{};
+            header.operation = TM_C6_WIFI_TCP_WRITE;
+            header.connection_id = tcp_status_.connection_id;
+            header.payload_len = static_cast<uint16_t>(chunk);
+            if (!send_wifi_tcp_command(header, data + offset, chunk))
+            {
+                set_tcp_state(WifiTcpState::Error, TM_C6_ERROR_INTERNAL, "write_send_failed");
+                return false;
+            }
+            offset += chunk;
+        }
+        tcp_status_.transmitted_bytes += static_cast<uint32_t>(len);
+        return true;
+    }
+
+    size_t readTcp(uint8_t* out, size_t max_len) override
+    {
+        if (!out || max_len == 0)
+        {
+            return 0;
+        }
+        poll();
+
+        const size_t read_len = std::min(max_len, tcp_rx_size_);
+        for (size_t i = 0; i < read_len; ++i)
+        {
+            out[i] = tcp_rx_buffer_[tcp_rx_tail_];
+            tcp_rx_tail_ = (tcp_rx_tail_ + 1) % tcp_rx_buffer_.size();
+        }
+        tcp_rx_size_ -= read_len;
+        tcp_status_.buffered_bytes = tcp_rx_size_;
+        return read_len;
+    }
+
+    void closeTcp() override
+    {
+        if (tcp_status_.state == WifiTcpState::Disconnected ||
+            tcp_status_.state == WifiTcpState::Unsupported)
+        {
+            return;
+        }
+
+        tm_c6_wifi_tcp_header_t header{};
+        header.operation = TM_C6_WIFI_TCP_CLOSE;
+        header.connection_id = tcp_status_.connection_id;
+        if (status_.present && send_wifi_tcp_command(header, nullptr, 0))
+        {
+            set_tcp_state(WifiTcpState::Closing, TM_C6_OK, "closing");
+            return;
+        }
+        reset_tcp_state(WifiTcpState::Disconnected, "closed_locally");
+    }
+
+    WifiTcpStatus tcpStatus() const override
+    {
+        return tcp_status_;
+    }
+
     void poll() override
     {
         if (!status_.started || !status_.present)
@@ -1151,9 +1271,13 @@ class C6CompanionRuntime final : public WirelessCompanion
         {
             return;
         }
-        hostlink::c6::Frame frame{};
-        if (receive_frame(frame, 0, false))
+        for (size_t i = 0; i < 8; ++i)
         {
+            hostlink::c6::Frame frame{};
+            if (!receive_frame(frame, 0, false))
+            {
+                break;
+            }
             handle_async_frame(frame);
         }
 #endif
@@ -1290,6 +1414,69 @@ class C6CompanionRuntime final : public WirelessCompanion
         (void)payload_len;
         return false;
 #endif
+    }
+
+    bool send_wifi_tcp_command(const tm_c6_wifi_tcp_header_t& header,
+                               const uint8_t* data,
+                               size_t len)
+    {
+        if (len > TM_C6_WIFI_TCP_PAYLOAD_MAX || (data == nullptr && len != 0))
+        {
+            return false;
+        }
+        std::memcpy(wifi_tcp_tx_buffer_.data(), &header, sizeof(header));
+        if (len > 0)
+        {
+            std::memcpy(wifi_tcp_tx_buffer_.data() + sizeof(header), data, len);
+        }
+        return send_frame(TM_C6_FRAME_WIFI_DATA,
+                          TM_C6_CH_WIFI_DATA,
+                          TM_C6_FLAG_ACK_REQUIRED,
+                          0,
+                          wifi_tcp_tx_buffer_.data(),
+                          sizeof(header) + len);
+    }
+
+    void reset_tcp_rx()
+    {
+        tcp_rx_head_ = 0;
+        tcp_rx_tail_ = 0;
+        tcp_rx_size_ = 0;
+        tcp_status_.buffered_bytes = 0;
+    }
+
+    void set_tcp_state(WifiTcpState state, uint16_t error_code, const char* detail)
+    {
+        tcp_status_.state = state;
+        tcp_status_.error_code = error_code;
+        tcp_status_.detail = detail;
+    }
+
+    void reset_tcp_state(WifiTcpState state, const char* detail)
+    {
+        const uint8_t connection_id = tcp_status_.connection_id;
+        tcp_status_ = WifiTcpStatus{};
+        tcp_status_.state = state;
+        tcp_status_.connection_id = connection_id;
+        tcp_status_.detail = detail;
+        reset_tcp_rx();
+    }
+
+    bool append_tcp_rx(const uint8_t* data, size_t len)
+    {
+        if ((!data && len != 0) || len > tcp_rx_buffer_.size() - tcp_rx_size_)
+        {
+            return false;
+        }
+        for (size_t i = 0; i < len; ++i)
+        {
+            tcp_rx_buffer_[tcp_rx_head_] = data[i];
+            tcp_rx_head_ = (tcp_rx_head_ + 1) % tcp_rx_buffer_.size();
+        }
+        tcp_rx_size_ += len;
+        tcp_status_.buffered_bytes = tcp_rx_size_;
+        tcp_status_.received_bytes += static_cast<uint32_t>(len);
+        return true;
     }
 
     bool send_hello()
@@ -1505,6 +1692,11 @@ class C6CompanionRuntime final : public WirelessCompanion
             frame.payload.size() == sizeof(tm_c6_error_t))
         {
             const auto* error = reinterpret_cast<const tm_c6_error_t*>(frame.payload.data());
+            if (error->related_channel == TM_C6_CH_WIFI_DATA)
+            {
+                set_tcp_state(WifiTcpState::Error, error->error_code, "c6_wifi_tcp_error");
+                return;
+            }
             status_.config_error = error->error_code;
             set_detail(status_, CompanionState::Error, "c6_error_frame");
             return;
@@ -1592,9 +1784,49 @@ class C6CompanionRuntime final : public WirelessCompanion
             case TM_C6_WIFI_EVENT_STOPPED:
                 status_.wifi_connected = false;
                 status_.wifi_scanning = false;
+                reset_tcp_state(WifiTcpState::Disconnected, "wifi_disconnected");
                 break;
             case TM_C6_WIFI_EVENT_ERROR:
                 status_.wifi_scanning = false;
+                break;
+            default:
+                break;
+            }
+            return;
+        }
+        if (frame.frame_type == TM_C6_FRAME_WIFI_DATA &&
+            frame.channel == TM_C6_CH_WIFI_DATA &&
+            frame.payload.size() >= sizeof(tm_c6_wifi_tcp_header_t))
+        {
+            tm_c6_wifi_tcp_header_t header{};
+            std::memcpy(&header, frame.payload.data(), sizeof(header));
+            const size_t data_len = frame.payload.size() - sizeof(header);
+            if (header.payload_len != data_len ||
+                header.connection_id != tcp_status_.connection_id)
+            {
+                return;
+            }
+
+            switch (header.operation)
+            {
+            case TM_C6_WIFI_TCP_OPENED:
+                set_tcp_state(WifiTcpState::Connected, TM_C6_OK, "connected");
+                break;
+            case TM_C6_WIFI_TCP_DATA:
+                if (!append_tcp_rx(frame.payload.data() + sizeof(header), data_len))
+                {
+                    set_tcp_state(WifiTcpState::Error, TM_C6_ERROR_QUEUE_FULL, "rx_overflow");
+                    tm_c6_wifi_tcp_header_t close_header{};
+                    close_header.operation = TM_C6_WIFI_TCP_CLOSE;
+                    close_header.connection_id = tcp_status_.connection_id;
+                    (void)send_wifi_tcp_command(close_header, nullptr, 0);
+                }
+                break;
+            case TM_C6_WIFI_TCP_CLOSED:
+                set_tcp_state(WifiTcpState::Disconnected, TM_C6_OK, "remote_closed");
+                break;
+            case TM_C6_WIFI_TCP_ERROR:
+                set_tcp_state(WifiTcpState::Error, header.error_code, "remote_error");
                 break;
             default:
                 break;
@@ -1771,6 +2003,13 @@ class C6CompanionRuntime final : public WirelessCompanion
     BleCompanionConfig ble_config_{};
     EspNowCompanionConfig espnow_config_{};
     WifiCompanionConfig wifi_config_{};
+    WifiTcpStatus tcp_status_{};
+    uint8_t next_tcp_connection_id_ = 1;
+    std::array<uint8_t, TM_C6_MAX_PAYLOAD> wifi_tcp_tx_buffer_{};
+    std::array<uint8_t, 4096> tcp_rx_buffer_{};
+    size_t tcp_rx_head_ = 0;
+    size_t tcp_rx_tail_ = 0;
+    size_t tcp_rx_size_ = 0;
 #if defined(ESP_PLATFORM)
     std::unique_ptr<C6Transport> transport_;
 #endif
@@ -1781,6 +2020,11 @@ C6CompanionRuntime s_c6_companion{};
 } // namespace
 
 WirelessCompanion& c6_companion()
+{
+    return s_c6_companion;
+}
+
+WifiTcpTransport& c6_wifi_tcp_transport()
 {
     return s_c6_companion;
 }

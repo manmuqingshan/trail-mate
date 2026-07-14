@@ -1,14 +1,48 @@
 #include "platform/esp/idf_common/startup_support.h"
 
+#include <chrono>
 #include <cstring>
+#include <ctime>
 
 #include "esp_app_desc.h"
 #include "esp_idf_version.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "platform/esp/common/build_info.h"
+#include "sys/clock.h"
+
+namespace
+{
+
+uint32_t platform_millis_now()
+{
+    return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+}
+
+uint32_t platform_epoch_seconds_now()
+{
+    const std::time_t now = std::time(nullptr);
+    return now < 0 ? 0U : static_cast<uint32_t>(now);
+}
+
+void platform_sleep_ms(uint32_t ms)
+{
+    vTaskDelay(pdMS_TO_TICKS(ms));
+}
+
+} // namespace
 
 namespace platform::esp::idf_common::startup_support
 {
+
+void initializeClockProviders()
+{
+    sys::set_millis_provider(platform_millis_now);
+    sys::set_epoch_seconds_provider(platform_epoch_seconds_now);
+    sys::set_sleep_provider(platform_sleep_ms);
+}
 
 void logStartupBanner(const char* tag)
 {

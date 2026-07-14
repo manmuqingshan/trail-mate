@@ -16,6 +16,7 @@ constexpr std::size_t kMeshPeerPublicKeyMaxLen = 64;
 constexpr std::size_t kMeshPeerMeshtasticPublicKeyLen = 32;
 constexpr std::size_t kMeshPeerMeshCorePublicKeyLen = 32;
 constexpr std::size_t kMeshPeerReticulumPublicKeyLen = 32;
+constexpr std::size_t kMeshPeerReticulumRatchetLen = 32;
 constexpr std::size_t kMeshPeerMacAddrLen = 6;
 
 enum class MeshPeerSource : uint8_t
@@ -91,6 +92,9 @@ struct ReticulumPeerFacts
     bool has_public_keys = false;
     uint8_t enc_pub[kMeshPeerReticulumPublicKeyLen] = {};
     uint8_t sig_pub[kMeshPeerReticulumPublicKeyLen] = {};
+    bool has_ratchet = false;
+    uint8_t ratchet_pub[kMeshPeerReticulumRatchetLen] = {};
+    uint32_t ratchet_seen_s = 0;
     bool delivery = false;
     bool propagation = false;
 };

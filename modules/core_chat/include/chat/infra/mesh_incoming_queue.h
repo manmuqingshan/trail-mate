@@ -113,6 +113,7 @@ class IncomingTextQueue
         slot.hop_limit = metadata.hop_limit;
         slot.encrypted = metadata.encrypted;
         slot.reticulum_identity = metadata.reticulum_identity;
+        slot.source_unverified = metadata.source_unverified;
         slot.rx_meta = metadata.rx_meta;
         slot.text_len = text_len;
         if (text_len > 0)
@@ -140,6 +141,7 @@ class IncomingTextQueue
         out->hop_limit = slot.hop_limit;
         out->encrypted = slot.encrypted;
         out->reticulum_identity = slot.reticulum_identity;
+        out->source_unverified = slot.source_unverified;
         out->rx_meta = slot.rx_meta;
         out->text.assign(slot.text.data(), slot.text_len);
 
@@ -163,6 +165,7 @@ class IncomingTextQueue
         uint8_t hop_limit = 0xFF;
         bool encrypted = false;
         ReticulumPeerIdentity reticulum_identity{};
+        bool source_unverified = false;
         RxMeta rx_meta{};
         std::array<char, MaxTextLen + 1> text{};
         std::size_t text_len = 0;

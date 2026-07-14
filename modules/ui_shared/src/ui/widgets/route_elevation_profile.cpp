@@ -5,6 +5,10 @@
 #include <cstdint>
 #include <cstdio>
 
+#if !defined(LV_FONT_MONTSERRAT_10) || !LV_FONT_MONTSERRAT_10
+#define lv_font_montserrat_10 lv_font_montserrat_14
+#endif
+
 namespace ui::widgets::route_elevation_profile
 {
 namespace

@@ -16,6 +16,8 @@ constexpr uint8_t kAppPayloadMagic[4] = {'T', 'M', 'A', 'P'};
 constexpr uint8_t kAppPayloadVersion = 1;
 constexpr uint8_t kAppPayloadFlagWantResponse = 0x01;
 constexpr size_t kAppPayloadHeaderLen = 18;
+constexpr uint32_t kSidebandSensorLocation = 0x02;
+constexpr uint32_t kSidebandCommandTelemetryRequest = 0x01;
 
 struct Cursor
 {
@@ -756,6 +758,105 @@ bool encodeTextPayload(double timestamp,
         !appendBin(title_bytes, title_len, out_payload, *inout_len, used) ||
         !appendBin(content_bytes, content_len, out_payload, *inout_len, used) ||
         !appendMapHeader(0, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
+bool encodeSidebandTelemetryLocationPayload(
+    double message_timestamp,
+    const SidebandTelemetryLocation& location,
+    uint8_t* out_payload,
+    size_t* inout_len)
+{
+    if (!out_payload || !inout_len ||
+        location.latitude_e6 < -90000000 ||
+        location.latitude_e6 > 90000000 ||
+        location.longitude_e6 < -180000000 ||
+        location.longitude_e6 > 180000000 ||
+        location.accuracy_cm > 0xFFFFU)
+    {
+        return false;
+    }
+
+    uint8_t packed_telemetry[48] = {};
+    size_t telemetry_used = 0;
+    uint8_t latitude[4] = {};
+    uint8_t longitude[4] = {};
+    uint8_t altitude[4] = {};
+    const uint8_t zero_u32[4] = {};
+    uint8_t accuracy[2] = {};
+    writeU32Be(static_cast<uint32_t>(location.latitude_e6), latitude);
+    writeU32Be(static_cast<uint32_t>(location.longitude_e6), longitude);
+    writeU32Be(static_cast<uint32_t>(location.altitude_cm), altitude);
+    accuracy[0] = static_cast<uint8_t>((location.accuracy_cm >> 8U) & 0xFFU);
+    accuracy[1] = static_cast<uint8_t>(location.accuracy_cm & 0xFFU);
+
+    if (!appendMapHeader(1,
+                         packed_telemetry,
+                         sizeof(packed_telemetry),
+                         telemetry_used) ||
+        !appendUint(kSidebandSensorLocation,
+                    packed_telemetry,
+                    sizeof(packed_telemetry),
+                    telemetry_used) ||
+        !appendArrayHeader(7,
+                           packed_telemetry,
+                           sizeof(packed_telemetry),
+                           telemetry_used) ||
+        !appendBin(latitude,
+                   sizeof(latitude),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(longitude,
+                   sizeof(longitude),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(altitude,
+                   sizeof(altitude),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(zero_u32,
+                   sizeof(zero_u32),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(zero_u32,
+                   sizeof(zero_u32),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(accuracy,
+                   sizeof(accuracy),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendUint(location.timestamp,
+                    packed_telemetry,
+                    sizeof(packed_telemetry),
+                    telemetry_used))
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayHeader(4, out_payload, *inout_len, used) ||
+        !appendFloat64(message_timestamp, out_payload, *inout_len, used) ||
+        !appendBin(nullptr, 0, out_payload, *inout_len, used) ||
+        !appendBin(nullptr, 0, out_payload, *inout_len, used) ||
+        !appendMapHeader(1, out_payload, *inout_len, used) ||
+        !appendUint(kFieldTelemetry, out_payload, *inout_len, used) ||
+        !appendBin(packed_telemetry,
+                   telemetry_used,
+                   out_payload,
+                   *inout_len,
+                   used))
     {
         return false;
     }
@@ -1672,9 +1773,32 @@ bool unpackTextPayload(const uint8_t* data, size_t len, DecodedTextPayload* out_
     decoded.fields_empty = (map_count == 0);
     for (size_t i = 0; i < map_count; ++i)
     {
-        if (!skipObject(cursor) || !skipObject(cursor))
+        Cursor key_cursor = cursor;
+        uint32_t field_key = 0;
+        const bool numeric_key = readUint(key_cursor, &field_key);
+        if (numeric_key)
+        {
+            cursor = key_cursor;
+        }
+        else if (!skipObject(cursor))
         {
             return false;
+        }
+
+        const size_t value_start = cursor.pos;
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+        if (numeric_key &&
+            (field_key == kFieldTelemetry ||
+             field_key == kFieldTelemetryStream ||
+             field_key == kFieldCommands))
+        {
+            DecodedField field{};
+            field.key = field_key;
+            field.encoded_value.assign(data + value_start, data + cursor.pos);
+            decoded.fields.push_back(std::move(field));
         }
     }
 
@@ -1704,6 +1828,218 @@ bool unpackTextPayload(const uint8_t* data, size_t len, DecodedTextPayload* out_
 
     *out_payload = std::move(decoded);
     return true;
+}
+
+const DecodedField* findField(const DecodedTextPayload& payload, uint32_t key)
+{
+    const auto found = std::find_if(payload.fields.begin(),
+                                    payload.fields.end(),
+                                    [key](const DecodedField& field)
+                                    { return field.key == key; });
+    return found != payload.fields.end() ? &*found : nullptr;
+}
+
+bool decodeSidebandTelemetryLocation(const DecodedTextPayload& payload,
+                                     SidebandTelemetryLocation* out_location)
+{
+    if (!out_location)
+    {
+        return false;
+    }
+    *out_location = SidebandTelemetryLocation{};
+
+    const DecodedField* telemetry = findField(payload, kFieldTelemetry);
+    if (!telemetry || telemetry->encoded_value.empty())
+    {
+        return false;
+    }
+
+    Cursor field_cursor{};
+    field_cursor.data = telemetry->encoded_value.data();
+    field_cursor.len = telemetry->encoded_value.size();
+    std::vector<uint8_t> packed_telemetry;
+    if (!readBinary(field_cursor, &packed_telemetry) || packed_telemetry.empty())
+    {
+        return false;
+    }
+
+    Cursor telemetry_cursor{};
+    telemetry_cursor.data = packed_telemetry.data();
+    telemetry_cursor.len = packed_telemetry.size();
+    size_t sensor_count = 0;
+    if (!readMapHeader(telemetry_cursor, &sensor_count))
+    {
+        return false;
+    }
+
+    for (size_t sensor_index = 0; sensor_index < sensor_count; ++sensor_index)
+    {
+        Cursor key_cursor = telemetry_cursor;
+        uint32_t sensor_id = 0;
+        const bool numeric_key = readUint(key_cursor, &sensor_id);
+        if (numeric_key)
+        {
+            telemetry_cursor = key_cursor;
+        }
+        else
+        {
+            if (!skipObject(telemetry_cursor) || !skipObject(telemetry_cursor))
+            {
+                return false;
+            }
+            continue;
+        }
+
+        if (sensor_id != kSidebandSensorLocation)
+        {
+            if (!skipObject(telemetry_cursor))
+            {
+                return false;
+            }
+            continue;
+        }
+
+        size_t location_elements = 0;
+        if (!readArrayHeader(telemetry_cursor, &location_elements) ||
+            location_elements < 7)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> latitude;
+        std::vector<uint8_t> longitude;
+        std::vector<uint8_t> altitude;
+        std::vector<uint8_t> speed;
+        std::vector<uint8_t> bearing;
+        std::vector<uint8_t> accuracy;
+        uint32_t timestamp = 0;
+        if (!readBinary(telemetry_cursor, &latitude) || latitude.size() != 4 ||
+            !readBinary(telemetry_cursor, &longitude) || longitude.size() != 4 ||
+            !readBinary(telemetry_cursor, &altitude) || altitude.size() != 4 ||
+            !readBinary(telemetry_cursor, &speed) || speed.size() != 4 ||
+            !readBinary(telemetry_cursor, &bearing) || bearing.size() != 4 ||
+            !readBinary(telemetry_cursor, &accuracy) || accuracy.size() != 2 ||
+            !readUint(telemetry_cursor, &timestamp))
+        {
+            return false;
+        }
+        for (size_t index = 7; index < location_elements; ++index)
+        {
+            if (!skipObject(telemetry_cursor))
+            {
+                return false;
+            }
+        }
+
+        SidebandTelemetryLocation decoded{};
+        decoded.latitude_e6 = static_cast<int32_t>(readU32Be(latitude.data()));
+        decoded.longitude_e6 = static_cast<int32_t>(readU32Be(longitude.data()));
+        decoded.altitude_cm = static_cast<int32_t>(readU32Be(altitude.data()));
+        decoded.accuracy_cm =
+            (static_cast<uint32_t>(accuracy[0]) << 8) | accuracy[1];
+        decoded.timestamp = timestamp;
+        decoded.valid = decoded.latitude_e6 >= -90000000 &&
+                        decoded.latitude_e6 <= 90000000 &&
+                        decoded.longitude_e6 >= -180000000 &&
+                        decoded.longitude_e6 <= 180000000;
+        if (!decoded.valid)
+        {
+            return false;
+        }
+        *out_location = decoded;
+        return true;
+    }
+
+    return false;
+}
+
+bool decodeSidebandTelemetryRequest(const DecodedTextPayload& payload,
+                                    SidebandTelemetryRequest* out_request)
+{
+    if (!out_request)
+    {
+        return false;
+    }
+    *out_request = SidebandTelemetryRequest{};
+
+    const DecodedField* commands = findField(payload, kFieldCommands);
+    if (!commands || commands->encoded_value.empty())
+    {
+        return false;
+    }
+
+    Cursor cursor{};
+    cursor.data = commands->encoded_value.data();
+    cursor.len = commands->encoded_value.size();
+    size_t command_count = 0;
+    if (!readArrayHeader(cursor, &command_count))
+    {
+        return false;
+    }
+
+    for (size_t command_index = 0; command_index < command_count; ++command_index)
+    {
+        size_t entry_count = 0;
+        if (!readMapHeader(cursor, &entry_count))
+        {
+            return false;
+        }
+        for (size_t entry_index = 0; entry_index < entry_count; ++entry_index)
+        {
+            uint32_t command = 0;
+            if (!readUint(cursor, &command))
+            {
+                return false;
+            }
+            if (command != kSidebandCommandTelemetryRequest)
+            {
+                if (!skipObject(cursor))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            SidebandTelemetryRequest decoded{};
+            uint8_t next = 0;
+            if (!peekByte(cursor, &next))
+            {
+                return false;
+            }
+            if ((next & 0xF0U) == 0x90U || next == 0xDC || next == 0xDD)
+            {
+                size_t request_elements = 0;
+                if (!readArrayHeader(cursor, &request_elements) ||
+                    request_elements < 1 ||
+                    !readUint(cursor, &decoded.timebase))
+                {
+                    return false;
+                }
+                if (request_elements >= 2 &&
+                    !readBool(cursor, &decoded.collector_request))
+                {
+                    return false;
+                }
+                for (size_t index = 2; index < request_elements; ++index)
+                {
+                    if (!skipObject(cursor))
+                    {
+                        return false;
+                    }
+                }
+            }
+            else if (!readUint(cursor, &decoded.timebase))
+            {
+                return false;
+            }
+
+            decoded.valid = true;
+            *out_request = decoded;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool decodeAppDataPayload(const uint8_t* data, size_t len, DecodedAppData* out_payload)
@@ -1762,6 +2098,7 @@ bool unpackMessage(const uint8_t* data, size_t len, DecodedMessage* out_message)
     decoded.has_stamp = payload.has_stamp;
     decoded.stamp = std::move(payload.stamp);
     decoded.fields_empty = payload.fields_empty;
+    decoded.fields = std::move(payload.fields);
     *out_message = std::move(decoded);
     return true;
 }

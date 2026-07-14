@@ -81,7 +81,7 @@ static uint32_t configured_wifi_feature_mask(void)
     {
         if (s_config.wifi.sta_enabled)
         {
-            features |= TM_C6_FEATURE_WIFI_STA;
+            features |= TM_C6_FEATURE_WIFI_STA | TM_C6_FEATURE_WIFI_TCP_PROXY;
         }
         if (s_config.wifi.ap_enabled)
         {
@@ -126,7 +126,8 @@ uint32_t tm_services_supported_features(void)
     return TM_C6_FEATURE_BLE_MESHTASTIC | TM_C6_FEATURE_BLE_MESHCORE |
            TM_C6_FEATURE_BLE_TRAILMATE | TM_C6_FEATURE_ESPNOW_TEAM |
            TM_C6_FEATURE_WIFI_STA | TM_C6_FEATURE_WIFI_AP |
-           TM_C6_FEATURE_DIAG_LOG | TM_C6_FEATURE_HOSTLINK_PING;
+           TM_C6_FEATURE_DIAG_LOG | TM_C6_FEATURE_HOSTLINK_PING |
+           TM_C6_FEATURE_WIFI_TCP_PROXY;
 }
 
 uint32_t tm_services_enabled_features(void)
@@ -398,6 +399,17 @@ bool tm_services_send_wifi_event(const tm_c6_wifi_event_t* event)
     }
     ++s_wifi_event_count;
     return send_frame(TM_C6_FRAME_WIFI_EVENT, TM_C6_CH_WIFI_MGMT, (const uint8_t*)event, sizeof(*event));
+}
+
+bool tm_services_send_wifi_data(const uint8_t* payload, size_t payload_len)
+{
+    if (payload == NULL || payload_len < sizeof(tm_c6_wifi_tcp_header_t) ||
+        payload_len > TM_C6_MAX_PAYLOAD)
+    {
+        tm_services_record_error(TM_C6_ERROR_PAYLOAD_TOO_LARGE, "wifi_tcp_payload_invalid");
+        return false;
+    }
+    return send_frame(TM_C6_FRAME_WIFI_DATA, TM_C6_CH_WIFI_DATA, payload, payload_len);
 }
 
 bool tm_services_send_wifi_time_sync(const tm_c6_wifi_time_sync_t* event)

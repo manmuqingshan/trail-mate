@@ -12,6 +12,7 @@ enum class Slot : std::uint8_t
     I18nFontLoad,
     RouteImage,
     SettingsAction,
+    ReticulumPing,
     Count,
 };
 

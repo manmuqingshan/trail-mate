@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "trail_mate_t_display_p4_runtime.cpp"
+        "t_display_p4_audio_runtime.cpp"
         "${CMAKE_SOURCE_DIR}/boards/t_display_p4/src/runtime_support.cpp"
         "hi8561_driver.c"
         "rm69a10_driver.c"
@@ -18,6 +19,8 @@ idf_component_register(
         esp_driver_gpio
         esp_driver_i2c
         esp_driver_ledc
+        esp_driver_i2s
+        esp_codec_dev
     PRIV_REQUIRES
         main
 )

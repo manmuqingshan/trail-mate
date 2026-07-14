@@ -105,6 +105,7 @@ class LxmfAdapter : public IMeshAdapter
     static constexpr std::size_t kPendingPeerProjectionDepth = 24;
     static constexpr std::size_t kDeferredDiscoveryDepth = 8;
     static constexpr std::size_t kPeerDirectoryHotLoadRecords = 64;
+    static constexpr std::size_t kMaxPendingPingRequests = 4;
     static constexpr std::size_t kMaxPendingNomadPageRequests = 4;
     static constexpr std::size_t kNomadPagePathMaxLen = 64;
     static constexpr uint32_t kNomadPageRequestTtlMs = 90000;
@@ -143,6 +144,24 @@ class LxmfAdapter : public IMeshAdapter
         bool path_requested = false;
         bool link_started = false;
         bool request_sent = false;
+    };
+
+    struct PendingPingRequest
+    {
+        uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
+        uint32_t created_ms = 0;
+        uint32_t last_path_request_ms = 0;
+        uint32_t last_send_attempt_ms = 0;
+    };
+
+    struct OutboundLxmfDispatch
+    {
+        bool ok = false;
+        bool result_event_deferred = false;
+        MessageId message_id = 0;
+        MeshOperationFailure failure = MeshOperationFailure::None;
+        uint8_t message_hash[reticulum::kFullHashSize] = {};
+        const char* path = "none";
     };
 
     reticulum::interfaces::ReticulumInterfaceSet interfaces_;
@@ -185,10 +204,12 @@ class LxmfAdapter : public IMeshAdapter
     std::array<NodeId, kPendingPeerProjectionDepth> pending_peer_projection_nodes_{};
     std::size_t pending_peer_projection_count_ = 0;
     std::array<MeshPeerRecord, kPeerDirectoryHotLoadRecords> peer_directory_load_entries_{};
+    std::vector<PendingPingRequest> pending_ping_requests_;
     std::vector<PendingNomadPageRequest> pending_nomad_page_requests_;
     uint8_t nomad_page_request_payload_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t nomad_page_wire_payload_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t nomad_page_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t call_wire_scratch_[reticulum::kReticulumMtu] = {};
     uint32_t last_peer_projection_ms_ = 0;
     uint32_t next_app_packet_id_ = 1;
     bool announce_pending_ = true;
@@ -258,6 +279,14 @@ class LxmfAdapter : public IMeshAdapter
         const uint8_t* packed_payload, size_t packed_payload_len,
         uint8_t* out_packet, size_t* inout_len,
         uint8_t out_message_hash[reticulum::kFullHashSize]);
+    bool dispatchLxmfPayload(PeerInfo& peer,
+                             const uint8_t* packed_payload,
+                             size_t packed_payload_len,
+                             bool track_user_message,
+                             OutboundLxmfDispatch* out_dispatch);
+    bool respondToSidebandTelemetryRequest(
+        PeerInfo& peer,
+        const SidebandTelemetryRequest& request);
     bool buildEncryptedPacketForPeer(const PeerInfo& peer,
                                      const uint8_t* plaintext, size_t plaintext_len,
                                      uint8_t* out_packet, size_t* inout_len);
@@ -356,9 +385,15 @@ class LxmfAdapter : public IMeshAdapter
                         reticulum::PacketType packet_type,
                         reticulum::PacketContext context,
                         const uint8_t* payload, size_t payload_len,
-                        bool encrypt_payload);
+                        bool encrypt_payload,
+                        bool call_admission_control = false);
     bool sendNomadPageRequestPacket(LinkSession& session,
                                     PendingNomadPageRequest& request);
+    MeshActionResult sendReticulumPingToPeer(PeerInfo& peer,
+                                             uint32_t operation_started_ms);
+    MeshActionResult queuePendingReticulumPing(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
+    void pumpPendingPingRequests();
     void pumpNomadPageRequests();
     void completeNomadPageRequest(PendingNomadPageRequest& request,
                                   const std::vector<uint8_t>& packed_response);
@@ -382,13 +417,27 @@ class LxmfAdapter : public IMeshAdapter
         bool active,
         bool complete,
         platform::ui::reticulum_page::RequestProgress::FailureKind failure);
-    bool sendLinkHandshakeProof(LinkSession& session);
+    bool sendLinkHandshakeProof(LinkSession& session,
+                                bool call_admission_control = false);
     bool sendLinkRtt(LinkSession& session);
     bool sendLinkKeepalive(LinkSession& session);
     bool sendLinkKeepaliveAck(LinkSession& session);
     bool sendLinkIdentify(LinkSession& session);
     bool sendLinkPacketProof(LinkSession& session,
                              const uint8_t* raw_packet, size_t raw_len);
+    void updateCallRuntimePeer(LinkSession& session,
+                               const PeerInfo* peer = nullptr);
+    bool beginIncomingCallRuntime(LinkSession& session,
+                                  const PeerInfo& peer);
+    bool sendLxstSignal(LinkSession& session,
+                        uint16_t signal,
+                        bool call_admission_control = false);
+    bool handleLxstPacket(LinkSession& session,
+                          const uint8_t* payload,
+                          size_t payload_len);
+    bool sendCallAudioPacket(LinkSession& session,
+                             const uint8_t* payload,
+                             size_t payload_len);
     void pumpReticulumAudioCall();
     void closeLinkSession(LinkSession& session,
                           LinkCloseReason reason = LinkCloseReason::LocalClose);
