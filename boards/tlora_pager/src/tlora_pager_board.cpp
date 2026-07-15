@@ -8,7 +8,6 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 
-#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <driver/gpio.h>
@@ -80,10 +79,6 @@ static uint32_t s_last_radio_spi_lock_timeout_log_ms = 0;
 static uint32_t s_suppressed_radio_spi_lock_timeout_logs = 0;
 static portMUX_TYPE s_audio_owner_mux = portMUX_INITIALIZER_UNLOCKED;
 static PagerAudioOwner s_audio_owner = PagerAudioOwner::None;
-static uint8_t s_audio_logical_channels = 0;
-static constexpr size_t kAudioConversionFrames = 256;
-static int16_t s_audio_read_scratch[kAudioConversionFrames * 2] = {};
-static int16_t s_audio_write_scratch[kAudioConversionFrames * 2] = {};
 
 const char* audioOwnerLabel(PagerAudioOwner owner)
 {
@@ -113,9 +108,9 @@ PagerAudioOwner currentAudioOwner()
     return owner;
 }
 
-bool claimAudioOwner(PagerAudioOwner owner, uint8_t logical_channels)
+bool claimAudioOwner(PagerAudioOwner owner)
 {
-    if (owner == PagerAudioOwner::None || logical_channels == 0)
+    if (owner == PagerAudioOwner::None)
     {
         return false;
     }
@@ -125,7 +120,6 @@ bool claimAudioOwner(PagerAudioOwner owner, uint8_t logical_channels)
     if (claimed)
     {
         s_audio_owner = owner;
-        s_audio_logical_channels = logical_channels;
     }
     portEXIT_CRITICAL(&s_audio_owner_mux);
     return claimed;
@@ -136,21 +130,12 @@ bool audioOwnerMatches(PagerAudioOwner owner)
     return owner != PagerAudioOwner::None && currentAudioOwner() == owner;
 }
 
-uint8_t audioLogicalChannels(PagerAudioOwner owner)
-{
-    portENTER_CRITICAL(&s_audio_owner_mux);
-    const uint8_t channels = s_audio_owner == owner ? s_audio_logical_channels : 0;
-    portEXIT_CRITICAL(&s_audio_owner_mux);
-    return channels;
-}
-
 void releaseAudioOwner(PagerAudioOwner owner)
 {
     portENTER_CRITICAL(&s_audio_owner_mux);
     if (s_audio_owner == owner)
     {
         s_audio_owner = PagerAudioOwner::None;
-        s_audio_logical_channels = 0;
     }
     portEXIT_CRITICAL(&s_audio_owner_mux);
 }
@@ -669,6 +654,13 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
         {
             devices_probe |= HW_CODEC_ONLINE;
             powerControl(POWER_SPEAK, false);
+            codec.setPaPinCallback(
+                [](bool enable, void* user_data)
+                {
+                    static_cast<ExtensionIOXL9555*>(user_data)->digitalWrite(
+                        EXPANDS_AMP_EN, enable);
+                },
+                &io);
             log_d("Audio codec (ES8311) initialized successfully");
             Serial.printf("[TLoRaPagerBoard::begin] audio codec init end ok=1\n");
         }
@@ -1187,11 +1179,12 @@ int TLoRaPagerBoard::openAudioSession(PagerAudioOwner owner, uint8_t bits_per_sa
     (void)speaker_enabled;
     return -1;
 #else
-    if (!(devices_probe & HW_CODEC_ONLINE) || owner == PagerAudioOwner::None)
+    if (!(devices_probe & HW_CODEC_ONLINE) || owner == PagerAudioOwner::None ||
+        channels == 0)
     {
         return -1;
     }
-    if (!claimAudioOwner(owner, channels))
+    if (!claimAudioOwner(owner))
     {
         Serial.printf("[Audio][Pager] busy requested=%s owner=%s\n",
                       audioOwnerLabel(owner),
@@ -1200,11 +1193,10 @@ int TLoRaPagerBoard::openAudioSession(PagerAudioOwner owner, uint8_t bits_per_sa
     }
 
     powerControl(POWER_SPEAK, false);
-    const uint8_t hardware_channels = channels == 1 ? 2 : channels;
     int state = -1;
     {
         I2CGuard i2c;
-        state = codec.open(bits_per_sample, hardware_channels, sample_rate);
+        state = codec.open(bits_per_sample, channels, sample_rate);
         if (state == 0)
         {
             codec.setMute(true);
@@ -1219,20 +1211,23 @@ int TLoRaPagerBoard::openAudioSession(PagerAudioOwner owner, uint8_t bits_per_sa
                       state,
                       static_cast<unsigned long>(sample_rate),
                       static_cast<unsigned>(channels),
-                      static_cast<unsigned>(hardware_channels));
+                      static_cast<unsigned>(channels));
         return state;
     }
 
-    if (speaker_enabled)
+    if (!speaker_enabled)
     {
-        powerControl(POWER_SPEAK, true);
+        powerControl(POWER_SPEAK, false);
+    }
+    else
+    {
         delay(10);
     }
     Serial.printf("[Audio][Pager] open owner=%s rate=%lu logical_ch=%u hw_ch=%u speaker=%u\n",
                   audioOwnerLabel(owner),
                   static_cast<unsigned long>(sample_rate),
                   static_cast<unsigned>(channels),
-                  static_cast<unsigned>(hardware_channels),
+                  static_cast<unsigned>(channels),
                   speaker_enabled ? 1U : 0U);
     return 0;
 #endif
@@ -1266,53 +1261,11 @@ void TLoRaPagerBoard::closeAudioSession(PagerAudioOwner owner)
 int TLoRaPagerBoard::audioRead(PagerAudioOwner owner, uint8_t* buffer, size_t size)
 {
 #ifdef USING_AUDIO_CODEC
-    const uint8_t logical_channels = audioLogicalChannels(owner);
-    if (!buffer || size == 0 || logical_channels == 0)
+    if (!buffer || size == 0 || !audioOwnerMatches(owner))
     {
         return -1;
     }
-    if (logical_channels != 1)
-    {
-        return codec.read(buffer, size);
-    }
-    if ((size % sizeof(int16_t)) != 0)
-    {
-        return -1;
-    }
-
-    auto* mono = reinterpret_cast<int16_t*>(buffer);
-    const size_t frame_count = size / sizeof(int16_t);
-    size_t frame_offset = 0;
-    while (frame_offset < frame_count)
-    {
-        const size_t chunk_frames =
-            std::min(kAudioConversionFrames, frame_count - frame_offset);
-        const int state = codec.read(
-            reinterpret_cast<uint8_t*>(s_audio_read_scratch),
-            chunk_frames * 2 * sizeof(int16_t));
-        if (state != 0)
-        {
-            return state;
-        }
-
-        int64_t left_energy = 0;
-        int64_t right_energy = 0;
-        for (size_t index = 0; index < chunk_frames; ++index)
-        {
-            const int32_t left = s_audio_read_scratch[index * 2];
-            const int32_t right = s_audio_read_scratch[(index * 2) + 1];
-            left_energy += left < 0 ? -left : left;
-            right_energy += right < 0 ? -right : right;
-        }
-        const size_t active_channel = right_energy > left_energy ? 1 : 0;
-        for (size_t index = 0; index < chunk_frames; ++index)
-        {
-            mono[frame_offset + index] =
-                s_audio_read_scratch[(index * 2) + active_channel];
-        }
-        frame_offset += chunk_frames;
-    }
-    return 0;
+    return codec.read(buffer, size);
 #else
     (void)owner;
     (void)buffer;
@@ -1324,43 +1277,11 @@ int TLoRaPagerBoard::audioRead(PagerAudioOwner owner, uint8_t* buffer, size_t si
 int TLoRaPagerBoard::audioWrite(PagerAudioOwner owner, const uint8_t* buffer, size_t size)
 {
 #ifdef USING_AUDIO_CODEC
-    const uint8_t logical_channels = audioLogicalChannels(owner);
-    if (!buffer || size == 0 || logical_channels == 0)
+    if (!buffer || size == 0 || !audioOwnerMatches(owner))
     {
         return -1;
     }
-    if (logical_channels != 1)
-    {
-        return codec.write(const_cast<uint8_t*>(buffer), size);
-    }
-    if ((size % sizeof(int16_t)) != 0)
-    {
-        return -1;
-    }
-
-    const auto* mono = reinterpret_cast<const int16_t*>(buffer);
-    const size_t frame_count = size / sizeof(int16_t);
-    size_t frame_offset = 0;
-    while (frame_offset < frame_count)
-    {
-        const size_t chunk_frames =
-            std::min(kAudioConversionFrames, frame_count - frame_offset);
-        for (size_t index = 0; index < chunk_frames; ++index)
-        {
-            const int16_t sample = mono[frame_offset + index];
-            s_audio_write_scratch[index * 2] = sample;
-            s_audio_write_scratch[(index * 2) + 1] = sample;
-        }
-        const int state = codec.write(
-            reinterpret_cast<uint8_t*>(s_audio_write_scratch),
-            chunk_frames * 2 * sizeof(int16_t));
-        if (state != 0)
-        {
-            return state;
-        }
-        frame_offset += chunk_frames;
-    }
-    return 0;
+    return codec.write(const_cast<uint8_t*>(buffer), size);
 #else
     (void)owner;
     (void)buffer;
