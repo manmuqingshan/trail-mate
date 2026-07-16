@@ -569,6 +569,32 @@ bool appendArrayOfBins(const std::vector<std::vector<uint8_t>>& items,
     return true;
 }
 
+bool appendArrayOfBinSpans(const std::vector<ByteSpan>& items,
+                           uint8_t* out,
+                           size_t out_len,
+                           size_t& used)
+{
+    if (items.size() > kMaxPropagationWireItems)
+    {
+        return false;
+    }
+    if (!appendArrayHeader(static_cast<uint8_t>(items.size()), out, out_len, used))
+    {
+        return false;
+    }
+
+    for (const auto& item : items)
+    {
+        if ((!item.data && item.size != 0U) ||
+            !appendBin(item.data, item.size, out, out_len, used))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool readArrayOfBins(Cursor& cursor, std::vector<std::vector<uint8_t>>* out_items)
 {
     if (!out_items)
@@ -1465,6 +1491,28 @@ bool encodePropagationBatch(double remote_timebase,
     return true;
 }
 
+bool encodePropagationBatch(double remote_timebase,
+                            const std::vector<ByteSpan>& messages,
+                            uint8_t* out_payload,
+                            size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayHeader(2, out_payload, *inout_len, used) ||
+        !appendFloat64(remote_timebase, out_payload, *inout_len, used) ||
+        !appendArrayOfBinSpans(messages, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
 bool decodePropagationBatch(const uint8_t* data, size_t len,
                             DecodedPropagationBatch* out_batch)
 {
@@ -1836,6 +1884,25 @@ bool encodePropagationMessageListPayload(const std::vector<std::vector<uint8_t>>
                                          size_t* inout_len)
 {
     return encodePropagationIdListPayload(messages, out_payload, inout_len);
+}
+
+bool encodePropagationMessageListPayload(const std::vector<ByteSpan>& messages,
+                                         uint8_t* out_payload,
+                                         size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayOfBinSpans(messages, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
 }
 
 void computeMessageHash(const uint8_t destination_hash[reticulum::kTruncatedHashSize],

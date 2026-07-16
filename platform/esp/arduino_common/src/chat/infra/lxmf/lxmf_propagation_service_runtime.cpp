@@ -48,7 +48,7 @@ bool packUintResponse(uint32_t value, PropagationServiceResponse* out_response)
         return false;
     }
 
-    std::vector<uint8_t> packed(8, 0);
+    ResourcePayloadBuffer packed(8, 0);
     std::size_t packed_len = packed.size();
     if (!encodeMsgpackUint(value, packed.data(), &packed_len))
     {
@@ -68,7 +68,7 @@ bool packBoolResponse(bool value, PropagationServiceResponse* out_response)
         return false;
     }
 
-    std::vector<uint8_t> packed(4, 0);
+    ResourcePayloadBuffer packed(4, 0);
     std::size_t packed_len = packed.size();
     if (!encodeMsgpackBool(value, packed.data(), &packed_len))
     {
@@ -91,7 +91,7 @@ bool packIdListResponse(const std::vector<std::vector<uint8_t>>& items,
 
     const std::size_t response_capacity =
         4 + (items.size() * (reticulum::kFullHashSize + 3));
-    std::vector<uint8_t> packed(response_capacity, 0);
+    ResourcePayloadBuffer packed(response_capacity, 0);
     std::size_t packed_len = packed.size();
     if (!encodePropagationIdListPayload(items, packed.data(), &packed_len))
     {
@@ -104,7 +104,7 @@ bool packIdListResponse(const std::vector<std::vector<uint8_t>>& items,
     return true;
 }
 
-bool packMessageListResponse(const std::vector<std::vector<uint8_t>>& items,
+bool packMessageListResponse(const std::vector<ByteSpan>& items,
                              PropagationServiceResponse* out_response)
 {
     if (!out_response)
@@ -115,9 +115,9 @@ bool packMessageListResponse(const std::vector<std::vector<uint8_t>>& items,
     std::size_t response_capacity = 4;
     for (const auto& item : items)
     {
-        response_capacity += item.size() + 3;
+        response_capacity += item.size + 3;
     }
-    std::vector<uint8_t> packed(response_capacity, 0);
+    ResourcePayloadBuffer packed(response_capacity, 0);
     std::size_t packed_len = packed.size();
     if (!encodePropagationMessageListPayload(items, packed.data(), &packed_len))
     {

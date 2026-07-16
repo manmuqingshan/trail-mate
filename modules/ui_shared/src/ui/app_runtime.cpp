@@ -478,6 +478,10 @@ bool ui_present_interruption_app(AppScreen* app, lv_obj_t* parent)
     s_interruption_app = app;
     ui_set_overlay_active(true);
     ui::menu_layout::setMenuVisible(false);
+    if (main_screen != nullptr)
+    {
+        lv_tileview_set_tile_by_index(main_screen, 0, 1, LV_ANIM_OFF);
+    }
     ui_switch_to_app(app, parent);
     return s_active_app == app;
 }

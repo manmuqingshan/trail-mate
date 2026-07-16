@@ -9,6 +9,7 @@
 #include "chat/infra/lxmf/lxmf_wire.h"
 #include "chat/infra/reticulum/lxst_call_state_machine.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_memory.h"
 
 #include <array>
 #include <cstddef>
@@ -142,7 +143,7 @@ struct LinkPendingRequest
 
 struct DeferredLinkPayload
 {
-    std::vector<uint8_t> payload;
+    ResourcePayloadBuffer payload;
     std::vector<uint8_t> request_id;
     uint32_t message_id = 0;
     uint8_t resource_flags = 0;
@@ -165,7 +166,7 @@ struct LinkResourceTransfer
     std::vector<uint8_t> hashmap;
     std::vector<std::array<uint8_t, 4>> map_hashes;
     std::vector<uint8_t> map_hash_known;
-    std::vector<std::vector<uint8_t>> parts;
+    ResourcePayloadList parts;
     std::vector<uint8_t> received_bitmap;
     uint32_t data_size = 0;
     uint32_t transfer_size = 0;
@@ -194,7 +195,7 @@ struct LinkResourceAssembly
 {
     uint8_t original_hash[reticulum::kFullHashSize] = {};
     std::vector<uint8_t> request_id;
-    std::vector<uint8_t> payload;
+    ResourcePayloadBuffer payload;
     uint32_t next_segment_index = 1;
     uint32_t total_segments = 1;
     uint32_t last_activity_ms = 0;
@@ -250,7 +251,7 @@ struct PropagationEntry
 {
     uint8_t transient_id[reticulum::kFullHashSize] = {};
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
-    std::vector<uint8_t> lxmf_data;
+    ResourcePayloadBuffer lxmf_data;
     uint32_t created_s = 0;
     uint32_t served_count = 0;
 };
@@ -278,7 +279,7 @@ struct PendingPropagationUpload
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
     uint8_t message_hash[reticulum::kFullHashSize] = {};
     uint8_t transient_id[reticulum::kFullHashSize] = {};
-    std::vector<uint8_t> transient_data;
+    ResourcePayloadBuffer transient_data;
     uint32_t created_ms = 0;
     uint32_t message_id = 0;
     uint8_t stamp_cost = 0;

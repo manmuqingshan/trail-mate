@@ -25,6 +25,12 @@ struct DecodedField
     std::vector<uint8_t> encoded_value;
 };
 
+struct ByteSpan
+{
+    const uint8_t* data = nullptr;
+    size_t size = 0;
+};
+
 struct DecodedEnvelope
 {
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
@@ -241,6 +247,10 @@ bool encodePropagationBatch(double remote_timebase,
                             const std::vector<std::vector<uint8_t>>& messages,
                             uint8_t* out_payload,
                             size_t* inout_len);
+bool encodePropagationBatch(double remote_timebase,
+                            const std::vector<ByteSpan>& messages,
+                            uint8_t* out_payload,
+                            size_t* inout_len);
 
 bool decodePropagationBatch(const uint8_t* data, size_t len,
                             DecodedPropagationBatch* out_batch);
@@ -278,6 +288,9 @@ bool encodePropagationIdListPayload(const std::vector<std::vector<uint8_t>>& ids
                                     size_t* inout_len);
 
 bool encodePropagationMessageListPayload(const std::vector<std::vector<uint8_t>>& messages,
+                                         uint8_t* out_payload,
+                                         size_t* inout_len);
+bool encodePropagationMessageListPayload(const std::vector<ByteSpan>& messages,
                                          uint8_t* out_payload,
                                          size_t* inout_len);
 

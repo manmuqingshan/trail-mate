@@ -107,7 +107,7 @@ bool recordResourcePart(LinkResourceTransfer& resource,
 ResourceAssemblyResult appendResourceAssemblySegment(
     LinkSession& session,
     LinkResourceTransfer& resource,
-    std::vector<uint8_t>& payload_data,
+    ResourcePayloadBuffer& payload_data,
     uint32_t now_ms);
 
 void markResourceComplete(LinkResourceTransfer& resource, uint32_t now_ms);

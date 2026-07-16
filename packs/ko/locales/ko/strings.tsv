@@ -248,6 +248,8 @@ Send ID Broadcast	ID 브로드캐스트 보내기
 Send ID Local	ID 로컬 보내기
 Sending...	보내는 중...
 Sent	보냄
+Queued	대기 중
+Delivered	전달됨
 Settings	설정
 Setting	설정
 Share Position Marker	위치 마커 공유

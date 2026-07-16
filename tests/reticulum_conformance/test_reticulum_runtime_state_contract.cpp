@@ -562,7 +562,7 @@ int main()
                                               true,
                                               600,
                                               1));
-    std::vector<uint8_t> split_payload_1{0x11, 0x12};
+    ResourcePayloadBuffer split_payload_1{0x11, 0x12};
     assert(appendResourceAssemblySegment(resource_session,
                                          split_segment_1,
                                          split_payload_1,
@@ -574,7 +574,7 @@ int main()
     LinkResourceTransfer split_segment_2 = split_segment_1;
     split_segment_2.segment_index = 2;
     split_segment_2.last_activity_ms = 620;
-    std::vector<uint8_t> split_payload_2{0x13};
+    ResourcePayloadBuffer split_payload_2{0x13};
     assert(appendResourceAssemblySegment(resource_session,
                                          split_segment_2,
                                          split_payload_2,

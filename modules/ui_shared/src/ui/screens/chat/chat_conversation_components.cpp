@@ -274,6 +274,82 @@ bool model_fits_location_overlay(lv_obj_t* viewport_root,
     return ::ui::chat::MessageDeliveryState::Unknown;
 }
 
+const char* delivery_status_text_key(::ui::chat::MessageDeliveryState delivery)
+{
+    switch (delivery)
+    {
+    case ::ui::chat::MessageDeliveryState::Queued:
+        return "Queued";
+    case ::ui::chat::MessageDeliveryState::Sending:
+    case ::ui::chat::MessageDeliveryState::Sent:
+        return "Sending...";
+    case ::ui::chat::MessageDeliveryState::Delivered:
+        return "Delivered";
+    case ::ui::chat::MessageDeliveryState::Failed:
+        return "Failed";
+    case ::ui::chat::MessageDeliveryState::Draft:
+    case ::ui::chat::MessageDeliveryState::Received:
+    case ::ui::chat::MessageDeliveryState::Unknown:
+        return nullptr;
+    }
+    return nullptr;
+}
+
+lv_color_t delivery_status_chip_color(::ui::chat::MessageDeliveryState delivery)
+{
+    switch (delivery)
+    {
+    case ::ui::chat::MessageDeliveryState::Queued:
+        return lv_color_hex(0xF4E2B0);
+    case ::ui::chat::MessageDeliveryState::Sending:
+    case ::ui::chat::MessageDeliveryState::Sent:
+        return lv_color_hex(0xCFE4FF);
+    case ::ui::chat::MessageDeliveryState::Delivered:
+        return lv_color_hex(0xD4F0D2);
+    case ::ui::chat::MessageDeliveryState::Failed:
+        return lv_color_hex(0xF1B8AA);
+    case ::ui::chat::MessageDeliveryState::Draft:
+    case ::ui::chat::MessageDeliveryState::Received:
+    case ::ui::chat::MessageDeliveryState::Unknown:
+        break;
+    }
+    return lv_color_hex(0xE8E0D8);
+}
+
+void update_delivery_status_chip(lv_obj_t* status_label,
+                                 ::ui::chat::MessageDeliveryState delivery)
+{
+    if (!status_label)
+    {
+        return;
+    }
+
+    lv_obj_t* chip = lv_obj_get_parent(status_label);
+    const char* text_key = delivery_status_text_key(delivery);
+    if (!text_key || text_key[0] == '\0')
+    {
+        lv_label_set_text(status_label, "");
+        if (chip)
+        {
+            lv_obj_add_flag(chip, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+
+    if (chip)
+    {
+        lv_obj_set_style_bg_color(chip,
+                                  delivery_status_chip_color(delivery),
+                                  LV_PART_MAIN);
+        lv_obj_clear_flag(chip, LV_OBJ_FLAG_HIDDEN);
+    }
+    ::ui::i18n::set_label_text(status_label, text_key);
+    ::ui::fonts::apply_localized_font(
+        status_label,
+        lv_label_get_text(status_label),
+        ::ui::page_profile::resolve_caption_font());
+}
+
 bool message_ref_matches_id(const ::ui::chat::MessageRef& ref,
                             chat::MessageId msg_id)
 {
@@ -683,20 +759,13 @@ bool ChatConversationScreen::updateMessageStatus(const chat::MessageId msg_id,
             return true;
         }
 
+        update_delivery_status_chip(item.status_label, item.delivery);
         if (status == MessageStatus::Failed)
         {
-            ::ui::i18n::set_label_text(item.status_label, "Failed");
-            ::ui::fonts::apply_localized_font(
-                item.status_label, lv_label_get_text(item.status_label), ::ui::fonts::ui_chrome_font());
-            lv_obj_clear_flag(item.status_label, LV_OBJ_FLAG_HIDDEN);
             enableRetryAction(item);
         }
         else
         {
-            lv_label_set_text(item.status_label, "");
-            ::ui::fonts::apply_localized_font(
-                item.status_label, lv_label_get_text(item.status_label), ::ui::fonts::ui_chrome_font());
-            lv_obj_add_flag(item.status_label, LV_OBJ_FLAG_HIDDEN);
             disableRetryAction(item);
         }
         return true;
@@ -1283,6 +1352,14 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     }
     item.time_label =
         create_meta_chip(item.meta_row, time_buf, lv_color_hex(0xD4F0D2), max_meta_w);
+    if (is_self)
+    {
+        item.status_label = create_meta_chip(item.meta_row,
+                                             "Sending...",
+                                             delivery_status_chip_color(row.delivery),
+                                             max_meta_w);
+        update_delivery_status_chip(item.status_label, row.delivery);
+    }
 
     item.text_label = chat::ui::layout::create_bubble_text(bubble);
     chat::ui::conversation::styles::apply_bubble_text(item.text_label);
@@ -1331,22 +1408,9 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
         lv_obj_set_width(item.text_label, LV_SIZE_CONTENT);
     }
 
-    item.status_label = chat::ui::layout::create_bubble_status(bubble);
-    chat::ui::conversation::styles::apply_bubble_status(item.status_label);
     if (row.delivery == ::ui::chat::MessageDeliveryState::Failed)
     {
-        ::ui::i18n::set_label_text(item.status_label, "Failed");
-        ::ui::fonts::apply_localized_font(
-            item.status_label, lv_label_get_text(item.status_label), ::ui::fonts::ui_chrome_font());
-        lv_obj_clear_flag(item.status_label, LV_OBJ_FLAG_HIDDEN);
         enableRetryAction(item);
-    }
-    else
-    {
-        lv_label_set_text(item.status_label, "");
-        ::ui::fonts::apply_localized_font(
-            item.status_label, lv_label_get_text(item.status_label), ::ui::fonts::ui_chrome_font());
-        lv_obj_add_flag(item.status_label, LV_OBJ_FLAG_HIDDEN);
     }
 
     // Align row based on sender (same behavior)

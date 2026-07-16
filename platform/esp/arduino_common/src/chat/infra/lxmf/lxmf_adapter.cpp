@@ -18,6 +18,7 @@
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_service_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_resource_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_transport_runtime.h"
+#include "platform/esp/common/mbedtls_sha256_compat.h"
 #include "platform/esp/common/reticulum_crypto_compat.h"
 #include "platform/esp/common/reticulum_runtime_compat.h"
 #include "platform/ui/gps_runtime.h"
@@ -47,6 +48,7 @@ namespace rtdir = ::platform::ui::reticulum_directory;
 namespace rtnet = ::platform::ui::reticulum_network_config;
 namespace rtpage = ::platform::ui::reticulum_page;
 namespace screen_runtime = ::platform::ui::screen;
+namespace sha_compat = ::platform::esp::common::crypto;
 using PageFailureKind = rtpage::RequestProgress::FailureKind;
 
 constexpr size_t kMaxPacketLen = reticulum::kReticulumMtu;
@@ -636,6 +638,40 @@ bool hashesEqual(const uint8_t* a, const uint8_t* b, size_t len)
     return true;
 }
 
+bool fullHashJoined(const uint8_t* first,
+                    size_t first_len,
+                    const uint8_t* second,
+                    size_t second_len,
+                    uint8_t out_hash[reticulum::kFullHashSize])
+{
+    if (!out_hash || (!first && first_len != 0) || (!second && second_len != 0))
+    {
+        return false;
+    }
+
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    bool ok = sha_compat::sha256_starts(&sha, 0) == 0;
+    if (ok && first_len != 0)
+    {
+        ok = sha_compat::sha256_update(&sha, first, first_len) == 0;
+    }
+    if (ok && second_len != 0)
+    {
+        ok = sha_compat::sha256_update(&sha, second, second_len) == 0;
+    }
+    if (ok)
+    {
+        ok = sha_compat::sha256_finish(&sha, out_hash) == 0;
+    }
+    mbedtls_sha256_free(&sha);
+    if (!ok)
+    {
+        std::memset(out_hash, 0, reticulum::kFullHashSize);
+    }
+    return ok;
+}
+
 bool unpackRnsLxmfEnvelope(const uint8_t expected_destination_hash[reticulum::kTruncatedHashSize],
                            const uint8_t* payload, size_t payload_len,
                            DecodedEnvelope* out_envelope,
@@ -891,7 +927,7 @@ void bzip2PsramFree(void*, void* address)
 bool decompressBzip2Payload(const uint8_t* compressed,
                             size_t compressed_len,
                             size_t expected_size,
-                            std::vector<uint8_t>* out_payload,
+                            runtime::ResourcePayloadBuffer* out_payload,
                             int* out_status)
 {
     if (out_status)
@@ -905,7 +941,7 @@ bool decompressBzip2Payload(const uint8_t* compressed,
         return false;
     }
 
-    std::vector<uint8_t> output(expected_size, 0);
+    runtime::ResourcePayloadBuffer output(expected_size, 0);
     bz_stream stream{};
     stream.bzalloc = bzip2PsramAlloc;
     stream.bzfree = bzip2PsramFree;
@@ -1515,9 +1551,10 @@ bool LxmfAdapter::queueReadyPropagationUpload(
         return false;
     }
 
-    std::vector<std::vector<uint8_t>> messages;
-    messages.push_back(upload.transient_data);
-    std::vector<uint8_t> batch(upload.transient_data.size() + 32U, 0);
+    std::vector<ByteSpan> messages;
+    messages.push_back(ByteSpan{upload.transient_data.data(),
+                                upload.transient_data.size()});
+    runtime::ResourcePayloadBuffer batch(upload.transient_data.size() + 32U, 0);
     size_t batch_len = batch.size();
     if (!encodePropagationBatch(static_cast<double>(currentTimestampSeconds()),
                                 messages,
@@ -5394,7 +5431,7 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
         return false;
     }
 
-    std::vector<uint8_t> plaintext;
+    runtime::ResourcePayloadBuffer plaintext;
     const uint8_t context = packet.context;
     const bool raw_payload = packetContextUsesRawLinkPayload(context);
     if (!raw_payload)
@@ -6366,14 +6403,14 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
         saw_incoming_resource = true;
 
         uint8_t full_hash[reticulum::kFullHashSize] = {};
-        std::vector<uint8_t> hash_material(packet.payload_len + sizeof(resource.random_hash), 0);
-        memcpy(hash_material.data(), packet.payload, packet.payload_len);
-        memcpy(hash_material.data() + packet.payload_len,
-               resource.random_hash,
-               sizeof(resource.random_hash));
-        reticulum::fullHash(hash_material.data(),
-                            hash_material.size(),
-                            full_hash);
+        if (!fullHashJoined(packet.payload,
+                            packet.payload_len,
+                            resource.random_hash,
+                            sizeof(resource.random_hash),
+                            full_hash))
+        {
+            return false;
+        }
 
         bool complete = false;
         std::size_t matched_index = resource.part_count;
@@ -6476,7 +6513,7 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
             return true;
         }
 
-        std::vector<uint8_t> assembled;
+        runtime::ResourcePayloadBuffer assembled;
         assembled.reserve(resource.transfer_size);
         for (const auto& part : resource.parts)
         {
@@ -6487,7 +6524,7 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
             assembled.resize(resource.transfer_size);
         }
 
-        std::vector<uint8_t> resource_stream;
+        runtime::ResourcePayloadBuffer resource_stream;
         if (resource.encrypted)
         {
             if (!decryptLinkPayload(session,
@@ -6518,7 +6555,7 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
             resource_stream.data() + kResourceDataPrefixLen;
         const size_t resource_payload_len =
             resource_stream.size() - kResourceDataPrefixLen;
-        std::vector<uint8_t> payload_data;
+        runtime::ResourcePayloadBuffer payload_data;
         if (resource.compressed)
         {
             int bz_status = BZ_OK;
@@ -6565,19 +6602,15 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
             return false;
         }
 
-        std::vector<uint8_t> resource_hash_material(payload_data.size() + sizeof(resource.random_hash), 0);
-        if (!payload_data.empty())
-        {
-            memcpy(resource_hash_material.data(), payload_data.data(), payload_data.size());
-        }
-        memcpy(resource_hash_material.data() + payload_data.size(),
-               resource.random_hash,
-               sizeof(resource.random_hash));
-
         uint8_t expected_resource_hash[reticulum::kFullHashSize] = {};
-        reticulum::fullHash(resource_hash_material.data(),
-                            resource_hash_material.size(),
-                            expected_resource_hash);
+        if (!fullHashJoined(payload_data.data(),
+                            payload_data.size(),
+                            resource.random_hash,
+                            sizeof(resource.random_hash),
+                            expected_resource_hash))
+        {
+            return false;
+        }
         if (!hashesEqual(expected_resource_hash,
                          resource.resource_hash,
                          reticulum::kFullHashSize))
@@ -6585,17 +6618,14 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
             return false;
         }
 
-        std::vector<uint8_t> proof_material(payload_data.size() + reticulum::kFullHashSize, 0);
-        if (!payload_data.empty())
+        if (!fullHashJoined(payload_data.data(),
+                            payload_data.size(),
+                            resource.resource_hash,
+                            reticulum::kFullHashSize,
+                            resource.expected_proof))
         {
-            memcpy(proof_material.data(), payload_data.data(), payload_data.size());
+            return false;
         }
-        memcpy(proof_material.data() + payload_data.size(),
-               resource.resource_hash,
-               reticulum::kFullHashSize);
-        reticulum::fullHash(proof_material.data(),
-                            proof_material.size(),
-                            resource.expected_proof);
 
         std::array<uint8_t, reticulum::kFullHashSize * 2> proof_payload{};
         memcpy(proof_payload.data(), resource.resource_hash, reticulum::kFullHashSize);
@@ -8574,14 +8604,16 @@ bool LxmfAdapter::encryptLinkPayload(const LinkSession& session,
 
 bool LxmfAdapter::decryptLinkPayload(const LinkSession& session,
                                      const uint8_t* payload, size_t payload_len,
-                                     std::vector<uint8_t>* out_plaintext) const
+                                     runtime::ResourcePayloadBuffer* out_plaintext) const
 {
     if (!payload || payload_len == 0 || !out_plaintext)
     {
         return false;
     }
 
-    std::vector<uint8_t> plaintext(reticulum::paddedTokenPlaintextSize(payload_len), 0);
+    runtime::ResourcePayloadBuffer plaintext(
+        reticulum::paddedTokenPlaintextSize(payload_len),
+        0);
     size_t plaintext_len = plaintext.size();
     if (!reticulum::tokenDecrypt(session.derived_key,
                                  payload,
@@ -9450,12 +9482,12 @@ bool LxmfAdapter::queueOutgoingResource(LinkSession& session,
         return false;
     }
 
-    std::vector<uint8_t> stream(kResourceDataPrefixLen + len, 0);
+    runtime::ResourcePayloadBuffer stream(kResourceDataPrefixLen + len, 0);
     fillRandomBytes(stream.data(), kResourceDataPrefixLen);
     memcpy(stream.data() + kResourceDataPrefixLen, data, len);
 
     const size_t encrypted_capacity = reticulum::tokenSizeForPlaintext(stream.size());
-    std::vector<uint8_t> encrypted_stream(encrypted_capacity, 0);
+    runtime::ResourcePayloadBuffer encrypted_stream(encrypted_capacity, 0);
     size_t encrypted_len = encrypted_stream.size();
     uint8_t iv[reticulum::kTokenIvSize] = {};
     fillRandomBytes(iv, sizeof(iv));
@@ -9500,22 +9532,24 @@ bool LxmfAdapter::queueOutgoingResource(LinkSession& session,
     {
         fillRandomBytes(resource.random_hash, sizeof(resource.random_hash));
 
-        std::vector<uint8_t> hash_material(len + sizeof(resource.random_hash), 0);
-        memcpy(hash_material.data(), data, len);
-        memcpy(hash_material.data() + len, resource.random_hash, sizeof(resource.random_hash));
-        reticulum::fullHash(hash_material.data(),
-                            hash_material.size(),
-                            resource.resource_hash);
+        if (!fullHashJoined(data,
+                            len,
+                            resource.random_hash,
+                            sizeof(resource.random_hash),
+                            resource.resource_hash))
+        {
+            return false;
+        }
         memcpy(resource.original_hash, resource.resource_hash, sizeof(resource.original_hash));
 
-        std::vector<uint8_t> proof_material(len + reticulum::kFullHashSize, 0);
-        memcpy(proof_material.data(), data, len);
-        memcpy(proof_material.data() + len,
-               resource.resource_hash,
-               reticulum::kFullHashSize);
-        reticulum::fullHash(proof_material.data(),
-                            proof_material.size(),
-                            resource.expected_proof);
+        if (!fullHashJoined(data,
+                            len,
+                            resource.resource_hash,
+                            reticulum::kFullHashSize,
+                            resource.expected_proof))
+        {
+            return false;
+        }
 
         resource.hashmap.clear();
         std::vector<std::array<uint8_t, kResourceMapHashLen>> recent_hashes;
@@ -9531,14 +9565,15 @@ bool LxmfAdapter::queueOutgoingResource(LinkSession& session,
             resource.parts[index].assign(encrypted_stream.begin() + offset,
                                          encrypted_stream.begin() + offset + chunk_len);
 
-            std::vector<uint8_t> map_material(chunk_len + sizeof(resource.random_hash), 0);
-            memcpy(map_material.data(), resource.parts[index].data(), chunk_len);
-            memcpy(map_material.data() + chunk_len,
-                   resource.random_hash,
-                   sizeof(resource.random_hash));
-
             uint8_t full_hash[reticulum::kFullHashSize] = {};
-            reticulum::fullHash(map_material.data(), map_material.size(), full_hash);
+            if (!fullHashJoined(resource.parts[index].data(),
+                                chunk_len,
+                                resource.random_hash,
+                                sizeof(resource.random_hash),
+                                full_hash))
+            {
+                return false;
+            }
 
             std::array<uint8_t, kResourceMapHashLen> map_hash{};
             memcpy(map_hash.data(), full_hash, map_hash.size());

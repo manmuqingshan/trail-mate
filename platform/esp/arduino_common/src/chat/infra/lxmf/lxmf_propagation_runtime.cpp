@@ -571,7 +571,8 @@ PropagationMessageSelection collectPropagationMessagesForWants(
             break;
         }
 
-        selection.messages.push_back(entry->lxmf_data);
+        selection.messages.push_back(ByteSpan{entry->lxmf_data.data(),
+                                              entry->lxmf_data.size()});
         cumulative_size = next_size;
         entry->served_count += 1;
         selection.served_count += 1;

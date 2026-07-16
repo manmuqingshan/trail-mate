@@ -26,7 +26,7 @@ struct PropagationRuntimeLimits
 
 struct PropagationMessageSelection
 {
-    std::vector<std::vector<uint8_t>> messages;
+    std::vector<ByteSpan> messages;
     uint32_t served_count = 0;
 };
 

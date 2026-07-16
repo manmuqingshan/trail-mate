@@ -423,7 +423,7 @@ class LxmfAdapter : public IMeshAdapter
                             uint8_t* out_payload, size_t* inout_len) const;
     bool decryptLinkPayload(const LinkSession& session,
                             const uint8_t* payload, size_t payload_len,
-                            std::vector<uint8_t>* out_plaintext) const;
+                            runtime::ResourcePayloadBuffer* out_plaintext) const;
     bool sendLinkPacket(LinkSession& session,
                         reticulum::PacketType packet_type,
                         reticulum::PacketContext context,

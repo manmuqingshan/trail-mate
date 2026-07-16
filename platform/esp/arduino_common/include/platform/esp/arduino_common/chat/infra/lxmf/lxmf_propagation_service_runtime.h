@@ -42,7 +42,7 @@ struct PropagationServiceResponse
     bool send_response = false;
     bool response_data_is_nil = false;
     bool offer_validated = false;
-    std::vector<uint8_t> packed_response;
+    ResourcePayloadBuffer packed_response;
 };
 
 enum class PropagationMessageAction : uint8_t
@@ -69,7 +69,7 @@ struct PropagationMessageAcceptance
     PropagationMessageAction action = PropagationMessageAction::Rejected;
     uint8_t transient_id[reticulum::kFullHashSize] = {};
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
-    std::vector<uint8_t> local_delivery_payload;
+    ResourcePayloadBuffer local_delivery_payload;
 };
 
 struct PropagationBatchContext

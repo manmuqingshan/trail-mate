@@ -182,7 +182,7 @@ class ChatConversationScreen
         lv_obj_t* source_label = nullptr;
         lv_obj_t* text_label = nullptr;   // inside bubble
         lv_obj_t* time_label = nullptr;   // inside meta row
-        lv_obj_t* status_label = nullptr; // reserved (not used)
+        lv_obj_t* status_label = nullptr; // inside meta row
         std::unique_ptr<MessageActionContext> retry_ctx;
         bool retry_enabled = false;
     };
