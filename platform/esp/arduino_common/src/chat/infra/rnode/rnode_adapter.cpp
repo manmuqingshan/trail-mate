@@ -6,7 +6,7 @@
 #include "platform/esp/arduino_common/chat/infra/rnode/rnode_adapter.h"
 
 #include "chat/time_utils.h"
-#if defined(ARDUINO)
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
 #include "platform/esp/arduino_common/app_tasks.h"
 #endif
 #include "platform/esp/common/reticulum_runtime_compat.h"
@@ -133,7 +133,7 @@ bool RNodeAdapter::sendAppData(ChannelId channel, uint32_t portnum,
     int first_state = kRadioUnsupported;
     int second_state = kRadioOk;
     {
-#if defined(ARDUINO)
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
         app::AppTasks::ScopedRadioTransmitActivity tx_activity;
 #endif
         first_state = board_.transmitRadio(air_packets.first, air_packets.first_len);

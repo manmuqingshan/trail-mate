@@ -14,6 +14,9 @@
 #include "chat/runtime/meshcore_runtime.h"
 #include "chat/runtime/protocol_runtime_factory.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_identity.h"
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+#include "platform/esp/radio/idf_lora_radio_pump.h"
+#endif
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -613,6 +616,9 @@ class MeshCoreAdapter : public IMeshAdapter,
     };
 
     LoraBoard& board_;
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+    ::platform::esp::radio::IdfLoraRadioPump idf_radio_pump_;
+#endif
     IMeshPeerDirectory* peer_directory_ = nullptr;
 
     // Configuration
@@ -671,6 +677,9 @@ class MeshCoreAdapter : public IMeshAdapter,
     bool canTransmitNow(uint32_t now_ms) const;
     MeshActionResult transmitFrameNowDetailed(const uint8_t* data, size_t len, uint32_t now_ms);
     bool transmitFrameNow(const uint8_t* data, size_t len, uint32_t now_ms);
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+    void pollIdfRadio();
+#endif
     bool enqueueScheduled(const uint8_t* data, size_t len, uint32_t delay_ms,
                           bool defer_during_discover = false);
     void armDiscoverRxGuard(uint32_t now_ms, uint32_t duration_ms = kDiscoverRxGuardDefaultMs);

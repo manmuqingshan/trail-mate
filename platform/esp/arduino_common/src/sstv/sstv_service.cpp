@@ -6,9 +6,9 @@
 
 #if (defined(ARDUINO_T_LORA_PAGER) &&                                                 \
      (defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_LR1121))) || \
-    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 #include <cerrno>
 #include <cstdio>
 #include <string>
@@ -19,7 +19,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "platform/esp/idf_common/tab5_codec_compat.h"
+#else
+#include "platform/esp/idf_common/t_display_p4_codec_compat.h"
+#endif
 #else
 #include "boards/tlora_pager/tlora_pager_board.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
@@ -40,7 +44,7 @@
 
 namespace
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 class File
 {
   public:
@@ -167,7 +171,12 @@ class TLoRaPagerBoard
     {
     }
 
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     platform::esp::idf_common::Tab5CodecCompat codec;
+#else
+    platform::esp::idf_common::TDisplayP4CodecCompat codec{
+        TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_SSTV};
+#endif
 
     struct Io
     {
@@ -184,7 +193,7 @@ uint32_t millis()
 }
 #endif
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 using SstvBoard = TLoRaPagerBoard;
 #else
 using SstvBoard = boards::tlora_pager::TLoRaPagerBoard;
@@ -401,7 +410,7 @@ const char* get_saved_path()
 
 bool ensure_sstv_dir()
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     if (!s_tab5_storage.exists("/sstv"))
     {
         if (!s_tab5_storage.mkdir("/sstv"))
@@ -449,7 +458,7 @@ bool build_save_path(char* out_path, size_t out_len)
             snprintf(out_path, out_len, "/sstv/%lu_%03d.bmp",
                      static_cast<unsigned long>(millis()), i);
         }
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
         if (!s_tab5_storage.exists(out_path))
 #else
         if (!::platform::esp::arduino_common::storage::sd_exists(out_path))
@@ -471,7 +480,7 @@ bool write_exact(FileT& file, const void* data, size_t size)
 template <typename FileT>
 bool flush_save_file(FileT& file)
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     file.flush();
     return true;
 #else
@@ -590,7 +599,7 @@ bool save_frame_to_sd()
     const uint32_t deadline_ms = sys::millis_now() + kSstvSaveDeadlineMs;
     char path[64];
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     File f;
 #else
     ::platform::esp::arduino_common::storage::SdRuntimeFile f;
@@ -603,7 +612,7 @@ bool save_frame_to_sd()
             set_error("SD busy");
             return false;
         }
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
         if (s_tab5_storage.cardType() == CARD_NONE)
 #else
         if (!::platform::esp::arduino_common::storage::sd_card_ready())
@@ -624,7 +633,7 @@ bool save_frame_to_sd()
             return false;
         }
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
         f = s_tab5_storage.open(path, FILE_WRITE);
         if (!f)
 #else
@@ -979,7 +988,7 @@ bool open_sstv_audio(SstvBoard* board)
     {
         return false;
     }
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     if (board->codec.open(kBitsPerSample, kChannels, kCodecSampleRate) != 0)
     {
         return false;
@@ -1011,7 +1020,7 @@ bool open_sstv_audio(SstvBoard* board)
 
 int read_sstv_audio(SstvBoard* board, uint8_t* buffer, size_t size)
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     return board ? board->codec.read(buffer, size) : -1;
 #else
     return board ? board->audioRead(
@@ -1028,7 +1037,7 @@ void close_sstv_audio(SstvBoard* board)
     {
         return;
     }
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     board->codec.close();
 #else
     board->closeAudioSession(boards::tlora_pager::PagerAudioOwner::Sstv);

@@ -109,6 +109,7 @@ struct BoardProfile
         uint16_t io_expander = 0;
         uint16_t rtc = 0;
         uint16_t battery_gauge = 0;
+        uint16_t haptic = 0;
         uint16_t hi8561_touch = 0;
         uint16_t gt9895_touch = 0;
         uint16_t imu = 0;
@@ -184,6 +185,7 @@ struct BoardProfile
     bool has_lora = false;
     bool has_c6_companion = false;
     bool has_motion_sensor = false;
+    bool has_haptic = false;
     bool supports_keyboard_module = false;
     const char* motion_sensor = nullptr;
     bool uses_io_expander_for_lora = false;
@@ -199,7 +201,10 @@ inline constexpr BoardProfile makeBoardProfile()
 
     profile.sys_i2c = {0, 7, 8};
     profile.ext_i2c = {1, 20, 21};
-    profile.gps_uart = {1, 22, 23, -1, 38400};
+    // The LilyGO signal names are from the GNSS module's perspective:
+    // GPS_RX (GPIO23) is the P4 UART TX pin and GPS_TX (GPIO22) is the P4
+    // UART RX pin. The official L76K example configures the module at 115200.
+    profile.gps_uart = {1, 23, 22, -1, 115200};
     profile.sdmmc = {39, 40, 41, 42, 44, 43};
     profile.c6_sdio = {18, 19, 14, 15, 16, 17};
     profile.audio_i2s = {12, 13, 9, 10, 11};
@@ -231,6 +236,7 @@ inline constexpr BoardProfile makeBoardProfile()
     profile.i2c.io_expander = 0x20;
     profile.i2c.rtc = 0x51;
     profile.i2c.battery_gauge = 0x55;
+    profile.i2c.haptic = 0x58;
     profile.i2c.hi8561_touch = 0x68;
     profile.i2c.gt9895_touch = 0x5D;
     profile.i2c.imu = 0x68;
@@ -301,6 +307,7 @@ inline constexpr BoardProfile makeBoardProfile()
     profile.has_lora = true;
     profile.has_c6_companion = true;
     profile.has_motion_sensor = true;
+    profile.has_haptic = true;
     profile.supports_keyboard_module = true;
     profile.motion_sensor = "ICM20948";
     profile.uses_io_expander_for_lora = true;

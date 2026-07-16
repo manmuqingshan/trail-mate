@@ -4,7 +4,8 @@
 
 class LilyGo_Display;
 
-#if !defined(TRAIL_MATE_LVGL_SD_FS_LETTER) || TRAIL_MATE_LVGL_SD_FS_LETTER != 'A'
+#if defined(ARDUINO) && \
+    (!defined(TRAIL_MATE_LVGL_SD_FS_LETTER) || TRAIL_MATE_LVGL_SD_FS_LETTER != 'A')
 #warning "TrailMate LVGL SD fs mismatch, A: paths may not resolve"
 #endif
 

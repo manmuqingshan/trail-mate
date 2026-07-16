@@ -73,7 +73,14 @@ Status status()
     const c6::C6CompanionStatus c6_status = c6::get_c6_companion_status();
 
     Status out{};
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // The companion implements built-in P4 wireless services. Keep that
+    // implementation detail out of the product settings surface while still
+    // reporting the physical board capability below.
+    out.supported = false;
+#else
     out.supported = c6_status.board_capable;
+#endif
     out.board_capable = c6_status.board_capable;
     out.started = c6_status.started;
     out.present = c6_status.present;

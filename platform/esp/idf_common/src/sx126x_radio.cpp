@@ -9,9 +9,11 @@
 #include "boards/tab5/tab5_board.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -37,6 +39,7 @@ constexpr uint8_t kCmdSetDioIrqParams = 0x08;
 constexpr uint8_t kCmdGetIrqStatus = 0x12;
 constexpr uint8_t kCmdClearIrqStatus = 0x02;
 constexpr uint8_t kCmdSetDio2AsRfSwitchCtrl = 0x9D;
+constexpr uint8_t kCmdSetDio3AsTcxoCtrl = 0x97;
 constexpr uint8_t kCmdGetRssiInst = 0x15;
 constexpr uint8_t kCmdGetRxBufferStatus = 0x13;
 constexpr uint8_t kCmdReadBuffer = 0x1E;
@@ -52,6 +55,8 @@ constexpr uint8_t kPacketTypeLoRa = 0x01;
 constexpr uint8_t kStandbyRc = 0x00;
 constexpr uint8_t kRegulatorDcDc = 0x01;
 constexpr uint8_t kFallbackStandbyRc = 0x20;
+constexpr uint8_t kTcxoVoltage1v6 = 0x00;
+constexpr uint32_t kTcxoStartupDelayUs = 5000;
 constexpr uint8_t kPaRamp200u = 0x04;
 constexpr uint8_t kPaConfigDeviceSelSx1262 = 0x00;
 constexpr uint8_t kPaConfigPaLut = 0x01;
@@ -88,6 +93,9 @@ constexpr uint16_t kRegCrcPolynomialMsb = 0x06BE;
 constexpr uint16_t kRegVersionString = 0x0320;
 constexpr float kFrequencyStepHz = 0.9536743164f;
 constexpr uint32_t kCrystalFreqHz = 32000000UL;
+constexpr uint32_t kInitStageMagic = 0x53583132U;
+RTC_NOINIT_ATTR volatile uint32_t s_init_stage_magic;
+RTC_NOINIT_ATTR volatile uint32_t s_init_stage;
 
 const char* spi_host_name(int host)
 {
@@ -266,9 +274,10 @@ uint32_t rf_frequency_raw(float freq_mhz)
                                  static_cast<double>(kFrequencyStepHz));
 }
 
-uint8_t ocp_for_60ma()
+uint8_t sx1262_ocp_limit_raw()
 {
-    return static_cast<uint8_t>(60.0f / 2.5f);
+    constexpr float kCurrentLimitMa = 140.0f;
+    return static_cast<uint8_t>(kCurrentLimitMa / 2.5f);
 }
 
 const auto& lora_pins()
@@ -298,7 +307,9 @@ bool board_uses_internal_dio2_rf_switch()
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     return true;
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return false;
+    // The P4 HPD16A path uses both the SX1262 DIO2-controlled RF switch and
+    // the board-level SKY13453 antenna switch. They are separate controls.
+    return true;
 #else
     return false;
 #endif
@@ -402,6 +413,15 @@ bool Sx126xRadio::init_locked()
         return online_;
     }
 
+    const uint32_t previous_stage =
+        s_init_stage_magic == kInitStageMagic ? s_init_stage : 0U;
+    ESP_LOGI(kTag,
+             "SX126x retained init stage=0x%02lX reset_reason=%d",
+             static_cast<unsigned long>(previous_stage),
+             static_cast<int>(esp_reset_reason()));
+    s_init_stage_magic = kInitStageMagic;
+    s_init_stage = 0x01U;
+
     spi_bus_config_t bus_cfg{};
     bus_cfg.mosi_io_num = lora_pins().spi.mosi;
     bus_cfg.miso_io_num = lora_pins().spi.miso;
@@ -434,7 +454,10 @@ bool Sx126xRadio::init_locked()
              lora_pins().irq,
              lora_pins().busy,
              lora_pins().pwr_en);
+    s_init_stage = 0x10U;
     esp_err_t err = spi_bus_initialize(host, &bus_cfg, SPI_DMA_CH_AUTO);
+    ESP_LOGI(kTag, "SX126x SPI bus initialize result=%s", esp_err_to_name(err));
+    s_init_stage = 0x11U;
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
     {
         set_error_locked("spi_bus_initialize failed");
@@ -450,7 +473,10 @@ bool Sx126xRadio::init_locked()
         dev_cfg.queue_size = 1;
         dev_cfg.flags = 0;
         spi_device_handle_t handle = nullptr;
+        s_init_stage = 0x20U;
         err = spi_bus_add_device(host, &dev_cfg, &handle);
+        ESP_LOGI(kTag, "SX126x SPI device add result=%s", esp_err_to_name(err));
+        s_init_stage = 0x21U;
         if (err == ESP_OK)
         {
             device_ = handle;
@@ -462,11 +488,14 @@ bool Sx126xRadio::init_locked()
         }
     }
 
+    s_init_stage = 0x30U;
     if (!prepare_board_lora_runtime())
     {
         set_error_locked("board LoRa runtime setup failed");
         return false;
     }
+    ESP_LOGI(kTag, "SX126x board LoRa runtime ready");
+    s_init_stage = 0x31U;
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     gpio_config_t io_cfg{};
@@ -497,45 +526,98 @@ bool Sx126xRadio::init_locked()
         gpio_config(&busy_cfg);
     }
 
+    s_init_stage = 0x40U;
     if (!set_board_lora_reset_asserted(true))
     {
         set_error_locked("radio reset assert failed");
         return false;
     }
+    s_init_stage = 0x41U;
     vTaskDelay(pdMS_TO_TICKS(2));
     if (!set_board_lora_reset_asserted(false))
     {
         set_error_locked("radio reset release failed");
         return false;
     }
+    s_init_stage = 0x42U;
     vTaskDelay(pdMS_TO_TICKS(10));
 
     initialized_ = true;
+    s_init_stage = 0x50U;
     online_ = probe_locked();
+    s_init_stage = 0x51U;
     if (!online_)
     {
         set_error_locked("SX126x probe failed");
         return false;
     }
 
-    uint8_t calibrate = 0x7F;
-    write_command_locked(kCmdCalibrate, &calibrate, 1, true);
+    const uint8_t standby = kStandbyRc;
+    if (!write_command_locked(kCmdSetStandby, &standby, 1, true))
+    {
+        set_error_locked("SX1262 standby configuration failed");
+        return false;
+    }
 
-    set_packet_type_locked(kPacketTypeLoRa);
-    set_buffer_base_locked(0x00, 0x00);
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    const uint32_t tcxo_delay_steps = kTcxoStartupDelayUs * 64U / 1000U;
+    const uint8_t tcxo[] = {
+        kTcxoVoltage1v6,
+        static_cast<uint8_t>(tcxo_delay_steps >> 16),
+        static_cast<uint8_t>(tcxo_delay_steps >> 8),
+        static_cast<uint8_t>(tcxo_delay_steps),
+    };
+    if (!write_command_locked(kCmdSetDio3AsTcxoCtrl, tcxo, sizeof(tcxo), true))
+    {
+        set_error_locked("SX1262 TCXO configuration failed");
+        return false;
+    }
+    ESP_LOGI(kTag,
+             "SX1262 TCXO configured voltage_mv=1600 startup_us=%lu",
+             static_cast<unsigned long>(kTcxoStartupDelayUs));
+#endif
+
     const uint8_t regulator = kRegulatorDcDc;
-    write_command_locked(kCmdSetRegulatorMode, &regulator, 1, true);
+    if (!write_command_locked(kCmdSetRegulatorMode, &regulator, 1, true))
+    {
+        set_error_locked("SX1262 regulator configuration failed");
+        return false;
+    }
     if (board_uses_internal_dio2_rf_switch())
     {
         const uint8_t dio2_rf_switch = 0x01;
-        write_command_locked(kCmdSetDio2AsRfSwitchCtrl, &dio2_rf_switch, 1, true);
+        if (!write_command_locked(kCmdSetDio2AsRfSwitchCtrl, &dio2_rf_switch, 1, true))
+        {
+            set_error_locked("SX1262 DIO2 RF switch configuration failed");
+            return false;
+        }
     }
-    const uint8_t fallback = kFallbackStandbyRc;
-    write_command_locked(kCmdSetRxTxFallbackMode, &fallback, 1, true);
-    clear_irq_locked(kIrqAll);
 
-    const uint8_t ocp = ocp_for_60ma();
-    write_register_locked(kRegOcpConfiguration, &ocp, 1);
+    uint8_t calibrate = 0x7F;
+    if (!write_command_locked(kCmdCalibrate, &calibrate, 1, true) ||
+        !set_packet_type_locked(kPacketTypeLoRa) ||
+        !set_buffer_base_locked(0x00, 0x00))
+    {
+        set_error_locked("SX1262 base configuration failed");
+        return false;
+    }
+
+    const uint8_t fallback = kFallbackStandbyRc;
+    if (!write_command_locked(kCmdSetRxTxFallbackMode, &fallback, 1, true) ||
+        !clear_irq_locked(kIrqAll))
+    {
+        set_error_locked("SX1262 fallback configuration failed");
+        return false;
+    }
+
+    const uint8_t ocp = sx1262_ocp_limit_raw();
+    if (!write_register_locked(kRegOcpConfiguration, &ocp, 1))
+    {
+        set_error_locked("SX1262 OCP configuration failed");
+        return false;
+    }
+    ESP_LOGI(kTag, "SX1262 OCP current limit configured ma=140 raw=0x%02X", ocp);
+    s_init_stage = 0xFFU;
     return true;
 #endif
 }
@@ -602,21 +684,21 @@ bool Sx126xRadio::write_command_locked(uint8_t cmd, const uint8_t* data, size_t 
     wait_ready_locked();
 
     const size_t total = 1 + size;
-    uint8_t tx[260] = {0};
-    if (total > sizeof(tx))
+    if (total > sizeof(tx_scratch_))
     {
         set_error_locked("command too large");
         return false;
     }
-    tx[0] = cmd;
+    std::memset(tx_scratch_, 0, total);
+    tx_scratch_[0] = cmd;
     if (data && size > 0)
     {
-        std::memcpy(tx + 1, data, size);
+        std::memcpy(tx_scratch_ + 1, data, size);
     }
 
     spi_transaction_t trans{};
     trans.length = total * 8;
-    trans.tx_buffer = tx;
+    trans.tx_buffer = tx_scratch_;
     const esp_err_t err = spi_device_transmit(device_handle(device_), &trans);
     if (err != ESP_OK)
     {
@@ -651,24 +733,24 @@ bool Sx126xRadio::read_command_locked(uint8_t cmd,
     wait_ready_locked();
 
     const size_t total = 1 + prefix_size + 1 + size;
-    uint8_t tx[260] = {0};
-    uint8_t rx[260] = {0};
-    if (total > sizeof(tx))
+    if (total > sizeof(tx_scratch_) || total > sizeof(rx_scratch_))
     {
         set_error_locked("command too large");
         return false;
     }
 
-    tx[0] = cmd;
+    std::memset(tx_scratch_, 0, total);
+    std::memset(rx_scratch_, 0, total);
+    tx_scratch_[0] = cmd;
     if (prefix && prefix_size > 0)
     {
-        std::memcpy(tx + 1, prefix, prefix_size);
+        std::memcpy(tx_scratch_ + 1, prefix, prefix_size);
     }
 
     spi_transaction_t trans{};
     trans.length = total * 8;
-    trans.tx_buffer = tx;
-    trans.rx_buffer = rx;
+    trans.tx_buffer = tx_scratch_;
+    trans.rx_buffer = rx_scratch_;
     const esp_err_t err = spi_device_transmit(device_handle(device_), &trans);
     if (err != ESP_OK)
     {
@@ -678,7 +760,7 @@ bool Sx126xRadio::read_command_locked(uint8_t cmd,
 
     if (data && size > 0)
     {
-        std::memcpy(data, rx + 1 + prefix_size + 1, size);
+        std::memcpy(data, rx_scratch_ + 1 + prefix_size + 1, size);
     }
 
     if (wait)
@@ -696,24 +778,24 @@ bool Sx126xRadio::write_register_locked(uint16_t addr, const uint8_t* data, size
         static_cast<uint8_t>(addr & 0xFF),
     };
 
-    uint8_t tx[260] = {0};
     const size_t total = 1 + sizeof(prefix) + size;
-    if (total > sizeof(tx))
+    if (total > sizeof(tx_scratch_))
     {
         set_error_locked("register write too large");
         return false;
     }
-    tx[0] = kCmdWriteRegister;
-    std::memcpy(tx + 1, prefix, sizeof(prefix));
+    std::memset(tx_scratch_, 0, total);
+    tx_scratch_[0] = kCmdWriteRegister;
+    std::memcpy(tx_scratch_ + 1, prefix, sizeof(prefix));
     if (data && size > 0)
     {
-        std::memcpy(tx + 1 + sizeof(prefix), data, size);
+        std::memcpy(tx_scratch_ + 1 + sizeof(prefix), data, size);
     }
 
     wait_ready_locked();
     spi_transaction_t trans{};
     trans.length = total * 8;
-    trans.tx_buffer = tx;
+    trans.tx_buffer = tx_scratch_;
     const esp_err_t err = spi_device_transmit(device_handle(device_), &trans);
     if (err != ESP_OK)
     {
@@ -1097,20 +1179,20 @@ int Sx126xRadio::startTransmit(const uint8_t* data, size_t size)
 
     if (ok)
     {
-        uint8_t tx[260] = {0};
-        if (size + 2 > sizeof(tx))
+        if (size + 2 > sizeof(tx_scratch_))
         {
             ok = false;
             set_error_locked("payload too large");
         }
         else
         {
-            tx[0] = kCmdWriteBuffer;
-            tx[1] = 0x00;
-            std::memcpy(tx + 2, data, size);
+            std::memset(tx_scratch_, 0, size + 2);
+            tx_scratch_[0] = kCmdWriteBuffer;
+            tx_scratch_[1] = 0x00;
+            std::memcpy(tx_scratch_ + 2, data, size);
             spi_transaction_t trans{};
             trans.length = (size + 2) * 8;
-            trans.tx_buffer = tx;
+            trans.tx_buffer = tx_scratch_;
             const esp_err_t err = spi_device_transmit(device_handle(device_), &trans);
             ok = err == ESP_OK;
             if (!ok)

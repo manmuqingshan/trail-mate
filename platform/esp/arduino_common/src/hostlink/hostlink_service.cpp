@@ -8,6 +8,7 @@
 #include "platform/esp/arduino_common/hostlink/hostlink_config_service.h"
 #include "usb/usb_cdc_transport.h"
 
+#include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"

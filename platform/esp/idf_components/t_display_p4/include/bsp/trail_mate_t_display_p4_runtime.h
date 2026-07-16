@@ -22,6 +22,8 @@ extern "C"
         TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_NONE = 0,
         TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_NOTIFICATION = 1,
         TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_RETICULUM_CALL = 2,
+        TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_WALKIE = 3,
+        TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_SSTV = 4,
     } trail_mate_t_display_p4_audio_owner_t;
 
     bool trail_mate_t_display_p4_audio_is_ready(void);

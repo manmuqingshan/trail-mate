@@ -206,8 +206,11 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
                             chat::infra::isReticulumMeshProtocol(
                                 app::configFacade().getConfig().mesh_protocol);
     flags.include_walkie_talkie = platform::ui::walkie::is_supported();
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    flags.include_power_off = true;
+#endif
     APP_REG_LOG(
-        "flags profile=idf gps_map=%d skyplot=%d tracker=%d chat=%d sweep=%d sstv=%d usb=%d extensions=%d network=%d walkie=%d gps_supported=%d gps_ready=%d sd_ready=%d\n",
+        "flags profile=idf gps_map=%d skyplot=%d tracker=%d chat=%d sweep=%d sstv=%d usb=%d extensions=%d network=%d walkie=%d power_off=%d gps_supported=%d gps_ready=%d sd_ready=%d\n",
         flags.include_gps_map ? 1 : 0,
         flags.include_gnss_skyplot ? 1 : 0,
         flags.include_tracker ? 1 : 0,
@@ -218,6 +221,7 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
         flags.include_extensions ? 1 : 0,
         flags.include_network ? 1 : 0,
         flags.include_walkie_talkie ? 1 : 0,
+        flags.include_power_off ? 1 : 0,
         platform::ui::device::gps_supported() ? 1 : 0,
         platform::ui::device::gps_ready() ? 1 : 0,
         platform::ui::device::sd_ready() ? 1 : 0);
@@ -230,7 +234,8 @@ ui::AppCatalog s_catalog{&s_catalog_state, idf_catalog_count, idf_catalog_at};
 ui::AppCatalog buildCatalog()
 {
     s_catalog_state.base = ui::app_catalog_builder::build(buildFeatureFlags());
-    s_catalog_state.companion = &s_companion_app;
+    s_catalog_state.companion =
+        platform::ui::wireless_companion::is_supported() ? &s_companion_app : nullptr;
     return s_catalog;
 }
 

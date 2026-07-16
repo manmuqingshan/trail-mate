@@ -41,12 +41,12 @@ enum class PairingMode : uint8_t
 
 struct BleCompanionConfig
 {
-    bool enabled = true;
-    bool meshtastic_enabled = true;
-    bool meshcore_enabled = true;
-    bool trailmate_enabled = true;
-    PairingMode pairing_mode = PairingMode::FixedPin;
-    bool fixed_pin_enabled = true;
+    bool enabled = false;
+    bool meshtastic_enabled = false;
+    bool meshcore_enabled = false;
+    bool trailmate_enabled = false;
+    PairingMode pairing_mode = PairingMode::Disabled;
+    bool fixed_pin_enabled = false;
     char fixed_pin[8] = "123456";
     char device_name[32] = "TrailMate-C6";
     uint16_t preferred_mtu = 247;

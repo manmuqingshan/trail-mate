@@ -3,13 +3,13 @@
 #include "esp32_lvgl_idf_app_runtime_access.h"
 
 #if defined(ESP_PLATFORM)
+#include "board/BoardBase.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
 #include "ui/loop_shell.h"
-#include "ui/widgets/reticulum_call_overlay.h"
 #endif
 
 namespace trailmate::apps::esp32_lvgl
@@ -37,6 +37,8 @@ void loopTask(void* parameter)
     };
     hooks.update_runtime = []()
     { idf_app_runtime_access::tick(); };
+    hooks.handle_power_button = []()
+    { ::board.handlePowerButton(); };
     hooks.yield_now = []()
     { taskYIELD(); };
     hooks.sleep_ms = [](uint32_t ms)
@@ -44,11 +46,18 @@ void loopTask(void* parameter)
     hooks.overlay_sleep_ms = s_loop.config.loop_delay_ms;
     hooks.idle_sleep_ms = s_loop.config.loop_delay_ms;
 
+    bool first_tick = true;
     while (true)
     {
         platform::esp::idf_common::wireless_companion::c6_companion().poll();
-        ui::widgets::reticulum_call_overlay::tick();
         ui::loop_shell::tick(hooks);
+        if (first_tick)
+        {
+            ESP_LOGI(s_loop.config.log_tag,
+                     "IDF app loop first tick complete stack_high_water=%u",
+                     static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+            first_tick = false;
+        }
     }
 }
 #endif

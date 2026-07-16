@@ -37,11 +37,15 @@ constexpr uint32_t kWifiFeatureMask = TM_C6_FEATURE_WIFI_STA | TM_C6_FEATURE_WIF
 #if defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
 constexpr uint32_t kC6ScanWaitTimeoutMs = 10000;
 constexpr uint32_t kC6ScanPollIntervalMs = 100;
+constexpr uint32_t kC6ConnectWaitTimeoutMs = 15000;
+constexpr uint32_t kC6ConnectPollIntervalMs = 100;
 #endif
 
 struct RuntimeState
 {
+    bool config_cached = false;
     bool profiles_cached = false;
+    Config saved_config{};
     Config profiles[kWifiProfileCapacity] = {};
     ScanResult scan_results[kWifiProfileCapacity] = {};
     std::size_t profile_count = 0;
@@ -56,7 +60,18 @@ void copy_text(char* out, std::size_t out_len, const char* text)
     {
         return;
     }
-    std::snprintf(out, out_len, "%s", text ? text : "");
+    if (!text)
+    {
+        out[0] = '\0';
+        return;
+    }
+    std::size_t copy_len = std::strlen(text);
+    if (copy_len >= out_len)
+    {
+        copy_len = out_len - 1U;
+    }
+    std::memmove(out, text, copy_len);
+    out[copy_len] = '\0';
 }
 
 void copy_config_text(char* out, std::size_t out_len, const char* text)
@@ -325,7 +340,18 @@ Config load_saved_config()
         copy_text(out.ssid, sizeof(out.ssid), s_runtime.profiles[0].ssid);
         copy_text(out.password, sizeof(out.password), s_runtime.profiles[0].password);
     }
+    s_runtime.saved_config = out;
+    s_runtime.config_cached = true;
     return out;
+}
+
+Config cached_saved_config()
+{
+    if (!s_runtime.config_cached)
+    {
+        return load_saved_config();
+    }
+    return s_runtime.saved_config;
 }
 
 bool save_saved_config(const Config& config)
@@ -341,7 +367,13 @@ bool save_saved_config(const Config& config)
     const bool password_ok =
         ::platform::ui::settings_store::put_string(kSettingsNs, kWifiPasswordKey, config.password);
     ::platform::ui::settings_store::put_bool(kSettingsNs, kWifiEnabledKey, config.enabled);
-    return profiles_ok && ssid_ok && password_ok;
+    const bool saved = profiles_ok && ssid_ok && password_ok;
+    if (saved)
+    {
+        s_runtime.saved_config = config;
+        s_runtime.config_cached = true;
+    }
+    return saved;
 }
 
 c6::WifiCompanionConfig make_companion_wifi_config(const Config& config)
@@ -452,6 +484,65 @@ bool wait_for_c6_scan(ScanResult* out_results, std::size_t capacity, std::size_t
 #else
     (void)out_results;
     (void)capacity;
+    return false;
+#endif
+}
+
+bool c6_wifi_ready_for_config(const c6::C6CompanionStatus& status, const Config& config)
+{
+    if (!status.wifi_connected || status.wifi_ipv4_addr == 0)
+    {
+        return false;
+    }
+    return status.wifi_ssid[0] == '\0' ||
+           std::strncmp(status.wifi_ssid, config.ssid, sizeof(status.wifi_ssid)) == 0;
+}
+
+bool wait_for_c6_connection(const Config& config, uint32_t baseline_event_count)
+{
+#if defined(ESP_PLATFORM) && defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
+    const TickType_t start_ticks = xTaskGetTickCount();
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(kC6ConnectWaitTimeoutMs);
+
+    while ((xTaskGetTickCount() - start_ticks) < timeout_ticks)
+    {
+        const auto status = c6::get_c6_companion_status();
+        if (!status.present)
+        {
+            std::printf("[WiFi][C6] connect wait failed reason=companion_unavailable\n");
+            return false;
+        }
+        if (status.wifi_event_count != baseline_event_count &&
+            c6_wifi_ready_for_config(status, config))
+        {
+            char ip[16] = {};
+            format_ipv4(status.wifi_ipv4_addr, ip, sizeof(ip));
+            std::printf("[WiFi][C6] connected ssid=%s ip=%s events=%lu\n",
+                        status.wifi_ssid[0] != '\0' ? status.wifi_ssid : config.ssid,
+                        ip[0] != '\0' ? ip : "<none>",
+                        static_cast<unsigned long>(status.wifi_event_count));
+            return true;
+        }
+        if (status.wifi_event_count != baseline_event_count && status.wifi_error != TM_C6_OK)
+        {
+            std::printf("[WiFi][C6] connect wait failed reason=wifi_error error=%u events=%lu\n",
+                        static_cast<unsigned>(status.wifi_error),
+                        static_cast<unsigned long>(status.wifi_event_count));
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(kC6ConnectPollIntervalMs));
+    }
+
+    const auto status = c6::get_c6_companion_status();
+    std::printf("[WiFi][C6] connect wait timeout connected=%u ipv4=0x%08lX error=%u events=%lu\n",
+                status.wifi_connected ? 1U : 0U,
+                static_cast<unsigned long>(status.wifi_ipv4_addr),
+                static_cast<unsigned>(status.wifi_error),
+                static_cast<unsigned long>(status.wifi_event_count));
+    return false;
+#else
+    (void)config;
+    (void)baseline_event_count;
     return false;
 #endif
 }
@@ -573,17 +664,59 @@ bool connect(const Config* override_config)
     config.enabled = true;
     if (override_config && !save_saved_config(config))
     {
+        std::printf("[WiFi][C6] connect rejected reason=config_save_failed ssid=%s\n",
+                    config.ssid);
         return false;
     }
-    if (!has_saved_credentials(config) || !c6_present())
+    if (!has_saved_credentials(config))
     {
+        std::printf("[WiFi][C6] connect rejected reason=no_credentials ssid_len=%u\n",
+                    static_cast<unsigned>(std::strlen(config.ssid)));
         return false;
+    }
+    const auto before = c6::get_c6_companion_status();
+    if (!before.present)
+    {
+        std::printf("[WiFi][C6] connect rejected reason=c6_not_present board_capable=%u "
+                    "started=%u state=%s detail=%s features=0x%08lX\n",
+                    before.board_capable ? 1U : 0U,
+                    before.started ? 1U : 0U,
+                    c6::companion_state_name(before.state),
+                    before.detail ? before.detail : "unknown",
+                    static_cast<unsigned long>(before.supported_features));
+        return false;
+    }
+    if (c6_wifi_ready_for_config(before, config))
+    {
+        return true;
     }
     if (!c6::c6_companion().configureWifi(make_companion_wifi_config(config)))
     {
+        const auto after = c6::get_c6_companion_status();
+        std::printf("[WiFi][C6] connect rejected reason=config_failed state=%s detail=%s "
+                    "config_error=%u wifi_state=%u wifi_error=%u events=%lu\n",
+                    c6::companion_state_name(after.state),
+                    after.detail ? after.detail : "unknown",
+                    static_cast<unsigned>(after.config_error),
+                    static_cast<unsigned>(after.wifi_state),
+                    static_cast<unsigned>(after.wifi_error),
+                    static_cast<unsigned long>(after.wifi_event_count));
         return false;
     }
-    return c6::c6_companion().sendWifiControl(make_control(c6::WifiCommand::Connect, &config));
+    const bool sent =
+        c6::c6_companion().sendWifiControl(make_control(c6::WifiCommand::Connect, &config));
+    const auto after = c6::get_c6_companion_status();
+    std::printf("[WiFi][C6] connect request sent=%u ssid=%s state=%s detail=%s "
+                "wifi_state=%u connected=%u wifi_error=%u events=%lu\n",
+                sent ? 1U : 0U,
+                config.ssid,
+                c6::companion_state_name(after.state),
+                after.detail ? after.detail : "unknown",
+                static_cast<unsigned>(after.wifi_state),
+                after.wifi_connected ? 1U : 0U,
+                static_cast<unsigned>(after.wifi_error),
+                static_cast<unsigned long>(after.wifi_event_count));
+    return sent && wait_for_c6_connection(config, before.wifi_event_count);
 }
 
 void disconnect()
@@ -618,7 +751,7 @@ bool scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count)
 Status status()
 {
     const auto c6_status = c6::get_c6_companion_status();
-    const Config config = load_saved_config();
+    const Config config = cached_saved_config();
     Status out{};
     out.supported = c6_status.board_capable;
     out.enabled = config.enabled;
@@ -631,17 +764,17 @@ Status status()
     if (!c6_status.board_capable)
     {
         out.state = ConnectionState::Unsupported;
-        copy_text(out.message, sizeof(out.message), "C6 Wi-Fi companion unsupported on this target");
+        copy_text(out.message, sizeof(out.message), "Wi-Fi unsupported on this device");
     }
     else if (!c6_status.present)
     {
         out.state = ConnectionState::Error;
-        copy_text(out.message, sizeof(out.message), "C6 companion not present");
+        copy_text(out.message, sizeof(out.message), "Wi-Fi hardware unavailable");
     }
     else if ((c6_status.supported_features & kWifiFeatureMask) == 0)
     {
         out.state = ConnectionState::Unsupported;
-        copy_text(out.message, sizeof(out.message), "C6 firmware does not support Wi-Fi management");
+        copy_text(out.message, sizeof(out.message), "Wi-Fi unavailable");
     }
     else if (!config.enabled)
     {
@@ -651,22 +784,31 @@ Status status()
     else if (c6_status.wifi_scanning)
     {
         out.state = ConnectionState::Scanning;
-        copy_text(out.message, sizeof(out.message), "C6 Wi-Fi scan running");
+        copy_text(out.message, sizeof(out.message), "Scanning...");
     }
     else if (c6_status.wifi_connected)
     {
         out.state = ConnectionState::Connected;
-        copy_text(out.message, sizeof(out.message), "C6 Wi-Fi connected");
+        if (out.ip[0] != '\0')
+        {
+            std::snprintf(out.message, sizeof(out.message), "Connected %s", out.ip);
+        }
+        else
+        {
+            copy_text(out.message, sizeof(out.message), "Connected");
+        }
     }
     else if (c6_status.wifi_error != 0)
     {
         out.state = ConnectionState::Error;
-        copy_text(out.message, sizeof(out.message), "C6 Wi-Fi error");
+        copy_text(out.message, sizeof(out.message), "Wi-Fi error");
     }
     else
     {
         out.state = ConnectionState::Idle;
-        copy_text(out.message, sizeof(out.message), "C6 Wi-Fi idle");
+        copy_text(out.message,
+                  sizeof(out.message),
+                  out.has_credentials ? "Ready to connect" : "Set SSID and password");
     }
     return out;
 }

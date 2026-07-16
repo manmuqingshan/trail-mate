@@ -8,8 +8,36 @@
 #include "platform/esp/common/shared_spi_lock.h"
 #include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/screen_runtime.h"
+#if defined(ARDUINO)
 #include <Arduino.h>
 #include <RadioLib.h>
+#else
+#include "esp_timer.h"
+
+#include <cstdio>
+
+#define RADIOLIB_ERR_NONE 0
+#define RADIOLIB_SX126X_IRQ_RX_DONE 0x0002U
+#define RADIOLIB_SX126X_IRQ_HEADER_ERR 0x0020U
+#define RADIOLIB_SX126X_IRQ_CRC_ERR 0x0040U
+#define RADIOLIB_SX126X_IRQ_TIMEOUT 0x0200U
+
+static uint32_t millis()
+{
+    return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+}
+
+struct IdfSerialLogAdapter
+{
+    template <typename... Args>
+    int printf(const char* format, Args... args) const
+    {
+        return std::printf(format, args...);
+    }
+};
+
+static constexpr IdfSerialLogAdapter Serial{};
+#endif
 #include <cstring>
 #include <esp_heap_caps.h>
 

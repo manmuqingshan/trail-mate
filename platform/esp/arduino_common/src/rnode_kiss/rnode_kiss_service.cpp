@@ -7,6 +7,7 @@
 #include "platform/esp/arduino_common/chat/infra/rnode/rnode_adapter.h"
 #include "usb/usb_cdc_transport.h"
 
+#include "esp_random.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"

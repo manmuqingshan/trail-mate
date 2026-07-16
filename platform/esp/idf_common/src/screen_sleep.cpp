@@ -415,9 +415,7 @@ void enableScreenSleep()
 }
 
 // ===================================================================
-// platform::ui::screen contract — implemented directly here to
-// eliminate the adapt_hooks() pass-through layer that previously
-// lived in platform_ui_screen_runtime.cpp.
+// platform::ui::screen contract — owned directly by the runtime.
 // ===================================================================
 
 namespace platform::ui::screen

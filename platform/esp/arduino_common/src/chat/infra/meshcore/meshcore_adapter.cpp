@@ -11,12 +11,17 @@
 #include "chat/runtime/meshcore_direct_secret_core.h"
 #include "chat/time_utils.h"
 #include "mesh/protocol/meshcore/meshcore_protocol_strategy.h"
+#if defined(ARDUINO)
 #include "platform/esp/arduino_common/app_tasks.h"
+#else
+#include "platform/esp/common/reticulum_runtime_compat.h"
+#endif
+#include "platform/esp/common/meshcore_runtime_compat.h"
 #include "sys/event_bus.h"
-#include <AES.h>
+#if defined(ARDUINO)
 #include <Arduino.h>
 #include <RadioLib.h>
-#include <SHA256.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -182,6 +187,7 @@ using chat::meshcore::aesEncrypt;
 using chat::meshcore::encryptThenMac;
 using chat::meshcore::macThenDecrypt;
 using chat::meshcore::trimTrailingZeros;
+using MeshCoreSha256 = ::platform::esp::common::meshcore_runtime::Sha256Digest;
 
 using chat::meshcore::buildDiscoverRequestControlPayload;
 using chat::meshcore::buildDiscoverResponseControlPayload;
@@ -279,11 +285,10 @@ bool buildPathPlain(const uint8_t* out_path, size_t out_path_len,
 MeshCoreAdapter::MeshCoreAdapter(LoraBoard& board,
                                  IMeshPeerDirectory* peer_directory)
     : board_(board),
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+      idf_radio_pump_(board),
+#endif
       peer_directory_(peer_directory),
-      initialized_(false),
-      last_raw_packet_len_(0),
-      has_pending_raw_packet_(false),
-      next_msg_id_(1),
       min_tx_interval_ms_(0),
       last_tx_ms_(0),
       encrypt_mode_(0),
@@ -294,14 +299,13 @@ MeshCoreAdapter::MeshCoreAdapter(LoraBoard& board,
       last_rx_snr_(NAN),
       last_noise_floor_dbm_(0),
       tx_airtime_ms_(0),
-      rx_airtime_ms_(0)
+      rx_airtime_ms_(0),
+      initialized_(false),
+      last_raw_packet_len_(0),
+      has_pending_raw_packet_(false),
+      next_msg_id_(1)
 {
-    const uint64_t raw = ESP.getEfuseMac();
-    const uint8_t* mac = reinterpret_cast<const uint8_t*>(&raw);
-    node_id_ = (static_cast<uint32_t>(mac[2]) << 24) |
-               (static_cast<uint32_t>(mac[3]) << 16) |
-               (static_cast<uint32_t>(mac[4]) << 8) |
-               static_cast<uint32_t>(mac[5]);
+    node_id_ = ::platform::esp::common::meshcore_runtime::device_node_id();
     self_hash_ = static_cast<uint8_t>(node_id_ & 0xFF);
 }
 
@@ -1949,16 +1953,18 @@ MeshActionResult MeshCoreAdapter::transmitFrameNowDetailed(const uint8_t* data, 
                                 ? static_cast<uint32_t>(std::lround(air_ms_f))
                                 : 0U;
 
-    int state = RADIOLIB_ERR_UNSUPPORTED;
-#if defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_SX1280) || \
-    defined(ARDUINO_LILYGO_LORA_LR1121)
+    int state = -1;
+#if defined(ARDUINO)
     app::AppTasks::requestRadioReceiveRestart();
     {
         app::AppTasks::ScopedRadioTransmitActivity tx_activity;
         state = board_.transmitRadio(data, len);
     }
+#else
+    idf_radio_pump_.markReceiveStopped();
+    state = board_.transmitRadio(data, len);
 #endif
-    if (state == RADIOLIB_ERR_NONE)
+    if (state == 0)
     {
         ParsedPacket parsed;
         const bool parsed_ok = parsePacket(data, len, &parsed);
@@ -1976,15 +1982,23 @@ MeshActionResult MeshCoreAdapter::transmitFrameNowDetailed(const uint8_t* data, 
         {
             queueMqttBridgePacket(data, len);
         }
-        int rx_state = board_.startRadioReceive();
-        if (rx_state != RADIOLIB_ERR_NONE)
+#if defined(ARDUINO)
+        const int rx_state = board_.startRadioReceive();
+#else
+        const int rx_state = idf_radio_pump_.restartReceive() ? 0 : -1;
+#endif
+        if (rx_state != 0)
         {
+#if defined(ARDUINO)
             app::AppTasks::requestRadioReceiveRestart();
+#endif
             MESHCORE_LOG("[MESHCORE] RX restart fail state=%d\n", rx_state);
         }
         else
         {
+#if defined(ARDUINO)
             app::AppTasks::setRadioReceiveActive(true);
+#endif
             if (parsePacket(data, len, &parsed))
             {
                 MESHCORE_LOG("[MESHCORE] RX restart ok after_tx route=%u type=%u len=%u\n",
@@ -2000,8 +2014,14 @@ MeshActionResult MeshCoreAdapter::transmitFrameNowDetailed(const uint8_t* data, 
         }
         return MeshActionResult::success();
     }
+#if defined(ARDUINO)
     app::AppTasks::requestRadioReceiveRestart();
-    return MeshActionResult::fail(state == RADIOLIB_ERR_SPI_WRITE_FAILED
+    const bool radio_busy = (state == RADIOLIB_ERR_SPI_WRITE_FAILED);
+#else
+    (void)idf_radio_pump_.restartReceive();
+    const bool radio_busy = false;
+#endif
+    return MeshActionResult::fail(radio_busy
                                       ? MeshOperationFailure::Busy
                                       : MeshOperationFailure::RadioTxFailed,
                                   state);
@@ -2205,7 +2225,7 @@ uint32_t MeshCoreAdapter::computeVerificationNumber(NodeId peer, uint64_t nonce)
     const uint32_t high = std::max(node_id_, peer);
 
     uint8_t digest[sizeof(uint32_t)] = {};
-    SHA256 sha;
+    MeshCoreSha256 sha;
     sha.update(key32, sizeof(key32));
     sha.update(reinterpret_cast<const uint8_t*>(&low), sizeof(low));
     sha.update(reinterpret_cast<const uint8_t*>(&high), sizeof(high));
@@ -2469,7 +2489,9 @@ bool MeshCoreAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effec
                                 {
                                     t_ms = 1;
                                 }
-                                const uint32_t delay_ms = static_cast<uint32_t>(random(1, 5)) * t_ms * 4U;
+                                const uint32_t delay_ms =
+                                    ::platform::esp::common::meshcore_runtime::random_between(1, 5) *
+                                    t_ms * 4U;
                                 if (config_.tx_enabled)
                                 {
                                     enqueueScheduled(frame, frame_len, delay_ms);
@@ -3569,7 +3591,7 @@ MeshActionResult MeshCoreAdapter::sendDirectTextDetailed(ChannelId channel, cons
     uint32_t ack_value = 0;
     if (identity_.isReady() && txt_type == kTxtTypePlain)
     {
-        SHA256 sha;
+        MeshCoreSha256 sha;
         sha.update(plain, plain_len);
         sha.update(identity_.publicKey(), kMeshcorePubKeySize);
         sha.finalize(reinterpret_cast<uint8_t*>(&ack_value), sizeof(ack_value));
@@ -4014,8 +4036,6 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
     protocol_runtime_.resetAutoDiscoverState();
     loadPeerPubKeysFromDirectory();
 
-#if defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_SX1280) || \
-    defined(ARDUINO_LILYGO_LORA_LR1121)
     if (board_.isRadioOnline())
     {
         board_.configureLoraRadio(config_.meshcore_freq_mhz,
@@ -4026,8 +4046,10 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
                                   16,
                                   kLoraSyncWordPrivate,
                                   2);
-    }
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+        (void)idf_radio_pump_.restartReceive();
 #endif
+    }
     initialized_ = true;
 }
 
@@ -4749,7 +4771,8 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             const uint32_t rx_delay = computeRxDelayMs(config_.meshcore_rx_delay_base, score, air_ms);
             const uint32_t tx_step = static_cast<uint32_t>(
                 std::lround(static_cast<float>(air_ms) * config_.meshcore_airtime_factor));
-            const uint32_t tx_delay = static_cast<uint32_t>(random(0, 6)) * tx_step;
+            const uint32_t tx_delay =
+                ::platform::esp::common::meshcore_runtime::random_between(0, 6) * tx_step;
             const uint32_t total_delay = rx_delay + tx_delay;
             enqueueScheduled(fwd.data(), fwd.size(), total_delay);
 
@@ -5079,7 +5102,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                         ++text_len;
                     }
 
-                    SHA256 sha;
+                    MeshCoreSha256 sha;
                     sha.update(plain, 5 + text_len);
                     sha.update(sender_pubkey, kMeshcorePubKeySize);
                     sha.finalize(reinterpret_cast<uint8_t*>(&ack_value), sizeof(ack_value));
@@ -5122,7 +5145,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                         ++text_len;
                     }
 
-                    SHA256 sha;
+                    MeshCoreSha256 sha;
                     sha.update(plain, 9 + text_len);
                     sha.update(self_pubkey, kMeshcorePubKeySize);
                     sha.finalize(reinterpret_cast<uint8_t*>(&ack_value), sizeof(ack_value));
@@ -5670,8 +5693,48 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
     }
 }
 
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+void MeshCoreAdapter::pollIdfRadio()
+{
+    if (!initialized_ || !board_.isRadioOnline())
+    {
+        return;
+    }
+
+    ::platform::esp::radio::IdfLoraRadioFrame frame{};
+    const auto result = idf_radio_pump_.poll(frame);
+    if (result == ::platform::esp::radio::IdfLoraPollResult::Frame)
+    {
+        setLastRxStats(frame.rssi, frame.snr);
+        MESHCORE_LOG("[MESHCORE] IDF RX raw len=%u rssi=%.1f snr=%.1f irq=0x%04lX\n",
+                     static_cast<unsigned>(frame.len),
+                     static_cast<double>(frame.rssi),
+                     static_cast<double>(frame.snr),
+                     static_cast<unsigned long>(frame.irq));
+        handleRawPacket(frame.data, frame.len);
+        return;
+    }
+
+    if (result == ::platform::esp::radio::IdfLoraPollResult::InvalidPacketLength)
+    {
+        MESHCORE_LOG("[MESHCORE] IDF RX invalid length=%d irq=0x%04lX\n",
+                     frame.packet_length,
+                     static_cast<unsigned long>(frame.irq));
+    }
+    else if (result == ::platform::esp::radio::IdfLoraPollResult::ReadFailed)
+    {
+        MESHCORE_LOG("[MESHCORE] IDF RX read failed length=%d irq=0x%04lX\n",
+                     frame.packet_length,
+                     static_cast<unsigned long>(frame.irq));
+    }
+}
+#endif
+
 void MeshCoreAdapter::processSendQueue()
 {
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+    pollIdfRadio();
+#endif
     uint32_t now_ms = millis();
     prunePendingAppAcks(now_ms);
     prunePeerRoutes(now_ms);

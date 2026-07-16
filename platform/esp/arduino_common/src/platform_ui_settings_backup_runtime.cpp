@@ -1,9 +1,17 @@
 #include "platform/ui/settings_backup_runtime.h"
 
+#if defined(ARDUINO)
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-
 #include <Arduino.h>
 #include <Preferences.h>
+#else
+#include "esp_timer.h"
+#include "nvs.h"
+#include "platform/esp/idf_common/bsp_runtime.h"
+
+#include <cerrno>
+#include <sys/stat.h>
+#endif
 
 #include <cmath>
 #include <cstdio>
@@ -12,7 +20,11 @@
 
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
+#if defined(ARDUINO)
 #include "cJSON.h"
+#else
+#include "cJSON.h"
+#endif
 #include "chat/domain/chat_types.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "platform/ui/device_runtime.h"
@@ -30,6 +42,81 @@ constexpr const char* kBackupMagic = "trail-mate-settings-backup";
 constexpr int kBackupVersion = 1;
 constexpr std::size_t kMaxBackupBytes = 24 * 1024;
 constexpr std::size_t kMaxExtraBlobBytes = 128;
+
+uint32_t uptime_ms()
+{
+#if defined(ARDUINO)
+    return millis();
+#else
+    return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+#endif
+}
+
+#if !defined(ARDUINO)
+std::string native_storage_path(const char* path)
+{
+    const char* mount_point =
+        ::platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
+    return std::string(mount_point ? mount_point : "/sdcard") + (path ? path : "");
+}
+#endif
+
+bool storage_exists(const char* path)
+{
+#if defined(ARDUINO)
+    return ::platform::esp::arduino_common::storage::sd_exists(path);
+#else
+    struct stat info
+    {
+    };
+    const std::string native_path = native_storage_path(path);
+    return stat(native_path.c_str(), &info) == 0;
+#endif
+}
+
+bool storage_is_directory(const char* path)
+{
+#if defined(ARDUINO)
+    return ::platform::esp::arduino_common::storage::sd_is_directory(path);
+#else
+    struct stat info
+    {
+    };
+    const std::string native_path = native_storage_path(path);
+    return stat(native_path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+#endif
+}
+
+bool storage_mkdir(const char* path)
+{
+#if defined(ARDUINO)
+    return ::platform::esp::arduino_common::storage::sd_mkdir(path);
+#else
+    const std::string native_path = native_storage_path(path);
+    return mkdir(native_path.c_str(), 0775) == 0 || errno == EEXIST;
+#endif
+}
+
+bool storage_remove(const char* path)
+{
+#if defined(ARDUINO)
+    return ::platform::esp::arduino_common::storage::sd_remove(path);
+#else
+    const std::string native_path = native_storage_path(path);
+    return std::remove(native_path.c_str()) == 0 || errno == ENOENT;
+#endif
+}
+
+bool storage_rename(const char* from, const char* to)
+{
+#if defined(ARDUINO)
+    return ::platform::esp::arduino_common::storage::sd_rename(from, to);
+#else
+    const std::string native_from = native_storage_path(from);
+    const std::string native_to = native_storage_path(to);
+    return std::rename(native_from.c_str(), native_to.c_str()) == 0;
+#endif
+}
 
 enum class ValueType : uint8_t
 {
@@ -106,17 +193,22 @@ void set_status_message(Status& out, const char* message, const char* detail = n
 
 bool sd_available()
 {
+#if defined(ARDUINO)
     return ::platform::ui::device::card_ready() &&
            ::platform::esp::arduino_common::storage::sd_card_ready();
+#else
+    return ::platform::ui::device::card_ready() &&
+           ::platform::esp::idf_common::bsp_runtime::sdcard_ready();
+#endif
 }
 
 bool ensure_backup_dir()
 {
-    if (::platform::esp::arduino_common::storage::sd_exists(kBackupDir))
+    if (storage_exists(kBackupDir))
     {
-        return ::platform::esp::arduino_common::storage::sd_is_directory(kBackupDir);
+        return storage_is_directory(kBackupDir);
     }
-    return ::platform::esp::arduino_common::storage::sd_mkdir(kBackupDir);
+    return storage_mkdir(kBackupDir);
 }
 
 const char* value_type_name(ValueType type)
@@ -891,22 +983,67 @@ void restore_app_config_json(cJSON* object, app::AppConfig& config)
     restore_aprs_config(cJSON_GetObjectItemCaseSensitive(object, "aprs"), config.aprs);
 }
 
-PreferenceType extra_preference_type(const ExtraKey& key)
+bool extra_preference_exists(const ExtraKey& key)
 {
+#if defined(ARDUINO)
     Preferences prefs;
     if (!prefs.begin(key.ns, true))
     {
-        return PT_INVALID;
+        return false;
     }
     const PreferenceType type = prefs.getType(key.storage_key ? key.storage_key : key.key);
     prefs.end();
-    return type;
+    return type != PT_INVALID;
+#else
+    nvs_handle_t handle = 0;
+    if (nvs_open(key.ns, NVS_READONLY, &handle) != ESP_OK)
+    {
+        return false;
+    }
+
+    const char* storage_key = key.storage_key ? key.storage_key : key.key;
+    esp_err_t err = ESP_ERR_NVS_NOT_FOUND;
+    switch (key.type)
+    {
+    case ValueType::Bool:
+    {
+        uint8_t value = 0;
+        err = nvs_get_u8(handle, storage_key, &value);
+        break;
+    }
+    case ValueType::Int:
+    {
+        int32_t value = 0;
+        err = nvs_get_i32(handle, storage_key, &value);
+        break;
+    }
+    case ValueType::UInt:
+    {
+        uint32_t value = 0;
+        err = nvs_get_u32(handle, storage_key, &value);
+        break;
+    }
+    case ValueType::String:
+    {
+        std::size_t size = 0;
+        err = nvs_get_str(handle, storage_key, nullptr, &size);
+        break;
+    }
+    case ValueType::Blob:
+    {
+        std::size_t size = 0;
+        err = nvs_get_blob(handle, storage_key, nullptr, &size);
+        break;
+    }
+    }
+    nvs_close(handle);
+    return err == ESP_OK;
+#endif
 }
 
 void add_extra_value(cJSON* parent, const ExtraKey& key)
 {
-    const PreferenceType pref_type = extra_preference_type(key);
-    if (pref_type == PT_INVALID)
+    if (!extra_preference_exists(key))
     {
         return;
     }
@@ -1068,7 +1205,7 @@ cJSON* create_backup_document()
     add_string(root, "magic", kBackupMagic);
     add_int(root, "version", kBackupVersion);
     add_string(root, "firmware", ::platform::ui::device::firmware_version());
-    add_uint(root, "created_ms", millis());
+    add_uint(root, "created_ms", uptime_ms());
 
     cJSON* app_config = create_app_config_json(facade.getConfig());
     if (!app_config)
@@ -1087,10 +1224,11 @@ bool write_text_atomic(const char* path, const char* temp_path, const char* text
     {
         return false;
     }
-    if (::platform::esp::arduino_common::storage::sd_exists(temp_path))
+    if (storage_exists(temp_path))
     {
-        ::platform::esp::arduino_common::storage::sd_remove(temp_path);
+        storage_remove(temp_path);
     }
+#if defined(ARDUINO)
     ::platform::esp::arduino_common::storage::SdRuntimeFile file;
     if (!file.open(temp_path, "w"))
     {
@@ -1098,18 +1236,28 @@ bool write_text_atomic(const char* path, const char* temp_path, const char* text
     }
     const bool wrote = file.write(reinterpret_cast<const uint8_t*>(text), len) == len;
     file.close();
-    if (!wrote)
+#else
+    const std::string native_temp_path = native_storage_path(temp_path);
+    std::FILE* file = std::fopen(native_temp_path.c_str(), "wb");
+    if (!file)
     {
-        ::platform::esp::arduino_common::storage::sd_remove(temp_path);
         return false;
     }
-    if (::platform::esp::arduino_common::storage::sd_exists(path))
+    const bool wrote = std::fwrite(text, 1, len, file) == len && std::fflush(file) == 0;
+    std::fclose(file);
+#endif
+    if (!wrote)
     {
-        ::platform::esp::arduino_common::storage::sd_remove(path);
+        storage_remove(temp_path);
+        return false;
     }
-    if (!::platform::esp::arduino_common::storage::sd_rename(temp_path, path))
+    if (storage_exists(path))
     {
-        ::platform::esp::arduino_common::storage::sd_remove(temp_path);
+        storage_remove(path);
+    }
+    if (!storage_rename(temp_path, path))
+    {
+        storage_remove(temp_path);
         return false;
     }
     return true;
@@ -1118,6 +1266,7 @@ bool write_text_atomic(const char* path, const char* temp_path, const char* text
 bool read_file_text(const char* path, std::string& out)
 {
     out.clear();
+#if defined(ARDUINO)
     ::platform::esp::arduino_common::storage::SdRuntimeFile file;
     if (!file.open(path, "r"))
     {
@@ -1132,6 +1281,30 @@ bool read_file_text(const char* path, std::string& out)
     out.resize(size);
     const std::size_t read = file.read_bytes(&out[0], size);
     file.close();
+#else
+    const std::string native_path = native_storage_path(path);
+    std::FILE* file = std::fopen(native_path.c_str(), "rb");
+    if (!file)
+    {
+        return false;
+    }
+    if (std::fseek(file, 0, SEEK_END) != 0)
+    {
+        std::fclose(file);
+        return false;
+    }
+    const long file_size = std::ftell(file);
+    if (file_size <= 0 || static_cast<std::size_t>(file_size) > kMaxBackupBytes ||
+        std::fseek(file, 0, SEEK_SET) != 0)
+    {
+        std::fclose(file);
+        return false;
+    }
+    const std::size_t size = static_cast<std::size_t>(file_size);
+    out.resize(size);
+    const std::size_t read = std::fread(&out[0], 1, size, file);
+    std::fclose(file);
+#endif
     if (read != size)
     {
         out.clear();
@@ -1179,8 +1352,7 @@ Status status()
     Status out{};
     out.supported = true;
     out.sd_present = sd_available();
-    out.has_backup = out.sd_present &&
-                     ::platform::esp::arduino_common::storage::sd_exists(kBackupPath);
+    out.has_backup = out.sd_present && storage_exists(kBackupPath);
     out.busy = false;
     if (!out.sd_present)
     {
@@ -1225,7 +1397,7 @@ bool backup()
 
 bool restore()
 {
-    if (!sd_available() || !::platform::esp::arduino_common::storage::sd_exists(kBackupPath))
+    if (!sd_available() || !storage_exists(kBackupPath))
     {
         return false;
     }
@@ -1263,12 +1435,11 @@ bool remove()
     {
         return false;
     }
-    if (::platform::esp::arduino_common::storage::sd_exists(kBackupTempPath))
+    if (storage_exists(kBackupTempPath))
     {
-        ::platform::esp::arduino_common::storage::sd_remove(kBackupTempPath);
+        storage_remove(kBackupTempPath);
     }
-    return !::platform::esp::arduino_common::storage::sd_exists(kBackupPath) ||
-           ::platform::esp::arduino_common::storage::sd_remove(kBackupPath);
+    return !storage_exists(kBackupPath) || storage_remove(kBackupPath);
 }
 
 } // namespace platform::ui::settings_backup

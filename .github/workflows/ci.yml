@@ -219,6 +219,95 @@ jobs:
           name: trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}
           path: dist/*
 
+  build_idf:
+    name: ESP-IDF Build (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.4
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - t_display_p4_tft
+          - t_display_p4_amoled
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(iconv -f UTF-16LE -t UTF-8 CHANGELOG.md | awk -F'[][]' '/^## \[[0-9]/ {print $2; exit}')
+          fi
+          if [ -z "$VERSION" ]; then
+            VERSION="unknown"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build (${{ matrix.env }})
+        shell: bash
+        run: |
+          idf.py -B "build.${{ matrix.env }}" \
+            -D "TRAIL_MATE_IDF_TARGET=${{ matrix.env }}" build
+
+      - name: Validate OTA slot size
+        shell: bash
+        run: |
+          BUILD_DIR="build.${{ matrix.env }}"
+          SIZE=$(stat -c%s "${BUILD_DIR}/trail-mate.bin")
+          MAX_SIZE=$((0x400000))
+          echo "trail-mate.bin size=${SIZE} max=${MAX_SIZE}"
+          if [ "${SIZE}" -gt "${MAX_SIZE}" ]; then
+            echo "trail-mate.bin exceeds OTA slot size" >&2
+            exit 1
+          fi
+
+      - name: Collect firmware and web flasher image
+        shell: bash
+        run: |
+          mkdir -p dist
+          BUILD_DIR="build.${{ matrix.env }}"
+          cp "${BUILD_DIR}/trail-mate.bin" \
+            "dist/trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}.bin"
+          python scripts/prepare_webflash_release.py \
+            --env "${{ matrix.env }}" \
+            --build-root . \
+            --dist dist
+
+      - name: Collect debug symbols
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          BUILD_DIR="build.${{ matrix.env }}"
+          SYMBOL_DIR="dist/symbols/${{ matrix.env }}"
+          mkdir -p "${SYMBOL_DIR}"
+          cp "${BUILD_DIR}/trail-mate.elf" "${SYMBOL_DIR}/trail-mate.elf"
+          cp "${BUILD_DIR}/trail-mate.map" "${SYMBOL_DIR}/trail-mate.map"
+          cp "${BUILD_DIR}/trail-mate.bin" "${SYMBOL_DIR}/trail-mate.bin"
+          {
+            echo "schema=trail-mate.symbols.v1"
+            echo "env=${{ matrix.env }}"
+            echo "version=${{ steps.version.outputs.version }}"
+            echo "git_ref=${GITHUB_REF}"
+            echo "git_ref_name=${GITHUB_REF_NAME}"
+            echo "git_sha=${GITHUB_SHA}"
+            echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "${SYMBOL_DIR}/manifest.txt"
+          (cd "${SYMBOL_DIR}" && sha256sum * > SHA256SUMS)
+          (cd dist/symbols && python -m zipfile -c \
+            "../trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}-symbols.zip" \
+            "${{ matrix.env }}")
+          rm -rf dist/symbols
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}
+          path: dist/*
+
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
@@ -226,6 +315,7 @@ jobs:
       - boundary
       - format
       - build
+      - build_idf
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       actions: write

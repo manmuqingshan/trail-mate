@@ -200,7 +200,11 @@ void NmeaParser::processSentence(const NmeaSentence& sentence)
     }
 
     char scratch[kMaxNmeaSentenceLen] = {};
-    std::strncpy(scratch, sentence.text, sizeof(scratch) - 1U);
+    const std::size_t copy_len = sentence.len < sizeof(scratch)
+                                     ? sentence.len
+                                     : sizeof(scratch) - 1U;
+    std::memcpy(scratch, sentence.text, copy_len);
+    scratch[copy_len] = '\0';
     char* star = std::strchr(scratch, '*');
     if (star)
     {

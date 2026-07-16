@@ -49,10 +49,11 @@ buffer allocated from `SPIRAM | 8BIT | DMA`, a 1 ms LVGL tick, and direct DPI
 panel flush callbacks. The TrailMate IDF runtime keeps the panel timing and pin
 facts aligned with that demo, uses a 1 ms LVGL tick, allocates RGB565 draw
 buffers from PSRAM with DMA capability, enables the ESP32-P4 PPA rotation path,
-and defaults `CONFIG_TRAIL_MATE_T_DISPLAY_P4_LVGL_BUFFER_LINES` to 200 for both
-TFT and AMOLED targets. If real-device animation still feels slower than the
-official demo after functional bring-up, tune this display-runtime policy in
-`platform/esp/idf_components/t_display_p4` rather than changing board pin facts.
+and keeps the LVGL draw buffer full-screen so that worst-case invalidation and
+rotation never exceed the PPA output buffer. If real-device animation still
+feels slower than the official demo after functional bring-up, tune this
+display-runtime policy in `platform/esp/idf_components/t_display_p4` rather than
+changing board pin facts.
 
 ## Keyboard Runtime Policy
 

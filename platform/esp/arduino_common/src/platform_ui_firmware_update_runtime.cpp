@@ -343,6 +343,10 @@ const char* firmware_target_id()
     return "tlora-pager-lr1121";
 #elif defined(ARDUINO_T_WATCH_S3)
     return "lilygo-twatch-s3";
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4_AMOLED)
+    return "t-display-p4-amoled";
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return "t-display-p4-tft";
 #else
     return nullptr;
 #endif

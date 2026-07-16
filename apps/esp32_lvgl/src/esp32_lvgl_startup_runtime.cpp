@@ -163,10 +163,20 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
     {
         ESP_LOGI(config.log_tag, "Boot time restored from hardware RTC");
     }
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // T-Display-P4 puts the SD card and C6 companion on the two slots of the
+    // same SDMMC controller. Finish the optional SD probe before bringing up
+    // C6 so a no-card probe cannot disturb an already active HostLink slot.
+    setBootLog(config, "Mounting SD card...");
+    (void)platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready();
+    setBootLog(config, "Starting wireless services...");
+    (void)platform::esp::idf_common::wireless_companion::ensure_c6_companion_started();
+#else
     setBootLog(config, "Starting companion...");
     (void)platform::esp::idf_common::wireless_companion::ensure_c6_companion_started();
     setBootLog(config, "Mounting SD card...");
     (void)platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready();
+#endif
     setBootLog(config, "Checking crash dump...");
     (void)platform::esp::idf_common::debug::export_previous_coredump_to_sd();
 

@@ -8,6 +8,7 @@
 #include "chat/infra/reticulum/audio_call_wire.h"
 #include "chat/infra/reticulum/lxst_telephony_wire.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_call_profile.h"
+#include "platform/esp/common/reticulum_runtime_compat.h"
 #include "platform/ui/reticulum_call_runtime.h"
 
 #include <cstdio>

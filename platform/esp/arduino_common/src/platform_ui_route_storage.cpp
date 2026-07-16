@@ -9,7 +9,11 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+#include "src/libs/tjpgd/tjpgd.h"
+#else
 #include "esp_rom_tjpgd.h"
+#endif
 #include <esp_heap_caps.h>
 
 #include <algorithm>
@@ -480,7 +484,21 @@ struct RouteJpegCacheContext
     uint16_t target_h = 0;
 };
 
-uint32_t jpeg_input_cb(esp_rom_tjpgd_dec_t* dec, uint8_t* buffer, uint32_t ndata)
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+using RouteJpegDecoder = JDEC;
+using RouteJpegRect = JRECT;
+using RouteJpegInputResult = std::size_t;
+using RouteJpegOutputResult = int;
+#else
+using RouteJpegDecoder = esp_rom_tjpgd_dec_t;
+using RouteJpegRect = esp_rom_tjpgd_rect_t;
+using RouteJpegInputResult = uint32_t;
+using RouteJpegOutputResult = uint32_t;
+#endif
+
+RouteJpegInputResult jpeg_input_cb(RouteJpegDecoder* dec,
+                                   uint8_t* buffer,
+                                   RouteJpegInputResult ndata)
 {
     auto* ctx = dec ? static_cast<RouteJpegCacheContext*>(dec->device) : nullptr;
     if (!ctx)
@@ -490,16 +508,16 @@ uint32_t jpeg_input_cb(esp_rom_tjpgd_dec_t* dec, uint8_t* buffer, uint32_t ndata
     if (buffer)
     {
         const int read = ctx->input.read(buffer, ndata);
-        return read > 0 ? static_cast<uint32_t>(read) : 0;
+        return read > 0 ? static_cast<RouteJpegInputResult>(read) : 0;
     }
 
     const uint64_t next = ctx->input.position() + static_cast<uint64_t>(ndata);
     return ctx->input.seek(next) ? ndata : 0;
 }
 
-uint32_t jpeg_output_cb(esp_rom_tjpgd_dec_t* dec,
-                        void* bitmap,
-                        esp_rom_tjpgd_rect_t* rect)
+RouteJpegOutputResult jpeg_output_cb(RouteJpegDecoder* dec,
+                                     void* bitmap,
+                                     RouteJpegRect* rect)
 {
     auto* ctx = dec ? static_cast<RouteJpegCacheContext*>(dec->device) : nullptr;
     auto* rgb = static_cast<const uint8_t*>(bitmap);
@@ -713,7 +731,11 @@ bool generate_route_image_bmp_cache(const std::string& source_path,
         return false;
     }
 
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+    constexpr uint8_t kDecodeScale = 0;
+#else
     constexpr uint8_t kDecodeScale = 1;
+#endif
     HeapCapsBuffer decoder_work;
     if (!decoder_work.allocate(kRouteJpegDecoderWorkBytes))
     {
@@ -721,13 +743,21 @@ bool generate_route_image_bmp_cache(const std::string& source_path,
         log_cache_memory_skip("decoder_work", kRouteJpegDecoderWorkBytes);
         return false;
     }
-    esp_rom_tjpgd_dec_t decoder{};
+    RouteJpegDecoder decoder{};
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+    JRESULT result = jd_prepare(&decoder,
+                                jpeg_input_cb,
+                                decoder_work.data(),
+                                decoder_work.size(),
+                                &ctx);
+#else
     esp_rom_tjpgd_result_t result =
         esp_rom_tjpgd_prepare(&decoder,
                               jpeg_input_cb,
                               decoder_work.data(),
                               static_cast<uint32_t>(decoder_work.size()),
                               &ctx);
+#endif
     if (result != JDR_OK || decoder.width == 0 || decoder.height == 0)
     {
         ctx.input.close();
@@ -739,7 +769,11 @@ bool generate_route_image_bmp_cache(const std::string& source_path,
         std::max<uint32_t>(1U, decoder.height >> kDecodeScale));
     configure_cover_crop(ctx);
 
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+    result = jd_decomp(&decoder, jpeg_output_cb, kDecodeScale);
+#else
     result = esp_rom_tjpgd_decomp(&decoder, jpeg_output_cb, kDecodeScale);
+#endif
     ctx.input.close();
     if (result != JDR_OK)
     {

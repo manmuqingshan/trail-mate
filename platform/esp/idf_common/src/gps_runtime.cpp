@@ -656,6 +656,8 @@ void worker_task(void*)
     char line_buffer[kLineBufferSize] = {};
     std::size_t line_length = 0;
     uint8_t rx_buffer[kRxBufferSize] = {};
+    uint64_t raw_rx_bytes = 0;
+    uint32_t last_raw_rx_ms = 0;
 
     while (true)
     {
@@ -666,7 +668,12 @@ void worker_task(void*)
         const auto port = static_cast<uart_port_t>(gps_uart.port);
 #endif
         int read_len = uart_read_bytes(port, rx_buffer, sizeof(rx_buffer), pdMS_TO_TICKS(200));
-        if (read_len > 0) append_bytes_and_process(rx_buffer, read_len, line_buffer, &line_length);
+        if (read_len > 0)
+        {
+            raw_rx_bytes += static_cast<uint64_t>(read_len);
+            last_raw_rx_ms = now_ms();
+            append_bytes_and_process(rx_buffer, read_len, line_buffer, &line_length);
+        }
 
         bool should_exit = false;
         bool enabled = false;
@@ -693,7 +700,14 @@ void worker_task(void*)
             else if ((now - last_rx_ms) >= kNoDataWarnMs && s_runtime.last_no_data_log_ms + kNoDataWarnMs <= now)
             {
                 const auto gps_uart_log = gps_uart_pins();
-                ESP_LOGW(kTag, "GNSS no NMEA data yet: port=%d tx=%d rx=%d mode=%u", gps_uart_log.port, gps_uart_log.tx, gps_uart_log.rx, s_runtime.gnss_mode);
+                ESP_LOGW(kTag,
+                         "GNSS no NMEA data yet: port=%d tx=%d rx=%d mode=%u raw_bytes=%llu last_raw_ms=%u",
+                         gps_uart_log.port,
+                         gps_uart_log.tx,
+                         gps_uart_log.rx,
+                         s_runtime.gnss_mode,
+                         static_cast<unsigned long long>(raw_rx_bytes),
+                         last_raw_rx_ms);
                 s_runtime.last_no_data_log_ms = now;
             }
         }

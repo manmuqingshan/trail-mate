@@ -31,6 +31,9 @@ constexpr const char* kTag = "idf-bsp-runtime";
 char kSdMountPoint[] = "/sdcard";
 bool s_nvs_ready = false;
 bool s_sdcard_ready = false;
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+bool s_sdcard_attempted = false;
+#endif
 
 } // namespace
 
@@ -87,6 +90,11 @@ bool ensure_sdcard_ready()
     {
         return true;
     }
+    if (s_sdcard_attempted)
+    {
+        return false;
+    }
+    s_sdcard_attempted = true;
     if (!::boards::t_display_p4::TDisplayP4Board::hasSdCard())
     {
         return false;
@@ -94,7 +102,8 @@ bool ensure_sdcard_ready()
 
     if (!::boards::t_display_p4::TDisplayP4Board::instance().mountSdCard(kSdMountPoint, 8))
     {
-        ESP_LOGW(kTag, "T-Display-P4 SD mount failed");
+        ESP_LOGW(kTag,
+                 "T-Display-P4 SD unavailable for this boot; continuing without storage");
         return false;
     }
 
@@ -107,7 +116,7 @@ bool ensure_sdcard_ready()
 
 bool sdcard_ready()
 {
-    return ensure_sdcard_ready();
+    return s_sdcard_ready;
 }
 
 const char* sdcard_mount_point()

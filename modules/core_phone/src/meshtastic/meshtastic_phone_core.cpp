@@ -77,8 +77,13 @@ void copyBounded(char* dst, size_t dst_len, const char* src)
         dst[0] = '\0';
         return;
     }
-    std::strncpy(dst, src, dst_len - 1);
-    dst[dst_len - 1] = '\0';
+    std::size_t copy_len = std::strlen(src);
+    if (copy_len >= dst_len)
+    {
+        copy_len = dst_len - 1;
+    }
+    std::memmove(dst, src, copy_len);
+    dst[copy_len] = '\0';
 }
 
 bool hasBoundedText(const char* text, size_t max_len)

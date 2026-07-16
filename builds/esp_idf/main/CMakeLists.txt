@@ -16,7 +16,7 @@ idf_component_register(
         "idf_entry.cpp"
         ${TRAILMATE_ESP_IDF_APP_SHELL_SOURCES}
         ${TRAILMATE_ESP_IDF_PRODUCT_COMPOSITION_SOURCES}
-        ${TRAILMATE_ESP_IDF_C6_HOSTLINK_SOURCES}
+        ${TRAILMATE_ESP_IDF_CORE_HOSTLINK_SOURCES}
         ${TRAILMATE_ESP_IDF_CORE_SYS_SOURCES}
         ${TRAILMATE_ESP_IDF_CORE_DEVICE_SOURCES}
         ${TRAILMATE_ESP_IDF_CORE_GPS_SOURCES}
@@ -31,6 +31,7 @@ idf_component_register(
     INCLUDE_DIRS
         ${TRAILMATE_ESP_IDF_FINAL_INCLUDE_DIRS}
     REQUIRES
+        app_update
         driver
         esp_app_format
         esp_codec_dev
@@ -41,6 +42,7 @@ idf_component_register(
         esp_timer
         espcoredump
         fatfs
+        json
         m5stack_tab5
         mbedtls
         nvs_flash

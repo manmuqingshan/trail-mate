@@ -14,6 +14,7 @@
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/idf_common/gps_runtime.h"
 #include "platform/esp/idf_common/reticulum_call_runtime_support.h"
+#include "platform/ui/settings_store.h"
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "bsp/m5stack_tab5.h"
@@ -108,10 +109,31 @@ bool supports_keyboard_backlight()
 
 bool supports_configurable_battery_gauge()
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return true;
+#else
     return false;
+#endif
 }
 
-void reload_configurable_battery_gauge() {}
+void reload_configurable_battery_gauge()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    constexpr uint16_t kDefaultCapacityMah = 1500;
+    const uint32_t configured_design = settings_store::get_uint(
+        "power", "gauge_design_mah", kDefaultCapacityMah);
+    const uint32_t configured_full = settings_store::get_uint(
+        "power", "gauge_full_mah", kDefaultCapacityMah);
+    const uint16_t design = configured_design > 0 && configured_design <= 10000
+                                ? static_cast<uint16_t>(configured_design)
+                                : kDefaultCapacityMah;
+    const uint16_t full = configured_full > 0 && configured_full <= 10000
+                              ? static_cast<uint16_t>(configured_full)
+                              : kDefaultCapacityMah;
+    (void)::boards::t_display_p4::TDisplayP4Board::instance()
+        .configureBatteryGaugeCapacity(design, full);
+#endif
+}
 
 uint8_t screen_brightness()
 {
@@ -165,7 +187,12 @@ void set_keyboard_backlight(uint8_t level)
 #endif
 }
 
-void trigger_haptic() {}
+void trigger_haptic()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    ::boards::t_display_p4::TDisplayP4Board::instance().vibrator();
+#endif
+}
 
 uint8_t default_message_tone_volume()
 {

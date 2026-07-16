@@ -7,6 +7,7 @@
 #include "chat/infra/meshtastic/mt_codec_pb.h"
 #include "chat/infra/meshtastic/mt_dedup.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "idf_lora_radio_pump.h"
 
 #include <array>
 #include <map>
@@ -74,6 +75,7 @@ class MeshtasticRadioAdapter final : public chat::IMeshAdapter
     const uint8_t* channelKeyFor(chat::ChannelId channel, size_t* out_len) const;
 
     LoraBoard& board_;
+    IdfLoraRadioPump radio_pump_;
     chat::MeshConfig config_{};
     chat::meshtastic::MtDedup dedup_{};
     static constexpr std::size_t kIncomingQueueDepth = 12;
@@ -86,7 +88,6 @@ class MeshtasticRadioAdapter final : public chat::IMeshAdapter
     chat::NodeId node_id_ = 0;
     uint8_t mac_addr_[6] = {};
     bool ready_ = false;
-    bool rx_started_ = false;
     bool nodeinfo_broadcast_sent_ = false;
     float last_rx_rssi_ = 0.0f;
     float last_rx_snr_ = 0.0f;
@@ -104,7 +105,6 @@ class MeshtasticRadioAdapter final : public chat::IMeshAdapter
     std::array<uint8_t, kWireScratchSize> wire_scratch_{};
     std::array<uint8_t, kRxScratchSize> payload_scratch_{};
     std::array<uint8_t, kRxScratchSize> plaintext_scratch_{};
-    std::array<uint8_t, kRxScratchSize> radio_rx_scratch_{};
 };
 
 } // namespace platform::esp::radio

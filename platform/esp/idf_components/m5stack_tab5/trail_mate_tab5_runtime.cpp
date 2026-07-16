@@ -9,10 +9,10 @@
 namespace
 {
 constexpr const char* kTag = "tab5-display-runtime";
-constexpr uint32_t kLvglTimerPeriodMs = 10;
+constexpr uint32_t kLvglTimerPeriodMs = 1;
 constexpr int kLvglTaskStackSize = 16384;
 constexpr uint32_t kFrameBufferLines = BSP_LCD_V_RES;
-constexpr bool kUseDoubleBuffer = true;
+constexpr bool kUseDoubleBuffer = false;
 constexpr int kStartupBrightnessPercent = 10;
 
 lv_display_t* s_display = nullptr;

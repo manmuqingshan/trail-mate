@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -21,6 +22,7 @@
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "hi8561_driver.h"
 #include "lvgl.h"
@@ -51,6 +53,8 @@ constexpr ledc_timer_t kBacklightTimer = LEDC_TIMER_0;
 // These will be tightened once the system I2C lock ordering is stable.
 constexpr uint32_t kTouchI2cLockTimeoutMs = 50;
 constexpr uint32_t kTouchI2cTransactionTimeoutMs = 30;
+constexpr uint32_t kTouchI2cSpeedHz = 100000;
+constexpr uint32_t kTouchI2cDiagnosticIntervalMs = 2000;
 
 constexpr uint32_t kHi8561MemoryAddressEram = 0x20011000;
 constexpr uint8_t kHi8561MaxDsramNum = 25;
@@ -61,7 +65,6 @@ constexpr uint32_t kHi8561EsramSectionInfoStartAddress = kHi8561EsramNumStartAdd
 constexpr uint16_t kHi8561MemoryEramSize = 4 * 1024;
 constexpr uint8_t kHi8561TouchPointAddressOffset = 3;
 constexpr uint8_t kHi8561SingleTouchPointDataSize = 5;
-constexpr uint8_t kHi8561MaxTouchFingerCount = 10;
 
 constexpr uint32_t kGt9895TouchInfoStartAddress = 0x00010308;
 constexpr uint8_t kGt9895TouchPointAddressOffset = 8;
@@ -72,6 +75,9 @@ constexpr uint32_t kKeyboardI2cDelayUs = 5;
 constexpr uint32_t kKeyboardResetDelayMs = 10;
 constexpr uint32_t kKeyboardPowerSettleDelayMs = 50;
 constexpr uint32_t kKeyboardMonitorIntervalMs = 2000;
+constexpr uint32_t kKeyboardMonitorUiIntervalMs = 200;
+constexpr uint32_t kKeyboardMonitorTaskStackSize = 4096;
+constexpr UBaseType_t kKeyboardMonitorTaskPriority = 3;
 constexpr uint8_t kKeyboardAttachDebounceCount = 2;
 constexpr uint8_t kKeyboardDetachDebounceCount = 3;
 constexpr uint8_t kKeyboardI2cScanFirstAddress = 0x03;
@@ -103,6 +109,14 @@ constexpr uint32_t kTca8418KeyFn = 0x8E;
 constexpr uint32_t kTca8418KeyWin = 0x8F;
 constexpr uint32_t kTca8418KeyShift = 0x90;
 constexpr uint32_t kAltDoublePressMs = 350;
+constexpr uint32_t kDisplayLockDiagnosticIntervalMs = 2000;
+
+enum class KeyboardMonitorUiAction : uint8_t
+{
+    None = 0,
+    Attach = 1,
+    Detach = 2,
+};
 
 constexpr std::array<uint32_t, 68> kTca8418LvglKeyMap = {
     0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A,
@@ -133,12 +147,14 @@ esp_lcd_panel_handle_t s_panel = nullptr;
 lv_display_t* s_display = nullptr;
 lv_indev_t* s_touch_indev = nullptr;
 lv_indev_t* s_keyboard_indev = nullptr;
-lv_timer_t* s_keyboard_monitor_timer = nullptr;
+lv_timer_t* s_keyboard_monitor_ui_timer = nullptr;
+TaskHandle_t s_keyboard_monitor_task = nullptr;
+SemaphoreHandle_t s_keyboard_i2c_mutex = nullptr;
 i2c_master_dev_handle_t s_touch_i2c_handle = nullptr;
 bool s_lvgl_ready = false;
 bool s_ready = false;
 bool s_backlight_ready = false;
-bool s_keyboard_ready = false;
+std::atomic<bool> s_keyboard_ready{false};
 bool s_keyboard_pressed = false;
 bool s_keyboard_caps_lock = false;
 bool s_keyboard_shift_active = false;
@@ -148,10 +164,19 @@ uint32_t s_keyboard_last_key = 0;
 uint32_t s_keyboard_last_alt_press_ms = 0;
 uint8_t s_keyboard_attach_probe_count = 0;
 uint8_t s_keyboard_detach_probe_count = 0;
+std::atomic<uint8_t> s_keyboard_monitor_ui_action{
+    static_cast<uint8_t>(KeyboardMonitorUiAction::None)};
 uint32_t s_hi8561_touch_info_start_address = 0;
+uint32_t s_touch_last_i2c_error_log_ms = 0;
 float s_touch_scale_x = 1.0f;
 float s_touch_scale_y = 1.0f;
 volatile bool s_keyboard_irq_pending = false;
+std::atomic<TaskHandle_t> s_display_lock_owner_task{nullptr};
+std::atomic<TickType_t> s_display_lock_owner_since_ticks{0};
+std::atomic<TaskHandle_t> s_display_lock_waiter_task{nullptr};
+std::atomic<TickType_t> s_display_lock_waiter_since_ticks{0};
+std::atomic<uint32_t> s_display_lock_waiter_timeout_ms{0};
+std::atomic<TickType_t> s_display_lock_last_timeout_log_ticks{0};
 
 namespace runtime_support = boards::t_display_p4::runtime_support;
 
@@ -268,7 +293,7 @@ bool ensure_touch_device()
     const runtime_support::SystemI2cDeviceConfig config{
         "touch",
         static_cast<uint16_t>(runtime_support::touch_i2c_address()),
-        400000,
+        kTouchI2cSpeedHz,
     };
     s_touch_i2c_handle = runtime_support::get_managed_system_i2c_device(config, 1000);
     if (s_touch_i2c_handle == nullptr)
@@ -392,20 +417,29 @@ bool read_hi8561_touch(int32_t* out_x, int32_t* out_y, bool* out_pressed)
     }
     *out_pressed = false;
 
-    if (!init_hi8561_touch_address_info() ||
-        !runtime_support::lock_system_i2c(kTouchI2cLockTimeoutMs))
+    if (!init_hi8561_touch_address_info())
     {
         return false;
     }
+    if (!runtime_support::lock_system_i2c(kTouchI2cLockTimeoutMs))
+    {
+        const uint32_t now = esp_log_timestamp();
+        if (now - s_touch_last_i2c_error_log_ms >= kTouchI2cDiagnosticIntervalMs)
+        {
+            s_touch_last_i2c_error_log_ms = now;
+            ESP_LOGW(kTag, "HI8561 touch read skipped: SYS I2C lock timeout");
+        }
+        return false;
+    }
 
-    const uint32_t point_address =
+    const uint32_t touch_point_address =
         s_hi8561_touch_info_start_address + kHi8561TouchPointAddressOffset;
     const uint8_t request[] = {
         0xF3,
-        static_cast<uint8_t>(point_address >> 24),
-        static_cast<uint8_t>(point_address >> 16),
-        static_cast<uint8_t>(point_address >> 8),
-        static_cast<uint8_t>(point_address),
+        static_cast<uint8_t>(touch_point_address >> 24),
+        static_cast<uint8_t>(touch_point_address >> 16),
+        static_cast<uint8_t>(touch_point_address >> 8),
+        static_cast<uint8_t>(touch_point_address),
         0x03,
     };
     uint8_t response[kHi8561SingleTouchPointDataSize] = {};
@@ -419,13 +453,19 @@ bool read_hi8561_touch(int32_t* out_x, int32_t* out_y, bool* out_pressed)
     runtime_support::unlock_system_i2c();
     if (err != ESP_OK)
     {
+        const uint32_t now = esp_log_timestamp();
+        if (now - s_touch_last_i2c_error_log_ms >= kTouchI2cDiagnosticIntervalMs)
+        {
+            s_touch_last_i2c_error_log_ms = now;
+            ESP_LOGW(kTag, "HI8561 touch read failed: %s", esp_err_to_name(err));
+        }
         return false;
     }
 
-    const uint16_t raw_x = static_cast<uint16_t>((static_cast<uint16_t>(response[0]) << 8) |
-                                                 response[1]);
-    const uint16_t raw_y = static_cast<uint16_t>((static_cast<uint16_t>(response[2]) << 8) |
-                                                 response[3]);
+    const uint16_t raw_x =
+        static_cast<uint16_t>((static_cast<uint16_t>(response[0]) << 8) | response[1]);
+    const uint16_t raw_y =
+        static_cast<uint16_t>((static_cast<uint16_t>(response[2]) << 8) | response[3]);
     if (raw_x == 0xFFFF && raw_y == 0xFFFF)
     {
         return true;
@@ -796,6 +836,56 @@ bool keyboard_module_supported()
     return boards::t_display_p4::TDisplayP4Board::profile().supports_keyboard_module;
 }
 
+bool ensure_keyboard_i2c_mutex()
+{
+    if (s_keyboard_i2c_mutex != nullptr)
+    {
+        return true;
+    }
+
+    s_keyboard_i2c_mutex = xSemaphoreCreateMutex();
+    if (s_keyboard_i2c_mutex == nullptr)
+    {
+        ESP_LOGW(kTag, "T-Display-P4 keyboard I2C mutex allocation failed");
+        return false;
+    }
+    return true;
+}
+
+class KeyboardI2cGuard
+{
+  public:
+    explicit KeyboardI2cGuard(uint32_t timeout_ms)
+    {
+        if (!ensure_keyboard_i2c_mutex())
+        {
+            return;
+        }
+        TickType_t timeout_ticks = timeout_ms == 0 ? 0 : pdMS_TO_TICKS(timeout_ms);
+        if (timeout_ms == UINT32_MAX)
+        {
+            timeout_ticks = portMAX_DELAY;
+        }
+        locked_ = xSemaphoreTake(s_keyboard_i2c_mutex, timeout_ticks) == pdTRUE;
+    }
+
+    ~KeyboardI2cGuard()
+    {
+        if (locked_)
+        {
+            xSemaphoreGive(s_keyboard_i2c_mutex);
+        }
+    }
+
+    KeyboardI2cGuard(const KeyboardI2cGuard&) = delete;
+    KeyboardI2cGuard& operator=(const KeyboardI2cGuard&) = delete;
+
+    bool locked() const { return locked_; }
+
+  private:
+    bool locked_ = false;
+};
+
 bool ensure_keyboard_module_power()
 {
     if (!boards::t_display_p4::TDisplayP4Board::instance().ensureExternal3v3Power())
@@ -818,6 +908,13 @@ KeyboardProbeResult probe_keyboard_module_bus()
     result.power_ready = ensure_keyboard_module_power();
     if (!result.power_ready)
     {
+        return result;
+    }
+
+    KeyboardI2cGuard lock(250);
+    if (!lock.locked())
+    {
+        ESP_LOGW(kTag, "T-Display-P4 keyboard probe skipped: keyboard I2C mutex timeout");
         return result;
     }
 
@@ -900,10 +997,23 @@ void log_keyboard_i2c_scan(const char* reason)
     {
         return;
     }
-    if (!ensure_keyboard_module_power() ||
-        !configure_keyboard_i2c_pins())
+    if (!ensure_keyboard_module_power())
     {
-        ESP_LOGW(kTag, "T-Display-P4 keyboard I2C scan skipped reason=%s power_or_gpio_failed",
+        ESP_LOGW(kTag, "T-Display-P4 keyboard I2C scan skipped reason=%s power_failed",
+                 reason ? reason : "unknown");
+        return;
+    }
+
+    KeyboardI2cGuard lock(500);
+    if (!lock.locked())
+    {
+        ESP_LOGW(kTag, "T-Display-P4 keyboard I2C scan skipped reason=%s mutex_timeout",
+                 reason ? reason : "unknown");
+        return;
+    }
+    if (!configure_keyboard_i2c_pins())
+    {
+        ESP_LOGW(kTag, "T-Display-P4 keyboard I2C scan skipped reason=%s gpio_failed",
                  reason ? reason : "unknown");
         return;
     }
@@ -978,6 +1088,22 @@ void log_keyboard_hardware_i2c_scan(const char* reason)
     const auto& kb = keyboard_module();
     if (kb.sda < 0 || kb.scl < 0)
     {
+        return;
+    }
+    if (!ensure_keyboard_module_power())
+    {
+        ESP_LOGW(kTag,
+                 "T-Display-P4 keyboard HW I2C scan unavailable reason=%s power_failed",
+                 reason ? reason : "unknown");
+        return;
+    }
+
+    KeyboardI2cGuard lock(500);
+    if (!lock.locked())
+    {
+        ESP_LOGW(kTag,
+                 "T-Display-P4 keyboard HW I2C scan unavailable reason=%s mutex_timeout",
+                 reason ? reason : "unknown");
         return;
     }
 
@@ -1228,8 +1354,19 @@ uint8_t mask_for_count(int count)
 bool configure_tca8418_keypad()
 {
     const auto& kb = keyboard_module();
-    if (!ensure_keyboard_module_power() ||
-        !configure_keyboard_i2c_pins())
+    if (!ensure_keyboard_module_power())
+    {
+        return false;
+    }
+
+    KeyboardI2cGuard lock(500);
+    if (!lock.locked())
+    {
+        ESP_LOGW(kTag, "T-Display-P4 keyboard init skipped: keyboard I2C mutex timeout");
+        return false;
+    }
+
+    if (!configure_keyboard_i2c_pins())
     {
         return false;
     }
@@ -1366,6 +1503,12 @@ bool poll_keyboard_event(uint32_t* out_key, bool* out_pressed)
     {
         return false;
     }
+
+    KeyboardI2cGuard lock(5);
+    if (!lock.locked())
+    {
+        return false;
+    }
     s_keyboard_irq_pending = false;
 
     uint8_t irq_status = 0;
@@ -1434,7 +1577,7 @@ bool poll_keyboard_event(uint32_t* out_key, bool* out_pressed)
 
 bool init_keyboard_backend(bool log_missing = true)
 {
-    if (s_keyboard_ready)
+    if (s_keyboard_ready.load(std::memory_order_acquire))
     {
         return true;
     }
@@ -1487,7 +1630,7 @@ bool init_keyboard_backend(bool log_missing = true)
         return false;
     }
 
-    s_keyboard_ready = true;
+    s_keyboard_ready.store(true, std::memory_order_release);
     board.setKeyboardReady(true);
     ESP_LOGI(kTag,
              "T-Display-P4 keyboard module detected addr=0x%02X matrix=%dx%d",
@@ -1501,7 +1644,7 @@ bool init_keyboard_backend(bool log_missing = true)
 void keyboard_read_cb(lv_indev_t* indev, lv_indev_data_t* data)
 {
     (void)indev;
-    if (!s_keyboard_ready)
+    if (!s_keyboard_ready.load(std::memory_order_acquire))
     {
         data->state = LV_INDEV_STATE_RELEASED;
         return;
@@ -1555,11 +1698,19 @@ void touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data)
 
     if (!ok || !pressed)
     {
+        if (s_touch_was_pressed)
+        {
+            ESP_LOGI(kTag, "touch release");
+        }
         note_touch_activity(false);
         data->state = LV_INDEV_STATE_RELEASED;
         return;
     }
 
+    if (!s_touch_was_pressed)
+    {
+        ESP_LOGI(kTag, "touch press x=%ld y=%ld", static_cast<long>(x), static_cast<long>(y));
+    }
     data->state = LV_INDEV_STATE_PRESSED;
     data->point.x = x;
     data->point.y = y;
@@ -1627,8 +1778,8 @@ bool create_keyboard_indev()
 
 void clear_keyboard_runtime_state()
 {
+    s_keyboard_ready.store(false, std::memory_order_release);
     remove_keyboard_interrupt();
-    s_keyboard_ready = false;
     s_keyboard_pressed = false;
     s_keyboard_caps_lock = false;
     s_keyboard_shift_active = false;
@@ -1651,9 +1802,27 @@ void detach_keyboard_module(bool notify_user)
     }
 }
 
-bool attach_keyboard_module(bool notify_user)
+void request_keyboard_monitor_ui_action(KeyboardMonitorUiAction action)
 {
-    if (!init_keyboard_backend(false))
+    if (action == KeyboardMonitorUiAction::None)
+    {
+        return;
+    }
+    s_keyboard_monitor_ui_action.store(static_cast<uint8_t>(action),
+                                       std::memory_order_release);
+}
+
+KeyboardMonitorUiAction take_keyboard_monitor_ui_action()
+{
+    return static_cast<KeyboardMonitorUiAction>(
+        s_keyboard_monitor_ui_action.exchange(
+            static_cast<uint8_t>(KeyboardMonitorUiAction::None),
+            std::memory_order_acq_rel));
+}
+
+bool attach_keyboard_input_ui(bool notify_user)
+{
+    if (!s_keyboard_ready.load(std::memory_order_acquire))
     {
         return false;
     }
@@ -1662,8 +1831,6 @@ bool attach_keyboard_module(bool notify_user)
         return false;
     }
 
-    s_keyboard_attach_probe_count = kKeyboardAttachDebounceCount;
-    s_keyboard_detach_probe_count = 0;
     if (notify_user)
     {
         ::ui::feedback::show_notice("Keyboard module connected", 2200);
@@ -1671,73 +1838,133 @@ bool attach_keyboard_module(bool notify_user)
     return true;
 }
 
-void keyboard_module_monitor_cb(lv_timer_t* timer)
+void keyboard_monitor_ui_cb(lv_timer_t* timer)
 {
     (void)timer;
-    if (!keyboard_module_supported())
+    switch (take_keyboard_monitor_ui_action())
     {
-        return;
-    }
-
-    const bool present = s_keyboard_ready ? probe_tca8418_presence()
-                                          : probe_keyboard_module_bus_presence();
-    if (present)
-    {
-        s_keyboard_attach_probe_count =
-            std::min<uint8_t>(kKeyboardAttachDebounceCount,
-                              static_cast<uint8_t>(s_keyboard_attach_probe_count + 1));
-        s_keyboard_detach_probe_count = 0;
-    }
-    else
-    {
-        s_keyboard_detach_probe_count =
-            std::min<uint8_t>(kKeyboardDetachDebounceCount,
-                              static_cast<uint8_t>(s_keyboard_detach_probe_count + 1));
-        s_keyboard_attach_probe_count = 0;
-    }
-
-    if (s_keyboard_ready)
-    {
-        if (s_keyboard_detach_probe_count >= kKeyboardDetachDebounceCount)
+    case KeyboardMonitorUiAction::Attach:
+        if (attach_keyboard_input_ui(true))
         {
-            ESP_LOGI(kTag, "T-Display-P4 keyboard module removal detected");
-            detach_keyboard_module(true);
-        }
-        return;
-    }
-
-    if (s_keyboard_attach_probe_count >= kKeyboardAttachDebounceCount)
-    {
-        if (attach_keyboard_module(true))
-        {
-            ESP_LOGI(kTag, "T-Display-P4 keyboard module hotplug detected");
+            ESP_LOGI(kTag, "T-Display-P4 keyboard hotplug UI attached");
         }
         else
         {
+            clear_keyboard_runtime_state();
+        }
+        return;
+    case KeyboardMonitorUiAction::Detach:
+        ESP_LOGI(kTag, "T-Display-P4 keyboard hotplug UI detached");
+        detach_keyboard_module(true);
+        return;
+    case KeyboardMonitorUiAction::None:
+    default:
+        return;
+    }
+}
+
+void keyboard_module_monitor_task(void* arg)
+{
+    (void)arg;
+    ESP_LOGI(kTag,
+             "T-Display-P4 keyboard monitor task started interval=%lums attach=%u detach=%u",
+             static_cast<unsigned long>(kKeyboardMonitorIntervalMs),
+             static_cast<unsigned>(kKeyboardAttachDebounceCount),
+             static_cast<unsigned>(kKeyboardDetachDebounceCount));
+
+    while (true)
+    {
+        if (!keyboard_module_supported())
+        {
+            vTaskDelay(pdMS_TO_TICKS(kKeyboardMonitorIntervalMs));
+            continue;
+        }
+
+        const bool ready = s_keyboard_ready.load(std::memory_order_acquire);
+        const bool present = ready ? probe_tca8418_presence()
+                                   : probe_keyboard_module_bus_presence();
+        if (present)
+        {
+            s_keyboard_attach_probe_count =
+                std::min<uint8_t>(kKeyboardAttachDebounceCount,
+                                  static_cast<uint8_t>(s_keyboard_attach_probe_count + 1));
+            s_keyboard_detach_probe_count = 0;
+        }
+        else
+        {
+            s_keyboard_detach_probe_count =
+                std::min<uint8_t>(kKeyboardDetachDebounceCount,
+                                  static_cast<uint8_t>(s_keyboard_detach_probe_count + 1));
             s_keyboard_attach_probe_count = 0;
         }
+
+        if (ready)
+        {
+            if (s_keyboard_detach_probe_count >= kKeyboardDetachDebounceCount)
+            {
+                ESP_LOGI(kTag, "T-Display-P4 keyboard module removal detected");
+                request_keyboard_monitor_ui_action(KeyboardMonitorUiAction::Detach);
+                s_keyboard_detach_probe_count = 0;
+            }
+        }
+        else if (s_keyboard_attach_probe_count >= kKeyboardAttachDebounceCount)
+        {
+            if (init_keyboard_backend(false))
+            {
+                ESP_LOGI(kTag, "T-Display-P4 keyboard module hotplug detected");
+                request_keyboard_monitor_ui_action(KeyboardMonitorUiAction::Attach);
+            }
+            else
+            {
+                s_keyboard_attach_probe_count = 0;
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(kKeyboardMonitorIntervalMs));
     }
 }
 
 void start_keyboard_module_monitor()
 {
-    if (!keyboard_module_supported() || s_keyboard_monitor_timer != nullptr)
+    if (!keyboard_module_supported() || s_keyboard_monitor_task != nullptr)
     {
         return;
     }
 
-    s_keyboard_attach_probe_count = s_keyboard_ready ? kKeyboardAttachDebounceCount : 0;
+    s_keyboard_attach_probe_count =
+        s_keyboard_ready.load(std::memory_order_acquire) ? kKeyboardAttachDebounceCount : 0;
     s_keyboard_detach_probe_count = 0;
-    s_keyboard_monitor_timer =
-        lv_timer_create(keyboard_module_monitor_cb, kKeyboardMonitorIntervalMs, nullptr);
-    if (s_keyboard_monitor_timer == nullptr)
+    s_keyboard_monitor_ui_action.store(static_cast<uint8_t>(KeyboardMonitorUiAction::None),
+                                       std::memory_order_release);
+
+    if (s_keyboard_monitor_ui_timer == nullptr)
     {
-        ESP_LOGW(kTag, "Failed to create keyboard module monitor timer");
+        s_keyboard_monitor_ui_timer =
+            lv_timer_create(keyboard_monitor_ui_cb, kKeyboardMonitorUiIntervalMs, nullptr);
+        if (s_keyboard_monitor_ui_timer == nullptr)
+        {
+            ESP_LOGW(kTag, "Failed to create keyboard module monitor UI timer");
+            return;
+        }
+    }
+
+    const BaseType_t rc = xTaskCreate(keyboard_module_monitor_task,
+                                      "p4_keyboard_mon",
+                                      kKeyboardMonitorTaskStackSize,
+                                      nullptr,
+                                      kKeyboardMonitorTaskPriority,
+                                      &s_keyboard_monitor_task);
+    if (rc != pdPASS)
+    {
+        ESP_LOGW(kTag, "Failed to start keyboard module monitor task rc=%ld", static_cast<long>(rc));
+        s_keyboard_monitor_task = nullptr;
         return;
     }
+
     ESP_LOGI(kTag,
-             "T-Display-P4 keyboard module monitor enabled interval=%lums attach=%u detach=%u",
+             "T-Display-P4 keyboard module monitor enabled interval=%lums ui_interval=%lums attach=%u detach=%u",
              static_cast<unsigned long>(kKeyboardMonitorIntervalMs),
+             static_cast<unsigned long>(kKeyboardMonitorUiIntervalMs),
              static_cast<unsigned>(kKeyboardAttachDebounceCount),
              static_cast<unsigned>(kKeyboardDetachDebounceCount));
 }
@@ -1874,13 +2101,14 @@ bool create_display()
     }
 
     const auto& panel = active_panel();
+    const uint32_t full_frame_buffer_pixels =
+        static_cast<uint32_t>(panel.width) * static_cast<uint32_t>(panel.height);
     lvgl_port_display_cfg_t disp_cfg{};
     disp_cfg.io_handle = s_panel_io;
     disp_cfg.panel_handle = s_panel;
     disp_cfg.control_handle = nullptr;
-    disp_cfg.buffer_size =
-        static_cast<uint32_t>(panel.width * CONFIG_TRAIL_MATE_T_DISPLAY_P4_LVGL_BUFFER_LINES);
-    disp_cfg.double_buffer = true;
+    disp_cfg.buffer_size = full_frame_buffer_pixels;
+    disp_cfg.double_buffer = false;
     disp_cfg.trans_size = 0;
     disp_cfg.hres = static_cast<uint32_t>(panel.width);
     disp_cfg.vres = static_cast<uint32_t>(panel.height);
@@ -1945,6 +2173,64 @@ void create_boot_screen()
     }
 
     trail_mate_t_display_p4_display_unlock();
+}
+
+const char* task_name_or(TaskHandle_t task, const char* fallback)
+{
+    return task != nullptr ? pcTaskGetName(task) : fallback;
+}
+
+void clear_display_lock_waiter(TaskHandle_t requester)
+{
+    TaskHandle_t expected = requester;
+    if (s_display_lock_waiter_task.compare_exchange_strong(
+            expected, nullptr, std::memory_order_acq_rel))
+    {
+        s_display_lock_waiter_since_ticks.store(0, std::memory_order_relaxed);
+        s_display_lock_waiter_timeout_ms.store(0, std::memory_order_relaxed);
+    }
+}
+
+void log_display_lock_timeout(TaskHandle_t requester, uint32_t timeout_ms)
+{
+    const TickType_t now = xTaskGetTickCount();
+    TickType_t last_log =
+        s_display_lock_last_timeout_log_ticks.load(std::memory_order_relaxed);
+    if ((now - last_log) < pdMS_TO_TICKS(kDisplayLockDiagnosticIntervalMs) ||
+        !s_display_lock_last_timeout_log_ticks.compare_exchange_strong(
+            last_log, now, std::memory_order_relaxed))
+    {
+        return;
+    }
+
+    const TaskHandle_t owner =
+        s_display_lock_owner_task.load(std::memory_order_acquire);
+    const TickType_t owner_since =
+        s_display_lock_owner_since_ticks.load(std::memory_order_relaxed);
+    const TaskHandle_t waiter =
+        s_display_lock_waiter_task.load(std::memory_order_acquire);
+    const TickType_t waiter_since =
+        s_display_lock_waiter_since_ticks.load(std::memory_order_relaxed);
+    const uint32_t waiter_timeout_ms =
+        s_display_lock_waiter_timeout_ms.load(std::memory_order_relaxed);
+    const uint32_t held_ms =
+        (owner != nullptr && owner_since != 0)
+            ? static_cast<uint32_t>((now - owner_since) * portTICK_PERIOD_MS)
+            : 0;
+    const uint32_t waiting_ms =
+        (waiter != nullptr && waiter_since != 0)
+            ? static_cast<uint32_t>((now - waiter_since) * portTICK_PERIOD_MS)
+            : 0;
+
+    ESP_LOGW(kTag,
+             "LVGL display lock timeout requester=%s owner=%s held_ms=%lu waiter=%s waiting_ms=%lu waiter_timeout_ms=%lu request_timeout_ms=%lu",
+             task_name_or(requester, "unknown"),
+             task_name_or(owner, "lvgl-port/untracked"),
+             static_cast<unsigned long>(held_ms),
+             task_name_or(waiter, "none"),
+             static_cast<unsigned long>(waiting_ms),
+             static_cast<unsigned long>(waiter_timeout_ms),
+             static_cast<unsigned long>(timeout_ms));
 }
 
 esp_err_t set_brightness_percent(int brightness_percent)
@@ -2016,8 +2302,9 @@ extern "C" bool trail_mate_t_display_p4_display_runtime_init(void)
 
     s_ready = true;
     ESP_LOGI(kTag,
-             "Display runtime ready buffer_lines=%d brightness=%d",
-             CONFIG_TRAIL_MATE_T_DISPLAY_P4_LVGL_BUFFER_LINES,
+             "Display runtime ready buffer_pixels=%lu buffer_mode=single-full-frame brightness=%d",
+             static_cast<unsigned long>(static_cast<uint32_t>(active_panel().width) *
+                                        static_cast<uint32_t>(active_panel().height)),
              s_brightness_percent);
     return true;
 }
@@ -2029,13 +2316,35 @@ extern "C" bool trail_mate_t_display_p4_display_runtime_is_ready(void)
 
 extern "C" bool trail_mate_t_display_p4_display_lock(uint32_t timeout_ms)
 {
-    return s_lvgl_ready && lvgl_port_lock(timeout_ms);
+    if (!s_lvgl_ready)
+    {
+        return false;
+    }
+
+    const TaskHandle_t requester = xTaskGetCurrentTaskHandle();
+    s_display_lock_waiter_since_ticks.store(xTaskGetTickCount(), std::memory_order_relaxed);
+    s_display_lock_waiter_timeout_ms.store(timeout_ms, std::memory_order_relaxed);
+    s_display_lock_waiter_task.store(requester, std::memory_order_release);
+
+    if (lvgl_port_lock(timeout_ms))
+    {
+        clear_display_lock_waiter(requester);
+        s_display_lock_owner_since_ticks.store(xTaskGetTickCount(), std::memory_order_relaxed);
+        s_display_lock_owner_task.store(requester, std::memory_order_release);
+        return true;
+    }
+
+    log_display_lock_timeout(requester, timeout_ms);
+    clear_display_lock_waiter(requester);
+    return false;
 }
 
 extern "C" void trail_mate_t_display_p4_display_unlock(void)
 {
     if (s_lvgl_ready)
     {
+        s_display_lock_owner_task.store(nullptr, std::memory_order_release);
+        s_display_lock_owner_since_ticks.store(0, std::memory_order_relaxed);
         lvgl_port_unlock();
     }
 }

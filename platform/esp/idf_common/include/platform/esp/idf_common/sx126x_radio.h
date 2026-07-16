@@ -47,6 +47,8 @@ class Sx126xRadio
     const char* lastError() const;
 
   private:
+    static constexpr size_t kTransactionBufferSize = 260;
+
     Sx126xRadio() = default;
 
     bool init_locked();
@@ -97,6 +99,8 @@ class Sx126xRadio
     uint8_t last_rx_offset_ = 0;
     uint32_t users_ = 0;
     char last_error_[96] = {0};
+    uint8_t tx_scratch_[kTransactionBufferSize] = {0};
+    uint8_t rx_scratch_[kTransactionBufferSize] = {0};
 };
 
 } // namespace platform::esp::idf_common

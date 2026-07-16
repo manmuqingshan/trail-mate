@@ -2,6 +2,8 @@
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "boards/tab5/heading_runtime.h"
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+#include "boards/t_display_p4/heading_runtime.h"
 #endif
 
 namespace platform::ui::orientation
@@ -11,6 +13,8 @@ HeadingState get_heading()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     return ::boards::tab5::heading_runtime::get_data();
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return ::boards::t_display_p4::heading_runtime::get_data();
 #else
     return {};
 #endif
@@ -20,6 +24,8 @@ void ensure_heading_runtime()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     ::boards::tab5::heading_runtime::ensure_started();
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    ::boards::t_display_p4::heading_runtime::ensure_started();
 #endif
 }
 
@@ -34,9 +40,10 @@ ScreenOrientationState get_screen_orientation()
     state.sensor_requested_orientation = ScreenOrientation::Landscape;
     state.sensor_request_ignored = false;
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    const HeadingState heading = get_heading();
     state.policy = ScreenOrientationPolicy::SensorLandscapeOnly;
     state.sensor_available = true;
-    state.sensor_ready = false;
+    state.sensor_ready = heading.sensor_ready;
     state.sensor_requested_orientation = ScreenOrientation::Landscape;
     state.sensor_request_ignored = false;
 #endif
@@ -49,6 +56,8 @@ void ensure_screen_orientation_runtime()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     ::boards::tab5::heading_runtime::ensure_started();
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    ::boards::t_display_p4::heading_runtime::ensure_started();
 #endif
 }
 

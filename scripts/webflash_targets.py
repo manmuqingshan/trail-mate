@@ -6,6 +6,7 @@ WEBFLASH_TARGETS: Final = (
     {
         "id": "tlora-pager-sx1262",
         "env": "tlora_pager_sx1262",
+        "build_system": "platformio",
         "name": "LilyGo T-LoRa Pager SX1262",
         "subtitle": "SX1262 build for the 480x222 keyboard pager",
         "chip_family": "ESP32-S3",
@@ -17,6 +18,7 @@ WEBFLASH_TARGETS: Final = (
     {
         "id": "tlora-pager-lr1121",
         "env": "tlora_pager_lr1121",
+        "build_system": "platformio",
         "name": "LilyGo T-LoRa Pager LR1121",
         "subtitle": "LR1121 build for the Sub-GHz + 2.4 GHz keyboard pager",
         "chip_family": "ESP32-S3",
@@ -28,6 +30,7 @@ WEBFLASH_TARGETS: Final = (
     {
         "id": "tdeck",
         "env": "tdeck",
+        "build_system": "platformio",
         "name": "LilyGo T-Deck",
         "subtitle": "ESP32-S3 handheld build with keyboard and touch",
         "chip_family": "ESP32-S3",
@@ -39,6 +42,7 @@ WEBFLASH_TARGETS: Final = (
     {
         "id": "lilygo-twatch-s3",
         "env": "lilygo_twatch_s3",
+        "build_system": "platformio",
         "name": "LilyGo T-Watch-S3",
         "subtitle": "Touch-first ESP32-S3 watch build",
         "chip_family": "ESP32-S3",
@@ -46,6 +50,32 @@ WEBFLASH_TARGETS: Final = (
         "flash_freq": "80m",
         "flash_size": "16MB",
         "merged_asset_name": "trail-mate-lilygo-twatch-s3-webflash.bin",
+    },
+    {
+        "id": "t-display-p4-tft",
+        "env": "t_display_p4_tft",
+        "build_system": "esp_idf",
+        "name": "LilyGo T-Display-P4 TFT",
+        "subtitle": "ESP32-P4 TFT build with touch and optional keyboard module",
+        "chip_family": "ESP32-P4",
+        "esptool_chip": "esp32p4",
+        "flash_mode": "dio",
+        "flash_freq": "80m",
+        "flash_size": "16MB",
+        "merged_asset_name": "trail-mate-t-display-p4-tft-webflash.bin",
+    },
+    {
+        "id": "t-display-p4-amoled",
+        "env": "t_display_p4_amoled",
+        "build_system": "esp_idf",
+        "name": "LilyGo T-Display-P4 AMOLED",
+        "subtitle": "ESP32-P4 AMOLED build with touch and optional keyboard module",
+        "chip_family": "ESP32-P4",
+        "esptool_chip": "esp32p4",
+        "flash_mode": "dio",
+        "flash_freq": "80m",
+        "flash_size": "16MB",
+        "merged_asset_name": "trail-mate-t-display-p4-amoled-webflash.bin",
     },
 )
 

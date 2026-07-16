@@ -1,12 +1,17 @@
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_page_runtime.h"
 
+#if defined(ARDUINO)
 #include "chat/ports/i_mesh_peer_directory.h"
 #include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/common/shared_spi_bus_arbiter.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/screen_runtime.h"
+#else
+#include "platform/esp/idf_common/flash_storage_runtime.h"
+#include <sys/stat.h>
+#endif
 
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
@@ -15,12 +20,14 @@
 #include <freertos/task.h>
 
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <new>
 #include <string>
 #include <string_view>
 
+#if defined(ARDUINO)
 namespace platform::ui::reticulum_directory
 {
 namespace
@@ -1927,18 +1934,22 @@ Status find_lxmf_address_by_node_id(uint32_t node_id,
 }
 
 } // namespace platform::ui::reticulum_directory
+#endif
 
 namespace platform::ui::reticulum_page
 {
 namespace
 {
 
-using ::platform::esp::arduino_common::storage::SdRuntimeFile;
-
+#if defined(ARDUINO)
 constexpr const char* kPagesDir = "/trailmate/reticulum/pages";
+#else
+constexpr const char* kPagesDir = "/fs/trailmate/reticulum/pages";
+#endif
 constexpr const char* kDefaultPagePath = "/page/index.mu";
 constexpr uint32_t kPageCacheReadWaitMs = 60;
 constexpr uint32_t kPageCacheWriteWaitMs = 120;
+#if defined(ARDUINO)
 constexpr uint32_t kPageCacheBusResource = 5;
 constexpr uint32_t kPageCacheBusOwnerId = 0x4E504147u; // 'NPAG'
 constexpr const char* kPageCacheBusOwner = "reticulum_page_cache";
@@ -1954,6 +1965,9 @@ constexpr const char* kPageCacheBusOwner = "reticulum_page_cache";
 sys::runtime::StorageBusArbiter s_page_cache_bus_arbiter(
     s_page_cache_bus_adapter,
     s_page_cache_bus_policy);
+#else
+SemaphoreHandle_t s_page_storage_mutex = nullptr;
+#endif
 
 RequestStartHandler s_request_handler = nullptr;
 void* s_request_context = nullptr;
@@ -2004,6 +2018,7 @@ enum class PageCacheBusAccess : uint8_t
     Write,
 };
 
+#if defined(ARDUINO)
 class PageCacheBusGate final
 {
   public:
@@ -2038,6 +2053,53 @@ class PageCacheBusGate final
 
     ::platform::esp::arduino_common::storage::PersistenceBusGate gate_;
 };
+#else
+bool ensure_page_storage_mutex()
+{
+    if (s_page_storage_mutex)
+    {
+        return true;
+    }
+    s_page_storage_mutex = xSemaphoreCreateMutex();
+    return s_page_storage_mutex != nullptr;
+}
+
+class PageCacheBusGate final
+{
+  public:
+    explicit PageCacheBusGate(PageCacheBusAccess access)
+    {
+        if (!ensure_page_storage_mutex())
+        {
+            return;
+        }
+        const uint32_t wait_ms = access == PageCacheBusAccess::Write
+                                     ? kPageCacheWriteWaitMs
+                                     : kPageCacheReadWaitMs;
+        locked_ = xSemaphoreTake(s_page_storage_mutex, pdMS_TO_TICKS(wait_ms)) ==
+                  pdTRUE;
+    }
+
+    ~PageCacheBusGate()
+    {
+        if (locked_)
+        {
+            xSemaphoreGive(s_page_storage_mutex);
+        }
+    }
+
+    bool locked() const
+    {
+        return locked_;
+    }
+
+    PageCacheBusGate(const PageCacheBusGate&) = delete;
+    PageCacheBusGate& operator=(const PageCacheBusGate&) = delete;
+
+  private:
+    bool locked_ = false;
+};
+#endif
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {
@@ -2056,8 +2118,12 @@ void set_status(Status& out, const char* message, const char* detail = nullptr)
 
 bool page_sd_available()
 {
+#if defined(ARDUINO)
     return ::platform::ui::device::card_ready() &&
            ::platform::esp::arduino_common::storage::sd_card_ready();
+#else
+    return ::platform::esp::idf_common::flash_storage_runtime::ensure_ready(true);
+#endif
 }
 
 void set_busy_status(Status& out,
@@ -2195,17 +2261,132 @@ std::string cache_path(const char* destination_hash, const char* path)
     return out;
 }
 
+#if defined(ARDUINO)
+using PageRuntimeFile =
+    ::platform::esp::arduino_common::storage::SdRuntimeFile;
+
+bool page_storage_exists(const char* path)
+{
+    return ::platform::esp::arduino_common::storage::sd_exists(path);
+}
+
+bool page_storage_is_directory(const char* path)
+{
+    return ::platform::esp::arduino_common::storage::sd_is_directory(path);
+}
+
+bool page_storage_mkdir(const char* path)
+{
+    return ::platform::esp::arduino_common::storage::sd_mkdir(path);
+}
+
+bool page_storage_remove(const char* path)
+{
+    return ::platform::esp::arduino_common::storage::sd_remove(path);
+}
+#else
+class PageRuntimeFile final
+{
+  public:
+    ~PageRuntimeFile()
+    {
+        close();
+    }
+
+    bool open(const char* path, const char* mode)
+    {
+        close();
+        file_ = std::fopen(path, mode);
+        return file_ != nullptr;
+    }
+
+    uint64_t size()
+    {
+        if (!file_)
+        {
+            return 0;
+        }
+        const long current = std::ftell(file_);
+        if (current < 0 || std::fseek(file_, 0, SEEK_END) != 0)
+        {
+            return 0;
+        }
+        const long length = std::ftell(file_);
+        (void)std::fseek(file_, current, SEEK_SET);
+        return length > 0 ? static_cast<uint64_t>(length) : 0;
+    }
+
+    std::size_t read_bytes(void* out, std::size_t len)
+    {
+        return file_ && out ? std::fread(out, 1, len, file_) : 0;
+    }
+
+    std::size_t write(const void* data, std::size_t len)
+    {
+        return file_ && data ? std::fwrite(data, 1, len, file_) : 0;
+    }
+
+    bool flush()
+    {
+        return file_ && std::fflush(file_) == 0;
+    }
+
+    void close()
+    {
+        if (file_)
+        {
+            std::fclose(file_);
+            file_ = nullptr;
+        }
+    }
+
+    PageRuntimeFile(const PageRuntimeFile&) = delete;
+    PageRuntimeFile& operator=(const PageRuntimeFile&) = delete;
+    PageRuntimeFile() = default;
+
+  private:
+    FILE* file_ = nullptr;
+};
+
+bool page_storage_exists(const char* path)
+{
+    struct stat info = {};
+    return path && ::stat(path, &info) == 0;
+}
+
+bool page_storage_is_directory(const char* path)
+{
+    struct stat info = {};
+    return path && ::stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+bool page_storage_mkdir(const char* path)
+{
+    return path && (::mkdir(path, 0775) == 0 || errno == EEXIST);
+}
+
+bool page_storage_remove(const char* path)
+{
+    return path && std::remove(path) == 0;
+}
+#endif
+
 bool ensure_dir(const std::string& path)
 {
-    return ::platform::esp::arduino_common::storage::sd_is_directory(path.c_str()) ||
-           ::platform::esp::arduino_common::storage::sd_mkdir(path.c_str()) ||
-           ::platform::esp::arduino_common::storage::sd_is_directory(path.c_str());
+    return page_storage_is_directory(path.c_str()) ||
+           page_storage_mkdir(path.c_str()) ||
+           page_storage_is_directory(path.c_str());
 }
 
 bool ensure_page_parent_dirs(const char* destination_hash, const char* path)
 {
+#if defined(ARDUINO)
     if (!ensure_dir("/trailmate") || !ensure_dir("/trailmate/reticulum") ||
         !ensure_dir(kPagesDir))
+#else
+    if (!ensure_dir("/fs/trailmate") ||
+        !ensure_dir("/fs/trailmate/reticulum") || !ensure_dir(kPagesDir))
+#endif
     {
         return false;
     }
@@ -2289,7 +2470,7 @@ void set_request_status(Status& out,
         break;
     case RequestStartCode::StorageUnavailable:
         out.supported = true;
-        set_status(out, "SD card required", kPagesDir);
+        set_status(out, "Page cache storage unavailable", kPagesDir);
         break;
     case RequestStartCode::Unknown:
     default:
@@ -2654,7 +2835,7 @@ Status load_cached_page(const char* destination_hash,
     }
     if (!out.sd_present)
     {
-        set_status(out, "SD card required", kPagesDir);
+        set_status(out, "Page cache storage unavailable", kPagesDir);
         return out;
     }
 
@@ -2677,9 +2858,8 @@ Status load_cached_page(const char* destination_hash,
         return out;
     }
 
-    out.file_present =
-        ::platform::esp::arduino_common::storage::sd_exists(path_text.c_str()) &&
-        !::platform::esp::arduino_common::storage::sd_is_directory(path_text.c_str());
+    out.file_present = page_storage_exists(path_text.c_str()) &&
+                       !page_storage_is_directory(path_text.c_str());
     out.cache_checked = true;
     if (!out.file_present)
     {
@@ -2687,7 +2867,7 @@ Status load_cached_page(const char* destination_hash,
         return out;
     }
 
-    SdRuntimeFile file;
+    PageRuntimeFile file;
     if (!file.open(path_text.c_str(), "r"))
     {
         set_status(out, "Cannot open Nomad page cache", path_text.c_str());
@@ -2720,7 +2900,7 @@ Status request_cached_page_load(const char* destination_hash,
     out.sd_present = page_sd_available();
     if (!out.sd_present)
     {
-        set_status(out, "SD card required", kPagesDir);
+        set_status(out, "Page cache storage unavailable", kPagesDir);
         return out;
     }
 
@@ -2909,7 +3089,7 @@ Status store_cached_page_now(const char* destination_hash,
     out.sd_present = page_sd_available();
     if (!out.sd_present)
     {
-        set_status(out, "SD card required", kPagesDir);
+        set_status(out, "Page cache storage unavailable", kPagesDir);
         return out;
     }
 
@@ -2937,7 +3117,7 @@ Status store_cached_page_now(const char* destination_hash,
     }
 
     const std::string path_text = cache_path(destination, normalized_path);
-    SdRuntimeFile file;
+    PageRuntimeFile file;
     if (!file.open(path_text.c_str(), "w"))
     {
         set_status(out, "Cannot write Nomad page cache", path_text.c_str());
@@ -2960,7 +3140,7 @@ Status clear_cached_page(const char* destination_hash, const char* path)
     out.sd_present = page_sd_available();
     if (!out.sd_present)
     {
-        set_status(out, "SD card required", kPagesDir);
+        set_status(out, "Page cache storage unavailable", kPagesDir);
         return out;
     }
 
@@ -2990,15 +3170,13 @@ Status clear_cached_page(const char* destination_hash, const char* path)
     }
 
     out.cache_checked = true;
-    out.file_present =
-        ::platform::esp::arduino_common::storage::sd_exists(path_text.c_str()) &&
-        !::platform::esp::arduino_common::storage::sd_is_directory(path_text.c_str());
+    out.file_present = page_storage_exists(path_text.c_str()) &&
+                       !page_storage_is_directory(path_text.c_str());
     const bool file_existed = out.file_present;
     bool removed = true;
     if (file_existed)
     {
-        removed = ::platform::esp::arduino_common::storage::sd_remove(
-            path_text.c_str());
+        removed = page_storage_remove(path_text.c_str());
     }
     out.file_present = file_existed && !removed;
     set_status(out,
@@ -3031,7 +3209,7 @@ Status request_page(const char* destination_hash, const char* path)
     }
     if (!out.sd_present)
     {
-        set_status(out, "SD card required", kPagesDir);
+        set_status(out, "Page cache storage unavailable", kPagesDir);
         return out;
     }
 

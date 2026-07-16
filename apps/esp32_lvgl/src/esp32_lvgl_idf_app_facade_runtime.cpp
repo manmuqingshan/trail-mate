@@ -24,10 +24,15 @@
 #include "esp_random.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "mbedtls/chachapoly.h"
 #include "mbedtls/sha256.h"
+#include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
+#include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
+#include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/radio/meshtastic_radio_adapter.h"
@@ -49,6 +54,7 @@
 #include "team/usecase/team_track_sampler.h"
 #include "ui/chat_ui_runtime.h"
 #include "ui/screens/team/team_page_shell.h"
+#include "ui/widgets/reticulum_call_overlay.h"
 #include "ui/widgets/top_bar_power_presenter.h"
 
 #include <algorithm>
@@ -135,6 +141,7 @@ int8_t clampTxPower(int8_t value)
 bool idfSupportsMeshProtocol(chat::MeshProtocol protocol)
 {
     return protocol == chat::MeshProtocol::Reticulum ||
+           protocol == chat::MeshProtocol::MeshCore ||
            protocol == chat::MeshProtocol::Meshtastic;
 }
 
@@ -143,6 +150,12 @@ void syncReticulumGroupConfig(app::AppConfig& config)
     if (!chat::infra::isReticulumMeshProtocol(
             chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
     {
+        return;
+    }
+
+    if (!platform::esp::idf_common::bsp_runtime::sdcard_ready())
+    {
+        ESP_LOGI(kIdfConfigTag, "reticulum group sync deferred: SD card not ready");
         return;
     }
 
@@ -851,8 +864,13 @@ class IdfNullMeshAdapter final : public chat::IMeshAdapter
             dst[0] = '\0';
             return;
         }
-        std::strncpy(dst, src, dst_len - 1);
-        dst[dst_len - 1] = '\0';
+        std::size_t copy_len = std::strlen(src);
+        if (copy_len >= dst_len)
+        {
+            copy_len = dst_len - 1;
+        }
+        std::memmove(dst, src, copy_len);
+        dst[copy_len] = '\0';
     }
 
     chat::MessageId next_msg_id_ = 1;
@@ -1142,6 +1160,20 @@ class IdfTeamEventBusSink final : public team::ITeamEventSink
     }
 };
 
+std::unique_ptr<chat::IChatStore> createIdfChatStore()
+{
+    std::unique_ptr<chat::SdStore> persistent_store(new chat::SdStore());
+    if (persistent_store && persistent_store->isReady())
+    {
+        ESP_LOGI(kIdfStoreTag,
+                 "chat store=SdStore backend=ffat layout=/chat/index.bin+/chat/*.log");
+        return std::unique_ptr<chat::IChatStore>(persistent_store.release());
+    }
+
+    ESP_LOGW(kIdfStoreTag, "chat store=RamStore reason=ffat_store_unavailable");
+    return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
+}
+
 class IdfAppFacadeRuntime final : public app::IAppFacade
 {
   public:
@@ -1196,6 +1228,9 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             return false;
         }
         applyMeshConfig();
+        ESP_LOGI(kIdfConfigTag,
+                 "mesh config applied stack_high_water=%u",
+                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
         applyUserInfo();
         applyNetworkLimits();
         applyPrivacyConfig();
@@ -1207,7 +1242,13 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             });
         node_store_.setAutoSaveEnabled(false);
         contact_service_.begin();
-        chat_service_.reset(new chat::ChatService(chat_model_, meshAdapter(), chat_store_));
+        chat_store_ = createIdfChatStore();
+        if (!chat_store_)
+        {
+            ESP_LOGE(kIdfStoreTag, "chat store allocation failed");
+            return false;
+        }
+        chat_service_.reset(new chat::ChatService(chat_model_, meshAdapter(), *chat_store_));
         chat_service_->setActiveProtocol(config_.mesh_protocol);
         chat_service_->switchChannel(config_.chat_channel == 1 ? chat::ChannelId::SECONDARY
                                                                : chat::ChannelId::PRIMARY);
@@ -1215,7 +1256,25 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         restoreTeamKeysFromSnapshot();
         setTeamModeActive(team_service_ && team_service_->hasKeys());
         initialized_ = true;
+        ESP_LOGI(kIdfConfigTag,
+                 "app facade ready stack_high_water=%u",
+                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
         return true;
+    }
+
+    bool startBackgroundTasks()
+    {
+        if (background_tasks_started_)
+        {
+            return true;
+        }
+
+        background_tasks_started_ =
+            lora_board_ != nullptr && app::AppTasks::init(*lora_board_, &meshAdapter());
+        ESP_LOGI(kIdfConfigTag,
+                 "shared ESP background tasks ready=%u",
+                 background_tasks_started_ ? 1U : 0U);
+        return background_tasks_started_;
     }
 
     app::AppConfig& getConfig() override { return config_; }
@@ -1418,7 +1477,6 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void updateCoreServices() override
     {
-        meshAdapter().processSendQueue();
         platform::ui::tracker::poll();
         chat_service_->processIncoming();
         chat_service_->flushStore();
@@ -1442,6 +1500,10 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void tickEventRuntime() override
     {
+        // The IDF app loop runs on a dedicated FreeRTOS task. Keep every LVGL
+        // projection inside tickBoundLifecycle()'s display lock instead of
+        // allowing the loop task to update the call overlay independently.
+        ::ui::widgets::reticulum_call_overlay::tick();
         chat::ui::IChatUiRuntime* runtime = getChatUiRuntime();
         if (runtime != nullptr)
         {
@@ -1497,8 +1559,13 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             dst[0] = '\0';
             return;
         }
-        std::strncpy(dst, src, dst_len - 1);
-        dst[dst_len - 1] = '\0';
+        std::size_t copy_len = std::strlen(src);
+        if (copy_len >= dst_len)
+        {
+            copy_len = dst_len - 1;
+        }
+        std::memmove(dst, src, copy_len);
+        dst[copy_len] = '\0';
     }
 
     static chat::NodeId resolveSelfNodeId()
@@ -1600,6 +1667,13 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             return std::unique_ptr<chat::IMeshAdapter>(
                 new platform::esp::radio::MeshtasticRadioAdapter(*lora_board_));
         }
+        if (protocol == chat::MeshProtocol::MeshCore)
+        {
+            return std::unique_ptr<chat::IMeshAdapter>(
+                new chat::meshcore::MeshCoreAdapter(
+                    *lora_board_,
+                    mesh_peer_directory_ready_ ? &mesh_peer_directory_ : nullptr));
+        }
         return nullptr;
     }
 
@@ -1696,7 +1770,8 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         case sys::EventType::ChatSendResult:
         {
             auto* result_event = static_cast<sys::ChatSendResultEvent*>(event);
-            chat_service_->handleSendResult(result_event->msg_id, result_event->success);
+            chat_service_->handleSendResult(result_event->msg_id,
+                                            result_event->status);
             return false;
         }
         case sys::EventType::NodeInfoUpdate:
@@ -1789,7 +1864,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     chat::MeshPeerDirectoryCore mesh_peer_directory_{mesh_peer_directory_blob_store_};
     chat::contacts::ContactService contact_service_{node_store_, contact_store_};
     chat::ChatModel chat_model_{};
-    chat::RamStore chat_store_{};
+    std::unique_ptr<chat::IChatStore> chat_store_{};
     IdfNullMeshAdapter null_mesh_adapter_{};
     chat::MeshAdapterRouter mesh_router_{};
     chat::IMeshAdapter* mesh_adapter_ = &null_mesh_adapter_;
@@ -1805,6 +1880,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     std::unique_ptr<team::TeamTrackSampler> team_track_sampler_{};
     chat::ui::IChatUiRuntime* chat_ui_runtime_ = nullptr;
     bool mesh_peer_directory_ready_ = false;
+    bool background_tasks_started_ = false;
     uint32_t last_node_store_flush_ms_ = 0;
 };
 
@@ -1835,6 +1911,12 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
     }
 
     app::bindAppFacade(s_runtime);
+    if (!s_runtime.startBackgroundTasks())
+    {
+        ESP_LOGE(config.log_tag,
+                 "IDF shared ESP background tasks unavailable for %s; radio TX/RX remains disabled",
+                 config.target_name);
+    }
     ESP_LOGI(config.log_tag,
              "IDF AppFacade runtime bound for %s self=%08lX mesh_backend=%s",
              config.target_name,

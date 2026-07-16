@@ -192,15 +192,23 @@ bool stop_incoming_tone()
     return s_incoming_tone_task == nullptr;
 }
 
-bool begin_ringing(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
+bool begin_soft_preempt(
+    const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
 {
     suspend_resources();
-    const bool entered = ::platform::ui::wifi_access::enter_call_ringing(link_id);
-    if (entered && !start_incoming_tone())
+    return ::platform::ui::wifi_access::enter_call_ringing(link_id);
+}
+
+bool begin_ringing_alert(
+    const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
+{
+    (void)link_id;
+    const bool started = start_incoming_tone();
+    if (!started)
     {
         std::printf("[Reticulum][CallTone] start failed\n");
     }
-    return entered;
+    return started;
 }
 
 bool begin_exclusive(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
@@ -264,7 +272,8 @@ void ensure_registered()
     }
 
     ::platform::ui::reticulum_call::RealtimeHooks realtime_hooks{};
-    realtime_hooks.begin_ringing = begin_ringing;
+    realtime_hooks.begin_soft_preempt = begin_soft_preempt;
+    realtime_hooks.begin_ringing_alert = begin_ringing_alert;
     realtime_hooks.begin_exclusive = begin_exclusive;
     realtime_hooks.begin_closing = begin_closing;
     realtime_hooks.end = end_realtime;

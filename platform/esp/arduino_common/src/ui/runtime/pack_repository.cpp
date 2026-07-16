@@ -50,7 +50,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include <Arduino.h>
 #else
-#include "platform/esp/idf_common/bsp_runtime.h"
+#include "platform/esp/idf_common/flash_storage_runtime.h"
 #endif
 
 namespace ui::runtime::packs
@@ -83,11 +83,11 @@ constexpr const char* kTempDir = "/trailmate/packs/index/tmp";
 constexpr const char* kInstalledIndexPath = kSdInstalledIndexPath;
 constexpr const char* kInstallStorage = kStorageSd;
 #else
-constexpr const char* kPackRoot = "/trailmate/packs";
-constexpr const char* kIndexDir = "/trailmate/packs/index";
-constexpr const char* kTempDir = "/trailmate/packs/index/tmp";
-constexpr const char* kInstalledIndexPath = "/trailmate/packs/index/installed.json";
-constexpr const char* kInstallStorage = kStorageSd;
+constexpr const char* kPackRoot = "/fs/trailmate/packs";
+constexpr const char* kIndexDir = "/fs/trailmate/packs/index";
+constexpr const char* kTempDir = "/fs/trailmate/packs/index/tmp";
+constexpr const char* kInstalledIndexPath = "/fs/trailmate/packs/index/installed.json";
+constexpr const char* kInstallStorage = kStorageFlash;
 #endif
 constexpr int kHttpBufferSize = 1024;
 constexpr int kHttpTxBufferSize = 512;
@@ -1395,7 +1395,16 @@ class SequentialWriteFile
 
 std::string host_path(const std::string& logical_path)
 {
-    return std::string(platform::esp::idf_common::bsp_runtime::sdcard_mount_point()) + logical_path;
+    if (!platform::esp::idf_common::flash_storage_runtime::ensure_ready(true))
+    {
+        return {};
+    }
+    if (logical_path == "/fs" || starts_with(logical_path, "/fs/"))
+    {
+        return logical_path;
+    }
+    return std::string(platform::esp::idf_common::flash_storage_runtime::mount_point()) +
+           logical_path;
 }
 
 bool ensure_dir_recursive(const std::string& logical_dir)
@@ -1513,7 +1522,14 @@ void log_path_probe(const char* scope, const std::string& logical_path)
                 dir_exists ? 1 : 0,
                 size_ok ? 1 : 0,
                 static_cast<unsigned long>(size),
-                kStorageSd);
+                kStorageFlash);
+}
+
+void log_lvgl_path_probe(const char* scope, const std::string& logical_path)
+{
+    std::printf("[Packs][Probe][LVGL] %s logical=%s mapped=0 reason=idf_posix_mount\n",
+                scope ? scope : "path",
+                logical_path.c_str());
 }
 
 bool remove_file_if_exists(const std::string& logical_path)
@@ -3204,7 +3220,7 @@ bool is_supported()
 #if defined(ARDUINO)
     return true;
 #else
-    return platform::ui::device::card_ready();
+    return platform::esp::idf_common::flash_storage_runtime::ensure_ready(true);
 #endif
 }
 

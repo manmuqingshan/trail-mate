@@ -1,4 +1,6 @@
-#include "platform/esp/radio/meshtastic_radio_adapter.h"
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+
+#include "meshtastic_radio_adapter.h"
 
 #include "chat/domain/contact_types.h"
 #include "chat/infra/meshtastic/mt_node_payload.h"
@@ -28,7 +30,6 @@ namespace
 
 constexpr const char* kTag = "idf-mt";
 constexpr uint8_t kDefaultPskIndex = 1;
-constexpr uint16_t kIrqRxDone = 0x0002;
 constexpr uint16_t kIrqHeaderErr = 0x0020;
 constexpr uint16_t kIrqCrcErr = 0x0040;
 constexpr uint16_t kIrqTimeout = 0x0200;
@@ -97,7 +98,8 @@ void fill_rx_meta(chat::RxMeta& rx_meta,
 } // namespace
 
 MeshtasticRadioAdapter::MeshtasticRadioAdapter(LoraBoard& board)
-    : board_(board)
+    : board_(board),
+      radio_pump_(board)
 {
     initNodeIdentity();
 }
@@ -295,8 +297,7 @@ bool MeshtasticRadioAdapter::sendEncodedPayload(chat::ChannelId channel,
     const bool ok = (state == static_cast<int>(kRadioOk));
     if (ok)
     {
-        rx_started_ = false;
-        ensureReceiveStarted();
+        (void)radio_pump_.restartReceive();
         if (publish_send_result)
         {
             sys::EventBus::publish(new sys::ChatSendResultEvent(msg_id, true), 0);
@@ -359,8 +360,7 @@ bool MeshtasticRadioAdapter::sendNodeInfoTo(chat::NodeId dest,
     const bool ok = (state == static_cast<int>(kRadioOk));
     if (ok)
     {
-        rx_started_ = false;
-        ensureReceiveStarted();
+        (void)radio_pump_.restartReceive();
     }
     ESP_LOGI(kTag,
              "tx nodeinfo from=%08lX to=%08lX id=%08lX ch=%u len=%u ok=%d",
@@ -673,61 +673,49 @@ void MeshtasticRadioAdapter::pollRadio()
         return;
     }
 
-    ensureReceiveStarted();
-
-    const uint32_t irq = board_.getRadioIrqFlags();
-    if (irq == 0)
+    IdfLoraRadioFrame frame{};
+    const IdfLoraPollResult result = radio_pump_.poll(frame);
+    if (result == IdfLoraPollResult::None ||
+        result == IdfLoraPollResult::RadioOffline)
     {
         return;
     }
 
-    ESP_LOGI(kTag, "radio irq=0x%04lX", static_cast<unsigned long>(irq));
-    board_.clearRadioIrqFlags(irq);
-    if ((irq & kIrqRxDone) == 0)
+    ESP_LOGI(kTag, "radio irq=0x%04lX", static_cast<unsigned long>(frame.irq));
+    if (result == IdfLoraPollResult::ReceiveRestarted)
     {
-        rx_started_ = false;
-        ensureReceiveStarted();
         return;
     }
-
-    const int packet_length = board_.getRadioPacketLength(true);
-    if (packet_length <= 0 || packet_length > 255)
+    if (result == IdfLoraPollResult::InvalidPacketLength)
     {
         ESP_LOGW(kTag,
                  "rx drop invalid packet_length=%d irq=0x%04lX",
-                 packet_length,
-                 static_cast<unsigned long>(irq));
-        rx_started_ = false;
-        ensureReceiveStarted();
+                 frame.packet_length,
+                 static_cast<unsigned long>(frame.irq));
         return;
     }
-
-    if (board_.readRadioData(radio_rx_scratch_.data(),
-                             static_cast<size_t>(packet_length)) == static_cast<int>(kRadioOk))
+    if (result == IdfLoraPollResult::Frame)
     {
-        setLastRxStats(board_.getRadioRSSI(), board_.getRadioSNR());
+        setLastRxStats(frame.rssi, frame.snr);
         ESP_LOGI(kTag,
                  "rx raw len=%d rssi=%.1f snr=%.1f",
-                 packet_length,
+                 frame.packet_length,
                  last_rx_rssi_,
                  last_rx_snr_);
-        processReceivedPacket(radio_rx_scratch_.data(), static_cast<size_t>(packet_length));
+        processReceivedPacket(frame.data, frame.len);
     }
     else
     {
         ESP_LOGW(kTag,
                  "rx read failed len=%d irq=0x%04lX",
-                 packet_length,
-                 static_cast<unsigned long>(irq));
+                 frame.packet_length,
+                 static_cast<unsigned long>(frame.irq));
     }
 
-    if ((irq & (kIrqHeaderErr | kIrqCrcErr | kIrqTimeout)) != 0)
+    if ((frame.irq & (kIrqHeaderErr | kIrqCrcErr | kIrqTimeout)) != 0)
     {
-        ESP_LOGI(kTag, "radio irq=0x%04lX", static_cast<unsigned long>(irq));
+        ESP_LOGI(kTag, "radio irq=0x%04lX", static_cast<unsigned long>(frame.irq));
     }
-
-    rx_started_ = false;
-    ensureReceiveStarted();
 }
 
 void MeshtasticRadioAdapter::configureRadio()
@@ -754,8 +742,7 @@ void MeshtasticRadioAdapter::configureRadio()
     radio_sf_ = radio.sf;
     radio_cr_ = radio.cr_denom;
     ready_ = true;
-    rx_started_ = false;
-    ensureReceiveStarted();
+    (void)radio_pump_.restartReceive();
 
     ESP_LOGI(kTag,
              "radio ready node=%08lX region=%u preset=%u use_preset=%u freq=%.3f bw=%.1f sf=%u cr=4/%u tx=%d ch=%lu sync=0x%02X preamble=%u hash=(%02X,%02X)",
@@ -824,14 +811,9 @@ void MeshtasticRadioAdapter::initNodeIdentity()
 
 void MeshtasticRadioAdapter::ensureReceiveStarted()
 {
-    if (!rx_started_)
+    if (!radio_pump_.ensureReceiveStarted())
     {
-        const int state = board_.startRadioReceive();
-        rx_started_ = (state == static_cast<int>(kRadioOk));
-        if (!rx_started_)
-        {
-            ESP_LOGW(kTag, "radio rx start failed state=%d", state);
-        }
+        ESP_LOGW(kTag, "radio rx start failed");
     }
 }
 
@@ -936,3 +918,5 @@ const uint8_t* MeshtasticRadioAdapter::channelKeyFor(chat::ChannelId channel, si
 }
 
 } // namespace platform::esp::radio
+
+#endif
