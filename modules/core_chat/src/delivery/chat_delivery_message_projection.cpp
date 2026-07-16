@@ -17,6 +17,8 @@ DeliveryState mapStatus(chat::MessageStatus status)
         return DeliveryState::Sent;
     case chat::MessageStatus::Failed:
         return DeliveryState::Failed;
+    case chat::MessageStatus::Delivered:
+        return DeliveryState::Delivered;
     }
     return DeliveryState::Unknown;
 }

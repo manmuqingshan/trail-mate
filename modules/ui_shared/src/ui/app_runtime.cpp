@@ -26,6 +26,9 @@ AppScreen* s_pending_exit = nullptr;
 lv_timer_t* s_exit_timer = nullptr;
 lv_timer_t* s_rebuild_timer = nullptr;
 bool s_overlay_active = false;
+AppScreen* s_interruption_app = nullptr;
+AppScreen* s_interrupted_app = nullptr;
+bool s_interrupted_was_menu = false;
 
 #if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 struct AppEdgeSwipeState
@@ -370,6 +373,10 @@ void set_default_group(lv_group_t* group)
 
 void menu_show()
 {
+    if (s_interruption_app != nullptr)
+    {
+        return;
+    }
     show_menu_internal();
 }
 
@@ -385,6 +392,10 @@ void ui_clear_active_app()
 
 void ui_switch_to_app(AppScreen* app, lv_obj_t* parent)
 {
+    if (s_interruption_app != nullptr && app != s_interruption_app)
+    {
+        return;
+    }
 #if defined(ESP_PLATFORM)
     ESP_LOGI(kTag,
              "ui_switch_to_app from=%s to=%s parent=%d",
@@ -422,6 +433,10 @@ void ui_switch_to_app(AppScreen* app, lv_obj_t* parent)
 
 void ui_exit_active_app(lv_obj_t* parent)
 {
+    if (s_interruption_app != nullptr)
+    {
+        return;
+    }
     if (s_active_app)
     {
         std::printf("[UI][Lifecycle] app exit name=%s reason=explicit\n",
@@ -432,8 +447,84 @@ void ui_exit_active_app(lv_obj_t* parent)
     ui::menu_runtime::setScene(ui::menu_runtime::Scene::Menu);
 }
 
+bool ui_present_interruption_app(AppScreen* app, lv_obj_t* parent)
+{
+    if (!app || !parent)
+    {
+        return false;
+    }
+    if (s_interruption_app != nullptr)
+    {
+        return s_interruption_app == app && s_active_app == app;
+    }
+
+    const bool exit_to_menu_was_pending =
+        s_pending_exit != nullptr && s_pending_exit == s_active_app;
+    s_interrupted_app = s_active_app;
+    s_interrupted_was_menu =
+        ui::menu_runtime::currentScene() == ui::menu_runtime::Scene::Menu ||
+        exit_to_menu_was_pending;
+    if (s_exit_timer)
+    {
+        lv_timer_del(s_exit_timer);
+        s_exit_timer = nullptr;
+    }
+    if (s_rebuild_timer)
+    {
+        lv_timer_del(s_rebuild_timer);
+        s_rebuild_timer = nullptr;
+    }
+    s_pending_exit = nullptr;
+    s_interruption_app = app;
+    ui_set_overlay_active(true);
+    ui::menu_layout::setMenuVisible(false);
+    ui_switch_to_app(app, parent);
+    return s_active_app == app;
+}
+
+void ui_dismiss_interruption_app(lv_obj_t* parent)
+{
+    AppScreen* interruption = s_interruption_app;
+    if (!interruption)
+    {
+        return;
+    }
+
+    AppScreen* interrupted = s_interrupted_app;
+    const bool restore_menu = s_interrupted_was_menu || interrupted == nullptr;
+    s_interruption_app = nullptr;
+    s_interrupted_app = nullptr;
+    s_interrupted_was_menu = false;
+    ui_set_overlay_active(false);
+
+    if (s_active_app == interruption)
+    {
+        std::printf("[UI][Lifecycle] app exit name=%s reason=interruption_complete\n",
+                    interruption->name());
+        interruption->exit(parent);
+        s_active_app = nullptr;
+    }
+
+    if (!restore_menu && interrupted)
+    {
+        ui::menu_layout::setMenuVisible(false);
+        ui_switch_to_app(interrupted, parent);
+        return;
+    }
+    show_menu_internal();
+}
+
+bool ui_is_interruption_app_active()
+{
+    return s_interruption_app != nullptr;
+}
+
 void ui_request_exit_to_menu()
 {
+    if (s_interruption_app != nullptr)
+    {
+        return;
+    }
     AppScreen* app = s_active_app;
 #if defined(ESP_PLATFORM)
     ESP_LOGI(kTag, "ui_request_exit_to_menu app=%s", app ? app->name() : "(null)");

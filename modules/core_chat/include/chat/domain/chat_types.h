@@ -367,7 +367,8 @@ enum class MessageStatus
     Incoming, // Received message
     Queued,   // Queued for sending
     Sent,     // Successfully sent
-    Failed    // Failed to send
+    Failed,   // Failed to send
+    Delivered // Confirmed by a remote receipt or proof
 };
 
 /**
@@ -387,6 +388,8 @@ struct ChatMessage
     int32_t geo_lat_e7;
     int32_t geo_lon_e7;
     ReticulumPeerIdentity reticulum_identity{};
+    bool has_reticulum_lxmf_hash;
+    uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
     bool source_unverified;
     RxOrigin rx_origin;
     MessageStatus status;
@@ -398,10 +401,19 @@ struct ChatMessage
                     has_geo(false),
                     geo_lat_e7(0),
                     geo_lon_e7(0),
+                    has_reticulum_lxmf_hash(false),
                     source_unverified(false),
                     rx_origin(RxOrigin::Unknown),
                     status(MessageStatus::Incoming) {}
 };
+
+inline bool hasReticulumLxmfMessageHash(const ChatMessage& msg)
+{
+    return msg.protocol == MeshProtocol::Reticulum &&
+           msg.has_reticulum_lxmf_hash &&
+           !isAllZeroKeyBytes(msg.reticulum_lxmf_hash,
+                              kReticulumLxmfHashSize);
+}
 
 inline ConversationId conversationIdForMessage(const ChatMessage& msg)
 {
@@ -443,9 +455,18 @@ struct MeshIncomingText
     uint8_t hop_limit; // Remaining hops
     bool encrypted;    // Whether message was encrypted
     ReticulumPeerIdentity reticulum_identity{};
+    bool has_reticulum_lxmf_hash = false;
+    uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
     bool source_unverified = false;
     RxMeta rx_meta;
 };
+
+inline bool hasReticulumLxmfMessageHash(const MeshIncomingText& msg)
+{
+    return msg.has_reticulum_lxmf_hash &&
+           !isAllZeroKeyBytes(msg.reticulum_lxmf_hash,
+                              kReticulumLxmfHashSize);
+}
 
 /**
  * @brief Incoming non-text mesh payload
@@ -576,7 +597,6 @@ struct MeshConfig
     char reticulum_wifi_gateway_host[kReticulumGatewayHostMaxLen + 1];
     uint16_t reticulum_wifi_gateway_port;
     ReticulumInterfacePolicy reticulum_interface_policy;
-    ReticulumCallWireProfile reticulum_call_wire_profile;
     bool reticulum_allow_location_requests;
     ReticulumGroupDestinationConfig reticulum_groups[kReticulumGroupDestinationMaxCount];
 
@@ -624,7 +644,6 @@ struct MeshConfig
           reticulum_anonymous_peer(false),
           reticulum_wifi_gateway_port(4242),
           reticulum_interface_policy(ReticulumInterfacePolicy::All),
-          reticulum_call_wire_profile(ReticulumCallWireProfile::SidebandLxst),
           reticulum_allow_location_requests(false)
     {
         strncpy(primary_channel_name, "LongFast", sizeof(primary_channel_name) - 1);
@@ -666,7 +685,7 @@ struct MeshConfig
     {
         meshcore_channel_slot = normalizeMeshCoreChannelSlot(meshcore_channel_slot);
         const MeshCoreChannelConfig& active = activeMeshCoreChannel();
-        std::strncpy(meshcore_channel_name, active.name, sizeof(meshcore_channel_name) - 1);
+        std::memcpy(meshcore_channel_name, active.name, sizeof(meshcore_channel_name));
         meshcore_channel_name[sizeof(meshcore_channel_name) - 1] = '\0';
         std::memset(secondary_key, 0, sizeof(secondary_key));
         std::memcpy(secondary_key, active.key, kMeshCoreChannelKeyLen);
@@ -678,7 +697,7 @@ struct MeshConfig
         MeshCoreChannelConfig& active = activeMeshCoreChannel();
         if (meshcore_channel_name[0] != '\0')
         {
-            std::strncpy(active.name, meshcore_channel_name, sizeof(active.name) - 1);
+            std::memcpy(active.name, meshcore_channel_name, sizeof(active.name));
             active.name[sizeof(active.name) - 1] = '\0';
         }
         if (!isAllZeroKeyBytes(secondary_key, kMeshCoreChannelKeyLen))

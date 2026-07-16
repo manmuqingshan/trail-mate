@@ -17,6 +17,7 @@ struct Harness
     bool exclusive_ok = true;
     int media_start_count = 0;
     int media_stop_count = 0;
+    int soft_preempt_count = 0;
     int ringing_count = 0;
     int exclusive_count = 0;
     int closing_count = 0;
@@ -51,7 +52,13 @@ void media_stop()
     ++g.media_stop_count;
 }
 
-bool begin_ringing(const uint8_t*)
+bool begin_soft_preempt(const uint8_t*)
+{
+    ++g.soft_preempt_count;
+    return true;
+}
+
+bool begin_ringing_alert(const uint8_t*)
 {
     ++g.ringing_count;
     return true;
@@ -82,7 +89,8 @@ void configure_hooks()
     platform::ui::reticulum_call::set_media_hooks(media);
 
     platform::ui::reticulum_call::RealtimeHooks realtime{};
-    realtime.begin_ringing = begin_ringing;
+    realtime.begin_soft_preempt = begin_soft_preempt;
+    realtime.begin_ringing_alert = begin_ringing_alert;
     realtime.begin_exclusive = begin_exclusive;
     realtime.begin_closing = begin_closing;
     realtime.end = end_realtime;
@@ -115,6 +123,32 @@ void complete_local_close(const platform::ui::reticulum_call::Peer& peer)
            platform::ui::reticulum_call::RealtimePhase::Idle);
 }
 
+void test_identification_precedes_ringing()
+{
+    const int soft_preempts_before = g.soft_preempt_count;
+    const int rings_before = g.ringing_count;
+    const auto peer = make_peer(0x08, true);
+    assert(platform::ui::reticulum_call::begin_incoming_identifying(peer));
+    platform::ui::reticulum_call::service_ui_runtime();
+
+    auto snapshot = platform::ui::reticulum_call::snapshot();
+    assert(snapshot.state == platform::ui::reticulum_call::State::Incoming);
+    assert(snapshot.realtime_phase ==
+           platform::ui::reticulum_call::RealtimePhase::IncomingIdentifying);
+    assert(g.soft_preempt_count == soft_preempts_before + 1);
+    assert(g.ringing_count == rings_before);
+    assert(!platform::ui::reticulum_call::accept());
+
+    assert(platform::ui::reticulum_call::mark_incoming_ringing(peer.link_id));
+    snapshot = platform::ui::reticulum_call::snapshot();
+    assert(snapshot.realtime_phase ==
+           platform::ui::reticulum_call::RealtimePhase::IncomingRinging);
+    assert(g.ringing_count == rings_before + 1);
+
+    platform::ui::reticulum_call::reject();
+    complete_local_close(peer);
+}
+
 void test_link_active_before_accept()
 {
     const auto peer = make_peer(0x10, true);
@@ -139,11 +173,23 @@ void test_link_active_before_accept()
 
     assert(platform::ui::reticulum_call::accept());
     snapshot = platform::ui::reticulum_call::snapshot();
+    assert(snapshot.state == platform::ui::reticulum_call::State::Incoming);
+    assert(snapshot.realtime_phase ==
+           platform::ui::reticulum_call::RealtimePhase::AcceptedStarting);
+    assert(!snapshot.media_active);
+    assert(g.media_start_count == 0);
+
+    assert(platform::ui::reticulum_call::prepare_media(peer.link_id));
+    snapshot = platform::ui::reticulum_call::snapshot();
+    assert(snapshot.media_active);
+    assert(g.media_start_count == 1);
+    assert(snapshot.realtime_phase ==
+           platform::ui::reticulum_call::RealtimePhase::AcceptedStarting);
+    assert(platform::ui::reticulum_call::mark_call_active(peer.link_id));
+    snapshot = platform::ui::reticulum_call::snapshot();
     assert(snapshot.state == platform::ui::reticulum_call::State::Active);
     assert(snapshot.realtime_phase ==
            platform::ui::reticulum_call::RealtimePhase::ActiveCall);
-    assert(snapshot.media_active);
-    assert(g.media_start_count == 1);
 
     platform::ui::reticulum_call::hangup();
     assert(g.media_stop_count == 1);
@@ -161,7 +207,7 @@ void test_accept_before_link_active()
     assert(platform::ui::reticulum_call::accept());
 
     auto snapshot = platform::ui::reticulum_call::snapshot();
-    assert(snapshot.state == platform::ui::reticulum_call::State::Active);
+    assert(snapshot.state == platform::ui::reticulum_call::State::Incoming);
     assert(snapshot.realtime_phase ==
            platform::ui::reticulum_call::RealtimePhase::AcceptedStarting);
     assert(!snapshot.link_active);
@@ -171,6 +217,12 @@ void test_accept_before_link_active()
     platform::ui::reticulum_call::mark_link_active(peer.link_id);
     snapshot = platform::ui::reticulum_call::snapshot();
     assert(snapshot.link_active);
+    assert(!snapshot.media_active);
+    assert(g.media_start_count == starts_before);
+
+    assert(platform::ui::reticulum_call::prepare_media(peer.link_id));
+    assert(platform::ui::reticulum_call::mark_call_active(peer.link_id));
+    snapshot = platform::ui::reticulum_call::snapshot();
     assert(snapshot.media_active);
     assert(snapshot.realtime_phase ==
            platform::ui::reticulum_call::RealtimePhase::ActiveCall);
@@ -207,7 +259,8 @@ void test_media_start_failure_closes_link()
     platform::ui::reticulum_call::mark_link_active(peer.link_id);
     g.media_start_ok = false;
     const int stops_before = g.media_stop_count;
-    assert(!platform::ui::reticulum_call::accept());
+    assert(platform::ui::reticulum_call::accept());
+    assert(!platform::ui::reticulum_call::prepare_media(peer.link_id));
 
     const auto snapshot = platform::ui::reticulum_call::snapshot();
     assert(snapshot.state == platform::ui::reticulum_call::State::Failed);
@@ -246,6 +299,13 @@ void test_outgoing_hard_preempt_waits_for_link()
            platform::ui::reticulum_call::Codec2Mode::Mode1200);
 
     platform::ui::reticulum_call::mark_link_active(peer.link_id);
+    snapshot = platform::ui::reticulum_call::snapshot();
+    assert(snapshot.state == platform::ui::reticulum_call::State::Outgoing);
+    assert(!snapshot.media_active);
+    assert(snapshot.realtime_phase ==
+           platform::ui::reticulum_call::RealtimePhase::AcceptedStarting);
+    assert(platform::ui::reticulum_call::prepare_media(peer.link_id));
+    assert(platform::ui::reticulum_call::mark_call_active(peer.link_id));
     snapshot = platform::ui::reticulum_call::snapshot();
     assert(snapshot.state == platform::ui::reticulum_call::State::Active);
     assert(snapshot.media_active);
@@ -291,15 +351,16 @@ int main()
     sys::set_millis_provider(fake_millis);
     configure_hooks();
 
+    test_identification_precedes_ringing();
     test_link_active_before_accept();
     test_accept_before_link_active();
     test_exclusive_denial_closes_call();
     test_media_start_failure_closes_link();
     test_outgoing_hard_preempt_waits_for_link();
 
-    assert(g.modal_wake_count == 5);
-    assert(g.sleep_disable_count == 5);
-    assert(g.sleep_enable_count == 5);
-    assert(g.activity_count == 5);
+    assert(g.modal_wake_count == 6);
+    assert(g.sleep_disable_count == 6);
+    assert(g.sleep_enable_count == 6);
+    assert(g.activity_count == 6);
     return 0;
 }

@@ -13,6 +13,7 @@ namespace chat
 {
 
 constexpr std::size_t kReticulumPeerHashSize = 16;
+constexpr std::size_t kReticulumLxmfHashSize = 32;
 
 struct ReticulumPeerIdentity
 {

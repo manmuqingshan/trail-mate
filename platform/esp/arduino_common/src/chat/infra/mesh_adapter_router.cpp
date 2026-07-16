@@ -124,6 +124,29 @@ bool MeshAdapterRouter::pollIncomingText(MeshIncomingText* out)
     return lock.locked() && core_.pollIncomingText(out);
 }
 
+IIncomingDeliveryCommitPort* MeshAdapterRouter::incomingDeliveryCommitPort()
+{
+    return this;
+}
+
+void MeshAdapterRouter::commitIncomingText(const MeshIncomingText& message,
+                                           bool durably_accepted)
+{
+    LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        return;
+    }
+
+    IMeshAdapter* backend = core_.backendForProtocol(core_.backendProtocol());
+    IIncomingDeliveryCommitPort* commit_port =
+        backend ? backend->incomingDeliveryCommitPort() : nullptr;
+    if (commit_port)
+    {
+        commit_port->commitIncomingText(message, durably_accepted);
+    }
+}
+
 bool MeshAdapterRouter::sendAppData(ChannelId channel, uint32_t portnum,
                                     const uint8_t* payload, size_t len,
                                     NodeId dest, bool want_ack,
@@ -167,7 +190,14 @@ bool MeshAdapterRouter::submitKeyVerificationNumber(NodeId dest, uint64_t nonce,
 
 NodeId MeshAdapterRouter::getNodeId() const
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // The P4 IDF radio runtime can spend a full LoRa airtime inside
+    // processSendQueue() while holding the router lock.  Node identity is a
+    // presentation read, so do not stall the LVGL task behind that work.
+    LockGuard lock(mutex_, 0);
+#else
     LockGuard lock(mutex_);
+#endif
     return lock.locked() ? core_.getNodeId() : 0;
 }
 
@@ -179,7 +209,14 @@ bool MeshAdapterRouter::isPkiReady() const
 
 bool MeshAdapterRouter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // Settings may be opened while an announce is on air.  A temporarily
+    // unavailable identity snapshot is preferable to blocking every LVGL
+    // input event until the synchronous transmit finishes.
+    LockGuard lock(mutex_, 0);
+#else
     LockGuard lock(mutex_);
+#endif
     if (!lock.locked())
     {
         if (out)

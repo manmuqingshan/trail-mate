@@ -8,8 +8,6 @@ int main()
     assert(config.mesh_protocol == chat::MeshProtocol::Reticulum);
     assert(config.reticulumConfig().reticulum_wifi_gateway_enabled);
     assert(config.reticulumConfig().reticulum_wifi_gateway_port == 4242);
-    assert(config.reticulumConfig().reticulum_call_wire_profile ==
-           chat::ReticulumCallWireProfile::SidebandLxst);
     assert(!config.reticulumConfig().reticulum_allow_location_requests);
     return 0;
 }

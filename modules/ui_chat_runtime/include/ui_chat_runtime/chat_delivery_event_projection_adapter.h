@@ -8,11 +8,6 @@ namespace chat
 class ChatService;
 }
 
-namespace sys
-{
-struct ChatSendResultEvent;
-}
-
 namespace ui_chat_runtime
 {
 
@@ -23,12 +18,14 @@ class ChatDeliveryEventProjectionAdapter
         ::chat::ChatService& chat_service,
         ::chat::delivery::IChatDeliveryEventPort& delivery_events);
 
-    void onChatSendResult(const ::sys::ChatSendResultEvent& event);
+    void onChatSendResult(::chat::MessageId msg_id,
+                          ::chat::MessageStatus status,
+                          uint32_t timestamp_ms = 0);
     void onAckTimeout(::chat::MessageId msg_id, uint32_t timestamp_ms = 0);
 
   private:
     bool publishSendResult(::chat::MessageId msg_id,
-                           bool success,
+                           ::chat::delivery::DeliveryState state,
                            ::chat::delivery::SendFailureKind failure,
                            uint32_t timestamp_ms);
 

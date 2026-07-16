@@ -31,9 +31,16 @@ struct ChatSendResultEvent : public Event
 {
     chat::MessageId msg_id;
     bool success;
+    chat::MessageStatus status;
 
     ChatSendResultEvent(chat::MessageId id, bool ok)
-        : Event(EventType::ChatSendResult), msg_id(id), success(ok) {}
+        : Event(EventType::ChatSendResult), msg_id(id), success(ok),
+          status(ok ? chat::MessageStatus::Sent : chat::MessageStatus::Failed) {}
+
+    ChatSendResultEvent(chat::MessageId id, chat::MessageStatus result_status)
+        : Event(EventType::ChatSendResult), msg_id(id),
+          success(result_status != chat::MessageStatus::Failed),
+          status(result_status) {}
 };
 
 struct KeyVerificationNumberRequestEvent : public Event

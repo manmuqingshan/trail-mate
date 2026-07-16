@@ -44,6 +44,8 @@ namespace
         return "sent";
     case ::chat::MessageStatus::Failed:
         return "failed";
+    case ::chat::MessageStatus::Delivered:
+        return "delivered";
     }
     return "unknown";
 }

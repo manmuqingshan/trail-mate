@@ -52,6 +52,12 @@ PropagationPeerState& upsertPropagationPeer(
     std::size_t max_peers);
 
 void markPropagationPeerSeen(PropagationPeerState& peer, uint32_t now_s);
+const PropagationPeerState* selectPropagationPeer(
+    const PropagationRuntime& propagation,
+    bool automatic,
+    const uint8_t configured_hash[reticulum::kTruncatedHashSize],
+    uint32_t now_s,
+    uint32_t peer_ttl_s);
 void notePropagationPeerIncomingMessage(PropagationPeerState& peer);
 void notePropagationPeerServedMessages(PropagationPeerState& peer,
                                        uint32_t served_count);
@@ -66,6 +72,21 @@ void rememberPropagationTransient(
     bool delivered,
     uint32_t now_s,
     std::size_t max_transients);
+
+bool awaitPropagationDeliveryCommit(
+    PropagationRuntime& propagation,
+    const uint8_t transient_id[reticulum::kFullHashSize],
+    const uint8_t message_hash[reticulum::kFullHashSize],
+    std::size_t max_pending);
+bool commitPropagationDelivery(
+    PropagationRuntime& propagation,
+    const uint8_t message_hash[reticulum::kFullHashSize],
+    bool accepted,
+    uint32_t now_s,
+    std::size_t max_transients);
+bool propagationDeliveryCommitsResolved(const PropagationRuntime& propagation);
+bool propagationDeliveryCommitRejected(const PropagationRuntime& propagation);
+void clearPropagationDeliveryCommits(PropagationRuntime& propagation);
 
 bool rememberPropagationEntry(
     PropagationRuntime& propagation,

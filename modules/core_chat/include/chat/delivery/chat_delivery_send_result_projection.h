@@ -11,6 +11,10 @@ ChatDeliveryEvent makeChatSendResultDeliveryEvent(ChatDeliveryRef ref,
                                                   bool success,
                                                   SendFailureKind failure,
                                                   uint32_t timestamp_ms = 0);
+ChatDeliveryEvent makeChatSendResultDeliveryEvent(ChatDeliveryRef ref,
+                                                  DeliveryState state,
+                                                  SendFailureKind failure,
+                                                  uint32_t timestamp_ms = 0);
 ChatDeliveryEvent makeAckTimeoutDeliveryEvent(ChatDeliveryRef ref,
                                               uint32_t timestamp_ms = 0);
 

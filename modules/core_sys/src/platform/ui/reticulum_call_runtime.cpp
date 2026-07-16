@@ -112,8 +112,8 @@ void apply_peer_locked(const Peer& peer)
                   sizeof(s_state.snapshot.peer_name),
                   peer.display_name);
     }
-    s_state.snapshot.wire_profile = peer.wire_profile;
     s_state.snapshot.codec2_mode = peer.codec2_mode;
+    s_state.snapshot.wire_profile = peer.wire_profile;
     s_state.snapshot.updated_ms = now_ms();
 }
 
@@ -125,10 +125,16 @@ void stop_media_outside_lock(MediaHooks hooks)
     }
 }
 
-bool begin_ringing_outside_lock(RealtimeHooks hooks,
-                                const uint8_t link_id[kHashSize])
+bool begin_soft_preempt_outside_lock(RealtimeHooks hooks,
+                                     const uint8_t link_id[kHashSize])
 {
-    return !hooks.begin_ringing || hooks.begin_ringing(link_id);
+    return !hooks.begin_soft_preempt || hooks.begin_soft_preempt(link_id);
+}
+
+bool begin_ringing_alert_outside_lock(RealtimeHooks hooks,
+                                      const uint8_t link_id[kHashSize])
+{
+    return !hooks.begin_ringing_alert || hooks.begin_ringing_alert(link_id);
 }
 
 bool begin_exclusive_outside_lock(RealtimeHooks hooks,
@@ -188,9 +194,12 @@ bool start_media_if_needed()
         s_state.snapshot.media_supported =
             hooks.is_supported ? hooks.is_supported() : false;
         should_start = s_state.snapshot.accepted &&
-                       s_state.snapshot.state == State::Active &&
                        s_state.snapshot.link_active &&
-                       !s_state.snapshot.media_active;
+                       !s_state.snapshot.media_active &&
+                       (s_state.snapshot.realtime_phase ==
+                            RealtimePhase::AcceptedStarting ||
+                        s_state.snapshot.realtime_phase ==
+                            RealtimePhase::ActiveCall);
         if (should_start)
         {
             // Reserve media ownership before the task starts so a newly scheduled
@@ -279,7 +288,10 @@ bool enqueue_packet(sys::RingBuffer<AudioPacket, kQueueDepth>& queue,
         return false;
     }
     std::lock_guard<std::mutex> lock(s_state.mutex);
-    if (!hashes_equal(link_id, s_state.snapshot.link_id))
+    if (!hashes_equal(link_id, s_state.snapshot.link_id) ||
+        !s_state.snapshot.accepted ||
+        !s_state.snapshot.link_active ||
+        !s_state.snapshot.media_active)
     {
         return false;
     }
@@ -354,13 +366,23 @@ void set_wifi_ready(bool ready)
 
 bool begin_incoming(const Peer& peer)
 {
+    if (!begin_incoming_identifying(peer))
+    {
+        return false;
+    }
+    update_peer(peer);
+    return mark_incoming_ringing(peer.link_id);
+}
+
+bool begin_incoming_identifying(const Peer& peer)
+{
     if (hash_is_empty(peer.link_id))
     {
         return false;
     }
     RealtimeHooks realtime_hooks{};
     uint8_t link_id[kHashSize] = {};
-    bool start_ringing = false;
+    bool start_soft_preempt = false;
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
         if (s_state.snapshot.state == State::Active ||
@@ -373,7 +395,7 @@ bool begin_incoming(const Peer& peer)
         s_state.snapshot.supported = true;
         s_state.snapshot.incoming = true;
         s_state.snapshot.state = State::Incoming;
-        s_state.snapshot.realtime_phase = RealtimePhase::IncomingRinging;
+        s_state.snapshot.realtime_phase = RealtimePhase::IncomingIdentifying;
         s_state.snapshot.media_supported =
             s_state.hooks.is_supported ? s_state.hooks.is_supported() : false;
         apply_peer_locked(peer);
@@ -383,11 +405,49 @@ bool begin_incoming(const Peer& peer)
         s_state.hangup_requested = false;
         s_state.closing_keep_exclusive = false;
         (void)acquire_sleep_wake_lease_locked();
-        start_ringing = true;
+        start_soft_preempt = true;
     }
-    if (start_ringing)
+    if (start_soft_preempt &&
+        !begin_soft_preempt_outside_lock(realtime_hooks, link_id))
     {
-        (void)begin_ringing_outside_lock(realtime_hooks, link_id);
+        close_call(State::Failed, true);
+        return false;
+    }
+    return true;
+}
+
+bool mark_incoming_ringing(const uint8_t link_id[kHashSize])
+{
+    if (hash_is_empty(link_id))
+    {
+        return false;
+    }
+
+    RealtimeHooks realtime_hooks{};
+    {
+        std::lock_guard<std::mutex> lock(s_state.mutex);
+        if (!hashes_equal(s_state.snapshot.link_id, link_id) ||
+            s_state.snapshot.state != State::Incoming ||
+            (s_state.snapshot.realtime_phase !=
+                 RealtimePhase::IncomingIdentifying &&
+             s_state.snapshot.realtime_phase !=
+                 RealtimePhase::IncomingRinging))
+        {
+            return false;
+        }
+        if (s_state.snapshot.realtime_phase == RealtimePhase::IncomingRinging)
+        {
+            return true;
+        }
+        s_state.snapshot.realtime_phase = RealtimePhase::IncomingRinging;
+        s_state.snapshot.updated_ms = now_ms();
+        realtime_hooks = s_state.realtime_hooks;
+    }
+
+    if (!begin_ringing_alert_outside_lock(realtime_hooks, link_id))
+    {
+        close_call(State::Failed, true);
+        return false;
     }
     return true;
 }
@@ -413,6 +473,7 @@ bool begin_outgoing(const Peer& peer)
     {
         return false;
     }
+    set_speaker_volume(100);
     bool started = false;
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
@@ -472,46 +533,74 @@ void mark_link_active(const uint8_t link_id[kHashSize])
     {
         return;
     }
-    bool should_start = false;
+    std::lock_guard<std::mutex> lock(s_state.mutex);
+    if (!hashes_equal(s_state.snapshot.link_id, link_id))
+    {
+        return;
+    }
+    if (s_state.snapshot.state != State::Incoming &&
+        s_state.snapshot.state != State::Outgoing &&
+        s_state.snapshot.state != State::Active)
+    {
+        return;
+    }
+    s_state.snapshot.link_active = true;
+    s_state.snapshot.updated_ms = now_ms();
+}
+
+bool prepare_media(const uint8_t link_id[kHashSize])
+{
+    if (hash_is_empty(link_id))
+    {
+        return false;
+    }
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
-        if (!hashes_equal(s_state.snapshot.link_id, link_id))
+        if (!hashes_equal(s_state.snapshot.link_id, link_id) ||
+            !s_state.snapshot.accepted ||
+            !s_state.snapshot.link_active ||
+            (s_state.snapshot.realtime_phase !=
+                 RealtimePhase::AcceptedStarting &&
+             s_state.snapshot.realtime_phase != RealtimePhase::ActiveCall))
         {
-            return;
+            return false;
         }
-        if (s_state.snapshot.state != State::Incoming &&
-            s_state.snapshot.state != State::Outgoing &&
-            s_state.snapshot.state != State::Active)
+        if (s_state.snapshot.media_active)
         {
-            return;
+            return true;
         }
-        s_state.snapshot.link_active = true;
-        if (s_state.snapshot.state == State::Outgoing)
-        {
-            s_state.snapshot.accepted = true;
-            s_state.snapshot.state = State::Active;
-            s_state.snapshot.realtime_phase = RealtimePhase::ActiveCall;
-            should_start = true;
-        }
-        else if (s_state.snapshot.state == State::Incoming &&
-                 s_state.snapshot.accepted)
-        {
-            s_state.snapshot.state = State::Active;
-            s_state.snapshot.realtime_phase = RealtimePhase::ActiveCall;
-            should_start = true;
-        }
-        else if (s_state.snapshot.state == State::Active &&
-                 s_state.snapshot.accepted)
-        {
-            s_state.snapshot.realtime_phase = RealtimePhase::ActiveCall;
-            should_start = !s_state.snapshot.media_active;
-        }
-        s_state.snapshot.updated_ms = now_ms();
     }
-    if (should_start)
+    if (!start_media_if_needed())
     {
-        (void)start_media_if_needed();
+        return false;
     }
+    std::lock_guard<std::mutex> lock(s_state.mutex);
+    return hashes_equal(s_state.snapshot.link_id, link_id) &&
+           s_state.snapshot.accepted && s_state.snapshot.link_active &&
+           s_state.snapshot.media_active;
+}
+
+bool mark_call_active(const uint8_t link_id[kHashSize])
+{
+    if (hash_is_empty(link_id))
+    {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(s_state.mutex);
+    if (!hashes_equal(s_state.snapshot.link_id, link_id) ||
+        !s_state.snapshot.accepted ||
+        !s_state.snapshot.link_active ||
+        !s_state.snapshot.media_active ||
+        (s_state.snapshot.state != State::Incoming &&
+         s_state.snapshot.state != State::Outgoing &&
+         s_state.snapshot.state != State::Active))
+    {
+        return false;
+    }
+    s_state.snapshot.state = State::Active;
+    s_state.snapshot.realtime_phase = RealtimePhase::ActiveCall;
+    s_state.snapshot.updated_ms = now_ms();
+    return true;
 }
 
 void notify_link_closed(const uint8_t link_id[kHashSize])
@@ -535,8 +624,7 @@ void notify_media_failed()
     bool should_close = false;
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
-        should_close = s_state.snapshot.state == State::Active &&
-                       s_state.snapshot.accepted &&
+        should_close = s_state.snapshot.accepted &&
                        s_state.snapshot.media_active;
     }
     if (should_close)
@@ -577,8 +665,9 @@ bool accept()
     uint8_t link_id[kHashSize] = {};
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
-        if (s_state.snapshot.state != State::Incoming &&
-            s_state.snapshot.state != State::Active)
+        if (s_state.snapshot.state != State::Incoming ||
+            s_state.snapshot.realtime_phase !=
+                RealtimePhase::IncomingRinging)
         {
             return false;
         }
@@ -590,22 +679,22 @@ bool accept()
         close_call(State::Failed, true);
         return false;
     }
+    set_speaker_volume(100);
     bool accepted = false;
     {
         std::lock_guard<std::mutex> lock(s_state.mutex);
         if (!hashes_equal(s_state.snapshot.link_id, link_id) ||
-            (s_state.snapshot.state != State::Incoming &&
-             s_state.snapshot.state != State::Active))
+            s_state.snapshot.state != State::Incoming ||
+            s_state.snapshot.realtime_phase !=
+                RealtimePhase::IncomingRinging)
         {
             realtime_hooks = s_state.realtime_hooks;
         }
         else
         {
             s_state.snapshot.accepted = true;
-            s_state.snapshot.state = State::Active;
             s_state.snapshot.realtime_phase =
-                s_state.snapshot.link_active ? RealtimePhase::ActiveCall
-                                             : RealtimePhase::AcceptedStarting;
+                RealtimePhase::AcceptedStarting;
             s_state.snapshot.updated_ms = now_ms();
             (void)acquire_sleep_wake_lease_locked();
             accepted = true;
@@ -613,7 +702,7 @@ bool accept()
     }
     if (accepted)
     {
-        return start_media_if_needed();
+        return true;
     }
     end_realtime_outside_lock(realtime_hooks, link_id);
     return false;
@@ -670,10 +759,12 @@ RealtimePhase realtime_phase()
 bool media_should_run()
 {
     std::lock_guard<std::mutex> lock(s_state.mutex);
-    return s_state.snapshot.state == State::Active &&
-           s_state.snapshot.accepted &&
+    return s_state.snapshot.accepted &&
            s_state.snapshot.link_active &&
-           s_state.snapshot.media_active;
+           s_state.snapshot.media_active &&
+           (s_state.snapshot.realtime_phase ==
+                RealtimePhase::AcceptedStarting ||
+            s_state.snapshot.realtime_phase == RealtimePhase::ActiveCall);
 }
 
 bool realtime_mode_active()

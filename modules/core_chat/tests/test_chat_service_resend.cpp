@@ -428,6 +428,13 @@ int main()
     service.handleSendResult(42, false);
     msg = onlyMessage(service, conv);
     assert(msg->status == chat::MessageStatus::Sent);
+    service.handleSendResult(42, chat::MessageStatus::Delivered);
+    msg = onlyMessage(service, conv);
+    assert(msg->status == chat::MessageStatus::Delivered);
+    service.handleSendResult(42, false);
+    service.handleSendResult(42, true);
+    msg = onlyMessage(service, conv);
+    assert(msg->status == chat::MessageStatus::Delivered);
 
     mesh.next_send_ok = false;
     mesh.next_msg_id = 77;

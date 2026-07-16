@@ -196,6 +196,44 @@ void markPropagationPeerSeen(PropagationPeerState& peer, uint32_t now_s)
     peer.last_seen_s = now_s;
 }
 
+const PropagationPeerState* selectPropagationPeer(
+    const PropagationRuntime& propagation,
+    bool automatic,
+    const uint8_t configured_hash[reticulum::kTruncatedHashSize],
+    uint32_t now_s,
+    uint32_t peer_ttl_s)
+{
+    const PropagationPeerState* selected = nullptr;
+    for (const auto& peer : propagation.peers)
+    {
+        const bool expired =
+            peer.last_seen_s == 0 || now_s < peer.last_seen_s ||
+            (peer_ttl_s != 0 && (now_s - peer.last_seen_s) > peer_ttl_s);
+        if (expired || !peer.node_active)
+        {
+            continue;
+        }
+        if (!automatic)
+        {
+            if (configured_hash &&
+                hashesEqual(peer.propagation_hash,
+                            configured_hash,
+                            reticulum::kTruncatedHashSize))
+            {
+                return &peer;
+            }
+            continue;
+        }
+        if (!selected || peer.hops < selected->hops ||
+            (peer.hops == selected->hops &&
+             peer.last_seen_s > selected->last_seen_s))
+        {
+            selected = &peer;
+        }
+    }
+    return selected;
+}
+
 void notePropagationPeerIncomingMessage(PropagationPeerState& peer)
 {
     peer.incoming_messages += 1;
@@ -268,6 +306,129 @@ void rememberPropagationTransient(
     entry.seen_s = now_s;
     entry.delivered = delivered;
     propagation.transients.push_back(entry);
+}
+
+bool awaitPropagationDeliveryCommit(
+    PropagationRuntime& propagation,
+    const uint8_t transient_id[reticulum::kFullHashSize],
+    const uint8_t message_hash[reticulum::kFullHashSize],
+    std::size_t max_pending)
+{
+    if (!transient_id || !message_hash || max_pending == 0)
+    {
+        return false;
+    }
+
+    for (auto& pending : propagation.pending_deliveries)
+    {
+        if (hashesEqual(pending.transient_id,
+                        transient_id,
+                        reticulum::kFullHashSize))
+        {
+            std::memcpy(pending.message_hash,
+                        message_hash,
+                        sizeof(pending.message_hash));
+            pending.state = PropagationDeliveryCommitState::AwaitingPersistence;
+            return true;
+        }
+    }
+
+    if (propagation.pending_deliveries.size() >= max_pending)
+    {
+        return false;
+    }
+
+    PendingPropagationDelivery pending{};
+    std::memcpy(pending.transient_id,
+                transient_id,
+                sizeof(pending.transient_id));
+    std::memcpy(pending.message_hash,
+                message_hash,
+                sizeof(pending.message_hash));
+    propagation.pending_deliveries.push_back(pending);
+    return true;
+}
+
+bool commitPropagationDelivery(
+    PropagationRuntime& propagation,
+    const uint8_t message_hash[reticulum::kFullHashSize],
+    bool accepted,
+    uint32_t now_s,
+    std::size_t max_transients)
+{
+    if (!message_hash)
+    {
+        return false;
+    }
+
+    bool matched = false;
+    for (auto& pending : propagation.pending_deliveries)
+    {
+        if (!hashesEqual(pending.message_hash,
+                         message_hash,
+                         reticulum::kFullHashSize))
+        {
+            continue;
+        }
+
+        pending.state = accepted ? PropagationDeliveryCommitState::Accepted
+                                 : PropagationDeliveryCommitState::Rejected;
+        matched = true;
+        if (accepted)
+        {
+            rememberPropagationTransient(propagation,
+                                         pending.transient_id,
+                                         true,
+                                         now_s,
+                                         max_transients);
+            const bool already_have =
+                std::any_of(propagation.sync_haves.begin(),
+                            propagation.sync_haves.end(),
+                            [&pending](const std::vector<uint8_t>& transient_id)
+                            {
+                                return transient_id.size() ==
+                                           reticulum::kFullHashSize &&
+                                       hashesEqual(transient_id.data(),
+                                                   pending.transient_id,
+                                                   reticulum::kFullHashSize);
+                            });
+            if (!already_have)
+            {
+                propagation.sync_haves.emplace_back(
+                    pending.transient_id,
+                    pending.transient_id + reticulum::kFullHashSize);
+            }
+        }
+    }
+    return matched;
+}
+
+bool propagationDeliveryCommitsResolved(const PropagationRuntime& propagation)
+{
+    return !propagation.pending_deliveries.empty() &&
+           std::none_of(propagation.pending_deliveries.begin(),
+                        propagation.pending_deliveries.end(),
+                        [](const PendingPropagationDelivery& pending)
+                        {
+                            return pending.state ==
+                                   PropagationDeliveryCommitState::AwaitingPersistence;
+                        });
+}
+
+bool propagationDeliveryCommitRejected(const PropagationRuntime& propagation)
+{
+    return std::any_of(propagation.pending_deliveries.begin(),
+                       propagation.pending_deliveries.end(),
+                       [](const PendingPropagationDelivery& pending)
+                       {
+                           return pending.state ==
+                                  PropagationDeliveryCommitState::Rejected;
+                       });
+}
+
+void clearPropagationDeliveryCommits(PropagationRuntime& propagation)
+{
+    propagation.pending_deliveries.clear();
 }
 
 bool rememberPropagationEntry(

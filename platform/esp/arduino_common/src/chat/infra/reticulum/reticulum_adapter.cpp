@@ -118,6 +118,17 @@ bool ReticulumAdapter::pollIncomingText(MeshIncomingText* out)
     return service_->pollIncomingText(out);
 }
 
+IIncomingDeliveryCommitPort* ReticulumAdapter::incomingDeliveryCommitPort()
+{
+    return this;
+}
+
+void ReticulumAdapter::commitIncomingText(const MeshIncomingText& message,
+                                          bool durably_accepted)
+{
+    service_->commitIncomingText(message, durably_accepted);
+}
+
 bool ReticulumAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                                    const uint8_t* payload, size_t len,
                                    NodeId dest, bool want_ack,

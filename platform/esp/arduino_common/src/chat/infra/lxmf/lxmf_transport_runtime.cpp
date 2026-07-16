@@ -216,6 +216,7 @@ void forgetPacket(TransportRuntime& transport,
 
 void rememberReversePath(TransportRuntime& transport,
                          const uint8_t proof_hash[reticulum::kTruncatedHashSize],
+                         uint8_t interface_id,
                          uint8_t expected_hops,
                          uint32_t now_ms,
                          std::size_t max_reverse_entries)
@@ -229,6 +230,7 @@ void rememberReversePath(TransportRuntime& transport,
     {
         if (hashesEqual(entry.proof_hash, proof_hash, sizeof(entry.proof_hash)))
         {
+            entry.interface_id = interface_id;
             entry.expected_hops = expected_hops;
             entry.created_ms = now_ms;
             return;
@@ -242,6 +244,7 @@ void rememberReversePath(TransportRuntime& transport,
 
     ReverseEntry entry{};
     copyHash(entry.proof_hash, proof_hash, sizeof(entry.proof_hash));
+    entry.interface_id = interface_id;
     entry.expected_hops = expected_hops;
     entry.created_ms = now_ms;
     transport.reverse_table.push_back(entry);
@@ -428,6 +431,86 @@ void removePendingPingReceipt(
         transport.pending_ping_receipts.end());
 }
 
+void notePendingDeliveryReceipt(
+    TransportRuntime& transport,
+    const uint8_t packet_hash[reticulum::kFullHashSize],
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    const uint8_t peer_sig_pub[LxmfIdentity::kSigPubKeySize],
+    MessageId message_id,
+    uint32_t now_ms,
+    std::size_t max_pending_delivery_receipts)
+{
+    if (!packet_hash || !destination_hash || !peer_sig_pub || message_id == 0)
+    {
+        return;
+    }
+
+    uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
+    copyHash(proof_hash, packet_hash, sizeof(proof_hash));
+    removePendingDeliveryReceipt(transport, proof_hash);
+    if (max_pending_delivery_receipts != 0 &&
+        transport.pending_delivery_receipts.size() >=
+            max_pending_delivery_receipts)
+    {
+        transport.pending_delivery_receipts.erase(
+            transport.pending_delivery_receipts.begin());
+    }
+
+    transport.pending_delivery_receipts.push_back(PendingDeliveryReceipt{});
+    PendingDeliveryReceipt& receipt =
+        transport.pending_delivery_receipts.back();
+    copyHash(receipt.packet_hash, packet_hash, sizeof(receipt.packet_hash));
+    copyHash(receipt.proof_hash, proof_hash, sizeof(receipt.proof_hash));
+    copyHash(receipt.destination_hash,
+             destination_hash,
+             sizeof(receipt.destination_hash));
+    copyHash(receipt.peer_sig_pub, peer_sig_pub, sizeof(receipt.peer_sig_pub));
+    receipt.message_id = message_id;
+    receipt.created_ms = now_ms == 0 ? 1U : now_ms;
+}
+
+PendingDeliveryReceipt* findPendingDeliveryReceipt(
+    TransportRuntime& transport,
+    const uint8_t proof_hash[reticulum::kTruncatedHashSize])
+{
+    if (!proof_hash)
+    {
+        return nullptr;
+    }
+    for (auto& receipt : transport.pending_delivery_receipts)
+    {
+        if (receipt.created_ms != 0 &&
+            hashesEqual(receipt.proof_hash,
+                        proof_hash,
+                        sizeof(receipt.proof_hash)))
+        {
+            return &receipt;
+        }
+    }
+    return nullptr;
+}
+
+void removePendingDeliveryReceipt(
+    TransportRuntime& transport,
+    const uint8_t proof_hash[reticulum::kTruncatedHashSize])
+{
+    if (!proof_hash)
+    {
+        return;
+    }
+    transport.pending_delivery_receipts.erase(
+        std::remove_if(
+            transport.pending_delivery_receipts.begin(),
+            transport.pending_delivery_receipts.end(),
+            [proof_hash](const PendingDeliveryReceipt& receipt)
+            {
+                return hashesEqual(receipt.proof_hash,
+                                   proof_hash,
+                                   sizeof(receipt.proof_hash));
+            }),
+        transport.pending_delivery_receipts.end());
+}
+
 PathEntry& upsertPath(TransportRuntime& transport,
                       const uint8_t destination_hash[reticulum::kTruncatedHashSize],
                       std::size_t max_paths)
@@ -590,6 +673,32 @@ void cullTransportRuntime(TransportRuntime& transport,
         transport.pending_ping_receipts.erase(
             transport.pending_ping_receipts.begin(),
             transport.pending_ping_receipts.begin() + excess);
+    }
+
+    if (limits.pending_delivery_receipt_ttl_ms != 0)
+    {
+        transport.pending_delivery_receipts.erase(
+            std::remove_if(
+                transport.pending_delivery_receipts.begin(),
+                transport.pending_delivery_receipts.end(),
+                [now_ms, &limits](const PendingDeliveryReceipt& receipt)
+                {
+                    return receipt.created_ms == 0 ||
+                           (now_ms - receipt.created_ms) >
+                               limits.pending_delivery_receipt_ttl_ms;
+                }),
+            transport.pending_delivery_receipts.end());
+    }
+    if (limits.max_pending_delivery_receipts != 0 &&
+        transport.pending_delivery_receipts.size() >
+            limits.max_pending_delivery_receipts)
+    {
+        const std::size_t excess =
+            transport.pending_delivery_receipts.size() -
+            limits.max_pending_delivery_receipts;
+        transport.pending_delivery_receipts.erase(
+            transport.pending_delivery_receipts.begin(),
+            transport.pending_delivery_receipts.begin() + excess);
     }
 }
 

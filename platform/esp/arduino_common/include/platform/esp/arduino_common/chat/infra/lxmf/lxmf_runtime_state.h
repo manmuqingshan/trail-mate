@@ -7,6 +7,7 @@
 
 #include "chat/domain/chat_types.h"
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "chat/infra/reticulum/lxst_call_state_machine.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
 
 #include <array>
@@ -44,6 +45,7 @@ struct PathEntry
     size_t cached_announce_len = 0;
     uint8_t announce_random_blobs[kPathRandomBlobHistory][kAnnounceRandomBlobSize] = {};
     uint8_t announce_random_blob_count = 0;
+    uint8_t interface_id = 0;
     uint8_t hops = 0;
     uint32_t last_seen_s = 0;
     uint32_t updated_ms = 0;
@@ -60,6 +62,7 @@ struct PacketFilterEntry
 struct ReverseEntry
 {
     uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t interface_id = 0;
     uint8_t expected_hops = 0;
     uint32_t created_ms = 0;
 };
@@ -82,9 +85,21 @@ struct PendingPingReceipt
     uint32_t created_ms = 0;
 };
 
+struct PendingDeliveryReceipt
+{
+    uint8_t packet_hash[reticulum::kFullHashSize] = {};
+    uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t peer_sig_pub[LxmfIdentity::kSigPubKeySize] = {};
+    MessageId message_id = 0;
+    uint32_t created_ms = 0;
+};
+
 struct LinkRelayEntry
 {
     uint8_t link_id[reticulum::kTruncatedHashSize] = {};
+    uint8_t initiator_interface_id = 0;
+    uint8_t responder_interface_id = 0;
     uint8_t initiator_hops = 0;
     uint8_t responder_hops = 0;
     uint32_t last_seen_ms = 0;
@@ -133,6 +148,13 @@ struct DeferredLinkPayload
     uint8_t resource_flags = 0;
 };
 
+struct LinkPacketReceipt
+{
+    uint8_t packet_hash[reticulum::kFullHashSize] = {};
+    uint32_t message_id = 0;
+    uint32_t created_ms = 0;
+};
+
 struct LinkResourceTransfer
 {
     uint8_t resource_hash[reticulum::kFullHashSize] = {};
@@ -155,6 +177,7 @@ struct LinkResourceTransfer
     uint32_t total_segments = 1;
     uint32_t created_ms = 0;
     uint32_t last_activity_ms = 0;
+    uint32_t message_id = 0;
     uint8_t flags = 0;
     bool incoming = true;
     bool encrypted = false;
@@ -201,6 +224,7 @@ struct LinkSession
     uint32_t keepalive_interval_ms = 15000;
     uint32_t stale_timeout_ms = 30000;
     uint32_t last_keepalive_ms = 0;
+    uint8_t interface_id = 0;
     uint8_t expected_hops = 0;
     bool initiator = false;
     bool local_identity_sent = false;
@@ -208,18 +232,15 @@ struct LinkSession
     bool validated = false;
     ReticulumCallWireProfile call_wire_profile =
         ReticulumCallWireProfile::SidebandLxst;
-    uint16_t lxst_profile = 0x30;
-    uint16_t lxst_local_status = 0x02;
-    uint16_t lxst_remote_status = 0x02;
-    uint32_t call_status_ms = 0;
+    reticulum::lxst::call::State lxst_call{};
     bool call_runtime_started = false;
-    bool lxst_preferred_sent = false;
     LocalDestinationKind destination = LocalDestinationKind::Delivery;
     LinkState state = LinkState::Pending;
     LinkCloseReason close_reason = LinkCloseReason::None;
     bool propagation_offer_validated = false;
     std::vector<LinkPendingRequest> pending_requests;
     std::vector<DeferredLinkPayload> deferred_payloads;
+    std::vector<LinkPacketReceipt> pending_packet_receipts;
     std::vector<LinkResourceTransfer> incoming_resources;
     std::vector<LinkResourceAssembly> incoming_resource_assemblies;
     std::vector<LinkResourceTransfer> outgoing_resources;
@@ -241,14 +262,78 @@ struct PropagationTransientEntry
     bool delivered = false;
 };
 
+enum class PropagationUploadState : uint8_t
+{
+    WaitingNode = 0,
+    NeedsStamp = 1,
+    Stamping = 2,
+    Ready = 3,
+    QueuedToLink = 4,
+    Failed = 5,
+};
+
+struct PendingPropagationUpload
+{
+    uint8_t node_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t message_hash[reticulum::kFullHashSize] = {};
+    uint8_t transient_id[reticulum::kFullHashSize] = {};
+    std::vector<uint8_t> transient_data;
+    uint32_t created_ms = 0;
+    uint32_t message_id = 0;
+    uint8_t stamp_cost = 0;
+    PropagationUploadState state = PropagationUploadState::WaitingNode;
+    bool track_user_message = false;
+};
+
+enum class PropagationDeliveryCommitState : uint8_t
+{
+    AwaitingPersistence = 0,
+    Accepted = 1,
+    Rejected = 2,
+};
+
+struct PendingPropagationDelivery
+{
+    uint8_t transient_id[reticulum::kFullHashSize] = {};
+    uint8_t message_hash[reticulum::kFullHashSize] = {};
+    PropagationDeliveryCommitState state =
+        PropagationDeliveryCommitState::AwaitingPersistence;
+};
+
+enum class PropagationSyncStage : uint8_t
+{
+    Idle = 0,
+    NeedList = 1,
+    Listing = 2,
+    NeedMessages = 3,
+    Downloading = 4,
+    AwaitingPersistence = 5,
+    NeedAcknowledge = 6,
+    Acknowledging = 7,
+    Complete = 8,
+    Failed = 9,
+};
+
 struct PropagationPeerState
 {
     uint8_t propagation_hash[reticulum::kTruncatedHashSize] = {};
     uint8_t delivery_hash[reticulum::kTruncatedHashSize] = {};
     uint8_t identity_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t enc_pub[LxmfIdentity::kEncPubKeySize] = {};
+    uint8_t sig_pub[LxmfIdentity::kSigPubKeySize] = {};
+    char display_name[32] = {};
+    uint32_t announce_timebase_s = 0;
     uint32_t last_seen_s = 0;
+    uint32_t transfer_limit_kb = 0;
+    uint32_t sync_limit_kb = 0;
     uint32_t incoming_messages = 0;
     uint32_t served_messages = 0;
+    uint8_t hops = 0;
+    uint8_t stamp_cost = 0;
+    uint8_t stamp_cost_flexibility = 0;
+    uint8_t peering_cost = 0;
+    bool node_active = false;
 };
 
 struct TransportRuntime
@@ -258,6 +343,7 @@ struct TransportRuntime
     std::vector<ReverseEntry> reverse_table;
     std::vector<PendingPathRequest> pending_path_requests;
     std::vector<PendingPingReceipt> pending_ping_receipts;
+    std::vector<PendingDeliveryReceipt> pending_delivery_receipts;
     std::vector<LinkRelayEntry> link_relays;
 };
 
@@ -271,6 +357,18 @@ struct PropagationRuntime
     std::vector<PropagationEntry> entries;
     std::vector<PropagationTransientEntry> transients;
     std::vector<PropagationPeerState> peers;
+    std::vector<PendingPropagationUpload> pending_uploads;
+    std::vector<PendingPropagationDelivery> pending_deliveries;
+    std::vector<std::vector<uint8_t>> sync_wants;
+    std::vector<std::vector<uint8_t>> sync_haves;
+    uint8_t active_node_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t sync_request_id[reticulum::kTruncatedHashSize] = {};
+    uint32_t last_sync_s = 0;
+    uint32_t sync_started_ms = 0;
+    uint32_t persistence_started_ms = 0;
+    PropagationSyncStage sync_stage = PropagationSyncStage::Idle;
+    bool has_active_node = false;
+    bool initial_sync_pending = true;
 };
 
 } // namespace chat::lxmf::runtime

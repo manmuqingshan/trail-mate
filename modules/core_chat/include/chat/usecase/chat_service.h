@@ -160,6 +160,14 @@ class ChatService
     void handleSendResult(MessageId msg_id, bool ok);
 
     /**
+     * @brief Apply an exact outbound delivery state.
+     *
+     * Only Sent, Delivered, and Failed are accepted. Delivered is terminal;
+     * an earlier failure may still be superseded by a later valid proof.
+     */
+    void handleSendResult(MessageId msg_id, MessageStatus status);
+
+    /**
      * @brief Get message by ID (for UI send status)
      */
     const ChatMessage* getMessage(MessageId msg_id) const;
@@ -192,12 +200,25 @@ class ChatService
         MessageId msg_id = 0;
         bool has_reticulum_destination = false;
         uint8_t reticulum_destination_hash[kReticulumPeerHashSize] = {};
+        bool has_reticulum_lxmf_hash = false;
+        uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
 
         bool operator==(const IncomingIdentity& other) const
         {
             if (protocol != other.protocol ||
-                channel != other.channel ||
-                msg_id != other.msg_id)
+                channel != other.channel)
+            {
+                return false;
+            }
+            if (protocol == MeshProtocol::Reticulum &&
+                has_reticulum_lxmf_hash &&
+                other.has_reticulum_lxmf_hash)
+            {
+                return std::memcmp(reticulum_lxmf_hash,
+                                   other.reticulum_lxmf_hash,
+                                   kReticulumLxmfHashSize) == 0;
+            }
+            if (msg_id != other.msg_id)
             {
                 return false;
             }

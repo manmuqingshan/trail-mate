@@ -1,6 +1,6 @@
 /**
  * @file reticulum_call_overlay.h
- * @brief Top-level Reticulum call answer/hangup overlay.
+ * @brief Global Reticulum call interruption page runtime.
  */
 
 #pragma once

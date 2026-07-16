@@ -28,6 +28,8 @@ struct LxmfDeliveryContext
     NodeId peer_node_id = 0;
     NodeId local_node_id = 0;
     MessageId message_id = 0;
+    bool has_message_hash = false;
+    uint8_t message_hash[kReticulumLxmfHashSize] = {};
     uint32_t timestamp_s = 0;
     ReticulumPeerIdentity peer_identity{};
     ReticulumPeerIdentity conversation_identity{};

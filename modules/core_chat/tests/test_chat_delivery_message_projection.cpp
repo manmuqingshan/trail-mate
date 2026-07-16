@@ -30,6 +30,11 @@ int main()
     assert(sent.state == chat::delivery::DeliveryState::Sent);
     assert(sent.failure == chat::delivery::DeliveryFailureKind::None);
 
+    const auto delivered = chat::delivery::toDeliveryRecord(
+        message(chat::MessageStatus::Delivered, 14));
+    assert(delivered.state == chat::delivery::DeliveryState::Delivered);
+    assert(delivered.failure == chat::delivery::DeliveryFailureKind::None);
+
     const auto failed =
         chat::delivery::toDeliveryRecord(message(chat::MessageStatus::Failed, 12));
     assert(failed.state == chat::delivery::DeliveryState::Failed);

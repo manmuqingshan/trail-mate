@@ -880,7 +880,7 @@ void AppFacadeRuntime::dispatchPendingEvents(std::size_t max_events)
             if (chat_service_ && message)
             {
                 const bool local_outgoing = message->from == 0;
-                chat_service_->handleSendResult(result->msg_id, result->success);
+                chat_service_->handleSendResult(result->msg_id, result->status);
                 if (local_outgoing)
                 {
                     pending_chat_send_result_feedback_ = true;

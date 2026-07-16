@@ -10,6 +10,8 @@
 
 namespace chat
 {
+class IIncomingDeliveryCommitPort;
+
 namespace meshcore
 {
 class IMeshCoreBleBackend;
@@ -138,6 +140,14 @@ class IMeshAdapter
      * @return true if message available
      */
     virtual bool pollIncomingText(MeshIncomingText* out) = 0;
+
+    /**
+     * Expose the optional two-phase incoming-delivery capability.
+     */
+    virtual IIncomingDeliveryCommitPort* incomingDeliveryCommitPort()
+    {
+        return nullptr;
+    }
 
     /**
      * @brief Send app payload data (non-text)
@@ -269,7 +279,7 @@ class IMeshAdapter
     }
 
     /**
-     * @brief Start a MeshChat-compatible Reticulum call.audio Link call.
+     * @brief Start a Sideband-compatible LXST telephony Link call.
      */
     virtual MeshActionResult startReticulumAudioCall(
         const ReticulumPeerIdentity& destination)
@@ -279,7 +289,7 @@ class IMeshAdapter
     }
 
     /**
-     * @brief Send a MeshChat-compatible Reticulum Ping Destination probe.
+     * @brief Send a Reticulum Ping Destination proof probe.
      *
      * This is a protocol action: it sends an empty encrypted packet to an
      * LXMF delivery destination so the remote can answer with a Reticulum

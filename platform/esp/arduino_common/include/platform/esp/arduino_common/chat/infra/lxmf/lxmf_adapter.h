@@ -11,6 +11,7 @@
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/ports/i_mesh_peer_directory.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_stamp_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_state.h"
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
 #include "platform/ui/reticulum_page_runtime.h"
@@ -45,6 +46,8 @@ class LxmfAdapter : public IMeshAdapter
         MessageId forced_msg_id,
         const ReticulumPeerIdentity& destination) override;
     bool pollIncomingText(MeshIncomingText* out) override;
+    void commitIncomingText(const MeshIncomingText& message,
+                            bool durably_accepted);
     bool sendAppData(ChannelId channel, uint32_t portnum,
                      const uint8_t* payload, size_t len,
                      NodeId dest = 0, bool want_ack = false,
@@ -91,6 +94,8 @@ class LxmfAdapter : public IMeshAdapter
     using PropagationEntry = runtime::PropagationEntry;
     using PropagationTransientEntry = runtime::PropagationTransientEntry;
     using PropagationPeerState = runtime::PropagationPeerState;
+    using PendingPropagationUpload = runtime::PendingPropagationUpload;
+    using PropagationSyncStage = runtime::PropagationSyncStage;
 
     static constexpr uint32_t kAnnounceIntervalMs = 120000;
     static constexpr uint32_t kInitialAnnounceDelayMs = 1500;
@@ -130,6 +135,8 @@ class LxmfAdapter : public IMeshAdapter
         RxMeta rx_meta{};
         reticulum::interfaces::InterfaceKind interface_kind =
             reticulum::interfaces::InterfaceKind::LoRa;
+        reticulum::interfaces::InterfaceId interface_id =
+            reticulum::interfaces::kInvalidInterfaceId;
         uint8_t packet_hash[reticulum::kFullHashSize] = {};
     };
 
@@ -165,6 +172,7 @@ class LxmfAdapter : public IMeshAdapter
     };
 
     reticulum::interfaces::ReticulumInterfaceSet interfaces_;
+    uint32_t network_config_generation_ = 0;
     IMeshPeerDirectory* peer_directory_ = nullptr;
     reticulum::interfaces::RxPacket rx_packet_scratch_{};
     uint8_t announce_tx_signed_scratch_[reticulum::kReticulumMtu] = {};
@@ -182,6 +190,8 @@ class LxmfAdapter : public IMeshAdapter
     runtime::TransportRuntime transport_;
     runtime::LinkRuntime links_;
     runtime::PropagationRuntime propagation_;
+    runtime::PropagationStampRuntime propagation_stamp_;
+    PeerInfo propagation_peer_scratch_{};
     std::string user_long_name_;
     std::string user_short_name_;
     uint32_t last_announce_ms_ = 0;
@@ -209,6 +219,10 @@ class LxmfAdapter : public IMeshAdapter
     uint8_t nomad_page_request_payload_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t nomad_page_wire_payload_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t nomad_page_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t link_request_payload_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t link_request_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t link_request_routed_scratch_[reticulum::kReticulumMtu] = {};
+    std::size_t link_request_packet_len_ = 0;
     uint8_t call_wire_scratch_[reticulum::kReticulumMtu] = {};
     uint32_t last_peer_projection_ms_ = 0;
     uint32_t next_app_packet_id_ = 1;
@@ -216,6 +230,8 @@ class LxmfAdapter : public IMeshAdapter
     bool peers_loaded_ = false;
     RxMeta active_rx_meta_{};
     bool has_active_rx_meta_ = false;
+    reticulum::interfaces::InterfaceId active_ingress_interface_id_ =
+        reticulum::interfaces::kInvalidInterfaceId;
 
     RuntimeBudget makeRuntimeBudget() const;
     void processRuntime();
@@ -269,6 +285,7 @@ class LxmfAdapter : public IMeshAdapter
     LinkSession* ensureOutboundLinkSession(PeerInfo& peer,
                                            LocalDestinationKind kind,
                                            bool* out_started = nullptr);
+    bool prepareLinkRequest(LinkSession& session);
     bool sendLinkRequest(LinkSession& session);
     bool buildSignedMessagePacket(const PeerInfo& peer,
                                   const uint8_t* packed_payload, size_t packed_payload_len,
@@ -284,6 +301,30 @@ class LxmfAdapter : public IMeshAdapter
                              size_t packed_payload_len,
                              bool track_user_message,
                              OutboundLxmfDispatch* out_dispatch);
+    bool queuePropagationUpload(PeerInfo& recipient,
+                                const uint8_t* lxmf_message,
+                                size_t lxmf_message_len,
+                                MessageId message_id,
+                                const uint8_t message_hash[reticulum::kFullHashSize],
+                                bool track_user_message,
+                                OutboundLxmfDispatch* out_dispatch);
+    void processPropagationClient();
+    const PropagationPeerState* selectActivePropagationPeer();
+    bool preparePropagationPeer(const PropagationPeerState& source,
+                                PeerInfo* out_peer) const;
+    bool encryptForPeer(const PeerInfo& peer,
+                        const uint8_t* plaintext,
+                        size_t plaintext_len,
+                        uint8_t* out_payload,
+                        size_t* inout_len);
+    bool queueReadyPropagationUpload(PendingPropagationUpload& upload,
+                                     const PropagationPeerState& node);
+    bool sendPropagationSyncRequest(LinkSession& session,
+                                    PropagationSyncStage next_stage,
+                                    const std::vector<std::vector<uint8_t>>* wants,
+                                    const std::vector<std::vector<uint8_t>>* haves,
+                                    bool include_transfer_limit);
+    void processPropagationSyncResponse(LinkSession& session);
     bool respondToSidebandTelemetryRequest(
         PeerInfo& peer,
         const SidebandTelemetryRequest& request);
@@ -296,7 +337,8 @@ class LxmfAdapter : public IMeshAdapter
     bool sendCachedAnnounceResponse(const PathEntry& path,
                                     reticulum::PacketContext context);
     bool sendCachedPacketReplay(const uint8_t packet_hash[reticulum::kFullHashSize]);
-    bool shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& packet);
+    bool shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& packet,
+                                        const RuntimeBudget& budget);
     bool shouldLogRxDetail(const reticulum::ParsedPacket& packet,
                            reticulum::interfaces::InterfaceKind ingress_interface,
                            const RuntimeBudget& budget);
@@ -316,6 +358,7 @@ class LxmfAdapter : public IMeshAdapter
     bool isDuplicatePacket(const uint8_t packet_hash[reticulum::kFullHashSize]);
     void rememberPacket(const uint8_t packet_hash[reticulum::kFullHashSize]);
     void rememberReversePath(const uint8_t proof_hash[reticulum::kTruncatedHashSize],
+                             reticulum::interfaces::InterfaceId interface_id,
                              uint8_t expected_hops);
     ReverseEntry* findReversePath(const uint8_t proof_hash[reticulum::kTruncatedHashSize]);
     PendingPathRequest* findPendingPathRequest(
@@ -386,7 +429,8 @@ class LxmfAdapter : public IMeshAdapter
                         reticulum::PacketContext context,
                         const uint8_t* payload, size_t payload_len,
                         bool encrypt_payload,
-                        bool call_admission_control = false);
+                        bool call_admission_control = false,
+                        uint8_t out_packet_hash[reticulum::kFullHashSize] = nullptr);
     bool sendNomadPageRequestPacket(LinkSession& session,
                                     PendingNomadPageRequest& request);
     MeshActionResult sendReticulumPingToPeer(PeerInfo& peer,
@@ -432,6 +476,9 @@ class LxmfAdapter : public IMeshAdapter
     bool sendLxstSignal(LinkSession& session,
                         uint16_t signal,
                         bool call_admission_control = false);
+    bool dispatchLxstCallEvent(
+        LinkSession& session,
+        const reticulum::lxst::call::Event& event);
     bool handleLxstPacket(LinkSession& session,
                           const uint8_t* payload,
                           size_t payload_len);
@@ -450,14 +497,18 @@ class LxmfAdapter : public IMeshAdapter
                                const uint8_t* raw_packet, size_t raw_len,
                                const reticulum::ParsedPacket& packet);
     bool acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaintext_len,
-                                const uint8_t* raw_packet, size_t raw_len);
+                                const uint8_t* raw_packet, size_t raw_len,
+                                uint8_t* out_message_hash = nullptr,
+                                bool* out_awaiting_commit = nullptr);
     bool acceptVerifiedEnvelopeForDestination(
         const uint8_t expected_destination_hash[reticulum::kTruncatedHashSize],
         const ReticulumPeerIdentity& conversation_identity,
         bool destination_is_group,
         bool encrypted,
         const uint8_t* plaintext, size_t plaintext_len,
-        const uint8_t* raw_packet, size_t raw_len);
+        const uint8_t* raw_packet, size_t raw_len,
+        uint8_t* out_message_hash = nullptr,
+        bool* out_awaiting_commit = nullptr);
     bool handleLinkResourceAdvertisement(LinkSession& session,
                                          const uint8_t* plaintext, size_t plaintext_len);
     bool handleLinkResourceRequest(LinkSession& session,
@@ -475,7 +526,9 @@ class LxmfAdapter : public IMeshAdapter
                                   const uint8_t* request_id,
                                   size_t request_id_len);
     bool acceptPropagatedDelivery(const uint8_t* propagated_payload,
-                                  size_t propagated_payload_len);
+                                  size_t propagated_payload_len,
+                                  uint8_t* out_message_hash = nullptr,
+                                  bool* out_awaiting_commit = nullptr);
     bool requestNextResourceWindow(LinkSession& session,
                                    LinkResourceTransfer& resource);
     bool advertiseLinkResource(LinkSession& session,
@@ -485,7 +538,8 @@ class LxmfAdapter : public IMeshAdapter
                                const uint8_t* data, size_t len,
                                uint8_t flags,
                                const uint8_t* request_id,
-                               size_t request_id_len);
+                               size_t request_id_len,
+                               uint32_t message_id = 0);
     bool sendLinkResponse(LinkSession& session,
                           const uint8_t* request_id,
                           size_t request_id_len,

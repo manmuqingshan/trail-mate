@@ -5,9 +5,11 @@
 
 #include "chat/usecase/chat_service.h"
 #include "chat/infra/mesh_protocol_utils.h"
+#include "chat/ports/i_incoming_delivery_commit_port.h"
 #include "chat/time_utils.h"
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 namespace chat
 {
@@ -532,6 +534,10 @@ void ChatService::processIncoming()
         msg.timestamp = persistable_incoming_timestamp(incoming_text);
         msg.text = incoming_text.text;
         msg.reticulum_identity = incoming_text.reticulum_identity;
+        msg.has_reticulum_lxmf_hash = incoming_text.has_reticulum_lxmf_hash;
+        std::memcpy(msg.reticulum_lxmf_hash,
+                    incoming_text.reticulum_lxmf_hash,
+                    sizeof(msg.reticulum_lxmf_hash));
         msg.source_unverified = incoming_text.source_unverified;
         msg.rx_origin = incoming_text.rx_meta.origin;
         msg.status = MessageStatus::Incoming;
@@ -544,7 +550,7 @@ void ChatService::processIncoming()
         format_reticulum_hash_prefix(incoming_identity,
                                      incoming_dest_hash,
                                      sizeof(incoming_dest_hash));
-        CHAT_SERVICE_DIAG_LOG("[ChatService][RX] text protocol=%s msg=%lu from=%08lX to=%08lX peer=%08lX dest=%s len=%u encrypted=%u unverified=%u\n",
+        CHAT_SERVICE_DIAG_LOG("[ChatService][RX] text protocol=%s msg=%lu from=%08lX to=%08lX peer=%08lX dest=%s len=%u encrypted=%u unverified=%u lxmf_hash=%u\n",
                               protocol_name(active_protocol_),
                               static_cast<unsigned long>(msg.msg_id),
                               static_cast<unsigned long>(msg.from),
@@ -553,7 +559,8 @@ void ChatService::processIncoming()
                               incoming_dest_hash,
                               static_cast<unsigned>(msg.text.size()),
                               incoming_text.encrypted ? 1U : 0U,
-                              incoming_text.source_unverified ? 1U : 0U);
+                              incoming_text.source_unverified ? 1U : 0U,
+                              chat::hasReticulumLxmfMessageHash(msg) ? 1U : 0U);
 
         CHAT_SERVICE_LOG("[ChatService] incoming text ch=%u from=%08lX to=%08lX peer=%08lX ts=%lu len=%u\n",
                          static_cast<unsigned>(msg.channel),
@@ -565,13 +572,34 @@ void ChatService::processIncoming()
 
         if (isDuplicateIncoming(msg))
         {
-            CHAT_SERVICE_LOG("[ChatService] duplicate incoming text ignored ch=%u from=%08lX peer=%08lX id=%08lX\n",
-                             static_cast<unsigned>(msg.channel),
-                             static_cast<unsigned long>(msg.from),
-                             static_cast<unsigned long>(msg.peer),
-                             static_cast<unsigned long>(msg.msg_id));
+            CHAT_SERVICE_DIAG_LOG("[ChatService][RX] duplicate incoming text ignored ch=%u from=%08lX peer=%08lX id=%08lX lxmf_hash=%u\n",
+                                  static_cast<unsigned>(msg.channel),
+                                  static_cast<unsigned long>(msg.from),
+                                  static_cast<unsigned long>(msg.peer),
+                                  static_cast<unsigned long>(msg.msg_id),
+                                  chat::hasReticulumLxmfMessageHash(msg) ? 1U : 0U);
+            if (IIncomingDeliveryCommitPort* commit_port =
+                    adapter_.incomingDeliveryCommitPort())
+            {
+                commit_port->commitIncomingText(incoming_text, true);
+            }
             continue;
         }
+
+        if (!store_.appendIncomingDurably(msg))
+        {
+            CHAT_SERVICE_DIAG_LOG("[ChatService][RX] durable append failed protocol=%s msg=%lu lxmf_hash=%u\n",
+                                  protocol_name(active_protocol_),
+                                  static_cast<unsigned long>(msg.msg_id),
+                                  chat::hasReticulumLxmfMessageHash(msg) ? 1U : 0U);
+            if (IIncomingDeliveryCommitPort* commit_port =
+                    adapter_.incomingDeliveryCommitPort())
+            {
+                commit_port->commitIncomingText(incoming_text, false);
+            }
+            continue;
+        }
+
         rememberIncoming(msg);
 
         if (model_enabled_)
@@ -579,7 +607,11 @@ void ChatService::processIncoming()
             model_.onIncoming(msg);
         }
 
-        store_.append(msg);
+        if (IIncomingDeliveryCommitPort* commit_port =
+                adapter_.incomingDeliveryCommitPort())
+        {
+            commit_port->commitIncomingText(incoming_text, true);
+        }
 
         for (auto* observer : incoming_message_observers_)
         {
@@ -626,7 +658,18 @@ void ChatService::processIncoming()
 
 bool ChatService::isDuplicateIncoming(const ChatMessage& msg) const
 {
-    if (msg.msg_id == 0 || msg.status != MessageStatus::Incoming)
+    if (msg.status != MessageStatus::Incoming)
+    {
+        return false;
+    }
+
+    if (chat::hasReticulumLxmfMessageHash(msg) &&
+        store_.hasReticulumLxmfMessageHash(msg.reticulum_lxmf_hash))
+    {
+        return true;
+    }
+
+    if (msg.msg_id == 0)
     {
         return false;
     }
@@ -637,6 +680,13 @@ bool ChatService::isDuplicateIncoming(const ChatMessage& msg) const
     identity.from = msg.from;
     identity.peer = msg.peer;
     identity.msg_id = msg.msg_id;
+    if (chat::hasReticulumLxmfMessageHash(msg))
+    {
+        identity.has_reticulum_lxmf_hash = true;
+        std::memcpy(identity.reticulum_lxmf_hash,
+                    msg.reticulum_lxmf_hash,
+                    sizeof(identity.reticulum_lxmf_hash));
+    }
     if (msg.protocol == MeshProtocol::Reticulum &&
         hasReticulumDestinationIdentity(msg.reticulum_identity))
     {
@@ -649,7 +699,8 @@ bool ChatService::isDuplicateIncoming(const ChatMessage& msg) const
 
 void ChatService::rememberIncoming(const ChatMessage& msg)
 {
-    if (msg.msg_id == 0 || msg.status != MessageStatus::Incoming)
+    if (msg.status != MessageStatus::Incoming ||
+        (msg.msg_id == 0 && !chat::hasReticulumLxmfMessageHash(msg)))
     {
         return;
     }
@@ -660,6 +711,13 @@ void ChatService::rememberIncoming(const ChatMessage& msg)
     identity.from = msg.from;
     identity.peer = msg.peer;
     identity.msg_id = msg.msg_id;
+    if (chat::hasReticulumLxmfMessageHash(msg))
+    {
+        identity.has_reticulum_lxmf_hash = true;
+        std::memcpy(identity.reticulum_lxmf_hash,
+                    msg.reticulum_lxmf_hash,
+                    sizeof(identity.reticulum_lxmf_hash));
+    }
     if (msg.protocol == MeshProtocol::Reticulum &&
         hasReticulumDestinationIdentity(msg.reticulum_identity))
     {
@@ -773,22 +831,49 @@ void ChatService::removeIncomingDataObserver(IncomingDataObserver* observer)
 
 void ChatService::handleSendResult(MessageId msg_id, bool ok)
 {
+    handleSendResult(msg_id,
+                     ok ? MessageStatus::Sent : MessageStatus::Failed);
+}
+
+void ChatService::handleSendResult(MessageId msg_id, MessageStatus status)
+{
     if (msg_id == 0)
     {
         return;
     }
+    if (status != MessageStatus::Sent &&
+        status != MessageStatus::Delivered &&
+        status != MessageStatus::Failed)
+    {
+        return;
+    }
+
     const ChatMessage* current = getMessage(msg_id);
-    if (!ok && current && current->status == MessageStatus::Sent)
+    if (current && current->from != 0)
+    {
+        return;
+    }
+    if (current && current->status == MessageStatus::Delivered)
+    {
+        return;
+    }
+    if (current && current->status == MessageStatus::Sent &&
+        status == MessageStatus::Failed)
     {
         CHAT_SERVICE_DIAG_LOG("[ChatService][TX] ignore failed result for sent msg=%lu\n",
                               static_cast<unsigned long>(msg_id));
         return;
     }
+    if (current && current->status == MessageStatus::Failed &&
+        status == MessageStatus::Sent)
+    {
+        return;
+    }
     if (model_enabled_)
     {
-        model_.onSendResult(msg_id, ok);
+        model_.updateMessageStatus(msg_id, status);
     }
-    store_.updateMessageStatus(msg_id, ok ? MessageStatus::Sent : MessageStatus::Failed);
+    store_.updateMessageStatus(msg_id, status);
 }
 
 const ChatMessage* ChatService::getMessage(MessageId msg_id) const

@@ -83,6 +83,7 @@ int main()
     assert(transport.reverse_table.empty());
     assert(transport.pending_path_requests.empty());
     assert(transport.pending_ping_receipts.empty());
+    assert(transport.pending_delivery_receipts.empty());
     assert(transport.link_relays.empty());
 
     const TransportRuntimeLimits limits{
@@ -97,7 +98,9 @@ int main()
         300000,
         4,
         1000,
-        500};
+        500,
+        4,
+        750};
 
     const auto destination = filled_hash<reticulum::kTruncatedHashSize>(0x10);
     PathEntry& path = upsertPath(transport, destination.data(), limits.max_paths);
@@ -161,9 +164,15 @@ int main()
     assert(!isDuplicatePacket(transport, packet_hash.data()));
     rememberPacket(transport, packet_hash.data(), 100, limits.max_packet_filter);
 
-    rememberReversePath(transport, destination.data(), 3, 200, limits.max_reverse_entries);
+    rememberReversePath(transport,
+                        destination.data(),
+                        7,
+                        3,
+                        200,
+                        limits.max_reverse_entries);
     ReverseEntry* reverse = findReversePath(transport, destination.data());
     assert(reverse != nullptr);
+    assert(reverse->interface_id == 7);
     assert(reverse->expected_hops == 3);
 
     notePendingPathRequest(transport, destination.data(), 300, limits.max_pending_path_requests);
@@ -192,6 +201,21 @@ int main()
     assert(same_hash(ping_receipt->destination_hash, destination));
     assert(same_hash(ping_receipt->peer_sig_pub, peer_sig_pub));
 
+    notePendingDeliveryReceipt(transport,
+                               packet_hash.data(),
+                               destination.data(),
+                               peer_sig_pub.data(),
+                               1234,
+                               350,
+                               limits.max_pending_delivery_receipts);
+    PendingDeliveryReceipt* delivery_receipt =
+        findPendingDeliveryReceipt(transport, packet_hash.data());
+    assert(delivery_receipt != nullptr);
+    assert(delivery_receipt->message_id == 1234);
+    assert(same_hash(delivery_receipt->packet_hash, packet_hash));
+    assert(same_hash(delivery_receipt->destination_hash, destination));
+    assert(same_hash(delivery_receipt->peer_sig_pub, peer_sig_pub));
+
     LinkRelayEntry& relay = upsertLinkRelay(transport, destination.data(), limits.max_link_relays);
     relay.initiator_hops = 1;
     relay.responder_hops = 2;
@@ -204,6 +228,7 @@ int main()
     assert(transport.reverse_table.empty());
     assert(transport.pending_path_requests.empty());
     assert(transport.pending_ping_receipts.empty());
+    assert(transport.pending_delivery_receipts.empty());
     assert(transport.link_relays.empty());
     assert(transport.paths.empty());
 
@@ -1038,6 +1063,11 @@ int main()
     delivery_context.peer_node_id = 0x01020304;
     delivery_context.local_node_id = 0x11121314;
     delivery_context.message_id = 0xAABBCCDD;
+    delivery_context.has_message_hash = true;
+    for (std::size_t index = 0; index < sizeof(delivery_context.message_hash); ++index)
+    {
+        delivery_context.message_hash[index] = static_cast<uint8_t>(0x80U + index);
+    }
     delivery_context.timestamp_s = 1234567890;
     delivery_context.peer_identity =
         ::chat::makeReticulumPeerIdentity(delivery_hash.data(), identity_hash.data());
@@ -1066,6 +1096,10 @@ int main()
     assert(text_delivery.incoming.from == delivery_context.peer_node_id);
     assert(text_delivery.incoming.to == delivery_context.local_node_id);
     assert(text_delivery.incoming.msg_id == delivery_context.message_id);
+    assert(text_delivery.incoming.has_reticulum_lxmf_hash);
+    assert(std::memcmp(text_delivery.incoming.reticulum_lxmf_hash,
+                       delivery_context.message_hash,
+                       sizeof(delivery_context.message_hash)) == 0);
     assert(text_delivery.incoming.timestamp == delivery_context.timestamp_s);
     assert(text_delivery.incoming.hop_limit == 0xFF);
     assert(text_delivery.incoming.encrypted);
@@ -1085,6 +1119,10 @@ int main()
     ::chat::MeshIncomingText popped_text{};
     assert(text_queue.pop(&popped_text));
     assert(popped_text.text == text_payload.content);
+    assert(popped_text.has_reticulum_lxmf_hash);
+    assert(std::memcmp(popped_text.reticulum_lxmf_hash,
+                       delivery_context.message_hash,
+                       sizeof(delivery_context.message_hash)) == 0);
     assert(!popped_text.source_unverified);
     assert(::chat::sameReticulumPeerIdentity(popped_text.reticulum_identity,
                                              delivery_context.peer_identity));

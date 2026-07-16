@@ -7,6 +7,7 @@
 #include "chat/infra/reticulum/reticulum_wire.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
+#include "platform/ui/reticulum_contact_projection_policy.h"
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "ui/app_runtime.h"
@@ -41,6 +42,7 @@ namespace
 {
 
 using contacts::ui::shell::Host;
+namespace rtcontacts = ::platform::ui::reticulum_contacts;
 namespace rtdir = ::platform::ui::reticulum_directory;
 
 constexpr uint32_t kContactsRefreshIntervalMs = 2000;
@@ -365,7 +367,7 @@ chat::contacts::NodeInfo node_from_lxmf_address(
     item.channel = 0xFF;
     item.is_contact = as_contact || record.favorite;
     item.protocol = chat::contacts::NodeProtocolType::Reticulum;
-    item.role = chat::contacts::NodeRoleType::Client;
+    item.role = chat::contacts::NodeRoleType::Unknown;
     item.is_ignored = record.ignored;
     item.has_public_key = true;
     item.key_manually_verified = record.trusted;
@@ -476,18 +478,22 @@ void merge_reticulum_directory_projection()
     for (std::size_t index = 0; index < count; ++index)
     {
         const auto& record = records[index];
-        if (!record.valid)
+        const rtcontacts::ProjectionBucket bucket =
+            rtcontacts::classify(record);
+        if (bucket == rtcontacts::ProjectionBucket::Hidden)
         {
             continue;
         }
 
         const chat::contacts::NodeInfo item =
-            node_from_lxmf_address(record, record.favorite);
-        if (record.favorite)
+            node_from_lxmf_address(
+                record,
+                bucket == rtcontacts::ProjectionBucket::Contact);
+        if (bucket == rtcontacts::ProjectionBucket::Contact)
         {
             upsert_reticulum_projection(g_contacts_state.contacts_list, item, true);
         }
-        if (record.ignored)
+        else if (bucket == rtcontacts::ProjectionBucket::Ignored)
         {
             upsert_reticulum_projection(g_contacts_state.ignored_list, item, false);
         }
@@ -652,10 +658,6 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     g_contacts_state.last_action_mode = ContactsMode::Contacts;
     g_contacts_state.current_page = 0;
     g_contacts_state.selected_index = -1;
-    g_contacts_state.virtual_list_active = false;
-    g_contacts_state.list_window_start_index = 0;
-    g_contacts_state.list_window_end_index = 0;
-    g_contacts_state.list_scroll_y = 0;
     g_contacts_state.rendered_mode_valid = false;
     g_contacts_state.rendered_search_query[0] = '\0';
     g_contacts_state.contacts_data_signature = 0;

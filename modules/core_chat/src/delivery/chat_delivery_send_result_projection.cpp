@@ -8,17 +8,30 @@ ChatDeliveryEvent makeChatSendResultDeliveryEvent(ChatDeliveryRef ref,
                                                   SendFailureKind failure,
                                                   uint32_t timestamp_ms)
 {
+    return makeChatSendResultDeliveryEvent(
+        ref,
+        success ? DeliveryState::Sent : DeliveryState::Failed,
+        failure,
+        timestamp_ms);
+}
+
+ChatDeliveryEvent makeChatSendResultDeliveryEvent(ChatDeliveryRef ref,
+                                                  DeliveryState state,
+                                                  SendFailureKind failure,
+                                                  uint32_t timestamp_ms)
+{
     ChatDeliveryEvent event{};
     event.ref = ref;
     event.timestamp_ms = timestamp_ms;
-    if (success)
+    if (state == DeliveryState::Sent || state == DeliveryState::Delivered)
     {
-        event.state = DeliveryState::Sent;
+        event.state = state;
         event.failure = SendFailureKind::None;
         return event;
     }
 
-    event.state = DeliveryState::Failed;
+    event.state = state == DeliveryState::Failed ? DeliveryState::Failed
+                                                 : DeliveryState::Unknown;
     event.failure = failure == SendFailureKind::None ? SendFailureKind::Unknown
                                                      : failure;
     return event;

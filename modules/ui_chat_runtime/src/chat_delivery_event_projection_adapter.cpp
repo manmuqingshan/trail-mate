@@ -3,7 +3,6 @@
 #include "chat/delivery/chat_delivery_message_projection.h"
 #include "chat/delivery/chat_delivery_send_result_projection.h"
 #include "chat/usecase/chat_service.h"
-#include "sys/event_bus.h"
 
 namespace ui_chat_runtime
 {
@@ -17,21 +16,33 @@ ChatDeliveryEventProjectionAdapter::ChatDeliveryEventProjectionAdapter(
 }
 
 void ChatDeliveryEventProjectionAdapter::onChatSendResult(
-    const ::sys::ChatSendResultEvent& event)
+    ::chat::MessageId msg_id,
+    ::chat::MessageStatus status,
+    uint32_t timestamp_ms)
 {
-    const ::chat::ChatMessage* message = chat_service_.getMessage(event.msg_id);
-    if (!event.success && message != nullptr &&
-        message->status == ::chat::MessageStatus::Sent)
+    if (status != ::chat::MessageStatus::Sent &&
+        status != ::chat::MessageStatus::Delivered &&
+        status != ::chat::MessageStatus::Failed)
     {
         return;
     }
-    const auto failure = event.success
+
+    const ::chat::ChatMessage* message = chat_service_.getMessage(msg_id);
+    if (status == ::chat::MessageStatus::Failed && message != nullptr &&
+        (message->status == ::chat::MessageStatus::Sent ||
+         message->status == ::chat::MessageStatus::Delivered))
+    {
+        return;
+    }
+    const auto state = status == ::chat::MessageStatus::Delivered
+                           ? ::chat::delivery::DeliveryState::Delivered
+                       : status == ::chat::MessageStatus::Sent
+                           ? ::chat::delivery::DeliveryState::Sent
+                           : ::chat::delivery::DeliveryState::Failed;
+    const auto failure = status != ::chat::MessageStatus::Failed
                              ? ::chat::delivery::SendFailureKind::None
                              : ::chat::delivery::SendFailureKind::Unknown;
-    (void)publishSendResult(event.msg_id,
-                            event.success,
-                            failure,
-                            event.timestamp);
+    (void)publishSendResult(msg_id, state, failure, timestamp_ms);
 }
 
 void ChatDeliveryEventProjectionAdapter::onAckTimeout(
@@ -40,14 +51,14 @@ void ChatDeliveryEventProjectionAdapter::onAckTimeout(
 {
     (void)publishSendResult(
         msg_id,
-        false,
+        ::chat::delivery::DeliveryState::Failed,
         ::chat::delivery::SendFailureKind::AckTimeout,
         timestamp_ms);
 }
 
 bool ChatDeliveryEventProjectionAdapter::publishSendResult(
     ::chat::MessageId msg_id,
-    bool success,
+    ::chat::delivery::DeliveryState state,
     ::chat::delivery::SendFailureKind failure,
     uint32_t timestamp_ms)
 {
@@ -65,7 +76,7 @@ bool ChatDeliveryEventProjectionAdapter::publishSendResult(
     ::chat::delivery::ChatDeliveryEvent event =
         ::chat::delivery::makeChatSendResultDeliveryEvent(
             ::chat::delivery::toDeliveryRef(*message),
-            success,
+            state,
             failure,
             timestamp_ms);
     delivery_events_.publishDeliveryEvent(event);

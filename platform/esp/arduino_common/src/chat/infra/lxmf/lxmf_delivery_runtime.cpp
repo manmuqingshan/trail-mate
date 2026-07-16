@@ -5,6 +5,7 @@
 
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_runtime.h"
 
+#include <cstring>
 #include <utility>
 
 namespace chat::lxmf::runtime
@@ -27,6 +28,10 @@ bool materialiseLxmfTextDelivery(const DecodedTextPayload& payload,
     delivery.incoming.timestamp = context.timestamp_s;
     delivery.incoming.hop_limit = 0xFF;
     delivery.incoming.encrypted = context.encrypted;
+    delivery.incoming.has_reticulum_lxmf_hash = context.has_message_hash;
+    std::memcpy(delivery.incoming.reticulum_lxmf_hash,
+                context.message_hash,
+                sizeof(delivery.incoming.reticulum_lxmf_hash));
     delivery.incoming.reticulum_identity =
         hasReticulumDestinationIdentity(context.conversation_identity)
             ? context.conversation_identity

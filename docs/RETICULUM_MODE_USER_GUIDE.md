@@ -70,8 +70,8 @@ unreliable.
 ## Reticulum Calls
 
 On Pager-class hardware with a microphone, speaker, ES8311 audio codec, and
-Wi-Fi gateway connectivity, Reticulum mode supports MeshChat-compatible
-`call.audio` links.
+Wi-Fi gateway connectivity, Reticulum mode supports Sideband-compatible LXST
+telephony links on `lxst.telephony`.
 
 Calls are Wi-Fi-gateway only. Trail Mate does not place call audio on LoRa,
 because the LoRa channel is too slow and too precious for realtime voice. The
@@ -80,16 +80,16 @@ LXMF/Reticulum identity and the active adapter reports call support.
 
 During a call, Trail Mate enters Reticulum call realtime mode:
 
-- direct call audio, LinkIdentify, and hangup packets keep running through the
+- LXST call audio, LinkIdentify, signalling, and hangup packets keep running through the
   Reticulum Wi-Fi gateway
 - Codec2 and the ES8311 audio path run at the call's realtime cadence
-- MQTT, BLE runtime updates, GPS collection, HTTP/downloads, OTA,
+- MQTT, GPS collection, HTTP/downloads, OTA,
   pack/language/image fetches, public discovery, periodic announces, LoRa
   polling, and non-urgent SD writes are paused or deferred
 
-Incoming calls wake the device into the call overlay even if the screen was
-sleeping. The overlay lets you answer, decline, or hang up without entering the
-normal app UI first.
+Incoming calls wake the device into the Call Page even if the screen was
+sleeping. The page lets you answer, decline, adjust speaker volume, or hang up.
+The interruption navigator restores the previous page after call cleanup.
 
 ## Reticulum Identity
 
@@ -242,7 +242,7 @@ it does not search message body history.
 
 In Reticulum Contacts, selecting a peer opens the action menu. `Chat` opens text
 chat, `Info` shows Reticulum identity/address details, and `Call` starts a
-MeshChat-compatible audio call when the peer identity and Wi-Fi gateway path are
+Sideband-compatible LXST call when the peer identity and Wi-Fi gateway path are
 known. If the device needs a path first, it sends a Reticulum path request and
 shows `Path requested`; retry after the peer's announce/path response arrives.
 
@@ -304,8 +304,9 @@ Each announce line has these fields:
 destination_hash<TAB>identity_hash<TAB>aspect<TAB>source<TAB>first_seen<TAB>last_seen<TAB>hops<TAB>path_response<TAB>local<TAB>delivery<TAB>propagation<TAB>display_name<TAB>raw_packet_hex<TAB>app_data_hex
 ```
 
-`aspect` is usually `lxmf.delivery`, `lxmf.propagation`, `call.audio`, or
-`unknown`.
+`aspect` is usually `lxmf.delivery`, `lxmf.propagation`, `lxst.telephony`,
+`nomadnetwork.node`, or `unknown`. Legacy `call.audio` announces may remain in
+the diagnostic cache but are not a selectable product call protocol.
 `source` is usually `runtime_rx` or `path_response`. `raw_packet_hex` stores
 the verified raw Reticulum announce packet so future tooling can inspect what
 was actually received. The runtime keeps the file bounded and updates an

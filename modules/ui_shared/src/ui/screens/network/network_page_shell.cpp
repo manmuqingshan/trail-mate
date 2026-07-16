@@ -331,7 +331,18 @@ void copy_text(char* out, std::size_t out_len, const char* text)
     {
         return;
     }
-    std::snprintf(out, out_len, "%s", text ? text : "");
+    if (!text)
+    {
+        out[0] = '\0';
+        return;
+    }
+    std::size_t copy_len = std::strlen(text);
+    if (copy_len >= out_len)
+    {
+        copy_len = out_len - 1U;
+    }
+    std::memmove(out, text, copy_len);
+    out[copy_len] = '\0';
 }
 
 void* network_page_alloc(std::size_t size)
@@ -1660,7 +1671,14 @@ void resolve_link_target(const char* target, char* out, std::size_t out_len)
         char hash_text[kHashTextLen] = {};
         if (extract_destination_text(g_state.current_address, hash_text, sizeof(hash_text)))
         {
-            std::snprintf(out, out_len, "%s:%s", hash_text, target);
+            copy_text(out, out_len, hash_text);
+            std::size_t used = std::strlen(out);
+            if (used + 1U < out_len)
+            {
+                out[used++] = ':';
+                out[used] = '\0';
+                copy_text(out + used, out_len - used, target);
+            }
             return;
         }
     }

@@ -28,16 +28,11 @@ enum class State : uint8_t
 enum class RealtimePhase : uint8_t
 {
     Idle = 0,
+    IncomingIdentifying,
     IncomingRinging,
     AcceptedStarting,
     ActiveCall,
     ClosingCall,
-};
-
-enum class WireProfile : uint8_t
-{
-    SidebandLxst = 0,
-    MeshChatCallAudio = 1,
 };
 
 enum class Codec2Mode : uint8_t
@@ -46,6 +41,12 @@ enum class Codec2Mode : uint8_t
     Mode1200 = 1,
     Mode1600 = 2,
     Mode3200 = 3,
+};
+
+enum class WireProfile : uint8_t
+{
+    SidebandLxst = 0,
+    MeshChatCallAudio = 1,
 };
 
 struct Peer
@@ -101,7 +102,8 @@ struct MediaHooks
 
 struct RealtimeHooks
 {
-    bool (*begin_ringing)(const uint8_t link_id[kHashSize]) = nullptr;
+    bool (*begin_soft_preempt)(const uint8_t link_id[kHashSize]) = nullptr;
+    bool (*begin_ringing_alert)(const uint8_t link_id[kHashSize]) = nullptr;
     bool (*begin_exclusive)(const uint8_t link_id[kHashSize]) = nullptr;
     void (*begin_closing)(const uint8_t link_id[kHashSize],
                           bool keep_exclusive) = nullptr;
@@ -115,9 +117,13 @@ void set_speaker_volume(uint8_t volume_percent);
 void set_wifi_ready(bool ready);
 
 bool begin_incoming(const Peer& peer);
+bool begin_incoming_identifying(const Peer& peer);
+bool mark_incoming_ringing(const uint8_t link_id[kHashSize]);
 bool begin_outgoing(const Peer& peer);
 void update_peer(const Peer& peer);
 void mark_link_active(const uint8_t link_id[kHashSize]);
+bool prepare_media(const uint8_t link_id[kHashSize]);
+bool mark_call_active(const uint8_t link_id[kHashSize]);
 void notify_link_closed(const uint8_t link_id[kHashSize]);
 void notify_media_failed();
 void service_ui_runtime();

@@ -15,6 +15,8 @@ ui::chat::MessageDeliveryState mapMessageStatus(chat::MessageStatus status)
         return ui::chat::MessageDeliveryState::Sent;
     case chat::MessageStatus::Failed:
         return ui::chat::MessageDeliveryState::Failed;
+    case chat::MessageStatus::Delivered:
+        return ui::chat::MessageDeliveryState::Delivered;
     }
     return ui::chat::MessageDeliveryState::Unknown;
 }

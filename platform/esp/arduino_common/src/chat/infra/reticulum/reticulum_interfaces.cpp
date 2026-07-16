@@ -22,7 +22,10 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <fcntl.h>
 #include <lwip/netdb.h>
+#include <lwip/netif.h>
+#include <lwip/sockets.h>
 
 namespace chat::reticulum::interfaces
 {
@@ -67,7 +70,10 @@ bool isPriorityRxFrame(const uint8_t* data, size_t len)
 
     if (parsed.packet_type == ::chat::reticulum::PacketType::LinkRequest ||
         parsed.packet_type == ::chat::reticulum::PacketType::Proof ||
-        parsed.destination_type == ::chat::reticulum::DestinationType::Link)
+        parsed.destination_type == ::chat::reticulum::DestinationType::Link ||
+        (parsed.packet_type == ::chat::reticulum::PacketType::Announce &&
+         parsed.context == static_cast<uint8_t>(
+                               ::chat::reticulum::PacketContext::PathResponse)))
     {
         return true;
     }
@@ -133,10 +139,9 @@ LoRaReticulumInterface::LoRaReticulumInterface(LoraBoard& board)
 {
 }
 
-void LoRaReticulumInterface::applyConfig(const MeshConfig& config)
+void LoRaReticulumInterface::applyConfig(const MeshConfig& config, bool enabled)
 {
-    enabled_ = config.reticulum_lora_enabled &&
-               config.reticulum_interface_policy != ReticulumInterfacePolicy::WifiGatewayOnly;
+    enabled_ = enabled;
     if (enabled_)
     {
         raw_.applyConfig(config);
@@ -175,6 +180,7 @@ bool LoRaReticulumInterface::pollPacket(RxPacket* out)
 
     out->len = len;
     out->interface_kind = InterfaceKind::LoRa;
+    out->interface_id = kLoRaInterfaceId;
     fillTimestamp(&out->rx_meta);
     out->rx_meta.origin = RxOrigin::LoRa;
     out->rx_meta.direct = true;
@@ -214,21 +220,29 @@ float LoRaReticulumInterface::lastRxSnr() const
 
 WifiGatewayReticulumInterface::WifiGatewayReticulumInterface() = default;
 
-void WifiGatewayReticulumInterface::applyConfig(const MeshConfig& config)
+void WifiGatewayReticulumInterface::applyConfig(
+    const reticulum::NetworkInterfaceConfig* config,
+    bool auto_connect_wifi,
+    InterfaceId interface_id)
 {
-    const bool next_enabled = config.reticulum_wifi_gateway_enabled &&
-                              config.reticulum_interface_policy != ReticulumInterfacePolicy::LoRaOnly;
+    const bool next_enabled = config && config->enabled &&
+                              config->type ==
+                                  reticulum::NetworkInterfaceType::TcpClient;
     char next_host[kReticulumGatewayHostMaxLen + 1] = {};
-    copyHost(next_host, sizeof(next_host), config.reticulum_wifi_gateway_host);
+    copyHost(next_host,
+             sizeof(next_host),
+             next_enabled ? config->target_host : nullptr);
     const uint16_t next_port =
-        config.reticulum_wifi_gateway_port != 0 ? config.reticulum_wifi_gateway_port : 4242;
+        next_enabled && config->target_port != 0 ? config->target_port : 4242;
 
     const bool changed = next_enabled != enabled_ ||
+                         interface_id != interface_id_ ||
                          next_port != port_ ||
                          std::strcmp(next_host, host_) != 0;
 
     enabled_ = next_enabled;
-    auto_connect_wifi_ = config.reticulum_wifi_auto_connect;
+    auto_connect_wifi_ = auto_connect_wifi;
+    interface_id_ = next_enabled ? interface_id : kInvalidInterfaceId;
     copyHost(host_, sizeof(host_), next_host);
     port_ = next_port;
 
@@ -242,7 +256,8 @@ void WifiGatewayReticulumInterface::applyConfig(const MeshConfig& config)
         rx_queue_.clear();
     }
 
-    Serial.printf("[Reticulum][IF][WiFi] enabled=%s host=%s port=%u auto_wifi=%s available=%s\n",
+    Serial.printf("[Reticulum][IF][TCP] id=%u enabled=%s host=%s port=%u auto_wifi=%s available=%s\n",
+                  static_cast<unsigned>(interface_id_),
                   boolLabel(enabled_),
                   host_[0] != '\0' ? host_ : "<unset>",
                   static_cast<unsigned>(port_),
@@ -415,6 +430,7 @@ bool WifiGatewayReticulumInterface::pollPacket(RxPacket* out)
     out->len = poll_scratch_.len;
     out->rx_meta = poll_scratch_.rx_meta;
     out->interface_kind = InterfaceKind::WifiGateway;
+    out->interface_id = interface_id_;
     return true;
 }
 
@@ -914,49 +930,772 @@ void WifiGatewayReticulumInterface::fillRxMeta(RxMeta* out) const
     out->cr = 0;
 }
 
+AutoReticulumInterface::AutoReticulumInterface() = default;
+
+void AutoReticulumInterface::applyConfig(
+    const reticulum::NetworkInterfaceConfig* config,
+    bool auto_connect_wifi)
+{
+    const bool next_enabled = config && config->enabled &&
+                              config->type ==
+                                  reticulum::NetworkInterfaceType::Auto;
+    const char* next_group = next_enabled ? config->group_id : "reticulum";
+    const uint16_t next_discovery_port =
+        next_enabled && config->discovery_port != 0 ? config->discovery_port : 29716;
+    const uint16_t next_data_port =
+        next_enabled && config->data_port != 0 ? config->data_port : 42671;
+    const bool changed = next_enabled != enabled_ ||
+                         std::strcmp(next_group, group_id_) != 0 ||
+                         next_discovery_port != discovery_port_ ||
+                         next_data_port != data_port_;
+
+    enabled_ = next_enabled;
+    auto_connect_wifi_ = auto_connect_wifi;
+    copyHost(group_id_, sizeof(group_id_), next_group);
+    discovery_port_ = next_discovery_port;
+    data_port_ = next_data_port;
+    if (changed)
+    {
+        stop();
+        last_socket_attempt_ms_ = 0;
+        last_wifi_connect_ms_ = 0;
+        rx_queue_.clear();
+    }
+    Serial.printf("[Reticulum][IF][Auto] enabled=%s group=%s discovery=%u data=%u available=%s\n",
+                  boolLabel(enabled_),
+                  group_id_,
+                  static_cast<unsigned>(discovery_port_),
+                  static_cast<unsigned>(data_port_),
+                  boolLabel(TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE != 0));
+}
+
+void AutoReticulumInterface::setTransportEnabled(bool enabled)
+{
+    transport_enabled_ = enabled;
+    if (!transport_enabled_)
+    {
+        stop();
+    }
+}
+
+void AutoReticulumInterface::maintain()
+{
+    if (!enabled_ || !transport_enabled_)
+    {
+        stop();
+        return;
+    }
+
+    platform::ui::wifi::Status wifi_status = platform::ui::wifi::status();
+    const uint32_t now_ms = millis();
+    if (!wifi_status.connected && auto_connect_wifi_ &&
+        (last_wifi_connect_ms_ == 0 ||
+         now_ms - last_wifi_connect_ms_ >= 60000U))
+    {
+        last_wifi_connect_ms_ = now_ms;
+        platform::ui::wifi_access::Request request{};
+        request.client = platform::ui::wifi_access::Client::ReticulumGateway;
+        request.kind = platform::ui::wifi_access::AccessKind::WifiConnect;
+        request.priority = platform::ui::wifi_access::Priority::Messaging;
+        request.allow_connect = true;
+        request.reason = "reticulum_auto_interface";
+        (void)platform::ui::wifi_access::ensure_connected(request, nullptr);
+        wifi_status = platform::ui::wifi::status();
+    }
+    if (!wifi_status.connected)
+    {
+        stop();
+        return;
+    }
+
+    if (!sockets_ready_ && !ensureSockets())
+    {
+        return;
+    }
+
+    receiveDiscovery(discovery_socket_);
+    receiveDiscovery(unicast_discovery_socket_);
+    receiveData();
+    cullPeers(now_ms);
+    if (last_announce_ms_ == 0 || now_ms - last_announce_ms_ >= kAnnounceIntervalMs)
+    {
+        last_announce_ms_ = now_ms;
+        sendPeerAnnounce();
+    }
+    for (auto& peer : peers_)
+    {
+        if (peer.active &&
+            (peer.last_reverse_announce_ms == 0 ||
+             now_ms - peer.last_reverse_announce_ms >=
+                 kReverseAnnounceIntervalMs))
+        {
+            peer.last_reverse_announce_ms = now_ms;
+            sendReverseAnnounce(peer);
+        }
+    }
+}
+
+bool AutoReticulumInterface::isReady() const
+{
+    return enabled_ && transport_enabled_ && sockets_ready_ && peerCount() != 0;
+}
+
+bool AutoReticulumInterface::isConfigured() const
+{
+    return enabled_;
+}
+
+bool AutoReticulumInterface::sendPacket(const uint8_t* data,
+                                        size_t len,
+                                        const uint8_t* call_link_id,
+                                        bool call_admission_control)
+{
+    if (!data || len == 0 || len > reticulum::kReticulumMtu)
+    {
+        return false;
+    }
+    maintain();
+    bool sent = false;
+    for (const auto& peer : peers_)
+    {
+        if (peer.active)
+        {
+            sent = sendPacketOn(peer.interface_id,
+                                data,
+                                len,
+                                call_link_id,
+                                call_admission_control) ||
+                   sent;
+        }
+    }
+    return sent;
+}
+
+bool AutoReticulumInterface::sendPacketOn(InterfaceId interface_id,
+                                          const uint8_t* data,
+                                          size_t len,
+                                          const uint8_t* call_link_id,
+                                          bool call_admission_control)
+{
+    if (!data || len == 0 || len > reticulum::kReticulumMtu)
+    {
+        return false;
+    }
+    Peer* peer = findPeer(interface_id);
+    if (!peer || data_socket_ < 0)
+    {
+        return false;
+    }
+    const auto budget = platform::ui::wifi_access::traffic_budget(
+        platform::ui::wifi_access::Client::ReticulumGateway,
+        platform::ui::wifi_access::Priority::Messaging,
+        call_link_id,
+        call_admission_control
+            ? platform::ui::wifi_access::AccessKind::ReticulumGatewayCallControl
+            : (call_link_id
+                   ? platform::ui::wifi_access::AccessKind::ReticulumGatewayCallAudio
+                   : platform::ui::wifi_access::AccessKind::LongLivedSocket));
+    if (!budget.allow_write || budget.tx_byte_budget == 0)
+    {
+        return false;
+    }
+
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE && LWIP_IPV6
+    sockaddr_in6 destination{};
+    destination.sin6_family = AF_INET6;
+    destination.sin6_port = htons(data_port_);
+    destination.sin6_scope_id = peer->scope_id;
+    std::memcpy(&destination.sin6_addr,
+                peer->address,
+                sizeof(peer->address));
+    const int written = lwip_sendto(data_socket_,
+                                    data,
+                                    len,
+                                    0,
+                                    reinterpret_cast<sockaddr*>(&destination),
+                                    sizeof(destination));
+    if (written == static_cast<int>(len))
+    {
+        return true;
+    }
+    Serial.printf("[Reticulum][IF][Auto][TX] failed id=%u len=%u errno=%d\n",
+                  static_cast<unsigned>(interface_id),
+                  static_cast<unsigned>(len),
+                  errno);
+#else
+    (void)interface_id;
+#endif
+    return false;
+}
+
+bool AutoReticulumInterface::pollPacket(RxPacket* out)
+{
+    if (!out)
+    {
+        return false;
+    }
+    maintain();
+    return rx_queue_.popOldest(out);
+}
+
+bool AutoReticulumInterface::owns(InterfaceId interface_id) const
+{
+    return interface_id >= kAutoInterfaceIdBase &&
+           interface_id < kAutoInterfaceIdBase + kMaxPeers;
+}
+
+uint8_t AutoReticulumInterface::peerCount() const
+{
+    uint8_t count = 0;
+    for (const auto& peer : peers_)
+    {
+        if (peer.active)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+void AutoReticulumInterface::stop()
+{
+    closeSockets();
+    for (auto& peer : peers_)
+    {
+        peer = Peer{};
+    }
+}
+
+bool AutoReticulumInterface::ensureSockets()
+{
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE && LWIP_IPV6
+    const uint32_t now_ms = millis();
+    if (last_socket_attempt_ms_ != 0 &&
+        now_ms - last_socket_attempt_ms_ < 5000U)
+    {
+        return false;
+    }
+    last_socket_attempt_ms_ = now_ms;
+    closeSockets();
+
+    netif* selected = nullptr;
+    for (netif* item = netif_list; item != nullptr; item = item->next)
+    {
+        if (!netif_is_up(item) || !netif_is_link_up(item) ||
+            !ip6_addr_isvalid(netif_ip6_addr_state(item, 0)))
+        {
+            continue;
+        }
+        char address[INET6_ADDRSTRLEN] = {};
+        if (!ip6addr_ntoa_r(netif_ip6_addr(item, 0), address, sizeof(address)) ||
+            std::strncmp(address, "fe80:", 5) != 0)
+        {
+            continue;
+        }
+        selected = item;
+        break;
+    }
+    if (!selected)
+    {
+        return false;
+    }
+
+    interface_index_ = netif_get_index(selected);
+    char local_text[INET6_ADDRSTRLEN] = {};
+    if (!ip6addr_ntoa_r(netif_ip6_addr(selected, 0),
+                        local_text,
+                        sizeof(local_text)) ||
+        lwip_inet_pton(AF_INET6, local_text, local_address_) != 1)
+    {
+        return false;
+    }
+    calculateDiscoveryIdentity();
+
+    auto open_udp_socket = []() -> int
+    {
+        const int socket_fd = lwip_socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+        if (socket_fd >= 0)
+        {
+            const int reuse = 1;
+            lwip_setsockopt(socket_fd,
+                            SOL_SOCKET,
+                            SO_REUSEADDR,
+                            &reuse,
+                            sizeof(reuse));
+            const int flags = lwip_fcntl(socket_fd, F_GETFL, 0);
+            lwip_fcntl(socket_fd, F_SETFL, flags | O_NONBLOCK);
+        }
+        return socket_fd;
+    };
+
+    discovery_socket_ = open_udp_socket();
+    unicast_discovery_socket_ = open_udp_socket();
+    data_socket_ = open_udp_socket();
+    if (discovery_socket_ < 0 || unicast_discovery_socket_ < 0 ||
+        data_socket_ < 0)
+    {
+        closeSockets();
+        return false;
+    }
+
+    sockaddr_in6 discovery_bind{};
+    discovery_bind.sin6_family = AF_INET6;
+    discovery_bind.sin6_port = htons(discovery_port_);
+    discovery_bind.sin6_addr = in6addr_any;
+    ipv6_mreq membership{};
+    std::memcpy(&membership.ipv6mr_multiaddr,
+                multicast_address_,
+                sizeof(multicast_address_));
+    membership.ipv6mr_interface = interface_index_;
+    if (lwip_bind(discovery_socket_,
+                  reinterpret_cast<sockaddr*>(&discovery_bind),
+                  sizeof(discovery_bind)) != 0 ||
+        lwip_setsockopt(discovery_socket_,
+                        IPPROTO_IPV6,
+                        IPV6_JOIN_GROUP,
+                        &membership,
+                        sizeof(membership)) != 0)
+    {
+        closeSockets();
+        return false;
+    }
+
+    sockaddr_in6 unicast_bind{};
+    unicast_bind.sin6_family = AF_INET6;
+    unicast_bind.sin6_port = htons(static_cast<uint16_t>(discovery_port_ + 1U));
+    unicast_bind.sin6_scope_id = interface_index_;
+    std::memcpy(&unicast_bind.sin6_addr,
+                local_address_,
+                sizeof(local_address_));
+    sockaddr_in6 data_bind = unicast_bind;
+    data_bind.sin6_port = htons(data_port_);
+    if (lwip_bind(unicast_discovery_socket_,
+                  reinterpret_cast<sockaddr*>(&unicast_bind),
+                  sizeof(unicast_bind)) != 0 ||
+        lwip_bind(data_socket_,
+                  reinterpret_cast<sockaddr*>(&data_bind),
+                  sizeof(data_bind)) != 0)
+    {
+        closeSockets();
+        return false;
+    }
+
+    sockets_ready_ = true;
+    last_announce_ms_ = 0;
+    Serial.printf("[Reticulum][IF][Auto] online ifindex=%u peers=0\n",
+                  static_cast<unsigned>(interface_index_));
+    return true;
+#else
+    return false;
+#endif
+}
+
+void AutoReticulumInterface::closeSockets()
+{
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE && LWIP_IPV6
+    if (discovery_socket_ >= 0)
+    {
+        lwip_close(discovery_socket_);
+    }
+    if (unicast_discovery_socket_ >= 0)
+    {
+        lwip_close(unicast_discovery_socket_);
+    }
+    if (data_socket_ >= 0)
+    {
+        lwip_close(data_socket_);
+    }
+#endif
+    discovery_socket_ = -1;
+    unicast_discovery_socket_ = -1;
+    data_socket_ = -1;
+    sockets_ready_ = false;
+}
+
+void AutoReticulumInterface::calculateDiscoveryIdentity()
+{
+    uint8_t group_hash[reticulum::kFullHashSize] = {};
+    reticulum::fullHash(reinterpret_cast<const uint8_t*>(group_id_),
+                        std::strlen(group_id_),
+                        group_hash);
+    std::memset(multicast_address_, 0, sizeof(multicast_address_));
+    multicast_address_[0] = 0xFF;
+    multicast_address_[1] = 0x12;
+    for (std::size_t pair = 0; pair < 6; ++pair)
+    {
+        multicast_address_[4U + pair * 2U] = group_hash[2U + pair * 2U];
+        multicast_address_[5U + pair * 2U] = group_hash[3U + pair * 2U];
+    }
+
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE && LWIP_IPV6
+    char local_text[INET6_ADDRSTRLEN] = {};
+    lwip_inet_ntop(AF_INET6,
+                   local_address_,
+                   local_text,
+                   sizeof(local_text));
+    std::array<uint8_t,
+               reticulum::kAutoInterfaceGroupMaxLen + INET6_ADDRSTRLEN + 1U>
+        material{};
+    const std::size_t group_len = std::strlen(group_id_);
+    const std::size_t address_len = std::strlen(local_text);
+    std::memcpy(material.data(), group_id_, group_len);
+    std::memcpy(material.data() + group_len, local_text, address_len);
+    reticulum::fullHash(material.data(),
+                        group_len + address_len,
+                        discovery_token_);
+#endif
+}
+
+void AutoReticulumInterface::sendPeerAnnounce()
+{
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE && LWIP_IPV6
+    if (!sockets_ready_ || data_socket_ < 0)
+    {
+        return;
+    }
+    sockaddr_in6 destination{};
+    destination.sin6_family = AF_INET6;
+    destination.sin6_port = htons(discovery_port_);
+    destination.sin6_scope_id = interface_index_;
+    std::memcpy(&destination.sin6_addr,
+                multicast_address_,
+                sizeof(multicast_address_));
+    lwip_sendto(data_socket_,
+                discovery_token_,
+                sizeof(discovery_token_),
+                0,
+                reinterpret_cast<sockaddr*>(&destination),
+                sizeof(destination));
+#endif
+}
+
+void AutoReticulumInterface::sendReverseAnnounce(Peer& peer)
+{
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE && LWIP_IPV6
+    if (!peer.active || data_socket_ < 0)
+    {
+        return;
+    }
+    sockaddr_in6 destination{};
+    destination.sin6_family = AF_INET6;
+    destination.sin6_port = htons(static_cast<uint16_t>(discovery_port_ + 1U));
+    destination.sin6_scope_id = peer.scope_id;
+    std::memcpy(&destination.sin6_addr,
+                peer.address,
+                sizeof(peer.address));
+    lwip_sendto(data_socket_,
+                discovery_token_,
+                sizeof(discovery_token_),
+                0,
+                reinterpret_cast<sockaddr*>(&destination),
+                sizeof(destination));
+#else
+    (void)peer;
+#endif
+}
+
+void AutoReticulumInterface::receiveDiscovery(int socket_fd)
+{
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE && LWIP_IPV6
+    if (socket_fd < 0)
+    {
+        return;
+    }
+    uint8_t token[reticulum::kFullHashSize] = {};
+    for (uint8_t packet = 0; packet < 6; ++packet)
+    {
+        sockaddr_in6 source{};
+        socklen_t source_len = sizeof(source);
+        const int read = lwip_recvfrom(socket_fd,
+                                       token,
+                                       sizeof(token),
+                                       0,
+                                       reinterpret_cast<sockaddr*>(&source),
+                                       &source_len);
+        if (read < 0)
+        {
+            break;
+        }
+        if (read != static_cast<int>(sizeof(token)) ||
+            std::memcmp(&source.sin6_addr,
+                        local_address_,
+                        sizeof(local_address_)) == 0)
+        {
+            continue;
+        }
+
+        char source_text[INET6_ADDRSTRLEN] = {};
+        if (!lwip_inet_ntop(AF_INET6,
+                            &source.sin6_addr,
+                            source_text,
+                            sizeof(source_text)))
+        {
+            continue;
+        }
+        std::array<uint8_t,
+                   reticulum::kAutoInterfaceGroupMaxLen + INET6_ADDRSTRLEN + 1U>
+            material{};
+        const std::size_t group_len = std::strlen(group_id_);
+        const std::size_t address_len = std::strlen(source_text);
+        std::memcpy(material.data(), group_id_, group_len);
+        std::memcpy(material.data() + group_len, source_text, address_len);
+        uint8_t expected[reticulum::kFullHashSize] = {};
+        reticulum::fullHash(material.data(),
+                            group_len + address_len,
+                            expected);
+        if (std::memcmp(expected, token, sizeof(expected)) != 0)
+        {
+            continue;
+        }
+        (void)upsertPeer(reinterpret_cast<const uint8_t*>(&source.sin6_addr),
+                         source.sin6_scope_id != 0 ? source.sin6_scope_id
+                                                   : interface_index_);
+    }
+#else
+    (void)socket_fd;
+#endif
+}
+
+void AutoReticulumInterface::receiveData()
+{
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE && LWIP_IPV6
+    if (data_socket_ < 0)
+    {
+        return;
+    }
+    for (uint8_t packet = 0; packet < 6; ++packet)
+    {
+        sockaddr_in6 source{};
+        socklen_t source_len = sizeof(source);
+        const int read = lwip_recvfrom(data_socket_,
+                                       rx_scratch_.data,
+                                       sizeof(rx_scratch_.data),
+                                       0,
+                                       reinterpret_cast<sockaddr*>(&source),
+                                       &source_len);
+        if (read < 0)
+        {
+            break;
+        }
+        Peer* peer = nullptr;
+        for (auto& candidate : peers_)
+        {
+            if (candidate.active &&
+                std::memcmp(candidate.address,
+                            &source.sin6_addr,
+                            sizeof(candidate.address)) == 0)
+            {
+                peer = &candidate;
+                break;
+            }
+        }
+        if (!peer || read <= 0 ||
+            read > static_cast<int>(reticulum::kReticulumMtu))
+        {
+            continue;
+        }
+        peer->last_seen_ms = millis();
+        rx_scratch_.len = static_cast<std::size_t>(read);
+        rx_scratch_.interface_kind = InterfaceKind::Auto;
+        rx_scratch_.interface_id = peer->interface_id;
+        fillTimestamp(&rx_scratch_.rx_meta);
+        rx_scratch_.rx_meta.origin = RxOrigin::WiFi;
+        rx_scratch_.rx_meta.direct = true;
+        bool dropped = false;
+        rx_queue_.append(rx_scratch_, &dropped);
+        if (dropped)
+        {
+            Serial.printf("[Reticulum][IF][Auto][RX] queue_drop id=%u\n",
+                          static_cast<unsigned>(peer->interface_id));
+        }
+    }
+#endif
+}
+
+void AutoReticulumInterface::cullPeers(uint32_t now_ms)
+{
+    for (auto& peer : peers_)
+    {
+        if (peer.active && now_ms - peer.last_seen_ms > kPeerTimeoutMs)
+        {
+            Serial.printf("[Reticulum][IF][Auto] peer_timeout id=%u\n",
+                          static_cast<unsigned>(peer.interface_id));
+            peer = Peer{};
+        }
+    }
+}
+
+AutoReticulumInterface::Peer* AutoReticulumInterface::upsertPeer(
+    const uint8_t address[16],
+    uint32_t scope_id)
+{
+    if (!address)
+    {
+        return nullptr;
+    }
+    for (auto& peer : peers_)
+    {
+        if (peer.active &&
+            std::memcmp(peer.address, address, sizeof(peer.address)) == 0)
+        {
+            peer.last_seen_ms = millis();
+            peer.scope_id = scope_id;
+            return &peer;
+        }
+    }
+    for (std::size_t index = 0; index < peers_.size(); ++index)
+    {
+        auto& peer = peers_[index];
+        if (!peer.active)
+        {
+            std::memcpy(peer.address, address, sizeof(peer.address));
+            peer.scope_id = scope_id;
+            peer.last_seen_ms = millis();
+            peer.last_reverse_announce_ms = 0;
+            peer.interface_id = static_cast<InterfaceId>(kAutoInterfaceIdBase + index);
+            peer.active = true;
+            Serial.printf("[Reticulum][IF][Auto] peer_added id=%u peers=%u\n",
+                          static_cast<unsigned>(peer.interface_id),
+                          static_cast<unsigned>(peerCount()));
+            return &peer;
+        }
+    }
+    return nullptr;
+}
+
+AutoReticulumInterface::Peer* AutoReticulumInterface::findPeer(
+    InterfaceId interface_id)
+{
+    for (auto& peer : peers_)
+    {
+        if (peer.active && peer.interface_id == interface_id)
+        {
+            return &peer;
+        }
+    }
+    return nullptr;
+}
+
 ReticulumInterfaceSet::ReticulumInterfaceSet(LoraBoard& board)
     : lora_(board)
 {
 }
 
-void ReticulumInterfaceSet::applyConfig(const MeshConfig& config)
+void ReticulumInterfaceSet::applyConfig(
+    const MeshConfig& config,
+    const reticulum::ReticulumNetworkConfig& network_config)
 {
     config_ = config;
-    lora_.applyConfig(config_);
-    wifi_.applyConfig(config_);
+    network_config_ = network_config;
+
+    bool lora_configured = false;
+    const reticulum::NetworkInterfaceConfig* auto_config = nullptr;
+    tcp_count_ = 0;
+#if TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE
+    constexpr size_t tcp_capacity = 1;
+#else
+    constexpr size_t tcp_capacity = reticulum::kMaxTcpClientInterfaces;
+#endif
+    const size_t interface_count = std::min<size_t>(
+        network_config_.interface_count,
+        reticulum::kMaxNetworkInterfaces);
+    for (size_t index = 0; index < interface_count; ++index)
+    {
+        const auto& interface_config = network_config_.interfaces[index];
+        if (!interface_config.enabled)
+        {
+            continue;
+        }
+        switch (interface_config.type)
+        {
+        case reticulum::NetworkInterfaceType::IntegratedLoRa:
+            lora_configured = true;
+            break;
+        case reticulum::NetworkInterfaceType::Auto:
+            if (!auto_config)
+            {
+                auto_config = &interface_config;
+            }
+            break;
+        case reticulum::NetworkInterfaceType::TcpClient:
+            if (tcp_count_ < tcp_capacity)
+            {
+                tcp_[tcp_count_].applyConfig(
+                    &interface_config,
+                    config_.reticulum_wifi_auto_connect,
+                    static_cast<InterfaceId>(kTcpClientInterfaceIdBase +
+                                             tcp_count_));
+                ++tcp_count_;
+            }
+            break;
+        }
+    }
+    for (size_t index = tcp_count_; index < tcp_.size(); ++index)
+    {
+        tcp_[index].applyConfig(nullptr,
+                                config_.reticulum_wifi_auto_connect,
+                                kInvalidInterfaceId);
+    }
+
+    lora_.applyConfig(config_, lora_configured);
+    auto_.applyConfig(auto_config, config_.reticulum_wifi_auto_connect);
     maintain();
     syncSharedLoRaRxGate();
+    Serial.printf("[Reticulum][IF] configured total=%u lora=%u auto=%u tcp=%u\n",
+                  static_cast<unsigned>(interface_count),
+                  lora_configured ? 1U : 0U,
+                  auto_config ? 1U : 0U,
+                  static_cast<unsigned>(tcp_count_));
 }
 
 void ReticulumInterfaceSet::setWifiTransportEnabled(bool enabled)
 {
-    wifi_.setTransportEnabled(enabled);
+    auto_.setTransportEnabled(enabled);
+    for (auto& interface : tcp_)
+    {
+        interface.setTransportEnabled(enabled);
+    }
     syncSharedLoRaRxGate();
 }
 
 void ReticulumInterfaceSet::maintain()
 {
-    if (wifiAllowed())
+    auto_.maintain();
+    for (uint8_t index = 0; index < tcp_count_; ++index)
     {
-        wifi_.maintain();
+        tcp_[index].maintain();
     }
     syncSharedLoRaRxGate();
 }
 
 bool ReticulumInterfaceSet::hasReadyInterface() const
 {
-    return (loraSelectedForRuntime() && lora_.isReady()) ||
-           (wifiSelectedForRuntime() && wifi_.isReady());
+    if (loraEnabled() && lora_.isReady())
+    {
+        return true;
+    }
+    return hasReadyWifiGateway();
 }
 
 bool ReticulumInterfaceSet::hasReadyWifiGateway() const
 {
-    return wifiAllowed() && wifi_.isReady();
+    if (auto_.isReady())
+    {
+        return true;
+    }
+    for (uint8_t index = 0; index < tcp_count_; ++index)
+    {
+        if (tcp_[index].isReady())
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool ReticulumInterfaceSet::wifiGatewayConfigured() const
 {
-    return wifiAllowed() && wifi_.isConfigured();
+    return hasConfiguredIpInterface();
 }
 
 bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
@@ -968,23 +1707,33 @@ bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
     }
 
     maintain();
+    last_tx_result_.lora_required = loraEnabled();
+    last_tx_result_.lora_ready =
+        last_tx_result_.lora_required && lora_.isReady();
+    last_tx_result_.wifi_required = hasConfiguredIpInterface();
+    last_tx_result_.wifi_ready = hasReadyWifiGateway();
 
-    last_tx_result_.lora_required = loraSelectedForRuntime();
-    last_tx_result_.lora_ready = last_tx_result_.lora_required && lora_.isReady();
-    last_tx_result_.wifi_required = wifiSelectedForRuntime() && wifi_.isConfigured();
-    last_tx_result_.wifi_ready = last_tx_result_.wifi_required && wifi_.isReady();
-
-    if (last_tx_result_.lora_ready)
+    if (last_tx_result_.lora_ready && lora_.sendPacket(data, len))
     {
-        last_tx_result_.lora_ok = lora_.sendPacket(data, len);
+        last_tx_result_.lora_ok = true;
+        ++last_tx_result_.sent_count;
     }
-    if (last_tx_result_.wifi_ready)
+    if (auto_.isReady() && auto_.sendPacket(data, len))
     {
-        last_tx_result_.wifi_ok = wifi_.sendPacket(data, len);
+        last_tx_result_.wifi_ok = true;
+        ++last_tx_result_.sent_count;
+    }
+    for (uint8_t index = 0; index < tcp_count_; ++index)
+    {
+        if (tcp_[index].isReady() && tcp_[index].sendPacket(data, len))
+        {
+            last_tx_result_.wifi_ok = true;
+            ++last_tx_result_.sent_count;
+        }
     }
 
     const bool sent = last_tx_result_.sent();
-    Serial.printf("[Reticulum][IF][TX] raw_len=%u bearer=%s lora_req=%u lora_ready=%u lora=%u wifi_req=%u wifi_ready=%u wifi=%u sent=%u complete=%u\n",
+    Serial.printf("[Reticulum][IF][TX] raw_len=%u bearer=%s lora_req=%u lora_ready=%u lora=%u ip_req=%u ip_ready=%u ip=%u sent_count=%u sent=%u complete=%u\n",
                   static_cast<unsigned>(len),
                   txBearerName(last_tx_result_),
                   last_tx_result_.lora_required ? 1U : 0U,
@@ -993,42 +1742,117 @@ bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
                   last_tx_result_.wifi_required ? 1U : 0U,
                   last_tx_result_.wifi_ready ? 1U : 0U,
                   last_tx_result_.wifi_ok ? 1U : 0U,
+                  static_cast<unsigned>(last_tx_result_.sent_count),
                   sent ? 1U : 0U,
                   last_tx_result_.reachedRequiredInterfaces() ? 1U : 0U);
     return sent;
 }
 
-bool ReticulumInterfaceSet::sendPacketWifiOnly(const uint8_t* data,
-                                               size_t len,
-                                               const uint8_t* call_link_id,
-                                               bool call_admission_control)
+bool ReticulumInterfaceSet::sendPacketOn(InterfaceId interface_id,
+                                         const uint8_t* data,
+                                         size_t len,
+                                         const uint8_t* call_link_id,
+                                         bool call_admission_control)
 {
     last_tx_result_ = {};
-    if (!data || len == 0)
+    if (!data || len == 0 || interface_id == kInvalidInterfaceId)
     {
         return false;
     }
 
     maintain();
-
-    last_tx_result_.wifi_required = wifiAllowed() && wifi_.isConfigured();
-    last_tx_result_.wifi_ready = last_tx_result_.wifi_required && wifi_.isReady();
-    if (last_tx_result_.wifi_ready)
+    bool sent = false;
+    if (interface_id == kLoRaInterfaceId)
     {
-        last_tx_result_.wifi_ok =
-            wifi_.sendPacket(data, len, call_link_id, call_admission_control);
+        last_tx_result_.lora_required = true;
+        last_tx_result_.lora_ready = loraEnabled() && lora_.isReady();
+        sent = last_tx_result_.lora_ready && lora_.sendPacket(data, len);
+        last_tx_result_.lora_ok = sent;
+    }
+    else
+    {
+        last_tx_result_.wifi_required = true;
+        if (auto_.owns(interface_id))
+        {
+            last_tx_result_.wifi_ready = auto_.isReady();
+            sent = last_tx_result_.wifi_ready &&
+                   auto_.sendPacketOn(interface_id,
+                                      data,
+                                      len,
+                                      call_link_id,
+                                      call_admission_control);
+        }
+        else
+        {
+            for (uint8_t index = 0; index < tcp_count_; ++index)
+            {
+                if (tcp_[index].interfaceId() != interface_id)
+                {
+                    continue;
+                }
+                last_tx_result_.wifi_ready = tcp_[index].isReady();
+                sent = last_tx_result_.wifi_ready &&
+                       tcp_[index].sendPacket(data,
+                                              len,
+                                              call_link_id,
+                                              call_admission_control);
+                break;
+            }
+        }
+        last_tx_result_.wifi_ok = sent;
+    }
+    if (sent)
+    {
+        last_tx_result_.sent_interface = interface_id;
+        last_tx_result_.sent_count = 1;
+    }
+    return sent;
+}
+
+bool ReticulumInterfaceSet::sendPacketWifiOnly(
+    const uint8_t* data,
+    size_t len,
+    const uint8_t* call_link_id,
+    bool call_admission_control,
+    InterfaceId interface_id)
+{
+    if (interface_id != kInvalidInterfaceId)
+    {
+        return sendPacketOn(interface_id,
+                            data,
+                            len,
+                            call_link_id,
+                            call_admission_control);
     }
 
-    const bool sent = last_tx_result_.sent();
-    Serial.printf("[Reticulum][IF][TX] raw_len=%u mode=wifi_only bearer=%s wifi_req=%u wifi_ready=%u wifi=%u sent=%u complete=%u\n",
-                  static_cast<unsigned>(len),
-                  txBearerName(last_tx_result_),
-                  last_tx_result_.wifi_required ? 1U : 0U,
-                  last_tx_result_.wifi_ready ? 1U : 0U,
-                  last_tx_result_.wifi_ok ? 1U : 0U,
-                  sent ? 1U : 0U,
-                  last_tx_result_.reachedRequiredInterfaces() ? 1U : 0U);
-    return sent;
+    last_tx_result_ = {};
+    if (!data || len == 0)
+    {
+        return false;
+    }
+    maintain();
+    last_tx_result_.wifi_required = hasConfiguredIpInterface();
+    last_tx_result_.wifi_ready = hasReadyWifiGateway();
+
+    if (auto_.isReady() &&
+        auto_.sendPacket(data, len, call_link_id, call_admission_control))
+    {
+        last_tx_result_.wifi_ok = true;
+        ++last_tx_result_.sent_count;
+    }
+    for (uint8_t index = 0; index < tcp_count_; ++index)
+    {
+        if (tcp_[index].isReady() &&
+            tcp_[index].sendPacket(data,
+                                   len,
+                                   call_link_id,
+                                   call_admission_control))
+        {
+            last_tx_result_.wifi_ok = true;
+            ++last_tx_result_.sent_count;
+        }
+    }
+    return last_tx_result_.sent();
 }
 
 bool ReticulumInterfaceSet::pollIncomingPacket(RxPacket* out)
@@ -1039,41 +1863,44 @@ bool ReticulumInterfaceSet::pollIncomingPacket(RxPacket* out)
     }
 
     maintain();
-
-    const bool lora_selected = loraSelectedForRuntime();
-    const bool wifi_selected = wifiSelectedForRuntime();
-    for (uint8_t i = 0; i < 2; ++i)
+    const uint8_t source_count = static_cast<uint8_t>(2U + tcp_count_);
+    for (uint8_t offset = 0; offset < source_count; ++offset)
     {
-        const uint8_t index = static_cast<uint8_t>((next_poll_index_ + i) % 2U);
+        const uint8_t index =
+            static_cast<uint8_t>((next_poll_index_ + offset) % source_count);
         bool got = false;
         if (index == 0)
         {
-            got = lora_selected && lora_.pollPacket(out);
+            got = loraEnabled() && lora_.pollPacket(out);
+        }
+        else if (index == 1)
+        {
+            got = auto_.pollPacket(out);
         }
         else
         {
-            got = wifi_selected && wifi_.pollPacket(out);
+            got = tcp_[index - 2U].pollPacket(out);
         }
         if (got)
         {
-            next_poll_index_ = static_cast<uint8_t>((index + 1U) % 2U);
+            next_poll_index_ =
+                static_cast<uint8_t>((index + 1U) % source_count);
             last_rx_meta_ = out->rx_meta;
             has_last_rx_meta_ = true;
             return true;
         }
     }
-
     return false;
 }
 
 bool ReticulumInterfaceSet::pollLegacyIncomingData(MeshIncomingData* out)
 {
-    return loraSelectedForRuntime() && lora_.pollLegacyIncomingData(out);
+    return loraEnabled() && lora_.pollLegacyIncomingData(out);
 }
 
 void ReticulumInterfaceSet::handleRawPacket(const uint8_t* data, size_t size)
 {
-    if (loraSelectedForRuntime())
+    if (loraEnabled())
     {
         lora_.handleRawPacket(data, size);
     }
@@ -1102,41 +1929,47 @@ float ReticulumInterfaceSet::lastRxSnr() const
     return lora_.lastRxSnr();
 }
 
-bool ReticulumInterfaceSet::loraAllowed() const
+bool ReticulumInterfaceSet::loraEnabled() const
 {
-    return config_.reticulum_lora_enabled &&
-           config_.reticulum_interface_policy != ReticulumInterfacePolicy::WifiGatewayOnly;
-}
-
-bool ReticulumInterfaceSet::wifiAllowed() const
-{
-    return config_.reticulum_wifi_gateway_enabled &&
-           config_.reticulum_interface_policy != ReticulumInterfacePolicy::LoRaOnly;
-}
-
-bool ReticulumInterfaceSet::loraSelectedForRuntime() const
-{
-    if (!loraAllowed() || ::platform::ui::reticulum_call::resource_preempt_active())
+    if (::platform::ui::reticulum_call::resource_preempt_active())
     {
         return false;
     }
-    return config_.reticulum_interface_policy != ReticulumInterfacePolicy::All ||
-           !wifi_.isReady();
+    const size_t interface_count = std::min<size_t>(
+        network_config_.interface_count,
+        reticulum::kMaxNetworkInterfaces);
+    for (size_t index = 0; index < interface_count; ++index)
+    {
+        const auto& interface_config = network_config_.interfaces[index];
+        if (interface_config.enabled &&
+            interface_config.type ==
+                reticulum::NetworkInterfaceType::IntegratedLoRa)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
-bool ReticulumInterfaceSet::wifiSelectedForRuntime() const
+bool ReticulumInterfaceSet::hasConfiguredIpInterface() const
 {
-    if (!wifiAllowed())
+    if (auto_.isConfigured())
     {
-        return false;
+        return true;
     }
-    return config_.reticulum_interface_policy == ReticulumInterfacePolicy::WifiGatewayOnly ||
-           wifi_.isReady();
+    for (uint8_t index = 0; index < tcp_count_; ++index)
+    {
+        if (tcp_[index].isConfigured())
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void ReticulumInterfaceSet::syncSharedLoRaRxGate()
 {
-    const bool suppress = !loraSelectedForRuntime();
+    const bool suppress = !loraEnabled();
 #if defined(ARDUINO)
     if (shared_lora_rx_suppressed_ == suppress &&
         app::AppTasks::isRadioReceiveSuppressed() == suppress)

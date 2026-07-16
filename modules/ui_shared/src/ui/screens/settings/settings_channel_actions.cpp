@@ -25,8 +25,13 @@ void copy_bounded(char* out, std::size_t out_len, const char* text)
         out[0] = '\0';
         return;
     }
-    std::strncpy(out, text, out_len - 1);
-    out[out_len - 1] = '\0';
+    std::size_t copy_len = std::strlen(text);
+    if (copy_len >= out_len)
+    {
+        copy_len = out_len - 1U;
+    }
+    std::memmove(out, text, copy_len);
+    out[copy_len] = '\0';
 }
 
 bool parse_hex_char(char c, std::uint8_t& out)

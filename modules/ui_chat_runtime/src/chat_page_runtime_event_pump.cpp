@@ -99,7 +99,8 @@ void ChatPageRuntimeEventPump::handleChatSendResult(
 {
     if (delivery_adapter_ != nullptr)
     {
-        delivery_adapter_->onChatSendResult(event);
+        delivery_adapter_->onChatSendResult(
+            event.msg_id, event.status, event.timestamp);
     }
     if (ui_ != nullptr)
     {

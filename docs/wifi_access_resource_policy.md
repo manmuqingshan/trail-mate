@@ -105,7 +105,7 @@ Trail Mate is a low-frequency terminal, not a desktop router node.
 | Foreground HTTP pending | Suspended. No connect, read, write, publish, or downlink bridge budget. | Suspended. Existing gateway socket may be closed by its budget handler. | The pending foreground download owns the next HTTP opportunity while it waits for memory/SD/UI resources. |
 | HTTP active | MQTT and Reticulum are reduced to minimal messaging budget. | Reduced to minimal gateway budget. | Exactly one HTTP transaction owns the HTTP resource. |
 | OTA active | Protocol pump budget is suspended. | Protocol pump budget is suspended. | OTA is exclusive. |
-| Reticulum call active | Suspended. MQTT sockets must not connect, pump, publish, or consume RX budget. | Exclusive `call.audio` link traffic only. Discovery, public announce ingest, route/path background noise, and non-call link work are deferred. | Denied. No HTTP, OTA, catalog, pack, language, image, or route download may start. |
+| Reticulum call active | Suspended. MQTT sockets must not connect, pump, publish, or consume RX budget. | Exclusive traffic for the current LXST telephony Link only. Discovery, public announce ingest, route/path background noise, and non-call link work are deferred. | Denied. No HTTP, OTA, catalog, pack, language, image, or route download may start. |
 
 The wake-protected phase shields the path from screen sleep to screen wake to
 entering the UI. It is intentionally short and prevents reconnect storms, TLS
@@ -115,7 +115,7 @@ visible UI stalls.
 ## Reticulum Call Realtime Mode
 
 Reticulum calls are a realtime resource mode, not a Contacts-page feature. The
-incoming-call panel is the visible entry point for this mode, but it is not the
+Call Page is the visible entry point for this mode, but it is not the
 owner of Wi-Fi, LoRa, GPS, BLE, or audio resources. Resource ownership is held by
 runtime leases underneath the call runtime.
 
@@ -123,34 +123,34 @@ The runtime state is:
 
 | Call realtime phase | UI ownership | Resource ownership |
 | --- | --- | --- |
-| `IncomingRinging` | Global modal owns focus. The background remains visible through a scrim and is inert. | Soft preempt. New non-call Wi-Fi work is denied. Existing non-call Wi-Fi work reaches its normal poll/revoke point. LoRa, GPS, and BLE runtime work are paused. |
-| `AcceptedStarting` | The modal remains focused and shows the call is connecting. | Hard preempt. The current `call.audio` link starts the Reticulum call Wi-Fi exclusive lease. Non-call Wi-Fi leases are revoked. |
-| `ActiveCall` | Active call modal owns focus. | Exclusive call lease. Only Reticulum gateway traffic serving the current `call.audio` link may read or write. |
-| `ClosingCall` | The modal may show closing or hanging up. | The previous ownership remains in force until `LinkClose` is sent or cleanup finishes. Rejecting an incoming call that never entered hard preempt keeps only the soft preempt while close signalling is attempted. |
-| `Idle` | No call modal. | Normal Wi-Fi scheduling resumes and deferred work may be queued again. |
+| `IncomingRinging` | The Call Page owns navigation and focus. | Soft preempt. New non-call Wi-Fi work is denied. Existing non-call Wi-Fi work reaches its normal poll/revoke point. LoRa and GPS runtime work are paused. BLE is not compiled into the ESP product runtime. |
+| `AcceptedStarting` | The Call Page shows the call is connecting. | Hard preempt. The current LXST telephony Link starts the Reticulum call Wi-Fi exclusive lease. Non-call Wi-Fi leases are revoked. |
+| `ActiveCall` | The active Call Page owns navigation and focus. | Exclusive call lease. Only Reticulum gateway traffic serving the current LXST telephony Link may read or write. |
+| `ClosingCall` | The Call Page may show closing or hanging up. | The previous ownership remains in force until `LinkClose` is sent or cleanup finishes. Rejecting an incoming call that never entered hard preempt keeps only the soft preempt while close signalling is attempted. |
+| `Idle` | The interruption navigator restores the previous page. | Normal Wi-Fi scheduling resumes and deferred work may be queued again. |
 
 Outgoing calls enter `AcceptedStarting` immediately. The user explicitly asked to
 place the call, so the call runtime must acquire the hard Wi-Fi preempt lease
 before dialing proceeds.
 
-Incoming calls enter `IncomingRinging` first. This phase still pauses LoRa, GPS,
-and BLE runtime work so the device is quiet for the user-visible interruption,
+Incoming calls enter `IncomingRinging` first. This phase still pauses LoRa and
+GPS runtime work so the device is quiet for the user-visible interruption,
 but it does not revoke already-running Wi-Fi work unless that work reaches a
 normal lease or budget poll point. If the user declines, the runtime must not
 escalate to hard Wi-Fi preempt.
 
-When a MeshChat-compatible `call.audio` link is accepted, active, or closing
+When a Sideband-compatible `lxst.telephony` Link is accepted, active, or closing
 after acceptance, the device must protect the audio path first:
 
 - Wi-Fi access grants budget only to the Reticulum gateway client, and only for
   the call link's Reticulum packets.
-- LoRa polling, GPS collection, BLE runtime updates, public Reticulum discovery,
+- LoRa polling, GPS collection, public Reticulum discovery,
   periodic announces, MQTT, HTTP, OTA, route/image downloads, language-pack
   downloads, catalog refreshes, and SD-backed discovery persistence are paused,
   denied, or coalesced.
 - Codec2/ES8311 media owns the audio hardware for the call. Other background
-  hardware users must not start while the call overlay is active.
-- Incoming calls may wake the screen and show the call overlay, but they must
+  hardware users must not start while the Call Page is active.
+- Incoming calls may wake the screen and open the Call Page, but they must
   not trigger unrelated Wi-Fi reconnect storms, SD scans, or UI-heavy refreshes.
 
 Wi-Fi users are grouped by preemption safety:

@@ -185,15 +185,23 @@ bool stopIncomingCallTone()
     return s_incoming_call_tone_task == nullptr;
 }
 
-bool callRealtimeBeginRinging(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
+bool callRealtimeBeginSoftPreempt(
+    const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
 {
     pauseCallRealtimeResources();
-    const bool entered = ::platform::ui::wifi_access::enter_call_ringing(link_id);
-    if (entered && !startIncomingCallTone())
+    return ::platform::ui::wifi_access::enter_call_ringing(link_id);
+}
+
+bool callRealtimeBeginRingingAlert(
+    const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
+{
+    (void)link_id;
+    const bool started = startIncomingCallTone();
+    if (!started)
     {
         std::printf("[Reticulum][CallTone] start failed\n");
     }
-    return entered;
+    return started;
 }
 
 bool callRealtimeBeginExclusive(const uint8_t link_id[::platform::ui::reticulum_call::kHashSize])
@@ -240,7 +248,8 @@ void ensureCallRealtimeHooksRegistered()
         return;
     }
     ::platform::ui::reticulum_call::RealtimeHooks hooks{};
-    hooks.begin_ringing = callRealtimeBeginRinging;
+    hooks.begin_soft_preempt = callRealtimeBeginSoftPreempt;
+    hooks.begin_ringing_alert = callRealtimeBeginRingingAlert;
     hooks.begin_exclusive = callRealtimeBeginExclusive;
     hooks.begin_closing = callRealtimeBeginClosing;
     hooks.end = callRealtimeEnd;
@@ -454,7 +463,8 @@ bool dispatchEvent(app::IAppFacade& app_context, sys::Event* event)
     case sys::EventType::ChatSendResult:
     {
         auto* result_event = static_cast<sys::ChatSendResultEvent*>(event);
-        app_context.getChatService().handleSendResult(result_event->msg_id, result_event->success);
+        app_context.getChatService().handleSendResult(result_event->msg_id,
+                                                      result_event->status);
         return false;
     }
     case sys::EventType::NodeInfoUpdate:

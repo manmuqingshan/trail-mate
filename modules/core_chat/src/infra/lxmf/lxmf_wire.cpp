@@ -18,6 +18,7 @@ constexpr uint8_t kAppPayloadFlagWantResponse = 0x01;
 constexpr size_t kAppPayloadHeaderLen = 18;
 constexpr uint32_t kSidebandSensorLocation = 0x02;
 constexpr uint32_t kSidebandCommandTelemetryRequest = 0x01;
+constexpr size_t kMaxPropagationWireItems = 64;
 
 struct Cursor
 {
@@ -316,6 +317,31 @@ bool readFloat64(Cursor& cursor, double* out_value)
     return true;
 }
 
+bool readNonNegativeNumber(Cursor& cursor, uint32_t* out_value)
+{
+    if (!out_value)
+    {
+        return false;
+    }
+
+    uint8_t tag = 0;
+    if (!peekByte(cursor, &tag))
+    {
+        return false;
+    }
+    if (tag == 0xCB)
+    {
+        double value = 0.0;
+        if (!readFloat64(cursor, &value) || value < 0.0 || value > 4294967295.0)
+        {
+            return false;
+        }
+        *out_value = static_cast<uint32_t>(value);
+        return true;
+    }
+    return readUint(cursor, out_value);
+}
+
 bool readNil(Cursor& cursor)
 {
     uint8_t tag = 0;
@@ -523,6 +549,10 @@ bool appendArrayOfBins(const std::vector<std::vector<uint8_t>>& items,
                        size_t out_len,
                        size_t& used)
 {
+    if (items.size() > kMaxPropagationWireItems)
+    {
+        return false;
+    }
     if (!appendArrayHeader(static_cast<uint8_t>(items.size()), out, out_len, used))
     {
         return false;
@@ -548,6 +578,11 @@ bool readArrayOfBins(Cursor& cursor, std::vector<std::vector<uint8_t>>* out_item
 
     size_t count = 0;
     if (!readArrayHeader(cursor, &count))
+    {
+        return false;
+    }
+    if (count > kMaxPropagationWireItems ||
+        count > cursor.len - cursor.pos)
     {
         return false;
     }
@@ -1451,7 +1486,8 @@ bool decodePropagationBatch(const uint8_t* data, size_t len,
 
     DecodedPropagationBatch decoded{};
     if (!readFloat64(cursor, &decoded.remote_timebase) ||
-        !readArrayOfBins(cursor, &decoded.messages))
+        !readArrayOfBins(cursor, &decoded.messages) ||
+        cursor.pos != cursor.len)
     {
         return false;
     }
@@ -1502,6 +1538,17 @@ bool decodePropagationOfferPayload(const uint8_t* data, size_t len,
     }
 
     if (!readArrayOfBins(cursor, &decoded.transient_ids))
+    {
+        return false;
+    }
+    for (size_t index = 2; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    if (cursor.pos != cursor.len)
     {
         return false;
     }
@@ -1581,9 +1628,188 @@ bool decodePropagationGetRequestPayload(const uint8_t* data, size_t len,
         decoded.has_transfer_limit = true;
         decoded.transfer_limit_kb = limit_kb;
     }
+    for (size_t index = 3; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    if (cursor.pos != cursor.len)
+    {
+        return false;
+    }
 
     *out_request = std::move(decoded);
     return true;
+}
+
+bool encodePropagationGetRequestPayload(
+    const std::vector<std::vector<uint8_t>>* wants,
+    const std::vector<std::vector<uint8_t>>* haves,
+    bool include_transfer_limit,
+    uint32_t transfer_limit_kb,
+    uint8_t* out_payload,
+    size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayHeader(include_transfer_limit ? 3 : 2,
+                           out_payload,
+                           *inout_len,
+                           used))
+    {
+        return false;
+    }
+    if (wants)
+    {
+        if (!appendArrayOfBins(*wants, out_payload, *inout_len, used))
+        {
+            return false;
+        }
+    }
+    else if (!appendNil(out_payload, *inout_len, used))
+    {
+        return false;
+    }
+    if (haves)
+    {
+        if (!appendArrayOfBins(*haves, out_payload, *inout_len, used))
+        {
+            return false;
+        }
+    }
+    else if (!appendNil(out_payload, *inout_len, used))
+    {
+        return false;
+    }
+    if (include_transfer_limit &&
+        !appendUint(transfer_limit_kb, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
+bool decodePropagationIdListPayload(
+    const uint8_t* data,
+    size_t len,
+    std::vector<std::vector<uint8_t>>* out_ids)
+{
+    if (!data || len == 0 || !out_ids)
+    {
+        return false;
+    }
+    Cursor cursor{data, len, 0};
+    std::vector<std::vector<uint8_t>> ids;
+    if (!readArrayOfBins(cursor, &ids) || cursor.pos != cursor.len)
+    {
+        return false;
+    }
+    *out_ids = std::move(ids);
+    return true;
+}
+
+bool decodePropagationMessageListPayload(
+    const uint8_t* data,
+    size_t len,
+    std::vector<std::vector<uint8_t>>* out_messages)
+{
+    return decodePropagationIdListPayload(data, len, out_messages);
+}
+
+bool decodePropagationAnnounceAppData(
+    const uint8_t* data,
+    size_t len,
+    DecodedPropagationAnnounce* out_announce)
+{
+    if (!data || len == 0 || !out_announce)
+    {
+        return false;
+    }
+
+    Cursor cursor{data, len, 0};
+    size_t count = 0;
+    if (!readArrayHeader(cursor, &count) || count < 7)
+    {
+        return false;
+    }
+
+    DecodedPropagationAnnounce decoded{};
+    uint32_t stamp_cost = 0;
+    uint32_t stamp_flexibility = 0;
+    uint32_t peering_cost = 0;
+    size_t stamp_count = 0;
+    if (!readBool(cursor, &decoded.legacy_support) ||
+        !readNonNegativeNumber(cursor, &decoded.timebase_s) ||
+        !readBool(cursor, &decoded.node_active) ||
+        !readNonNegativeNumber(cursor, &decoded.transfer_limit_kb) ||
+        !readNonNegativeNumber(cursor, &decoded.sync_limit_kb) ||
+        !readArrayHeader(cursor, &stamp_count) || stamp_count < 3 ||
+        !readUint(cursor, &stamp_cost) ||
+        !readUint(cursor, &stamp_flexibility) ||
+        !readUint(cursor, &peering_cost))
+    {
+        return false;
+    }
+    for (size_t index = 3; index < stamp_count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+
+    size_t metadata_count = 0;
+    if (!readMapHeader(cursor, &metadata_count))
+    {
+        return false;
+    }
+    for (size_t index = 0; index < metadata_count; ++index)
+    {
+        uint32_t key = 0;
+        if (!readUint(cursor, &key))
+        {
+            return false;
+        }
+        if (key == 0x01U)
+        {
+            std::vector<uint8_t> name;
+            if (!readBinary(cursor, &name))
+            {
+                return false;
+            }
+            decoded.display_name.assign(
+                reinterpret_cast<const char*>(name.data()),
+                name.size());
+        }
+        else if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    for (size_t index = 7; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+
+    decoded.stamp_cost = static_cast<uint8_t>(std::min<uint32_t>(stamp_cost, 255U));
+    decoded.stamp_cost_flexibility =
+        static_cast<uint8_t>(std::min<uint32_t>(stamp_flexibility, 255U));
+    decoded.peering_cost =
+        static_cast<uint8_t>(std::min<uint32_t>(peering_cost, 255U));
+    decoded.valid = decoded.node_active && cursor.pos == cursor.len;
+    *out_announce = std::move(decoded);
+    return cursor.pos == cursor.len;
 }
 
 bool encodePropagationIdListPayload(const std::vector<std::vector<uint8_t>>& ids,

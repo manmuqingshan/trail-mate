@@ -22,7 +22,9 @@ class SdStore final : public IChatStore
   public:
     static constexpr const char* kDir = "/chat";
     static constexpr const char* kIndexFile = "/chat/index.bin";
+    static constexpr const char* kReticulumLxmfSeenFile = "/chat/lxmf_seen.bin";
     static constexpr size_t kMaxMessagesPerConv = 1000;
+    static constexpr size_t kMaxReticulumLxmfSeen = 1024;
     static constexpr size_t kMaxTextLen = 233;
     static constexpr size_t kPreviewLen = 48;
 
@@ -32,6 +34,7 @@ class SdStore final : public IChatStore
     bool isReady() const { return ready_; }
 
     void append(const ChatMessage& msg) override;
+    bool appendIncomingDurably(const ChatMessage& msg) override;
     std::vector<ChatMessage> loadRecent(const ConversationId& conv, size_t n) override;
     std::vector<ChatMessage> loadPageFromLatest(const ConversationId& conv,
                                                 size_t offset_from_latest,
@@ -46,6 +49,7 @@ class SdStore final : public IChatStore
     void clearAll() override;
     bool updateMessageStatus(MessageId msg_id, MessageStatus status) override;
     bool getMessage(MessageId msg_id, ChatMessage* out) const override;
+    bool hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const override;
     void flush() override;
 
   private:
@@ -87,6 +91,23 @@ class SdStore final : public IChatStore
         char text[kMaxTextLen] = {};
     } __attribute__((packed));
 
+    struct RecordV4
+    {
+        uint8_t protocol = 0;
+        uint8_t channel = 0;
+        uint8_t status = 0;
+        uint8_t flags = 0;
+        uint8_t rx_origin = 0;
+        uint16_t text_len = 0;
+        uint32_t from = 0;
+        uint32_t peer = 0;
+        uint32_t msg_id = 0;
+        uint32_t timestamp = 0;
+        uint8_t reticulum_destination_hash[kReticulumPeerHashSize] = {};
+        uint8_t reticulum_identity_hash[kReticulumPeerHashSize] = {};
+        char text[kMaxTextLen] = {};
+    } __attribute__((packed));
+
     struct Record
     {
         uint8_t protocol = 0;
@@ -101,6 +122,7 @@ class SdStore final : public IChatStore
         uint32_t timestamp = 0;
         uint8_t reticulum_destination_hash[kReticulumPeerHashSize] = {};
         uint8_t reticulum_identity_hash[kReticulumPeerHashSize] = {};
+        uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
         char text[kMaxTextLen] = {};
     } __attribute__((packed));
 
@@ -142,12 +164,28 @@ class SdStore final : public IChatStore
         char preview[kPreviewLen] = {};
     } __attribute__((packed));
 
-    static constexpr uint32_t kFileMagic = 0x474F4C43;  // "CLOG"
-    static constexpr uint32_t kIndexMagic = 0x54414843; // "CHAT"
+    struct LxmfSeenHeader
+    {
+        uint32_t magic = 0;
+        uint16_t version = 0;
+        uint16_t head = 0;
+        uint16_t count = 0;
+    } __attribute__((packed));
+
+    struct LxmfSeenRecord
+    {
+        uint8_t hash[kReticulumLxmfHashSize] = {};
+    } __attribute__((packed));
+
+    static constexpr uint32_t kFileMagic = 0x474F4C43;     // "CLOG"
+    static constexpr uint32_t kIndexMagic = 0x54414843;    // "CHAT"
+    static constexpr uint32_t kLxmfSeenMagic = 0x4E45584C; // "LXEN"
     static constexpr uint16_t kLegacyVersion = 2;
     static constexpr uint16_t kReticulumIdentityVersion = 3;
-    static constexpr uint16_t kFileVersion = 4;
+    static constexpr uint16_t kRxOriginVersion = 4;
+    static constexpr uint16_t kFileVersion = 5;
     static constexpr uint16_t kIndexVersion = 3;
+    static constexpr uint16_t kLxmfSeenVersion = 1;
 
     bool ensureFs() const;
     bool ensureDir() const;
@@ -177,6 +215,22 @@ class SdStore final : public IChatStore
     bool writeRecord(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
                      uint16_t slot,
                      const Record& rec) const;
+    bool initLxmfSeenFile(::platform::esp::arduino_common::storage::SdRuntimeFile& file) const;
+    bool loadLxmfSeenHeader(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+                            LxmfSeenHeader& header) const;
+    bool readLxmfSeenRecord(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+                            uint16_t slot,
+                            LxmfSeenRecord& rec) const;
+    bool writeLxmfSeenRecord(::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+                             uint16_t slot,
+                             const LxmfSeenRecord& rec) const;
+    bool rememberReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const;
+    bool conversationContainsReticulumLxmfHash(
+        ::platform::esp::arduino_common::storage::SdRuntimeFile& file,
+        const FileHeader& header,
+        const uint8_t* lxmf_hash,
+        bool* found) const;
+    bool appendInternal(const ChatMessage& msg);
     bool openConversationForUpdate(const ConversationId& conv,
                                    ::platform::esp::arduino_common::storage::SdRuntimeFile& file,
                                    FileHeader& header) const;

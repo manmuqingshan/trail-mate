@@ -78,7 +78,6 @@ enum class SettingId : std::uint16_t
     RtWifiPort,
     RtWifiAuto,
     RtAnonymousPeer,
-    RtCallWire,
     RtLocationRequests,
     NetUsePreset,
     NetPreset,
@@ -254,7 +253,6 @@ struct SettingsData
     bool rt_wifi_gateway_enabled = true;
     bool rt_wifi_auto_connect = true;
     bool rt_anonymous_peer = false;
-    int rt_call_wire = 0;
     bool rt_location_requests = false;
     char rt_display_name[32] = "--";
     char rt_identity_hash[36] = "--";

@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "chat/ports/i_incoming_delivery_commit_port.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/ports/i_mesh_peer_directory.h"
 
@@ -27,7 +28,8 @@ namespace chat::reticulum
 
 namespace lxmf = ::chat::lxmf;
 
-class ReticulumAdapter final : public IMeshAdapter
+class ReticulumAdapter final : public IMeshAdapter,
+                               public IIncomingDeliveryCommitPort
 {
   public:
     explicit ReticulumAdapter(LoraBoard& board,
@@ -49,6 +51,9 @@ class ReticulumAdapter final : public IMeshAdapter
         MessageId forced_msg_id,
         const ReticulumPeerIdentity& destination) override;
     bool pollIncomingText(MeshIncomingText* out) override;
+    IIncomingDeliveryCommitPort* incomingDeliveryCommitPort() override;
+    void commitIncomingText(const MeshIncomingText& message,
+                            bool durably_accepted) override;
     bool sendAppData(ChannelId channel, uint32_t portnum,
                      const uint8_t* payload, size_t len,
                      NodeId dest = 0, bool want_ack = false,

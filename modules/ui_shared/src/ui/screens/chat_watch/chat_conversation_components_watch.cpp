@@ -28,6 +28,8 @@ constexpr size_t kMaxPrefixedSenderLen = 20;
         return ::ui::chat::MessageDeliveryState::Sent;
     case chat::MessageStatus::Failed:
         return ::ui::chat::MessageDeliveryState::Failed;
+    case chat::MessageStatus::Delivered:
+        return ::ui::chat::MessageDeliveryState::Delivered;
     }
     return ::ui::chat::MessageDeliveryState::Unknown;
 }

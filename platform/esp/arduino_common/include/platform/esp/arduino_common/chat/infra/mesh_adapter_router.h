@@ -7,6 +7,7 @@
 
 #include "chat/domain/chat_types.h"
 #include "chat/infra/mesh_adapter_router_core.h"
+#include "chat/ports/i_incoming_delivery_commit_port.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -14,7 +15,8 @@
 namespace chat
 {
 
-class MeshAdapterRouter : public IMeshAdapter
+class MeshAdapterRouter : public IMeshAdapter,
+                          public IIncomingDeliveryCommitPort
 {
   public:
     MeshAdapterRouter();
@@ -41,6 +43,9 @@ class MeshAdapterRouter : public IMeshAdapter
         MessageId forced_msg_id,
         const ReticulumPeerIdentity& destination) override;
     bool pollIncomingText(MeshIncomingText* out) override;
+    IIncomingDeliveryCommitPort* incomingDeliveryCommitPort() override;
+    void commitIncomingText(const MeshIncomingText& message,
+                            bool durably_accepted) override;
     bool sendAppData(ChannelId channel, uint32_t portnum,
                      const uint8_t* payload, size_t len,
                      NodeId dest = 0, bool want_ack = false,

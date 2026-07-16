@@ -3,7 +3,6 @@
 #include "chat/infra/store/ram_store.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
-#include "sys/event_bus.h"
 #include "ui_chat_runtime/chat_delivery_event_projection_adapter.h"
 
 #include <cassert>
@@ -69,9 +68,8 @@ int main()
     assert(sent_id == 700);
 
     service.handleSendResult(sent_id, true);
-    ::sys::ChatSendResultEvent sent_event(sent_id, true);
-    sent_event.timestamp = 1234;
-    projection_adapter.onChatSendResult(sent_event);
+    projection_adapter.onChatSendResult(
+        sent_id, ::chat::MessageStatus::Sent, 1234);
 
     ::chat::delivery::ChatDeliveryRecord record{};
     assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
@@ -79,23 +77,29 @@ int main()
     assert(record.state == ::chat::delivery::DeliveryState::Sent);
     assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
     assert(record.updated_at_ms == 1234);
-    ::sys::ChatSendResultEvent late_failed_event(sent_id, false);
-    late_failed_event.timestamp = 1300;
-    projection_adapter.onChatSendResult(late_failed_event);
+    service.handleSendResult(sent_id, ::chat::MessageStatus::Delivered);
+    projection_adapter.onChatSendResult(
+        sent_id, ::chat::MessageStatus::Delivered, 1250);
     assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
                            record));
-    assert(record.state == ::chat::delivery::DeliveryState::Sent);
+    assert(record.state == ::chat::delivery::DeliveryState::Delivered);
     assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
-    assert(record.updated_at_ms == 1234);
+    assert(record.updated_at_ms == 1250);
+    projection_adapter.onChatSendResult(
+        sent_id, ::chat::MessageStatus::Failed, 1300);
+    assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
+                           record));
+    assert(record.state == ::chat::delivery::DeliveryState::Delivered);
+    assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
+    assert(record.updated_at_ms == 1250);
 
     const auto failed_id =
         service.sendText(::chat::ChannelId::PRIMARY, "fail", 0);
     assert(failed_id == 701);
 
     service.handleSendResult(failed_id, false);
-    ::sys::ChatSendResultEvent failed_event(failed_id, false);
-    failed_event.timestamp = 2345;
-    projection_adapter.onChatSendResult(failed_event);
+    projection_adapter.onChatSendResult(
+        failed_id, ::chat::MessageStatus::Failed, 2345);
 
     assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, failed_id, 0},
                            record));
@@ -116,8 +120,8 @@ int main()
     projection_adapter.onAckTimeout(0, 4567);
     assert(read_model.size() == 3);
 
-    ::sys::ChatSendResultEvent unknown_event(9999, false);
-    projection_adapter.onChatSendResult(unknown_event);
+    projection_adapter.onChatSendResult(
+        9999, ::chat::MessageStatus::Failed, 0);
     assert(read_model.size() == 3);
 
     return 0;

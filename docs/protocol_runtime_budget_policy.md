@@ -44,10 +44,9 @@ announces may publish one coalesced contact-store update at a low awake-screen
 rate so Contacts and Chat can show the sender's display name without waiting
 for SD or NVS persistence.
 
-## MeshChat-Compatible Discovery Projection
+## Reticulum Client Discovery Projection
 
-Trail Mate's Reticulum UI projections follow the same product-facing discovery
-split as Reticulum MeshChat:
+Trail Mate's Reticulum UI projections follow client-facing object semantics:
 
 - Contacts and Chat consume `lxmf.delivery` announces as chat peers. The peer
   display name is decoded from LXMF announce app data using the upstream shape:
@@ -57,10 +56,10 @@ split as Reticulum MeshChat:
   ignore trailing fields they do not need.
 - Network consumes `nomadnetwork.node` announces as Nomad nodes. Their display
   name is decoded from text app data and is separate from LXMF peer naming.
-- `lxmf.propagation`, `call.audio`, and unknown announces may be stored for
-  routing, call, or diagnostic use, but they must not be promoted into Contacts
-  as ordinary chat peers unless a Trail Mate business flow explicitly needs
-  them.
+- A verified `lxst.telephony` destination may enrich a person already joined by
+  identity; it does not create a service-shaped contact by itself.
+- `lxmf.propagation`, legacy `call.audio`, and unknown announces may be stored
+  for routing or diagnostic use, but they are never promoted into Contacts.
 - Destination and identity hashes remain address/search metadata. They must not
   be used as the default display name. If a Reticulum peer has no display name,
   the UI uses `Anonymous Peer`; if a Nomad node has no display name, the UI uses

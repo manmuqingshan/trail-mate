@@ -148,13 +148,28 @@ static lv_obj_t* get_list_button(void* /*ctx*/, size_t index)
 static int get_preferred_list_index(void* /*ctx*/)
 {
     const int selected = contacts::ui::g_contacts_state.selected_index;
-    if (contacts::ui::g_contacts_state.virtual_list_active)
+    if (selected < 0)
     {
-        const int start = contacts::ui::g_contacts_state.list_window_start_index;
-        const int end = contacts::ui::g_contacts_state.list_window_end_index;
-        return selected >= start && selected < end ? selected - start : -1;
+        return -1;
     }
-    return selected >= 0 ? selected : -1;
+
+    const auto& items = contacts::ui::g_contacts_state.list_items;
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        lv_obj_t* item = items[i];
+        if (item == nullptr || !lv_obj_is_valid(item))
+        {
+            continue;
+        }
+        const intptr_t item_index =
+            reinterpret_cast<intptr_t>(lv_obj_get_user_data(item));
+        if (item_index == selected)
+        {
+            return static_cast<int>(i);
+        }
+    }
+
+    return -1;
 }
 
 static lv_obj_t* get_list_back_button(void* /*ctx*/)

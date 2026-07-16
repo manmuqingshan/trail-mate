@@ -19,6 +19,25 @@
 namespace sys
 {
 
+inline void copy_bounded_text(char* out, size_t out_len, const char* text)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!text)
+    {
+        return;
+    }
+    const size_t max_copy_len = out_len - 1U;
+    const auto* terminator = static_cast<const char*>(std::memchr(text, '\0', max_copy_len));
+    const size_t copy_len =
+        terminator ? static_cast<size_t>(terminator - text) : max_copy_len;
+    std::memcpy(out, text, copy_len);
+    out[copy_len] = '\0';
+}
+
 /**
  * @brief Event types
  */
@@ -100,9 +119,16 @@ struct ChatSendResultEvent : public Event
 {
     uint32_t msg_id;
     bool success;
+    chat::MessageStatus status;
 
     ChatSendResultEvent(uint32_t id, bool ok)
-        : Event(EventType::ChatSendResult), msg_id(id), success(ok) {}
+        : Event(EventType::ChatSendResult), msg_id(id), success(ok),
+          status(ok ? chat::MessageStatus::Sent : chat::MessageStatus::Failed) {}
+
+    ChatSendResultEvent(uint32_t id, chat::MessageStatus result_status)
+        : Event(EventType::ChatSendResult), msg_id(id),
+          success(result_status != chat::MessageStatus::Failed),
+          status(result_status) {}
 };
 
 enum class ReticulumPingResult : uint8_t
@@ -194,8 +220,7 @@ struct NodeInfoUpdateEvent : public Event
     {
         if (sname)
         {
-            strncpy(short_name, sname, sizeof(short_name) - 1);
-            short_name[sizeof(short_name) - 1] = '\0';
+            copy_bounded_text(short_name, sizeof(short_name), sname);
         }
         else
         {
@@ -203,8 +228,7 @@ struct NodeInfoUpdateEvent : public Event
         }
         if (lname)
         {
-            strncpy(long_name, lname, sizeof(long_name) - 1);
-            long_name[sizeof(long_name) - 1] = '\0';
+            copy_bounded_text(long_name, sizeof(long_name), lname);
         }
         else
         {
@@ -359,8 +383,7 @@ struct KeyVerificationFinalEvent : public Event
     {
         if (code)
         {
-            strncpy(verification_code, code, sizeof(verification_code) - 1);
-            verification_code[sizeof(verification_code) - 1] = '\0';
+            copy_bounded_text(verification_code, sizeof(verification_code), code);
         }
         else
         {

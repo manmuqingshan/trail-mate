@@ -1210,23 +1210,6 @@ static chat::MeshActionResult persist_reticulum_contact_peer(
     return g_contacts_state.chat_service->persistReticulumPeer(identity, favorite);
 }
 
-static void present_busy_overlay_now()
-{
-    static bool s_presenting = false;
-    if (s_presenting)
-    {
-        return;
-    }
-    s_presenting = true;
-    if (lv_obj_t* top = lv_layer_top())
-    {
-        lv_obj_invalidate(top);
-    }
-    lv_timer_handler();
-    lv_refr_now(nullptr);
-    s_presenting = false;
-}
-
 class ScopedReticulumContactSaveOverlay
 {
   public:
@@ -1239,7 +1222,6 @@ class ScopedReticulumContactSaveOverlay
             return;
         }
         ::ui::widgets::busy_overlay::show("Saving contact...", detail);
-        present_busy_overlay_now();
     }
 
     ~ScopedReticulumContactSaveOverlay()
@@ -1249,7 +1231,6 @@ class ScopedReticulumContactSaveOverlay
             return;
         }
         ::ui::widgets::busy_overlay::hide();
-        present_busy_overlay_now();
     }
 
     ScopedReticulumContactSaveOverlay(const ScopedReticulumContactSaveOverlay&) =
@@ -4463,23 +4444,6 @@ void refresh_ui()
         }
     }
     g_contacts_state.list_items.clear();
-    if (g_contacts_state.virtual_top_spacer != nullptr)
-    {
-        if (lv_obj_is_valid(g_contacts_state.virtual_top_spacer))
-        {
-            lv_obj_del(g_contacts_state.virtual_top_spacer);
-        }
-        g_contacts_state.virtual_top_spacer = nullptr;
-    }
-    if (g_contacts_state.virtual_bottom_spacer != nullptr)
-    {
-        if (lv_obj_is_valid(g_contacts_state.virtual_bottom_spacer))
-        {
-            lv_obj_del(g_contacts_state.virtual_bottom_spacer);
-        }
-        g_contacts_state.virtual_bottom_spacer = nullptr;
-    }
-
     // Choose list by mode (unchanged)
     std::vector<chat::contacts::NodeInfo> broadcast_list;
     std::vector<chat::contacts::NodeInfo> team_list;
@@ -4582,7 +4546,6 @@ void refresh_ui()
     {
         g_contacts_state.total_items += 1;
     }
-    const bool use_virtual_window = false;
     int target_scroll_y = same_render_context ? saved_scroll_y : 0;
     if (target_scroll_y < 0)
     {
@@ -4613,12 +4576,6 @@ void refresh_ui()
     {
         end_idx = static_cast<int>(current_list->size());
     }
-    g_contacts_state.virtual_list_active = use_virtual_window;
-    g_contacts_state.list_window_start_index = use_virtual_window ? start_idx : 0;
-    g_contacts_state.list_window_end_index =
-        use_virtual_window ? end_idx : static_cast<int>(current_list->size());
-    g_contacts_state.list_scroll_y = target_scroll_y;
-
     if (show_reticulum_group_add_item)
     {
         chat::contacts::NodeInfo add_node{};

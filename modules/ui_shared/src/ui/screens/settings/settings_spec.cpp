@@ -70,7 +70,6 @@ constexpr SettingSpec kSpecs[] = {
     {SettingId::RtWifiPort, "rt_wifi_port", DynamicOptionKind::None},
     {SettingId::RtWifiAuto, "rt_wifi_auto", DynamicOptionKind::None},
     {SettingId::RtAnonymousPeer, "rt_anonymous_peer", DynamicOptionKind::None},
-    {SettingId::RtCallWire, "rt_call_wire", DynamicOptionKind::None},
     {SettingId::RtLocationRequests, "rt_location_requests", DynamicOptionKind::None},
     {SettingId::NetUsePreset, "net_use_preset", DynamicOptionKind::None},
     {SettingId::NetPreset, "net_preset", DynamicOptionKind::None},
@@ -276,7 +275,6 @@ bool is_reticulum_mesh(SettingId id)
     case SettingId::RtWifiPort:
     case SettingId::RtWifiAuto:
     case SettingId::RtAnonymousPeer:
-    case SettingId::RtCallWire:
     case SettingId::RtLocationRequests:
         return true;
     default:

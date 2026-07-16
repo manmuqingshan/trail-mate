@@ -40,6 +40,7 @@ class RamStore : public IChatStore
     void clearAll() override;
     bool updateMessageStatus(MessageId msg_id, MessageStatus status) override;
     bool getMessage(MessageId msg_id, ChatMessage* out) const override;
+    bool hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const override;
 
   private:
     struct StoredMessageEntry

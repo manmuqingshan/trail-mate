@@ -19,6 +19,14 @@ int main()
     assert(event.failure == SendFailureKind::None);
     assert(event.timestamp_ms == 111);
 
+    event = makeChatSendResultDeliveryEvent(ref,
+                                            DeliveryState::Delivered,
+                                            SendFailureKind::RadioSendFailed,
+                                            112);
+    assert(event.state == DeliveryState::Delivered);
+    assert(event.failure == SendFailureKind::None);
+    assert(event.timestamp_ms == 112);
+
     ref.protocol_id = 11;
     event = makeChatSendResultDeliveryEvent(ref,
                                             false,

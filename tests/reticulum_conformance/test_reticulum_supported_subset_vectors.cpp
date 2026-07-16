@@ -1,4 +1,5 @@
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "chat/infra/reticulum/lxst_call_state_machine.h"
 #include "chat/infra/reticulum/lxst_telephony_wire.h"
 #include "chat/infra/reticulum/reticulum_wire.h"
 #include "team/protocol/team_portnum.h"
@@ -17,6 +18,7 @@ namespace
 
 namespace lxmf = chat::lxmf;
 namespace lxst = chat::reticulum::lxst;
+namespace lxst_call = chat::reticulum::lxst::call;
 namespace reticulum = chat::reticulum;
 
 constexpr const char* kFullHashTrailMate =
@@ -124,6 +126,13 @@ constexpr const char* kPropagationMessageList =
 constexpr const char* kPropagationBatch =
     "92cb409452000000000092c412101112131415161718191a1b1c1d1e1f0102"
     "c411202122232425262728292a2b2c2d2e2f03";
+constexpr const char* kOfficialPropagationAnnounce =
+    "97c2ce6553f100c340cc80930c02128101c408547261696c20504e";
+constexpr const char* kOfficialPropagationGet =
+    "9391c420000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    "91c420a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babb"
+    "bcbdbebf40";
+constexpr const char* kOfficialPropagationListRequest = "92c0c0";
 
 uint8_t hexNibble(char value)
 {
@@ -823,6 +832,56 @@ void expectPropagationVectors()
     assert(decoded_get.has_transfer_limit);
     assert(decoded_get.transfer_limit_kb == 64);
 
+    std::vector<std::vector<uint8_t>> official_wants(1);
+    std::vector<std::vector<uint8_t>> official_haves(1);
+    for (uint8_t value = 0; value < reticulum::kFullHashSize; ++value)
+    {
+        official_wants.front().push_back(value);
+        official_haves.front().push_back(static_cast<uint8_t>(0xA0U + value));
+    }
+    std::vector<uint8_t> official_get = encodeBuffer(128);
+    std::size_t official_get_len = official_get.size();
+    assert(lxmf::encodePropagationGetRequestPayload(&official_wants,
+                                                    &official_haves,
+                                                    true,
+                                                    64,
+                                                    official_get.data(),
+                                                    &official_get_len));
+    official_get.resize(official_get_len);
+    expectBytes(official_get.data(),
+                official_get.size(),
+                kOfficialPropagationGet);
+
+    std::vector<uint8_t> list_request = encodeBuffer(16);
+    std::size_t list_request_len = list_request.size();
+    assert(lxmf::encodePropagationGetRequestPayload(nullptr,
+                                                    nullptr,
+                                                    false,
+                                                    0,
+                                                    list_request.data(),
+                                                    &list_request_len));
+    list_request.resize(list_request_len);
+    expectBytes(list_request.data(),
+                list_request.size(),
+                kOfficialPropagationListRequest);
+
+    const std::vector<uint8_t> official_announce =
+        fromHex(kOfficialPropagationAnnounce);
+    lxmf::DecodedPropagationAnnounce decoded_announce{};
+    assert(lxmf::decodePropagationAnnounceAppData(official_announce.data(),
+                                                  official_announce.size(),
+                                                  &decoded_announce));
+    assert(decoded_announce.valid);
+    assert(!decoded_announce.legacy_support);
+    assert(decoded_announce.node_active);
+    assert(decoded_announce.timebase_s == 1700000000U);
+    assert(decoded_announce.transfer_limit_kb == 64U);
+    assert(decoded_announce.sync_limit_kb == 128U);
+    assert(decoded_announce.stamp_cost == 12U);
+    assert(decoded_announce.stamp_cost_flexibility == 2U);
+    assert(decoded_announce.peering_cost == 18U);
+    assert(decoded_announce.display_name == "Trail PN");
+
     std::vector<uint8_t> id_list = encodeBuffer(64);
     std::size_t id_list_len = id_list.size();
     assert(lxmf::encodePropagationIdListPayload({decoded_get.wants.front()},
@@ -863,6 +922,16 @@ void expectPropagationVectors()
     assert(decoded_batch.messages[0] == propagated_message);
     assert(decoded_batch.messages[1] == second_message);
 
+    std::vector<uint8_t> trailing_batch = batch;
+    trailing_batch.push_back(0x00);
+    assert(!lxmf::decodePropagationBatch(trailing_batch.data(),
+                                         trailing_batch.size(),
+                                         &decoded_batch));
+    const std::vector<uint8_t> oversized_list = fromHex("dc0041");
+    assert(!lxmf::decodePropagationIdListPayload(oversized_list.data(),
+                                                 oversized_list.size(),
+                                                 &decoded_get.wants));
+
     const std::vector<uint8_t> invalid_msgpack = fromHex("91c4");
     assert(!lxmf::decodePropagationOfferPayload(invalid_msgpack.data(),
                                                 invalid_msgpack.size(),
@@ -875,6 +944,169 @@ void expectPropagationVectors()
                                          &decoded_batch));
 }
 
+bool hasAction(const lxst_call::Transition& transition,
+               lxst_call::Action expected)
+{
+    for (std::size_t index = 0; index < transition.action_count; ++index)
+    {
+        if (transition.actions[index] == expected)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void expectLxstCallStateMachine()
+{
+    uint32_t now_ms = 100;
+    auto caller = lxst_call::makeCaller(lxst::kProfileBandwidthLow, now_ms);
+    assert(caller.phase == lxst_call::Phase::CallerAwaitingLink);
+
+    auto transition = lxst_call::dispatch(
+        &caller,
+        {lxst_call::EventType::LinkActive},
+        ++now_ms);
+    assert(transition.accepted);
+    assert(transition.action_count == 0);
+    assert(caller.phase == lxst_call::Phase::CallerAwaitingAvailability);
+
+    transition = lxst_call::dispatch(
+        &caller,
+        lxst_call::Event::remoteSignal(lxst::kStatusAvailable),
+        ++now_ms);
+    assert(transition.accepted);
+    assert(hasAction(transition, lxst_call::Action::SendIdentify));
+    assert(caller.phase == lxst_call::Phase::CallerAwaitingRinging);
+
+    const auto duplicate_available = lxst_call::dispatch(
+        &caller,
+        lxst_call::Event::remoteSignal(lxst::kStatusAvailable),
+        ++now_ms);
+    assert(duplicate_available.accepted);
+    assert(duplicate_available.action_count == 0);
+
+    transition = lxst_call::dispatch(
+        &caller,
+        lxst_call::Event::remoteSignal(lxst::kStatusRinging),
+        ++now_ms);
+    assert(hasAction(transition,
+                     lxst_call::Action::SendPreferredProfile));
+    assert(caller.phase == lxst_call::Phase::CallerNegotiating);
+
+    transition = lxst_call::dispatch(
+        &caller,
+        lxst_call::Event::remoteSignal(lxst::kStatusConnecting),
+        ++now_ms);
+    assert(hasAction(transition, lxst_call::Action::PrepareMedia));
+    assert(caller.phase == lxst_call::Phase::CallerConnecting);
+
+    transition = lxst_call::dispatch(
+        &caller,
+        {lxst_call::EventType::MediaReady},
+        ++now_ms);
+    assert(transition.accepted);
+    assert(transition.action_count == 0);
+    assert(caller.media_prepared);
+
+    transition = lxst_call::dispatch(
+        &caller,
+        lxst_call::Event::remoteSignal(lxst::kStatusEstablished),
+        ++now_ms);
+    assert(hasAction(transition, lxst_call::Action::ActivateMedia));
+    assert(caller.phase == lxst_call::Phase::Active);
+    assert(!lxst_call::dispatch(
+                &caller,
+                lxst_call::Event::remoteSignal(lxst::kStatusRinging),
+                ++now_ms)
+                .accepted);
+
+    auto callee = lxst_call::makeCallee(lxst::kProfileBandwidthLow, now_ms);
+    transition = lxst_call::dispatch(
+        &callee,
+        {lxst_call::EventType::LinkActive},
+        ++now_ms);
+    assert(hasAction(transition, lxst_call::Action::SendAvailable));
+    assert(callee.phase == lxst_call::Phase::CalleeAwaitingIdentity);
+
+    transition = lxst_call::dispatch(
+        &callee,
+        {lxst_call::EventType::RemoteIdentified},
+        ++now_ms);
+    assert(hasAction(transition, lxst_call::Action::BeginRinging));
+    assert(callee.phase == lxst_call::Phase::CalleeAwaitingAdmission);
+
+    transition = lxst_call::dispatch(
+        &callee,
+        {lxst_call::EventType::AdmissionGranted},
+        ++now_ms);
+    assert(hasAction(transition, lxst_call::Action::SendRinging));
+    assert(callee.phase == lxst_call::Phase::CalleeRinging);
+
+    assert(!lxst_call::dispatch(
+                &callee,
+                lxst_call::Event::remoteSignal(lxst::kStatusAvailable),
+                ++now_ms)
+                .accepted);
+    transition = lxst_call::dispatch(
+        &callee,
+        lxst_call::Event::remoteSignal(
+            lxst::kPreferredProfile + lxst::kProfileBandwidthVeryLow),
+        ++now_ms);
+    assert(transition.accepted);
+    assert(hasAction(transition,
+                     lxst_call::Action::SendPreferredProfile));
+
+    transition = lxst_call::dispatch(
+        &callee,
+        {lxst_call::EventType::LocalAccepted},
+        ++now_ms);
+    assert(hasAction(transition, lxst_call::Action::SendConnecting));
+    assert(hasAction(transition, lxst_call::Action::PrepareMedia));
+    assert(callee.phase == lxst_call::Phase::CalleeConnecting);
+
+    transition = lxst_call::dispatch(
+        &callee,
+        {lxst_call::EventType::MediaReady},
+        ++now_ms);
+    assert(hasAction(transition, lxst_call::Action::SendEstablished));
+    assert(hasAction(transition, lxst_call::Action::ActivateMedia));
+    assert(callee.phase == lxst_call::Phase::Active);
+
+    auto rejected = lxst_call::makeCallee(
+        lxst::kProfileBandwidthLow,
+        now_ms);
+    (void)lxst_call::dispatch(
+        &rejected,
+        {lxst_call::EventType::LinkActive},
+        ++now_ms);
+    (void)lxst_call::dispatch(
+        &rejected,
+        {lxst_call::EventType::RemoteIdentified},
+        ++now_ms);
+    (void)lxst_call::dispatch(
+        &rejected,
+        {lxst_call::EventType::AdmissionGranted},
+        ++now_ms);
+    transition = lxst_call::dispatch(
+        &rejected,
+        {lxst_call::EventType::LocalHangup},
+        ++now_ms);
+    assert(hasAction(transition, lxst_call::Action::SendRejected));
+    assert(hasAction(transition, lxst_call::Action::CloseLink));
+    assert(rejected.phase == lxst_call::Phase::Closing);
+
+    auto timeout = lxst_call::makeCaller(
+        lxst::kProfileBandwidthLow,
+        0);
+    (void)lxst_call::dispatch(
+        &timeout,
+        {lxst_call::EventType::LinkActive},
+        1);
+    assert(!lxst_call::phaseTimedOut(timeout, 15000));
+    assert(lxst_call::phaseTimedOut(timeout, 15001));
+}
+
 } // namespace
 
 int main()
@@ -885,5 +1117,6 @@ int main()
     expectLinkServiceVectors();
     expectResourceVectors();
     expectPropagationVectors();
+    expectLxstCallStateMachine();
     return 0;
 }

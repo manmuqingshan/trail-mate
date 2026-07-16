@@ -413,6 +413,19 @@ TrafficBudget base_budget(Client client,
         return budget;
     }
 
+    if (client == Client::ReticulumGateway)
+    {
+        budget.allow_connect = true;
+        budget.allow_read = true;
+        budget.allow_write = true;
+        budget.rx_packet_budget = 0;
+        budget.tx_packet_budget = 4;
+        budget.rx_byte_budget = 512;
+        budget.tx_byte_budget = 2048;
+        budget.min_read_interval_ms = 0;
+        return budget;
+    }
+
     if (phase == ScreenPhase::WakeProtected)
     {
         budget.allow_connect = false;
@@ -420,9 +433,9 @@ TrafficBudget base_budget(Client client,
         budget.allow_write = true;
         budget.rx_packet_budget = client == Client::MeshMqtt ? 1 : 0;
         budget.tx_packet_budget = 1;
-        budget.rx_byte_budget = client == Client::ReticulumGateway ? 64 : 512;
+        budget.rx_byte_budget = 512;
         budget.tx_byte_budget = 512;
-        budget.min_read_interval_ms = client == Client::ReticulumGateway ? 500 : 0;
+        budget.min_read_interval_ms = 0;
         return budget;
     }
 
@@ -433,9 +446,9 @@ TrafficBudget base_budget(Client client,
         budget.allow_write = true;
         budget.rx_packet_budget = client == Client::MeshMqtt ? 8 : 0;
         budget.tx_packet_budget = client == Client::MeshMqtt ? 8 : 2;
-        budget.rx_byte_budget = client == Client::ReticulumGateway ? 256 : 4096;
+        budget.rx_byte_budget = 4096;
         budget.tx_byte_budget = 4096;
-        budget.min_read_interval_ms = client == Client::ReticulumGateway ? 100 : 0;
+        budget.min_read_interval_ms = 0;
         return budget;
     }
 
@@ -444,9 +457,9 @@ TrafficBudget base_budget(Client client,
     budget.allow_write = true;
     budget.rx_packet_budget = client == Client::MeshMqtt ? 4 : 0;
     budget.tx_packet_budget = client == Client::MeshMqtt ? 4 : 1;
-    budget.rx_byte_budget = client == Client::ReticulumGateway ? 128 : 2048;
+    budget.rx_byte_budget = 2048;
+    budget.min_read_interval_ms = 0;
     budget.tx_byte_budget = 2048;
-    budget.min_read_interval_ms = client == Client::ReticulumGateway ? 250 : 0;
     return budget;
 }
 
@@ -722,8 +735,11 @@ bool ensure_connected(const Request& request, Decision* out_decision)
         }
         else
         {
+            // ESP-IDF P4 targets delegate Wi-Fi to the C6 companion. A
+            // successfully queued Connect command completes asynchronously;
+            // absence of an immediate GOT_IP event is not a failed command.
             decision = ::platform::ui::wifi::status().connected ? Decision::Granted
-                                                                : Decision::ConnectFailed;
+                                                                : Decision::ConnectBackoff;
         }
     }
 

@@ -6,6 +6,7 @@
 #include "chat/infra/store/ram_store.h"
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <tuple>
 #include <utility>
 
@@ -211,6 +212,34 @@ bool RamStore::getMessage(MessageId msg_id, ChatMessage* out) const
                 *out = entry.message;
             }
             return true;
+        }
+    }
+    return false;
+}
+
+bool RamStore::hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const
+{
+    if (!lxmf_hash || isAllZeroKeyBytes(lxmf_hash, kReticulumLxmfHashSize))
+    {
+        return false;
+    }
+
+    for (const auto& pair : conversations_)
+    {
+        const ConversationStorage& storage = pair.second;
+        for (const auto& entry : storage.messages)
+        {
+            const ChatMessage& message = entry.message;
+            if (!chat::hasReticulumLxmfMessageHash(message))
+            {
+                continue;
+            }
+            if (std::memcmp(message.reticulum_lxmf_hash,
+                            lxmf_hash,
+                            kReticulumLxmfHashSize) == 0)
+            {
+                return true;
+            }
         }
     }
     return false;

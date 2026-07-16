@@ -63,15 +63,15 @@ bool ContactStoreCore::setNickname(uint32_t node_id, const char* nickname)
                 return true;
             }
             char previous[sizeof(entry.nickname)] = {};
-            strncpy(previous, entry.nickname, sizeof(previous) - 1);
-            strncpy(entry.nickname, nickname, sizeof(entry.nickname) - 1);
-            entry.nickname[sizeof(entry.nickname) - 1] = '\0';
+            memcpy(previous, entry.nickname, sizeof(previous));
+            previous[sizeof(previous) - 1] = '\0';
+            const std::size_t nickname_len = strlen(nickname);
+            memcpy(entry.nickname, nickname, nickname_len + 1U);
             if (saveEntries())
             {
                 return true;
             }
-            strncpy(entry.nickname, previous, sizeof(entry.nickname) - 1);
-            entry.nickname[sizeof(entry.nickname) - 1] = '\0';
+            memcpy(entry.nickname, previous, sizeof(entry.nickname));
             return false;
         }
     }

@@ -141,6 +141,20 @@ struct DecodedPropagationGetRequest
     uint32_t transfer_limit_kb = 0;
 };
 
+struct DecodedPropagationAnnounce
+{
+    bool valid = false;
+    bool legacy_support = false;
+    uint32_t timebase_s = 0;
+    bool node_active = false;
+    uint32_t transfer_limit_kb = 0;
+    uint32_t sync_limit_kb = 0;
+    uint8_t stamp_cost = 0;
+    uint8_t stamp_cost_flexibility = 0;
+    uint8_t peering_cost = 0;
+    std::string display_name;
+};
+
 bool packPeerAnnounceAppData(const char* display_name,
                              bool has_stamp_cost,
                              uint8_t stamp_cost,
@@ -236,6 +250,28 @@ bool decodePropagationOfferPayload(const uint8_t* data, size_t len,
 
 bool decodePropagationGetRequestPayload(const uint8_t* data, size_t len,
                                         DecodedPropagationGetRequest* out_request);
+
+bool encodePropagationGetRequestPayload(
+    const std::vector<std::vector<uint8_t>>* wants,
+    const std::vector<std::vector<uint8_t>>* haves,
+    bool include_transfer_limit,
+    uint32_t transfer_limit_kb,
+    uint8_t* out_payload,
+    size_t* inout_len);
+
+bool decodePropagationIdListPayload(const uint8_t* data,
+                                    size_t len,
+                                    std::vector<std::vector<uint8_t>>* out_ids);
+
+bool decodePropagationMessageListPayload(
+    const uint8_t* data,
+    size_t len,
+    std::vector<std::vector<uint8_t>>* out_messages);
+
+bool decodePropagationAnnounceAppData(
+    const uint8_t* data,
+    size_t len,
+    DecodedPropagationAnnounce* out_announce);
 
 bool encodePropagationIdListPayload(const std::vector<std::vector<uint8_t>>& ids,
                                     uint8_t* out_payload,

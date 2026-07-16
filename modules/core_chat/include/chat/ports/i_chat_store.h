@@ -27,6 +27,19 @@ class IChatStore
     virtual void append(const ChatMessage& msg) = 0;
 
     /**
+     * Persist an incoming message and any durable delivery identity it owns.
+     *
+     * Stores that cannot fail independently may inherit this implementation.
+     * Persistent stores should override it and return false unless both the
+     * message and its deduplication identity are durable.
+     */
+    virtual bool appendIncomingDurably(const ChatMessage& msg)
+    {
+        append(msg);
+        return true;
+    }
+
+    /**
      * @brief Load recent messages for a conversation
      * @param conv Conversation ID
      * @param n Number of messages to load
@@ -124,6 +137,18 @@ class IChatStore
      * @return true if found
      */
     virtual bool getMessage(MessageId msg_id, ChatMessage* out) const = 0;
+
+    /**
+     * @brief Check whether an LXMF message hash has already been stored.
+     *
+     * The default implementation returns false for stores that do not maintain
+     * Reticulum/LXMF durable identity state.
+     */
+    virtual bool hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const
+    {
+        (void)lxmf_hash;
+        return false;
+    }
 
     /**
      * @brief Flush pending buffered writes to persistent storage

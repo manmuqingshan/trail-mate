@@ -67,7 +67,6 @@ constexpr const char* kChatKeyRtWifiHost = "rt_wifi_host";
 constexpr const char* kChatKeyRtWifiPort = "rt_wifi_port";
 constexpr const char* kChatKeyRtIfacePolicy = "rt_if_policy";
 constexpr const char* kChatKeyRtAnonPeer = "rt_anon_peer";
-constexpr const char* kChatKeyRtCallWire = "rt_call_wire";
 constexpr const char* kChatKeyRtLocationRequests = "rt_loc_req";
 constexpr const char* kGpsKeyInitBaud = "init_baud";
 constexpr const char* kGpsKeyInitProbeMs = "init_probe_ms";
@@ -882,7 +881,7 @@ void log_config_summary(const char* phase, const AppConfig& config)
                   bool_label(config.aprs.self_enable),
                   config.aprs.self_callsign,
                   static_cast<unsigned>(config.aprs.node_map_len));
-    Serial.printf("[AppCfg][%s][reticulum_if] lora=%s wifi=%s auto_wifi=%s anonymous=%s host=%s port=%u policy=%u call_wire=%u location_requests=%s\n",
+    Serial.printf("[AppCfg][%s][reticulum_if] lora=%s wifi=%s auto_wifi=%s anonymous=%s host=%s port=%u policy=%u call=sideband_lxst location_requests=%s\n",
                   safe_label(phase),
                   bool_label(config.rnode_config.reticulum_lora_enabled),
                   bool_label(config.rnode_config.reticulum_wifi_gateway_enabled),
@@ -894,8 +893,6 @@ void log_config_summary(const char* phase, const AppConfig& config)
                   static_cast<unsigned>(config.rnode_config.reticulum_wifi_gateway_port),
                   static_cast<unsigned>(static_cast<uint8_t>(
                       config.rnode_config.reticulum_interface_policy)),
-                  static_cast<unsigned>(static_cast<uint8_t>(
-                      config.rnode_config.reticulum_call_wire_profile)),
                   bool_label(config.rnode_config.reticulum_allow_location_requests));
 }
 
@@ -1172,15 +1169,6 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         {
             rnode_config.reticulum_interface_policy =
                 static_cast<chat::ReticulumInterfacePolicy>(reticulum_interface_policy);
-        }
-        const uint8_t reticulum_call_wire =
-            get_uchar(kChatKeyRtCallWire,
-                      static_cast<uint8_t>(rnode_config.reticulum_call_wire_profile));
-        if (reticulum_call_wire <=
-            static_cast<uint8_t>(chat::ReticulumCallWireProfile::MeshChatCallAudio))
-        {
-            rnode_config.reticulum_call_wire_profile =
-                static_cast<chat::ReticulumCallWireProfile>(reticulum_call_wire);
         }
         rnode_config.reticulum_allow_location_requests =
             get_bool(kChatKeyRtLocationRequests,
@@ -1628,8 +1616,6 @@ bool saveAppConfigToPreferences(const AppConfig& config,
                        : 4242);
         put_uchar(kChatKeyRtIfacePolicy,
                   static_cast<uint8_t>(rnode_config.reticulum_interface_policy));
-        put_uchar(kChatKeyRtCallWire,
-                  static_cast<uint8_t>(rnode_config.reticulum_call_wire_profile));
         put_bool(kChatKeyRtLocationRequests,
                  rnode_config.reticulum_allow_location_requests);
         const char* legacy_reticulum_group_suffixes[] = {"en", "name", "dest"};

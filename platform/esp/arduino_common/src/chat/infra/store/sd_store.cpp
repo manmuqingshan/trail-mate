@@ -8,7 +8,9 @@
 #include "chat/infra/mesh_protocol_utils.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 
+#if defined(ARDUINO)
 #include <Arduino.h>
+#endif
 
 #include <algorithm>
 #include <cstdio>
@@ -21,8 +23,15 @@ namespace
 {
 namespace storage = ::platform::esp::arduino_common::storage;
 
+#if defined(ARDUINO)
+#define CHAT_STORE_LOG(...) Serial.printf(__VA_ARGS__)
+#else
+#define CHAT_STORE_LOG(...) std::printf(__VA_ARGS__)
+#endif
+
 constexpr uint8_t kRecordHasReticulumIdentityFlag = 0x01U;
 constexpr uint8_t kRecordSourceUnverifiedFlag = 0x02U;
+constexpr uint8_t kRecordHasReticulumLxmfHashFlag = 0x04U;
 constexpr uint8_t kIndexHasReticulumIdentityFlag = 0x01U;
 // FileHeader::reserved is a durable unread count once the valid bit is set.
 constexpr uint16_t kUnreadStateValidMask = 0x8000U;
@@ -77,6 +86,12 @@ bool sameReticulumDestination(const ReticulumPeerIdentity& identity,
                               const uint8_t* destination_hash)
 {
     return sameReticulumDestinationHash(identity, destination_hash);
+}
+
+bool validLxmfMessageHash(const uint8_t* lxmf_hash)
+{
+    return lxmf_hash &&
+           !isAllZeroKeyBytes(lxmf_hash, kReticulumLxmfHashSize);
 }
 
 void copyReticulumIdentityToStorage(uint8_t* destination_hash,
@@ -135,7 +150,7 @@ SdStore::SdStore()
     ready_ = ensureFs() && ensureDir();
     if (!ready_)
     {
-        Serial.printf("[AppContext] chat store=SdStore layout=logs ready=0 root=%s\n", kDir);
+        CHAT_STORE_LOG("[AppContext] chat store=SdStore layout=logs ready=0 root=%s\n", kDir);
         return;
     }
 
@@ -150,16 +165,26 @@ SdStore::SdStore()
     {
         unread_reconcile_pending_ = !writeIndex(entries);
     }
-    Serial.printf("[AppContext] chat store=SdStore layout=logs root=%s index=%u\n",
-                  kDir,
-                  static_cast<unsigned>(entries.size()));
+    CHAT_STORE_LOG("[AppContext] chat store=SdStore layout=logs root=%s index=%u\n",
+                   kDir,
+                   static_cast<unsigned>(entries.size()));
 }
 
 void SdStore::append(const ChatMessage& msg)
 {
+    (void)appendInternal(msg);
+}
+
+bool SdStore::appendIncomingDurably(const ChatMessage& msg)
+{
+    return appendInternal(msg);
+}
+
+bool SdStore::appendInternal(const ChatMessage& msg)
+{
     if (!ready_ || !ensureDir())
     {
-        return;
+        return false;
     }
 
     const ConversationId conv = conversationIdForMessage(msg);
@@ -167,7 +192,33 @@ void SdStore::append(const ChatMessage& msg)
     FileHeader header{};
     if (!openConversationForUpdate(conv, file, header))
     {
-        return;
+        return false;
+    }
+
+    if (chat::hasReticulumLxmfMessageHash(msg))
+    {
+        bool already_committed = false;
+        if (!conversationContainsReticulumLxmfHash(file,
+                                                   header,
+                                                   msg.reticulum_lxmf_hash,
+                                                   &already_committed))
+        {
+            file.close();
+            return false;
+        }
+        if (already_committed)
+        {
+            uint16_t committed_unread = 0;
+            if (!decodeUnreadState(header.reserved, &committed_unread))
+            {
+                committed_unread = static_cast<uint16_t>(
+                    std::min<int>(std::max(0, getUnread(conv)),
+                                  kUnreadStateCountMask));
+            }
+            file.close();
+            updateIndexForMessage(msg, committed_unread);
+            return rememberReticulumLxmfMessageHash(msg.reticulum_lxmf_hash);
+        }
     }
 
     uint16_t unread = 0;
@@ -186,7 +237,7 @@ void SdStore::append(const ChatMessage& msg)
     if (!writeRecord(file, header.head, rec))
     {
         file.close();
-        return;
+        return false;
     }
 
     header.head = static_cast<uint16_t>((header.head + 1U) % kMaxMessagesPerConv);
@@ -198,16 +249,21 @@ void SdStore::append(const ChatMessage& msg)
     if (!file.seek(0) || !writeExact(file, &header, sizeof(header)))
     {
         file.close();
-        return;
+        return false;
     }
     if (!file.flush())
     {
         file.close();
-        return;
+        return false;
     }
     file.close();
 
     updateIndexForMessage(msg, unread);
+    if (chat::hasReticulumLxmfMessageHash(msg))
+    {
+        return rememberReticulumLxmfMessageHash(msg.reticulum_lxmf_hash);
+    }
+    return true;
 }
 
 std::vector<ChatMessage> SdStore::loadRecent(const ConversationId& conv, size_t n)
@@ -345,16 +401,16 @@ void SdStore::setUnread(const ConversationId& conv, int unread)
     const bool header_written = writeConversationUnread(conv, unread_count);
     if (!header_written)
     {
-        Serial.printf("[AppContext] chat unread persist failed stage=conversation_header unread=%u\n",
-                      static_cast<unsigned>(unread_count));
+        CHAT_STORE_LOG("[AppContext] chat unread persist failed stage=conversation_header unread=%u\n",
+                       static_cast<unsigned>(unread_count));
         return;
     }
     entries[index].unread = unread_count;
     const bool index_written = writeIndex(entries);
     if (!index_written)
     {
-        Serial.printf("[AppContext] chat unread persist failed stage=index unread=%u\n",
-                      static_cast<unsigned>(unread_count));
+        CHAT_STORE_LOG("[AppContext] chat unread persist failed stage=index unread=%u\n",
+                       static_cast<unsigned>(unread_count));
         unread_reconcile_pending_ = true;
         rebuildIndex();
     }
@@ -482,7 +538,8 @@ bool SdStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
         }
 
         FileHeader header{};
-        if (!loadFileHeader(file, header))
+        if (!loadFileHeader(file, header) ||
+            !upgradeConversationFile(file, path, header))
         {
             file.close();
             continue;
@@ -588,6 +645,46 @@ bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
     return false;
 }
 
+bool SdStore::hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const
+{
+    if (!ready_ || !validLxmfMessageHash(lxmf_hash))
+    {
+        return false;
+    }
+
+    storage::SdRuntimeFile file;
+    if (!file.open(kReticulumLxmfSeenFile, "r"))
+    {
+        return false;
+    }
+
+    LxmfSeenHeader header{};
+    if (!loadLxmfSeenHeader(file, header))
+    {
+        file.close();
+        return false;
+    }
+
+    for (uint16_t index = 0; index < header.count; ++index)
+    {
+        const uint16_t slot =
+            static_cast<uint16_t>((header.head + kMaxReticulumLxmfSeen - header.count + index) %
+                                  kMaxReticulumLxmfSeen);
+        LxmfSeenRecord rec{};
+        if (!readLxmfSeenRecord(file, slot, rec))
+        {
+            continue;
+        }
+        if (std::memcmp(rec.hash, lxmf_hash, kReticulumLxmfHashSize) == 0)
+        {
+            file.close();
+            return true;
+        }
+    }
+    file.close();
+    return false;
+}
+
 void SdStore::flush()
 {
 }
@@ -625,8 +722,8 @@ bool SdStore::recoverIndex() const
         std::vector<IndexEntry> recovered;
         if (readIndex(recovered))
         {
-            Serial.printf("[AppContext] chat store=SdStore recovered index source=%s\n",
-                          source);
+            CHAT_STORE_LOG("[AppContext] chat store=SdStore recovered index source=%s\n",
+                           source);
             return true;
         }
         (void)storage::sd_remove(kIndexFile);
@@ -1006,8 +1103,8 @@ void SdStore::rebuildIndex()
     dir.close();
 
     unread_reconcile_pending_ = !writeIndex(entries);
-    Serial.printf("[AppContext] chat store=SdStore rebuild index entries=%u\n",
-                  static_cast<unsigned>(entries.size()));
+    CHAT_STORE_LOG("[AppContext] chat store=SdStore rebuild index entries=%u\n",
+                   static_cast<unsigned>(entries.size()));
 }
 
 bool SdStore::loadFileHeader(storage::SdRuntimeFile& file, FileHeader& header) const
@@ -1022,6 +1119,7 @@ bool SdStore::loadFileHeader(storage::SdRuntimeFile& file, FileHeader& header) c
     }
     return header.magic == kFileMagic &&
            (header.version == kFileVersion ||
+            header.version == kRxOriginVersion ||
             header.version == kReticulumIdentityVersion ||
             header.version == kLegacyVersion) &&
            header.head < kMaxMessagesPerConv && header.count <= kMaxMessagesPerConv;
@@ -1048,7 +1146,8 @@ bool SdStore::upgradeConversationFile(storage::SdRuntimeFile& file,
         return true;
     }
     if ((header.version != kLegacyVersion &&
-         header.version != kReticulumIdentityVersion) ||
+         header.version != kReticulumIdentityVersion &&
+         header.version != kRxOriginVersion) ||
         !path || path[0] == '\0')
     {
         return false;
@@ -1062,14 +1161,26 @@ bool SdStore::upgradeConversationFile(storage::SdRuntimeFile& file,
             static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
                                   kMaxMessagesPerConv);
         Record rec{};
-        if (readRecord(file, header, slot, rec) && rec.text_len != 0)
+        if (!readRecord(file, header, slot, rec))
         {
-            records.push_back(rec);
+            return false;
         }
+        records.push_back(rec);
     }
 
     file.close();
-    if (!file.open(path, "w+"))
+    const std::string temp_path = std::string(path) + ".upgrade";
+    const std::string backup_path = std::string(path) + ".bak";
+    if (storage::sd_exists(temp_path.c_str()))
+    {
+        (void)storage::sd_remove(temp_path.c_str());
+    }
+    if (storage::sd_exists(backup_path.c_str()) &&
+        !storage::sd_remove(backup_path.c_str()))
+    {
+        return false;
+    }
+    if (!file.open(temp_path.c_str(), "w+"))
     {
         return false;
     }
@@ -1077,11 +1188,13 @@ bool SdStore::upgradeConversationFile(storage::SdRuntimeFile& file,
     FileHeader upgraded{};
     upgraded.magic = kFileMagic;
     upgraded.version = kFileVersion;
+    upgraded.reserved = header.reserved;
     upgraded.count = static_cast<uint16_t>(std::min<size_t>(records.size(), kMaxMessagesPerConv));
     upgraded.head = static_cast<uint16_t>(upgraded.count % kMaxMessagesPerConv);
     if (!file.seek(0) || !writeExact(file, &upgraded, sizeof(upgraded)))
     {
         file.close();
+        (void)storage::sd_remove(temp_path.c_str());
         return false;
     }
     for (uint16_t index = 0; index < upgraded.count; ++index)
@@ -1089,15 +1202,39 @@ bool SdStore::upgradeConversationFile(storage::SdRuntimeFile& file,
         if (!writeRecord(file, index, records[index]))
         {
             file.close();
+            (void)storage::sd_remove(temp_path.c_str());
             return false;
         }
     }
     if (!file.flush())
     {
         file.close();
+        (void)storage::sd_remove(temp_path.c_str());
         return false;
     }
-    return loadFileHeader(file, header) && header.version == kFileVersion;
+    file.close();
+
+    if (!storage::sd_rename(path, backup_path.c_str()))
+    {
+        (void)storage::sd_remove(temp_path.c_str());
+        return false;
+    }
+    if (!storage::sd_rename(temp_path.c_str(), path))
+    {
+        (void)storage::sd_rename(backup_path.c_str(), path);
+        (void)storage::sd_remove(temp_path.c_str());
+        return false;
+    }
+    if (!file.open(path, "r+") || !loadFileHeader(file, header) ||
+        header.version != kFileVersion)
+    {
+        file.close();
+        (void)storage::sd_remove(path);
+        (void)storage::sd_rename(backup_path.c_str(), path);
+        return false;
+    }
+    (void)storage::sd_remove(backup_path.c_str());
+    return true;
 }
 
 bool SdStore::readRecord(storage::SdRuntimeFile& file,
@@ -1118,6 +1255,10 @@ bool SdStore::readRecord(storage::SdRuntimeFile& file,
     {
         record_size = sizeof(RecordV3);
     }
+    else if (header.version == kRxOriginVersion)
+    {
+        record_size = sizeof(RecordV4);
+    }
     const uint64_t offset = sizeof(FileHeader) + static_cast<uint64_t>(slot) * record_size;
     if (file.size() < offset + record_size)
     {
@@ -1130,6 +1271,33 @@ bool SdStore::readRecord(storage::SdRuntimeFile& file,
     if (header.version == kFileVersion)
     {
         return readExact(file, &rec, sizeof(rec));
+    }
+
+    if (header.version == kRxOriginVersion)
+    {
+        RecordV4 rec_v4{};
+        if (!readExact(file, &rec_v4, sizeof(rec_v4)))
+        {
+            return false;
+        }
+        rec.protocol = rec_v4.protocol;
+        rec.channel = rec_v4.channel;
+        rec.status = rec_v4.status;
+        rec.flags = rec_v4.flags;
+        rec.rx_origin = rec_v4.rx_origin;
+        rec.text_len = rec_v4.text_len;
+        rec.from = rec_v4.from;
+        rec.peer = rec_v4.peer;
+        rec.msg_id = rec_v4.msg_id;
+        rec.timestamp = rec_v4.timestamp;
+        std::memcpy(rec.reticulum_destination_hash,
+                    rec_v4.reticulum_destination_hash,
+                    sizeof(rec.reticulum_destination_hash));
+        std::memcpy(rec.reticulum_identity_hash,
+                    rec_v4.reticulum_identity_hash,
+                    sizeof(rec.reticulum_identity_hash));
+        std::memcpy(rec.text, rec_v4.text, sizeof(rec.text));
+        return true;
     }
 
     if (header.version == kReticulumIdentityVersion)
@@ -1186,6 +1354,154 @@ bool SdStore::writeRecord(storage::SdRuntimeFile& file, uint16_t slot, const Rec
     return file.seek(offset) && writeExact(file, &rec, sizeof(rec));
 }
 
+bool SdStore::initLxmfSeenFile(storage::SdRuntimeFile& file) const
+{
+    LxmfSeenHeader header{};
+    header.magic = kLxmfSeenMagic;
+    header.version = kLxmfSeenVersion;
+    if (!file.seek(0) || !writeExact(file, &header, sizeof(header)))
+    {
+        return false;
+    }
+    return file.flush();
+}
+
+bool SdStore::loadLxmfSeenHeader(storage::SdRuntimeFile& file,
+                                 LxmfSeenHeader& header) const
+{
+    if (!file.is_open() || file.size() < sizeof(LxmfSeenHeader))
+    {
+        return false;
+    }
+    if (!file.seek(0) || !readExact(file, &header, sizeof(header)))
+    {
+        return false;
+    }
+    return header.magic == kLxmfSeenMagic &&
+           header.version == kLxmfSeenVersion &&
+           header.head < kMaxReticulumLxmfSeen &&
+           header.count <= kMaxReticulumLxmfSeen;
+}
+
+bool SdStore::readLxmfSeenRecord(storage::SdRuntimeFile& file,
+                                 uint16_t slot,
+                                 LxmfSeenRecord& rec) const
+{
+    if (slot >= kMaxReticulumLxmfSeen)
+    {
+        return false;
+    }
+    const uint64_t offset =
+        sizeof(LxmfSeenHeader) + static_cast<uint64_t>(slot) * sizeof(LxmfSeenRecord);
+    if (file.size() < offset + sizeof(LxmfSeenRecord))
+    {
+        return false;
+    }
+    return file.seek(offset) && readExact(file, &rec, sizeof(rec));
+}
+
+bool SdStore::writeLxmfSeenRecord(storage::SdRuntimeFile& file,
+                                  uint16_t slot,
+                                  const LxmfSeenRecord& rec) const
+{
+    if (slot >= kMaxReticulumLxmfSeen)
+    {
+        return false;
+    }
+    const uint64_t offset =
+        sizeof(LxmfSeenHeader) + static_cast<uint64_t>(slot) * sizeof(LxmfSeenRecord);
+    return file.seek(offset) && writeExact(file, &rec, sizeof(rec));
+}
+
+bool SdStore::rememberReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const
+{
+    if (!ready_ || !validLxmfMessageHash(lxmf_hash) || !ensureDir())
+    {
+        return false;
+    }
+    if (hasReticulumLxmfMessageHash(lxmf_hash))
+    {
+        return true;
+    }
+
+    storage::SdRuntimeFile file;
+    if (storage::sd_exists(kReticulumLxmfSeenFile))
+    {
+        if (!file.open(kReticulumLxmfSeenFile, "r+"))
+        {
+            return false;
+        }
+    }
+    else if (!file.open(kReticulumLxmfSeenFile, "w+"))
+    {
+        return false;
+    }
+
+    LxmfSeenHeader header{};
+    if (!loadLxmfSeenHeader(file, header))
+    {
+        if (!initLxmfSeenFile(file) || !loadLxmfSeenHeader(file, header))
+        {
+            file.close();
+            return false;
+        }
+    }
+
+    LxmfSeenRecord rec{};
+    std::memcpy(rec.hash, lxmf_hash, sizeof(rec.hash));
+    if (!writeLxmfSeenRecord(file, header.head, rec))
+    {
+        file.close();
+        return false;
+    }
+
+    header.head = static_cast<uint16_t>((header.head + 1U) % kMaxReticulumLxmfSeen);
+    if (header.count < kMaxReticulumLxmfSeen)
+    {
+        header.count = static_cast<uint16_t>(header.count + 1U);
+    }
+    if (!file.seek(0) || !writeExact(file, &header, sizeof(header)) || !file.flush())
+    {
+        file.close();
+        return false;
+    }
+    file.close();
+    return true;
+}
+
+bool SdStore::conversationContainsReticulumLxmfHash(
+    storage::SdRuntimeFile& file,
+    const FileHeader& header,
+    const uint8_t* lxmf_hash,
+    bool* found) const
+{
+    if (!file.is_open() || !validLxmfMessageHash(lxmf_hash) || !found)
+    {
+        return false;
+    }
+    *found = false;
+    for (uint16_t index = 0; index < header.count; ++index)
+    {
+        const uint16_t slot = static_cast<uint16_t>(
+            (header.head + kMaxMessagesPerConv - header.count + index) %
+            kMaxMessagesPerConv);
+        Record rec{};
+        if (!readRecord(file, header, slot, rec))
+        {
+            return false;
+        }
+        if ((rec.flags & kRecordHasReticulumLxmfHashFlag) != 0 &&
+            std::memcmp(rec.reticulum_lxmf_hash,
+                        lxmf_hash,
+                        kReticulumLxmfHashSize) == 0)
+        {
+            *found = true;
+            return true;
+        }
+    }
+    return true;
+}
+
 bool SdStore::openConversationForUpdate(const ConversationId& conv,
                                         storage::SdRuntimeFile& file,
                                         FileHeader& header) const
@@ -1193,13 +1509,18 @@ bool SdStore::openConversationForUpdate(const ConversationId& conv,
     char path[96]{};
     buildConversationPath(conv, path, sizeof(path));
 
-    if (storage::sd_exists(path) && file.open(path, "r+"))
+    if (storage::sd_exists(path))
     {
+        if (!file.open(path, "r+"))
+        {
+            return false;
+        }
         if (loadFileHeader(file, header) && upgradeConversationFile(file, path, header))
         {
             return true;
         }
         file.close();
+        return false;
     }
 
     if (!file.open(path, "w+"))
@@ -1333,6 +1654,12 @@ ChatMessage SdStore::messageFromRecord(const Record& rec)
                                          rec.reticulum_destination_hash,
                                          rec.reticulum_identity_hash);
     }
+    if ((rec.flags & kRecordHasReticulumLxmfHashFlag) != 0)
+    {
+        std::memcpy(msg.reticulum_lxmf_hash,
+                    rec.reticulum_lxmf_hash,
+                    sizeof(msg.reticulum_lxmf_hash));
+    }
     return msg;
 }
 
@@ -1359,6 +1686,13 @@ SdStore::Record SdStore::recordFromMessage(const ChatMessage& msg)
         copyReticulumIdentityToStorage(rec.reticulum_destination_hash,
                                        rec.reticulum_identity_hash,
                                        msg.reticulum_identity);
+    }
+    if (chat::hasReticulumLxmfMessageHash(msg))
+    {
+        rec.flags |= kRecordHasReticulumLxmfHashFlag;
+        std::memcpy(rec.reticulum_lxmf_hash,
+                    msg.reticulum_lxmf_hash,
+                    sizeof(rec.reticulum_lxmf_hash));
     }
     if (rec.text_len > 0)
     {

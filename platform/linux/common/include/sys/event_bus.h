@@ -83,9 +83,16 @@ struct ChatSendResultEvent : public Event
 {
     uint32_t msg_id;
     bool success;
+    chat::MessageStatus status;
 
     ChatSendResultEvent(uint32_t id, bool ok)
-        : Event(EventType::ChatSendResult), msg_id(id), success(ok) {}
+        : Event(EventType::ChatSendResult), msg_id(id), success(ok),
+          status(ok ? chat::MessageStatus::Sent : chat::MessageStatus::Failed) {}
+
+    ChatSendResultEvent(uint32_t id, chat::MessageStatus result_status)
+        : Event(EventType::ChatSendResult), msg_id(id),
+          success(result_status != chat::MessageStatus::Failed),
+          status(result_status) {}
 };
 
 struct ChatUnreadChangedEvent : public Event

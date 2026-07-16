@@ -194,7 +194,9 @@ void create_filter_panel(lv_obj_t* parent)
     style::apply_panel_side(g_contacts_state.filter_panel);
 
     g_contacts_state.contacts_btn = create_filter_button(g_contacts_state.filter_panel, "Contacts");
-    g_contacts_state.nearby_btn = create_filter_button(g_contacts_state.filter_panel, "Nearby");
+    g_contacts_state.nearby_btn = create_filter_button(
+        g_contacts_state.filter_panel,
+        reticulum_profile ? "Announced" : "Nearby");
 
     if (reticulum_profile)
     {
