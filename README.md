@@ -2,27 +2,42 @@
 
 ![trail mate page](docs/images/ChatGPTImage.png)
 
-> A low-power, offline-first handheld device for outdoor navigation and communication
+> An edge-first decentralized communication and situational-awareness system where identity, data, and connectivity choices remain with the user
 
 [English](README.md) | [中文](README_CN.md) | [Join Discord](https://discord.gg/UpDsAz9H3)
 
 ---
 
-## 📋 Overview
+## 📋 Why Trail Mate Exists
 
 ![logo](docs/images/logo_big.png)
 
-Outdoor activities often take place in environments where cellular networks are unreliable or completely unavailable.
-In these conditions, people still need to **exchange short text messages, understand relative positions, and maintain basic orientation** — without depending entirely on smartphones or complex infrastructure.
+Smartphones have given people extraordinary ways to connect, but they have also made basic human activity dependent on a small number of platforms. Accounts establish identity; applications hold contact lists; location, searches, reading, conversations, and movement are continuously collected, interpreted, and turned into profiles. Users are asked to trust more while gaining less ability to observe, challenge, or leave the systems on which they depend.
 
-**Trail Mate** is a low-power, offline-first handheld device project built on ESP32-class hardware, designed specifically to address these constraints.
+Our concern extends from individual data leaks and targeted advertisements to the structural power created by concentrated communication gateways, identity systems, accumulated data, and interpretive authority. Algorithms can become a bureaucracy with no counter, no name, and no practical appeal process—deciding who is visible, who is suspicious, who receives an opportunity, and who is excluded. Countless locally reasonable choices made in the name of efficiency can accumulate into this result.
 
-It focuses on two core needs in offline outdoor scenarios:
+**Trail Mate is an edge-device answer to that problem.** It keeps identity, contacts, messages, location, and maps as close as possible to the device and SD card held by the user. Personally held devices establish basic communication and coordination directly; cloud accounts, phone applications, and continuous Internet access remain optional conditions. Networks assist the device while ownership stays with the user. Platforms expose interfaces while people retain authority over the conditions of their own lives.
 
-* **Simple and reliable self-positioning**, using a fixed north-up GPS map to avoid unnecessary visual complexity
-* **Direct LoRa text communication**, allowing users to send free-form messages to Meshtastic or MeshCore mesh networks **without relying on a smartphone**
+Trail Mate is an edge system that runs on personally held devices, including constrained embedded hardware and Linux portable terminals. In the relationship it creates with its user, it is something close to a decentralized phone: the user directly holds identity, contacts, messages, and position data and chooses the available connection path. Its privacy boundaries are concrete enough to explain and verify. Even when capability is constrained, links are poor, or infrastructure disappears entirely, it preserves a practical degree of autonomy over identity, communication, navigation, and team coordination.
 
-Trail Mate prioritizes **stability, efficiency, and interoperability** over feature density or visual polish, making it suitable for long-term use on constrained hardware in real outdoor environments.
+> **Trail Mate lets people connect with the world on their own terms.**
+
+## 🧭 Product Position
+
+Trail Mate is organized around four defining capabilities:
+
+* **Anonymous operation**: device identity exists independently of cloud accounts and phone numbers. The system reduces unnecessary public discovery, identity linkage, and location exposure. Anonymous operation has explicit technical limits, and the user still applies security judgment to the surrounding environment.
+* **Decentralized communication**: Meshtastic, MeshCore, and Reticulum are three selectable product network paths. The device runs one explicit protocol path at a time, keeping network membership and behavior understandable.
+* **Offline operation**: input, viewing, configuration, maps, contacts, messages, and tracks can be handled on the device. Phone and desktop tools provide optional extensions while control remains at the edge.
+* **TAK capability**: the device provides member, position, waypoint, track, status, and team-message awareness. Trail Mate's current TAK claim covers its own on-device team-awareness capability. ATAK, WinTAK, and CoT interoperability sit outside the present claim.
+
+The system models public discovery position, contact position, Team position, and local tracks as four distinct data relationships. Users should be able to confirm the shared content, its recipients, and the network path used.
+
+## 🔒 Frozen Embedded-Firmware Boundary
+
+The major feature set of Trail Mate's current embedded firmware is now defined. Its future scope consists of the existing feature domains, the three Meshtastic/MeshCore/Reticulum product protocols, and the four core capabilities of anonymous operation, decentralization, offline operation, and TAK. This boundary applies specifically to the embedded firmware product surface. Trail Mate as a whole also includes the Linux version and other edge-device forms.
+
+Ongoing work focuses on bug fixes, reliability and security, protocol interoperability correctness, resource efficiency, carrying the existing product on suitable hardware, test tooling, and documentation. New board ports carry the established capabilities onto suitable devices.
 
 ---
 
@@ -90,7 +105,7 @@ Energy Sweep provides a fast Sub-GHz occupancy view for channel planning in the 
 * `AUTO` applies the current best channel and moves cursor to the recommended frequency
 * Sweep range follows the currently configured region (Meshtastic region or MeshCore region preset)
 
-### 📡 LoRa Chat (Meshtastic + MeshCore Compatible)
+### 📡 Decentralized Messaging (Meshtastic / MeshCore / Reticulum)
 
 ![message compose page](docs/images/screenshot_20260118_200651.png)
 
@@ -98,14 +113,16 @@ Energy Sweep provides a fast Sub-GHz occupancy view for channel planning in the 
 
 Messages view shows recent conversations and history for quick review.
 
-* LoRa-based text messaging
+* Three selectable product protocols: Meshtastic, MeshCore, and Reticulum
+* Reticulum mode uses an on-device Reticulum/LXMF runtime and can carry traffic over configured LoRa, AutoInterface, or TCP gateway interfaces
 * Chinese text support
 * Compatible with the **Meshtastic public mesh** (LongFast/PSK)
 * Compatible with **MeshCore networks** (native MeshCore packet path)
 * Bluetooth connectivity to Meshtastic / MeshCore companion apps
-* Broadcast-based communication (no central infrastructure)
 * Designed for high latency, low bandwidth, and packet-loss environments
-* Minimal protocol implementation optimized for ESP32-class devices
+* Contacts, conversations, and messages are persisted on-device; the SD card is the configuration source for Reticulum networking and its editable contact directory
+
+For the Reticulum SD-card format, file locations, contact import, and on-device operations, see the [Reticulum Mode User Guide](https://github.com/vicliu624/trail-mate/wiki/3.5-Configuration-Guide).
 
 ### 📷 SSTV Receiver (Slow-Scan TV)
 
@@ -121,8 +138,9 @@ Messages view shows recent conversations and history for quick review.
 
 ![contacts](docs/images/contacts.png)
 
-Contacts shows discovered nodes, recent activity, and quick actions
-to jump into direct or team conversations.
+Contacts is a persistent on-device communication directory. It combines discovered and user-maintained contacts, recent activity, and protocol identities, with quick access to direct messaging, calls, ping, or team actions when supported by the active protocol and hardware.
+
+On keyboard-equipped interfaces, press `S` to search contacts. Contacts may also be saved from discovery results or added in bulk by editing the Reticulum contact file on the SD card. The Wiki guide above documents the full key and file workflow.
 
 ### 💻 Data Exchange (PC Link)
 
@@ -135,7 +153,7 @@ for real-time APRS/iGate integration, diagnostics, and data capture.
 * APRS-oriented metadata for external gateways and dashboards
 * USB CDC-ACM transport with deterministic framing
 
-### 🤝 Team Mode (ESP-NOW Pairing + LoRa Ops)
+### 🤝 TAK / Team Mode (ESP-NOW Pairing + LoRa Ops)
 
 ![team join](docs/images/team_join.png)
 
@@ -172,23 +190,19 @@ then all team operations run over LoRa.
 * Jitter buffering and fixed playback cadence for stability
 
 ---
-## 💡 Design Philosophy
+## 💡 Non-Negotiable Design Principles
 
-Trail Mate is **not** a smartphone replacement, and it does not attempt to hide the real limitations of offline communication.
-
-Instead, it focuses on:
-
-* ✅ Honest representation of uncertainty
-* ✅ Deterministic and predictable system behavior
-* ✅ Long-term reliability on constrained hardware
-
-> 💬 **Designed for environments where simplicity and robustness matter more than visual refinement.**
+* **Edge ownership**: identity, contacts, messages, configuration, maps, and tracks belong first to the person holding the device.
+* **Explicit data relationships**: protocols, contact relationships, and position purposes remain distinct and visible to the user.
+* **Honest uncertainty**: the interface directly presents link failure, stale position, and unknown state, and displays success only after obtaining evidence of success.
+* **Predictable degradation**: when a network, phone, cloud service, or hardware capability is absent, the independently useful parts of the system remain available.
+* **Long-term reliability on constrained hardware**: resource efficiency, determinism, and maintainability take priority over feature accumulation and visual spectacle.
 
 ---
 
-## 📱 Planned Supported Devices
+## 📱 Hardware-Carriage Strategy
 
-Trail Mate's long-term goal is not simply to support as many boards as possible. The priority is to support the kinds of devices that actually make sense for off-grid outdoor communication. This section describes the **hardware direction**, not a promise that every device listed here is already fully supported in the current release.
+Trail Mate's hardware work focuses on devices suited to carrying the established product capabilities. This section describes the **hardware-selection direction**. The build-target table below records current implementation maturity. New hardware continues to carry the defined product domains.
 
 Current priority device categories include:
 
@@ -199,17 +213,17 @@ Current priority device categories include:
 When evaluating hardware, the project currently prioritizes:
 
 - Reliable LoRa / Sub-GHz radio capability, or at least a clear path to integrate it cleanly
-- A device that can handle basic input, viewing, and configuration on its own rather than depending heavily on a phone
+- A device that can handle basic input, viewing, and configuration independently, with phones serving as optional extensions
 - Reasonable power, battery, and field portability characteristics
 - A stable enough ecosystem, documentation base, or supply chain to justify long-term maintenance
 
-The project still aims to stay as **hardware-agnostic** as practical. Protocol logic, storage, and UI/business behavior are kept as decoupled as possible from board-specific code so future ESP32- and nRF52-class targets can continue to reuse Meshtastic / MeshCore-related capabilities instead of forking into separate applications per board.
+The project stays as **hardware-agnostic** as practical. Protocol logic, storage, and UI/business behavior remain decoupled from board-specific code. Embedded and Linux targets share the established Meshtastic, MeshCore, Reticulum, and TAK capabilities and retain one product model.
 
 ---
 
 ## 🧩 Current Device Support & Development Status
 
-The table below describes the **real build targets that exist in the repository today**, not the broader long-term hardware direction.
+The table below records the **real build targets currently present in the repository and their maturity**.
 
 | Device / Target | Build Target | Stack | Current Status |
 | --- | --- | --- | --- |
@@ -230,7 +244,7 @@ The table below describes the **real build targets that exist in the repository 
 - If you are debugging a resource-constrained simplified nRF52 target, start with **`gat562_mesh_evb_pro`** or **`t-echo-lite`**
 - If you are working on the newer large-screen ESP-IDF path, start with **`tab5`**
 - **`tdeck_pro_*`**, **`lilygo_twatch_s3`**, **`t_display_p4_tft`**, and **`t_display_p4_amoled`** are better treated as bring-up, layout, or device-adaptation targets than as the highest-maturity feature-validation path
-- “The repository has a build target” does not mean every page or capability is equally mature on that device; some features are enabled or hidden dynamically based on capabilities, RAM budget, and input hardware
+- A build target establishes that the device is present in the repository; the table's status column records page and capability maturity. Features may be enabled or hidden dynamically according to capabilities, RAM budget, and input hardware
 - GitHub Actions currently keeps building the main path through **`tlora_pager_sx1262`**, **`tlora_pager_lr1121`**, **`tdeck`**, **`lilygo_twatch_s3`**, **`gat562_mesh_evb_pro`**, and the nRF52 wrapper target **`t-echo-lite`**; GAT562 and T-Echo-Lite release artifacts include UF2 files for manual flashing, verified with the nRF52840 UF2 family ID `0xADA52840`
 
 ---
@@ -285,7 +299,7 @@ Notes:
 
 - Running `platformio run` with no explicit environment uses the root default environment, currently **`tlora_pager_sx1262`**
 - If you only want to sanity-check whether a target still builds, start with **`tlora_pager_sx1262`**, **`tdeck`**, **`gat562_mesh_evb_pro`**, or **`t-echo-lite`**
-- For very tight-RAM nRF52 simplified targets such as GAT562 and T-Echo-Lite-KeyShield, prefer release-like or low-log validation instead of enabling excessive debug output by default
+- For very tight-RAM nRF52 simplified targets such as GAT562 and T-Echo-Lite-KeyShield, use release-like or low-log validation and enable extra debug output only for a specific diagnostic need
 
 ### ESP-IDF
 
@@ -315,7 +329,7 @@ idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled 
 
 ### Notes
 
-- ESP-IDF generated `sdkconfig` state now lives inside the selected build directory such as `build.tab5`, `build.t_display_p4_tft`, or `build.t_display_p4_amoled`, so different targets do not fight over stale config output anymore
+- ESP-IDF generated `sdkconfig` state now lives inside the selected build directory such as `build.tab5`, `build.t_display_p4_tft`, or `build.t_display_p4_amoled`, giving every target isolated configuration output
 - For **Tab5**, prefer running `monitor` separately after flashing; chaining `flash monitor` can leave ESP32-P4 in ROM download mode after auto-reset
 - VS Code already provides split **Tab5**, **T-Display-P4 TFT**, and **T-Display-P4 AMOLED** `Reconfigure / Build / Flash / Monitor` tasks via `tools/vscode/run_idf_task.ps1`
 - If your goal is release validation or routine regression checks, prefer the main PlatformIO path that CI already covers; ESP-IDF targets are still more useful for board bring-up and shared-shell evolution
@@ -331,7 +345,7 @@ idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled 
 
 ## 📝 Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for version history and planned updates.
+See [CHANGELOG.md](CHANGELOG.md) for version history. The [Roadmap](https://github.com/vicliu624/trail-mate/wiki/16.-Roadmap) records the established product direction and maintenance boundary.
 
 ---
 
@@ -361,16 +375,17 @@ See the [LICENSE](LICENSE) file for details.
 
 ## 🔐 Project Scope
 
-This repository contains the **core system implementation** of the Trail Mate project, including but not limited to:
+This repository contains Trail Mate's open-source edge-device implementations, including:
 
-* Device-side firmware
-* Offline navigation and GPS processing logic
-* LoRa-based communication protocols and mesh behavior
-* System interaction and state management for constrained hardware
+* Embedded firmware for ESP32-, nRF52-, and related targets
+* Linux portable-terminal applications and shared UI/business capabilities
+* Offline maps, positioning, tracks, and on-device TAK capabilities
+* Meshtastic, MeshCore, and Reticulum/LXMF communication paths and local storage
+* HostLink, board integrations, tests, and development tooling
 
 This project **does not include**:
 
-* Commercial desktop software
+* Separately distributed commercial desktop software
 * Mobile applications (iOS / Android)
 * Commercial services or platform products
 
@@ -380,7 +395,7 @@ Any surrounding tools or services may follow different licensing strategies and 
 
 ## 🤝 Contributing
 
-Here, **contribution does not equal writing code**.
+Trail Mate's embedded product boundary is now defined. Contributions focus on making the existing capabilities more trustworthy, understandable, and usable on real devices.
 
 ### Contribution & Copyright
 
@@ -389,48 +404,24 @@ Unless explicitly stated otherwise, all contributions to this repository are rel
 The project is currently author-driven and does not accept contributions that alter core architecture or licensing terms.
 For commercial collaboration or deep involvement, please contact the author directly.
 
-### Who Are the Most Important Contributors?
+The most useful contributions include:
 
-**The most important contributors are people who actually spend time outdoors.**
+* Reproducible defect reports with device, firmware, protocol, network conditions, and exact steps
+* Real test results from off-grid, weak-link, low-power, and harsh environments
+* Interoperability verification against upstream Meshtastic, MeshCore, and Reticulum/LXMF implementations
+* Measurements of power, memory, storage, concurrency, and long-running behavior
+* Reliability, security, hardware-port, test, and documentation improvements that preserve the product boundary
+* Specific reports of misleading status, unclear operations, or ambiguous privacy boundaries
 
-We especially welcome:
+Pull Requests remain welcome, but changes to the core architecture, product boundary, or licensing strategy should be discussed with the author first. Even without code, a report that clearly states the conditions, action, expected result, and actual result is valuable.
 
-* Hikers, campers, cyclists, off-road travelers, anglers
-* Users operating in **no-network, low-power, harsh environments**
-* People who may **not write code**, but have strong intuition about what is useful and what is not
-
-Their judgments, frustrations, and decisions are the starting point for this system’s evolution.
-
-### What Can Contributions Be?
-
-* 🧭 **Real-world usage scenarios and problem descriptions**
-
-  > In what environment? What went wrong? What behavior felt unreliable?
-* 🧠 **Intuitive judgments about feature trade-offs**
-
-  > What information matters? What becomes noise?
-* 🧪 **Failure cases and boundary feedback**
-
-  > When does the system stop being trustworthy?
-* 🔑 **Token resources** to support AI generation, verification, and iteration
-
-Even if you **never submit code**, your judgment can still be transformed — through AI — into **executable, verifiable system behavior**.
-
-### How Do We Collaborate?
-
-* Humans (especially outdoor users) decide:
-  **what deserves to exist**
-* AI translates those decisions into:
-  **consistent, runnable implementations**
-
-Pull Requests are welcome, but they are neither the only nor the most important form of contribution.
-Trail Mate values **judgment quality and real-world feedback** over lines of code.
-
-> If a feature has no value outdoors, it should not exist.
+> **Every existing Trail Mate promise should be worthy of trust.**
 
 ---
 
-## ✅ Implemented Features
+## ✅ Current Capability Index
+
+This section provides a searchable implementation index. The [Trail Mate Wiki](https://github.com/vicliu624/trail-mate/wiki) is the user-documentation source for configuration, keyboard shortcuts, file formats, and operational procedures.
 
 ### 🧭 GPS Navigation & Tracks
 
@@ -444,17 +435,19 @@ Trail Mate values **judgment quality and real-world feedback** over lines of cod
 - KML route overlays and focus
 - GPX tracks exportable via USB Mass Storage
 
-### 📝 LoRa Messaging (Meshtastic + MeshCore Compatible)
+### 📝 Decentralized Messaging (Meshtastic / MeshCore / Reticulum)
 
 - LoRa text messaging with Chinese support
 - Meshtastic public mesh compatibility (LongFast/PSK)
 - MeshCore network compatibility (native MeshCore packet path)
+- On-device Reticulum/LXMF runtime with LoRa, AutoInterface, and TCP gateway interfaces
+- SD-card-based Reticulum configuration and editable contact directory
 - Bluetooth connectivity to Meshtastic / MeshCore companion apps
 - Message history and conversation list
 - Routing confirmations and reliability diagnostics
 - Unishox2 decompression for incoming messages
 
-### 🤝 Team Mode (ESP-NOW Pairing + LoRa Ops)
+### 🤝 TAK / Team Mode (ESP-NOW Pairing + LoRa Ops)
 
 - Close-range ESP-NOW pairing with key distribution and team ID setup
 - Member list and leader/member roles
@@ -547,10 +540,11 @@ For algorithm details, see: https://101-things.readthedocs.io/en/latest/sstv_dec
 
 ## About This Project
 
-**Trail-mate** is an offline-first field communication and situational-awareness system built around low-power radio devices (LoRa and compatible sub-GHz radios).
-The project focuses on reliable human-to-human coordination in environments where cellular networks are unavailable, unstable, or undesirable.
+**Trail Mate** is an edge-first personal communication and situational-awareness system designed for anonymous operation, decentralization, and offline use. It runs on personally held embedded devices and Linux portable terminals, using Meshtastic, MeshCore, Reticulum, and on-device TAK capabilities for communication, position, navigation, and coordination.
 
-This repository is an actively developed engineering project, not an abandoned code drop and not a code archive.
+Trail Mate makes the Internet an optional connectivity resource and places basic communication directly on personally held devices. Identity, contacts, messages, position, maps, and tracks remain as close as possible to the user, with explicit relationships and choices whenever data is shared.
+
+This repository is an actively developed and maintained engineering project containing practical implementations for evaluation, porting, integration, and deployment.
 
 If you are evaluating, integrating, porting, modifying, or using this codebase in any product, research, deployment, or internal tooling — you are encouraged to contact the author.
 
@@ -560,7 +554,7 @@ If you are evaluating, integrating, porting, modifying, or using this codebase i
 
 **Vic Liu**
 
-The system architecture, protocols, firmware design, and reference implementations are primarily maintained by the original author.
+The system architecture, communication protocols, embedded firmware, Linux edge implementation, and reference implementations are primarily maintained by the original author.
 
 ---
 
@@ -608,8 +602,9 @@ If you are unsure, please contact the author before deployment.
 
 ## Intent
 
-The goal of Trail-mate is to enable practical, human-centered, off-grid communication and coordination.
-Constructive feedback, real-world testing reports, and implementation experiences are especially appreciated.
+Trail Mate aims to reduce the number of centers a person must trust in order to communicate, navigate, and coordinate. It provides autonomy with explicit, verifiable boundaries: the device remains with its user and continues to work when cloud accounts, phone applications, and stable public networks are all absent.
+
+The embedded feature surface is now defined. Defect reports, interoperability testing, field validation, deployment experience, and improvements to reliability, security, resource efficiency, hardware carriage, and documentation clarity are especially welcome.
 
 You are not required to open Issues before contacting the author directly.
 
