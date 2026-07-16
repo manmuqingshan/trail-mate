@@ -256,8 +256,15 @@ void apply_menu_badge(const StatusSnapshot& snap)
         return;
     }
 
-    char buf[12];
-    snprintf(buf, sizeof(buf), "%d", snap.unread);
+    char buf[4];
+    if (snap.unread > 99)
+    {
+        snprintf(buf, sizeof(buf), "99+");
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "%d", snap.unread);
+    }
     lv_label_set_text(s_chat_badge_label, buf);
     lv_obj_clear_flag(s_chat_badge, LV_OBJ_FLAG_HIDDEN);
 }

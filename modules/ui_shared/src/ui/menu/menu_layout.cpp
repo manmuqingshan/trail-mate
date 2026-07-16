@@ -552,6 +552,72 @@ void menuButtonClickCallback(lv_event_t* e)
     menuHidden();
 }
 
+void positionChatBadge(lv_obj_t* badge, lv_obj_t* icon)
+{
+    if (badge == nullptr || icon == nullptr)
+    {
+        return;
+    }
+
+    lv_obj_t* button = lv_obj_get_parent(badge);
+    if (button == nullptr)
+    {
+        return;
+    }
+
+    const auto& profile = ui::menu_profile::current();
+    if (profile.badge_anchor_mode == ui::menu_profile::BadgeAnchorMode::IconTopRight)
+    {
+        lv_obj_align_to(badge, icon, LV_ALIGN_TOP_RIGHT, profile.badge_offset_x, profile.badge_offset_y);
+    }
+    else
+    {
+        lv_obj_align_to(badge, icon, LV_ALIGN_TOP_LEFT, profile.badge_offset_x, profile.badge_offset_y);
+    }
+
+    lv_area_t button_area{};
+    lv_area_t badge_area{};
+    lv_obj_get_coords(button, &button_area);
+    lv_obj_get_coords(badge, &badge_area);
+
+    const lv_coord_t inset = profile.card_border_width > 0 ? profile.card_border_width : 0;
+    lv_coord_t correction_x = 0;
+    lv_coord_t correction_y = 0;
+    if (badge_area.x1 < button_area.x1 + inset)
+    {
+        correction_x = button_area.x1 + inset - badge_area.x1;
+    }
+    else if (badge_area.x2 > button_area.x2 - inset)
+    {
+        correction_x = button_area.x2 - inset - badge_area.x2;
+    }
+    if (badge_area.y1 < button_area.y1 + inset)
+    {
+        correction_y = button_area.y1 + inset - badge_area.y1;
+    }
+    else if (badge_area.y2 > button_area.y2 - inset)
+    {
+        correction_y = button_area.y2 - inset - badge_area.y2;
+    }
+
+    if (correction_x != 0 || correction_y != 0)
+    {
+        lv_obj_set_pos(badge,
+                       lv_obj_get_x(badge) + correction_x,
+                       lv_obj_get_y(badge) + correction_y);
+    }
+}
+
+void chatBadgeSizeChangedCallback(lv_event_t* event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_SIZE_CHANGED)
+    {
+        return;
+    }
+    positionChatBadge(lv_event_get_target_obj(event),
+                      static_cast<lv_obj_t*>(lv_event_get_user_data(event)));
+}
+
 void createAppButton(lv_obj_t* parent, AppScreen* app, size_t idx)
 {
     const auto& profile = ui::menu_profile::current();
@@ -694,21 +760,16 @@ void createAppButton(lv_obj_t* parent, AppScreen* app, size_t idx)
         lv_obj_add_flag(badge, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(badge, LV_OBJ_FLAG_IGNORE_LAYOUT);
         lv_obj_move_foreground(badge);
-        lv_obj_update_layout(btn);
-        if (profile.badge_anchor_mode == ui::menu_profile::BadgeAnchorMode::IconTopRight)
-        {
-            lv_obj_align_to(badge, icon, LV_ALIGN_TOP_RIGHT, profile.badge_offset_x, profile.badge_offset_y);
-        }
-        else
-        {
-            lv_obj_align_to(badge, icon, LV_ALIGN_TOP_LEFT, profile.badge_offset_x, profile.badge_offset_y);
-        }
 
         lv_obj_t* badge_label = lv_label_create(badge);
         lv_label_set_text(badge_label, "");
         lv_obj_set_style_text_color(badge_label, lv_color_white(), 0);
         lv_obj_set_style_text_font(badge_label, profile.badge_font, 0);
         lv_obj_center(badge_label);
+
+        lv_obj_add_event_cb(badge, chatBadgeSizeChangedCallback, LV_EVENT_SIZE_CHANGED, icon);
+        lv_obj_update_layout(btn);
+        positionChatBadge(badge, icon);
 
         ui::status::register_chat_badge(badge, badge_label);
     }
