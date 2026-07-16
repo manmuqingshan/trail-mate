@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -876,12 +877,7 @@ void* bzip2PsramAlloc(void*, int items, int size)
     }
 
     const size_t bytes = count * item_size;
-    void* allocated = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!allocated)
-    {
-        allocated = heap_caps_malloc(bytes, MALLOC_CAP_8BIT);
-    }
-    return allocated;
+    return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
 void bzip2PsramFree(void*, void* address)
@@ -1127,11 +1123,14 @@ LxmfAdapter::LxmfAdapter(LoraBoard& board,
 
 void* LxmfAdapter::operator new(std::size_t size)
 {
-    void* ptr = heap_caps_malloc_prefer(size,
-                                        2,
-                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
-                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    return ptr != nullptr ? ptr : ::operator new(size);
+    void* ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!ptr)
+    {
+        Serial.printf("[LXMF] psram_alloc_failed adapter_size=%u\n",
+                      static_cast<unsigned>(size));
+        std::abort();
+    }
+    return ptr;
 }
 
 void LxmfAdapter::operator delete(void* ptr) noexcept

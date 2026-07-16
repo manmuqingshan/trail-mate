@@ -183,7 +183,7 @@ class LxmfAdapter : public IMeshAdapter
     DeferredDiscoveryPacket deferred_discovery_scratch_{};
     LxmfIdentity identity_;
     MeshConfig config_{};
-    static constexpr std::size_t kIncomingQueueDepth = 4;
+    static constexpr std::size_t kIncomingQueueDepth = 12;
     ::chat::infra::IncomingTextQueue<kIncomingQueueDepth, reticulum::kReticulumMtu> text_receive_queue_;
     ::chat::infra::IncomingDataQueue<kIncomingQueueDepth, reticulum::kReticulumMtu> data_receive_queue_;
     std::vector<PeerInfo> peers_;

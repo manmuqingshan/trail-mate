@@ -57,6 +57,7 @@ struct PageState
     lv_group_t* group = nullptr;
     bool presented = false;
     uint32_t activation_armed_ms = 0;
+    uint32_t last_present_failure_log_ms = 0;
     call::State last_state = call::State::Idle;
     call::RealtimePhase last_phase = call::RealtimePhase::Idle;
 };
@@ -102,6 +103,16 @@ void stop_event(lv_event_t* event)
     {
         lv_indev_stop_processing(indev);
     }
+}
+
+bool activation_guard_active()
+{
+    return static_cast<int32_t>(lv_tick_get() - s_page.activation_armed_ms) < 0;
+}
+
+bool is_ending_key(uint32_t key)
+{
+    return key == LV_KEY_ESC || key == LV_KEY_BACKSPACE;
 }
 
 void update_shortcut_hint()
@@ -171,6 +182,45 @@ bool handle_focus_key(lv_event_t* event)
     return false;
 }
 
+bool page_root_valid()
+{
+    return s_page.root && lv_obj_is_valid(s_page.root);
+}
+
+void log_present_failure(const char* reason)
+{
+    const uint32_t now = lv_tick_get();
+    if (now - s_page.last_present_failure_log_ms < 1000U)
+    {
+        return;
+    }
+    s_page.last_present_failure_log_ms = now;
+    std::printf("[UI][Call] present failed reason=%s\n",
+                reason ? reason : "unknown");
+}
+
+void root_key_cb(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_KEY)
+    {
+        return;
+    }
+    if (handle_volume_key(event) || handle_focus_key(event))
+    {
+        return;
+    }
+
+    const uint32_t key = lv_event_get_key(event);
+    if (is_ending_key(key))
+    {
+        stop_event(event);
+        if (!activation_guard_active())
+        {
+            call::hangup();
+        }
+    }
+}
+
 void perform_action(Action action)
 {
     switch (action)
@@ -201,10 +251,13 @@ void action_cb(lv_event_t* event)
     if (code == LV_EVENT_KEY)
     {
         const uint32_t key = lv_event_get_key(event);
-        if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE)
+        if (is_ending_key(key))
         {
             stop_event(event);
-            call::hangup();
+            if (!activation_guard_active())
+            {
+                call::hangup();
+            }
             return;
         }
         if (key != LV_KEY_ENTER)
@@ -217,7 +270,7 @@ void action_cb(lv_event_t* event)
         return;
     }
 
-    if (static_cast<int32_t>(lv_tick_get() - s_page.activation_armed_ms) < 0)
+    if (activation_guard_active())
     {
         stop_event(event);
         return;
@@ -300,7 +353,14 @@ void enter_page(lv_obj_t* parent)
                              ::ui::page_profile::current().dense ? 8 : 12,
                              LV_PART_MAIN);
     lv_obj_set_style_pad_row(s_page.root, 8, LV_PART_MAIN);
+    lv_obj_add_flag(s_page.root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(s_page.root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_page.root, root_key_cb, LV_EVENT_KEY, nullptr);
+    if (s_page.group)
+    {
+        lv_group_add_obj(s_page.group, s_page.root);
+        lv_group_focus_obj(s_page.root);
+    }
 
     s_page.title = lv_label_create(s_page.root);
     lv_obj_set_width(s_page.title, LV_PCT(100));
@@ -358,12 +418,15 @@ void enter_page(lv_obj_t* parent)
                                 LV_TEXT_ALIGN_CENTER,
                                 LV_PART_MAIN);
     s_page.activation_armed_ms = lv_tick_get() + kActivationGuardMs;
+    set_label(s_page.title, "Reticulum call", kText, body_font());
+    set_label(s_page.peer, "Connecting", kText, body_font());
+    set_label(s_page.status, "Preparing call screen", kTextDim, caption_font());
     update_shortcut_hint();
 }
 
 void exit_page(lv_obj_t* parent)
 {
-    if (s_page.root && lv_obj_is_valid(s_page.root))
+    if (page_root_valid())
     {
         lv_obj_del(s_page.root);
     }
@@ -442,7 +505,7 @@ void format_peer_name(const call::Snapshot& snapshot,
 
 void update_page(const call::Snapshot& snapshot)
 {
-    if (!s_page.root || !lv_obj_is_valid(s_page.root))
+    if (!page_root_valid())
     {
         return;
     }
@@ -462,10 +525,10 @@ void update_page(const call::Snapshot& snapshot)
 
     set_label(s_page.title,
               (identifying || incoming) ? "Incoming call"
-                       : (closing ? "Closing call"
-                                  : (snapshot.state == call::State::Outgoing
-                                         ? "Calling"
-                                         : "Reticulum call")),
+                                        : (closing ? "Closing call"
+                                                   : (snapshot.state == call::State::Outgoing
+                                                          ? "Calling"
+                                                          : "Reticulum call")),
               kText,
               body_font());
 
@@ -516,7 +579,8 @@ void update_page(const call::Snapshot& snapshot)
         lv_obj_add_flag(s_page.hangup_btn, LV_OBJ_FLAG_HIDDEN);
         if (changed)
         {
-            lv_group_focus_obj(s_page.decline_btn);
+            lv_group_focus_obj(activation_guard_active() ? s_page.root
+                                                         : s_page.decline_btn);
         }
     }
     else if (incoming)
@@ -526,7 +590,8 @@ void update_page(const call::Snapshot& snapshot)
         lv_obj_add_flag(s_page.hangup_btn, LV_OBJ_FLAG_HIDDEN);
         if (changed)
         {
-            lv_group_focus_obj(s_page.answer_btn);
+            lv_group_focus_obj(activation_guard_active() ? s_page.root
+                                                         : s_page.answer_btn);
         }
     }
     else if (closing)
@@ -534,6 +599,10 @@ void update_page(const call::Snapshot& snapshot)
         lv_obj_add_flag(s_page.answer_btn, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_page.decline_btn, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_page.hangup_btn, LV_OBJ_FLAG_HIDDEN);
+        if (changed)
+        {
+            lv_group_focus_obj(s_page.root);
+        }
     }
     else
     {
@@ -542,7 +611,26 @@ void update_page(const call::Snapshot& snapshot)
         lv_obj_clear_flag(s_page.hangup_btn, LV_OBJ_FLAG_HIDDEN);
         if (changed)
         {
+            lv_group_focus_obj(activation_guard_active() ? s_page.root
+                                                         : s_page.hangup_btn);
+        }
+    }
+    if (!activation_guard_active() && s_page.group &&
+        lv_group_get_focused(s_page.group) == s_page.root)
+    {
+        if (incoming && !lv_obj_has_flag(s_page.answer_btn, LV_OBJ_FLAG_HIDDEN))
+        {
+            lv_group_focus_obj(s_page.answer_btn);
+        }
+        else if (!identifying && !closing &&
+                 !lv_obj_has_flag(s_page.hangup_btn, LV_OBJ_FLAG_HIDDEN))
+        {
             lv_group_focus_obj(s_page.hangup_btn);
+        }
+        else if (identifying &&
+                 !lv_obj_has_flag(s_page.decline_btn, LV_OBJ_FLAG_HIDDEN))
+        {
+            lv_group_focus_obj(s_page.decline_btn);
         }
     }
     if (s_page.group)
@@ -561,12 +649,35 @@ void tick()
     const call::Snapshot snapshot = call::snapshot();
     const bool active = snapshot.realtime_phase != call::RealtimePhase::Idle;
 
+    if (active && s_page.presented && !page_root_valid())
+    {
+        lv_obj_t* parent = app_parent();
+        if (parent)
+        {
+            s_call_app.exit(parent);
+            s_call_app.enter(parent);
+            s_page.presented = page_root_valid();
+        }
+        else
+        {
+            s_page.presented = false;
+        }
+    }
+
     if (active && !s_page.presented)
     {
         lv_obj_t* parent = app_parent();
         if (parent && ui_present_interruption_app(&s_call_app, parent))
         {
-            s_page.presented = true;
+            s_page.presented = page_root_valid();
+            if (!s_page.presented)
+            {
+                log_present_failure("no_root");
+            }
+        }
+        else
+        {
+            log_present_failure("no_parent_or_switch");
         }
     }
 

@@ -50,7 +50,9 @@ class PropagationStampRuntime
     static constexpr std::size_t kRoundBytes = 256;
     static constexpr std::size_t kWorkblockBytes =
         kExpandRounds * kRoundBytes;
+    static constexpr std::size_t kMinInternalShaFreeBytes = 16 * 1024;
 
+    void failAndRelease();
     bool expandOneRound();
     bool prepareSearch();
     bool searchOneRound();

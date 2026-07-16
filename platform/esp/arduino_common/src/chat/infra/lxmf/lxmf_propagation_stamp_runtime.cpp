@@ -58,11 +58,16 @@ bool PropagationStampRuntime::begin(
     }
 
     reset();
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) <
+        kMinInternalShaFreeBytes)
+    {
+        state_ = State::Failed;
+        return false;
+    }
+
     workblock_ = static_cast<uint8_t*>(
-        heap_caps_malloc_prefer(kWorkblockBytes,
-                                2,
-                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
-                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        heap_caps_malloc(kWorkblockBytes,
+                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!workblock_)
     {
         state_ = State::Failed;
@@ -83,12 +88,12 @@ PropagationStampRuntime::State PropagationStampRuntime::poll(
     {
         if (!expandOneRound())
         {
-            state_ = State::Failed;
+            failAndRelease();
             break;
         }
         if (expanded_rounds_ == kExpandRounds && !prepareSearch())
         {
-            state_ = State::Failed;
+            failAndRelease();
             break;
         }
     }
@@ -97,7 +102,7 @@ PropagationStampRuntime::State PropagationStampRuntime::poll(
     {
         if (!searchOneRound())
         {
-            state_ = State::Failed;
+            failAndRelease();
             break;
         }
     }
@@ -131,6 +136,27 @@ void PropagationStampRuntime::reset()
     std::memset(transient_id_, 0, sizeof(transient_id_));
     std::memset(stamp_, 0, sizeof(stamp_));
     state_ = State::Idle;
+    expanded_rounds_ = 0;
+    search_rounds_ = 0;
+    target_cost_ = 0;
+    base_hash_ready_ = false;
+}
+
+void PropagationStampRuntime::failAndRelease()
+{
+    if (workblock_)
+    {
+        heap_caps_free(workblock_);
+        workblock_ = nullptr;
+    }
+    if (base_hash_ready_)
+    {
+        mbedtls_sha256_free(&base_hash_);
+        mbedtls_sha256_init(&base_hash_);
+    }
+    std::memset(transient_id_, 0, sizeof(transient_id_));
+    std::memset(stamp_, 0, sizeof(stamp_));
+    state_ = State::Failed;
     expanded_rounds_ = 0;
     search_rounds_ = 0;
     target_cost_ = 0;
@@ -194,6 +220,11 @@ bool PropagationStampRuntime::prepareSearch()
 bool PropagationStampRuntime::searchOneRound()
 {
     if (!base_hash_ready_)
+    {
+        return false;
+    }
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) <
+        kMinInternalShaFreeBytes)
     {
         return false;
     }
