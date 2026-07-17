@@ -15,7 +15,6 @@
 #include "app/app_facade_access.h"
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "boards/tab5/tab5_board.h"
-#include "sd_pwr_ctrl_by_on_chip_ldo.h"
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 #include "boards/t_display_p4/t_display_p4_board.h"
 #include "platform/esp/idf_common/usb_console_runtime.h"
@@ -24,6 +23,7 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/idf_common/sdmmc_host_runtime.h"
 #include "platform/ui/gps_runtime.h"
@@ -32,10 +32,6 @@
 #include "team/usecase/team_pairing_service.h"
 #include "tinyusb.h"
 #include "tusb_msc_storage.h"
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-extern "C" esp_err_t bsp_sdcard_init(char* mount_point, size_t max_files);
-extern "C" esp_err_t bsp_sdcard_deinit(char* mount_point);
-#endif
 #endif
 
 namespace platform::ui::usb_support
@@ -68,7 +64,6 @@ void stop_pairing()
 constexpr const char* kUsbVendor = "TrailMate";
 constexpr const char* kUsbProduct = "USB Disk";
 constexpr const char* kUsbSerial = "TM-IDF";
-constexpr int kTab5SdLdoChan = 4;
 constexpr uint8_t kInterfaceMsc = 0;
 constexpr uint8_t kInterfaceTotal = 1;
 constexpr uint8_t kEndpointMscOut = 0x01;
@@ -79,9 +74,6 @@ bool s_usb_installed = false;
 bool s_storage_initialized = false;
 sdmmc_card_t* s_card = nullptr;
 sdmmc_host_t s_sd_host = SDMMC_HOST_DEFAULT();
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-sd_pwr_ctrl_handle_t s_pwr_ctrl_handle = nullptr;
-#endif
 
 static tusb_desc_device_t s_device_descriptor = {
     .bLength = sizeof(s_device_descriptor),
@@ -135,10 +127,16 @@ static uint8_t const s_msc_hs_configuration_desc[] = {
 bool unmount_application_sd()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return ::boards::t_display_p4::TDisplayP4Board::instance().unmountSdCard();
+    const bool ok = ::boards::t_display_p4::TDisplayP4Board::instance().unmountSdCard();
+    if (ok)
+    {
+        platform::esp::idf_common::bsp_runtime::mark_sdcard_unmounted();
+    }
+    return ok;
 #else
-    return bsp_sdcard_deinit(const_cast<char*>(
-               platform::esp::idf_common::bsp_runtime::sdcard_mount_point())) == ESP_OK;
+    ::platform::esp::arduino_common::storage::unmount_sd_card();
+    platform::esp::idf_common::bsp_runtime::mark_sdcard_unmounted();
+    return true;
 #endif
 }
 
@@ -148,9 +146,7 @@ bool remount_application_sd()
     return ::boards::t_display_p4::TDisplayP4Board::instance().mountSdCard(
         platform::esp::idf_common::bsp_runtime::sdcard_mount_point(), 8);
 #else
-    return bsp_sdcard_init(const_cast<char*>(
-                               platform::esp::idf_common::bsp_runtime::sdcard_mount_point()),
-                           8) == ESP_OK;
+    return platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready();
 #endif
 }
 
@@ -198,13 +194,6 @@ void deinit_sd_host()
         free(s_card);
         s_card = nullptr;
     }
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    if (s_pwr_ctrl_handle)
-    {
-        (void)sd_pwr_ctrl_del_on_chip_ldo(s_pwr_ctrl_handle);
-        s_pwr_ctrl_handle = nullptr;
-    }
-#endif
 }
 
 esp_err_t init_sd_host_raw()
@@ -218,21 +207,7 @@ esp_err_t init_sd_host_raw()
     s_sd_host.slot = SDMMC_HOST_SLOT_0;
     s_sd_host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    sd_pwr_ctrl_ldo_config_t ldo_config = {
-        .ldo_chan_id = kTab5SdLdoChan,
-    };
-
-    if (!s_pwr_ctrl_handle)
-    {
-        const esp_err_t ldo_err = sd_pwr_ctrl_new_on_chip_ldo(&ldo_config, &s_pwr_ctrl_handle);
-        if (ldo_err != ESP_OK)
-        {
-            return ldo_err;
-        }
-    }
-    s_sd_host.pwr_ctrl_handle = s_pwr_ctrl_handle;
-#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     if (!::boards::t_display_p4::TDisplayP4Board::instance().ensureExternal3v3Power())
     {
         return ESP_FAIL;

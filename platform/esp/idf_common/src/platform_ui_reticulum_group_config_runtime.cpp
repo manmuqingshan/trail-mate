@@ -1,11 +1,12 @@
 #include "platform/ui/reticulum_group_config_runtime.h"
 
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <sys/stat.h>
+#include <vector>
 
 namespace platform::ui::reticulum_groups
 {
@@ -32,47 +33,45 @@ void set_status(Status& out, const char* message, const char* detail = nullptr)
     copy_text(out.detail, sizeof(out.detail), detail);
 }
 
-std::string mount_path_for(const char* logical_path)
+std::string logical_path_for(const char* logical_path)
 {
-    return std::string(::platform::esp::idf_common::bsp_runtime::sdcard_mount_point()) +
-           (logical_path ? logical_path : "");
+    if (!logical_path || logical_path[0] == '\0')
+    {
+        return "/";
+    }
+    std::string path = logical_path;
+    if (path.size() >= 2 && (path[0] == 'A' || path[0] == 'a') && path[1] == ':')
+    {
+        path.erase(0, 2);
+    }
+    if (path.empty())
+    {
+        return "/";
+    }
+    if (path.front() != '/')
+    {
+        path.insert(path.begin(), '/');
+    }
+    return path;
 }
 
 bool path_exists(const char* logical_path)
 {
-    struct stat st
-    {
-    };
-    return ::stat(mount_path_for(logical_path).c_str(), &st) == 0;
+    const std::string path = logical_path_for(logical_path);
+    return ::platform::esp::arduino_common::storage::sd_exists(path.c_str());
 }
 
 bool is_directory(const char* logical_path)
 {
-    struct stat st
-    {
-    };
-    return ::stat(mount_path_for(logical_path).c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+    const std::string path = logical_path_for(logical_path);
+    return ::platform::esp::arduino_common::storage::sd_is_directory(path.c_str());
 }
 
 bool ensure_config_dir()
 {
-    const std::string root = mount_path_for("/trailmate");
-    const std::string reticulum = mount_path_for(kConfigDir);
-    struct stat st
-    {
-    };
-    if (::stat(root.c_str(), &st) != 0)
-    {
-        if (::mkdir(root.c_str(), 0775) != 0)
-        {
-            return false;
-        }
-    }
-    if (::stat(reticulum.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
-    {
-        return true;
-    }
-    return ::mkdir(reticulum.c_str(), 0775) == 0 || is_directory(kConfigDir);
+    return ::platform::esp::arduino_common::storage::sd_mkdir("/trailmate") &&
+           (::platform::esp::arduino_common::storage::sd_mkdir(kConfigDir) ||
+            is_directory(kConfigDir));
 }
 
 bool enabled_text(const std::string& value)
@@ -131,57 +130,54 @@ bool parse_group_line(const std::string& line,
 bool read_config_text(std::string& out)
 {
     out.clear();
-    const std::string path = mount_path_for(kConfigPath);
-    FILE* file = std::fopen(path.c_str(), "rb");
-    if (!file)
+    const std::string path = logical_path_for(kConfigPath);
+    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(path.c_str(), "rb"))
     {
         return false;
     }
-    if (std::fseek(file, 0, SEEK_END) != 0)
+    const uint64_t size = file.size();
+    if (size == 0 || size > kMaxConfigBytes || !file.seek(0))
     {
-        std::fclose(file);
+        file.close();
         return false;
     }
-    const long size = std::ftell(file);
-    if (size <= 0 || static_cast<std::size_t>(size) > kMaxConfigBytes)
-    {
-        std::fclose(file);
-        return false;
-    }
-    std::rewind(file);
-    out.resize(static_cast<std::size_t>(size));
-    const std::size_t read = std::fread(&out[0], 1, out.size(), file);
-    std::fclose(file);
-    if (read != out.size())
+    std::vector<char> buffer(static_cast<std::size_t>(size));
+    const int read = file.read(buffer.data(), buffer.size());
+    file.close();
+    if (read < 0 || static_cast<std::size_t>(read) != buffer.size())
     {
         out.clear();
         return false;
     }
+    out.assign(buffer.begin(), buffer.end());
     return true;
 }
 
 bool write_text_atomic(const std::string& text)
 {
-    const std::string temp_path = mount_path_for(kConfigTempPath);
-    const std::string final_path = mount_path_for(kConfigPath);
-    std::remove(temp_path.c_str());
+    const std::string temp_path = logical_path_for(kConfigTempPath);
+    const std::string final_path = logical_path_for(kConfigPath);
+    (void)::platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
 
-    FILE* file = std::fopen(temp_path.c_str(), "wb");
-    if (!file)
+    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(temp_path.c_str(), "wb"))
     {
         return false;
     }
-    const bool wrote = std::fwrite(text.data(), 1, text.size(), file) == text.size();
-    std::fclose(file);
-    if (!wrote)
+    const bool wrote = file.write(text.data(), text.size()) == text.size();
+    const bool flushed = file.flush();
+    file.close();
+    if (!wrote || !flushed)
     {
-        std::remove(temp_path.c_str());
+        (void)::platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
         return false;
     }
-    std::remove(final_path.c_str());
-    if (std::rename(temp_path.c_str(), final_path.c_str()) != 0)
+    (void)::platform::esp::arduino_common::storage::sd_remove(final_path.c_str());
+    if (!::platform::esp::arduino_common::storage::sd_rename(temp_path.c_str(),
+                                                             final_path.c_str()))
     {
-        std::remove(temp_path.c_str());
+        (void)::platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
         return false;
     }
     return true;

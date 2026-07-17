@@ -164,6 +164,7 @@ ChatService::ChatService(ChatModel& model,
                          IChatStore& store,
                          MeshProtocol active_protocol)
     : model_(model), adapter_(adapter), store_(store),
+      message_ledger_(model, store),
       current_channel_(ChannelId::PRIMARY),
       active_protocol_(active_protocol)
 {
@@ -320,16 +321,7 @@ MeshSendResult ChatService::sendTextResolvedDetailed(
     msg.reticulum_identity = result.reticulum_identity;
     msg.status = result.ok ? MessageStatus::Queued : MessageStatus::Failed;
 
-    if (model_enabled_)
-    {
-        model_.onSendQueued(msg);
-        if (!result.ok && result.msg_id != 0)
-        {
-            model_.onSendResult(result.msg_id, false);
-        }
-    }
-
-    store_.append(msg);
+    message_ledger_.recordOutbound(msg, model_enabled_);
     CHAT_SERVICE_DIAG_LOG("[ChatService][TX] stored msg=%lu status=%u peer=%08lX dest=%s text=\"%s\"\n",
                           static_cast<unsigned long>(msg.msg_id),
                           static_cast<unsigned>(msg.status),
@@ -459,12 +451,7 @@ bool ChatService::resendFailed(MessageId msg_id)
         return false;
     }
 
-    if (model_enabled_)
-    {
-        model_.updateMessageStatus(msg.msg_id, MessageStatus::Queued);
-    }
-    store_.updateMessageStatus(msg.msg_id, MessageStatus::Queued);
-    return true;
+    return message_ledger_.markRetryQueued(msg.msg_id, model_enabled_);
 }
 
 std::vector<ChatMessage> ChatService::getRecentMessages(const ConversationId& conv, size_t limit) const
@@ -837,43 +824,7 @@ void ChatService::handleSendResult(MessageId msg_id, bool ok)
 
 void ChatService::handleSendResult(MessageId msg_id, MessageStatus status)
 {
-    if (msg_id == 0)
-    {
-        return;
-    }
-    if (status != MessageStatus::Sent &&
-        status != MessageStatus::Delivered &&
-        status != MessageStatus::Failed)
-    {
-        return;
-    }
-
-    const ChatMessage* current = getMessage(msg_id);
-    if (current && current->from != 0)
-    {
-        return;
-    }
-    if (current && current->status == MessageStatus::Delivered)
-    {
-        return;
-    }
-    if (current && current->status == MessageStatus::Sent &&
-        status == MessageStatus::Failed)
-    {
-        CHAT_SERVICE_DIAG_LOG("[ChatService][TX] ignore failed result for sent msg=%lu\n",
-                              static_cast<unsigned long>(msg_id));
-        return;
-    }
-    if (current && current->status == MessageStatus::Failed &&
-        status == MessageStatus::Sent)
-    {
-        return;
-    }
-    if (model_enabled_)
-    {
-        model_.updateMessageStatus(msg_id, status);
-    }
-    store_.updateMessageStatus(msg_id, status);
+    (void)message_ledger_.applyOutboundStatus(msg_id, status, model_enabled_);
 }
 
 const ChatMessage* ChatService::getMessage(MessageId msg_id) const

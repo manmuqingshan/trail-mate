@@ -26,6 +26,7 @@
 #include "freertos/task.h"
 #include "hi8561_driver.h"
 #include "lvgl.h"
+#include "platform/esp/idf_common/app_runtime_support.h"
 #include "rm69a10_driver.h"
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
@@ -78,6 +79,8 @@ constexpr uint32_t kKeyboardMonitorIntervalMs = 2000;
 constexpr uint32_t kKeyboardMonitorUiIntervalMs = 200;
 constexpr uint32_t kKeyboardMonitorTaskStackSize = 4096;
 constexpr UBaseType_t kKeyboardMonitorTaskPriority = 3;
+constexpr uint32_t kAppLifecycleUiTimerIntervalMs = 10;
+constexpr std::size_t kAppLifecycleUiEventsPerTick = 4;
 constexpr uint8_t kKeyboardAttachDebounceCount = 2;
 constexpr uint8_t kKeyboardDetachDebounceCount = 3;
 constexpr uint8_t kKeyboardI2cScanFirstAddress = 0x03;
@@ -148,6 +151,7 @@ lv_display_t* s_display = nullptr;
 lv_indev_t* s_touch_indev = nullptr;
 lv_indev_t* s_keyboard_indev = nullptr;
 lv_timer_t* s_keyboard_monitor_ui_timer = nullptr;
+lv_timer_t* s_app_lifecycle_ui_timer = nullptr;
 TaskHandle_t s_keyboard_monitor_task = nullptr;
 SemaphoreHandle_t s_keyboard_i2c_mutex = nullptr;
 i2c_master_dev_handle_t s_touch_i2c_handle = nullptr;
@@ -1863,6 +1867,50 @@ void keyboard_monitor_ui_cb(lv_timer_t* timer)
     }
 }
 
+void app_lifecycle_ui_timer_cb(lv_timer_t* timer)
+{
+    (void)timer;
+    platform::esp::idf_common::tickLvglTaskOwnedUiLifecycle(
+        kAppLifecycleUiEventsPerTick);
+}
+
+bool start_app_lifecycle_ui_timer()
+{
+    if (s_app_lifecycle_ui_timer != nullptr)
+    {
+        return true;
+    }
+    if (!s_lvgl_ready || s_display == nullptr)
+    {
+        return false;
+    }
+
+    if (!trail_mate_t_display_p4_display_lock(1000))
+    {
+        ESP_LOGW(kTag, "Failed to start app lifecycle UI timer: LVGL lock timeout");
+        return false;
+    }
+
+    s_app_lifecycle_ui_timer =
+        lv_timer_create(app_lifecycle_ui_timer_cb,
+                        kAppLifecycleUiTimerIntervalMs,
+                        nullptr);
+    trail_mate_t_display_p4_display_unlock();
+
+    if (s_app_lifecycle_ui_timer == nullptr)
+    {
+        ESP_LOGW(kTag, "Failed to create app lifecycle UI timer");
+        return false;
+    }
+
+    platform::esp::idf_common::setLvglTaskOwnedUiDispatch(true);
+    ESP_LOGI(kTag,
+             "LVGL task-owned app UI dispatch enabled interval=%lums events=%u",
+             static_cast<unsigned long>(kAppLifecycleUiTimerIntervalMs),
+             static_cast<unsigned>(kAppLifecycleUiEventsPerTick));
+    return true;
+}
+
 void keyboard_module_monitor_task(void* arg)
 {
     (void)arg;
@@ -2299,6 +2347,7 @@ extern "C" bool trail_mate_t_display_p4_display_runtime_init(void)
     }
 
     create_boot_screen();
+    (void)start_app_lifecycle_ui_timer();
 
     s_ready = true;
     ESP_LOGI(kTag,

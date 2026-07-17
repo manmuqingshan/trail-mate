@@ -14,9 +14,9 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
-#include "esp_vfs_fat.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/idf_common/gps_runtime.h"
+#include "platform/esp/idf_common/sd_card_runtime_sdfat_adapter.h"
 #include "platform/esp/idf_common/sdmmc_host_runtime.h"
 #include "platform/esp/idf_common/sx126x_radio.h"
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
@@ -1226,24 +1226,19 @@ bool TDisplayP4Board::mountSdCard(const char* mount_point, size_t max_files)
     slot_config.d3 = static_cast<gpio_num_t>(sdmmcPins().d3);
     slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
-    esp_vfs_fat_sdmmc_mount_config_t mount_config{};
-    mount_config.format_if_mount_failed = false;
-    mount_config.max_files = max_files;
-    mount_config.allocation_unit_size = 16 * 1024;
-
-    const esp_err_t err = platform::esp::idf_common::sdmmc_host_runtime::mount_fatfs(
+    const bool mounted = platform::esp::idf_common::sd_card_runtime::mount_sdmmc(
         platform::esp::idf_common::sdmmc_host_runtime::SlotOwner::SdCard,
+        host,
+        slot_config,
         mount_point,
-        &host,
-        &slot_config,
-        &mount_config,
-        &sd_card_);
-    if (err != ESP_OK)
+        static_cast<uint8_t>(std::min<size_t>(max_files, 255)));
+    if (!mounted)
     {
-        ESP_LOGW(kTag, "SD mount failed: %s", esp_err_to_name(err));
+        ESP_LOGW(kTag, "SD mount failed via SdFat SDMMC backend");
         return false;
     }
 
+    sd_card_ = platform::esp::idf_common::sd_card_runtime::mounted_card();
     sd_ready_ = true;
     std::snprintf(sd_mount_point_, sizeof(sd_mount_point_), "%s", mount_point);
     if (sd_card_ != nullptr)
@@ -1265,21 +1260,9 @@ bool TDisplayP4Board::unmountSdCard()
     {
         return true;
     }
-    if (!sd_card_ || sd_mount_point_[0] == '\0')
-    {
-        ESP_LOGE(kTag, "SD state is inconsistent during unmount");
-        return false;
-    }
 
-    const esp_err_t err = platform::esp::idf_common::sdmmc_host_runtime::unmount_fatfs(
-        platform::esp::idf_common::sdmmc_host_runtime::SlotOwner::SdCard,
-        sd_mount_point_,
-        sd_card_);
-    if (err != ESP_OK)
-    {
-        ESP_LOGW(kTag, "SD unmount failed: %s", esp_err_to_name(err));
-        return false;
-    }
+    platform::esp::idf_common::sd_card_runtime::unmount_sdmmc(
+        platform::esp::idf_common::sdmmc_host_runtime::SlotOwner::SdCard);
 
     sd_card_ = nullptr;
     sd_ready_ = false;

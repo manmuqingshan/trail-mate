@@ -20,6 +20,22 @@ int main()
     assert(event.timestamp_ms == 111);
 
     event = makeChatSendResultDeliveryEvent(ref,
+                                            DeliveryState::Queued,
+                                            SendFailureKind::RadioSendFailed,
+                                            110);
+    assert(event.state == DeliveryState::Queued);
+    assert(event.failure == SendFailureKind::None);
+    assert(event.timestamp_ms == 110);
+
+    event = makeChatSendResultDeliveryEvent(ref,
+                                            DeliveryState::Sending,
+                                            SendFailureKind::RadioSendFailed,
+                                            111);
+    assert(event.state == DeliveryState::Sending);
+    assert(event.failure == SendFailureKind::None);
+    assert(event.timestamp_ms == 111);
+
+    event = makeChatSendResultDeliveryEvent(ref,
                                             DeliveryState::Delivered,
                                             SendFailureKind::RadioSendFailed,
                                             112);

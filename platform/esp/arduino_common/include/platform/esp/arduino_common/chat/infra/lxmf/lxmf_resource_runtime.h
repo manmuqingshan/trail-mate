@@ -58,8 +58,10 @@ bool initialiseIncomingResourceTransfer(
     const uint8_t resource_hash[reticulum::kFullHashSize],
     const uint8_t random_hash[kResourceMapHashLen],
     const uint8_t original_hash[reticulum::kFullHashSize],
-    std::vector<uint8_t>&& request_id,
-    std::vector<uint8_t>&& hashmap,
+    const uint8_t* request_id,
+    std::size_t request_id_len,
+    const uint8_t* hashmap,
+    std::size_t hashmap_len,
     uint32_t data_size,
     uint32_t transfer_size,
     uint32_t part_count,
@@ -92,7 +94,8 @@ void noteResourceWindowRequest(LinkResourceTransfer& resource,
 
 bool applyResourceHashmapUpdate(LinkResourceTransfer& resource,
                                 uint32_t segment,
-                                const std::vector<uint8_t>& hashmap,
+                                const uint8_t* hashmap,
+                                std::size_t hashmap_len,
                                 std::size_t segment_capacity,
                                 uint32_t now_ms);
 

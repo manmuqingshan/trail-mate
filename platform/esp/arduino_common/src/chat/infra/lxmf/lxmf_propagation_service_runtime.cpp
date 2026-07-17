@@ -81,7 +81,7 @@ bool packBoolResponse(bool value, PropagationServiceResponse* out_response)
     return true;
 }
 
-bool packIdListResponse(const std::vector<std::vector<uint8_t>>& items,
+bool packIdListResponse(const PropagationIdList& items,
                         PropagationServiceResponse* out_response)
 {
     if (!out_response)
@@ -93,7 +93,10 @@ bool packIdListResponse(const std::vector<std::vector<uint8_t>>& items,
         4 + (items.size() * (reticulum::kFullHashSize + 3));
     ResourcePayloadBuffer packed(response_capacity, 0);
     std::size_t packed_len = packed.size();
-    if (!encodePropagationIdListPayload(items, packed.data(), &packed_len))
+    const RuntimeByteSpanList spans = makeRuntimeByteSpans(items);
+    if (!encodePropagationIdListPayload(viewRuntimeByteSpans(spans),
+                                        packed.data(),
+                                        &packed_len))
     {
         return false;
     }
@@ -104,7 +107,7 @@ bool packIdListResponse(const std::vector<std::vector<uint8_t>>& items,
     return true;
 }
 
-bool packMessageListResponse(const std::vector<ByteSpan>& items,
+bool packMessageListResponse(const RuntimeByteSpanList& items,
                              PropagationServiceResponse* out_response)
 {
     if (!out_response)
@@ -119,7 +122,9 @@ bool packMessageListResponse(const std::vector<ByteSpan>& items,
     }
     ResourcePayloadBuffer packed(response_capacity, 0);
     std::size_t packed_len = packed.size();
-    if (!encodePropagationMessageListPayload(items, packed.data(), &packed_len))
+    if (!encodePropagationMessageListPayload(viewRuntimeByteSpans(items),
+                                             packed.data(),
+                                             &packed_len))
     {
         return false;
     }
@@ -140,30 +145,33 @@ bool planOfferResponse(PropagationRuntime& propagation,
         return packUintResponse(kPropagationErrorInvalidData, out_response);
     }
 
-    DecodedPropagationOffer offer{};
+    PropagationIdList transient_ids;
+    DecodedPropagationOfferHeader offer{};
     if (!decodePropagationOfferPayload(request.packed_data.data(),
                                        request.packed_data.size(),
+                                       appendRuntimeByteBufferCallback,
+                                       &transient_ids,
                                        &offer))
     {
         return packUintResponse(kPropagationErrorInvalidData, out_response);
     }
 
-    if (offer.peering_key_is_nil || offer.peering_key.empty())
+    if (offer.peering_key_is_nil || offer.peering_key.size == 0U)
     {
         return packUintResponse(kPropagationErrorInvalidKey, out_response);
     }
 
     out_response->offer_validated = true;
 
-    std::vector<std::vector<uint8_t>> wanted_ids =
-        collectMissingPropagationTransientIds(propagation, offer.transient_ids);
+    PropagationIdList wanted_ids =
+        collectMissingPropagationTransientIds(propagation, transient_ids);
 
     if (wanted_ids.empty())
     {
         return packBoolResponse(false, out_response);
     }
 
-    if (wanted_ids.size() == offer.transient_ids.size())
+    if (wanted_ids.size() == transient_ids.size())
     {
         return packBoolResponse(true, out_response);
     }
@@ -185,9 +193,15 @@ bool planGetResponse(PropagationRuntime& propagation,
         return packUintResponse(kPropagationErrorInvalidData, out_response);
     }
 
-    DecodedPropagationGetRequest get_request{};
+    PropagationIdList wants;
+    PropagationIdList haves;
+    DecodedPropagationGetRequestHeader get_request{};
     if (!decodePropagationGetRequestPayload(request.packed_data.data(),
                                             request.packed_data.size(),
+                                            appendRuntimeByteBufferCallback,
+                                            &wants,
+                                            appendRuntimeByteBufferCallback,
+                                            &haves,
                                             &get_request))
     {
         return packUintResponse(kPropagationErrorInvalidData, out_response);
@@ -195,7 +209,7 @@ bool planGetResponse(PropagationRuntime& propagation,
 
     if (!get_request.haves_is_nil)
     {
-        for (const auto& transient_id : get_request.haves)
+        for (const auto& transient_id : haves)
         {
             if (transient_id.size() != reticulum::kFullHashSize)
             {
@@ -216,7 +230,7 @@ bool planGetResponse(PropagationRuntime& propagation,
 
     if (get_request.wants_is_nil && get_request.haves_is_nil)
     {
-        std::vector<std::vector<uint8_t>> response_items =
+        PropagationIdList response_items =
             collectPropagationEntryIdsForDestination(
                 propagation,
                 peer_context.remote_delivery_hash);
@@ -229,7 +243,7 @@ bool planGetResponse(PropagationRuntime& propagation,
             : 0U;
     const PropagationMessageSelection selection =
         collectPropagationMessagesForWants(propagation,
-                                           get_request.wants,
+                                           wants,
                                            peer_context.remote_delivery_hash,
                                            transfer_limit_bytes,
                                            limits.base_response_size,
@@ -373,15 +387,20 @@ bool planPropagationBatchAcceptance(
     }
 
     PropagationBatchAcceptance acceptance{};
-    DecodedPropagationBatch batch{};
-    if (!decodePropagationBatch(plaintext, plaintext_len, &batch))
+    PropagationMessageList messages;
+    double remote_timebase = 0.0;
+    if (!decodePropagationBatch(plaintext,
+                                plaintext_len,
+                                appendRuntimeByteBufferCallback,
+                                &messages,
+                                &remote_timebase))
     {
         *out_acceptance = std::move(acceptance);
         return false;
     }
 
     if (!context.offer_validated &&
-        batch.messages.size() > limits.max_messages_without_offer)
+        messages.size() > limits.max_messages_without_offer)
     {
         *out_acceptance = std::move(acceptance);
         return false;
@@ -419,8 +438,9 @@ bool planPropagationBatchAcceptance(
                     sizeof(message_context.remote_propagation_hash));
     }
 
-    acceptance.messages.reserve(batch.messages.size());
-    for (const auto& message : batch.messages)
+    (void)remote_timebase;
+    acceptance.messages.reserve(messages.size());
+    for (const auto& message : messages)
     {
         PropagationMessageAcceptance message_acceptance{};
         (void)planPropagationMessageAcceptance(propagation,

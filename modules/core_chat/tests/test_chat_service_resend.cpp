@@ -421,9 +421,16 @@ int main()
         assert(group_msg->status == chat::MessageStatus::Queued);
     }
 
+    service.handleSendResult(42, chat::MessageStatus::Queued);
+    msg = onlyMessage(service, conv);
+    assert(msg->msg_id == 42);
+    assert(msg->status == chat::MessageStatus::Queued);
     service.handleSendResult(42, true);
     msg = onlyMessage(service, conv);
     assert(msg->msg_id == 42);
+    assert(msg->status == chat::MessageStatus::Sent);
+    service.handleSendResult(42, chat::MessageStatus::Queued);
+    msg = onlyMessage(service, conv);
     assert(msg->status == chat::MessageStatus::Sent);
     service.handleSendResult(42, false);
     msg = onlyMessage(service, conv);
@@ -447,6 +454,11 @@ int main()
     assert(list.size() == 2);
     assert(list.back().msg_id == 77);
     assert(list.back().status == chat::MessageStatus::Failed);
+    service.handleSendResult(77, chat::MessageStatus::Queued);
+    service.handleSendResult(77, chat::MessageStatus::Sent);
+    assert(service.getMessage(77)->status == chat::MessageStatus::Failed);
+    service.handleSendResult(77, chat::MessageStatus::Delivered);
+    assert(service.getMessage(77)->status == chat::MessageStatus::Delivered);
 
     mesh.next_send_ok = false;
     mesh.next_msg_id = 88;

@@ -181,8 +181,10 @@ bool initialiseIncomingResourceTransfer(
     const uint8_t resource_hash[reticulum::kFullHashSize],
     const uint8_t random_hash[kResourceMapHashLen],
     const uint8_t original_hash[reticulum::kFullHashSize],
-    std::vector<uint8_t>&& request_id,
-    std::vector<uint8_t>&& hashmap,
+    const uint8_t* request_id,
+    std::size_t request_id_len,
+    const uint8_t* hashmap,
+    std::size_t hashmap_len,
     uint32_t data_size,
     uint32_t transfer_size,
     uint32_t part_count,
@@ -197,7 +199,8 @@ bool initialiseIncomingResourceTransfer(
     uint32_t window_size)
 {
     if (!resource_hash || !random_hash || !original_hash || part_count == 0 ||
-        hashmap.empty() || (hashmap.size() % kResourceMapHashLen) != 0)
+        (request_id_len != 0 && !request_id) || !hashmap || hashmap_len == 0 ||
+        (hashmap_len % kResourceMapHashLen) != 0)
     {
         return false;
     }
@@ -206,8 +209,11 @@ bool initialiseIncomingResourceTransfer(
     copyHash(resource.resource_hash, resource_hash, sizeof(resource.resource_hash));
     copyHash(resource.random_hash, random_hash, sizeof(resource.random_hash));
     copyHash(resource.original_hash, original_hash, sizeof(resource.original_hash));
-    resource.request_id = std::move(request_id);
-    resource.hashmap = std::move(hashmap);
+    if (request_id_len != 0)
+    {
+        resource.request_id.assign(request_id, request_id + request_id_len);
+    }
+    resource.hashmap.assign(hashmap, hashmap + hashmap_len);
     resource.data_size = data_size;
     resource.transfer_size = transfer_size;
     resource.part_count = part_count;
@@ -342,12 +348,13 @@ void noteResourceWindowRequest(LinkResourceTransfer& resource,
 
 bool applyResourceHashmapUpdate(LinkResourceTransfer& resource,
                                 uint32_t segment,
-                                const std::vector<uint8_t>& hashmap,
+                                const uint8_t* hashmap,
+                                std::size_t hashmap_len,
                                 std::size_t segment_capacity,
                                 uint32_t now_ms)
 {
-    if (segment_capacity == 0 || hashmap.empty() ||
-        (hashmap.size() % kResourceMapHashLen) != 0)
+    if (segment_capacity == 0 || !hashmap || hashmap_len == 0 ||
+        (hashmap_len % kResourceMapHashLen) != 0)
     {
         return false;
     }
@@ -358,14 +365,14 @@ bool applyResourceHashmapUpdate(LinkResourceTransfer& resource,
         return false;
     }
 
-    const std::size_t hash_count = hashmap.size() / kResourceMapHashLen;
+    const std::size_t hash_count = hashmap_len / kResourceMapHashLen;
     const std::size_t applied =
         std::min(hash_count, static_cast<std::size_t>(resource.part_count) - start_index);
     for (std::size_t index = 0; index < applied; ++index)
     {
         std::array<uint8_t, kResourceMapHashLen> map_hash{};
         std::memcpy(map_hash.data(),
-                    hashmap.data() + (index * kResourceMapHashLen),
+                    hashmap + (index * kResourceMapHashLen),
                     map_hash.size());
         resource.map_hashes[start_index + index] = map_hash;
         resource.map_hash_known[start_index + index] = 1;

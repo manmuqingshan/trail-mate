@@ -5,6 +5,7 @@ namespace platform::esp::idf_common::bsp_runtime
 
 bool ensure_nvs_ready();
 bool ensure_sdcard_ready();
+void mark_sdcard_unmounted();
 bool sdcard_ready();
 const char* sdcard_mount_point();
 bool display_ready();

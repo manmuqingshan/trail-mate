@@ -134,17 +134,17 @@ enum class LinkCloseReason : uint8_t
 
 struct LinkPendingRequest
 {
-    std::vector<uint8_t> request_id;
+    ResourceMetadataBuffer request_id;
     uint32_t created_ms = 0;
     bool awaiting_resource = false;
     bool response_ready = false;
-    std::vector<uint8_t> response;
+    ResourcePayloadBuffer response;
 };
 
 struct DeferredLinkPayload
 {
     ResourcePayloadBuffer payload;
-    std::vector<uint8_t> request_id;
+    ResourceMetadataBuffer request_id;
     uint32_t message_id = 0;
     uint8_t resource_flags = 0;
 };
@@ -162,12 +162,12 @@ struct LinkResourceTransfer
     uint8_t random_hash[4] = {};
     uint8_t original_hash[reticulum::kFullHashSize] = {};
     uint8_t expected_proof[reticulum::kFullHashSize] = {};
-    std::vector<uint8_t> request_id;
-    std::vector<uint8_t> hashmap;
-    std::vector<std::array<uint8_t, 4>> map_hashes;
-    std::vector<uint8_t> map_hash_known;
+    ResourceMetadataBuffer request_id;
+    ResourceMetadataBuffer hashmap;
+    ResourceMapHashList map_hashes;
+    ResourceBitmapBuffer map_hash_known;
     ResourcePayloadList parts;
-    std::vector<uint8_t> received_bitmap;
+    ResourceBitmapBuffer received_bitmap;
     uint32_t data_size = 0;
     uint32_t transfer_size = 0;
     uint32_t part_count = 0;
@@ -194,7 +194,7 @@ struct LinkResourceTransfer
 struct LinkResourceAssembly
 {
     uint8_t original_hash[reticulum::kFullHashSize] = {};
-    std::vector<uint8_t> request_id;
+    ResourceMetadataBuffer request_id;
     ResourcePayloadBuffer payload;
     uint32_t next_segment_index = 1;
     uint32_t total_segments = 1;
@@ -360,8 +360,8 @@ struct PropagationRuntime
     std::vector<PropagationPeerState> peers;
     std::vector<PendingPropagationUpload> pending_uploads;
     std::vector<PendingPropagationDelivery> pending_deliveries;
-    std::vector<std::vector<uint8_t>> sync_wants;
-    std::vector<std::vector<uint8_t>> sync_haves;
+    PropagationIdList sync_wants;
+    PropagationIdList sync_haves;
     uint8_t active_node_hash[reticulum::kTruncatedHashSize] = {};
     uint8_t sync_request_id[reticulum::kTruncatedHashSize] = {};
     uint32_t last_sync_s = 0;

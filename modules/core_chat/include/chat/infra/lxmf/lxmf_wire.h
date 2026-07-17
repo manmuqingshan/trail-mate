@@ -31,6 +31,16 @@ struct ByteSpan
     size_t size = 0;
 };
 
+struct ByteSpanList
+{
+    const ByteSpan* items = nullptr;
+    size_t size = 0;
+};
+
+using BinItemCallback = bool (*)(const uint8_t* data,
+                                 size_t len,
+                                 void* context);
+
 struct DecodedEnvelope
 {
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
@@ -130,11 +140,25 @@ struct DecodedPropagationBatch
     std::vector<std::vector<uint8_t>> messages;
 };
 
+struct DecodedPropagationOfferHeader
+{
+    bool peering_key_is_nil = true;
+    ByteSpan peering_key;
+};
+
 struct DecodedPropagationOffer
 {
     bool peering_key_is_nil = true;
     std::vector<uint8_t> peering_key;
     std::vector<std::vector<uint8_t>> transient_ids;
+};
+
+struct DecodedPropagationGetRequestHeader
+{
+    bool wants_is_nil = true;
+    bool haves_is_nil = true;
+    bool has_transfer_limit = false;
+    uint32_t transfer_limit_kb = 0;
 };
 
 struct DecodedPropagationGetRequest
@@ -251,15 +275,37 @@ bool encodePropagationBatch(double remote_timebase,
                             const std::vector<ByteSpan>& messages,
                             uint8_t* out_payload,
                             size_t* inout_len);
+bool encodePropagationBatch(double remote_timebase,
+                            ByteSpanList messages,
+                            uint8_t* out_payload,
+                            size_t* inout_len);
 
 bool decodePropagationBatch(const uint8_t* data, size_t len,
                             DecodedPropagationBatch* out_batch);
+bool decodePropagationBatch(const uint8_t* data,
+                            size_t len,
+                            BinItemCallback on_message,
+                            void* callback_context,
+                            double* out_remote_timebase);
 
 bool decodePropagationOfferPayload(const uint8_t* data, size_t len,
                                    DecodedPropagationOffer* out_offer);
+bool decodePropagationOfferPayload(const uint8_t* data,
+                                   size_t len,
+                                   BinItemCallback on_transient_id,
+                                   void* callback_context,
+                                   DecodedPropagationOfferHeader* out_offer);
 
 bool decodePropagationGetRequestPayload(const uint8_t* data, size_t len,
                                         DecodedPropagationGetRequest* out_request);
+bool decodePropagationGetRequestPayload(
+    const uint8_t* data,
+    size_t len,
+    BinItemCallback on_want,
+    void* want_context,
+    BinItemCallback on_have,
+    void* have_context,
+    DecodedPropagationGetRequestHeader* out_request);
 
 bool encodePropagationGetRequestPayload(
     const std::vector<std::vector<uint8_t>>* wants,
@@ -268,15 +314,29 @@ bool encodePropagationGetRequestPayload(
     uint32_t transfer_limit_kb,
     uint8_t* out_payload,
     size_t* inout_len);
+bool encodePropagationGetRequestPayloadSpans(const ByteSpanList* wants,
+                                             const ByteSpanList* haves,
+                                             bool include_transfer_limit,
+                                             uint32_t transfer_limit_kb,
+                                             uint8_t* out_payload,
+                                             size_t* inout_len);
 
 bool decodePropagationIdListPayload(const uint8_t* data,
                                     size_t len,
                                     std::vector<std::vector<uint8_t>>* out_ids);
+bool decodePropagationIdListPayload(const uint8_t* data,
+                                    size_t len,
+                                    BinItemCallback on_item,
+                                    void* callback_context);
 
 bool decodePropagationMessageListPayload(
     const uint8_t* data,
     size_t len,
     std::vector<std::vector<uint8_t>>* out_messages);
+bool decodePropagationMessageListPayload(const uint8_t* data,
+                                         size_t len,
+                                         BinItemCallback on_message,
+                                         void* callback_context);
 
 bool decodePropagationAnnounceAppData(
     const uint8_t* data,
@@ -286,11 +346,17 @@ bool decodePropagationAnnounceAppData(
 bool encodePropagationIdListPayload(const std::vector<std::vector<uint8_t>>& ids,
                                     uint8_t* out_payload,
                                     size_t* inout_len);
+bool encodePropagationIdListPayload(ByteSpanList ids,
+                                    uint8_t* out_payload,
+                                    size_t* inout_len);
 
 bool encodePropagationMessageListPayload(const std::vector<std::vector<uint8_t>>& messages,
                                          uint8_t* out_payload,
                                          size_t* inout_len);
 bool encodePropagationMessageListPayload(const std::vector<ByteSpan>& messages,
+                                         uint8_t* out_payload,
+                                         size_t* inout_len);
+bool encodePropagationMessageListPayload(ByteSpanList messages,
                                          uint8_t* out_payload,
                                          size_t* inout_len);
 

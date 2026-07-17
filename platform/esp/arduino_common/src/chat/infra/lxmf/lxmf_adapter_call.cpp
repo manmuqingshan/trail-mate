@@ -14,6 +14,10 @@
 #include <cstdio>
 #include <cstring>
 
+#ifndef TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT
+#define TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT 0
+#endif
+
 namespace chat::lxmf
 {
 namespace
@@ -138,9 +142,10 @@ bool LxmfAdapter::sendLxstSignal(LinkSession& session,
         return false;
     }
 
-    size_t payload_len = sizeof(call_wire_scratch_);
+    uint8_t* scratch = lxst_telephony_client_.scratch();
+    size_t payload_len = lxst_telephony_client_.scratchCapacity();
     if (!reticulum::lxst::encodeSignalling(signal,
-                                           call_wire_scratch_,
+                                           scratch,
                                            &payload_len))
     {
         return false;
@@ -148,7 +153,7 @@ bool LxmfAdapter::sendLxstSignal(LinkSession& session,
     const bool sent = sendLinkPacket(session,
                                      reticulum::PacketType::Data,
                                      reticulum::PacketContext::None,
-                                     call_wire_scratch_,
+                                     scratch,
                                      payload_len,
                                      true,
                                      call_admission_control);
@@ -346,15 +351,16 @@ bool LxmfAdapter::handleLxstPacket(LinkSession& session,
             continue;
         }
 
-        size_t normalized_len = sizeof(call_wire_scratch_);
+        uint8_t* scratch = lxst_telephony_client_.scratch();
+        size_t normalized_len = lxst_telephony_client_.scratchCapacity();
         if (reticulum::audio_call::encodePayload(frame.codec2_mode,
                                                  frame.encoded,
                                                  frame.encoded_len,
-                                                 call_wire_scratch_,
+                                                 scratch,
                                                  &normalized_len) &&
             ::platform::ui::reticulum_call::enqueue_inbound_audio(
                 session.link_id,
-                call_wire_scratch_,
+                scratch,
                 normalized_len))
         {
             handled = true;
@@ -367,6 +373,7 @@ bool LxmfAdapter::sendCallAudioPacket(LinkSession& session,
                                       const uint8_t* payload,
                                       size_t payload_len)
 {
+#if TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT
     if (session.call_wire_profile ==
         ReticulumCallWireProfile::MeshChatCallAudio)
     {
@@ -377,6 +384,7 @@ bool LxmfAdapter::sendCallAudioPacket(LinkSession& session,
                               payload_len,
                               true);
     }
+#endif
 
     reticulum::audio_call::DecodedPayload decoded{};
     if (!reticulum::audio_call::decodePayload(payload,
@@ -388,11 +396,12 @@ bool LxmfAdapter::sendCallAudioPacket(LinkSession& session,
         return false;
     }
 
-    size_t lxst_len = sizeof(call_wire_scratch_);
+    uint8_t* scratch = lxst_telephony_client_.scratch();
+    size_t lxst_len = lxst_telephony_client_.scratchCapacity();
     if (!reticulum::lxst::encodeCodec2Frames(decoded.mode,
                                              decoded.encoded,
                                              decoded.encoded_len,
-                                             call_wire_scratch_,
+                                             scratch,
                                              &lxst_len))
     {
         return false;
@@ -400,7 +409,7 @@ bool LxmfAdapter::sendCallAudioPacket(LinkSession& session,
     return sendLinkPacket(session,
                           reticulum::PacketType::Data,
                           reticulum::PacketContext::None,
-                          call_wire_scratch_,
+                          scratch,
                           lxst_len,
                           true);
 }
@@ -463,6 +472,7 @@ void LxmfAdapter::pumpReticulumAudioCall()
         if (call_snapshot.realtime_phase !=
             ::platform::ui::reticulum_call::RealtimePhase::ClosingCall)
         {
+#if TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT
             if (call_session->call_wire_profile ==
                     ReticulumCallWireProfile::MeshChatCallAudio &&
                 call_snapshot.accepted &&
@@ -479,6 +489,10 @@ void LxmfAdapter::pumpReticulumAudioCall()
             }
             else if (call_session->call_wire_profile ==
                          ReticulumCallWireProfile::SidebandLxst &&
+#else
+            if (call_session->call_wire_profile ==
+                    ReticulumCallWireProfile::SidebandLxst &&
+#endif
                      !call_session->initiator &&
                      call_snapshot.accepted &&
                      call_session->lxst_call.phase ==

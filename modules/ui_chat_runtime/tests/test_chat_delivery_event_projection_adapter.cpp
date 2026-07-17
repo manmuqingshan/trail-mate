@@ -67,11 +67,20 @@ int main()
         service.sendText(::chat::ChannelId::PRIMARY, "queued", 0);
     assert(sent_id == 700);
 
+    projection_adapter.onChatSendResult(
+        sent_id, ::chat::MessageStatus::Queued, 1200);
+
+    ::chat::delivery::ChatDeliveryRecord record{};
+    assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
+                           record));
+    assert(record.state == ::chat::delivery::DeliveryState::Queued);
+    assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
+    assert(record.updated_at_ms == 1200);
+
     service.handleSendResult(sent_id, true);
     projection_adapter.onChatSendResult(
         sent_id, ::chat::MessageStatus::Sent, 1234);
 
-    ::chat::delivery::ChatDeliveryRecord record{};
     assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
                            record));
     assert(record.state == ::chat::delivery::DeliveryState::Sent);

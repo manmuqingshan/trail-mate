@@ -36,6 +36,51 @@ REQUIRED_FILES = [
     Path("tests/reticulum_conformance/test_reticulum_runtime_state_contract.cpp"),
     Path(
         "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+        "chat/infra/lxmf/lxmf_destination_registry.h"
+    ),
+    Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_destination_registry.cpp"),
+    Path(
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+        "chat/infra/lxmf/lxmf_path_manager.h"
+    ),
+    Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_path_manager.cpp"),
+    Path(
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+        "chat/infra/lxmf/lxmf_link_manager.h"
+    ),
+    Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_link_manager.cpp"),
+    Path(
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+        "chat/infra/lxmf/lxmf_packet_router.h"
+    ),
+    Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_packet_router.cpp"),
+    Path(
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+        "chat/infra/lxmf/lxmf_announce_ingestor.h"
+    ),
+    Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_announce_ingestor.cpp"),
+    Path(
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+        "chat/infra/lxmf/lxmf_ping_service.h"
+    ),
+    Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_ping_service.cpp"),
+    Path(
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+        "chat/infra/lxmf/lxmf_network_page_client.h"
+    ),
+    Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_network_page_client.cpp"),
+    Path(
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+        "chat/infra/lxmf/lxmf_propagation_client.h"
+    ),
+    Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_propagation_client.cpp"),
+    Path(
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+        "chat/infra/lxmf/lxmf_lxst_telephony_client.h"
+    ),
+    Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_lxst_telephony_client.cpp"),
+    Path(
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/"
         "chat/infra/lxmf/lxmf_transport_runtime.h"
     ),
     Path("platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_transport_runtime.cpp"),
@@ -363,6 +408,49 @@ def check_reticulum_interface_boundary() -> list[str]:
     return errors
 
 
+def check_lxmf_adapter_runtime_owner_boundary() -> list[str]:
+    errors: list[str] = []
+    header = ROOT / LXMF_ADAPTER_HEADER
+    if not header.is_file():
+        return [f"missing LXMF adapter header: {LXMF_ADAPTER_HEADER.as_posix()}"]
+
+    text = header.read_text(encoding="utf-8")
+    required_owner_fields = [
+        "runtime::DestinationRegistry destination_registry_",
+        "runtime::PathManager path_manager_",
+        "runtime::LinkManager link_manager_",
+        "runtime::AnnounceIngestor announce_ingestor_",
+        "runtime::ReticulumPacketRouter packet_router_",
+        "runtime::PingService ping_service_",
+        "runtime::NetworkPageClient network_page_client_",
+        "runtime::PropagationClient propagation_client_",
+        "runtime::LxstTelephonyClient lxst_telephony_client_",
+    ]
+    for field in required_owner_fields:
+        if field not in text:
+            errors.append(f"LXMF adapter missing runtime owner field: {field}")
+
+    forbidden_adapter_state = [
+        "std::vector<PeerInfo> peers_",
+        "TransportRuntime transport_",
+        "LinkRuntime links_",
+        "std::vector<PendingPingRequest> pending_ping_requests_",
+        "std::vector<PendingNomadPageRequest> pending_nomad_page_requests_",
+        "PropagationRuntime propagation_",
+        "PropagationStampRuntime propagation_stamp_",
+        "PeerInfo propagation_peer_scratch_",
+        "call_wire_scratch_",
+    ]
+    for term in forbidden_adapter_state:
+        if term in text:
+            errors.append(
+                "LXMF adapter must not directly own extracted runtime state: "
+                f"{term}"
+            )
+
+    return errors
+
+
 def check_fixture_metadata() -> list[str]:
     errors: list[str] = []
     for relative in FIXTURE_FILES:
@@ -447,6 +535,7 @@ def main() -> int:
     errors.extend(check_reticulum_group_source_boundary())
     errors.extend(check_product_reticulum_config_accessor_boundary())
     errors.extend(check_reticulum_interface_boundary())
+    errors.extend(check_lxmf_adapter_runtime_owner_boundary())
 
     if errors:
         for error in errors:

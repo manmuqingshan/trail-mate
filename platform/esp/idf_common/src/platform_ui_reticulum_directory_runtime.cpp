@@ -2,6 +2,7 @@
 #include "platform/ui/reticulum_page_runtime.h"
 
 #include "chat/ports/i_mesh_peer_directory.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 
 #include "freertos/FreeRTOS.h"
@@ -9,11 +10,9 @@
 #include "freertos/task.h"
 
 #include <algorithm>
-#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <sys/stat.h>
 #include <vector>
 
 namespace platform::ui::reticulum_directory
@@ -120,22 +119,23 @@ bool sd_ready()
 
 std::string make_sd_path(const char* relative)
 {
-    const char* mount =
-        platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
-    std::string path = mount ? mount : "";
-    if (path.empty() || !relative || !relative[0])
+    if (!relative || !relative[0])
     {
-        return path;
+        return "/";
     }
-    if (path.back() == '/' && relative[0] == '/')
+    std::string path = relative;
+    if (path.size() >= 2 && (path[0] == 'A' || path[0] == 'a') && path[1] == ':')
     {
-        path.pop_back();
+        path.erase(0, 2);
     }
-    else if (path.back() != '/' && relative[0] != '/')
+    if (path.empty())
     {
-        path.push_back('/');
+        return "/";
     }
-    path += relative;
+    if (path.front() != '/')
+    {
+        path.insert(path.begin(), '/');
+    }
     return path;
 }
 
@@ -146,23 +146,15 @@ bool is_regular_file(const char* relative)
         return false;
     }
     const std::string path = make_sd_path(relative);
-    struct stat info = {};
-    return ::stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
+    return ::platform::esp::arduino_common::storage::sd_exists(path.c_str()) &&
+           !::platform::esp::arduino_common::storage::sd_is_directory(path.c_str());
 }
 
 bool ensure_directory(const char* relative)
 {
     const std::string path = make_sd_path(relative);
-    struct stat info = {};
-    if (::stat(path.c_str(), &info) == 0)
-    {
-        return S_ISDIR(info.st_mode);
-    }
-    if (::mkdir(path.c_str(), 0775) == 0)
-    {
-        return true;
-    }
-    return ::stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+    return ::platform::esp::arduino_common::storage::sd_is_directory(path.c_str()) ||
+           ::platform::esp::arduino_common::storage::sd_mkdir(path.c_str());
 }
 
 bool ensure_reticulum_directory()
@@ -181,33 +173,35 @@ AnnounceLoadResult load_persisted_announces(
     }
 
     const std::string path = make_sd_path(kAnnouncesPath);
-    FILE* file = std::fopen(path.c_str(), "rb");
-    if (!file)
+    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(path.c_str(), "rb"))
     {
-        return errno == ENOENT ? AnnounceLoadResult::Missing
-                               : AnnounceLoadResult::IoError;
+        return ::platform::esp::arduino_common::storage::sd_exists(path.c_str())
+                   ? AnnounceLoadResult::IoError
+                   : AnnounceLoadResult::Missing;
     }
 
     AnnounceFileHeader header{};
-    if (std::fread(&header, 1, sizeof(header), file) != sizeof(header) ||
+    if (file.read(&header, sizeof(header)) != static_cast<int>(sizeof(header)) ||
         header.magic != kAnnounceMagic ||
         header.version != kAnnounceVersion ||
         header.record_size != sizeof(PersistedAnnounce) ||
         header.count > kMaxAnnounceRecords)
     {
-        std::fclose(file);
+        file.close();
         return AnnounceLoadResult::IoError;
     }
 
     out.resize(header.count);
     const std::size_t payload_len = out.size() * sizeof(PersistedAnnounce);
     if ((payload_len != 0 &&
-         std::fread(out.data(), 1, payload_len, file) != payload_len) ||
-        std::fclose(file) != 0)
+         file.read(out.data(), payload_len) != static_cast<int>(payload_len)))
     {
+        file.close();
         out.clear();
         return AnnounceLoadResult::IoError;
     }
+    file.close();
     if (fnv1a32(out.data(), payload_len) != header.checksum)
     {
         out.clear();
@@ -226,9 +220,9 @@ bool save_persisted_announces(const std::vector<PersistedAnnounce>& records)
 
     const std::string path = make_sd_path(kAnnouncesPath);
     const std::string temp_path = path + ".tmp";
-    std::remove(temp_path.c_str());
-    FILE* file = std::fopen(temp_path.c_str(), "wb");
-    if (!file)
+    (void)::platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
+    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(temp_path.c_str(), "wb"))
     {
         return false;
     }
@@ -237,22 +231,23 @@ bool save_persisted_announces(const std::vector<PersistedAnnounce>& records)
     header.count = static_cast<uint32_t>(records.size());
     const std::size_t payload_len = records.size() * sizeof(PersistedAnnounce);
     header.checksum = fnv1a32(records.data(), payload_len);
-    bool ok = std::fwrite(&header, 1, sizeof(header), file) == sizeof(header);
+    bool ok = file.write(&header, sizeof(header)) == sizeof(header);
     if (ok && payload_len != 0)
     {
-        ok = std::fwrite(records.data(), 1, payload_len, file) == payload_len;
+        ok = file.write(records.data(), payload_len) == payload_len;
     }
-    ok = std::fclose(file) == 0 && ok;
+    ok = file.flush() && ok;
+    file.close();
     if (!ok)
     {
-        std::remove(temp_path.c_str());
+        (void)::platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
         return false;
     }
 
-    std::remove(path.c_str());
-    if (std::rename(temp_path.c_str(), path.c_str()) != 0)
+    (void)::platform::esp::arduino_common::storage::sd_remove(path.c_str());
+    if (!::platform::esp::arduino_common::storage::sd_rename(temp_path.c_str(), path.c_str()))
     {
-        std::remove(temp_path.c_str());
+        (void)::platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
         return false;
     }
     return true;

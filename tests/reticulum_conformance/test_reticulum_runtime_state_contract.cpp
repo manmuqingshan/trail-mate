@@ -1,7 +1,15 @@
 #include "chat/domain/reticulum_identity.h"
 #include "chat/infra/mesh_incoming_queue.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_runtime.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_destination_registry.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_link_manager.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_link_runtime.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_lxst_telephony_client.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_network_page_client.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_packet_router.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_path_manager.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_ping_service.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_client.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_service_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_resource_runtime.h"
@@ -13,6 +21,8 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace
@@ -76,6 +86,374 @@ int main()
 {
     using namespace chat::lxmf::runtime;
     namespace reticulum = chat::reticulum;
+
+    static_assert(!std::is_copy_constructible<DestinationRegistry>::value,
+                  "DestinationRegistry owns peer state and must not be copied");
+    static_assert(!std::is_move_constructible<DestinationRegistry>::value,
+                  "DestinationRegistry ownership must stay in place");
+    static_assert(!std::is_copy_constructible<PathManager>::value,
+                  "PathManager owns transport state and must not be copied");
+    static_assert(!std::is_move_constructible<PathManager>::value,
+                  "PathManager ownership must stay in place");
+    static_assert(!std::is_copy_constructible<LinkManager>::value,
+                  "LinkManager owns link sessions and must not be copied");
+    static_assert(!std::is_move_constructible<LinkManager>::value,
+                  "LinkManager ownership must stay in place");
+    static_assert(!std::is_copy_constructible<PingService>::value,
+                  "PingService owns pending ping state and must not be copied");
+    static_assert(!std::is_copy_constructible<NetworkPageClient>::value,
+                  "NetworkPageClient owns pending page state and must not be copied");
+    static_assert(!std::is_copy_constructible<PropagationClient>::value,
+                  "PropagationClient owns propagation state and must not be copied");
+    static_assert(!std::is_copy_constructible<LxstTelephonyClient>::value,
+                  "LxstTelephonyClient owns call scratch state and must not be copied");
+    static_assert(
+        std::is_same<ResourcePayloadList::allocator_type,
+                     PsramAllocator<ResourcePayloadBuffer>>::value,
+        "Resource payload list ownership must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<ResourceMetadataBuffer::allocator_type,
+                     PsramAllocator<uint8_t>>::value,
+        "Resource metadata buffers must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<ResourceBitmapBuffer::allocator_type,
+                     PsramAllocator<uint8_t>>::value,
+        "Resource bitmap buffers must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<ResourceMapHashList::allocator_type,
+                     PsramAllocator<RuntimeMapHash>>::value,
+        "Resource map hash lists must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PropagationIdList::allocator_type,
+                     PsramAllocator<RuntimeByteBuffer>>::value,
+        "Propagation id lists must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PropagationMessageList::allocator_type,
+                     PsramAllocator<RuntimeByteBuffer>>::value,
+        "Propagation message lists must stay on PSRAM allocator");
+
+    const auto registry_destination =
+        filled_hash<reticulum::kTruncatedHashSize>(0x04);
+    const auto registry_identity =
+        filled_hash<reticulum::kTruncatedHashSize>(0x24);
+    DestinationRegistry registry{};
+    assert(registry.size() == 0);
+    PeerInfo& registry_peer = registry.upsertDestination(registry_destination.data());
+    assert(registry.size() == 1);
+    assert(same_hash(registry_peer.destination_hash, registry_destination));
+    copy_hash(registry_peer.identity_hash, registry_identity);
+    assert(registry.findByDestinationHash(registry_destination.data()) == &registry_peer);
+    assert(registry.findByIdentityHash(registry_identity.data()) == &registry_peer);
+    assert(registry.findByNodeId(registry_peer.node_id) == &registry_peer);
+    assert(&registry.upsertDestination(registry_destination.data()) == &registry_peer);
+    registry.clear();
+    assert(registry.size() == 0);
+
+    ReticulumPacketRouter router{};
+    reticulum::ParsedPacket route_packet{};
+    route_packet.packet_type = reticulum::PacketType::Announce;
+    assert(router.route(route_packet) == PacketRoute::Announce);
+    route_packet.packet_type = reticulum::PacketType::Proof;
+    assert(router.route(route_packet) == PacketRoute::Proof);
+    route_packet.packet_type = reticulum::PacketType::LinkRequest;
+    assert(router.route(route_packet) == PacketRoute::LinkRequest);
+    route_packet.packet_type = reticulum::PacketType::Data;
+    assert(router.route(route_packet) == PacketRoute::Data);
+    route_packet.packet_type = static_cast<reticulum::PacketType>(0x7F);
+    assert(router.route(route_packet) == PacketRoute::LinkOrTransport);
+
+    const auto manager_destination =
+        filled_hash<reticulum::kTruncatedHashSize>(0x14);
+    const auto manager_packet_hash = filled_hash<reticulum::kFullHashSize>(0x34);
+    PathManager path_manager{};
+    assert(!path_manager.isDuplicatePacket(manager_packet_hash.data()));
+    path_manager.rememberPacket(manager_packet_hash.data(), 100, 4);
+    assert(path_manager.isDuplicatePacket(manager_packet_hash.data()));
+    path_manager.forgetPacket(manager_packet_hash.data());
+    assert(!path_manager.isDuplicatePacket(manager_packet_hash.data()));
+    PathEntry& managed_path = path_manager.upsertPath(manager_destination.data(), 4);
+    managed_path.hops = 2;
+    managed_path.updated_ms = 500;
+    assert(path_manager.findAnyPath(manager_destination.data()) == &managed_path);
+    assert(path_manager.findPath(manager_destination.data(), 600, 1000) == &managed_path);
+    assert(path_manager.findPath(manager_destination.data(), 1601, 1000) == nullptr);
+    path_manager.notePendingPathRequest(manager_destination.data(), 700, 4);
+    assert(path_manager.findPendingPathRequest(manager_destination.data()) != nullptr);
+    path_manager.resolvePendingPathRequest(manager_destination.data());
+    assert(path_manager.findPendingPathRequest(manager_destination.data()) == nullptr);
+
+    LinkManager link_manager{};
+    LinkSession* managed_session = link_manager.appendSession(2);
+    assert(managed_session != nullptr);
+    copy_hash(managed_session->link_id, manager_destination);
+    copy_hash(managed_session->remote_destination_hash, manager_destination);
+    managed_session->destination = LocalDestinationKind::Delivery;
+    managed_session->state = LinkState::Active;
+    assert(link_manager.size() == 1);
+    assert(link_manager.findSession(manager_destination.data()) == managed_session);
+    assert(link_manager.findOpenSessionByDestination(manager_destination.data(),
+                                                     LocalDestinationKind::Delivery) ==
+           managed_session);
+    assert(link_manager.closeSession(*managed_session, LinkCloseReason::LocalClose, 900));
+    assert(managed_session->state == LinkState::Closed);
+    link_manager.clear();
+    assert(link_manager.size() == 0);
+    managed_session = link_manager.appendSession(2);
+    assert(managed_session != nullptr);
+    const auto resource_hash = filled_hash<reticulum::kFullHashSize>(0x44);
+    const auto resource_original_hash =
+        filled_hash<reticulum::kFullHashSize>(0x64);
+    const uint8_t resource_random[kResourceMapHashLen] = {0x01, 0x02, 0x03, 0x04};
+    const uint8_t resource_request_id[] = {0x09, 0x0A};
+    ResourceMetadataBuffer resource_hashmap;
+    resource_hashmap.insert(resource_hashmap.end(),
+                            resource_random,
+                            resource_random + sizeof(resource_random));
+    LinkResourceTransfer* managed_incoming_resource =
+        link_manager.startIncomingResource(*managed_session,
+                                           resource_hash.data(),
+                                           resource_random,
+                                           resource_original_hash.data(),
+                                           resource_request_id,
+                                           sizeof(resource_request_id),
+                                           resource_hashmap.data(),
+                                           resource_hashmap.size(),
+                                           8,
+                                           8,
+                                           1,
+                                           1,
+                                           1,
+                                           0,
+                                           false,
+                                           false,
+                                           false,
+                                           false,
+                                           1000,
+                                           4);
+    assert(managed_incoming_resource != nullptr);
+    assert(link_manager.findIncomingResource(*managed_session,
+                                             resource_hash.data()) ==
+           managed_incoming_resource);
+    const ResourceWindowRequest window_request =
+        link_manager.buildNextResourceWindowRequest(*managed_incoming_resource);
+    assert(window_request.valid);
+    link_manager.noteResourceWindowRequested(*managed_incoming_resource, false, 1005);
+    assert(managed_incoming_resource->last_activity_ms == 1005);
+    assert(link_manager.eraseIncomingResource(*managed_session,
+                                              resource_hash.data()));
+    LinkResourceTransfer managed_outgoing_resource{};
+    assert(link_manager.initialiseOutgoingResource(managed_outgoing_resource,
+                                                   resource_request_id,
+                                                   sizeof(resource_request_id),
+                                                   8,
+                                                   8,
+                                                   1,
+                                                   0,
+                                                   1010,
+                                                   4));
+    copy_hash(managed_outgoing_resource.resource_hash, resource_hash);
+    managed_outgoing_resource.message_id = 77;
+    assert(link_manager.appendOutgoingResource(*managed_session,
+                                               std::move(managed_outgoing_resource)) !=
+           nullptr);
+    LinkResourceTransfer* queued_outgoing_resource =
+        link_manager.findOutgoingResource(*managed_session, resource_hash.data());
+    assert(queued_outgoing_resource != nullptr);
+    bool saw_resource_message_id = false;
+    link_manager.takeTrackedOutgoingResourceMessageIds(
+        *managed_session,
+        [&saw_resource_message_id](uint32_t message_id)
+        {
+            saw_resource_message_id = message_id == 77;
+        });
+    assert(saw_resource_message_id);
+    assert(queued_outgoing_resource->message_id == 0);
+    assert(link_manager.eraseOutgoingResource(*managed_session,
+                                              resource_hash.data()));
+    link_manager.clear();
+
+    PingService ping_service{};
+    const uint8_t zero_destination[reticulum::kTruncatedHashSize] = {};
+    assert(ping_service.queue(zero_destination, 100, 2) ==
+           PendingPingQueueResult::Invalid);
+    assert(ping_service.queue(manager_destination.data(), 100, 2) ==
+           PendingPingQueueResult::Queued);
+    assert(ping_service.queue(manager_destination.data(), 100, 2) ==
+           PendingPingQueueResult::Duplicate);
+    bool ping_dispatched = false;
+    ping_service.pump(
+        250,
+        false,
+        1000,
+        100,
+        100,
+        [](const uint8_t*)
+        { return true; },
+        [&ping_dispatched](const uint8_t*, uint32_t, uint32_t)
+        {
+            ping_dispatched = true;
+            return true;
+        },
+        [](const uint8_t*, uint32_t) {},
+        [](const PendingPingRequest&, uint32_t)
+        { assert(false); });
+    assert(ping_dispatched);
+    assert(ping_service.size() == 0);
+    assert(ping_service.queue(manager_destination.data(), 100, 2) ==
+           PendingPingQueueResult::Queued);
+    bool ping_timed_out = false;
+    ping_service.pump(
+        500,
+        false,
+        100,
+        100,
+        100,
+        [](const uint8_t*)
+        { return false; },
+        [](const uint8_t*, uint32_t, uint32_t)
+        { return false; },
+        [](const uint8_t*, uint32_t) {},
+        [&ping_timed_out](const PendingPingRequest&, uint32_t)
+        { ping_timed_out = true; });
+    assert(ping_timed_out);
+    assert(ping_service.size() == 0);
+
+    NetworkPageClient page_client{};
+    PendingNomadPageRequest* page_request = nullptr;
+    assert(page_client.empty());
+    assert(page_client.queue(manager_destination.data(),
+                             "/",
+                             100,
+                             1,
+                             sizeof(PendingNomadPageRequest::path),
+                             &page_request) == NetworkPageQueueResult::Queued);
+    assert(page_request != nullptr);
+    assert(page_client.size() == 1);
+    copy_hash(page_request->request_id, manager_destination);
+    assert(page_client.findByRequestId(manager_destination.data(),
+                                       manager_destination.data(),
+                                       reticulum::kTruncatedHashSize) == page_request);
+    assert(page_client.queue(manager_destination.data(),
+                             "/",
+                             200,
+                             1,
+                             sizeof(PendingNomadPageRequest::path),
+                             &page_request) == NetworkPageQueueResult::Duplicate);
+    page_client.eraseAt(0);
+    assert(page_client.empty());
+
+    PropagationClient propagation_client{};
+    assert(!propagation_client.state().has_active_node);
+    PropagationPeerState active_propagation_peer{};
+    copy_hash(active_propagation_peer.propagation_hash, manager_destination);
+    active_propagation_peer.node_active = true;
+    active_propagation_peer.last_seen_s = 100;
+    propagation_client.state().peers.push_back(active_propagation_peer);
+    PropagationActivePeerSelection selected_peer =
+        propagation_client.selectActivePeer(false,
+                                            manager_destination.data(),
+                                            100,
+                                            30,
+                                            true);
+    assert(selected_peer.peer != nullptr);
+    assert(selected_peer.changed);
+    propagation_client.peerScratch().node_id = 0x12345678;
+    assert(propagation_client.state().has_active_node);
+    assert(same_hash(propagation_client.state().active_node_hash, manager_destination));
+    PropagationActivePeerSelection selected_again =
+        propagation_client.selectActivePeer(false,
+                                            manager_destination.data(),
+                                            101,
+                                            30,
+                                            true);
+    assert(selected_again.peer != nullptr);
+    assert(!selected_again.changed);
+    propagation_client.clearActivePeer();
+    assert(!propagation_client.state().has_active_node);
+    assert(all_zero(propagation_client.state().active_node_hash));
+    assert(propagation_client.peerScratch().node_id == 0x12345678);
+    assert(propagation_client.startSyncIfDue(200, 1000, 60));
+    assert(propagation_client.state().sync_stage == PropagationSyncStage::NeedList);
+    uint8_t sync_request_id[reticulum::kTruncatedHashSize] = {};
+    copy_hash(sync_request_id, manager_destination);
+    LinkPendingRequest sync_request{};
+    sync_request.request_id.assign(sync_request_id,
+                                   sync_request_id + sizeof(sync_request_id));
+    assert(!propagation_client.syncRequestMatches(sync_request));
+    propagation_client.markSyncRequestSent(sync_request_id,
+                                           PropagationSyncStage::Listing);
+    assert(propagation_client.syncRequestMatches(sync_request));
+    PropagationIdList remote_ids;
+    RuntimeByteBuffer known_id(reticulum::kFullHashSize, 0x11);
+    RuntimeByteBuffer wanted_id(reticulum::kFullHashSize, 0x22);
+    propagation_client.rememberDeliveredTransient(known_id.data(), 200, 4);
+    remote_ids.push_back(known_id);
+    remote_ids.push_back(wanted_id);
+    propagation_client.noteListingResult(remote_ids, 1);
+    assert(propagation_client.state().sync_stage ==
+           PropagationSyncStage::NeedMessages);
+    assert(propagation_client.state().sync_haves.size() == 1);
+    assert(propagation_client.state().sync_wants.size() == 1);
+    propagation_client.noteDownloadResult(false, 1200);
+    assert(propagation_client.state().sync_stage ==
+           PropagationSyncStage::NeedAcknowledge);
+    propagation_client.markAcknowledged();
+    assert(propagation_client.state().sync_stage == PropagationSyncStage::Complete);
+    assert(propagation_client.syncHaveCount() == 1);
+    propagation_client.finishSyncComplete(220);
+    assert(propagation_client.state().sync_stage == PropagationSyncStage::Idle);
+    assert(!propagation_client.state().initial_sync_pending);
+    PendingPropagationUpload upload_a{};
+    upload_a.message_id = 101;
+    upload_a.created_ms = 1000;
+    upload_a.state = PropagationUploadState::WaitingNode;
+    PendingPropagationUpload* queued_upload =
+        propagation_client.queueUpload(std::move(upload_a), 2);
+    assert(queued_upload != nullptr);
+    assert(propagation_client.hasPendingUploads());
+    assert(propagation_client.firstPendingUpload() == queued_upload);
+    assert(propagation_client.firstPendingUpload()->message_id == 101);
+
+    PendingPropagationUpload upload_b{};
+    upload_b.message_id = 102;
+    upload_b.created_ms = 1005;
+    upload_b.state = PropagationUploadState::WaitingNode;
+    assert(propagation_client.queueUpload(std::move(upload_b), 2) != nullptr);
+    PendingPropagationUpload upload_c{};
+    upload_c.message_id = 103;
+    upload_c.created_ms = 1010;
+    upload_c.state = PropagationUploadState::WaitingNode;
+    assert(propagation_client.queueUpload(std::move(upload_c), 2) == nullptr);
+
+    propagation_client.markExpiredUploads(1101, 100);
+    std::vector<PendingPropagationUpload> failed_uploads =
+        propagation_client.takeFailedUploads();
+    assert(failed_uploads.size() == 1);
+    assert(failed_uploads[0].message_id == 101);
+    assert(propagation_client.hasPendingUploads());
+    assert(propagation_client.firstPendingUpload()->message_id == 102);
+    assert(propagation_client.removeFirstPendingUpload());
+    assert(!propagation_client.removeFirstPendingUpload());
+    assert(!propagation_client.hasPendingUploads());
+
+    PendingPropagationUpload upload_d{};
+    upload_d.message_id = 104;
+    upload_d.state = PropagationUploadState::NeedsStamp;
+    assert(propagation_client.queueUpload(std::move(upload_d), 2) != nullptr);
+    std::vector<PendingPropagationUpload> all_uploads =
+        propagation_client.takeAllPendingUploads();
+    assert(all_uploads.size() == 1);
+    assert(all_uploads[0].message_id == 104);
+    assert(!propagation_client.hasPendingUploads());
+#if !defined(TRAIL_MATE_RETICULUM_PARSE_ONLY)
+    propagation_client.stamp().reset();
+#endif
+
+    LxstTelephonyClient telephony_client{};
+    assert(telephony_client.scratch() != nullptr);
+    assert(telephony_client.scratchCapacity() == reticulum::kReticulumMtu);
+    telephony_client.scratch()[0] = 0xA5;
+    assert(telephony_client.scratch()[0] == 0xA5);
 
     TransportRuntime transport{};
     assert(transport.paths.empty());
@@ -416,17 +794,20 @@ int main()
     const std::array<uint8_t, kResourceMapHashLen> map_hash_0{0xA0, 0xA1, 0xA2, 0xA3};
     const std::array<uint8_t, kResourceMapHashLen> map_hash_1{0xB0, 0xB1, 0xB2, 0xB3};
     const std::array<uint8_t, kResourceMapHashLen> map_hash_2{0xC0, 0xC1, 0xC2, 0xC3};
-    std::vector<uint8_t> first_hashmap;
+    ResourceMetadataBuffer first_hashmap;
     first_hashmap.insert(first_hashmap.end(), map_hash_0.begin(), map_hash_0.end());
     first_hashmap.insert(first_hashmap.end(), map_hash_1.begin(), map_hash_1.end());
+    const uint8_t incoming_request_id[] = {0x31, 0x32};
 
     LinkResourceTransfer incoming_resource{};
     assert(initialiseIncomingResourceTransfer(incoming_resource,
                                               packet_hash.data(),
                                               random_hash.data(),
                                               original_hash.data(),
-                                              {0x31, 0x32},
-                                              std::move(first_hashmap),
+                                              incoming_request_id,
+                                              sizeof(incoming_request_id),
+                                              first_hashmap.data(),
+                                              first_hashmap.size(),
                                               6,
                                               9,
                                               3,
@@ -486,10 +867,11 @@ int main()
     noteResourceWindowRequest(incoming_resource, window.needs_more_hashmap, 530);
     assert(incoming_resource.waiting_for_hashmap);
 
-    std::vector<uint8_t> second_hashmap(map_hash_2.begin(), map_hash_2.end());
+    ResourceMetadataBuffer second_hashmap(map_hash_2.begin(), map_hash_2.end());
     assert(applyResourceHashmapUpdate(incoming_resource,
                                       1,
-                                      second_hashmap,
+                                      second_hashmap.data(),
+                                      second_hashmap.size(),
                                       2,
                                       540));
     assert(!incoming_resource.waiting_for_hashmap);
@@ -543,13 +925,16 @@ int main()
     assert(!eraseLinkResourceByHash(resource_session.incoming_resources, packet_hash.data()));
 
     LinkResourceTransfer split_segment_1{};
+    const uint8_t split_request_id[] = {0x44};
+    ResourceMetadataBuffer split_hashmap(map_hash_0.begin(), map_hash_0.end());
     assert(initialiseIncomingResourceTransfer(split_segment_1,
                                               packet_hash.data(),
                                               random_hash.data(),
                                               original_hash.data(),
-                                              {0x44},
-                                              std::vector<uint8_t>(map_hash_0.begin(),
-                                                                   map_hash_0.end()),
+                                              split_request_id,
+                                              sizeof(split_request_id),
+                                              split_hashmap.data(),
+                                              split_hashmap.size(),
                                               3,
                                               3,
                                               1,
@@ -669,11 +1054,18 @@ int main()
     assert(findPropagationEntry(propagation, transient_a.data()) != nullptr);
     assert(findPropagationEntry(propagation, transient_b.data()) == nullptr);
 
-    std::vector<std::vector<uint8_t>> offer_ids;
-    offer_ids.emplace_back(transient_a.begin(), transient_a.end());
-    offer_ids.emplace_back(transient_b.begin(), transient_b.end());
-    offer_ids.push_back({0x01, 0x02});
-    std::vector<std::vector<uint8_t>> missing_ids =
+    auto append_runtime_id = [](PropagationIdList& out, const auto& id)
+    {
+        ResourcePayloadBuffer item;
+        item.assign(id.begin(), id.end());
+        out.push_back(std::move(item));
+    };
+
+    PropagationIdList offer_ids;
+    append_runtime_id(offer_ids, transient_a);
+    append_runtime_id(offer_ids, transient_b);
+    offer_ids.push_back(ResourcePayloadBuffer{0x01, 0x02});
+    PropagationIdList missing_ids =
         collectMissingPropagationTransientIds(propagation, offer_ids);
     assert(missing_ids.size() == 1);
     assert(missing_ids.front().size() == transient_b.size());
@@ -705,13 +1097,13 @@ int main()
                                     sizeof(propagated_b),
                                     930,
                                     propagation_limits.max_entries));
-    std::vector<std::vector<uint8_t>> destination_ids =
+    PropagationIdList destination_ids =
         collectPropagationEntryIdsForDestination(propagation, delivery_hash.data());
     assert(destination_ids.size() == 2);
 
-    std::vector<std::vector<uint8_t>> want_ids;
-    want_ids.emplace_back(transient_a.begin(), transient_a.end());
-    want_ids.emplace_back(transient_b.begin(), transient_b.end());
+    PropagationIdList want_ids;
+    append_runtime_id(want_ids, transient_a);
+    append_runtime_id(want_ids, transient_b);
     PropagationMessageSelection selection =
         collectPropagationMessagesForWants(propagation,
                                            want_ids,

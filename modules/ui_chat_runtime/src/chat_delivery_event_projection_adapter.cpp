@@ -2,6 +2,7 @@
 
 #include "chat/delivery/chat_delivery_message_projection.h"
 #include "chat/delivery/chat_delivery_send_result_projection.h"
+#include "chat/delivery/chat_outbox_service.h"
 #include "chat/usecase/chat_service.h"
 
 namespace ui_chat_runtime
@@ -20,28 +21,21 @@ void ChatDeliveryEventProjectionAdapter::onChatSendResult(
     ::chat::MessageStatus status,
     uint32_t timestamp_ms)
 {
-    if (status != ::chat::MessageStatus::Sent &&
-        status != ::chat::MessageStatus::Delivered &&
-        status != ::chat::MessageStatus::Failed)
+    if (!::chat::delivery::ChatOutboxService::isOutboundStatusUpdate(status))
     {
         return;
     }
 
     const ::chat::ChatMessage* message = chat_service_.getMessage(msg_id);
-    if (status == ::chat::MessageStatus::Failed && message != nullptr &&
-        (message->status == ::chat::MessageStatus::Sent ||
-         message->status == ::chat::MessageStatus::Delivered))
+    if (!::chat::delivery::ChatOutboxService::shouldApplyStatus(message,
+                                                                status))
     {
         return;
     }
-    const auto state = status == ::chat::MessageStatus::Delivered
-                           ? ::chat::delivery::DeliveryState::Delivered
-                       : status == ::chat::MessageStatus::Sent
-                           ? ::chat::delivery::DeliveryState::Sent
-                           : ::chat::delivery::DeliveryState::Failed;
-    const auto failure = status != ::chat::MessageStatus::Failed
-                             ? ::chat::delivery::SendFailureKind::None
-                             : ::chat::delivery::SendFailureKind::Unknown;
+    const auto state =
+        ::chat::delivery::ChatOutboxService::toDeliveryState(status);
+    const auto failure =
+        ::chat::delivery::ChatOutboxService::failureForStatus(status);
     (void)publishSendResult(msg_id, state, failure, timestamp_ms);
 }
 

@@ -34,7 +34,6 @@ TRACK_PATH_HINTS = (
     "modules/ui_shared/include/ui/screens/gps/",
     "modules/ui_shared/include/ui/screens/tracker/",
     "platform/esp/arduino_common/src/platform_ui_route_storage.cpp",
-    "platform/esp/idf_common/src/platform_ui_route_storage.cpp",
     "platform/linux/common/src/platform/ui/route_storage.cpp",
 )
 

@@ -392,12 +392,14 @@ uint32_t readU32Be(const uint8_t* data)
            static_cast<uint32_t>(data[3]);
 }
 
-bool readBinary(Cursor& cursor, std::vector<uint8_t>* out_data)
+bool readBinarySpan(Cursor& cursor, const uint8_t** out_data, size_t* out_len)
 {
-    if (!out_data)
+    if (!out_data || !out_len)
     {
         return false;
     }
+    *out_data = nullptr;
+    *out_len = 0;
 
     uint8_t tag = 0;
     if (!readByte(cursor, &tag))
@@ -458,8 +460,27 @@ bool readBinary(Cursor& cursor, std::vector<uint8_t>* out_data)
         return false;
     }
 
-    out_data->assign(cursor.data + cursor.pos, cursor.data + cursor.pos + len);
+    *out_data = cursor.data + cursor.pos;
+    *out_len = len;
     cursor.pos += len;
+    return true;
+}
+
+bool readBinary(Cursor& cursor, std::vector<uint8_t>* out_data)
+{
+    if (!out_data)
+    {
+        return false;
+    }
+
+    const uint8_t* data = nullptr;
+    size_t len = 0;
+    if (!readBinarySpan(cursor, &data, &len))
+    {
+        return false;
+    }
+
+    out_data->assign(data, data + len);
     return true;
 }
 
@@ -569,22 +590,43 @@ bool appendArrayOfBins(const std::vector<std::vector<uint8_t>>& items,
     return true;
 }
 
+bool appendArrayOfBinSpans(ByteSpanList items,
+                           uint8_t* out,
+                           size_t out_len,
+                           size_t& used);
+
 bool appendArrayOfBinSpans(const std::vector<ByteSpan>& items,
                            uint8_t* out,
                            size_t out_len,
                            size_t& used)
 {
-    if (items.size() > kMaxPropagationWireItems)
+    return appendArrayOfBinSpans(ByteSpanList{items.data(), items.size()},
+                                 out,
+                                 out_len,
+                                 used);
+}
+
+bool appendArrayOfBinSpans(ByteSpanList items,
+                           uint8_t* out,
+                           size_t out_len,
+                           size_t& used)
+{
+    if (items.size > kMaxPropagationWireItems)
     {
         return false;
     }
-    if (!appendArrayHeader(static_cast<uint8_t>(items.size()), out, out_len, used))
+    if (items.size != 0U && !items.items)
+    {
+        return false;
+    }
+    if (!appendArrayHeader(static_cast<uint8_t>(items.size), out, out_len, used))
     {
         return false;
     }
 
-    for (const auto& item : items)
+    for (size_t index = 0; index < items.size; ++index)
     {
+        const ByteSpan& item = items.items[index];
         if ((!item.data && item.size != 0U) ||
             !appendBin(item.data, item.size, out, out_len, used))
         {
@@ -626,6 +668,40 @@ bool readArrayOfBins(Cursor& cursor, std::vector<std::vector<uint8_t>>* out_item
     }
 
     *out_items = std::move(items);
+    return true;
+}
+
+bool readArrayOfBins(Cursor& cursor,
+                     BinItemCallback on_item,
+                     void* callback_context)
+{
+    if (!on_item)
+    {
+        return false;
+    }
+
+    size_t count = 0;
+    if (!readArrayHeader(cursor, &count))
+    {
+        return false;
+    }
+    if (count > kMaxPropagationWireItems ||
+        count > cursor.len - cursor.pos)
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < count; ++i)
+    {
+        const uint8_t* item_data = nullptr;
+        size_t item_len = 0;
+        if (!readBinarySpan(cursor, &item_data, &item_len) ||
+            !on_item(item_data, item_len, callback_context))
+        {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -1496,6 +1572,17 @@ bool encodePropagationBatch(double remote_timebase,
                             uint8_t* out_payload,
                             size_t* inout_len)
 {
+    return encodePropagationBatch(remote_timebase,
+                                  ByteSpanList{messages.data(), messages.size()},
+                                  out_payload,
+                                  inout_len);
+}
+
+bool encodePropagationBatch(double remote_timebase,
+                            ByteSpanList messages,
+                            uint8_t* out_payload,
+                            size_t* inout_len)
+{
     if (!out_payload || !inout_len)
     {
         return false;
@@ -1541,6 +1628,36 @@ bool decodePropagationBatch(const uint8_t* data, size_t len,
     }
 
     *out_batch = std::move(decoded);
+    return true;
+}
+
+bool decodePropagationBatch(const uint8_t* data,
+                            size_t len,
+                            BinItemCallback on_message,
+                            void* callback_context,
+                            double* out_remote_timebase)
+{
+    if (!data || len == 0 || !on_message || !out_remote_timebase)
+    {
+        return false;
+    }
+
+    Cursor cursor;
+    cursor.data = data;
+    cursor.len = len;
+    cursor.pos = 0;
+
+    size_t count = 0;
+    double remote_timebase = 0.0;
+    if (!readArrayHeader(cursor, &count) || count != 2 ||
+        !readFloat64(cursor, &remote_timebase) ||
+        !readArrayOfBins(cursor, on_message, callback_context) ||
+        cursor.pos != cursor.len)
+    {
+        return false;
+    }
+
+    *out_remote_timebase = remote_timebase;
     return true;
 }
 
@@ -1602,6 +1719,73 @@ bool decodePropagationOfferPayload(const uint8_t* data, size_t len,
     }
 
     *out_offer = std::move(decoded);
+    return true;
+}
+
+bool decodePropagationOfferPayload(const uint8_t* data,
+                                   size_t len,
+                                   BinItemCallback on_transient_id,
+                                   void* callback_context,
+                                   DecodedPropagationOfferHeader* out_offer)
+{
+    if (!data || len == 0 || !on_transient_id || !out_offer)
+    {
+        return false;
+    }
+
+    Cursor cursor;
+    cursor.data = data;
+    cursor.len = len;
+    cursor.pos = 0;
+
+    size_t count = 0;
+    if (!readArrayHeader(cursor, &count) || count < 2)
+    {
+        return false;
+    }
+
+    DecodedPropagationOfferHeader decoded{};
+    uint8_t next = 0;
+    if (!peekByte(cursor, &next))
+    {
+        return false;
+    }
+    if (next == 0xC0)
+    {
+        if (!readNil(cursor))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        const uint8_t* peering_key = nullptr;
+        size_t peering_key_len = 0;
+        if (!readBinarySpan(cursor, &peering_key, &peering_key_len))
+        {
+            return false;
+        }
+        decoded.peering_key_is_nil = false;
+        decoded.peering_key = ByteSpan{peering_key, peering_key_len};
+    }
+
+    if (!readArrayOfBins(cursor, on_transient_id, callback_context))
+    {
+        return false;
+    }
+    for (size_t index = 2; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    if (cursor.pos != cursor.len)
+    {
+        return false;
+    }
+
+    *out_offer = decoded;
     return true;
 }
 
@@ -1692,6 +1876,101 @@ bool decodePropagationGetRequestPayload(const uint8_t* data, size_t len,
     return true;
 }
 
+bool decodePropagationGetRequestPayload(
+    const uint8_t* data,
+    size_t len,
+    BinItemCallback on_want,
+    void* want_context,
+    BinItemCallback on_have,
+    void* have_context,
+    DecodedPropagationGetRequestHeader* out_request)
+{
+    if (!data || len == 0 || !out_request)
+    {
+        return false;
+    }
+
+    Cursor cursor;
+    cursor.data = data;
+    cursor.len = len;
+    cursor.pos = 0;
+
+    size_t count = 0;
+    if (!readArrayHeader(cursor, &count) || count < 2)
+    {
+        return false;
+    }
+
+    DecodedPropagationGetRequestHeader decoded{};
+    uint8_t next = 0;
+    if (!peekByte(cursor, &next))
+    {
+        return false;
+    }
+    if (next == 0xC0)
+    {
+        if (!readNil(cursor))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        if (!on_want ||
+            !readArrayOfBins(cursor, on_want, want_context))
+        {
+            return false;
+        }
+        decoded.wants_is_nil = false;
+    }
+
+    if (!peekByte(cursor, &next))
+    {
+        return false;
+    }
+    if (next == 0xC0)
+    {
+        if (!readNil(cursor))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        if (!on_have ||
+            !readArrayOfBins(cursor, on_have, have_context))
+        {
+            return false;
+        }
+        decoded.haves_is_nil = false;
+    }
+
+    if (count >= 3)
+    {
+        uint32_t limit_kb = 0;
+        if (!readUint(cursor, &limit_kb))
+        {
+            return false;
+        }
+        decoded.has_transfer_limit = true;
+        decoded.transfer_limit_kb = limit_kb;
+    }
+    for (size_t index = 3; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    if (cursor.pos != cursor.len)
+    {
+        return false;
+    }
+
+    *out_request = decoded;
+    return true;
+}
+
 bool encodePropagationGetRequestPayload(
     const std::vector<std::vector<uint8_t>>* wants,
     const std::vector<std::vector<uint8_t>>* haves,
@@ -1745,6 +2024,58 @@ bool encodePropagationGetRequestPayload(
     return true;
 }
 
+bool encodePropagationGetRequestPayloadSpans(const ByteSpanList* wants,
+                                             const ByteSpanList* haves,
+                                             bool include_transfer_limit,
+                                             uint32_t transfer_limit_kb,
+                                             uint8_t* out_payload,
+                                             size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayHeader(include_transfer_limit ? 3 : 2,
+                           out_payload,
+                           *inout_len,
+                           used))
+    {
+        return false;
+    }
+    if (wants)
+    {
+        if (!appendArrayOfBinSpans(*wants, out_payload, *inout_len, used))
+        {
+            return false;
+        }
+    }
+    else if (!appendNil(out_payload, *inout_len, used))
+    {
+        return false;
+    }
+    if (haves)
+    {
+        if (!appendArrayOfBinSpans(*haves, out_payload, *inout_len, used))
+        {
+            return false;
+        }
+    }
+    else if (!appendNil(out_payload, *inout_len, used))
+    {
+        return false;
+    }
+    if (include_transfer_limit &&
+        !appendUint(transfer_limit_kb, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
 bool decodePropagationIdListPayload(
     const uint8_t* data,
     size_t len,
@@ -1764,12 +2095,38 @@ bool decodePropagationIdListPayload(
     return true;
 }
 
+bool decodePropagationIdListPayload(const uint8_t* data,
+                                    size_t len,
+                                    BinItemCallback on_item,
+                                    void* callback_context)
+{
+    if (!data || len == 0 || !on_item)
+    {
+        return false;
+    }
+    Cursor cursor{data, len, 0};
+    if (!readArrayOfBins(cursor, on_item, callback_context) ||
+        cursor.pos != cursor.len)
+    {
+        return false;
+    }
+    return true;
+}
+
 bool decodePropagationMessageListPayload(
     const uint8_t* data,
     size_t len,
     std::vector<std::vector<uint8_t>>* out_messages)
 {
     return decodePropagationIdListPayload(data, len, out_messages);
+}
+
+bool decodePropagationMessageListPayload(const uint8_t* data,
+                                         size_t len,
+                                         BinItemCallback on_message,
+                                         void* callback_context)
+{
+    return decodePropagationIdListPayload(data, len, on_message, callback_context);
 }
 
 bool decodePropagationAnnounceAppData(
@@ -1879,6 +2236,25 @@ bool encodePropagationIdListPayload(const std::vector<std::vector<uint8_t>>& ids
     return true;
 }
 
+bool encodePropagationIdListPayload(ByteSpanList ids,
+                                    uint8_t* out_payload,
+                                    size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayOfBinSpans(ids, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
 bool encodePropagationMessageListPayload(const std::vector<std::vector<uint8_t>>& messages,
                                          uint8_t* out_payload,
                                          size_t* inout_len)
@@ -1887,6 +2263,16 @@ bool encodePropagationMessageListPayload(const std::vector<std::vector<uint8_t>>
 }
 
 bool encodePropagationMessageListPayload(const std::vector<ByteSpan>& messages,
+                                         uint8_t* out_payload,
+                                         size_t* inout_len)
+{
+    return encodePropagationMessageListPayload(
+        ByteSpanList{messages.data(), messages.size()},
+        out_payload,
+        inout_len);
+}
+
+bool encodePropagationMessageListPayload(ByteSpanList messages,
                                          uint8_t* out_payload,
                                          size_t* inout_len)
 {

@@ -26,7 +26,7 @@ struct PropagationRuntimeLimits
 
 struct PropagationMessageSelection
 {
-    std::vector<ByteSpan> messages;
+    RuntimeByteSpanList messages;
     uint32_t served_count = 0;
 };
 
@@ -101,15 +101,15 @@ std::size_t removePropagationEntriesForDestination(
     const uint8_t transient_id[reticulum::kFullHashSize],
     const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
 
-std::vector<std::vector<uint8_t>> collectMissingPropagationTransientIds(
+PropagationIdList collectMissingPropagationTransientIds(
     const PropagationRuntime& propagation,
-    const std::vector<std::vector<uint8_t>>& transient_ids);
-std::vector<std::vector<uint8_t>> collectPropagationEntryIdsForDestination(
+    const PropagationIdList& transient_ids);
+PropagationIdList collectPropagationEntryIdsForDestination(
     const PropagationRuntime& propagation,
     const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
 PropagationMessageSelection collectPropagationMessagesForWants(
     PropagationRuntime& propagation,
-    const std::vector<std::vector<uint8_t>>& transient_ids,
+    const PropagationIdList& transient_ids,
     const uint8_t destination_hash[reticulum::kTruncatedHashSize],
     std::size_t transfer_limit_bytes,
     std::size_t base_response_size,

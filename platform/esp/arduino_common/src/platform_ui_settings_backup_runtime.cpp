@@ -1,16 +1,13 @@
 #include "platform/ui/settings_backup_runtime.h"
 
-#if defined(ARDUINO)
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#if defined(ARDUINO)
 #include <Arduino.h>
 #include <Preferences.h>
 #else
 #include "esp_timer.h"
 #include "nvs.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
-
-#include <cerrno>
-#include <sys/stat.h>
 #endif
 
 #include <cmath>
@@ -52,70 +49,29 @@ uint32_t uptime_ms()
 #endif
 }
 
-#if !defined(ARDUINO)
-std::string native_storage_path(const char* path)
-{
-    const char* mount_point =
-        ::platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
-    return std::string(mount_point ? mount_point : "/sdcard") + (path ? path : "");
-}
-#endif
-
 bool storage_exists(const char* path)
 {
-#if defined(ARDUINO)
     return ::platform::esp::arduino_common::storage::sd_exists(path);
-#else
-    struct stat info
-    {
-    };
-    const std::string native_path = native_storage_path(path);
-    return stat(native_path.c_str(), &info) == 0;
-#endif
 }
 
 bool storage_is_directory(const char* path)
 {
-#if defined(ARDUINO)
     return ::platform::esp::arduino_common::storage::sd_is_directory(path);
-#else
-    struct stat info
-    {
-    };
-    const std::string native_path = native_storage_path(path);
-    return stat(native_path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
-#endif
 }
 
 bool storage_mkdir(const char* path)
 {
-#if defined(ARDUINO)
     return ::platform::esp::arduino_common::storage::sd_mkdir(path);
-#else
-    const std::string native_path = native_storage_path(path);
-    return mkdir(native_path.c_str(), 0775) == 0 || errno == EEXIST;
-#endif
 }
 
 bool storage_remove(const char* path)
 {
-#if defined(ARDUINO)
     return ::platform::esp::arduino_common::storage::sd_remove(path);
-#else
-    const std::string native_path = native_storage_path(path);
-    return std::remove(native_path.c_str()) == 0 || errno == ENOENT;
-#endif
 }
 
 bool storage_rename(const char* from, const char* to)
 {
-#if defined(ARDUINO)
     return ::platform::esp::arduino_common::storage::sd_rename(from, to);
-#else
-    const std::string native_from = native_storage_path(from);
-    const std::string native_to = native_storage_path(to);
-    return std::rename(native_from.c_str(), native_to.c_str()) == 0;
-#endif
 }
 
 enum class ValueType : uint8_t
@@ -1228,25 +1184,15 @@ bool write_text_atomic(const char* path, const char* temp_path, const char* text
     {
         storage_remove(temp_path);
     }
-#if defined(ARDUINO)
     ::platform::esp::arduino_common::storage::SdRuntimeFile file;
     if (!file.open(temp_path, "w"))
     {
         return false;
     }
     const bool wrote = file.write(reinterpret_cast<const uint8_t*>(text), len) == len;
+    const bool flushed = file.flush();
     file.close();
-#else
-    const std::string native_temp_path = native_storage_path(temp_path);
-    std::FILE* file = std::fopen(native_temp_path.c_str(), "wb");
-    if (!file)
-    {
-        return false;
-    }
-    const bool wrote = std::fwrite(text, 1, len, file) == len && std::fflush(file) == 0;
-    std::fclose(file);
-#endif
-    if (!wrote)
+    if (!wrote || !flushed)
     {
         storage_remove(temp_path);
         return false;
@@ -1266,7 +1212,6 @@ bool write_text_atomic(const char* path, const char* temp_path, const char* text
 bool read_file_text(const char* path, std::string& out)
 {
     out.clear();
-#if defined(ARDUINO)
     ::platform::esp::arduino_common::storage::SdRuntimeFile file;
     if (!file.open(path, "r"))
     {
@@ -1281,30 +1226,6 @@ bool read_file_text(const char* path, std::string& out)
     out.resize(size);
     const std::size_t read = file.read_bytes(&out[0], size);
     file.close();
-#else
-    const std::string native_path = native_storage_path(path);
-    std::FILE* file = std::fopen(native_path.c_str(), "rb");
-    if (!file)
-    {
-        return false;
-    }
-    if (std::fseek(file, 0, SEEK_END) != 0)
-    {
-        std::fclose(file);
-        return false;
-    }
-    const long file_size = std::ftell(file);
-    if (file_size <= 0 || static_cast<std::size_t>(file_size) > kMaxBackupBytes ||
-        std::fseek(file, 0, SEEK_SET) != 0)
-    {
-        std::fclose(file);
-        return false;
-    }
-    const std::size_t size = static_cast<std::size_t>(file_size);
-    out.resize(size);
-    const std::size_t read = std::fread(&out[0], 1, size, file);
-    std::fclose(file);
-#endif
     if (read != size)
     {
         out.clear();

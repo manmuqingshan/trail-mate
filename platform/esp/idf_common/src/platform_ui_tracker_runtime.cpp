@@ -1,6 +1,7 @@
 #include "platform/ui/tracker_runtime.h"
 
 #include "esp_timer.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/ui/gps_runtime.h"
 
@@ -9,9 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
-#include <dirent.h>
 #include <string>
-#include <sys/stat.h>
 
 namespace platform::ui::tracker
 {
@@ -33,7 +32,7 @@ struct TrackerRuntimeState
     bool has_last_point = false;
     double last_lat = 0.0;
     double last_lng = 0.0;
-    FILE* file = nullptr;
+    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
     std::string current_rel_path;
 };
 
@@ -45,23 +44,28 @@ TrackerRuntimeState& state()
 
 bool is_regular_file(const std::string& path)
 {
-    struct stat st
-    {
-    };
-    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+    return ::platform::esp::arduino_common::storage::sd_exists(path.c_str()) &&
+           !::platform::esp::arduino_common::storage::sd_is_directory(path.c_str());
 }
 
 std::string full_path_for(const std::string& relative)
 {
-    const char* mount = platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
-    std::string path = mount ? mount : "";
-    if (!relative.empty())
+    if (relative.empty())
     {
-        if (!path.empty() && path.back() == '/' && relative.front() == '/')
-        {
-            path.pop_back();
-        }
-        path += relative;
+        return "/";
+    }
+    std::string path = relative;
+    if (path.size() >= 2 && (path[0] == 'A' || path[0] == 'a') && path[1] == ':')
+    {
+        path.erase(0, 2);
+    }
+    if (path.empty())
+    {
+        return "/";
+    }
+    if (path.front() != '/')
+    {
+        path.insert(path.begin(), '/');
     }
     return path;
 }
@@ -73,14 +77,8 @@ bool ensure_track_dir()
         return false;
     }
     const std::string base = full_path_for(kTrackDir);
-    if (::mkdir(base.c_str(), 0775) == 0)
-    {
-        return true;
-    }
-    struct stat st
-    {
-    };
-    return ::stat(base.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+    return ::platform::esp::arduino_common::storage::sd_mkdir(base.c_str()) ||
+           ::platform::esp::arduino_common::storage::sd_is_directory(base.c_str());
 }
 
 uint64_t now_ms()
@@ -177,50 +175,49 @@ void format_iso_time(uint32_t seconds, char* out, size_t out_len)
 
 void write_header(TrackerRuntimeState& runtime)
 {
-    if (runtime.file == nullptr)
+    if (!runtime.file.is_open())
     {
         return;
     }
     switch (runtime.format)
     {
     case Format::CSV:
-        std::fprintf(runtime.file, "time,lat,lon,alt_m,speed_mps,satellites\n");
+        runtime.file.print("time,lat,lon,alt_m,speed_mps,satellites\n");
         break;
     case Format::Binary:
     {
         static constexpr char kHeader[] = "TMTRK1";
-        (void)std::fwrite(kHeader, 1, sizeof(kHeader) - 1, runtime.file);
+        (void)runtime.file.write(kHeader, sizeof(kHeader) - 1);
         break;
     }
     case Format::GPX:
     default:
-        std::fprintf(runtime.file,
-                     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                     "<gpx version=\"1.1\" creator=\"Trail Mate\">\n"
-                     "  <trk><name>Trail Mate Track</name><trkseg>\n");
+        runtime.file.print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                           "<gpx version=\"1.1\" creator=\"Trail Mate\">\n"
+                           "  <trk><name>Trail Mate Track</name><trkseg>\n");
         break;
     }
-    std::fflush(runtime.file);
+    runtime.file.flush();
 }
 
 void write_footer(TrackerRuntimeState& runtime)
 {
-    if (runtime.file == nullptr)
+    if (!runtime.file.is_open())
     {
         return;
     }
     if (runtime.format == Format::GPX)
     {
-        std::fprintf(runtime.file, "  </trkseg></trk>\n</gpx>\n");
+        runtime.file.print("  </trkseg></trk>\n</gpx>\n");
     }
-    std::fflush(runtime.file);
+    runtime.file.flush();
 }
 
 void write_point(TrackerRuntimeState& runtime,
                  const platform::ui::gps::GpsState& gps,
                  uint32_t seconds)
 {
-    if (runtime.file == nullptr)
+    if (!runtime.file.is_open())
     {
         return;
     }
@@ -231,14 +228,13 @@ void write_point(TrackerRuntimeState& runtime,
     {
         char iso[24] = {};
         format_iso_time(seconds, iso, sizeof(iso));
-        std::fprintf(runtime.file,
-                     "%s,%.7f,%.7f,%.2f,%.2f,%u\n",
-                     iso[0] != '\0' ? iso : "",
-                     gps.lat,
-                     gps.lng,
-                     gps.has_alt ? gps.alt_m : 0.0,
-                     gps.has_speed ? gps.speed_mps : 0.0,
-                     static_cast<unsigned>(gps.satellites));
+        runtime.file.printf("%s,%.7f,%.7f,%.2f,%.2f,%u\n",
+                            iso[0] != '\0' ? iso : "",
+                            gps.lat,
+                            gps.lng,
+                            gps.has_alt ? gps.alt_m : 0.0,
+                            gps.has_speed ? gps.speed_mps : 0.0,
+                            static_cast<unsigned>(gps.satellites));
         break;
     }
     case Format::Binary:
@@ -262,7 +258,7 @@ void write_point(TrackerRuntimeState& runtime,
         point.satellites = gps.satellites;
         point.flags = static_cast<uint8_t>((gps.has_alt ? 0x01 : 0x00) |
                                            (gps.has_speed ? 0x02 : 0x00));
-        (void)std::fwrite(&point, sizeof(point), 1, runtime.file);
+        (void)runtime.file.write(&point, sizeof(point));
         break;
     }
     case Format::GPX:
@@ -270,23 +266,22 @@ void write_point(TrackerRuntimeState& runtime,
     {
         char iso[24] = {};
         format_iso_time(seconds, iso, sizeof(iso));
-        std::fprintf(runtime.file,
-                     "    <trkpt lat=\"%.7f\" lon=\"%.7f\">",
-                     gps.lat,
-                     gps.lng);
+        runtime.file.printf("    <trkpt lat=\"%.7f\" lon=\"%.7f\">",
+                            gps.lat,
+                            gps.lng);
         if (gps.has_alt)
         {
-            std::fprintf(runtime.file, "<ele>%.2f</ele>", gps.alt_m);
+            runtime.file.printf("<ele>%.2f</ele>", gps.alt_m);
         }
         if (iso[0] != '\0')
         {
-            std::fprintf(runtime.file, "<time>%s</time>", iso);
+            runtime.file.printf("<time>%s</time>", iso);
         }
-        std::fprintf(runtime.file, "</trkpt>\n");
+        runtime.file.print("</trkpt>\n");
         break;
     }
     }
-    std::fflush(runtime.file);
+    runtime.file.flush();
 }
 
 } // namespace
@@ -315,8 +310,7 @@ bool start_recording()
 
     runtime.current_rel_path = make_track_path(runtime.format);
     const std::string full_path = full_path_for(runtime.current_rel_path);
-    runtime.file = std::fopen(full_path.c_str(), "wb");
-    if (runtime.file == nullptr)
+    if (!runtime.file.open(full_path.c_str(), "wb"))
     {
         runtime.current_rel_path.clear();
         return false;
@@ -338,11 +332,7 @@ void stop_recording()
         return;
     }
     write_footer(runtime);
-    if (runtime.file != nullptr)
-    {
-        std::fclose(runtime.file);
-        runtime.file = nullptr;
-    }
+    runtime.file.close();
     runtime.recording = false;
     runtime.last_sample_ms = 0;
     runtime.has_last_point = false;
@@ -359,7 +349,7 @@ void poll()
         }
         return;
     }
-    if (runtime.file == nullptr)
+    if (!runtime.file.is_open())
     {
         stop_recording();
         return;
@@ -406,26 +396,26 @@ bool list_tracks(std::vector<std::string>& out_tracks, std::size_t max_count)
         return false;
     }
 
-    const std::string base = std::string(platform::esp::idf_common::bsp_runtime::sdcard_mount_point()) + track_dir();
-    DIR* dir = ::opendir(base.c_str());
-    if (dir == nullptr)
+    const std::string base = full_path_for(track_dir());
+    ::platform::esp::arduino_common::storage::SdRuntimeDir dir;
+    if (!dir.open(base.c_str()))
     {
         return false;
     }
 
     while (out_tracks.size() < max_count)
     {
-        dirent* entry = ::readdir(dir);
-        if (entry == nullptr)
+        char name_buffer[96] = {};
+        bool is_dir = false;
+        if (!dir.read_next(name_buffer, sizeof(name_buffer), &is_dir))
         {
             break;
         }
-        const char* name_c = entry->d_name;
-        if (name_c == nullptr || std::strcmp(name_c, ".") == 0 || std::strcmp(name_c, "..") == 0)
+        if (is_dir)
         {
             continue;
         }
-        std::string name = name_c;
+        std::string name = name_buffer;
         if (name == "active.bin")
         {
             continue;
@@ -436,7 +426,7 @@ bool list_tracks(std::vector<std::string>& out_tracks, std::size_t max_count)
             out_tracks.push_back(name);
         }
     }
-    ::closedir(dir);
+    dir.close();
     std::sort(out_tracks.begin(), out_tracks.end());
     return !out_tracks.empty();
 }
@@ -447,8 +437,8 @@ bool remove_track(const std::string& path)
     {
         return false;
     }
-    const std::string mount_prefixed = std::string(platform::esp::idf_common::bsp_runtime::sdcard_mount_point()) + path;
-    return std::remove(mount_prefixed.c_str()) == 0;
+    const std::string logical_path = full_path_for(path);
+    return ::platform::esp::arduino_common::storage::sd_remove(logical_path.c_str());
 }
 
 const char* track_dir()

@@ -4,6 +4,7 @@
 #include <ctime>
 #include <vector>
 
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/settings_store.h"
@@ -146,12 +147,11 @@ bool ui_take_screenshot_to_sd()
     }
     snprintf(path,
              sizeof(path),
-             "%s/screenshot_%s.bmp",
-             platform::esp::idf_common::bsp_runtime::sdcard_mount_point(),
+             "/screenshot_%s.bmp",
              ts);
 
-    FILE* file = fopen(path, "wb");
-    if (!file)
+    platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(path, "wb"))
     {
         lv_draw_buf_destroy(snap);
         return false;
@@ -168,7 +168,7 @@ bool ui_take_screenshot_to_sd()
         static_cast<uint8_t>((data_offset >> 8) & 0xFF),
         static_cast<uint8_t>((data_offset >> 16) & 0xFF),
         static_cast<uint8_t>((data_offset >> 24) & 0xFF)};
-    fwrite(file_hdr, 1, sizeof(file_hdr), file);
+    file.write(file_hdr, sizeof(file_hdr));
 
     uint8_t info_hdr[40] = {0};
     info_hdr[0] = 40;
@@ -186,7 +186,7 @@ bool ui_take_screenshot_to_sd()
     info_hdr[21] = static_cast<uint8_t>((pixel_bytes >> 8) & 0xFF);
     info_hdr[22] = static_cast<uint8_t>((pixel_bytes >> 16) & 0xFF);
     info_hdr[23] = static_cast<uint8_t>((pixel_bytes >> 24) & 0xFF);
-    fwrite(info_hdr, 1, sizeof(info_hdr), file);
+    file.write(info_hdr, sizeof(info_hdr));
 
     const uint8_t* pixels = static_cast<const uint8_t*>(snap->data);
     std::vector<uint8_t> rowbuf(row24, 0);
@@ -207,11 +207,11 @@ bool ui_take_screenshot_to_sd()
             rowbuf[idx++] = g;
             rowbuf[idx++] = r;
         }
-        fwrite(rowbuf.data(), 1, rowbuf.size(), file);
+        file.write(rowbuf.data(), rowbuf.size());
     }
 
-    fflush(file);
-    fclose(file);
+    file.flush();
+    file.close();
     lv_draw_buf_destroy(snap);
     return true;
 #else

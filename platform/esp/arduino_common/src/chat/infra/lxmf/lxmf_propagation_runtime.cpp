@@ -38,7 +38,8 @@ void copyHash(uint8_t* out, const uint8_t* in, std::size_t len)
     std::memcpy(out, in, len);
 }
 
-bool validTransientId(const std::vector<uint8_t>& transient_id)
+template <typename ByteBuffer>
+bool validTransientId(const ByteBuffer& transient_id)
 {
     return transient_id.size() == reticulum::kFullHashSize;
 }
@@ -384,7 +385,7 @@ bool commitPropagationDelivery(
             const bool already_have =
                 std::any_of(propagation.sync_haves.begin(),
                             propagation.sync_haves.end(),
-                            [&pending](const std::vector<uint8_t>& transient_id)
+                            [&pending](const auto& transient_id)
                             {
                                 return transient_id.size() ==
                                            reticulum::kFullHashSize &&
@@ -486,11 +487,11 @@ std::size_t removePropagationEntriesForDestination(
     return old_size - propagation.entries.size();
 }
 
-std::vector<std::vector<uint8_t>> collectMissingPropagationTransientIds(
+PropagationIdList collectMissingPropagationTransientIds(
     const PropagationRuntime& propagation,
-    const std::vector<std::vector<uint8_t>>& transient_ids)
+    const PropagationIdList& transient_ids)
 {
-    std::vector<std::vector<uint8_t>> wanted_ids;
+    PropagationIdList wanted_ids;
     wanted_ids.reserve(transient_ids.size());
 
     for (const auto& transient_id : transient_ids)
@@ -509,11 +510,11 @@ std::vector<std::vector<uint8_t>> collectMissingPropagationTransientIds(
     return wanted_ids;
 }
 
-std::vector<std::vector<uint8_t>> collectPropagationEntryIdsForDestination(
+PropagationIdList collectPropagationEntryIdsForDestination(
     const PropagationRuntime& propagation,
     const uint8_t destination_hash[reticulum::kTruncatedHashSize])
 {
-    std::vector<std::vector<uint8_t>> response_items;
+    PropagationIdList response_items;
     if (!destination_hash)
     {
         return response_items;
@@ -535,7 +536,7 @@ std::vector<std::vector<uint8_t>> collectPropagationEntryIdsForDestination(
 
 PropagationMessageSelection collectPropagationMessagesForWants(
     PropagationRuntime& propagation,
-    const std::vector<std::vector<uint8_t>>& transient_ids,
+    const PropagationIdList& transient_ids,
     const uint8_t destination_hash[reticulum::kTruncatedHashSize],
     std::size_t transfer_limit_bytes,
     std::size_t base_response_size,

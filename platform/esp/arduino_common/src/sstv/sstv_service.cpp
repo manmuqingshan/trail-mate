@@ -9,15 +9,12 @@
     defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-#include <cerrno>
-#include <cstdio>
 #include <string>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "platform/esp/idf_common/tab5_codec_compat.h"
@@ -37,6 +34,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <new>
 
 #include "sstv/decode_sstv.h"
 #include "sstv/sstv_config.h"
@@ -49,20 +47,22 @@ class File
 {
   public:
     File() = default;
-    explicit File(FILE* handle) : handle_(handle) {}
     File(const File&) = delete;
     File& operator=(const File&) = delete;
-    File(File&& other) noexcept : handle_(other.handle_)
+    File(File&& other) noexcept : file_(other.file_), open_(other.open_)
     {
-        other.handle_ = nullptr;
+        other.file_ = nullptr;
+        other.open_ = false;
     }
     File& operator=(File&& other) noexcept
     {
         if (this != &other)
         {
             close();
-            handle_ = other.handle_;
-            other.handle_ = nullptr;
+            file_ = other.file_;
+            open_ = other.open_;
+            other.file_ = nullptr;
+            other.open_ = false;
         }
         return *this;
     }
@@ -73,72 +73,96 @@ class File
 
     explicit operator bool() const
     {
-        return handle_ != nullptr;
+        return file_ != nullptr && open_;
     }
 
     size_t write(const void* data, size_t size)
     {
-        return handle_ ? std::fwrite(data, 1, size, handle_) : 0;
+        return file_ && open_ ? file_->write(data, size) : 0;
     }
 
     void flush()
     {
-        if (handle_)
+        if (file_ && open_)
         {
-            std::fflush(handle_);
+            (void)file_->flush();
         }
     }
 
     void close()
     {
-        if (handle_)
+        if (file_)
         {
-            std::fclose(handle_);
-            handle_ = nullptr;
+            file_->close();
+            delete file_;
+            file_ = nullptr;
+            open_ = false;
         }
     }
 
+    bool open(const char* path, const char* mode)
+    {
+        close();
+        file_ = new (std::nothrow)::platform::esp::arduino_common::storage::SdRuntimeFile();
+        if (!file_)
+        {
+            return false;
+        }
+        open_ = file_->open(path, mode);
+        if (!open_)
+        {
+            close();
+        }
+        return open_;
+    }
+
   private:
-    FILE* handle_ = nullptr;
+    ::platform::esp::arduino_common::storage::SdRuntimeFile* file_ = nullptr;
+    bool open_ = false;
 };
 
 std::string resolve_sd_path(const char* path)
 {
-    const std::string mount = platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
     if (!path || path[0] == '\0')
     {
-        return mount;
+        return "/";
     }
-    if (std::strncmp(path, mount.c_str(), mount.size()) == 0)
+    std::string logical = path;
+    if (logical.size() >= 2 && (logical[0] == 'A' || logical[0] == 'a') && logical[1] == ':')
     {
-        return std::string(path);
+        logical.erase(0, 2);
     }
-    if (path[0] == '/')
+    if (logical.empty())
     {
-        return mount + path;
+        return "/";
     }
-    return mount + "/" + path;
+    if (logical.front() != '/')
+    {
+        logical.insert(logical.begin(), '/');
+    }
+    return logical;
 }
 
 struct StorageFacade
 {
     bool exists(const char* path) const
     {
-        struct stat st
-        {
-        };
-        return ::stat(resolve_sd_path(path).c_str(), &st) == 0;
+        const std::string resolved = resolve_sd_path(path);
+        return ::platform::esp::arduino_common::storage::sd_exists(resolved.c_str());
     }
 
     bool mkdir(const char* path) const
     {
         const std::string resolved = resolve_sd_path(path);
-        return ::mkdir(resolved.c_str(), 0775) == 0 || errno == EEXIST;
+        return ::platform::esp::arduino_common::storage::sd_mkdir(resolved.c_str());
     }
 
     int cardType() const
     {
-        return platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready() ? 1 : 0;
+        return platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready() &&
+                       ::platform::esp::arduino_common::storage::sd_card_ready()
+                   ? 1
+                   : 0;
     }
 
     File open(const char* path, int mode) const
@@ -148,7 +172,9 @@ struct StorageFacade
             return File{};
         }
         const char* open_mode = mode == 1 ? "wb" : "rb";
-        return File{std::fopen(resolve_sd_path(path).c_str(), open_mode)};
+        File file;
+        (void)file.open(resolve_sd_path(path).c_str(), open_mode);
+        return file;
     }
 };
 

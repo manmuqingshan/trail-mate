@@ -8,6 +8,8 @@
 #include "platform/esp/common/shared_spi_bus_arbiter.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/screen_runtime.h"
+#elif defined(ESP_PLATFORM)
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #else
 #include "platform/esp/idf_common/flash_storage_runtime.h"
 #include <sys/stat.h>
@@ -1941,7 +1943,7 @@ namespace platform::ui::reticulum_page
 namespace
 {
 
-#if defined(ARDUINO)
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
 constexpr const char* kPagesDir = "/trailmate/reticulum/pages";
 #else
 constexpr const char* kPagesDir = "/fs/trailmate/reticulum/pages";
@@ -2121,8 +2123,10 @@ bool page_sd_available()
 #if defined(ARDUINO)
     return ::platform::ui::device::card_ready() &&
            ::platform::esp::arduino_common::storage::sd_card_ready();
+#elif defined(ESP_PLATFORM)
+    return ::platform::esp::arduino_common::storage::sd_card_ready();
 #else
-    return ::platform::esp::idf_common::flash_storage_runtime::ensure_ready(true);
+    return false;
 #endif
 }
 
@@ -2261,7 +2265,7 @@ std::string cache_path(const char* destination_hash, const char* path)
     return out;
 }
 
-#if defined(ARDUINO)
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
 using PageRuntimeFile =
     ::platform::esp::arduino_common::storage::SdRuntimeFile;
 
@@ -2380,7 +2384,7 @@ bool ensure_dir(const std::string& path)
 
 bool ensure_page_parent_dirs(const char* destination_hash, const char* path)
 {
-#if defined(ARDUINO)
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
     if (!ensure_dir("/trailmate") || !ensure_dir("/trailmate/reticulum") ||
         !ensure_dir(kPagesDir))
 #else

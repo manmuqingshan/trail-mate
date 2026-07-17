@@ -4,8 +4,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 #include "esp_core_dump.h"
 #include "esp_err.h"
@@ -14,6 +12,7 @@
 #include "esp_random.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "sdkconfig.h"
 
@@ -55,15 +54,8 @@ void copy_path(char* out, std::size_t out_size, const char* value)
 
 bool path_is_dir(const char* path)
 {
-    if (!path || path[0] == '\0')
-    {
-        return false;
-    }
-
-    struct stat st
-    {
-    };
-    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+    return path && path[0] != '\0' &&
+           ::platform::esp::arduino_common::storage::sd_is_directory(path);
 }
 
 bool ensure_dir(const char* path)
@@ -72,7 +64,7 @@ bool ensure_dir(const char* path)
     {
         return true;
     }
-    if (mkdir(path, 0755) == 0)
+    if (::platform::esp::arduino_common::storage::sd_mkdir(path))
     {
         return true;
     }
@@ -89,19 +81,13 @@ bool build_trailmate_path(char* out,
         return false;
     }
 
-    const char* mount = bsp_runtime::sdcard_mount_point();
-    if (!mount || mount[0] == '\0')
-    {
-        return false;
-    }
-
     if (second)
     {
-        std::snprintf(out, out_size, "%s/%s/%s", mount, first, second);
+        std::snprintf(out, out_size, "/%s/%s", first, second);
     }
     else
     {
-        std::snprintf(out, out_size, "%s/%s", mount, first);
+        std::snprintf(out, out_size, "/%s", first);
     }
     out[out_size - 1] = '\0';
     return true;
@@ -216,36 +202,33 @@ bool write_coredump_metadata(const char* coredump_path,
     std::snprintf(metadata_path, sizeof(metadata_path), "%s.txt", coredump_path);
     metadata_path[sizeof(metadata_path) - 1] = '\0';
 
-    FILE* metadata = std::fopen(metadata_path, "w");
-    if (!metadata)
+    ::platform::esp::arduino_common::storage::SdRuntimeFile metadata;
+    if (!metadata.open(metadata_path, "w"))
     {
         return false;
     }
 
-    std::fprintf(metadata, "path=%s\n", coredump_path);
-    std::fprintf(metadata, "size=%lu\n", static_cast<unsigned long>(coredump_size));
-    std::fprintf(metadata, "flash_addr=0x%08lX\n", static_cast<unsigned long>(flash_addr));
-    std::fprintf(metadata, "check_result=0x%08lX\n", static_cast<unsigned long>(check_result));
-    std::fprintf(metadata, "erase_result=0x%08lX\n", static_cast<unsigned long>(erase_result));
-    std::fprintf(metadata, "reset_reason=%s\n", reset_reason_name(esp_reset_reason()));
+    metadata.printf("path=%s\n", coredump_path);
+    metadata.printf("size=%lu\n", static_cast<unsigned long>(coredump_size));
+    metadata.printf("flash_addr=0x%08lX\n", static_cast<unsigned long>(flash_addr));
+    metadata.printf("check_result=0x%08lX\n", static_cast<unsigned long>(check_result));
+    metadata.printf("erase_result=0x%08lX\n", static_cast<unsigned long>(erase_result));
+    metadata.printf("reset_reason=%s\n", reset_reason_name(esp_reset_reason()));
 
     if (summary.available)
     {
-        std::fprintf(metadata, "exception_task=%s\n", summary.exception_task);
-        std::fprintf(metadata,
-                     "exception_pc=0x%08lX\n",
-                     static_cast<unsigned long>(summary.exception_pc));
-        std::fprintf(metadata,
-                     "exception_tcb=0x%08lX\n",
-                     static_cast<unsigned long>(summary.exception_tcb));
-        std::fprintf(metadata,
-                     "core_dump_version=0x%08lX\n",
-                     static_cast<unsigned long>(summary.core_dump_version));
-        std::fprintf(metadata, "app_elf_sha256=%s\n", summary.app_elf_sha256);
+        metadata.printf("exception_task=%s\n", summary.exception_task);
+        metadata.printf("exception_pc=0x%08lX\n",
+                        static_cast<unsigned long>(summary.exception_pc));
+        metadata.printf("exception_tcb=0x%08lX\n",
+                        static_cast<unsigned long>(summary.exception_tcb));
+        metadata.printf("core_dump_version=0x%08lX\n",
+                        static_cast<unsigned long>(summary.core_dump_version));
+        metadata.printf("app_elf_sha256=%s\n", summary.app_elf_sha256);
     }
 
-    const bool ok = std::fflush(metadata) == 0;
-    std::fclose(metadata);
+    const bool ok = metadata.flush();
+    metadata.close();
     return ok;
 }
 
@@ -259,8 +242,8 @@ bool export_coredump_payload(const esp_partition_t* partition,
         return false;
     }
 
-    FILE* out = std::fopen(path, "wb");
-    if (!out)
+    ::platform::esp::arduino_common::storage::SdRuntimeFile out;
+    if (!out.open(path, "wb"))
     {
         return false;
     }
@@ -272,24 +255,24 @@ bool export_coredump_payload(const esp_partition_t* partition,
         const std::size_t to_read = std::min(kCoredumpChunkBytes, size - offset);
         if (esp_partition_read(partition, partition_offset + offset, buffer, to_read) != ESP_OK)
         {
-            std::fclose(out);
-            std::remove(path);
+            out.close();
+            ::platform::esp::arduino_common::storage::sd_remove(path);
             return false;
         }
-        if (std::fwrite(buffer, 1, to_read, out) != to_read)
+        if (out.write(buffer, to_read) != to_read)
         {
-            std::fclose(out);
-            std::remove(path);
+            out.close();
+            ::platform::esp::arduino_common::storage::sd_remove(path);
             return false;
         }
         offset += to_read;
     }
 
-    const bool ok = std::fflush(out) == 0;
-    std::fclose(out);
+    const bool ok = out.flush();
+    out.close();
     if (!ok)
     {
-        std::remove(path);
+        ::platform::esp::arduino_common::storage::sd_remove(path);
     }
     return ok;
 }

@@ -33,6 +33,7 @@
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/radio/meshtastic_radio_adapter.h"
@@ -58,14 +59,12 @@
 #include "ui/widgets/top_bar_power_presenter.h"
 
 #include <algorithm>
-#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <memory>
 #include <string>
-#include <sys/stat.h>
 #include <vector>
 #endif
 
@@ -338,21 +337,23 @@ bool isValidContactBlobSize(size_t len)
 
 std::string makeSdPath(const char* relative)
 {
-    const char* mount = platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
-    std::string path = mount ? mount : "";
-    if (path.empty() || !relative || !relative[0])
+    if (!relative || !relative[0])
     {
-        return path;
+        return "/";
     }
-    if (path.back() == '/' && relative[0] == '/')
+    std::string path = relative;
+    if (path.size() >= 2 && (path[0] == 'A' || path[0] == 'a') && path[1] == ':')
     {
-        path.pop_back();
+        path.erase(0, 2);
     }
-    else if (path.back() != '/' && relative[0] != '/')
+    if (path.empty())
     {
-        path.push_back('/');
+        return "/";
     }
-    path += relative;
+    if (path.front() != '/')
+    {
+        path.insert(path.begin(), '/');
+    }
     return path;
 }
 
@@ -366,46 +367,42 @@ bool readSdFile(const char* relative, std::vector<uint8_t>& out, size_t max_len)
     }
 
     const std::string path = makeSdPath(relative);
-    FILE* file = std::fopen(path.c_str(), "rb");
-    if (!file)
+    platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(path.c_str(), "rb"))
     {
         return false;
     }
 
-    if (std::fseek(file, 0, SEEK_END) != 0)
+    const uint64_t file_size = file.size();
+    if (file_size == 0 || file_size > max_len)
     {
-        std::fclose(file);
+        file.close();
         return false;
     }
-    const long size = std::ftell(file);
-    if (size <= 0 || static_cast<size_t>(size) > max_len)
+    if (!file.seek(0))
     {
-        std::fclose(file);
-        return false;
-    }
-    if (std::fseek(file, 0, SEEK_SET) != 0)
-    {
-        std::fclose(file);
+        file.close();
         return false;
     }
 
-    out.reserve(static_cast<size_t>(size));
+    const size_t size = static_cast<size_t>(file_size);
+    out.reserve(size);
     uint8_t buffer[kIdfReadChunkBytes];
     size_t total_read = 0;
-    while (total_read < static_cast<size_t>(size))
+    while (total_read < size)
     {
-        const size_t chunk = std::min(kIdfReadChunkBytes, static_cast<size_t>(size) - total_read);
-        const size_t read = std::fread(buffer, 1, chunk, file);
-        if (read != chunk)
+        const size_t chunk = std::min(kIdfReadChunkBytes, size - total_read);
+        const int read = file.read(buffer, chunk);
+        if (read < 0 || static_cast<size_t>(read) != chunk)
         {
-            std::fclose(file);
+            file.close();
             out.clear();
             return false;
         }
-        out.insert(out.end(), buffer, buffer + read);
-        total_read += read;
+        out.insert(out.end(), buffer, buffer + static_cast<size_t>(read));
+        total_read += static_cast<size_t>(read);
     }
-    std::fclose(file);
+    file.close();
     return true;
 }
 
@@ -417,8 +414,8 @@ bool removeSdFile(const char* relative)
     }
     const std::string path = makeSdPath(relative);
     const std::string temp_path = path + ".tmp";
-    std::remove(temp_path.c_str());
-    std::remove(path.c_str());
+    (void)platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
+    (void)platform::esp::arduino_common::storage::sd_remove(path.c_str());
     return true;
 }
 
@@ -442,32 +439,33 @@ bool writeSdFileAtomic(const char* relative, const uint8_t* data, size_t len)
 
     const std::string path = makeSdPath(relative);
     const std::string temp_path = path + ".tmp";
-    std::remove(temp_path.c_str());
+    (void)platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
 
-    FILE* file = std::fopen(temp_path.c_str(), "wb");
-    if (!file)
+    platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(temp_path.c_str(), "wb"))
     {
         ESP_LOGW(kIdfStoreTag, "save open failed path=%s", temp_path.c_str());
         return false;
     }
 
-    const size_t written = std::fwrite(data, 1, len, file);
-    const int close_result = std::fclose(file);
-    if (written != len || close_result != 0)
+    const size_t written = file.write(data, len);
+    const bool flushed = file.flush();
+    file.close();
+    if (written != len || !flushed)
     {
-        std::remove(temp_path.c_str());
-        ESP_LOGW(kIdfStoreTag, "save write failed path=%s want=%u got=%u close=%d",
+        (void)platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
+        ESP_LOGW(kIdfStoreTag, "save write failed path=%s want=%u got=%u flush=%u",
                  temp_path.c_str(),
                  static_cast<unsigned>(len),
                  static_cast<unsigned>(written),
-                 close_result);
+                 flushed ? 1U : 0U);
         return false;
     }
 
-    std::remove(path.c_str());
-    if (std::rename(temp_path.c_str(), path.c_str()) != 0)
+    (void)platform::esp::arduino_common::storage::sd_remove(path.c_str());
+    if (!platform::esp::arduino_common::storage::sd_rename(temp_path.c_str(), path.c_str()))
     {
-        std::remove(temp_path.c_str());
+        (void)platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
         ESP_LOGW(kIdfStoreTag, "save rename failed tmp=%s path=%s",
                  temp_path.c_str(),
                  path.c_str());
@@ -544,15 +542,18 @@ class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
         std::memcpy(file.data(), &header, sizeof(header));
         std::memcpy(file.data() + sizeof(header), data, len);
         const bool sd_ok = writeSdFileAtomic(kIdfNodesFile, file.data(), file.size());
+        const bool nvs_attempted = !sd_ok;
         const bool nvs_ok =
-            saveNvsBlob(kIdfNodesNvsKey, "node", data, len, kIdfMaxNodeFileBytes);
+            nvs_attempted
+                ? saveNvsBlob(kIdfNodesNvsKey, "node", data, len, kIdfMaxNodeFileBytes)
+                : false;
         ESP_LOGI(kIdfStoreTag,
-                 "node save path=%s count=%u len=%u sd=%u nvs=%u",
+                 "node save path=%s count=%u len=%u sd=%u nvs=%s",
                  kIdfNodesFile,
                  static_cast<unsigned>(header.count),
                  static_cast<unsigned>(len),
                  sd_ok ? 1U : 0U,
-                 nvs_ok ? 1U : 0U);
+                 nvs_attempted ? (nvs_ok ? "ok" : "fail") : "skipped");
         return sd_ok || nvs_ok;
     }
 
@@ -678,17 +679,9 @@ class IdfSdMeshPeerDirectoryBlobStore final
         }
 
         const std::string path = makeSdPath(kIdfMeshPeersFile);
-        struct stat info = {};
-        if (::stat(path.c_str(), &info) != 0)
+        if (!platform::esp::arduino_common::storage::sd_exists(path.c_str()))
         {
-            return errno == ENOENT
-                       ? chat::MeshPeerDirectoryBlobLoadResult::Missing
-                       : chat::MeshPeerDirectoryBlobLoadResult::IoError;
-        }
-        if (!S_ISREG(info.st_mode) || info.st_size <= 0 ||
-            static_cast<size_t>(info.st_size) > kIdfMaxMeshPeerBlobBytes)
-        {
-            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+            return chat::MeshPeerDirectoryBlobLoadResult::Missing;
         }
         if (!readSdFile(kIdfMeshPeersFile, out, kIdfMaxMeshPeerBlobBytes))
         {
@@ -732,16 +725,8 @@ class IdfSdMeshPeerDirectoryBlobStore final
         }
 
         const std::string path = makeSdPath(kIdfMeshPeersDir);
-        struct stat info = {};
-        if (::stat(path.c_str(), &info) == 0)
-        {
-            return S_ISDIR(info.st_mode);
-        }
-        if (::mkdir(path.c_str(), 0775) == 0)
-        {
-            return true;
-        }
-        return ::stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+        return platform::esp::arduino_common::storage::sd_is_directory(path.c_str()) ||
+               platform::esp::arduino_common::storage::sd_mkdir(path.c_str());
     }
 };
 

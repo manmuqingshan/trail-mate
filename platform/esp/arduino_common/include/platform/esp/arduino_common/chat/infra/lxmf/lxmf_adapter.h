@@ -10,7 +10,16 @@
 #include "chat/infra/mesh_incoming_queue.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/ports/i_mesh_peer_directory.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_announce_ingestor.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_destination_registry.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_link_manager.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_lxst_telephony_client.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_network_page_client.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_packet_router.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_path_manager.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_ping_service.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_client.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_stamp_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_state.h"
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
@@ -96,6 +105,12 @@ class LxmfAdapter : public IMeshAdapter
     using PropagationPeerState = runtime::PropagationPeerState;
     using PendingPropagationUpload = runtime::PendingPropagationUpload;
     using PropagationSyncStage = runtime::PropagationSyncStage;
+    using PendingNomadPageRequest = runtime::PendingNomadPageRequest;
+
+    static bool resolveLocalDestinationForAnnounce(
+        void* context,
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+        LocalDestinationKind* out_kind);
 
     static constexpr uint32_t kAnnounceIntervalMs = 120000;
     static constexpr uint32_t kInitialAnnounceDelayMs = 1500;
@@ -140,27 +155,6 @@ class LxmfAdapter : public IMeshAdapter
         uint8_t packet_hash[reticulum::kFullHashSize] = {};
     };
 
-    struct PendingNomadPageRequest
-    {
-        uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
-        uint8_t request_id[reticulum::kTruncatedHashSize] = {};
-        char path[kNomadPagePathMaxLen] = {};
-        uint32_t created_ms = 0;
-        uint32_t last_attempt_ms = 0;
-        uint32_t last_path_request_ms = 0;
-        bool path_requested = false;
-        bool link_started = false;
-        bool request_sent = false;
-    };
-
-    struct PendingPingRequest
-    {
-        uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
-        uint32_t created_ms = 0;
-        uint32_t last_path_request_ms = 0;
-        uint32_t last_send_attempt_ms = 0;
-    };
-
     struct OutboundLxmfDispatch
     {
         bool ok = false;
@@ -178,7 +172,6 @@ class LxmfAdapter : public IMeshAdapter
     uint8_t announce_tx_signed_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t announce_tx_payload_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t announce_tx_packet_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t announce_rx_signed_scratch_[reticulum::kReticulumMtu] = {};
     sys::RingBuffer<DeferredDiscoveryPacket, kDeferredDiscoveryDepth> deferred_discovery_queue_;
     DeferredDiscoveryPacket deferred_discovery_scratch_{};
     LxmfIdentity identity_;
@@ -186,12 +179,15 @@ class LxmfAdapter : public IMeshAdapter
     static constexpr std::size_t kIncomingQueueDepth = 12;
     ::chat::infra::IncomingTextQueue<kIncomingQueueDepth, reticulum::kReticulumMtu> text_receive_queue_;
     ::chat::infra::IncomingDataQueue<kIncomingQueueDepth, reticulum::kReticulumMtu> data_receive_queue_;
-    std::vector<PeerInfo> peers_;
-    runtime::TransportRuntime transport_;
-    runtime::LinkRuntime links_;
-    runtime::PropagationRuntime propagation_;
-    runtime::PropagationStampRuntime propagation_stamp_;
-    PeerInfo propagation_peer_scratch_{};
+    runtime::DestinationRegistry destination_registry_;
+    runtime::PathManager path_manager_;
+    runtime::LinkManager link_manager_;
+    runtime::AnnounceIngestor announce_ingestor_;
+    runtime::ReticulumPacketRouter packet_router_;
+    runtime::PingService ping_service_;
+    runtime::NetworkPageClient network_page_client_;
+    runtime::PropagationClient propagation_client_;
+    runtime::LxstTelephonyClient lxst_telephony_client_;
     std::string user_long_name_;
     std::string user_short_name_;
     uint32_t last_announce_ms_ = 0;
@@ -214,8 +210,6 @@ class LxmfAdapter : public IMeshAdapter
     std::array<NodeId, kPendingPeerProjectionDepth> pending_peer_projection_nodes_{};
     std::size_t pending_peer_projection_count_ = 0;
     std::array<MeshPeerRecord, kPeerDirectoryHotLoadRecords> peer_directory_load_entries_{};
-    std::vector<PendingPingRequest> pending_ping_requests_;
-    std::vector<PendingNomadPageRequest> pending_nomad_page_requests_;
     uint8_t nomad_page_request_payload_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t nomad_page_wire_payload_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t nomad_page_packet_scratch_[reticulum::kReticulumMtu] = {};
@@ -223,7 +217,6 @@ class LxmfAdapter : public IMeshAdapter
     uint8_t link_request_packet_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t link_request_routed_scratch_[reticulum::kReticulumMtu] = {};
     std::size_t link_request_packet_len_ = 0;
-    uint8_t call_wire_scratch_[reticulum::kReticulumMtu] = {};
     uint32_t last_peer_projection_ms_ = 0;
     uint32_t next_app_packet_id_ = 1;
     bool announce_pending_ = true;
@@ -321,8 +314,8 @@ class LxmfAdapter : public IMeshAdapter
                                      const PropagationPeerState& node);
     bool sendPropagationSyncRequest(LinkSession& session,
                                     PropagationSyncStage next_stage,
-                                    const std::vector<std::vector<uint8_t>>* wants,
-                                    const std::vector<std::vector<uint8_t>>* haves,
+                                    const runtime::PropagationIdList* wants,
+                                    const runtime::PropagationIdList* haves,
                                     bool include_transfer_limit);
     void processPropagationSyncResponse(LinkSession& session);
     bool respondToSidebandTelemetryRequest(
@@ -440,7 +433,7 @@ class LxmfAdapter : public IMeshAdapter
     void pumpPendingPingRequests();
     void pumpNomadPageRequests();
     void completeNomadPageRequest(PendingNomadPageRequest& request,
-                                  const std::vector<uint8_t>& packed_response);
+                                  const runtime::ResourcePayloadBuffer& packed_response);
     PendingNomadPageRequest* findPendingNomadPageRequestById(
         const uint8_t destination_hash[reticulum::kTruncatedHashSize],
         const uint8_t* request_id,

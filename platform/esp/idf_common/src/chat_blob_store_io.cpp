@@ -2,11 +2,11 @@
 
 #if defined(ESP_PLATFORM) && !defined(ARDUINO)
 
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/ui/settings_store.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <string>
 
 namespace chat::infra
@@ -21,29 +21,26 @@ bool valid_key(const char* value)
     return value && value[0] != '\0';
 }
 
-std::string absolute_sd_path(const char* path)
+std::string logical_sd_path(const char* path)
 {
     if (!path || path[0] == '\0')
     {
         return {};
     }
-
-    const char* mount = ::platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
-    std::string absolute = mount ? mount : "";
-    if (absolute.empty())
+    std::string logical = path;
+    if (logical.size() >= 2 && (logical[0] == 'A' || logical[0] == 'a') && logical[1] == ':')
     {
-        return {};
+        logical.erase(0, 2);
     }
-    if (absolute.back() == '/' && path[0] == '/')
+    if (logical.empty())
     {
-        absolute.pop_back();
+        return "/";
     }
-    else if (absolute.back() != '/' && path[0] != '/')
+    if (logical.front() != '/')
     {
-        absolute.push_back('/');
+        logical.insert(logical.begin(), '/');
     }
-    absolute += path;
-    return absolute;
+    return logical;
 }
 
 } // namespace
@@ -57,22 +54,16 @@ bool loadRawBlobFromSd(const char* path, std::vector<uint8_t>& out, std::size_t 
         return false;
     }
 
-    const std::string absolute = absolute_sd_path(path);
-    FILE* file = std::fopen(absolute.c_str(), "rb");
-    if (!file)
+    const std::string logical = logical_sd_path(path);
+    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(logical.c_str(), "rb"))
     {
         return false;
     }
-    if (std::fseek(file, 0, SEEK_END) != 0)
+    const uint64_t file_size = file.size();
+    if (file_size == 0 || file_size > max_len || !file.seek(0))
     {
-        std::fclose(file);
-        return false;
-    }
-    const long file_size = std::ftell(file);
-    if (file_size <= 0 || static_cast<std::size_t>(file_size) > max_len ||
-        std::fseek(file, 0, SEEK_SET) != 0)
-    {
-        std::fclose(file);
+        file.close();
         return false;
     }
 
@@ -83,17 +74,17 @@ bool loadRawBlobFromSd(const char* path, std::vector<uint8_t>& out, std::size_t 
     {
         const std::size_t chunk =
             std::min(sizeof(buffer), static_cast<std::size_t>(file_size) - total);
-        const std::size_t read = std::fread(buffer, 1, chunk, file);
-        if (read != chunk)
+        const int read = file.read(buffer, chunk);
+        if (read < 0 || static_cast<std::size_t>(read) != chunk)
         {
-            std::fclose(file);
+            file.close();
             out.clear();
             return false;
         }
-        out.insert(out.end(), buffer, buffer + read);
-        total += read;
+        out.insert(out.end(), buffer, buffer + static_cast<std::size_t>(read));
+        total += static_cast<std::size_t>(read);
     }
-    std::fclose(file);
+    file.close();
     return true;
 }
 
@@ -105,27 +96,28 @@ bool saveRawBlobToSd(const char* path, const uint8_t* data, std::size_t len)
         return false;
     }
 
-    const std::string absolute = absolute_sd_path(path);
-    const std::string temporary = absolute + ".tmp";
-    std::remove(temporary.c_str());
+    const std::string logical = logical_sd_path(path);
+    const std::string temporary = logical + ".tmp";
+    (void)::platform::esp::arduino_common::storage::sd_remove(temporary.c_str());
 
-    FILE* file = std::fopen(temporary.c_str(), "wb");
-    if (!file)
+    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(temporary.c_str(), "wb"))
     {
         return false;
     }
-    const std::size_t written = len == 0 ? 0 : std::fwrite(data, 1, len, file);
-    const int close_status = std::fclose(file);
-    if (written != len || close_status != 0)
+    const std::size_t written = len == 0 ? 0 : file.write(data, len);
+    const bool flushed = file.flush();
+    file.close();
+    if (written != len || !flushed)
     {
-        std::remove(temporary.c_str());
+        (void)::platform::esp::arduino_common::storage::sd_remove(temporary.c_str());
         return false;
     }
 
-    std::remove(absolute.c_str());
-    if (std::rename(temporary.c_str(), absolute.c_str()) != 0)
+    (void)::platform::esp::arduino_common::storage::sd_remove(logical.c_str());
+    if (!::platform::esp::arduino_common::storage::sd_rename(temporary.c_str(), logical.c_str()))
     {
-        std::remove(temporary.c_str());
+        (void)::platform::esp::arduino_common::storage::sd_remove(temporary.c_str());
         return false;
     }
     return true;

@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "platform/esp/boards/board_runtime.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -14,10 +15,32 @@ constexpr const char* kTag = "idf-app-runtime";
 constexpr uint32_t kDisplayLockTimeoutMs = 50;
 constexpr std::size_t kMaxEventsPerDisplayLock = 4;
 
+std::atomic<bool> s_lvgl_task_owned_ui_dispatch{false};
+
 } // namespace
 
 namespace platform::esp::idf_common
 {
+
+void setLvglTaskOwnedUiDispatch(bool enabled)
+{
+    s_lvgl_task_owned_ui_dispatch.store(enabled, std::memory_order_release);
+}
+
+void tickLvglTaskOwnedUiLifecycle(std::size_t max_events)
+{
+    if (!app::hasAppFacade())
+    {
+        return;
+    }
+
+    app::IAppLifecycleFacade& lifecycle = app::lifecycleFacade();
+    lifecycle.tickEventRuntime();
+
+    const std::size_t event_budget =
+        max_events < kMaxEventsPerDisplayLock ? max_events : kMaxEventsPerDisplayLock;
+    lifecycle.dispatchPendingEvents(event_budget);
+}
 
 void tickBoundLifecycle(std::size_t max_events)
 {
@@ -31,6 +54,11 @@ void tickBoundLifecycle(std::size_t max_events)
     // task on ESP-IDF targets. Only the actual UI projection below needs the
     // display lock.
     lifecycle.updateCoreServices();
+
+    if (s_lvgl_task_owned_ui_dispatch.load(std::memory_order_acquire))
+    {
+        return;
+    }
 
     if (!platform::esp::boards::lockDisplay(kDisplayLockTimeoutMs))
     {

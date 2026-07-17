@@ -18,7 +18,15 @@ The first conformance target is Trail Mate's Reticulum network-stack subset:
 - `platform/esp/arduino_common/.../lxmf_adapter.*`
 - `platform/esp/arduino_common/.../lxmf_runtime_state.h`
 - `platform/esp/arduino_common/.../lxmf_transport_runtime.*`
+- `platform/esp/arduino_common/.../lxmf_destination_registry.*`
+- `platform/esp/arduino_common/.../lxmf_path_manager.*`
 - `platform/esp/arduino_common/.../lxmf_link_runtime.*`
+- `platform/esp/arduino_common/.../lxmf_link_manager.*`
+- `platform/esp/arduino_common/.../lxmf_packet_router.*`
+- `platform/esp/arduino_common/.../lxmf_ping_service.*`
+- `platform/esp/arduino_common/.../lxmf_network_page_client.*`
+- `platform/esp/arduino_common/.../lxmf_propagation_client.*`
+- `platform/esp/arduino_common/.../lxmf_lxst_telephony_client.*`
 - `platform/esp/arduino_common/.../lxmf_resource_runtime.*`
 - `platform/esp/arduino_common/.../lxmf_propagation_runtime.*`
 - `platform/esp/arduino_common/.../lxmf_propagation_service_runtime.*`
@@ -186,6 +194,13 @@ transport table helpers preserve the adapter's expected lookup, upsert, resolve,
 and cleanup behavior. It also verifies that the extracted link runtime preserves
 session lookup, close cleanup, lifecycle transition, culling, and removal rules
 without pulling product side effects into the runtime helper. The current
+owner-manager slice verifies that destination registry, path manager, link
+manager, packet router, ping service, pending network-page client,
+propagation-client shell, and LXST telephony scratch owner remain explicit,
+non-copyable owners rather than collapsing back into adapter-local vectors or
+scratch fields. `AnnounceIngestor` is covered by the ESP build and scope guard
+because its verification path depends on embedded announce signing/Serial
+dependencies that do not belong in the parse-only native smoke. The current
 resource slice verifies incoming/outgoing transfer initialisation, hashmap
 window requests, hashmap updates, part receipt bookkeeping, split-resource
 assembly, proof completion, resource lookup/cancel helpers, and resource TTL

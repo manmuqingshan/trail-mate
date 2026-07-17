@@ -1,19 +1,15 @@
 #include "platform/ui/reticulum_network_config_runtime.h"
 
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/reticulum_call_runtime.h"
 
 #if defined(ARDUINO)
-#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-
 #include <Arduino.h>
 #include <Preferences.h>
 #else
 #include "esp_timer.h"
 #include "nvs.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
-
-#include <cerrno>
-#include <sys/stat.h>
 #endif
 
 #include "cJSON.h"
@@ -828,7 +824,7 @@ cJSON* create_document(const chat::reticulum::ReticulumNetworkConfig& config)
     return root;
 }
 
-#if !defined(ARDUINO)
+#if !defined(ARDUINO) && !defined(ESP_PLATFORM)
 void native_path(const char* path, char* out, std::size_t out_len)
 {
     const char* mount_point =
@@ -853,7 +849,7 @@ bool sd_available()
 
 bool sd_exists(const char* path)
 {
-#if defined(ARDUINO)
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
     return ::platform::esp::arduino_common::storage::sd_exists(path);
 #else
     char native[192] = {};
@@ -867,7 +863,7 @@ bool sd_exists(const char* path)
 
 bool ensure_directory()
 {
-#if defined(ARDUINO)
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
     if (!::platform::esp::arduino_common::storage::sd_exists("/trailmate") &&
         !::platform::esp::arduino_common::storage::sd_mkdir("/trailmate"))
     {
@@ -892,7 +888,7 @@ bool read_sd_file(const char* path, std::size_t* out_len)
         return false;
     }
     *out_len = 0;
-#if defined(ARDUINO)
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
     ::platform::esp::arduino_common::storage::SdRuntimeFile file;
     if (!file.open(path, "r"))
     {
@@ -944,7 +940,7 @@ bool write_sd_file_atomic(const char* text, std::size_t len)
     {
         return false;
     }
-#if defined(ARDUINO)
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
     if (::platform::esp::arduino_common::storage::sd_exists(kConfigTempPath))
     {
         ::platform::esp::arduino_common::storage::sd_remove(kConfigTempPath);

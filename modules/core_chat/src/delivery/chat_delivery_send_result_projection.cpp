@@ -23,7 +23,8 @@ ChatDeliveryEvent makeChatSendResultDeliveryEvent(ChatDeliveryRef ref,
     ChatDeliveryEvent event{};
     event.ref = ref;
     event.timestamp_ms = timestamp_ms;
-    if (state == DeliveryState::Sent || state == DeliveryState::Delivered)
+    if (state == DeliveryState::Queued || state == DeliveryState::Sending ||
+        state == DeliveryState::Sent || state == DeliveryState::Delivered)
     {
         event.state = state;
         event.failure = SendFailureKind::None;

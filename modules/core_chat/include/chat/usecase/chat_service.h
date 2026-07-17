@@ -9,6 +9,7 @@
 #include "../domain/chat_types.h"
 #include "../ports/i_chat_store.h"
 #include "../ports/i_mesh_adapter.h"
+#include "chat/delivery/chat_message_ledger.h"
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -160,9 +161,9 @@ class ChatService
     void handleSendResult(MessageId msg_id, bool ok);
 
     /**
-     * @brief Apply an exact outbound delivery state.
+     * @brief Apply an outbound delivery state update.
      *
-     * Only Sent, Delivered, and Failed are accepted. Delivered is terminal;
+     * Queued, Sent, Delivered, and Failed are accepted. Delivered is terminal;
      * an earlier failure may still be superseded by a later valid proof.
      */
     void handleSendResult(MessageId msg_id, MessageStatus status);
@@ -254,6 +255,7 @@ class ChatService
     ChatModel& model_;
     IMeshAdapter& adapter_;
     IChatStore& store_;
+    delivery::ChatMessageLedger message_ledger_;
     ChannelId current_channel_;
     bool model_enabled_ = true;
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;
