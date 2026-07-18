@@ -1,5 +1,9 @@
 #include "chat/domain/reticulum_identity.h"
 #include "chat/infra/mesh_incoming_queue.h"
+#include "chat/infra/reticulum/lxst_telephony_wire.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_attempt_ledger.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_notifier.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_planner.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_destination_registry.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_link_manager.h"
@@ -8,6 +12,7 @@
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_network_page_client.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_packet_router.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_path_manager.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_peer_directory.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_ping_service.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_client.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_runtime.h"
@@ -86,6 +91,8 @@ int main()
 {
     using namespace chat::lxmf::runtime;
     namespace reticulum = chat::reticulum;
+    constexpr uint16_t embedded_lxst_profile =
+        reticulum::lxst::kProfileBandwidthLow;
 
     static_assert(!std::is_copy_constructible<DestinationRegistry>::value,
                   "DestinationRegistry owns peer state and must not be copied");
@@ -99,6 +106,20 @@ int main()
                   "LinkManager owns link sessions and must not be copied");
     static_assert(!std::is_move_constructible<LinkManager>::value,
                   "LinkManager ownership must stay in place");
+    static_assert(!std::is_copy_constructible<PeerDirectoryService>::value,
+                  "PeerDirectoryService owns directory IO boundaries and must not be copied");
+    static_assert(!std::is_move_constructible<PeerDirectoryService>::value,
+                  "PeerDirectoryService ownership must stay in place");
+    static_assert(!std::is_copy_constructible<LxmfDeliveryNotifier>::value,
+                  "LxmfDeliveryNotifier is the Reticulum delivery status boundary");
+    static_assert(!std::is_move_constructible<LxmfDeliveryNotifier>::value,
+                  "LxmfDeliveryNotifier ownership must stay in place");
+    static_assert(!std::is_copy_constructible<ReticulumDeliveryPlanner>::value,
+                  "ReticulumDeliveryPlanner is a stateless policy boundary");
+    static_assert(!std::is_copy_constructible<DeliveryAttemptLedger>::value,
+                  "DeliveryAttemptLedger owns outbound attempt receipts and must not be copied");
+    static_assert(!std::is_move_constructible<DeliveryAttemptLedger>::value,
+                  "DeliveryAttemptLedger ownership must stay in place");
     static_assert(!std::is_copy_constructible<PingService>::value,
                   "PingService owns pending ping state and must not be copied");
     static_assert(!std::is_copy_constructible<NetworkPageClient>::value,
@@ -107,6 +128,18 @@ int main()
                   "PropagationClient owns propagation state and must not be copied");
     static_assert(!std::is_copy_constructible<LxstTelephonyClient>::value,
                   "LxstTelephonyClient owns call scratch state and must not be copied");
+    static_assert(
+        std::is_same<PendingPingRequestList::allocator_type,
+                     PsramAllocator<PendingPingRequest>>::value,
+        "Pending ping queue ownership must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PendingNomadPageRequestList::allocator_type,
+                     PsramAllocator<PendingNomadPageRequest>>::value,
+        "Pending Nomad page queue ownership must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PendingPropagationUploadList::allocator_type,
+                     PsramAllocator<PendingPropagationUpload>>::value,
+        "Pending propagation upload queue ownership must stay on PSRAM allocator");
     static_assert(
         std::is_same<ResourcePayloadList::allocator_type,
                      PsramAllocator<ResourcePayloadBuffer>>::value,
@@ -124,6 +157,50 @@ int main()
                      PsramAllocator<RuntimeMapHash>>::value,
         "Resource map hash lists must stay on PSRAM allocator");
     static_assert(
+        std::is_same<LinkPendingRequestList::allocator_type,
+                     PsramAllocator<LinkPendingRequest>>::value,
+        "Link pending request tables must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<DeferredLinkPayloadList::allocator_type,
+                     PsramAllocator<DeferredLinkPayload>>::value,
+        "Deferred link payload tables must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<LinkResourceTransferList::allocator_type,
+                     PsramAllocator<LinkResourceTransfer>>::value,
+        "Link resource transfer tables must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<LinkResourceAssemblyList::allocator_type,
+                     PsramAllocator<LinkResourceAssembly>>::value,
+        "Link resource assembly tables must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<LinkSessionList::allocator_type,
+                     PsramAllocator<LinkSession>>::value,
+        "Link session ownership must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PathEntryList::allocator_type,
+                     PsramAllocator<PathEntry>>::value,
+        "Transport path table ownership must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PacketFilterEntryList::allocator_type,
+                     PsramAllocator<PacketFilterEntry>>::value,
+        "Packet filter table ownership must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<ReverseEntryList::allocator_type,
+                     PsramAllocator<ReverseEntry>>::value,
+        "Reverse path table ownership must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PendingPathRequestList::allocator_type,
+                     PsramAllocator<PendingPathRequest>>::value,
+        "Pending path requests must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PendingPingReceiptList::allocator_type,
+                     PsramAllocator<PendingPingReceipt>>::value,
+        "Pending ping receipts must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<LinkRelayEntryList::allocator_type,
+                     PsramAllocator<LinkRelayEntry>>::value,
+        "Link relay table ownership must stay on PSRAM allocator");
+    static_assert(
         std::is_same<PropagationIdList::allocator_type,
                      PsramAllocator<RuntimeByteBuffer>>::value,
         "Propagation id lists must stay on PSRAM allocator");
@@ -131,6 +208,34 @@ int main()
         std::is_same<PropagationMessageList::allocator_type,
                      PsramAllocator<RuntimeByteBuffer>>::value,
         "Propagation message lists must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PropagationEntryList::allocator_type,
+                     PsramAllocator<PropagationEntry>>::value,
+        "Propagation entries must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PropagationTransientEntryList::allocator_type,
+                     PsramAllocator<PropagationTransientEntry>>::value,
+        "Propagation transient table ownership must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PropagationPeerStateList::allocator_type,
+                     PsramAllocator<PropagationPeerState>>::value,
+        "Propagation peer table ownership must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PendingPropagationDeliveryList::allocator_type,
+                     PsramAllocator<PendingPropagationDelivery>>::value,
+        "Pending propagation delivery table must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<PropagationMessageAcceptanceList::allocator_type,
+                     PsramAllocator<PropagationMessageAcceptance>>::value,
+        "Propagation batch acceptance messages must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<decltype(LxmfMaterialisedAppData{}.payload)::allocator_type,
+                     PsramAllocator<uint8_t>>::value,
+        "Materialised LXMF app data payload must stay on PSRAM allocator");
+    static_assert(
+        std::is_same<decltype(ResourceWindowRequest{}.requested_hashes)::allocator_type,
+                     PsramAllocator<RuntimeMapHash>>::value,
+        "Resource window requests must use PSRAM-backed hash lists");
 
     const auto registry_destination =
         filled_hash<reticulum::kTruncatedHashSize>(0x04);
@@ -149,6 +254,277 @@ int main()
     registry.clear();
     assert(registry.size() == 0);
 
+    const auto directory_destination =
+        filled_hash<reticulum::kTruncatedHashSize>(0xA0);
+    const auto directory_identity =
+        filled_hash<reticulum::kTruncatedHashSize>(0xB0);
+    const auto directory_enc_pub =
+        filled_hash<chat::kMeshPeerReticulumPublicKeyLen>(0xC0);
+    const auto directory_sig_pub =
+        filled_hash<chat::kMeshPeerReticulumPublicKeyLen>(0xD0);
+    const auto directory_ratchet =
+        filled_hash<chat::kMeshPeerReticulumRatchetLen>(0xE0);
+    PeerDirectoryService peer_directory{};
+    chat::MeshPeerRecord directory_record{};
+    directory_record.valid = true;
+    directory_record.identity = chat::makeMeshPeerReticulumIdentity(
+        chat::makeReticulumPeerIdentity(directory_destination.data(),
+                                        directory_identity.data()));
+    directory_record.last_seen_s = 12345;
+    chat::copyMeshPeerText(directory_record.display_name,
+                           sizeof(directory_record.display_name),
+                           "Directory Peer");
+    directory_record.reticulum.identity = directory_record.identity.reticulum;
+    directory_record.reticulum.has_public_keys = true;
+    copy_hash(directory_record.reticulum.enc_pub, directory_enc_pub);
+    copy_hash(directory_record.reticulum.sig_pub, directory_sig_pub);
+    directory_record.reticulum.has_ratchet = true;
+    copy_hash(directory_record.reticulum.ratchet_pub, directory_ratchet);
+    directory_record.reticulum.ratchet_seen_s = 12344;
+    PeerInfo* directory_peer =
+        peer_directory.applyRecord(registry, directory_record, 10000);
+    assert(directory_peer != nullptr);
+    assert(registry.size() == 1);
+    assert(same_hash(directory_peer->destination_hash, directory_destination));
+    assert(same_hash(directory_peer->identity_hash, directory_identity));
+    assert(same_hash(directory_peer->enc_pub, directory_enc_pub));
+    assert(same_hash(directory_peer->sig_pub, directory_sig_pub));
+    assert(same_hash(directory_peer->ratchet_pub, directory_ratchet));
+    assert(directory_peer->has_ratchet);
+    assert(directory_peer->ratchet_seen_s == 12344);
+    assert(directory_peer->last_seen_s == 12345);
+    assert(std::strcmp(directory_peer->display_name, "Directory Peer") == 0);
+    assert(peer_directory.persistPeerAddressNow(*directory_peer, true, 10000)
+               .failure == chat::MeshOperationFailure::NotReady);
+    registry.clear();
+
+    static_assert(!std::is_copy_constructible<LxmfDeliveryNotifier>::value,
+                  "LxmfDeliveryNotifier is a runtime event bridge and must not be copied");
+    static_assert(!std::is_move_constructible<LxmfDeliveryNotifier>::value,
+                  "LxmfDeliveryNotifier is bound to the runtime event bus");
+
+    const OutboundDeliveryPlan active_link_plan =
+        ReticulumDeliveryPlanner::plan(OutboundDeliveryPlanInput{
+            true,
+            false,
+            true,
+            reticulum::LxmfDeliveryPreference::Automatic,
+            true});
+    assert(active_link_plan.path == OutboundDeliveryPath::Link);
+    assert(!active_link_plan.propagation_first);
+    assert(active_link_plan.may_fallback_to_link);
+    assert(std::strcmp(ReticulumDeliveryPlanner::pathName(
+                           OutboundDeliveryPath::Link),
+                       "link") == 0);
+
+    const OutboundDeliveryPlan opportunistic_plan =
+        ReticulumDeliveryPlanner::plan(OutboundDeliveryPlanInput{
+            false,
+            true,
+            true,
+            reticulum::LxmfDeliveryPreference::Automatic,
+            true});
+    assert(opportunistic_plan.path == OutboundDeliveryPath::Opportunistic);
+    assert(!opportunistic_plan.propagation_first);
+
+    const OutboundDeliveryPlan automatic_propagation_plan =
+        ReticulumDeliveryPlanner::plan(OutboundDeliveryPlanInput{
+            false,
+            false,
+            true,
+            reticulum::LxmfDeliveryPreference::Automatic,
+            true});
+    assert(automatic_propagation_plan.path ==
+           OutboundDeliveryPath::Propagation);
+    assert(automatic_propagation_plan.propagation_first);
+    assert(automatic_propagation_plan.may_fallback_to_link);
+
+    const OutboundDeliveryPlan propagated_only_plan =
+        ReticulumDeliveryPlanner::plan(OutboundDeliveryPlanInput{
+            false,
+            false,
+            true,
+            reticulum::LxmfDeliveryPreference::Propagated,
+            false});
+    assert(propagated_only_plan.path == OutboundDeliveryPath::Propagation);
+    assert(propagated_only_plan.propagation_only);
+    assert(!propagated_only_plan.may_fallback_to_link);
+
+    const OutboundDeliveryPlan deferred_plan =
+        ReticulumDeliveryPlanner::plan(OutboundDeliveryPlanInput{
+            false,
+            false,
+            false,
+            reticulum::LxmfDeliveryPreference::Direct,
+            false});
+    assert(deferred_plan.path == OutboundDeliveryPath::DeferredLink);
+    assert(std::strcmp(ReticulumDeliveryPlanner::pathName(
+                           OutboundDeliveryPath::DeferredLink),
+                       "deferred_link") == 0);
+
+    DeliveryAttemptLedger attempt_ledger{};
+    const auto attempt_packet_hash =
+        filled_hash<reticulum::kFullHashSize>(0x31);
+    const auto attempt_destination_hash =
+        filled_hash<reticulum::kTruncatedHashSize>(0x51);
+    const auto attempt_peer_sig_pub =
+        filled_hash<chat::lxmf::LxmfIdentity::kSigPubKeySize>(0x71);
+    attempt_ledger.noteDirectPacketReceipt(attempt_packet_hash.data(),
+                                           attempt_destination_hash.data(),
+                                           attempt_peer_sig_pub.data(),
+                                           123,
+                                           1000,
+                                           2);
+    assert(attempt_ledger.size() == 1);
+    uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
+    std::memcpy(proof_hash, attempt_packet_hash.data(), sizeof(proof_hash));
+    DeliveryAttemptReceipt* receipt =
+        attempt_ledger.findReceiptByProofHash(proof_hash);
+    assert(receipt != nullptr);
+    assert(receipt->message_id == 123);
+    assert(receipt->kind == DeliveryAttemptKind::DirectPacket);
+    assert(same_hash(receipt->destination_hash, attempt_destination_hash));
+    assert(std::memcmp(receipt->peer_sig_pub,
+                       attempt_peer_sig_pub.data(),
+                       attempt_peer_sig_pub.size()) == 0);
+    attempt_ledger.removeReceiptByProofHash(proof_hash);
+    assert(attempt_ledger.size() == 0);
+    attempt_ledger.noteDirectPacketReceipt(attempt_packet_hash.data(),
+                                           attempt_destination_hash.data(),
+                                           attempt_peer_sig_pub.data(),
+                                           124,
+                                           1000,
+                                           2);
+    attempt_ledger.cull(DeliveryAttemptKind::DirectPacket, 1101, 100, 2);
+    assert(attempt_ledger.size() == 0);
+    const auto attempt_link_id =
+        filled_hash<reticulum::kTruncatedHashSize>(0x91);
+    attempt_ledger.noteLinkPacketReceipt(attempt_packet_hash.data(),
+                                         attempt_link_id.data(),
+                                         125,
+                                         2000,
+                                         4);
+    DeliveryAttemptReceipt* link_receipt =
+        attempt_ledger.findLinkPacketReceipt(attempt_link_id.data(),
+                                             attempt_packet_hash.data());
+    assert(link_receipt != nullptr);
+    assert(link_receipt->message_id == 125);
+    assert(link_receipt->kind == DeliveryAttemptKind::LinkPacket);
+    assert(same_hash(link_receipt->link_id, attempt_link_id));
+    std::size_t expired_link_attempts = 0;
+    chat::MessageId expired_link_message_id = 0;
+    attempt_ledger.takeExpiredReceipts(
+        DeliveryAttemptKind::LinkPacket,
+        2061,
+        60,
+        [&expired_link_attempts, &expired_link_message_id](
+            const DeliveryAttemptReceipt& expired)
+        {
+            ++expired_link_attempts;
+            expired_link_message_id = expired.message_id;
+        });
+    assert(expired_link_attempts == 1);
+    assert(expired_link_message_id == 125);
+    assert(attempt_ledger.size() == 0);
+    attempt_ledger.noteLinkPacketReceipt(attempt_packet_hash.data(),
+                                         attempt_link_id.data(),
+                                         126,
+                                         3000,
+                                         4);
+    std::size_t taken_for_link = 0;
+    attempt_ledger.takeReceiptsForLink(
+        attempt_link_id.data(),
+        [&taken_for_link](const DeliveryAttemptReceipt& taken)
+        {
+            assert(taken.kind == DeliveryAttemptKind::LinkPacket);
+            ++taken_for_link;
+        });
+    assert(taken_for_link == 1);
+    assert(attempt_ledger.size() == 0);
+    attempt_ledger.noteLinkResourceReceipt(attempt_packet_hash.data(),
+                                           attempt_link_id.data(),
+                                           127,
+                                           4000,
+                                           4);
+    DeliveryAttemptReceipt* resource_receipt =
+        attempt_ledger.findLinkResourceReceipt(attempt_link_id.data(),
+                                               attempt_packet_hash.data());
+    assert(resource_receipt != nullptr);
+    assert(resource_receipt->message_id == 127);
+    assert(resource_receipt->kind == DeliveryAttemptKind::LinkResource);
+    attempt_ledger.removeLinkResourceReceipt(attempt_link_id.data(),
+                                             attempt_packet_hash.data());
+    assert(attempt_ledger.size() == 0);
+    attempt_ledger.noteLinkResourceReceipt(attempt_packet_hash.data(),
+                                           attempt_link_id.data(),
+                                           128,
+                                           5000,
+                                           4);
+    std::size_t expired_resource_attempts = 0;
+    attempt_ledger.takeExpiredReceipts(
+        DeliveryAttemptKind::LinkResource,
+        5061,
+        60,
+        [&expired_resource_attempts](const DeliveryAttemptReceipt& expired)
+        {
+            assert(expired.message_id == 128);
+            assert(expired.kind == DeliveryAttemptKind::LinkResource);
+            ++expired_resource_attempts;
+        });
+    assert(expired_resource_attempts == 1);
+    assert(attempt_ledger.size() == 0);
+    const auto attempt_transient_id =
+        filled_hash<reticulum::kFullHashSize>(0xA1);
+    attempt_ledger.notePropagationReceipt(attempt_transient_id.data(),
+                                          131,
+                                          6000,
+                                          4);
+    DeliveryAttemptReceipt* propagation_receipt =
+        attempt_ledger.findPropagationReceipt(attempt_transient_id.data());
+    assert(propagation_receipt != nullptr);
+    assert(propagation_receipt->message_id == 131);
+    assert(propagation_receipt->kind == DeliveryAttemptKind::Propagation);
+    assert(std::memcmp(propagation_receipt->packet_hash,
+                       attempt_transient_id.data(),
+                       attempt_transient_id.size()) == 0);
+    attempt_ledger.removePropagationReceipt(attempt_transient_id.data());
+    assert(attempt_ledger.size() == 0);
+    attempt_ledger.notePropagationReceipt(attempt_transient_id.data(),
+                                          132,
+                                          7000,
+                                          4);
+    std::size_t expired_propagation_attempts = 0;
+    attempt_ledger.takeExpiredReceipts(
+        DeliveryAttemptKind::Propagation,
+        7061,
+        60,
+        [&expired_propagation_attempts](
+            const DeliveryAttemptReceipt& expired)
+        {
+            assert(expired.message_id == 132);
+            assert(expired.kind == DeliveryAttemptKind::Propagation);
+            ++expired_propagation_attempts;
+        });
+    assert(expired_propagation_attempts == 1);
+    assert(attempt_ledger.size() == 0);
+    attempt_ledger.noteDirectPacketReceipt(attempt_packet_hash.data(),
+                                           attempt_destination_hash.data(),
+                                           attempt_peer_sig_pub.data(),
+                                           129,
+                                           6000,
+                                           1);
+    attempt_ledger.noteLinkResourceReceipt(attempt_packet_hash.data(),
+                                           attempt_link_id.data(),
+                                           130,
+                                           6001,
+                                           1);
+    assert(attempt_ledger.size() == 2);
+    assert(attempt_ledger.findReceiptByProofHash(proof_hash) != nullptr);
+    assert(attempt_ledger.findLinkResourceReceipt(attempt_link_id.data(),
+                                                  attempt_packet_hash.data()) !=
+           nullptr);
+    attempt_ledger.clear();
+
     ReticulumPacketRouter router{};
     reticulum::ParsedPacket route_packet{};
     route_packet.packet_type = reticulum::PacketType::Announce;
@@ -161,6 +537,43 @@ int main()
     assert(router.route(route_packet) == PacketRoute::Data);
     route_packet.packet_type = static_cast<reticulum::PacketType>(0x7F);
     assert(router.route(route_packet) == PacketRoute::LinkOrTransport);
+    PathEntry direct_forward_path{};
+    direct_forward_path.interface_id = 3;
+    direct_forward_path.hops = 1;
+    PacketForwardPlan direct_forward =
+        router.planPathForward(direct_forward_path, 4);
+    assert(direct_forward.forward);
+    assert(direct_forward.header == PacketForwardHeader::Header1Broadcast);
+    assert(direct_forward.interface_id == 3);
+    assert(direct_forward.hops == 4);
+    PathEntry routed_forward_path{};
+    routed_forward_path.interface_id = 5;
+    routed_forward_path.hops = 3;
+    std::memset(routed_forward_path.next_hop_transport,
+                0x9A,
+                sizeof(routed_forward_path.next_hop_transport));
+    PacketForwardPlan routed_forward =
+        router.planPathForward(routed_forward_path, 6);
+    assert(routed_forward.forward);
+    assert(routed_forward.header == PacketForwardHeader::Header2Transport);
+    assert(routed_forward.interface_id == 5);
+    assert(routed_forward.next_hop_transport[0] == 0x9A);
+    LinkRelayEntry relay_forward{};
+    relay_forward.initiator_interface_id = 7;
+    relay_forward.responder_interface_id = 8;
+    relay_forward.initiator_hops = 1;
+    relay_forward.responder_hops = 2;
+    PacketForwardPlan relay_from_initiator =
+        router.planLinkRelayForward(relay_forward, 7, 1);
+    assert(relay_from_initiator.forward);
+    assert(relay_from_initiator.header ==
+           PacketForwardHeader::Header1Broadcast);
+    assert(relay_from_initiator.interface_id == 8);
+    PacketForwardPlan relay_from_responder =
+        router.planLinkRelayForward(relay_forward, 8, 2);
+    assert(relay_from_responder.forward);
+    assert(relay_from_responder.interface_id == 7);
+    assert(!router.planLinkRelayForward(relay_forward, 9, 1).forward);
 
     const auto manager_destination =
         filled_hash<reticulum::kTruncatedHashSize>(0x14);
@@ -181,14 +594,51 @@ int main()
     assert(path_manager.findPendingPathRequest(manager_destination.data()) != nullptr);
     path_manager.resolvePendingPathRequest(manager_destination.data());
     assert(path_manager.findPendingPathRequest(manager_destination.data()) == nullptr);
+    path_manager.notePendingPathRequest(manager_destination.data(), 710, 4);
+    const auto manager_next_hop =
+        filled_hash<reticulum::kTruncatedHashSize>(0x24);
+    const uint8_t announce_random[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    const uint8_t cached_announce[] = {0x82, 0x01, 0x02};
+    PathEntry* observed_path =
+        path_manager.observeAnnouncePath(manager_destination.data(),
+                                         3,
+                                         announce_random,
+                                         900,
+                                         901,
+                                         7,
+                                         manager_next_hop.data(),
+                                         cached_announce,
+                                         sizeof(cached_announce),
+                                         4);
+    assert(observed_path != nullptr);
+    assert(observed_path->hops == 3);
+    assert(observed_path->interface_id == 7);
+    assert(!observed_path->direct);
+    assert(same_hash(observed_path->next_hop_transport, manager_next_hop));
+    assert(observed_path->cached_announce_len == sizeof(cached_announce));
+    assert(path_manager.findPendingPathRequest(manager_destination.data()) == nullptr);
 
     LinkManager link_manager{};
-    LinkSession* managed_session = link_manager.appendSession(2);
+    LinkSessionSpec managed_session_spec{};
+    managed_session_spec.now_ms = 800;
+    managed_session_spec.link_id = manager_destination.data();
+    managed_session_spec.remote_destination_hash = manager_destination.data();
+    managed_session_spec.destination = LocalDestinationKind::Delivery;
+    managed_session_spec.state = LinkState::Active;
+    managed_session_spec.initiator = true;
+    managed_session_spec.expected_hops = 2;
+    managed_session_spec.keepalive_interval_ms = 1234;
+    managed_session_spec.stale_timeout_ms = 5678;
+    LinkSession* managed_session =
+        link_manager.openSession(2, managed_session_spec);
     assert(managed_session != nullptr);
-    copy_hash(managed_session->link_id, manager_destination);
-    copy_hash(managed_session->remote_destination_hash, manager_destination);
-    managed_session->destination = LocalDestinationKind::Delivery;
-    managed_session->state = LinkState::Active;
+    assert(managed_session->created_ms == 800);
+    assert(managed_session->request_ms == 800);
+    assert(managed_session->last_inbound_ms == 800);
+    assert(managed_session->initiator);
+    assert(managed_session->expected_hops == 2);
+    assert(managed_session->keepalive_interval_ms == 1234);
+    assert(managed_session->stale_timeout_ms == 5678);
     assert(link_manager.size() == 1);
     assert(link_manager.findSession(manager_destination.data()) == managed_session);
     assert(link_manager.findOpenSessionByDestination(manager_destination.data(),
@@ -198,8 +648,81 @@ int main()
     assert(managed_session->state == LinkState::Closed);
     link_manager.clear();
     assert(link_manager.size() == 0);
-    managed_session = link_manager.appendSession(2);
+    managed_session = link_manager.openSession(2, LinkSessionSpec{});
     assert(managed_session != nullptr);
+    const uint8_t managed_request_id[] = {0x41, 0x42, 0x43};
+    LinkPendingRequest* managed_request =
+        link_manager.queuePendingRequest(*managed_session,
+                                         managed_request_id,
+                                         sizeof(managed_request_id),
+                                         910,
+                                         true);
+    assert(managed_request != nullptr);
+    assert(link_manager.pendingRequestCount(*managed_session) == 1);
+    assert(managed_request->created_ms == 910);
+    assert(managed_request->awaiting_resource);
+    assert(link_manager.findPendingRequest(*managed_session,
+                                           managed_request_id,
+                                           sizeof(managed_request_id)) ==
+           managed_request);
+    const uint8_t managed_response[] = {0x51, 0x52};
+    assert(link_manager.markPendingResponseReady(*managed_session,
+                                                 managed_request_id,
+                                                 sizeof(managed_request_id),
+                                                 managed_response,
+                                                 sizeof(managed_response),
+                                                 false));
+    assert(managed_request->response_ready);
+    assert(managed_request->response.size() == sizeof(managed_response));
+    assert(managed_request->response[0] == managed_response[0]);
+    assert(link_manager.erasePendingRequest(*managed_session,
+                                            *managed_request));
+    assert(link_manager.pendingRequestCount(*managed_session) == 0);
+    assert(link_manager.findPendingRequest(*managed_session,
+                                           managed_request_id,
+                                           sizeof(managed_request_id)) ==
+           nullptr);
+    DeferredLinkPayload managed_deferred{};
+    managed_deferred.payload = {0x61, 0x62, 0x63};
+    managed_deferred.message_id = 0x1234;
+    assert(link_manager.appendDeferredPayload(*managed_session,
+                                              std::move(managed_deferred)) !=
+           nullptr);
+    assert(link_manager.deferredPayloadCount(*managed_session) == 1);
+    const DeferredLinkPayload* first_deferred =
+        link_manager.firstDeferredPayload(*managed_session);
+    assert(first_deferred != nullptr);
+    assert(first_deferred->message_id == 0x1234);
+    assert(first_deferred->payload.size() == 3);
+    std::size_t deferred_visit_count = 0;
+    link_manager.forEachDeferredPayload(
+        *managed_session,
+        [&deferred_visit_count](const DeferredLinkPayload& deferred_payload)
+        {
+            assert(deferred_payload.message_id == 0x1234);
+            ++deferred_visit_count;
+        });
+    assert(deferred_visit_count == 1);
+    assert(link_manager.popFirstDeferredPayload(*managed_session));
+    assert(link_manager.deferredPayloadCount(*managed_session) == 0);
+    assert(link_manager.firstDeferredPayload(*managed_session) == nullptr);
+    link_manager.touchInbound(*managed_session, 920);
+    link_manager.touchOutbound(*managed_session, 930);
+    assert(managed_session->last_inbound_ms == 920);
+    assert(managed_session->last_outbound_ms == 930);
+    link_manager.markSessionValidatedActive(*managed_session, 1.5f, 1500);
+    assert(managed_session->state == LinkState::Active);
+    assert(managed_session->validated);
+    assert(managed_session->rtt_s == 1.5f);
+    assert(managed_session->keepalive_interval_ms == 1500);
+    assert(managed_session->stale_timeout_ms == 3000);
+    assert(managed_session->last_keepalive_ms == 0);
+    link_manager.noteKeepaliveSent(*managed_session, 940);
+    assert(managed_session->last_keepalive_ms == 940);
+    managed_session->state = LinkState::Stale;
+    assert(link_manager.reactivateSessionIfStale(*managed_session));
+    assert(managed_session->state == LinkState::Active);
+    assert(!link_manager.reactivateSessionIfStale(*managed_session));
     const auto resource_hash = filled_hash<reticulum::kFullHashSize>(0x44);
     const auto resource_original_hash =
         filled_hash<reticulum::kFullHashSize>(0x64);
@@ -252,22 +775,24 @@ int main()
                                                    1010,
                                                    4));
     copy_hash(managed_outgoing_resource.resource_hash, resource_hash);
-    managed_outgoing_resource.message_id = 77;
     assert(link_manager.appendOutgoingResource(*managed_session,
                                                std::move(managed_outgoing_resource)) !=
            nullptr);
     LinkResourceTransfer* queued_outgoing_resource =
         link_manager.findOutgoingResource(*managed_session, resource_hash.data());
     assert(queued_outgoing_resource != nullptr);
-    bool saw_resource_message_id = false;
-    link_manager.takeTrackedOutgoingResourceMessageIds(
+    bool saw_expired_resource = false;
+    link_manager.forEachExpiredOutgoingResource(
         *managed_session,
-        [&saw_resource_message_id](uint32_t message_id)
+        1010 + 60001,
+        60000,
+        [&saw_expired_resource,
+         &resource_hash](const LinkResourceTransfer& resource)
         {
-            saw_resource_message_id = message_id == 77;
+            saw_expired_resource =
+                same_hash(resource.resource_hash, resource_hash);
         });
-    assert(saw_resource_message_id);
-    assert(queued_outgoing_resource->message_id == 0);
+    assert(saw_expired_resource);
     assert(link_manager.eraseOutgoingResource(*managed_session,
                                               resource_hash.data()));
     link_manager.clear();
@@ -333,6 +858,33 @@ int main()
     assert(page_client.findByRequestId(manager_destination.data(),
                                        manager_destination.data(),
                                        reticulum::kTruncatedHashSize) == page_request);
+    assert(page_client.attemptDue(*page_request, 100, 50));
+    page_client.noteAttempt(*page_request, 100);
+    assert(!page_client.attemptDue(*page_request, 120, 50));
+    assert(page_client.attemptDue(*page_request, 151, 50));
+    assert(page_client.lastAttemptAge(*page_request, 125) == 25);
+    assert(page_client.pathRequestDue(*page_request, 100, 30));
+    page_client.notePathRequest(*page_request, true, 100);
+    assert(page_request->path_requested);
+    assert(!page_client.pathRequestDue(*page_request, 120, 30));
+    page_client.noteLinkStart(*page_request, false, 130, false);
+    assert(!page_request->link_started);
+    page_client.noteLinkStart(*page_request, true, 140, true);
+    assert(page_request->link_started);
+    uint8_t nomad_request_id[reticulum::kTruncatedHashSize] = {};
+    std::memset(nomad_request_id, 0x33, sizeof(nomad_request_id));
+    assert(page_client.noteRequestPacketSent(*page_request,
+                                             nomad_request_id,
+                                             sizeof(nomad_request_id),
+                                             150));
+    assert(page_request->request_sent);
+    assert(std::memcmp(page_request->request_id,
+                       nomad_request_id,
+                       sizeof(nomad_request_id)) == 0);
+    assert(page_client.findByRequestId(manager_destination.data(),
+                                       nomad_request_id,
+                                       reticulum::kTruncatedHashSize) ==
+           page_request);
     assert(page_client.queue(manager_destination.data(),
                              "/",
                              200,
@@ -348,6 +900,7 @@ int main()
     copy_hash(active_propagation_peer.propagation_hash, manager_destination);
     active_propagation_peer.node_active = true;
     active_propagation_peer.last_seen_s = 100;
+    active_propagation_peer.stamp_cost = 3;
     propagation_client.state().peers.push_back(active_propagation_peer);
     PropagationActivePeerSelection selected_peer =
         propagation_client.selectActivePeer(false,
@@ -404,7 +957,6 @@ int main()
     assert(propagation_client.state().sync_stage == PropagationSyncStage::Idle);
     assert(!propagation_client.state().initial_sync_pending);
     PendingPropagationUpload upload_a{};
-    upload_a.message_id = 101;
     upload_a.created_ms = 1000;
     upload_a.state = PropagationUploadState::WaitingNode;
     PendingPropagationUpload* queued_upload =
@@ -412,38 +964,44 @@ int main()
     assert(queued_upload != nullptr);
     assert(propagation_client.hasPendingUploads());
     assert(propagation_client.firstPendingUpload() == queued_upload);
-    assert(propagation_client.firstPendingUpload()->message_id == 101);
+    assert(propagation_client.firstPendingUpload()->created_ms == 1000);
+    assert(propagation_client.firstPendingUpload()->state ==
+           PropagationUploadState::WaitingNode);
+    assert(propagation_client.bindUploadNode(*queued_upload,
+                                             active_propagation_peer));
+    assert(propagation_client.firstPendingUpload()->state ==
+           PropagationUploadState::NeedsStamp);
+    assert(propagation_client.firstPendingUpload()->stamp_cost == 3);
+    assert(!propagation_client.bindUploadNode(*queued_upload,
+                                              active_propagation_peer));
 
     PendingPropagationUpload upload_b{};
-    upload_b.message_id = 102;
     upload_b.created_ms = 1005;
     upload_b.state = PropagationUploadState::WaitingNode;
     assert(propagation_client.queueUpload(std::move(upload_b), 2) != nullptr);
     PendingPropagationUpload upload_c{};
-    upload_c.message_id = 103;
     upload_c.created_ms = 1010;
     upload_c.state = PropagationUploadState::WaitingNode;
     assert(propagation_client.queueUpload(std::move(upload_c), 2) == nullptr);
 
     propagation_client.markExpiredUploads(1101, 100);
-    std::vector<PendingPropagationUpload> failed_uploads =
-        propagation_client.takeFailedUploads();
+    auto failed_uploads = propagation_client.takeFailedUploads();
     assert(failed_uploads.size() == 1);
-    assert(failed_uploads[0].message_id == 101);
+    assert(failed_uploads[0].created_ms == 1000);
     assert(propagation_client.hasPendingUploads());
-    assert(propagation_client.firstPendingUpload()->message_id == 102);
+    assert(propagation_client.firstPendingUpload()->created_ms == 1005);
     assert(propagation_client.removeFirstPendingUpload());
     assert(!propagation_client.removeFirstPendingUpload());
     assert(!propagation_client.hasPendingUploads());
 
     PendingPropagationUpload upload_d{};
-    upload_d.message_id = 104;
+    upload_d.created_ms = 1040;
     upload_d.state = PropagationUploadState::NeedsStamp;
     assert(propagation_client.queueUpload(std::move(upload_d), 2) != nullptr);
-    std::vector<PendingPropagationUpload> all_uploads =
-        propagation_client.takeAllPendingUploads();
+    auto all_uploads = propagation_client.takeAllPendingUploads();
     assert(all_uploads.size() == 1);
-    assert(all_uploads[0].message_id == 104);
+    assert(all_uploads[0].created_ms == 1040);
+    assert(all_uploads[0].state == PropagationUploadState::NeedsStamp);
     assert(!propagation_client.hasPendingUploads());
 #if !defined(TRAIL_MATE_RETICULUM_PARSE_ONLY)
     propagation_client.stamp().reset();
@@ -454,6 +1012,44 @@ int main()
     assert(telephony_client.scratchCapacity() == reticulum::kReticulumMtu);
     telephony_client.scratch()[0] = 0xA5;
     assert(telephony_client.scratch()[0] == 0xA5);
+    LinkSession telephony_session{};
+    telephony_session.destination = LocalDestinationKind::CallAudio;
+    telephony_client.beginCallerSession(telephony_session,
+                                        chat::ReticulumCallWireProfile::SidebandLxst,
+                                        embedded_lxst_profile,
+                                        1000);
+    assert(telephony_client.isCallSession(telephony_session));
+    assert(telephony_client.isSidebandSession(telephony_session));
+    assert(telephony_client.profile(telephony_session) ==
+           embedded_lxst_profile);
+    assert(telephony_client.phase(telephony_session) ==
+           reticulum::lxst::call::Phase::CallerAwaitingLink);
+    assert(!telephony_client.runtimeStarted(telephony_session));
+    telephony_client.markRuntimeStarted(telephony_session, true);
+    assert(telephony_client.runtimeStarted(telephony_session));
+    reticulum::lxst::call::Phase previous_phase =
+        reticulum::lxst::call::Phase::Idle;
+    const auto link_transition = telephony_client.dispatch(
+        telephony_session,
+        {reticulum::lxst::call::EventType::LinkActive},
+        1010,
+        &previous_phase);
+    assert(link_transition.accepted);
+    assert(previous_phase ==
+           reticulum::lxst::call::Phase::CallerAwaitingLink);
+    uint8_t* encoded_signal = nullptr;
+    std::size_t encoded_signal_len = 0;
+    assert(telephony_client.encodeSignal(reticulum::lxst::kStatusAvailable,
+                                         &encoded_signal,
+                                         &encoded_signal_len));
+    assert(encoded_signal == telephony_client.scratch());
+    assert(encoded_signal_len != 0);
+    telephony_client.beginSidebandCalleeSession(
+        telephony_session,
+        embedded_lxst_profile,
+        2000);
+    assert(telephony_client.phase(telephony_session) ==
+           reticulum::lxst::call::Phase::CalleeAwaitingLink);
 
     TransportRuntime transport{};
     assert(transport.paths.empty());
@@ -461,7 +1057,6 @@ int main()
     assert(transport.reverse_table.empty());
     assert(transport.pending_path_requests.empty());
     assert(transport.pending_ping_receipts.empty());
-    assert(transport.pending_delivery_receipts.empty());
     assert(transport.link_relays.empty());
 
     const TransportRuntimeLimits limits{
@@ -476,9 +1071,7 @@ int main()
         300000,
         4,
         1000,
-        500,
-        4,
-        750};
+        500};
 
     const auto destination = filled_hash<reticulum::kTruncatedHashSize>(0x10);
     PathEntry& path = upsertPath(transport, destination.data(), limits.max_paths);
@@ -534,6 +1127,66 @@ int main()
                                 limits.path_ttl_ms) ==
            PathAnnounceDecision::AcceptExpired);
 
+    PathManager path_policy_manager{};
+    PeerInfo path_peer{};
+    copy_hash(path_peer.destination_hash, destination);
+    assert(path_policy_manager.shouldRequestPeerPath(path_peer,
+                                                     100,
+                                                     10,
+                                                     30000,
+                                                     5000,
+                                                     1000,
+                                                     60));
+    path_policy_manager.notePendingPathRequest(destination.data(),
+                                               100,
+                                               limits.max_pending_path_requests);
+    assert(path_policy_manager.pendingPathRequestCoolingDown(
+        destination.data(),
+        120,
+        5000));
+    assert(!path_policy_manager.shouldRequestPeerPath(path_peer,
+                                                      120,
+                                                      10,
+                                                      30000,
+                                                      5000,
+                                                      1000,
+                                                      60));
+    path_policy_manager.resolvePendingPathRequest(destination.data());
+    path_policy_manager.notePeerPathRequest(path_peer, 140);
+    assert(!path_policy_manager.shouldRequestPeerPath(path_peer,
+                                                      150,
+                                                      10,
+                                                      30000,
+                                                      5000,
+                                                      1000,
+                                                      60));
+    path_policy_manager.resetPeerPathRequest(path_peer);
+    const auto path_random = announce_blob(0xD0, 400);
+    assert(path_policy_manager.observeAnnouncePath(destination.data(),
+                                                   1,
+                                                   path_random.data(),
+                                                   200,
+                                                   100,
+                                                   2,
+                                                   nullptr,
+                                                   nullptr,
+                                                   0,
+                                                   limits.max_paths) != nullptr);
+    assert(!path_policy_manager.shouldRequestPeerPath(path_peer,
+                                                      250,
+                                                      120,
+                                                      30000,
+                                                      5000,
+                                                      1000,
+                                                      60));
+    assert(path_policy_manager.shouldRequestPeerPath(path_peer,
+                                                     250,
+                                                     161,
+                                                     30000,
+                                                     5000,
+                                                     1000,
+                                                     60));
+
     const auto packet_hash = filled_hash<reticulum::kFullHashSize>(0x20);
     rememberPacket(transport, packet_hash.data(), 100, limits.max_packet_filter);
     assert(same_hash(transport.packet_filter.front().packet_hash, packet_hash));
@@ -579,21 +1232,6 @@ int main()
     assert(same_hash(ping_receipt->destination_hash, destination));
     assert(same_hash(ping_receipt->peer_sig_pub, peer_sig_pub));
 
-    notePendingDeliveryReceipt(transport,
-                               packet_hash.data(),
-                               destination.data(),
-                               peer_sig_pub.data(),
-                               1234,
-                               350,
-                               limits.max_pending_delivery_receipts);
-    PendingDeliveryReceipt* delivery_receipt =
-        findPendingDeliveryReceipt(transport, packet_hash.data());
-    assert(delivery_receipt != nullptr);
-    assert(delivery_receipt->message_id == 1234);
-    assert(same_hash(delivery_receipt->packet_hash, packet_hash));
-    assert(same_hash(delivery_receipt->destination_hash, destination));
-    assert(same_hash(delivery_receipt->peer_sig_pub, peer_sig_pub));
-
     LinkRelayEntry& relay = upsertLinkRelay(transport, destination.data(), limits.max_link_relays);
     relay.initiator_hops = 1;
     relay.responder_hops = 2;
@@ -606,7 +1244,6 @@ int main()
     assert(transport.reverse_table.empty());
     assert(transport.pending_path_requests.empty());
     assert(transport.pending_ping_receipts.empty());
-    assert(transport.pending_delivery_receipts.empty());
     assert(transport.link_relays.empty());
     assert(transport.paths.empty());
 
@@ -1587,7 +2224,10 @@ int main()
     assert(app_delivery.incoming.channel == ::chat::ChannelId::PRIMARY);
     assert(app_delivery.incoming.want_response);
     assert(app_delivery.incoming.rx_meta.rssi_dbm_x10 == -710);
-    assert(app_delivery.payload == app_payload.payload);
+    assert(app_delivery.payload.size() == app_payload.payload.size());
+    assert(std::memcmp(app_delivery.payload.data(),
+                       app_payload.payload.data(),
+                       app_payload.payload.size()) == 0);
 
     const uint32_t team_location_ports[] = {
         team::proto::TEAM_POSITION_APP,
@@ -1623,7 +2263,10 @@ int main()
         assert(team_delivery.incoming.packet_id == team_payload.packet_id);
         assert(team_delivery.incoming.channel == ::chat::ChannelId::PRIMARY);
         assert(!team_delivery.incoming.want_response);
-        assert(team_delivery.payload == team_payload.payload);
+        assert(team_delivery.payload.size() == team_payload.payload.size());
+        assert(std::memcmp(team_delivery.payload.data(),
+                           team_payload.payload.data(),
+                           team_payload.payload.size()) == 0);
     }
 
     const uint8_t invalid_delivery_payload[] = {0x01, 0x02, 0x03};

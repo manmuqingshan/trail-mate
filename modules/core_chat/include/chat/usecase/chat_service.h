@@ -9,6 +9,7 @@
 #include "../domain/chat_types.h"
 #include "../ports/i_chat_store.h"
 #include "../ports/i_mesh_adapter.h"
+#include "chat/delivery/chat_delivery_event_port.h"
 #include "chat/delivery/chat_message_ledger.h"
 #include <array>
 #include <cstddef>
@@ -107,6 +108,7 @@ class ChatService
      * @return true if queued for resend
      */
     bool resendFailed(MessageId msg_id);
+    bool resendFailedForProtocol(MessageId msg_id, MeshProtocol protocol);
 
     /**
      * @brief Get recent messages for a conversation
@@ -166,12 +168,27 @@ class ChatService
      * Queued, Sent, Delivered, and Failed are accepted. Delivered is terminal;
      * an earlier failure may still be superseded by a later valid proof.
      */
-    void handleSendResult(MessageId msg_id, MessageStatus status);
+    void handleSendResult(MessageId msg_id,
+                          MessageStatus status,
+                          uint32_t timestamp_ms = 0,
+                          delivery::SendFailureKind failure =
+                              delivery::SendFailureKind::Unknown);
+    void handleSendResultForProtocol(MessageId msg_id,
+                                     MeshProtocol protocol,
+                                     MessageStatus status,
+                                     uint32_t timestamp_ms = 0,
+                                     delivery::SendFailureKind failure =
+                                         delivery::SendFailureKind::Unknown);
 
     /**
      * @brief Get message by ID (for UI send status)
      */
     const ChatMessage* getMessage(MessageId msg_id) const;
+    const ChatMessage* getMessageForProtocol(MessageId msg_id,
+                                             MeshProtocol protocol) const;
+
+    void setDeliveryEventPort(
+        delivery::IChatDeliveryEventPort* delivery_event_port);
 
     void setActiveProtocol(MeshProtocol protocol)
     {

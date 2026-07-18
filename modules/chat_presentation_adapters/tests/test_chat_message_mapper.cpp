@@ -55,6 +55,8 @@ void incomingMessageMapsToRemoteStoredRef()
 
     assert(ref.origin == ui::chat::MessageOrigin::RemoteStored);
     assert(ref.protocol_id == 77);
+    assert(ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::Meshtastic));
     assert(ref.local_id == 0);
     assert(ref.nonce_or_seq == 0);
     assert(ref.isValid());
@@ -72,6 +74,8 @@ void queuedMessageMapsToLocalPendingRef()
 
     assert(ref.origin == ui::chat::MessageOrigin::LocalPending);
     assert(ref.protocol_id == 88);
+    assert(ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::Meshtastic));
     assert(ref.isValid());
 }
 
@@ -87,6 +91,8 @@ void storedLocalMessageMapsToLocalStoredRef()
 
     assert(ref.origin == ui::chat::MessageOrigin::LocalStored);
     assert(ref.protocol_id == 99);
+    assert(ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::Meshtastic));
     assert(ref.isValid());
 }
 

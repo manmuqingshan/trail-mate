@@ -54,11 +54,16 @@ struct PathEntry
     bool direct = false;
 };
 
+using PathEntryList = std::vector<PathEntry, PsramAllocator<PathEntry>>;
+
 struct PacketFilterEntry
 {
     uint8_t packet_hash[reticulum::kFullHashSize] = {};
     uint32_t seen_ms = 0;
 };
+
+using PacketFilterEntryList =
+    std::vector<PacketFilterEntry, PsramAllocator<PacketFilterEntry>>;
 
 struct ReverseEntry
 {
@@ -67,6 +72,9 @@ struct ReverseEntry
     uint8_t expected_hops = 0;
     uint32_t created_ms = 0;
 };
+
+using ReverseEntryList =
+    std::vector<ReverseEntry, PsramAllocator<ReverseEntry>>;
 
 struct PendingPathRequest
 {
@@ -77,6 +85,9 @@ struct PendingPathRequest
     bool resolved = false;
 };
 
+using PendingPathRequestList =
+    std::vector<PendingPathRequest, PsramAllocator<PendingPathRequest>>;
+
 struct PendingPingReceipt
 {
     uint8_t packet_hash[reticulum::kFullHashSize] = {};
@@ -86,15 +97,8 @@ struct PendingPingReceipt
     uint32_t created_ms = 0;
 };
 
-struct PendingDeliveryReceipt
-{
-    uint8_t packet_hash[reticulum::kFullHashSize] = {};
-    uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
-    uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
-    uint8_t peer_sig_pub[LxmfIdentity::kSigPubKeySize] = {};
-    MessageId message_id = 0;
-    uint32_t created_ms = 0;
-};
+using PendingPingReceiptList =
+    std::vector<PendingPingReceipt, PsramAllocator<PendingPingReceipt>>;
 
 struct LinkRelayEntry
 {
@@ -105,6 +109,9 @@ struct LinkRelayEntry
     uint8_t responder_hops = 0;
     uint32_t last_seen_ms = 0;
 };
+
+using LinkRelayEntryList =
+    std::vector<LinkRelayEntry, PsramAllocator<LinkRelayEntry>>;
 
 enum class LocalDestinationKind : uint8_t
 {
@@ -141,6 +148,9 @@ struct LinkPendingRequest
     ResourcePayloadBuffer response;
 };
 
+using LinkPendingRequestList =
+    std::vector<LinkPendingRequest, PsramAllocator<LinkPendingRequest>>;
+
 struct DeferredLinkPayload
 {
     ResourcePayloadBuffer payload;
@@ -149,12 +159,8 @@ struct DeferredLinkPayload
     uint8_t resource_flags = 0;
 };
 
-struct LinkPacketReceipt
-{
-    uint8_t packet_hash[reticulum::kFullHashSize] = {};
-    uint32_t message_id = 0;
-    uint32_t created_ms = 0;
-};
+using DeferredLinkPayloadList =
+    std::vector<DeferredLinkPayload, PsramAllocator<DeferredLinkPayload>>;
 
 struct LinkResourceTransfer
 {
@@ -178,7 +184,6 @@ struct LinkResourceTransfer
     uint32_t total_segments = 1;
     uint32_t created_ms = 0;
     uint32_t last_activity_ms = 0;
-    uint32_t message_id = 0;
     uint8_t flags = 0;
     bool incoming = true;
     bool encrypted = false;
@@ -191,6 +196,9 @@ struct LinkResourceTransfer
     int32_t consecutive_complete_index = -1;
 };
 
+using LinkResourceTransferList =
+    std::vector<LinkResourceTransfer, PsramAllocator<LinkResourceTransfer>>;
+
 struct LinkResourceAssembly
 {
     uint8_t original_hash[reticulum::kFullHashSize] = {};
@@ -201,6 +209,9 @@ struct LinkResourceAssembly
     uint32_t last_activity_ms = 0;
     uint8_t flags = 0;
 };
+
+using LinkResourceAssemblyList =
+    std::vector<LinkResourceAssembly, PsramAllocator<LinkResourceAssembly>>;
 
 struct LinkSession
 {
@@ -239,13 +250,14 @@ struct LinkSession
     LinkState state = LinkState::Pending;
     LinkCloseReason close_reason = LinkCloseReason::None;
     bool propagation_offer_validated = false;
-    std::vector<LinkPendingRequest> pending_requests;
-    std::vector<DeferredLinkPayload> deferred_payloads;
-    std::vector<LinkPacketReceipt> pending_packet_receipts;
-    std::vector<LinkResourceTransfer> incoming_resources;
-    std::vector<LinkResourceAssembly> incoming_resource_assemblies;
-    std::vector<LinkResourceTransfer> outgoing_resources;
+    LinkPendingRequestList pending_requests;
+    DeferredLinkPayloadList deferred_payloads;
+    LinkResourceTransferList incoming_resources;
+    LinkResourceAssemblyList incoming_resource_assemblies;
+    LinkResourceTransferList outgoing_resources;
 };
+
+using LinkSessionList = std::vector<LinkSession, PsramAllocator<LinkSession>>;
 
 struct PropagationEntry
 {
@@ -256,12 +268,19 @@ struct PropagationEntry
     uint32_t served_count = 0;
 };
 
+using PropagationEntryList =
+    std::vector<PropagationEntry, PsramAllocator<PropagationEntry>>;
+
 struct PropagationTransientEntry
 {
     uint8_t transient_id[reticulum::kFullHashSize] = {};
     uint32_t seen_s = 0;
     bool delivered = false;
 };
+
+using PropagationTransientEntryList =
+    std::vector<PropagationTransientEntry,
+                PsramAllocator<PropagationTransientEntry>>;
 
 enum class PropagationUploadState : uint8_t
 {
@@ -281,11 +300,13 @@ struct PendingPropagationUpload
     uint8_t transient_id[reticulum::kFullHashSize] = {};
     ResourcePayloadBuffer transient_data;
     uint32_t created_ms = 0;
-    uint32_t message_id = 0;
     uint8_t stamp_cost = 0;
     PropagationUploadState state = PropagationUploadState::WaitingNode;
-    bool track_user_message = false;
 };
+
+using PendingPropagationUploadList =
+    std::vector<PendingPropagationUpload,
+                PsramAllocator<PendingPropagationUpload>>;
 
 enum class PropagationDeliveryCommitState : uint8_t
 {
@@ -301,6 +322,10 @@ struct PendingPropagationDelivery
     PropagationDeliveryCommitState state =
         PropagationDeliveryCommitState::AwaitingPersistence;
 };
+
+using PendingPropagationDeliveryList =
+    std::vector<PendingPropagationDelivery,
+                PsramAllocator<PendingPropagationDelivery>>;
 
 enum class PropagationSyncStage : uint8_t
 {
@@ -337,29 +362,31 @@ struct PropagationPeerState
     bool node_active = false;
 };
 
+using PropagationPeerStateList =
+    std::vector<PropagationPeerState, PsramAllocator<PropagationPeerState>>;
+
 struct TransportRuntime
 {
-    std::vector<PathEntry> paths;
-    std::vector<PacketFilterEntry> packet_filter;
-    std::vector<ReverseEntry> reverse_table;
-    std::vector<PendingPathRequest> pending_path_requests;
-    std::vector<PendingPingReceipt> pending_ping_receipts;
-    std::vector<PendingDeliveryReceipt> pending_delivery_receipts;
-    std::vector<LinkRelayEntry> link_relays;
+    PathEntryList paths;
+    PacketFilterEntryList packet_filter;
+    ReverseEntryList reverse_table;
+    PendingPathRequestList pending_path_requests;
+    PendingPingReceiptList pending_ping_receipts;
+    LinkRelayEntryList link_relays;
 };
 
 struct LinkRuntime
 {
-    std::vector<LinkSession> sessions;
+    LinkSessionList sessions;
 };
 
 struct PropagationRuntime
 {
-    std::vector<PropagationEntry> entries;
-    std::vector<PropagationTransientEntry> transients;
-    std::vector<PropagationPeerState> peers;
-    std::vector<PendingPropagationUpload> pending_uploads;
-    std::vector<PendingPropagationDelivery> pending_deliveries;
+    PropagationEntryList entries;
+    PropagationTransientEntryList transients;
+    PropagationPeerStateList peers;
+    PendingPropagationUploadList pending_uploads;
+    PendingPropagationDeliveryList pending_deliveries;
     PropagationIdList sync_wants;
     PropagationIdList sync_haves;
     uint8_t active_node_hash[reticulum::kTruncatedHashSize] = {};

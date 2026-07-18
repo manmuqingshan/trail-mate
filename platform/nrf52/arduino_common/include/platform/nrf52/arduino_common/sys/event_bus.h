@@ -1,5 +1,6 @@
 #pragma once
 
+#include "chat/delivery/chat_delivery_types.h"
 #include "chat/domain/chat_types.h"
 #include "sys/clock.h"
 
@@ -32,15 +33,24 @@ struct ChatSendResultEvent : public Event
     chat::MessageId msg_id;
     bool success;
     chat::MessageStatus status;
+    chat::delivery::SendFailureKind failure =
+        chat::delivery::SendFailureKind::None;
+    bool has_protocol = false;
+    chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic;
 
-    ChatSendResultEvent(chat::MessageId id, bool ok)
-        : Event(EventType::ChatSendResult), msg_id(id), success(ok),
-          status(ok ? chat::MessageStatus::Sent : chat::MessageStatus::Failed) {}
-
-    ChatSendResultEvent(chat::MessageId id, chat::MessageStatus result_status)
+    ChatSendResultEvent(chat::MessageId id,
+                        chat::MessageStatus result_status,
+                        chat::MeshProtocol source_protocol,
+                        chat::delivery::SendFailureKind failure_kind =
+                            chat::delivery::SendFailureKind::Unknown)
         : Event(EventType::ChatSendResult), msg_id(id),
           success(result_status != chat::MessageStatus::Failed),
-          status(result_status) {}
+          status(result_status),
+          failure(result_status == chat::MessageStatus::Failed
+                      ? failure_kind
+                      : chat::delivery::SendFailureKind::None),
+          has_protocol(true),
+          protocol(source_protocol) {}
 };
 
 struct KeyVerificationNumberRequestEvent : public Event

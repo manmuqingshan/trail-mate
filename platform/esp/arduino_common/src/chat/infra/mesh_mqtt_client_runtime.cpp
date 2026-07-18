@@ -433,7 +433,11 @@ class PlainMqttRuntime
         {
             return;
         }
-        sys::EventBus::publish(new sys::ChatSendResultEvent(msg_id, true), 0);
+        sys::EventBus::publish(
+            new sys::ChatSendResultEvent(msg_id,
+                                         chat::MessageStatus::Sent,
+                                         chat::MeshProtocol::Meshtastic),
+            0);
         std::printf("[MT][MQTT] publish ack msg=%08lX\n",
                     static_cast<unsigned long>(msg_id));
     }

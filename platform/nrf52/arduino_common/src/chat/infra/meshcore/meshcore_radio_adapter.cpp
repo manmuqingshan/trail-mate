@@ -542,7 +542,10 @@ bool MeshCoreRadioAdapter::executeProtocolEffect(const ::chat::runtime::Protocol
                                       static_cast<long>(item.detail));
                         forgetLocalTextAck(item.request_id);
                         sys::EventBus::publish(
-                            new sys::ChatSendResultEvent(item.message_id, true),
+                            new sys::ChatSendResultEvent(
+                                item.message_id,
+                                ::chat::MessageStatus::Delivered,
+                                ::chat::MeshProtocol::MeshCore),
                             0);
                     }
                     else if (is_text_ack &&
@@ -557,7 +560,11 @@ bool MeshCoreRadioAdapter::executeProtocolEffect(const ::chat::runtime::Protocol
                                       static_cast<long>(item.detail));
                         forgetLocalTextAck(item.request_id);
                         sys::EventBus::publish(
-                            new sys::ChatSendResultEvent(item.message_id, false),
+                            new sys::ChatSendResultEvent(
+                                item.message_id,
+                                ::chat::MessageStatus::Failed,
+                                ::chat::MeshProtocol::MeshCore,
+                                ::chat::delivery::SendFailureKind::AckTimeout),
                             0);
                     }
                     ok = item.state != ::chat::runtime::ProtocolActionState::Failed &&

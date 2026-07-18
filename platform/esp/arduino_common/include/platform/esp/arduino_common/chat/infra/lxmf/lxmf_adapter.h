@@ -11,6 +11,9 @@
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/ports/i_mesh_peer_directory.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_announce_ingestor.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_attempt_ledger.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_notifier.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_planner.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_destination_registry.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_link_manager.h"
@@ -18,6 +21,7 @@
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_network_page_client.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_packet_router.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_path_manager.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_peer_directory.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_ping_service.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_client.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_stamp_runtime.h"
@@ -167,7 +171,6 @@ class LxmfAdapter : public IMeshAdapter
 
     reticulum::interfaces::ReticulumInterfaceSet interfaces_;
     uint32_t network_config_generation_ = 0;
-    IMeshPeerDirectory* peer_directory_ = nullptr;
     reticulum::interfaces::RxPacket rx_packet_scratch_{};
     uint8_t announce_tx_signed_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t announce_tx_payload_scratch_[reticulum::kReticulumMtu] = {};
@@ -181,6 +184,7 @@ class LxmfAdapter : public IMeshAdapter
     ::chat::infra::IncomingDataQueue<kIncomingQueueDepth, reticulum::kReticulumMtu> data_receive_queue_;
     runtime::DestinationRegistry destination_registry_;
     runtime::PathManager path_manager_;
+    runtime::DeliveryAttemptLedger delivery_attempt_ledger_;
     runtime::LinkManager link_manager_;
     runtime::AnnounceIngestor announce_ingestor_;
     runtime::ReticulumPacketRouter packet_router_;
@@ -188,6 +192,8 @@ class LxmfAdapter : public IMeshAdapter
     runtime::NetworkPageClient network_page_client_;
     runtime::PropagationClient propagation_client_;
     runtime::LxstTelephonyClient lxst_telephony_client_;
+    runtime::PeerDirectoryService peer_directory_service_;
+    runtime::LxmfDeliveryNotifier delivery_notifier_;
     std::string user_long_name_;
     std::string user_short_name_;
     uint32_t last_announce_ms_ = 0;
@@ -216,6 +222,16 @@ class LxmfAdapter : public IMeshAdapter
     uint8_t link_request_payload_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t link_request_packet_scratch_[reticulum::kReticulumMtu] = {};
     uint8_t link_request_routed_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t path_request_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t proof_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t routed_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t forward_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t lxmf_tx_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t encrypted_payload_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t link_wire_payload_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t link_packet_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t resource_advertisement_scratch_[reticulum::kReticulumMtu] = {};
+    uint8_t resource_hashmap_update_scratch_[reticulum::kReticulumMtu] = {};
     std::size_t link_request_packet_len_ = 0;
     uint32_t last_peer_projection_ms_ = 0;
     uint32_t next_app_packet_id_ = 1;
@@ -266,6 +282,8 @@ class LxmfAdapter : public IMeshAdapter
                                      const reticulum::ParsedPacket& packet);
     bool maybeForwardLinkPacket(const uint8_t* raw_packet, size_t raw_len,
                                 const reticulum::ParsedPacket& packet);
+    bool sendForwardPlan(const reticulum::ParsedPacket& packet,
+                         const runtime::PacketForwardPlan& plan);
     bool handleLocalLinkPacket(
         const uint8_t* raw_packet, size_t raw_len,
         const reticulum::ParsedPacket& packet,
@@ -312,6 +330,10 @@ class LxmfAdapter : public IMeshAdapter
                         size_t* inout_len);
     bool queueReadyPropagationUpload(PendingPropagationUpload& upload,
                                      const PropagationPeerState& node);
+    MessageId propagationUploadMessageId(
+        const PendingPropagationUpload& upload);
+    MessageId takePropagationUploadMessageId(
+        const PendingPropagationUpload& upload);
     bool sendPropagationSyncRequest(LinkSession& session,
                                     PropagationSyncStage next_stage,
                                     const runtime::PropagationIdList* wants,
@@ -348,38 +370,15 @@ class LxmfAdapter : public IMeshAdapter
         const reticulum::ParsedPacket& packet,
         reticulum::interfaces::InterfaceKind ingress_interface) const;
     bool rebroadcastAnnounce(const PathEntry& path, const reticulum::ParsedPacket& packet);
-    bool isDuplicatePacket(const uint8_t packet_hash[reticulum::kFullHashSize]);
-    void rememberPacket(const uint8_t packet_hash[reticulum::kFullHashSize]);
-    void rememberReversePath(const uint8_t proof_hash[reticulum::kTruncatedHashSize],
-                             reticulum::interfaces::InterfaceId interface_id,
-                             uint8_t expected_hops);
-    ReverseEntry* findReversePath(const uint8_t proof_hash[reticulum::kTruncatedHashSize]);
-    PendingPathRequest* findPendingPathRequest(
-        const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
-    const PendingPathRequest* findPendingPathRequest(
-        const uint8_t destination_hash[reticulum::kTruncatedHashSize]) const;
-    void notePendingPathRequest(const uint8_t destination_hash[reticulum::kTruncatedHashSize],
-                                uint32_t now_ms);
-    void resolvePendingPathRequest(const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
     void cullTransportState();
     void cullLinkSessions();
-    PathEntry& upsertPath(const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
-    const PathEntry* findPath(const uint8_t destination_hash[reticulum::kTruncatedHashSize]) const;
-    LinkRelayEntry& upsertLinkRelay(const uint8_t link_id[reticulum::kTruncatedHashSize]);
-    LinkRelayEntry* findLinkRelay(const uint8_t link_id[reticulum::kTruncatedHashSize]);
     LinkSession* findLinkSession(const uint8_t link_id[reticulum::kTruncatedHashSize]);
     LinkSession* findActiveLinkSessionByDestination(const uint8_t destination_hash[reticulum::kTruncatedHashSize],
                                                     LocalDestinationKind kind);
-    PeerInfo* findPeerByNodeId(NodeId node_id);
-    const PeerInfo* findPeerByDestinationHash(const uint8_t hash[reticulum::kTruncatedHashSize]) const;
-    const PeerInfo* findPeerByIdentityHash(const uint8_t hash[reticulum::kTruncatedHashSize]) const;
     const ReticulumGroupDestinationConfig* findConfiguredGroupDestination(
         const uint8_t hash[reticulum::kTruncatedHashSize]) const;
     bool isConfiguredGroupDestination(
         const ReticulumPeerIdentity& destination) const;
-    PeerInfo& upsertPeer(const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
-    PeerInfo* upsertPeerFromDirectoryRecord(const MeshPeerRecord& record,
-                                            bool queue_update);
     PeerInfo* findOrLoadPeerByNodeId(NodeId node_id);
     PeerInfo* findOrLoadPeerByDestinationHash(
         const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
@@ -482,7 +481,6 @@ class LxmfAdapter : public IMeshAdapter
     void closeLinkSession(LinkSession& session,
                           LinkCloseReason reason = LinkCloseReason::LocalClose);
     void flushDeferredLinkPayloads(LinkSession& session);
-    void expirePath(const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
     bool handleLinkDataPacket(LinkSession& session,
                               const uint8_t* raw_packet, size_t raw_len,
                               const reticulum::ParsedPacket& packet);

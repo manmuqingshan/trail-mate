@@ -22,6 +22,11 @@ namespace chat
 {
 class ChatService;
 class IMeshAdapter;
+namespace delivery
+{
+class ChatDeliveryReadModel;
+class IChatDeliveryEventPort;
+} // namespace delivery
 namespace contacts
 {
 class ContactService;
@@ -72,6 +77,19 @@ class IAppMessagingFacade
     virtual chat::IMeshAdapter* getMeshAdapter() = 0;
     virtual const chat::IMeshAdapter* getMeshAdapter() const = 0;
     virtual chat::NodeId getSelfNodeId() const = 0;
+    virtual chat::delivery::ChatDeliveryReadModel* getChatDeliveryReadModel()
+    {
+        return nullptr;
+    }
+    virtual const chat::delivery::ChatDeliveryReadModel*
+    getChatDeliveryReadModel() const
+    {
+        return nullptr;
+    }
+    virtual chat::delivery::IChatDeliveryEventPort* getChatDeliveryEventPort()
+    {
+        return nullptr;
+    }
 };
 
 class IAppTeamFacade

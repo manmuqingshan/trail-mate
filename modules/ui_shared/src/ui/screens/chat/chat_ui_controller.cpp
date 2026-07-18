@@ -864,12 +864,20 @@ void UiController::onRuntimeMessageArrived(chat::MessageId msg_id)
     refreshUnreadCounts(false);
 }
 
-void UiController::onRuntimeSendResult(chat::MessageId msg_id)
+void UiController::onRuntimeSendResult(chat::MessageId msg_id,
+                                       bool has_protocol,
+                                       chat::MeshProtocol protocol)
 {
     if (state_ == State::Conversation && conversation_)
     {
-        const ChatMessage* msg = service_.getMessage(msg_id);
-        if (!msg || !conversation_->updateMessageStatus(msg_id, msg->status))
+        const ChatMessage* msg =
+            has_protocol ? service_.getMessageForProtocol(msg_id, protocol)
+                         : service_.getMessage(msg_id);
+        if (!msg ||
+            !conversation_->updateMessageStatus(msg_id,
+                                                msg->status,
+                                                has_protocol,
+                                                protocol))
         {
             reloadConversationView();
         }

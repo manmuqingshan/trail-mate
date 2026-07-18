@@ -63,6 +63,7 @@ ui::chat::MessageRef toUiMessageRef(const chat::ChatMessage& message)
     }
 
     out.protocol_id = message.msg_id;
+    out.protocol = static_cast<uint8_t>(message.protocol);
     return out;
 }
 

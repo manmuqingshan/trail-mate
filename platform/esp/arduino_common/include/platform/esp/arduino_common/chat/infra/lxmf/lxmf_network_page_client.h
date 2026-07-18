@@ -6,6 +6,7 @@
 #pragma once
 
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_memory.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -26,6 +27,10 @@ struct PendingNomadPageRequest
     bool link_started = false;
     bool request_sent = false;
 };
+
+using PendingNomadPageRequestList =
+    std::vector<PendingNomadPageRequest,
+                PsramAllocator<PendingNomadPageRequest>>;
 
 enum class NetworkPageQueueResult
 {
@@ -64,6 +69,26 @@ class NetworkPageClient
         const uint8_t destination_hash[reticulum::kTruncatedHashSize],
         const uint8_t* request_id,
         std::size_t request_id_len);
+    bool attemptDue(const PendingNomadPageRequest& request,
+                    uint32_t now_ms,
+                    uint32_t retry_interval_ms) const;
+    bool pathRequestDue(const PendingNomadPageRequest& request,
+                        uint32_t now_ms,
+                        uint32_t retry_interval_ms) const;
+    uint32_t lastAttemptAge(const PendingNomadPageRequest& request,
+                            uint32_t now_ms) const;
+    void noteAttempt(PendingNomadPageRequest& request, uint32_t now_ms);
+    void notePathRequest(PendingNomadPageRequest& request,
+                         bool sent,
+                         uint32_t now_ms);
+    void noteLinkStart(PendingNomadPageRequest& request,
+                       bool sent,
+                       uint32_t now_ms,
+                       bool accumulate_success);
+    bool noteRequestPacketSent(PendingNomadPageRequest& request,
+                               const uint8_t* request_id,
+                               std::size_t request_id_len,
+                               uint32_t now_ms);
 
     template <typename Fn>
     void forEach(Fn&& fn)
@@ -84,7 +109,7 @@ class NetworkPageClient
     }
 
   private:
-    std::vector<PendingNomadPageRequest> pending_;
+    PendingNomadPageRequestList pending_;
 };
 
 } // namespace chat::lxmf::runtime

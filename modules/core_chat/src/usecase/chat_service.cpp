@@ -98,6 +98,38 @@ const char* failure_name(MeshOperationFailure failure)
     return "unknown";
 }
 
+delivery::SendFailureKind delivery_failure_from_mesh_operation(
+    MeshOperationFailure failure)
+{
+    switch (failure)
+    {
+    case MeshOperationFailure::None:
+        return delivery::SendFailureKind::None;
+    case MeshOperationFailure::PeerKeyMissing:
+        return delivery::SendFailureKind::PeerKeyMissing;
+    case MeshOperationFailure::ChannelKeyMissing:
+        return delivery::SendFailureKind::ChannelKeyMissing;
+    case MeshOperationFailure::LocalIdentityMissing:
+        return delivery::SendFailureKind::LocalIdentityMissing;
+    case MeshOperationFailure::Unsupported:
+        return delivery::SendFailureKind::UnsupportedProtocol;
+    case MeshOperationFailure::NotReady:
+    case MeshOperationFailure::TxDisabled:
+    case MeshOperationFailure::RadioOffline:
+    case MeshOperationFailure::DutyCycleLimited:
+    case MeshOperationFailure::EncodeFailed:
+    case MeshOperationFailure::CryptoFailed:
+    case MeshOperationFailure::RadioTxFailed:
+        return delivery::SendFailureKind::RadioSendFailed;
+    case MeshOperationFailure::InvalidInput:
+    case MeshOperationFailure::Busy:
+        return delivery::SendFailureKind::Rejected;
+    case MeshOperationFailure::Unknown:
+        return delivery::SendFailureKind::Unknown;
+    }
+    return delivery::SendFailureKind::Unknown;
+}
+
 const char* protocol_name(MeshProtocol protocol)
 {
     return infra::isValidMeshProtocol(protocol) ? infra::meshProtocolName(protocol)
@@ -321,7 +353,11 @@ MeshSendResult ChatService::sendTextResolvedDetailed(
     msg.reticulum_identity = result.reticulum_identity;
     msg.status = result.ok ? MessageStatus::Queued : MessageStatus::Failed;
 
-    message_ledger_.recordOutbound(msg, model_enabled_);
+    message_ledger_.recordOutbound(
+        msg,
+        model_enabled_,
+        result.ok ? delivery::SendFailureKind::None
+                  : delivery_failure_from_mesh_operation(result.failure));
     CHAT_SERVICE_DIAG_LOG("[ChatService][TX] stored msg=%lu status=%u peer=%08lX dest=%s text=\"%s\"\n",
                           static_cast<unsigned long>(msg.msg_id),
                           static_cast<unsigned>(msg.status),
@@ -451,7 +487,51 @@ bool ChatService::resendFailed(MessageId msg_id)
         return false;
     }
 
-    return message_ledger_.markRetryQueued(msg.msg_id, model_enabled_);
+    return message_ledger_.markRetryQueuedForProtocol(msg.msg_id,
+                                                      msg.protocol,
+                                                      model_enabled_);
+}
+
+bool ChatService::resendFailedForProtocol(MessageId msg_id,
+                                          MeshProtocol protocol)
+{
+    ChatMessage msg;
+    if (const ChatMessage* model_msg =
+            model_.getMessageForProtocol(msg_id, protocol))
+    {
+        msg = *model_msg;
+    }
+    else if (!store_.getMessageForProtocol(msg_id, protocol, &msg))
+    {
+        return false;
+    }
+
+    if (msg.status != MessageStatus::Failed || msg.protocol != active_protocol_)
+    {
+        return false;
+    }
+
+    const bool resend_reticulum_destination =
+        msg.protocol == MeshProtocol::Reticulum &&
+        hasReticulumDestinationIdentity(msg.reticulum_identity);
+    const MeshSendResult result =
+        resend_reticulum_destination
+            ? adapter_.sendTextToReticulumDestination(msg.channel,
+                                                      msg.text,
+                                                      msg.msg_id,
+                                                      msg.reticulum_identity)
+            : adapter_.sendTextDetailed(msg.channel,
+                                        msg.text,
+                                        msg.msg_id,
+                                        msg.peer);
+    if (!result.ok || result.msg_id != msg.msg_id)
+    {
+        return false;
+    }
+
+    return message_ledger_.markRetryQueuedForProtocol(msg.msg_id,
+                                                      msg.protocol,
+                                                      model_enabled_);
 }
 
 std::vector<ChatMessage> ChatService::getRecentMessages(const ConversationId& conv, size_t limit) const
@@ -822,9 +902,29 @@ void ChatService::handleSendResult(MessageId msg_id, bool ok)
                      ok ? MessageStatus::Sent : MessageStatus::Failed);
 }
 
-void ChatService::handleSendResult(MessageId msg_id, MessageStatus status)
+void ChatService::handleSendResult(MessageId msg_id,
+                                   MessageStatus status,
+                                   uint32_t timestamp_ms,
+                                   delivery::SendFailureKind failure)
 {
-    (void)message_ledger_.applyOutboundStatus(msg_id, status, model_enabled_);
+    (void)message_ledger_.applyOutboundStatus(
+        msg_id, status, model_enabled_, timestamp_ms, failure);
+}
+
+void ChatService::handleSendResultForProtocol(MessageId msg_id,
+                                              MeshProtocol protocol,
+                                              MessageStatus status,
+                                              uint32_t timestamp_ms,
+                                              delivery::SendFailureKind failure)
+{
+    (void)message_ledger_.applyOutboundStatusForProtocol(
+        msg_id, protocol, status, model_enabled_, timestamp_ms, failure);
+}
+
+void ChatService::setDeliveryEventPort(
+    delivery::IChatDeliveryEventPort* delivery_event_port)
+{
+    message_ledger_.setDeliveryEventPort(delivery_event_port);
 }
 
 const ChatMessage* ChatService::getMessage(MessageId msg_id) const
@@ -834,6 +934,21 @@ const ChatMessage* ChatService::getMessage(MessageId msg_id) const
         return msg;
     }
     if (store_.getMessage(msg_id, &store_lookup_cache_))
+    {
+        return &store_lookup_cache_;
+    }
+    return nullptr;
+}
+
+const ChatMessage* ChatService::getMessageForProtocol(
+    MessageId msg_id,
+    MeshProtocol protocol) const
+{
+    if (const ChatMessage* msg = model_.getMessageForProtocol(msg_id, protocol))
+    {
+        return msg;
+    }
+    if (store_.getMessageForProtocol(msg_id, protocol, &store_lookup_cache_))
     {
         return &store_lookup_cache_;
     }

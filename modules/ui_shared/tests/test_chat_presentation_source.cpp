@@ -356,12 +356,45 @@ class PagingStore final : public ::chat::IChatStore
         return false;
     }
 
+    bool updateMessageStatusForProtocol(::chat::MessageId msg_id,
+                                        ::chat::MeshProtocol protocol,
+                                        ::chat::MessageStatus status) override
+    {
+        for (auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id && msg.protocol == protocol)
+            {
+                msg.status = status;
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool getMessage(::chat::MessageId msg_id,
                     ::chat::ChatMessage* out) const override
     {
         for (const auto& msg : messages_)
         {
             if (msg.msg_id == msg_id)
+            {
+                if (out)
+                {
+                    *out = msg;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool getMessageForProtocol(::chat::MessageId msg_id,
+                               ::chat::MeshProtocol protocol,
+                               ::chat::ChatMessage* out) const override
+    {
+        for (const auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id && msg.protocol == protocol)
             {
                 if (out)
                 {
@@ -516,6 +549,8 @@ int main()
 
     ::chat::delivery::ChatDeliveryRecord delivered{};
     delivered.ref.protocol_id = 100;
+    delivered.ref.protocol =
+        static_cast<uint8_t>(::chat::MeshProtocol::Meshtastic);
     delivered.state = ::chat::delivery::DeliveryState::Delivered;
     delivered.failure = ::chat::delivery::DeliveryFailureKind::None;
     assert(delivery_read_model.upsert(delivered));
@@ -574,7 +609,11 @@ int main()
     assert(radio_offline_send.failure == ui::UiActionFailure::RadioOffline);
     mesh.fail_returns_msg_id = true;
     assert(delivery_read_model.upsert(::chat::delivery::toFailedDeliveryRecord(
-        ::chat::delivery::ChatDeliveryRef{0, 101, 0},
+        ::chat::delivery::ChatDeliveryRef{
+            0,
+            101,
+            0,
+            static_cast<uint8_t>(::chat::MeshProtocol::Meshtastic)},
         ::chat::delivery::SendFailureKind::PeerKeyMissing)));
     assert(source.buildChatWorkspaceSnapshot(request, snapshot));
     assert(snapshot.message_count == 2);
@@ -583,7 +622,11 @@ int main()
            ui::chat::MessageFailureKind::PeerKeyMissing);
 
     assert(delivery_read_model.upsert(::chat::delivery::toFailedDeliveryRecord(
-        ::chat::delivery::ChatDeliveryRef{0, 101, 0},
+        ::chat::delivery::ChatDeliveryRef{
+            0,
+            101,
+            0,
+            static_cast<uint8_t>(::chat::MeshProtocol::Meshtastic)},
         ::chat::delivery::SendFailureKind::ChannelKeyMissing)));
     assert(source.buildChatWorkspaceSnapshot(request, snapshot));
     assert(snapshot.message_count == 2);

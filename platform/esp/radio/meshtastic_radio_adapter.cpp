@@ -300,12 +300,22 @@ bool MeshtasticRadioAdapter::sendEncodedPayload(chat::ChannelId channel,
         (void)radio_pump_.restartReceive();
         if (publish_send_result)
         {
-            sys::EventBus::publish(new sys::ChatSendResultEvent(msg_id, true), 0);
+            sys::EventBus::publish(
+                new sys::ChatSendResultEvent(msg_id,
+                                             chat::MessageStatus::Sent,
+                                             chat::MeshProtocol::Meshtastic),
+                0);
         }
     }
     else if (publish_send_result)
     {
-        sys::EventBus::publish(new sys::ChatSendResultEvent(msg_id, false), 0);
+        sys::EventBus::publish(
+            new sys::ChatSendResultEvent(
+                msg_id,
+                chat::MessageStatus::Failed,
+                chat::MeshProtocol::Meshtastic,
+                chat::delivery::SendFailureKind::RadioSendFailed),
+            0);
     }
 
     ESP_LOGI(kTag,

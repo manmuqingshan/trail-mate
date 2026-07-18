@@ -717,12 +717,6 @@ void copyHash(uint8_t* out, const uint8_t* in, size_t len)
     memcpy(out, in, len);
 }
 
-::chat::ReticulumPeerIdentity reticulumIdentityForPeer(const runtime::PeerInfo& peer)
-{
-    return ::chat::makeReticulumPeerIdentity(peer.destination_hash,
-                                             peer.identity_hash);
-}
-
 MeshPeerSource meshPeerSourceFromDirectorySource(rtdir::EntrySource source)
 {
     switch (source)
@@ -1011,14 +1005,14 @@ bool computeLinkIdFromLinkRequest(const uint8_t* raw_packet, size_t raw_len,
         return false;
     }
 
-    uint8_t scratch[kMaxPacketLen] = {};
-    if (raw_len > sizeof(scratch))
+    if (raw_len > kMaxPacketLen)
     {
         return false;
     }
 
     size_t working_len = raw_len;
-    memcpy(scratch, raw_packet, raw_len);
+    runtime::RuntimeByteBuffer scratch(raw_len, 0);
+    memcpy(scratch.data(), raw_packet, raw_len);
 
     if (packet.payload_len > 64)
     {
@@ -1030,7 +1024,7 @@ bool computeLinkIdFromLinkRequest(const uint8_t* raw_packet, size_t raw_len,
         working_len -= trim;
     }
 
-    reticulum::computeTruncatedPacketHash(scratch, working_len, out_hash);
+    reticulum::computeTruncatedPacketHash(scratch.data(), working_len, out_hash);
     return true;
 }
 
@@ -1039,7 +1033,7 @@ bool computeLinkIdFromLinkRequest(const uint8_t* raw_packet, size_t raw_len,
 LxmfAdapter::LxmfAdapter(LoraBoard& board,
                          IMeshPeerDirectory* peer_directory)
     : interfaces_(board),
-      peer_directory_(peer_directory)
+      peer_directory_service_(peer_directory)
 {
     uint8_t seed[sizeof(next_app_packet_id_)] = {};
     fillRandomBytes(seed, sizeof(seed));
@@ -1159,17 +1153,23 @@ bool LxmfAdapter::dispatchLxmfPayload(PeerInfo& peer,
                                            LocalDestinationKind::Delivery);
     const bool use_opportunistic = !active_link && peerHasUsableRatchet(peer);
     const auto& propagation_config = rtnet::active().propagation;
-    const bool propagation_only =
-        propagation_config.enabled &&
+    bool propagation_peer_available = false;
+    if (propagation_config.enabled &&
         propagation_config.delivery ==
-            reticulum::LxmfDeliveryPreference::Propagated;
-    const bool propagation_automatic =
-        propagation_config.enabled &&
-        propagation_config.delivery ==
-            reticulum::LxmfDeliveryPreference::Automatic &&
-        !active_link && !use_opportunistic &&
-        selectActivePropagationPeer() != nullptr;
-    if (propagation_only || propagation_automatic)
+            chat::reticulum::LxmfDeliveryPreference::Automatic &&
+        !active_link && !use_opportunistic)
+    {
+        propagation_peer_available = selectActivePropagationPeer() != nullptr;
+    }
+    const runtime::OutboundDeliveryPlan plan =
+        runtime::ReticulumDeliveryPlanner::plan(
+            runtime::OutboundDeliveryPlanInput{
+                active_link != nullptr,
+                use_opportunistic,
+                propagation_config.enabled,
+                propagation_config.delivery,
+                propagation_peer_available});
+    if (plan.propagation_first)
     {
         if (queuePropagationUpload(peer,
                                    lxmf_message.data(),
@@ -1181,14 +1181,19 @@ bool LxmfAdapter::dispatchLxmfPayload(PeerInfo& peer,
         {
             return true;
         }
-        if (propagation_only)
+        if (plan.propagation_only)
         {
             out_dispatch->failure = MeshOperationFailure::RadioTxFailed;
             return false;
         }
     }
-    out_dispatch->path =
-        active_link ? "link" : (use_opportunistic ? "opportunistic" : "deferred_link");
+    const runtime::OutboundDeliveryPath fallback_path =
+        active_link ? runtime::OutboundDeliveryPath::Link
+                    : (use_opportunistic
+                           ? runtime::OutboundDeliveryPath::Opportunistic
+                           : runtime::OutboundDeliveryPath::DeferredLink);
+    out_dispatch->path = runtime::ReticulumDeliveryPlanner::pathName(
+        plan.propagation_first ? fallback_path : plan.path);
     if (active_link)
     {
         runtime::DeferredLinkPayload deferred{};
@@ -1197,7 +1202,7 @@ bool LxmfAdapter::dispatchLxmfPayload(PeerInfo& peer,
         deferred.message_id = track_user_message
                                   ? out_dispatch->message_id
                                   : 0;
-        active_link->deferred_payloads.push_back(std::move(deferred));
+        link_manager_.appendDeferredPayload(*active_link, std::move(deferred));
         flushDeferredLinkPayloads(*active_link);
         out_dispatch->ok = true;
         out_dispatch->result_event_deferred = track_user_message;
@@ -1218,7 +1223,7 @@ bool LxmfAdapter::dispatchLxmfPayload(PeerInfo& peer,
         {
             uint8_t packet_hash[reticulum::kFullHashSize] = {};
             reticulum::computePacketHash(packet.data(), packet_len, packet_hash);
-            path_manager_.notePendingDeliveryReceipt(
+            delivery_attempt_ledger_.noteDirectPacketReceipt(
                 packet_hash,
                 peer.destination_hash,
                 peer.sig_pub,
@@ -1228,7 +1233,7 @@ bool LxmfAdapter::dispatchLxmfPayload(PeerInfo& peer,
         }
     }
 
-    if (!active_link && !out_dispatch->ok)
+    if (plan.may_fallback_to_link && !active_link && !out_dispatch->ok)
     {
         bool started = false;
         LinkSession* session =
@@ -1241,7 +1246,7 @@ bool LxmfAdapter::dispatchLxmfPayload(PeerInfo& peer,
             deferred.message_id = track_user_message
                                       ? out_dispatch->message_id
                                       : 0;
-            session->deferred_payloads.push_back(std::move(deferred));
+            link_manager_.appendDeferredPayload(*session, std::move(deferred));
             if (session->state == LinkState::Active)
             {
                 flushDeferredLinkPayloads(*session);
@@ -1381,17 +1386,10 @@ bool LxmfAdapter::queuePropagationUpload(
                         upload.transient_data.size(),
                         upload.transient_id);
     upload.created_ms = millis();
-    upload.message_id = message_id;
-    upload.track_user_message = track_user_message;
-    upload.state = runtime::PropagationUploadState::WaitingNode;
 
     if (const PropagationPeerState* node = selectActivePropagationPeer())
     {
-        copyHash(upload.node_hash,
-                 node->propagation_hash,
-                 sizeof(upload.node_hash));
-        upload.stamp_cost = node->stamp_cost;
-        upload.state = runtime::PropagationUploadState::NeedsStamp;
+        propagation_client_.bindUploadNode(upload, *node);
     }
 
     PendingPropagationUpload* queued_upload =
@@ -1401,15 +1399,17 @@ bool LxmfAdapter::queuePropagationUpload(
     {
         return false;
     }
+    if (track_user_message && message_id != 0)
+    {
+        delivery_attempt_ledger_.notePropagationReceipt(
+            queued_upload->transient_id,
+            message_id,
+            millis(),
+            kMaxPendingDeliveryReceipts);
+    }
     out_dispatch->ok = true;
     out_dispatch->result_event_deferred = track_user_message;
     out_dispatch->path = "propagation";
-    if (track_user_message && message_id != 0)
-    {
-        sys::EventBus::publish(
-            new sys::ChatSendResultEvent(message_id, MessageStatus::Queued),
-            0);
-    }
     char transient_hash[12] = {};
     formatHashPrefix(queued_upload->transient_id,
                      transient_hash,
@@ -1423,6 +1423,22 @@ bool LxmfAdapter::queuePropagationUpload(
                       ? 1U
                       : 0U);
     return true;
+}
+
+MessageId LxmfAdapter::propagationUploadMessageId(
+    const PendingPropagationUpload& upload)
+{
+    runtime::DeliveryAttemptReceipt* receipt =
+        delivery_attempt_ledger_.findPropagationReceipt(upload.transient_id);
+    return receipt ? receipt->message_id : 0;
+}
+
+MessageId LxmfAdapter::takePropagationUploadMessageId(
+    const PendingPropagationUpload& upload)
+{
+    const MessageId message_id = propagationUploadMessageId(upload);
+    delivery_attempt_ledger_.removePropagationReceipt(upload.transient_id);
+    return message_id;
 }
 
 bool LxmfAdapter::queueReadyPropagationUpload(
@@ -1445,13 +1461,13 @@ bool LxmfAdapter::queueReadyPropagationUpload(
         return false;
     }
 
-    std::vector<ByteSpan> messages;
+    runtime::RuntimeByteSpanList messages;
     messages.push_back(ByteSpan{upload.transient_data.data(),
                                 upload.transient_data.size()});
     runtime::ResourcePayloadBuffer batch(upload.transient_data.size() + 32U, 0);
     size_t batch_len = batch.size();
     if (!encodePropagationBatch(static_cast<double>(currentTimestampSeconds()),
-                                messages,
+                                runtime::viewRuntimeByteSpans(messages),
                                 batch.data(),
                                 &batch_len))
     {
@@ -1461,9 +1477,14 @@ bool LxmfAdapter::queueReadyPropagationUpload(
 
     runtime::DeferredLinkPayload deferred{};
     deferred.payload = std::move(batch);
-    deferred.message_id = upload.track_user_message ? upload.message_id : 0;
-    session->deferred_payloads.push_back(std::move(deferred));
-    upload.state = runtime::PropagationUploadState::QueuedToLink;
+    const MessageId message_id = propagationUploadMessageId(upload);
+    deferred.message_id = message_id;
+    link_manager_.appendDeferredPayload(*session, std::move(deferred));
+    if (message_id != 0)
+    {
+        delivery_attempt_ledger_.removePropagationReceipt(upload.transient_id);
+    }
+    propagation_client_.markUploadQueuedToLink(upload);
     if (session->state == LinkState::Active)
     {
         (void)sendLinkIdentify(*session);
@@ -1477,7 +1498,7 @@ bool LxmfAdapter::queueReadyPropagationUpload(
                      transient_hash,
                      sizeof(transient_hash));
     Serial.printf("[LXMF][PropagationTX] link_queue msg=%lu transient=%s node=%s link_state=%u started=%u\n",
-                  static_cast<unsigned long>(upload.message_id),
+                  static_cast<unsigned long>(message_id),
                   transient_hash,
                   node_hash,
                   static_cast<unsigned>(session->state),
@@ -1490,18 +1511,17 @@ void LxmfAdapter::processPropagationClient()
     const auto& config = rtnet::active().propagation;
     if (!config.enabled)
     {
-        const std::vector<PendingPropagationUpload> disabled_uploads =
+        const auto disabled_uploads =
             propagation_client_.takeAllPendingUploads();
         for (const auto& upload : disabled_uploads)
         {
-            if (upload.track_user_message && upload.message_id != 0)
+            const MessageId message_id = takePropagationUploadMessageId(upload);
+            if (message_id != 0)
             {
-                sys::EventBus::publish(
-                    new sys::ChatSendResultEvent(upload.message_id, false),
-                    0);
+                delivery_notifier_.failed(message_id);
             }
             Serial.printf("[LXMF][PropagationTX] disabled msg=%lu\n",
-                          static_cast<unsigned long>(upload.message_id));
+                          static_cast<unsigned long>(message_id));
         }
         propagation_client_.resetForDisabled();
         link_manager_.forEachSession(
@@ -1518,18 +1538,16 @@ void LxmfAdapter::processPropagationClient()
 
     const uint32_t now_ms = millis();
     propagation_client_.markExpiredUploads(now_ms, kPropagationUploadTtlMs);
-    const std::vector<PendingPropagationUpload> failed_uploads =
-        propagation_client_.takeFailedUploads();
+    const auto failed_uploads = propagation_client_.takeFailedUploads();
     for (const auto& upload : failed_uploads)
     {
-        if (upload.track_user_message && upload.message_id != 0)
+        const MessageId message_id = takePropagationUploadMessageId(upload);
+        if (message_id != 0)
         {
-            sys::EventBus::publish(
-                new sys::ChatSendResultEvent(upload.message_id, false),
-                0);
+            delivery_notifier_.failed(message_id);
         }
         Serial.printf("[LXMF][PropagationTX] failed msg=%lu\n",
-                      static_cast<unsigned long>(upload.message_id));
+                      static_cast<unsigned long>(message_id));
     }
 
     const PropagationPeerState* node = selectActivePropagationPeer();
@@ -1542,46 +1560,22 @@ void LxmfAdapter::processPropagationClient()
             return;
         }
         PendingPropagationUpload& upload = *pending_upload;
+        const MessageId message_id = propagationUploadMessageId(upload);
         if (!node)
         {
-            upload.state = runtime::PropagationUploadState::WaitingNode;
-            propagation_client_.stamp().reset();
+            propagation_client_.markUploadWaitingForNode(upload);
         }
         else
         {
-            const bool node_changed =
-                !hashesEqual(upload.node_hash,
-                             node->propagation_hash,
-                             sizeof(upload.node_hash)) ||
-                upload.stamp_cost != node->stamp_cost;
-            if (node_changed)
-            {
-                propagation_client_.stamp().reset();
-                copyHash(upload.node_hash,
-                         node->propagation_hash,
-                         sizeof(upload.node_hash));
-                upload.stamp_cost = node->stamp_cost;
-                upload.state = runtime::PropagationUploadState::NeedsStamp;
-            }
-            else if (upload.state ==
-                     runtime::PropagationUploadState::WaitingNode)
-            {
-                upload.state = runtime::PropagationUploadState::NeedsStamp;
-            }
+            propagation_client_.bindUploadNode(upload, *node);
 
             if (upload.state == runtime::PropagationUploadState::NeedsStamp)
             {
-                if (propagation_client_.stamp().begin(upload.transient_id,
-                                                      upload.stamp_cost))
+                if (propagation_client_.beginUploadStamp(upload))
                 {
-                    upload.state = runtime::PropagationUploadState::Stamping;
                     Serial.printf("[LXMF][PropagationTX] stamp_begin msg=%lu cost=%u\n",
-                                  static_cast<unsigned long>(upload.message_id),
+                                  static_cast<unsigned long>(message_id),
                                   static_cast<unsigned>(upload.stamp_cost));
-                }
-                else
-                {
-                    upload.state = runtime::PropagationUploadState::Failed;
                 }
             }
 
@@ -1596,25 +1590,20 @@ void LxmfAdapter::processPropagationClient()
                         propagation_client_.stamp().searchRounds();
                     if (!propagation_client_.stamp().takeStamp(stamp))
                     {
-                        upload.state =
-                            runtime::PropagationUploadState::Failed;
+                        propagation_client_.markUploadFailed(upload);
                     }
-                    else
+                    else if (propagation_client_.completeUploadStamp(upload,
+                                                                     stamp))
                     {
-                        upload.transient_data.insert(
-                            upload.transient_data.end(),
-                            stamp,
-                            stamp + sizeof(stamp));
-                        upload.state = runtime::PropagationUploadState::Ready;
                         Serial.printf("[LXMF][PropagationTX] stamp_ready msg=%lu rounds=%lu\n",
-                                      static_cast<unsigned long>(upload.message_id),
+                                      static_cast<unsigned long>(message_id),
                                       static_cast<unsigned long>(rounds));
                     }
                 }
                 else if (stamp_state ==
                          runtime::PropagationStampRuntime::State::Failed)
                 {
-                    upload.state = runtime::PropagationUploadState::Failed;
+                    propagation_client_.markUploadFailed(upload);
                 }
                 else if (stamp_state ==
                              runtime::PropagationStampRuntime::State::Expanding &&
@@ -1622,7 +1611,7 @@ void LxmfAdapter::processPropagationClient()
                          (propagation_client_.stamp().expandedRounds() % 100U) == 0U)
                 {
                     Serial.printf("[LXMF][PropagationTX] stamp_progress msg=%lu expand=%u/1000 search=%lu\n",
-                                  static_cast<unsigned long>(upload.message_id),
+                                  static_cast<unsigned long>(message_id),
                                   static_cast<unsigned>(
                                       propagation_client_.stamp().expandedRounds()),
                                   static_cast<unsigned long>(
@@ -1634,7 +1623,7 @@ void LxmfAdapter::processPropagationClient()
                          (propagation_client_.stamp().searchRounds() % 4096U) == 0U)
                 {
                     Serial.printf("[LXMF][PropagationTX] stamp_progress msg=%lu expand=%u/1000 search=%lu\n",
-                                  static_cast<unsigned long>(upload.message_id),
+                                  static_cast<unsigned long>(message_id),
                                   static_cast<unsigned>(
                                       propagation_client_.stamp().expandedRounds()),
                                   static_cast<unsigned long>(
@@ -1747,8 +1736,8 @@ bool LxmfAdapter::sendPropagationSyncRequest(
         }
         wire_payload.resize(wire_payload_len);
 
-        uint8_t packet[kMaxPacketLen] = {};
-        size_t packet_len = sizeof(packet);
+        std::memset(lxmf_tx_packet_scratch_, 0, sizeof(lxmf_tx_packet_scratch_));
+        size_t packet_len = sizeof(lxmf_tx_packet_scratch_);
         if (!reticulum::buildHeader1Packet(reticulum::PacketType::Data,
                                            reticulum::DestinationType::Link,
                                            reticulum::PacketContext::Request,
@@ -1756,18 +1745,20 @@ bool LxmfAdapter::sendPropagationSyncRequest(
                                            session.link_id,
                                            wire_payload.data(),
                                            wire_payload.size(),
-                                           packet,
+                                           lxmf_tx_packet_scratch_,
                                            &packet_len))
         {
             return false;
         }
-        reticulum::computeTruncatedPacketHash(packet, packet_len, request_id);
+        reticulum::computeTruncatedPacketHash(lxmf_tx_packet_scratch_,
+                                              packet_len,
+                                              request_id);
         sent = session.interface_id !=
                        reticulum::interfaces::kInvalidInterfaceId
                    ? interfaces_.sendPacketOn(session.interface_id,
-                                              packet,
+                                              lxmf_tx_packet_scratch_,
                                               packet_len)
-                   : interfaces_.sendPacket(packet, packet_len);
+                   : interfaces_.sendPacket(lxmf_tx_packet_scratch_, packet_len);
     }
     else
     {
@@ -1786,13 +1777,13 @@ bool LxmfAdapter::sendPropagationSyncRequest(
         return false;
     }
 
-    LinkPendingRequest pending{};
-    pending.request_id.assign(request_id, request_id + sizeof(request_id));
-    pending.created_ms = millis();
-    pending.awaiting_resource = request_payload.size() > session.mdu;
-    session.pending_requests.push_back(std::move(pending));
+    link_manager_.queuePendingRequest(session,
+                                      request_id,
+                                      sizeof(request_id),
+                                      millis(),
+                                      request_payload.size() > session.mdu);
     propagation_client_.markSyncRequestSent(request_id, next_stage);
-    session.last_outbound_ms = millis();
+    link_manager_.touchOutbound(session, millis());
     Serial.printf("[LXMF][PropagationSync] request stage=%u wants=%u haves=%u resource=%u\n",
                   static_cast<unsigned>(next_stage),
                   static_cast<unsigned>(wants ? wants->size() : 0U),
@@ -1827,25 +1818,23 @@ void LxmfAdapter::processPropagationSyncResponse(LinkSession& session)
         return;
     }
 
-    auto pending = std::find_if(
-        session.pending_requests.begin(),
-        session.pending_requests.end(),
+    LinkPendingRequest* pending = link_manager_.findPendingRequestIf(
+        session,
         [this](const LinkPendingRequest& request)
         { return propagation_client_.syncRequestMatches(request); });
     if ((propagation_client_.syncStage() == PropagationSyncStage::Listing ||
          propagation_client_.syncStage() == PropagationSyncStage::Downloading ||
          propagation_client_.syncStage() == PropagationSyncStage::Acknowledging) &&
-        pending != session.pending_requests.end() &&
-        pending->created_ms != 0 &&
+        pending && pending->created_ms != 0 &&
         (millis() - pending->created_ms) > kLinkRequestTtlMs)
     {
-        session.pending_requests.erase(pending);
+        link_manager_.erasePendingRequest(session, *pending);
         propagation_client_.markSyncFailed();
-        pending = session.pending_requests.end();
+        pending = nullptr;
     }
 
     if (propagation_client_.syncStage() == PropagationSyncStage::Listing &&
-        pending != session.pending_requests.end() && pending->response_ready)
+        pending && pending->response_ready)
     {
         runtime::PropagationIdList remote_ids;
         const bool decoded =
@@ -1853,7 +1842,8 @@ void LxmfAdapter::processPropagationSyncResponse(LinkSession& session)
                                            pending->response.size(),
                                            runtime::appendRuntimeByteBufferCallback,
                                            &remote_ids);
-        session.pending_requests.erase(pending);
+        link_manager_.erasePendingRequest(session, *pending);
+        pending = nullptr;
         if (!decoded)
         {
             propagation_client_.markSyncFailed();
@@ -1879,7 +1869,7 @@ void LxmfAdapter::processPropagationSyncResponse(LinkSession& session)
     }
 
     if (propagation_client_.syncStage() == PropagationSyncStage::Downloading &&
-        pending != session.pending_requests.end() && pending->response_ready)
+        pending && pending->response_ready)
     {
         runtime::PropagationMessageList messages;
         const bool decoded =
@@ -1887,7 +1877,8 @@ void LxmfAdapter::processPropagationSyncResponse(LinkSession& session)
                                                 pending->response.size(),
                                                 runtime::appendRuntimeByteBufferCallback,
                                                 &messages);
-        session.pending_requests.erase(pending);
+        link_manager_.erasePendingRequest(session, *pending);
+        pending = nullptr;
         if (!decoded)
         {
             propagation_client_.markSyncFailed();
@@ -1980,9 +1971,10 @@ void LxmfAdapter::processPropagationSyncResponse(LinkSession& session)
     }
 
     if (propagation_client_.syncStage() == PropagationSyncStage::Acknowledging &&
-        pending != session.pending_requests.end() && pending->response_ready)
+        pending && pending->response_ready)
     {
-        session.pending_requests.erase(pending);
+        link_manager_.erasePendingRequest(session, *pending);
+        pending = nullptr;
         propagation_client_.markAcknowledged();
     }
 
@@ -2143,15 +2135,7 @@ MeshSendResult LxmfAdapter::sendTextDetailed(ChannelId channel,
     MeshSendResult result =
         ok ? MeshSendResult::success(message_id)
            : MeshSendResult::fail(dispatch.failure, message_id);
-    result.reticulum_identity = reticulumIdentityForPeer(*peer_info);
-    if (!send_result_event_deferred)
-    {
-        sys::EventBus::publish(
-            new sys::ChatSendResultEvent(
-                message_id,
-                ok ? MessageStatus::Queued : MessageStatus::Failed),
-            0);
-    }
+    result.reticulum_identity = runtime::reticulumIdentityForPeer(*peer_info);
     return result;
 }
 
@@ -2224,7 +2208,7 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
             sendTextDetailed(channel, text, forced_msg_id, peer_info->node_id);
         if (!hasReticulumDestinationIdentity(result.reticulum_identity))
         {
-            result.reticulum_identity = reticulumIdentityForPeer(*peer_info);
+            result.reticulum_identity = runtime::reticulumIdentityForPeer(*peer_info);
         }
         return result;
     }
@@ -2243,13 +2227,13 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
         return MeshSendResult::fail(MeshOperationFailure::EncodeFailed);
     }
 
-    uint8_t packet[kMaxPacketLen] = {};
-    size_t packet_len = sizeof(packet);
+    std::memset(lxmf_tx_packet_scratch_, 0, sizeof(lxmf_tx_packet_scratch_));
+    size_t packet_len = sizeof(lxmf_tx_packet_scratch_);
     uint8_t message_hash[reticulum::kFullHashSize] = {};
     if (!buildGroupMessagePacket(destination,
                                  packed_payload,
                                  packed_payload_len,
-                                 packet,
+                                 lxmf_tx_packet_scratch_,
                                  &packet_len,
                                  message_hash))
     {
@@ -2269,7 +2253,7 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
                   dest_hash,
                   static_cast<unsigned>(packed_payload_len),
                   static_cast<unsigned>(packet_len));
-    const bool ok = routeAndSendPacket(packet, packet_len, true);
+    const bool ok = routeAndSendPacket(lxmf_tx_packet_scratch_, packet_len, true);
     const auto& tx_result = interfaces_.lastTxResult();
     Serial.printf("[LXMF][GroupTX] raw_send ok=%u msg=%lu dest=%s dest_full=%s bearer=%s complete=%u packet_len=%u text=\"%s\"\n",
                   ok ? 1U : 0U,
@@ -2285,11 +2269,6 @@ MeshSendResult LxmfAdapter::sendTextToReticulumDestination(
            : MeshSendResult::fail(MeshOperationFailure::RadioTxFailed, message_id);
     result.reticulum_identity =
         makeReticulumDestinationIdentity(destination.destination_hash);
-    sys::EventBus::publish(
-        new sys::ChatSendResultEvent(
-            message_id,
-            ok ? MessageStatus::Queued : MessageStatus::Failed),
-        0);
     return result;
 }
 
@@ -2348,7 +2327,7 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                       isReady() ? 1U : 0U);
         if (packet_id != 0)
         {
-            sys::EventBus::publish(new sys::ChatSendResultEvent(packet_id, false), 0);
+            delivery_notifier_.failed(packet_id);
         }
         return false;
     }
@@ -2382,7 +2361,7 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                               packed_payload,
                               &packed_payload_len))
     {
-        sys::EventBus::publish(new sys::ChatSendResultEvent(effective_packet_id, false), 0);
+        delivery_notifier_.failed(effective_packet_id);
         return false;
     }
 
@@ -2396,7 +2375,7 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                           static_cast<unsigned long>(portnum),
                           static_cast<unsigned long>(dest),
                           static_cast<unsigned long>(effective_packet_id));
-            sys::EventBus::publish(new sys::ChatSendResultEvent(effective_packet_id, false), 0);
+            delivery_notifier_.failed(effective_packet_id);
             return false;
         }
 
@@ -2457,16 +2436,16 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         }
         else
         {
-            uint8_t packet[kMaxPacketLen] = {};
-            size_t packet_len = sizeof(packet);
+            std::memset(lxmf_tx_packet_scratch_, 0, sizeof(lxmf_tx_packet_scratch_));
+            size_t packet_len = sizeof(lxmf_tx_packet_scratch_);
             if (buildSignedMessagePacket(*peer_info,
                                          packed_payload,
                                          packed_payload_len,
-                                         packet,
+                                         lxmf_tx_packet_scratch_,
                                          &packet_len,
                                          message_hash))
             {
-                ok = routeAndSendPacket(packet, packet_len, true);
+                ok = routeAndSendPacket(lxmf_tx_packet_scratch_, packet_len, true);
             }
 
             if (!ok && have_link_payload)
@@ -2478,7 +2457,7 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                 {
                     runtime::DeferredLinkPayload deferred{};
                     deferred.payload.assign(lxmf_message, lxmf_message + lxmf_message_len);
-                    session->deferred_payloads.push_back(std::move(deferred));
+                    link_manager_.appendDeferredPayload(*session, std::move(deferred));
                     if (session->state == LinkState::Active)
                     {
                         flushDeferredLinkPayloads(*session);
@@ -2511,16 +2490,18 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                     (void)sendPathRequest(peer_info);
                 }
 
-                uint8_t packet[kMaxPacketLen] = {};
-                size_t packet_len = sizeof(packet);
+                std::memset(lxmf_tx_packet_scratch_, 0, sizeof(lxmf_tx_packet_scratch_));
+                size_t packet_len = sizeof(lxmf_tx_packet_scratch_);
                 uint8_t message_hash[reticulum::kFullHashSize] = {};
                 if (!buildSignedMessagePacket(peer_info,
                                               packed_payload,
                                               packed_payload_len,
-                                              packet,
+                                              lxmf_tx_packet_scratch_,
                                               &packet_len,
                                               message_hash) ||
-                    !routeAndSendPacket(packet, packet_len, true))
+                    !routeAndSendPacket(lxmf_tx_packet_scratch_,
+                                        packet_len,
+                                        true))
                 {
                     ok = false;
                 }
@@ -2538,11 +2519,9 @@ bool LxmfAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                   static_cast<unsigned long>(effective_packet_id),
                   static_cast<unsigned long>(dest),
                   ok ? 1U : 0U);
-    sys::EventBus::publish(
-        new sys::ChatSendResultEvent(
-            effective_packet_id,
-            ok ? MessageStatus::Queued : MessageStatus::Failed),
-        0);
+    delivery_notifier_.publish(
+        effective_packet_id,
+        ok ? MessageStatus::Queued : MessageStatus::Failed);
     return ok;
 }
 
@@ -2663,7 +2642,7 @@ MeshActionResult LxmfAdapter::startReticulumAudioCall(
     const PeerInfo* peer = findOrLoadPeerByDestinationHash(destination.destination_hash);
     if (!peer && !isZeroBytes(destination.identity_hash, sizeof(destination.identity_hash)))
     {
-        peer = findPeerByIdentityHash(destination.identity_hash);
+        peer = destination_registry_.findByIdentityHash(destination.identity_hash);
     }
 
     uint8_t remote_identity_hash[reticulum::kTruncatedHashSize] = {};
@@ -2699,13 +2678,14 @@ MeshActionResult LxmfAdapter::startReticulumAudioCall(
         return MeshActionResult::fail(MeshOperationFailure::Busy);
     }
 
-    const PathEntry* path = findPath(call_destination_hash);
+    const PathEntry* path =
+        path_manager_.findPath(call_destination_hash, millis(), kPathTtlMs);
     bool path_requested = false;
     bool path_waiting = false;
     if (!path)
     {
         const PendingPathRequest* pending =
-            findPendingPathRequest(call_destination_hash);
+            path_manager_.findPendingPathRequest(call_destination_hash);
         path_waiting = pending && !pending->resolved;
         if (!path_waiting)
         {
@@ -2715,48 +2695,40 @@ MeshActionResult LxmfAdapter::startReticulumAudioCall(
         }
     }
 
-    LinkSession* new_session = link_manager_.appendSession(kMaxLinkSessions);
+    const uint32_t now_ms = millis();
+    runtime::LinkSessionSpec session_spec{};
+    session_spec.now_ms = now_ms;
+    session_spec.keepalive_interval_ms = kLinkKeepaliveMaxMs;
+    session_spec.stale_timeout_ms = kLinkKeepaliveMaxMs * 2U;
+    session_spec.remote_destination_hash = call_destination_hash;
+    session_spec.remote_identity_hash = remote_identity_hash;
+    session_spec.peer_identity_sig_pub = peer ? peer->sig_pub : nullptr;
+    session_spec.expected_hops = path ? path->hops : 0;
+    session_spec.destination = LocalDestinationKind::CallAudio;
+    session_spec.state = LinkState::Pending;
+    session_spec.initiator = true;
+    session_spec.remote_identity_known =
+        !isZeroBytes(remote_identity_hash, sizeof(remote_identity_hash));
+
+    LinkSession* new_session =
+        link_manager_.openSession(kMaxLinkSessions, session_spec);
     if (!new_session)
     {
         return MeshActionResult::fail(MeshOperationFailure::Busy);
     }
     LinkSession& session = *new_session;
-    session.created_ms = millis();
-    session.request_ms = session.created_ms;
-    session.last_inbound_ms = session.created_ms;
-    session.initiator = true;
-    session.destination = LocalDestinationKind::CallAudio;
-    session.state = LinkState::Pending;
-    session.close_reason = LinkCloseReason::None;
-    session.expected_hops = path ? path->hops : 0;
-    session.remote_identity_known =
-        !isZeroBytes(remote_identity_hash, sizeof(remote_identity_hash));
-    session.validated = false;
-    session.call_wire_profile = wire_profile;
-    session.lxst_call = reticulum::lxst::call::makeCaller(
+    lxst_telephony_client_.beginCallerSession(
+        session,
+        wire_profile,
         call_profile::kEmbeddedLxstProfile,
-        session.created_ms);
-    session.keepalive_interval_ms = kLinkKeepaliveMaxMs;
-    session.stale_timeout_ms = kLinkKeepaliveMaxMs * 2U;
-    copyHash(session.remote_destination_hash,
-             call_destination_hash,
-             sizeof(session.remote_destination_hash));
-    copyHash(session.remote_identity_hash,
-             remote_identity_hash,
-             sizeof(session.remote_identity_hash));
-    if (peer)
-    {
-        memcpy(session.peer_identity_sig_pub,
-               peer->sig_pub,
-               sizeof(session.peer_identity_sig_pub));
-    }
+        now_ms);
 
     Curve25519::dh1(session.local_enc_pub, session.local_enc_priv);
     if (isZeroBytes(session.local_enc_priv, sizeof(session.local_enc_priv)) ||
         !generateLinkSigningKey(session.local_sig_pub, session.local_sig_priv) ||
         !prepareLinkRequest(session))
     {
-        link_manager_.discardLastSession();
+        link_manager_.discardSession(session);
         return MeshActionResult::fail(MeshOperationFailure::EncodeFailed);
     }
 
@@ -2787,18 +2759,18 @@ MeshActionResult LxmfAdapter::startReticulumAudioCall(
         call_profile::runtimeWireProfile(session.call_wire_profile);
     call_peer.codec2_mode =
         call_profile::runtimeCodec2Mode(session.call_wire_profile,
-                                        session.lxst_call.profile);
+                                        lxst_telephony_client_.profile(session));
     if (!::platform::ui::reticulum_call::begin_outgoing(call_peer))
     {
-        link_manager_.discardLastSession();
+        link_manager_.discardSession(session);
         return MeshActionResult::fail(MeshOperationFailure::Busy);
     }
-    session.call_runtime_started = true;
+    lxst_telephony_client_.markRuntimeStarted(session, true);
 
     if ((path && !sendLinkRequest(session)) || (!path && !path_waiting))
     {
         ::platform::ui::reticulum_call::notify_link_closed(session.link_id);
-        link_manager_.discardLastSession();
+        link_manager_.discardSession(session);
         return MeshActionResult::fail(MeshOperationFailure::RadioTxFailed);
     }
 
@@ -2853,7 +2825,8 @@ MeshActionResult LxmfAdapter::pingReticulumDestination(
     PeerInfo* peer = findOrLoadPeerByDestinationHash(destination.destination_hash);
     if (!peer && !isZeroBytes(destination.identity_hash, sizeof(destination.identity_hash)))
     {
-        if (const PeerInfo* by_identity = findPeerByIdentityHash(destination.identity_hash))
+        if (const PeerInfo* by_identity =
+                destination_registry_.findByIdentityHash(destination.identity_hash))
         {
             peer = findOrLoadPeerByDestinationHash(by_identity->destination_hash);
         }
@@ -3042,7 +3015,8 @@ MeshActionResult LxmfAdapter::persistReticulumPeer(
     PeerInfo* peer = findOrLoadPeerByDestinationHash(destination.destination_hash);
     if (!peer && !isZeroBytes(destination.identity_hash, sizeof(destination.identity_hash)))
     {
-        if (const PeerInfo* by_identity = findPeerByIdentityHash(destination.identity_hash))
+        if (const PeerInfo* by_identity =
+                destination_registry_.findByIdentityHash(destination.identity_hash))
         {
             peer = findOrLoadPeerByDestinationHash(by_identity->destination_hash);
         }
@@ -3515,7 +3489,7 @@ bool LxmfAdapter::processOneRadioPacket(
 
     uint8_t packet_hash[reticulum::kFullHashSize] = {};
     reticulum::computePacketHash(packet, packet_len, packet_hash);
-    if (isDuplicatePacket(packet_hash))
+    if (path_manager_.isDuplicatePacket(packet_hash))
     {
         noteRxSummary(false, true, false);
         if (!ingress_wifi && !deferred_replay)
@@ -3561,7 +3535,7 @@ bool LxmfAdapter::processOneRadioPacket(
         return false;
     }
 
-    rememberPacket(packet_hash);
+    path_manager_.rememberPacket(packet_hash, millis(), kMaxPacketFilter);
 
     switch (packet_router_.route(parsed))
     {
@@ -3638,7 +3612,7 @@ bool LxmfAdapter::isPublicDiscoveryPacket(const reticulum::ParsedPacket& packet)
         return false;
     }
     return packet.context != static_cast<uint8_t>(reticulum::PacketContext::PathResponse) ||
-           !findPendingPathRequest(packet.destination_hash);
+           !path_manager_.findPendingPathRequest(packet.destination_hash);
 }
 
 bool LxmfAdapter::enqueueDeferredDiscoveryPacket(
@@ -4435,8 +4409,9 @@ bool LxmfAdapter::handleProofPacket(
         return nullptr;
     };
 
-    if (runtime::PendingDeliveryReceipt* pending =
-            path_manager_.findPendingDeliveryReceipt(packet.destination_hash))
+    if (runtime::DeliveryAttemptReceipt* pending =
+            delivery_attempt_ledger_.findReceiptByProofHash(
+                packet.destination_hash))
     {
         const uint8_t* signature =
             proof_signature_for_hash(pending->packet_hash);
@@ -4461,15 +4436,13 @@ bool LxmfAdapter::handleProofPacket(
 
         const MessageId message_id = pending->message_id;
         const uint32_t elapsed_ms = millis() - pending->created_ms;
-        path_manager_.removePendingDeliveryReceipt(packet.destination_hash);
+        delivery_attempt_ledger_.removeReceiptByProofHash(
+            packet.destination_hash);
         Serial.printf("[LXMF][DirectTX] proof_ok msg=%lu representation=opportunistic elapsed_ms=%lu hops=%u\n",
                       static_cast<unsigned long>(message_id),
                       static_cast<unsigned long>(elapsed_ms),
                       static_cast<unsigned>(packet.hops));
-        sys::EventBus::publish(
-            new sys::ChatSendResultEvent(message_id,
-                                         MessageStatus::Delivered),
-            0);
+        delivery_notifier_.delivered(message_id);
         return true;
     }
 
@@ -4514,7 +4487,8 @@ bool LxmfAdapter::handleProofPacket(
         return true;
     }
 
-    ReverseEntry* reverse = findReversePath(packet.destination_hash);
+    ReverseEntry* reverse =
+        path_manager_.findReversePath(packet.destination_hash);
     if (!reverse)
     {
         return false;
@@ -4524,8 +4498,8 @@ bool LxmfAdapter::handleProofPacket(
         return false;
     }
 
-    uint8_t forward_packet[kMaxPacketLen] = {};
-    size_t forward_len = sizeof(forward_packet);
+    std::memset(forward_packet_scratch_, 0, sizeof(forward_packet_scratch_));
+    size_t forward_len = sizeof(forward_packet_scratch_);
     if (!reticulum::buildHeader1Packet(packet.packet_type,
                                        packet.destination_type,
                                        static_cast<reticulum::PacketContext>(packet.context),
@@ -4533,7 +4507,7 @@ bool LxmfAdapter::handleProofPacket(
                                        packet.destination_hash,
                                        packet.payload,
                                        packet.payload_len,
-                                       forward_packet,
+                                       forward_packet_scratch_,
                                        &forward_len,
                                        packet.hops,
                                        reticulum::TransportType::Broadcast))
@@ -4543,7 +4517,7 @@ bool LxmfAdapter::handleProofPacket(
 
     reverse->created_ms = 0;
     return interfaces_.sendPacketOn(reverse->interface_id,
-                                    forward_packet,
+                                    forward_packet_scratch_,
                                     forward_len);
 }
 
@@ -4619,43 +4593,45 @@ bool LxmfAdapter::handleLinkRequestPacket(
         LinkSession* session = findLinkSession(link_id);
         if (!session)
         {
-            session = link_manager_.appendSessionPreserving(
+            const uint32_t now_ms = millis();
+            const uint16_t link_mtu =
+                (signalling_len != 0)
+                    ? mtuFromLinkSignalling(packet.payload + kLinkRequestBaseLen,
+                                            signalling_len)
+                    : reticulum::kReticulumMtu;
+            runtime::LinkSessionSpec session_spec{};
+            session_spec.now_ms = now_ms;
+            session_spec.link_id = link_id;
+            session_spec.local_sig_pub = identity_.signingPublicKey();
+            session_spec.peer_enc_pub = packet.payload;
+            session_spec.peer_link_sig_pub =
+                packet.payload + LxmfIdentity::kEncPubKeySize;
+            session_spec.interface_id = active_ingress_interface_id_;
+            session_spec.destination = local_kind;
+            session_spec.state = LinkState::Handshake;
+            session_spec.initiator = false;
+            session_spec.mtu = link_mtu;
+            session_spec.mdu = linkMduForMtu(link_mtu);
+            session = link_manager_.openSessionPreserving(
                 kMaxLinkSessions,
+                session_spec,
                 reject_busy_call ? current_call_link_id : nullptr);
             if (!session)
             {
                 return false;
             }
-            copyHash(session->link_id, link_id, sizeof(session->link_id));
-            memcpy(session->peer_enc_pub, packet.payload, LxmfIdentity::kEncPubKeySize);
-            memcpy(session->peer_link_sig_pub,
-                   packet.payload + LxmfIdentity::kEncPubKeySize,
-                   LxmfIdentity::kSigPubKeySize);
             Curve25519::dh1(session->local_enc_pub, session->local_enc_priv);
-            memcpy(session->local_sig_pub, identity_.signingPublicKey(), sizeof(session->local_sig_pub));
-            session->mtu = (signalling_len != 0)
-                               ? mtuFromLinkSignalling(packet.payload + kLinkRequestBaseLen, signalling_len)
-                               : reticulum::kReticulumMtu;
-            session->mdu = linkMduForMtu(session->mtu);
-            session->created_ms = millis();
-            session->request_ms = session->created_ms;
-            session->last_inbound_ms = session->created_ms;
-            session->interface_id = active_ingress_interface_id_;
-            session->destination = local_kind;
-            session->initiator = false;
-            session->state = LinkState::Handshake;
             if (local_kind == LocalDestinationKind::CallAudio)
             {
-                session->call_wire_profile =
-                    ReticulumCallWireProfile::SidebandLxst;
-                session->lxst_call = reticulum::lxst::call::makeCallee(
+                lxst_telephony_client_.beginSidebandCalleeSession(
+                    *session,
                     call_profile::kEmbeddedLxstProfile,
-                    session->created_ms);
+                    now_ms);
             }
 
             if (!deriveLinkKey(*session))
             {
-                link_manager_.discardLastSession();
+                link_manager_.discardSession(*session);
                 return false;
             }
 
@@ -4688,7 +4664,7 @@ bool LxmfAdapter::handleLinkRequestPacket(
                               busy_sent ? 1U : 0U,
                               close_sent ? 1U : 0U,
                               static_cast<unsigned>(ingress_interface));
-                link_manager_.discardLastSession();
+                link_manager_.discardSession(*session);
                 return proof_sent && busy_sent && close_sent;
             }
 
@@ -4706,11 +4682,12 @@ bool LxmfAdapter::handleLinkRequestPacket(
                         session->call_wire_profile);
                 call_peer.codec2_mode = call_profile::runtimeCodec2Mode(
                     session->call_wire_profile,
-                    session->lxst_call.profile);
+                    lxst_telephony_client_.profile(*session));
                 const bool ui_started =
                     ::platform::ui::reticulum_call::begin_incoming_identifying(
                         call_peer);
-                session->call_runtime_started = ui_started;
+                lxst_telephony_client_.markRuntimeStarted(*session,
+                                                          ui_started);
                 Serial.printf("[LXMF][CallRX] link_admitted link=%s wire=sideband_lxst ui=%u await_identify=1 iface=%u\n",
                               link_hash,
                               ui_started ? 1U : 0U,
@@ -4719,13 +4696,14 @@ bool LxmfAdapter::handleLinkRequestPacket(
         }
         else
         {
-            session->last_inbound_ms = millis();
+            link_manager_.touchInbound(*session, millis());
         }
 
         return sendLinkHandshakeProof(*session);
     }
 
-    const PathEntry* path = findPath(packet.destination_hash);
+    const PathEntry* path =
+        path_manager_.findPath(packet.destination_hash, millis(), kPathTtlMs);
     if (!path)
     {
         return false;
@@ -4734,7 +4712,8 @@ bool LxmfAdapter::handleLinkRequestPacket(
     uint8_t link_id[reticulum::kTruncatedHashSize] = {};
     if (computeLinkIdFromLinkRequest(raw_packet, raw_len, packet, link_id))
     {
-        LinkRelayEntry& relay = upsertLinkRelay(link_id);
+        LinkRelayEntry& relay =
+            path_manager_.upsertLinkRelay(link_id, kMaxLinkRelays);
         relay.initiator_interface_id = active_ingress_interface_id_;
         relay.responder_interface_id = path->interface_id;
         relay.initiator_hops = packet.hops;
@@ -4742,50 +4721,8 @@ bool LxmfAdapter::handleLinkRequestPacket(
         relay.last_seen_ms = millis();
     }
 
-    if (path->hops <= 1 || path->direct)
-    {
-        uint8_t forward_packet[kMaxPacketLen] = {};
-        size_t forward_len = sizeof(forward_packet);
-        if (!reticulum::buildHeader1Packet(packet.packet_type,
-                                           packet.destination_type,
-                                           static_cast<reticulum::PacketContext>(packet.context),
-                                           packet.context_flag != 0,
-                                           packet.destination_hash,
-                                           packet.payload,
-                                           packet.payload_len,
-                                           forward_packet,
-                                           &forward_len,
-                                           packet.hops,
-                                           reticulum::TransportType::Broadcast))
-        {
-            return false;
-        }
-
-        return interfaces_.sendPacketOn(path->interface_id,
-                                        forward_packet,
-                                        forward_len);
-    }
-
-    uint8_t forward_packet[kMaxPacketLen] = {};
-    size_t forward_len = sizeof(forward_packet);
-    if (!reticulum::buildHeader2Packet(packet.packet_type,
-                                       packet.destination_type,
-                                       static_cast<reticulum::PacketContext>(packet.context),
-                                       packet.context_flag != 0,
-                                       path->next_hop_transport,
-                                       packet.destination_hash,
-                                       packet.payload,
-                                       packet.payload_len,
-                                       forward_packet,
-                                       &forward_len,
-                                       packet.hops))
-    {
-        return false;
-    }
-
-    return interfaces_.sendPacketOn(path->interface_id,
-                                    forward_packet,
-                                    forward_len);
+    return sendForwardPlan(packet,
+                           packet_router_.planPathForward(*path, packet.hops));
 }
 
 bool LxmfAdapter::handlePathRequestPacket(const reticulum::ParsedPacket& packet)
@@ -4838,7 +4775,8 @@ bool LxmfAdapter::handlePathRequestPacket(const reticulum::ParsedPacket& packet)
         return sendAnnounce(local_kind, reticulum::PacketContext::PathResponse);
     }
 
-    const PathEntry* path = findPath(requested_hash);
+    const PathEntry* path =
+        path_manager_.findPath(requested_hash, millis(), kPathTtlMs);
     if (!path || path->cached_announce_len == 0)
     {
         return true;
@@ -4893,7 +4831,7 @@ bool LxmfAdapter::handleLocalLinkPacket(
         session->interface_id = active_ingress_interface_id_;
     }
 
-    session->last_inbound_ms = millis();
+    link_manager_.touchInbound(*session, millis());
     if (packet.packet_type == reticulum::PacketType::Proof)
     {
         return handleLinkProofPacket(*session, raw_packet, raw_len, packet);
@@ -5049,24 +4987,13 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
         DecodedLinkResponse response{};
         if (decodeLinkResponsePayload(payload_ptr, payload_len, &response))
         {
-            for (auto& pending : session.pending_requests)
-            {
-                if (pending.request_id.size() == response.request_id.size() &&
-                    (pending.request_id.empty() ||
-                     std::memcmp(pending.request_id.data(),
-                                 response.request_id.data(),
-                                 pending.request_id.size()) == 0))
-                {
-                    pending.response_ready = true;
-                    if (!response.data_is_nil)
-                    {
-                        pending.response.assign(response.packed_data.begin(),
-                                                response.packed_data.end());
-                    }
-                    handled = true;
-                    break;
-                }
-            }
+            handled = link_manager_.markPendingResponseReady(
+                session,
+                response.request_id.data(),
+                response.request_id.size(),
+                response.packed_data.data(),
+                response.packed_data.size(),
+                response.data_is_nil);
         }
         should_prove = handled;
     }
@@ -5076,12 +5003,11 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
         if (!session.initiator &&
             unpackFloat64(payload_ptr, payload_len, &rtt_value))
         {
-            session.rtt_s = static_cast<float>(rtt_value);
-            session.validated = true;
-            session.keepalive_interval_ms = keepaliveIntervalForRtt(session.rtt_s);
-            session.stale_timeout_ms = session.keepalive_interval_ms * 2U;
-            session.last_keepalive_ms = 0;
-            session.state = LinkState::Active;
+            const float rtt_s = static_cast<float>(rtt_value);
+            link_manager_.markSessionValidatedActive(
+                session,
+                rtt_s,
+                keepaliveIntervalForRtt(rtt_s));
             if (session.destination == LocalDestinationKind::CallAudio)
             {
                 ::platform::ui::reticulum_call::mark_link_active(
@@ -5122,10 +5048,7 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
         else
         {
             handled = (payload_len == 1 && payload_ptr[0] == 0xFE);
-            if (handled && session.state == LinkState::Stale)
-            {
-                session.state = LinkState::Active;
-            }
+            (void)(handled && link_manager_.reactivateSessionIfStale(session));
         }
     }
     else if (context == static_cast<uint8_t>(reticulum::PacketContext::ResourceAdv))
@@ -5230,8 +5153,9 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
 
         const PeerInfo* peer =
             session.destination == LocalDestinationKind::CallAudio
-                ? findPeerByIdentityHash(session.remote_identity_hash)
-                : findPeerByDestinationHash(session.remote_destination_hash);
+                ? destination_registry_.findByIdentityHash(session.remote_identity_hash)
+                : destination_registry_.findByDestinationHash(
+                      session.remote_destination_hash);
         const uint8_t* peer_sig_pub = peer ? peer->sig_pub : nullptr;
         uint8_t announce_identity_hash[reticulum::kTruncatedHashSize] = {};
         uint8_t announce_sig_pub[LxmfIdentity::kSigPubKeySize] = {};
@@ -5250,7 +5174,8 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
                           dest_hash_hex,
                           sizeof(dest_hash_hex));
 
-            const PathEntry* path = findPath(session.remote_destination_hash);
+            const PathEntry* path = path_manager_.findPath(
+                session.remote_destination_hash, millis(), kPathTtlMs);
             if (!path)
             {
                 logNomadLinkProofEvent(session, "drop", "path_missing");
@@ -5410,12 +5335,12 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
             return false;
         }
 
-        session.rtt_s = static_cast<float>((millis() - session.request_ms) / 1000.0f);
-        session.validated = true;
-        session.keepalive_interval_ms = keepaliveIntervalForRtt(session.rtt_s);
-        session.stale_timeout_ms = session.keepalive_interval_ms * 2U;
-        session.last_keepalive_ms = 0;
-        session.state = LinkState::Active;
+        const float rtt_s =
+            static_cast<float>((millis() - session.request_ms) / 1000.0f);
+        link_manager_.markSessionValidatedActive(
+            session,
+            rtt_s,
+            keepaliveIntervalForRtt(rtt_s));
         const bool rtt_sent = sendLinkRtt(session);
         logNomadLinkProofEvent(session,
                                "active",
@@ -5484,16 +5409,10 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
     }
 
     const uint8_t* proved_hash = packet.payload;
-    auto receipt = std::find_if(
-        session.pending_packet_receipts.begin(),
-        session.pending_packet_receipts.end(),
-        [proved_hash](const runtime::LinkPacketReceipt& candidate)
-        {
-            return hashesEqual(candidate.packet_hash,
-                               proved_hash,
-                               reticulum::kFullHashSize);
-        });
-    if (receipt == session.pending_packet_receipts.end())
+    runtime::DeliveryAttemptReceipt* receipt =
+        delivery_attempt_ledger_.findLinkPacketReceipt(session.link_id,
+                                                       proved_hash);
+    if (!receipt)
     {
         return false;
     }
@@ -5511,7 +5430,8 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
     }
 
     const uint32_t message_id = receipt->message_id;
-    session.pending_packet_receipts.erase(receipt);
+    delivery_attempt_ledger_.removeLinkPacketReceipt(session.link_id,
+                                                     proved_hash);
     if (message_id != 0)
     {
         Serial.printf("[LXMF][%s] proof_ok msg=%lu representation=packet\n",
@@ -5523,8 +5443,7 @@ bool LxmfAdapter::handleLinkProofPacket(LinkSession& session,
             session.destination == LocalDestinationKind::Delivery
                 ? MessageStatus::Delivered
                 : MessageStatus::Queued;
-        sys::EventBus::publish(new sys::ChatSendResultEvent(message_id, status),
-                               0);
+        delivery_notifier_.publish(message_id, status);
     }
     return true;
 }
@@ -5818,20 +5737,26 @@ bool LxmfAdapter::handleLinkResourceRequest(LinkSession& session,
                 const size_t remaining_hashes = static_cast<size_t>(resource->part_count) - next_index;
                 const size_t slice_hashes = std::min(segment_capacity, remaining_hashes);
 
-                uint8_t update_payload[kMaxPacketLen] = {};
-                size_t update_len = sizeof(update_payload);
+                std::memset(resource_hashmap_update_scratch_,
+                            0,
+                            sizeof(resource_hashmap_update_scratch_));
+                size_t update_len = sizeof(resource_hashmap_update_scratch_) -
+                                    reticulum::kFullHashSize;
                 if (encodeResourceHashmapUpdate(segment,
                                                 resource->hashmap.data() + slice_offset,
                                                 slice_hashes * kResourceMapHashLen,
-                                                update_payload + reticulum::kFullHashSize,
+                                                resource_hashmap_update_scratch_ +
+                                                    reticulum::kFullHashSize,
                                                 &update_len))
                 {
-                    memcpy(update_payload, resource->resource_hash, reticulum::kFullHashSize);
+                    memcpy(resource_hashmap_update_scratch_,
+                           resource->resource_hash,
+                           reticulum::kFullHashSize);
                     const size_t wire_len = reticulum::kFullHashSize + update_len;
                     sent_any = sendLinkPacket(session,
                                               reticulum::PacketType::Data,
                                               reticulum::PacketContext::ResourceHmu,
-                                              update_payload,
+                                              resource_hashmap_update_scratch_,
                                               wire_len,
                                               true) ||
                                sent_any;
@@ -6226,23 +6151,13 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
                 DecodedLinkResponse response{};
                 if (decodeLinkResponsePayload(payload_data.data(), payload_data.size(), &response))
                 {
-                    for (auto& pending : session.pending_requests)
-                    {
-                        if (pending.request_id.size() == response.request_id.size() &&
-                            (pending.request_id.empty() ||
-                             std::memcmp(pending.request_id.data(),
-                                         response.request_id.data(),
-                                         pending.request_id.size()) == 0))
-                        {
-                            pending.response_ready = true;
-                            if (!response.data_is_nil)
-                            {
-                                pending.response.assign(response.packed_data.begin(),
-                                                        response.packed_data.end());
-                            }
-                            break;
-                        }
-                    }
+                    (void)link_manager_.markPendingResponseReady(
+                        session,
+                        response.request_id.data(),
+                        response.request_id.size(),
+                        response.packed_data.data(),
+                        response.packed_data.size(),
+                        response.data_is_nil);
                 }
             }
             else if (session.destination == LocalDestinationKind::Delivery &&
@@ -6299,8 +6214,15 @@ bool LxmfAdapter::handleLinkResourceProof(LinkSession& session,
         return false;
     }
 
-    const uint32_t message_id =
-        link_manager_.takeResourceMessageId(*resource);
+    runtime::DeliveryAttemptReceipt* receipt =
+        delivery_attempt_ledger_.findLinkResourceReceipt(session.link_id,
+                                                         resource_hash);
+    const uint32_t message_id = receipt ? receipt->message_id : 0;
+    if (receipt)
+    {
+        delivery_attempt_ledger_.removeLinkResourceReceipt(session.link_id,
+                                                           resource_hash);
+    }
     if (message_id != 0)
     {
         Serial.printf("[LXMF][%s] proof_ok msg=%lu representation=resource\n",
@@ -6312,8 +6234,7 @@ bool LxmfAdapter::handleLinkResourceProof(LinkSession& session,
             session.destination == LocalDestinationKind::Delivery
                 ? MessageStatus::Delivered
                 : MessageStatus::Queued;
-        sys::EventBus::publish(new sys::ChatSendResultEvent(message_id, status),
-                               0);
+        delivery_notifier_.publish(message_id, status);
     }
     return true;
 }
@@ -6505,6 +6426,54 @@ bool LxmfAdapter::acceptPropagatedDelivery(const uint8_t* propagated_payload,
                                   out_awaiting_commit);
 }
 
+bool LxmfAdapter::sendForwardPlan(const reticulum::ParsedPacket& packet,
+                                  const runtime::PacketForwardPlan& plan)
+{
+    if (!plan.forward || !packet.destination_hash ||
+        plan.interface_id == reticulum::interfaces::kInvalidInterfaceId)
+    {
+        return false;
+    }
+
+    std::memset(forward_packet_scratch_, 0, sizeof(forward_packet_scratch_));
+    size_t forward_len = sizeof(forward_packet_scratch_);
+    bool built = false;
+    if (plan.header == runtime::PacketForwardHeader::Header1Broadcast)
+    {
+        built = reticulum::buildHeader1Packet(
+            packet.packet_type,
+            packet.destination_type,
+            static_cast<reticulum::PacketContext>(packet.context),
+            packet.context_flag != 0,
+            packet.destination_hash,
+            packet.payload,
+            packet.payload_len,
+            forward_packet_scratch_,
+            &forward_len,
+            plan.hops,
+            reticulum::TransportType::Broadcast);
+    }
+    else if (plan.header == runtime::PacketForwardHeader::Header2Transport)
+    {
+        built = reticulum::buildHeader2Packet(
+            packet.packet_type,
+            packet.destination_type,
+            static_cast<reticulum::PacketContext>(packet.context),
+            packet.context_flag != 0,
+            plan.next_hop_transport,
+            packet.destination_hash,
+            packet.payload,
+            packet.payload_len,
+            forward_packet_scratch_,
+            &forward_len,
+            plan.hops);
+    }
+
+    return built && interfaces_.sendPacketOn(plan.interface_id,
+                                             forward_packet_scratch_,
+                                             forward_len);
+}
+
 bool LxmfAdapter::maybeForwardTransportPacket(const uint8_t* raw_packet, size_t raw_len,
                                               const reticulum::ParsedPacket& packet)
 {
@@ -6524,7 +6493,8 @@ bool LxmfAdapter::maybeForwardTransportPacket(const uint8_t* raw_packet, size_t 
         return false;
     }
 
-    const PathEntry* path = findPath(packet.destination_hash);
+    const PathEntry* path =
+        path_manager_.findPath(packet.destination_hash, millis(), kPathTtlMs);
     if (!path)
     {
         return false;
@@ -6535,55 +6505,15 @@ bool LxmfAdapter::maybeForwardTransportPacket(const uint8_t* raw_packet, size_t 
     {
         uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
         reticulum::computeTruncatedPacketHash(raw_packet, raw_len, proof_hash);
-        rememberReversePath(proof_hash,
-                            active_ingress_interface_id_,
-                            path->hops);
+        path_manager_.rememberReversePath(proof_hash,
+                                          active_ingress_interface_id_,
+                                          path->hops,
+                                          millis(),
+                                          kMaxReverseEntries);
     }
 
-    if (path->hops <= 1 || path->direct)
-    {
-        uint8_t forward_packet[kMaxPacketLen] = {};
-        size_t forward_len = sizeof(forward_packet);
-        if (!reticulum::buildHeader1Packet(packet.packet_type,
-                                           packet.destination_type,
-                                           static_cast<reticulum::PacketContext>(packet.context),
-                                           packet.context_flag != 0,
-                                           packet.destination_hash,
-                                           packet.payload,
-                                           packet.payload_len,
-                                           forward_packet,
-                                           &forward_len,
-                                           packet.hops,
-                                           reticulum::TransportType::Broadcast))
-        {
-            return false;
-        }
-
-        return interfaces_.sendPacketOn(path->interface_id,
-                                        forward_packet,
-                                        forward_len);
-    }
-
-    uint8_t forward_packet[kMaxPacketLen] = {};
-    size_t forward_len = sizeof(forward_packet);
-    if (!reticulum::buildHeader2Packet(packet.packet_type,
-                                       packet.destination_type,
-                                       static_cast<reticulum::PacketContext>(packet.context),
-                                       packet.context_flag != 0,
-                                       path->next_hop_transport,
-                                       packet.destination_hash,
-                                       packet.payload,
-                                       packet.payload_len,
-                                       forward_packet,
-                                       &forward_len,
-                                       packet.hops))
-    {
-        return false;
-    }
-
-    return interfaces_.sendPacketOn(path->interface_id,
-                                    forward_packet,
-                                    forward_len);
+    return sendForwardPlan(packet,
+                           packet_router_.planPathForward(*path, packet.hops));
 }
 
 bool LxmfAdapter::maybeForwardLinkPacket(const uint8_t* raw_packet, size_t raw_len,
@@ -6602,51 +6532,23 @@ bool LxmfAdapter::maybeForwardLinkPacket(const uint8_t* raw_packet, size_t raw_l
         return false;
     }
 
-    LinkRelayEntry* relay = findLinkRelay(packet.destination_hash);
+    LinkRelayEntry* relay = path_manager_.findLinkRelay(packet.destination_hash);
     if (!relay)
     {
         return false;
     }
 
-    const bool from_initiator =
-        packet.hops == relay->initiator_hops &&
-        (active_ingress_interface_id_ ==
-             reticulum::interfaces::kInvalidInterfaceId ||
-         active_ingress_interface_id_ == relay->initiator_interface_id);
-    const bool from_responder =
-        packet.hops == relay->responder_hops &&
-        (active_ingress_interface_id_ ==
-             reticulum::interfaces::kInvalidInterfaceId ||
-         active_ingress_interface_id_ == relay->responder_interface_id);
-    if (!from_initiator && !from_responder)
-    {
-        return false;
-    }
-
-    uint8_t forward_packet[kMaxPacketLen] = {};
-    size_t forward_len = sizeof(forward_packet);
-    if (!reticulum::buildHeader1Packet(packet.packet_type,
-                                       packet.destination_type,
-                                       static_cast<reticulum::PacketContext>(packet.context),
-                                       packet.context_flag != 0,
-                                       packet.destination_hash,
-                                       packet.payload,
-                                       packet.payload_len,
-                                       forward_packet,
-                                       &forward_len,
-                                       packet.hops,
-                                       reticulum::TransportType::Broadcast))
+    const runtime::PacketForwardPlan plan =
+        packet_router_.planLinkRelayForward(*relay,
+                                            active_ingress_interface_id_,
+                                            packet.hops);
+    if (!plan.forward)
     {
         return false;
     }
 
     relay->last_seen_ms = millis();
-    const auto outbound_interface = from_initiator
-                                        ? relay->responder_interface_id
-                                        : relay->initiator_interface_id;
-    return interfaces_.sendPacketOn(outbound_interface,
-                                    forward_packet,
-                                    forward_len);
+    return sendForwardPlan(packet, plan);
 }
 
 bool LxmfAdapter::sendProofForPacket(const uint8_t* raw_packet, size_t raw_len)
@@ -6668,8 +6570,8 @@ bool LxmfAdapter::sendProofForPacket(const uint8_t* raw_packet, size_t raw_len)
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
     memcpy(destination_hash, packet_hash, sizeof(destination_hash));
 
-    uint8_t proof_packet[kMaxPacketLen] = {};
-    size_t proof_len = sizeof(proof_packet);
+    std::memset(proof_packet_scratch_, 0, sizeof(proof_packet_scratch_));
+    size_t proof_len = sizeof(proof_packet_scratch_);
     if (!reticulum::buildHeader1Packet(reticulum::PacketType::Proof,
                                        reticulum::DestinationType::Single,
                                        reticulum::PacketContext::None,
@@ -6677,7 +6579,7 @@ bool LxmfAdapter::sendProofForPacket(const uint8_t* raw_packet, size_t raw_len)
                                        destination_hash,
                                        signature,
                                        sizeof(signature),
-                                       proof_packet,
+                                       proof_packet_scratch_,
                                        &proof_len))
     {
         return false;
@@ -6686,9 +6588,9 @@ bool LxmfAdapter::sendProofForPacket(const uint8_t* raw_packet, size_t raw_len)
     return active_ingress_interface_id_ !=
                    reticulum::interfaces::kInvalidInterfaceId
                ? interfaces_.sendPacketOn(active_ingress_interface_id_,
-                                          proof_packet,
+                                          proof_packet_scratch_,
                                           proof_len)
-               : interfaces_.sendPacket(proof_packet, proof_len);
+               : interfaces_.sendPacket(proof_packet_scratch_, proof_len);
 }
 
 bool LxmfAdapter::sendPathRequest(PeerInfo& peer)
@@ -6699,20 +6601,12 @@ bool LxmfAdapter::sendPathRequest(PeerInfo& peer)
     }
 
     const uint32_t now_ms = millis();
-    if (peer.last_path_request_ms != 0 &&
-        (now_ms - peer.last_path_request_ms) < kPathRequestMinIntervalMs)
+    if (path_manager_.pendingPathRequestCoolingDown(
+            peer.destination_hash,
+            now_ms,
+            kPathRequestMinIntervalMs))
     {
         return false;
-    }
-
-    if (const PendingPathRequest* pending = findPendingPathRequest(peer.destination_hash))
-    {
-        if (!pending->resolved &&
-            pending->last_attempt_ms != 0 &&
-            (now_ms - pending->last_attempt_ms) < kPathRequestMinIntervalMs)
-        {
-            return false;
-        }
     }
 
     uint8_t request_payload[reticulum::kTruncatedHashSize + kPathRequestTagSize] = {};
@@ -6722,8 +6616,10 @@ bool LxmfAdapter::sendPathRequest(PeerInfo& peer)
     uint8_t control_hash[reticulum::kTruncatedHashSize] = {};
     pathRequestDestinationHash(control_hash);
 
-    uint8_t packet[kMaxPacketLen] = {};
-    size_t packet_len = sizeof(packet);
+    std::memset(path_request_packet_scratch_,
+                0,
+                sizeof(path_request_packet_scratch_));
+    size_t packet_len = sizeof(path_request_packet_scratch_);
     if (!reticulum::buildHeader1Packet(reticulum::PacketType::Data,
                                        reticulum::DestinationType::Plain,
                                        reticulum::PacketContext::None,
@@ -6731,19 +6627,20 @@ bool LxmfAdapter::sendPathRequest(PeerInfo& peer)
                                        control_hash,
                                        request_payload,
                                        sizeof(request_payload),
-                                       packet,
+                                       path_request_packet_scratch_,
                                        &packet_len))
     {
         return false;
     }
 
-    if (!routeAndSendPacket(packet, packet_len, false))
+    if (!routeAndSendPacket(path_request_packet_scratch_, packet_len, false))
     {
         return false;
     }
 
-    notePendingPathRequest(peer.destination_hash, now_ms);
-    peer.last_path_request_ms = now_ms;
+    path_manager_.notePendingPathRequest(
+        peer.destination_hash, now_ms, kMaxPendingPathRequests);
+    path_manager_.notePeerPathRequest(peer, now_ms);
     return true;
 }
 
@@ -6758,14 +6655,11 @@ bool LxmfAdapter::sendPathRequestForDestination(
     }
 
     const uint32_t now_ms = millis();
-    if (const PendingPathRequest* pending = findPendingPathRequest(destination_hash))
+    if (path_manager_.pendingPathRequestCoolingDown(destination_hash,
+                                                    now_ms,
+                                                    kPathRequestMinIntervalMs))
     {
-        if (!pending->resolved &&
-            pending->last_attempt_ms != 0 &&
-            (now_ms - pending->last_attempt_ms) < kPathRequestMinIntervalMs)
-        {
-            return false;
-        }
+        return false;
     }
 
     uint8_t request_payload[reticulum::kTruncatedHashSize + kPathRequestTagSize] = {};
@@ -6775,8 +6669,10 @@ bool LxmfAdapter::sendPathRequestForDestination(
     uint8_t control_hash[reticulum::kTruncatedHashSize] = {};
     pathRequestDestinationHash(control_hash);
 
-    uint8_t packet[kMaxPacketLen] = {};
-    size_t packet_len = sizeof(packet);
+    std::memset(path_request_packet_scratch_,
+                0,
+                sizeof(path_request_packet_scratch_));
+    size_t packet_len = sizeof(path_request_packet_scratch_);
     if (!reticulum::buildHeader1Packet(reticulum::PacketType::Data,
                                        reticulum::DestinationType::Plain,
                                        reticulum::PacketContext::None,
@@ -6784,18 +6680,22 @@ bool LxmfAdapter::sendPathRequestForDestination(
                                        control_hash,
                                        request_payload,
                                        sizeof(request_payload),
-                                       packet,
+                                       path_request_packet_scratch_,
                                        &packet_len))
     {
         return false;
     }
 
-    if (!routeAndSendPacket(packet, packet_len, false, true))
+    if (!routeAndSendPacket(path_request_packet_scratch_,
+                            packet_len,
+                            false,
+                            true))
     {
         return false;
     }
 
-    notePendingPathRequest(destination_hash, now_ms);
+    path_manager_.notePendingPathRequest(
+        destination_hash, now_ms, kMaxPendingPathRequests);
     return true;
 }
 
@@ -6806,36 +6706,13 @@ bool LxmfAdapter::shouldRequestPath(const PeerInfo& peer) const
         return false;
     }
 
-    const uint32_t now_ms = millis();
-    if (const PendingPathRequest* pending = findPendingPathRequest(peer.destination_hash))
-    {
-        if (!pending->resolved &&
-            pending->created_ms != 0 &&
-            (now_ms - pending->created_ms) < kPendingPathRequestTtlMs)
-        {
-            return false;
-        }
-    }
-
-    if (peer.last_path_request_ms != 0 &&
-        (now_ms - peer.last_path_request_ms) < kPathRequestMinIntervalMs)
-    {
-        return false;
-    }
-
-    const PathEntry* path = findPath(peer.destination_hash);
-    if (!path || path->last_seen_s == 0)
-    {
-        return true;
-    }
-
-    const uint32_t now_s = currentTimestampSeconds();
-    if (now_s < path->last_seen_s)
-    {
-        return true;
-    }
-
-    return (now_s - path->last_seen_s) >= kPathRefreshAgeS;
+    return path_manager_.shouldRequestPeerPath(peer,
+                                               millis(),
+                                               currentTimestampSeconds(),
+                                               kPendingPathRequestTtlMs,
+                                               kPathRequestMinIntervalMs,
+                                               kPathTtlMs,
+                                               kPathRefreshAgeS);
 }
 
 LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
@@ -6858,39 +6735,36 @@ LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
         return session;
     }
 
-    const PathEntry* path = findPath(peer.destination_hash);
+    const PathEntry* path =
+        path_manager_.findPath(peer.destination_hash, millis(), kPathTtlMs);
     bool path_requested = false;
     if (!path && shouldRequestPath(peer))
     {
         path_requested = sendPathRequest(peer);
     }
 
-    LinkSession* new_session = link_manager_.appendSession(kMaxLinkSessions);
+    const uint32_t now_ms = millis();
+    runtime::LinkSessionSpec session_spec{};
+    session_spec.now_ms = now_ms;
+    session_spec.keepalive_interval_ms = kLinkKeepaliveMaxMs;
+    session_spec.stale_timeout_ms = kLinkKeepaliveMaxMs * 2U;
+    session_spec.remote_destination_hash = peer.destination_hash;
+    session_spec.remote_identity_hash = peer.identity_hash;
+    session_spec.peer_identity_sig_pub = peer.sig_pub;
+    session_spec.expected_hops = path ? path->hops : 0;
+    session_spec.destination = kind;
+    session_spec.state = LinkState::Pending;
+    session_spec.initiator = true;
+    session_spec.remote_identity_known =
+        !isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash));
+
+    LinkSession* new_session =
+        link_manager_.openSession(kMaxLinkSessions, session_spec);
     if (!new_session)
     {
         return nullptr;
     }
     LinkSession& session = *new_session;
-    session.created_ms = millis();
-    session.request_ms = session.created_ms;
-    session.last_inbound_ms = session.created_ms;
-    session.last_outbound_ms = 0;
-    session.initiator = true;
-    session.destination = kind;
-    session.state = LinkState::Pending;
-    session.close_reason = LinkCloseReason::None;
-    session.expected_hops = path ? path->hops : 0;
-    session.remote_identity_known = !isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash));
-    session.validated = false;
-    session.keepalive_interval_ms = kLinkKeepaliveMaxMs;
-    session.stale_timeout_ms = kLinkKeepaliveMaxMs * 2U;
-    copyHash(session.remote_destination_hash,
-             peer.destination_hash,
-             sizeof(session.remote_destination_hash));
-    copyHash(session.remote_identity_hash,
-             peer.identity_hash,
-             sizeof(session.remote_identity_hash));
-    memcpy(session.peer_identity_sig_pub, peer.sig_pub, sizeof(session.peer_identity_sig_pub));
 
     Curve25519::dh1(session.local_enc_pub, session.local_enc_priv);
     char dest_hash[12] = {};
@@ -6901,7 +6775,7 @@ LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
                       static_cast<unsigned long>(peer.node_id),
                       dest_hash,
                       static_cast<unsigned>(kind));
-        link_manager_.discardLastSession();
+        link_manager_.discardSession(session);
         return nullptr;
     }
 
@@ -6911,7 +6785,7 @@ LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
                       static_cast<unsigned long>(peer.node_id),
                       dest_hash,
                       static_cast<unsigned>(kind));
-        link_manager_.discardLastSession();
+        link_manager_.discardSession(session);
         return nullptr;
     }
 
@@ -6935,7 +6809,7 @@ LxmfAdapter::LinkSession* LxmfAdapter::ensureOutboundLinkSession(PeerInfo& peer,
                       static_cast<unsigned long>(peer.node_id),
                       dest_hash,
                       static_cast<unsigned>(kind));
-        link_manager_.discardLastSession();
+        link_manager_.discardSession(session);
         return nullptr;
     }
 
@@ -7039,7 +6913,8 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
     const uint8_t* tx_packet = link_request_packet_scratch_;
     size_t tx_packet_len = link_request_packet_len_;
     bool routed = false;
-    const PathEntry* tx_path = findPath(parsed.destination_hash);
+    const PathEntry* tx_path =
+        path_manager_.findPath(parsed.destination_hash, millis(), kPathTtlMs);
     if (tx_path && tx_path->hops > 1 && !tx_path->direct)
     {
         tx_packet_len = sizeof(link_request_routed_scratch_);
@@ -7087,7 +6962,7 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
 
     const bool wifi_only =
         session.destination == LocalDestinationKind::CallAudio;
-    if (wifi_only && !session.call_runtime_started)
+    if (wifi_only && !lxst_telephony_client_.runtimeStarted(session))
     {
         Serial.printf("[LXMF][LinkTX] request_fail dest=%s kind=%u reason=call_runtime_not_started\n",
                       dest_hash,
@@ -7111,7 +6986,7 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
     const auto& tx_result = interfaces_.lastTxResult();
     if (sent)
     {
-        session.last_outbound_ms = session.request_ms;
+        link_manager_.touchOutbound(session, session.request_ms);
         session.mtu = reticulum::kReticulumMtu;
         session.mdu = linkMduForMtu(session.mtu);
         char link_hash[12] = {};
@@ -7354,12 +7229,12 @@ bool LxmfAdapter::buildEncryptedPacketForPeer(const PeerInfo& peer,
         return false;
     }
 
-    uint8_t payload[kMaxPacketLen] = {};
-    size_t payload_len = sizeof(payload);
+    std::memset(encrypted_payload_scratch_, 0, sizeof(encrypted_payload_scratch_));
+    size_t payload_len = sizeof(encrypted_payload_scratch_);
     if (!encryptForPeer(peer,
                         plaintext,
                         plaintext_len,
-                        payload,
+                        encrypted_payload_scratch_,
                         &payload_len))
     {
         return false;
@@ -7370,7 +7245,7 @@ bool LxmfAdapter::buildEncryptedPacketForPeer(const PeerInfo& peer,
                                          reticulum::PacketContext::None,
                                          false,
                                          peer.destination_hash,
-                                         payload,
+                                         encrypted_payload_scratch_,
                                          payload_len,
                                          out_packet,
                                          inout_len);
@@ -7417,7 +7292,8 @@ bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
         return send_packet(raw_packet, raw_len);
     }
 
-    const PathEntry* path = findPath(parsed.destination_hash);
+    const PathEntry* path =
+        path_manager_.findPath(parsed.destination_hash, millis(), kPathTtlMs);
     if (!path)
     {
         return send_packet(raw_packet, raw_len);
@@ -7427,8 +7303,8 @@ bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
         return send_packet(raw_packet, raw_len, path->interface_id);
     }
 
-    uint8_t routed_packet[kMaxPacketLen] = {};
-    size_t routed_len = sizeof(routed_packet);
+    std::memset(routed_packet_scratch_, 0, sizeof(routed_packet_scratch_));
+    size_t routed_len = sizeof(routed_packet_scratch_);
     if (!reticulum::buildHeader2Packet(parsed.packet_type,
                                        parsed.destination_type,
                                        static_cast<reticulum::PacketContext>(parsed.context),
@@ -7437,14 +7313,14 @@ bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
                                        parsed.destination_hash,
                                        parsed.payload,
                                        parsed.payload_len,
-                                       routed_packet,
+                                       routed_packet_scratch_,
                                        &routed_len,
                                        raw_packet[1]))
     {
         return false;
     }
 
-    return send_packet(routed_packet, routed_len, path->interface_id);
+    return send_packet(routed_packet_scratch_, routed_len, path->interface_id);
 }
 
 bool LxmfAdapter::sendCachedAnnounceResponse(const PathEntry& path,
@@ -7462,8 +7338,8 @@ bool LxmfAdapter::sendCachedAnnounceResponse(const PathEntry& path,
         return false;
     }
 
-    uint8_t packet[kMaxPacketLen] = {};
-    size_t packet_len = sizeof(packet);
+    std::memset(routed_packet_scratch_, 0, sizeof(routed_packet_scratch_));
+    size_t packet_len = sizeof(routed_packet_scratch_);
     if (!reticulum::buildHeader2Packet(reticulum::PacketType::Announce,
                                        reticulum::DestinationType::Single,
                                        context,
@@ -7472,7 +7348,7 @@ bool LxmfAdapter::sendCachedAnnounceResponse(const PathEntry& path,
                                        parsed.destination_hash,
                                        parsed.payload,
                                        parsed.payload_len,
-                                       packet,
+                                       routed_packet_scratch_,
                                        &packet_len,
                                        path.hops))
     {
@@ -7482,9 +7358,9 @@ bool LxmfAdapter::sendCachedAnnounceResponse(const PathEntry& path,
     return active_ingress_interface_id_ !=
                    reticulum::interfaces::kInvalidInterfaceId
                ? interfaces_.sendPacketOn(active_ingress_interface_id_,
-                                          packet,
+                                          routed_packet_scratch_,
                                           packet_len)
-               : interfaces_.sendPacket(packet, packet_len);
+               : interfaces_.sendPacket(routed_packet_scratch_, packet_len);
 }
 
 bool LxmfAdapter::sendCachedPacketReplay(const uint8_t packet_hash[reticulum::kFullHashSize])
@@ -7552,7 +7428,7 @@ bool LxmfAdapter::shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& 
     }
 
     if (packet.packet_type == reticulum::PacketType::Proof &&
-        (findReversePath(packet.destination_hash) ||
+        (path_manager_.findReversePath(packet.destination_hash) ||
          path_manager_.findPendingPingReceipt(packet.destination_hash)))
     {
         return true;
@@ -7575,7 +7451,7 @@ bool LxmfAdapter::shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& 
     if (packet.packet_type == reticulum::PacketType::Announce)
     {
         if (packet.context == static_cast<uint8_t>(reticulum::PacketContext::PathResponse) &&
-            findPendingPathRequest(packet.destination_hash))
+            path_manager_.findPendingPathRequest(packet.destination_hash))
         {
             return true;
         }
@@ -7815,8 +7691,8 @@ bool LxmfAdapter::rebroadcastAnnounce(const PathEntry& path, const reticulum::Pa
     }
     last_announce_rebroadcast_ms_ = now_ms;
 
-    uint8_t rebroadcast[kMaxPacketLen] = {};
-    size_t rebroadcast_len = sizeof(rebroadcast);
+    std::memset(forward_packet_scratch_, 0, sizeof(forward_packet_scratch_));
+    size_t rebroadcast_len = sizeof(forward_packet_scratch_);
     if (!reticulum::buildHeader2Packet(reticulum::PacketType::Announce,
                                        reticulum::DestinationType::Single,
                                        reticulum::PacketContext::None,
@@ -7825,66 +7701,14 @@ bool LxmfAdapter::rebroadcastAnnounce(const PathEntry& path, const reticulum::Pa
                                        packet.destination_hash,
                                        packet.payload,
                                        packet.payload_len,
-                                       rebroadcast,
+                                       forward_packet_scratch_,
                                        &rebroadcast_len,
                                        packet.hops))
     {
         return false;
     }
 
-    return interfaces_.sendPacket(rebroadcast, rebroadcast_len);
-}
-
-bool LxmfAdapter::isDuplicatePacket(const uint8_t packet_hash[reticulum::kFullHashSize])
-{
-    return path_manager_.isDuplicatePacket(packet_hash);
-}
-
-void LxmfAdapter::rememberPacket(const uint8_t packet_hash[reticulum::kFullHashSize])
-{
-    path_manager_.rememberPacket(packet_hash, millis(), kMaxPacketFilter);
-}
-
-void LxmfAdapter::rememberReversePath(const uint8_t proof_hash[reticulum::kTruncatedHashSize],
-                                      reticulum::interfaces::InterfaceId interface_id,
-                                      uint8_t expected_hops)
-{
-    path_manager_.rememberReversePath(proof_hash,
-                                      interface_id,
-                                      expected_hops,
-                                      millis(),
-                                      kMaxReverseEntries);
-}
-
-LxmfAdapter::ReverseEntry* LxmfAdapter::findReversePath(
-    const uint8_t proof_hash[reticulum::kTruncatedHashSize])
-{
-    return path_manager_.findReversePath(proof_hash);
-}
-
-LxmfAdapter::PendingPathRequest* LxmfAdapter::findPendingPathRequest(
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize])
-{
-    return path_manager_.findPendingPathRequest(destination_hash);
-}
-
-const LxmfAdapter::PendingPathRequest* LxmfAdapter::findPendingPathRequest(
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize]) const
-{
-    return path_manager_.findPendingPathRequest(destination_hash);
-}
-
-void LxmfAdapter::notePendingPathRequest(
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
-    uint32_t now_ms)
-{
-    path_manager_.notePendingPathRequest(destination_hash, now_ms, kMaxPendingPathRequests);
-}
-
-void LxmfAdapter::resolvePendingPathRequest(
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize])
-{
-    path_manager_.resolvePendingPathRequest(destination_hash);
+    return interfaces_.sendPacket(forward_packet_scratch_, rebroadcast_len);
 }
 
 void LxmfAdapter::cullTransportState()
@@ -7913,9 +7737,13 @@ void LxmfAdapter::cullTransportState()
                 100);
         });
 
-    path_manager_.forEachPendingDeliveryReceipt(
-        [now_ms](const runtime::PendingDeliveryReceipt& receipt)
+    delivery_attempt_ledger_.forEachReceipt(
+        [now_ms](const runtime::DeliveryAttemptReceipt& receipt)
         {
+            if (receipt.kind != runtime::DeliveryAttemptKind::DirectPacket)
+            {
+                return;
+            }
             if (receipt.created_ms == 0 ||
                 (now_ms - receipt.created_ms) <=
                     kPendingDeliveryReceiptTtlMs)
@@ -7932,6 +7760,10 @@ void LxmfAdapter::cullTransportState()
                           static_cast<unsigned long>(now_ms -
                                                      receipt.created_ms));
         });
+    delivery_attempt_ledger_.cull(runtime::DeliveryAttemptKind::DirectPacket,
+                                  now_ms,
+                                  kPendingDeliveryReceiptTtlMs,
+                                  kMaxPendingDeliveryReceipts);
 
     const runtime::TransportRuntimeLimits limits{
         kMaxPaths,
@@ -7945,35 +7777,9 @@ void LxmfAdapter::cullTransportState()
         kLinkRelayTtlMs,
         kMaxPendingPingReceipts,
         kPathTtlMs,
-        kPendingPingReceiptTtlMs,
-        kMaxPendingDeliveryReceipts,
-        kPendingDeliveryReceiptTtlMs};
+        kPendingPingReceiptTtlMs};
     path_manager_.cull(now_ms, limits);
     cullLinkSessions();
-}
-
-LxmfAdapter::PathEntry& LxmfAdapter::upsertPath(
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize])
-{
-    return path_manager_.upsertPath(destination_hash, kMaxPaths);
-}
-
-const LxmfAdapter::PathEntry* LxmfAdapter::findPath(
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize]) const
-{
-    return path_manager_.findPath(destination_hash, millis(), kPathTtlMs);
-}
-
-LxmfAdapter::LinkRelayEntry& LxmfAdapter::upsertLinkRelay(
-    const uint8_t link_id[reticulum::kTruncatedHashSize])
-{
-    return path_manager_.upsertLinkRelay(link_id, kMaxLinkRelays);
-}
-
-LxmfAdapter::LinkRelayEntry* LxmfAdapter::findLinkRelay(
-    const uint8_t link_id[reticulum::kTruncatedHashSize])
-{
-    return path_manager_.findLinkRelay(link_id);
 }
 
 void LxmfAdapter::localDestinationHash(LocalDestinationKind kind,
@@ -8176,21 +7982,27 @@ bool LxmfAdapter::sendLinkPacket(LinkSession& session,
         return false;
     }
 
-    uint8_t wire_payload[kMaxPacketLen] = {};
     const uint8_t* effective_payload = payload;
     size_t effective_payload_len = payload_len;
     if (encrypt_payload)
     {
-        effective_payload = wire_payload;
-        effective_payload_len = sizeof(wire_payload);
-        if (!encryptLinkPayload(session, payload, payload_len, wire_payload, &effective_payload_len))
+        std::memset(link_wire_payload_scratch_,
+                    0,
+                    sizeof(link_wire_payload_scratch_));
+        effective_payload = link_wire_payload_scratch_;
+        effective_payload_len = sizeof(link_wire_payload_scratch_);
+        if (!encryptLinkPayload(session,
+                                payload,
+                                payload_len,
+                                link_wire_payload_scratch_,
+                                &effective_payload_len))
         {
             return false;
         }
     }
 
-    uint8_t packet[kMaxPacketLen] = {};
-    size_t packet_len = sizeof(packet);
+    std::memset(link_packet_scratch_, 0, sizeof(link_packet_scratch_));
+    size_t packet_len = sizeof(link_packet_scratch_);
     if (!reticulum::buildHeader1Packet(packet_type,
                                        reticulum::DestinationType::Link,
                                        context,
@@ -8198,7 +8010,7 @@ bool LxmfAdapter::sendLinkPacket(LinkSession& session,
                                        session.link_id,
                                        effective_payload,
                                        effective_payload_len,
-                                       packet,
+                                       link_packet_scratch_,
                                        &packet_len))
     {
         return false;
@@ -8208,7 +8020,7 @@ bool LxmfAdapter::sendLinkPacket(LinkSession& session,
         session.interface_id != reticulum::interfaces::kInvalidInterfaceId;
     const bool ok = has_bound_interface
                         ? interfaces_.sendPacketOn(session.interface_id,
-                                                   packet,
+                                                   link_packet_scratch_,
                                                    packet_len,
                                                    session.destination ==
                                                            LocalDestinationKind::CallAudio
@@ -8216,17 +8028,20 @@ bool LxmfAdapter::sendLinkPacket(LinkSession& session,
                                                        : nullptr,
                                                    call_admission_control)
                         : (session.destination == LocalDestinationKind::CallAudio
-                               ? interfaces_.sendPacketWifiOnly(packet,
+                               ? interfaces_.sendPacketWifiOnly(link_packet_scratch_,
                                                                 packet_len,
                                                                 session.link_id,
                                                                 call_admission_control)
-                               : interfaces_.sendPacket(packet, packet_len));
+                               : interfaces_.sendPacket(link_packet_scratch_,
+                                                        packet_len));
     if (ok)
     {
-        session.last_outbound_ms = millis();
+        link_manager_.touchOutbound(session, millis());
         if (out_packet_hash)
         {
-            reticulum::computePacketHash(packet, packet_len, out_packet_hash);
+            reticulum::computePacketHash(link_packet_scratch_,
+                                         packet_len,
+                                         out_packet_hash);
         }
     }
     return ok;
@@ -8292,9 +8107,10 @@ bool LxmfAdapter::sendNomadPageRequestPacket(
         return false;
     }
 
+    uint8_t request_id[reticulum::kTruncatedHashSize] = {};
     reticulum::computeTruncatedPacketHash(nomad_page_packet_scratch_,
                                           packet_len,
-                                          request.request_id);
+                                          request_id);
     const bool ok =
         session.interface_id != reticulum::interfaces::kInvalidInterfaceId
             ? interfaces_.sendPacketOn(session.interface_id,
@@ -8306,14 +8122,16 @@ bool LxmfAdapter::sendNomadPageRequestPacket(
         return false;
     }
 
-    LinkPendingRequest pending{};
-    pending.request_id.assign(request.request_id,
-                              request.request_id + sizeof(request.request_id));
-    pending.created_ms = millis();
-    session.pending_requests.push_back(std::move(pending));
-    session.last_outbound_ms = millis();
-    request.request_sent = true;
-    return true;
+    link_manager_.queuePendingRequest(session,
+                                      request_id,
+                                      sizeof(request_id),
+                                      millis(),
+                                      false);
+    link_manager_.touchOutbound(session, millis());
+    return network_page_client_.noteRequestPacketSent(request,
+                                                      request_id,
+                                                      sizeof(request_id),
+                                                      millis());
 }
 
 LxmfAdapter::PendingNomadPageRequest*
@@ -8491,9 +8309,8 @@ void LxmfAdapter::pumpNomadPageRequests()
                           timeout_link,
                           static_cast<unsigned>(open_link ? open_link->expected_hops : 0U),
                           static_cast<unsigned long>(
-                              request.last_attempt_ms != 0
-                                  ? (now_ms - request.last_attempt_ms)
-                                  : 0U));
+                              network_page_client_.lastAttemptAge(request,
+                                                                  now_ms)));
             updateNomadPageProgress(request,
                                     100,
                                     "Nomad page request timed out",
@@ -8526,21 +8343,15 @@ void LxmfAdapter::pumpNomadPageRequests()
                     findActiveLinkSessionByDestination(request.destination_hash,
                                                        LocalDestinationKind::NomadPage))
             {
-                for (auto pending = session->pending_requests.begin();
-                     pending != session->pending_requests.end();
-                     ++pending)
+                LinkPendingRequest* pending =
+                    link_manager_.findPendingRequest(*session,
+                                                     request.request_id,
+                                                     sizeof(request.request_id));
+                if (pending && pending->response_ready)
                 {
-                    if (pending->request_id.size() == sizeof(request.request_id) &&
-                        std::memcmp(pending->request_id.data(),
-                                    request.request_id,
-                                    sizeof(request.request_id)) == 0 &&
-                        pending->response_ready)
-                    {
-                        completeNomadPageRequest(request, pending->response);
-                        session->pending_requests.erase(pending);
-                        completed = true;
-                        break;
-                    }
+                    completeNomadPageRequest(request, pending->response);
+                    link_manager_.erasePendingRequest(*session, *pending);
+                    completed = true;
                 }
             }
         }
@@ -8555,10 +8366,11 @@ void LxmfAdapter::pumpNomadPageRequests()
             findActiveLinkSessionByDestination(request.destination_hash,
                                                LocalDestinationKind::NomadPage);
         if (active_link && !request.request_sent &&
-            (request.last_attempt_ms == 0 ||
-             (now_ms - request.last_attempt_ms) >= kNomadPageSendRetryMs))
+            network_page_client_.attemptDue(request,
+                                            now_ms,
+                                            kNomadPageSendRetryMs))
         {
-            request.last_attempt_ms = now_ms;
+            network_page_client_.noteAttempt(request, now_ms);
             const bool sent = sendNomadPageRequestPacket(*active_link, request);
             updateNomadPageProgress(request,
                                     sent ? 40 : 35,
@@ -8581,21 +8393,26 @@ void LxmfAdapter::pumpNomadPageRequests()
                                     destination_text,
                                     request.path,
                                     sent ? 1U : 0U,
-                                    static_cast<unsigned>(active_link->pending_requests.size()));
+                                    static_cast<unsigned>(
+                                        link_manager_.pendingRequestCount(*active_link)));
             }
         }
         else if (!active_link)
         {
-            const PathEntry* path = findPath(request.destination_hash);
+            const PathEntry* path = path_manager_.findPath(
+                request.destination_hash, millis(), kPathTtlMs);
             if (!path)
             {
-                if (request.last_path_request_ms == 0 ||
-                    (now_ms - request.last_path_request_ms) >= kPathRequestMinIntervalMs)
+                if (network_page_client_.pathRequestDue(
+                        request,
+                        now_ms,
+                        kPathRequestMinIntervalMs))
                 {
-                    request.last_path_request_ms = now_ms;
                     const bool path_sent =
                         sendPathRequestForDestination(request.destination_hash);
-                    request.path_requested = request.path_requested || path_sent;
+                    network_page_client_.notePathRequest(request,
+                                                         path_sent,
+                                                         now_ms);
                     updateNomadPageProgress(request,
                                             path_sent ? 10 : 5,
                                             path_sent ? "Resolving Nomad page path"
@@ -8630,13 +8447,15 @@ void LxmfAdapter::pumpNomadPageRequests()
                 if (open_link &&
                     (open_link->state == LinkState::Pending ||
                      open_link->state == LinkState::Handshake) &&
-                    (request.last_attempt_ms == 0 ||
-                     (now_ms - request.last_attempt_ms) >=
-                         kNomadPageLinkRetryMs))
+                    network_page_client_.attemptDue(request,
+                                                    now_ms,
+                                                    kNomadPageLinkRetryMs))
                 {
-                    request.last_attempt_ms = now_ms;
                     const bool link_sent = sendLinkRequest(*open_link);
-                    request.link_started = request.link_started || link_sent;
+                    network_page_client_.noteLinkStart(request,
+                                                       link_sent,
+                                                       now_ms,
+                                                       true);
                     updateNomadPageProgress(request,
                                             link_sent ? 25 : 10,
                                             link_sent
@@ -8667,13 +8486,24 @@ void LxmfAdapter::pumpNomadPageRequests()
                                       now_ms - open_link->created_ms));
                 }
                 else if (!open_link &&
-                         (request.last_attempt_ms == 0 ||
-                          (now_ms - request.last_attempt_ms) >=
-                              kNomadPageSendRetryMs))
+                         network_page_client_.attemptDue(
+                             request,
+                             now_ms,
+                             kNomadPageSendRetryMs))
                 {
-                    request.last_attempt_ms = now_ms;
+                    runtime::LinkSessionSpec session_spec{};
+                    session_spec.now_ms = now_ms;
+                    session_spec.keepalive_interval_ms = kLinkKeepaliveMaxMs;
+                    session_spec.stale_timeout_ms = kLinkKeepaliveMaxMs * 2U;
+                    session_spec.remote_destination_hash =
+                        request.destination_hash;
+                    session_spec.expected_hops = path->hops;
+                    session_spec.destination = LocalDestinationKind::NomadPage;
+                    session_spec.state = LinkState::Pending;
+                    session_spec.initiator = true;
                     LinkSession* new_session =
-                        link_manager_.appendSession(kMaxLinkSessions);
+                        link_manager_.openSession(kMaxLinkSessions,
+                                                  session_spec);
                     if (!new_session)
                     {
                         updateNomadPageProgress(request,
@@ -8687,21 +8517,6 @@ void LxmfAdapter::pumpNomadPageRequests()
                         continue;
                     }
                     LinkSession& session = *new_session;
-                    session.created_ms = now_ms;
-                    session.request_ms = now_ms;
-                    session.last_inbound_ms = now_ms;
-                    session.initiator = true;
-                    session.destination = LocalDestinationKind::NomadPage;
-                    session.state = LinkState::Pending;
-                    session.close_reason = LinkCloseReason::None;
-                    session.expected_hops = path->hops;
-                    session.remote_identity_known = false;
-                    session.validated = false;
-                    session.keepalive_interval_ms = kLinkKeepaliveMaxMs;
-                    session.stale_timeout_ms = kLinkKeepaliveMaxMs * 2U;
-                    copyHash(session.remote_destination_hash,
-                             request.destination_hash,
-                             sizeof(session.remote_destination_hash));
 
                     Curve25519::dh1(session.local_enc_pub,
                                     session.local_enc_priv);
@@ -8713,9 +8528,12 @@ void LxmfAdapter::pumpNomadPageRequests()
                         sendLinkRequest(session);
                     if (!link_sent)
                     {
-                        link_manager_.discardLastSession();
+                        link_manager_.discardSession(session);
                     }
-                    request.link_started = link_sent;
+                    network_page_client_.noteLinkStart(request,
+                                                       link_sent,
+                                                       now_ms,
+                                                       false);
                     updateNomadPageProgress(request,
                                             link_sent ? 25 : 10,
                                             link_sent ? "Opening Nomad page link"
@@ -8818,7 +8636,7 @@ bool LxmfAdapter::sendLinkKeepalive(LinkSession& session)
                                    false);
     if (ok)
     {
-        session.last_keepalive_ms = millis();
+        link_manager_.noteKeepaliveSent(session, millis());
     }
     return ok;
 }
@@ -8973,8 +8791,10 @@ bool LxmfAdapter::advertiseLinkResource(LinkSession& session,
         const size_t slice_offset = start_hash * kResourceMapHashLen;
         const size_t slice_len = slice_hashes * kResourceMapHashLen;
 
-        uint8_t advertisement[kMaxPacketLen] = {};
-        size_t advertisement_len = sizeof(advertisement);
+        std::memset(resource_advertisement_scratch_,
+                    0,
+                    sizeof(resource_advertisement_scratch_));
+        size_t advertisement_len = sizeof(resource_advertisement_scratch_);
         if (encodeResourceAdvertisement(resource.transfer_size,
                                         resource.data_size,
                                         resource.part_count,
@@ -8988,7 +8808,7 @@ bool LxmfAdapter::advertiseLinkResource(LinkSession& session,
                                         resource.flags,
                                         resource.hashmap.data() + slice_offset,
                                         slice_len,
-                                        advertisement,
+                                        resource_advertisement_scratch_,
                                         &advertisement_len) &&
             advertisement_len <= session.mdu)
         {
@@ -8996,7 +8816,7 @@ bool LxmfAdapter::advertiseLinkResource(LinkSession& session,
             return sendLinkPacket(session,
                                   reticulum::PacketType::Data,
                                   reticulum::PacketContext::ResourceAdv,
-                                  advertisement,
+                                  resource_advertisement_scratch_,
                                   advertisement_len,
                                   true);
         }
@@ -9066,8 +8886,6 @@ bool LxmfAdapter::queueOutgoingResource(LinkSession& session,
     {
         return false;
     }
-    resource.message_id = message_id;
-
     bool mapped = false;
     for (size_t attempt = 0; attempt < 8 && !mapped; ++attempt)
     {
@@ -9093,7 +8911,7 @@ bool LxmfAdapter::queueOutgoingResource(LinkSession& session,
         }
 
         resource.hashmap.clear();
-        std::vector<std::array<uint8_t, kResourceMapHashLen>> recent_hashes;
+        runtime::RuntimeMapHashList recent_hashes;
         recent_hashes.reserve(collision_guard);
         bool collision = false;
 
@@ -9148,44 +8966,46 @@ bool LxmfAdapter::queueOutgoingResource(LinkSession& session,
         (void)link_manager_.discardLastOutgoingResource(session);
         return false;
     }
+    if (message_id != 0)
+    {
+        delivery_attempt_ledger_.noteLinkResourceReceipt(
+            queued_resource->resource_hash,
+            session.link_id,
+            message_id,
+            millis(),
+            kMaxPendingDeliveryReceipts);
+    }
 
     return true;
 }
 
 void LxmfAdapter::closeLinkSession(LinkSession& session, LinkCloseReason reason)
 {
-    for (const auto& deferred : session.deferred_payloads)
-    {
-        if (deferred.message_id != 0)
-        {
-            Serial.printf("[LXMF][%s] deferred_failed msg=%lu reason=link_close close_reason=%u\n",
-                          session.destination ==
-                                  LocalDestinationKind::Propagation
-                              ? "PropagationTX"
-                              : "DirectTX",
-                          static_cast<unsigned long>(deferred.message_id),
-                          static_cast<unsigned>(reason));
-            sys::EventBus::publish(
-                new sys::ChatSendResultEvent(deferred.message_id, false), 0);
-        }
-    }
-
-    for (const auto& receipt : session.pending_packet_receipts)
-    {
-        if (receipt.message_id != 0)
-        {
-            sys::EventBus::publish(
-                new sys::ChatSendResultEvent(receipt.message_id, false), 0);
-        }
-    }
-    session.pending_packet_receipts.clear();
-
-    link_manager_.takeTrackedOutgoingResourceMessageIds(
+    link_manager_.forEachDeferredPayload(
         session,
-        [](uint32_t message_id)
+        [this, &session, reason](const runtime::DeferredLinkPayload& deferred)
         {
-            sys::EventBus::publish(
-                new sys::ChatSendResultEvent(message_id, false), 0);
+            if (deferred.message_id != 0)
+            {
+                Serial.printf("[LXMF][%s] deferred_failed msg=%lu reason=link_close close_reason=%u\n",
+                              session.destination ==
+                                      LocalDestinationKind::Propagation
+                                  ? "PropagationTX"
+                                  : "DirectTX",
+                              static_cast<unsigned long>(deferred.message_id),
+                              static_cast<unsigned>(reason));
+                delivery_notifier_.failed(deferred.message_id);
+            }
+        });
+
+    delivery_attempt_ledger_.takeReceiptsForLink(
+        session.link_id,
+        [this](const runtime::DeliveryAttemptReceipt& receipt)
+        {
+            if (receipt.message_id != 0)
+            {
+                delivery_notifier_.failed(receipt.message_id);
+            }
         });
 
     const bool transitioned =
@@ -9197,14 +9017,11 @@ void LxmfAdapter::closeLinkSession(LinkSession& session, LinkCloseReason reason)
 
     if (session.destination == LocalDestinationKind::CallAudio)
     {
-        if (session.call_wire_profile ==
-            ReticulumCallWireProfile::SidebandLxst)
-        {
-            (void)reticulum::lxst::call::dispatch(
-                &session.lxst_call,
-                {reticulum::lxst::call::EventType::LinkClosed},
-                millis());
-        }
+        (void)lxst_telephony_client_.dispatch(
+            session,
+            {reticulum::lxst::call::EventType::LinkClosed},
+            millis(),
+            nullptr);
         ::platform::ui::reticulum_call::notify_link_closed(session.link_id);
     }
 
@@ -9213,7 +9030,7 @@ void LxmfAdapter::closeLinkSession(LinkSession& session, LinkCloseReason reason)
     if ((reason == LinkCloseReason::Timeout || reason == LinkCloseReason::Error) &&
         !isZeroBytes(session.remote_destination_hash, sizeof(session.remote_destination_hash)))
     {
-        expirePath(session.remote_destination_hash);
+        path_manager_.expirePath(session.remote_destination_hash);
         bool requested = false;
         destination_registry_.forEach(
             [&](PeerInfo& peer)
@@ -9225,7 +9042,7 @@ void LxmfAdapter::closeLinkSession(LinkSession& session, LinkCloseReason reason)
                 {
                     return;
                 }
-                peer.last_path_request_ms = 0;
+                path_manager_.resetPeerPathRequest(peer);
                 (void)sendPathRequest(peer);
                 requested = true;
             });
@@ -9239,42 +9056,43 @@ void LxmfAdapter::flushDeferredLinkPayloads(LinkSession& session)
         return;
     }
 
-    while (!session.deferred_payloads.empty())
+    while (const runtime::DeferredLinkPayload* deferred =
+               link_manager_.firstDeferredPayload(session))
     {
-        const runtime::DeferredLinkPayload& deferred = session.deferred_payloads.front();
         bool sent = false;
-        if (deferred.payload.size() <= session.mdu)
+        if (deferred->payload.size() <= session.mdu)
         {
             uint8_t packet_hash[reticulum::kFullHashSize] = {};
             sent = sendLinkPacket(session,
                                   reticulum::PacketType::Data,
                                   reticulum::PacketContext::None,
-                                  deferred.payload.data(),
-                                  deferred.payload.size(),
+                                  deferred->payload.data(),
+                                  deferred->payload.size(),
                                   true,
                                   false,
-                                  deferred.message_id != 0 ? packet_hash
-                                                           : nullptr);
-            if (sent && deferred.message_id != 0)
+                                  deferred->message_id != 0 ? packet_hash
+                                                            : nullptr);
+            if (sent && deferred->message_id != 0)
             {
-                runtime::LinkPacketReceipt receipt{};
-                copyHash(receipt.packet_hash,
-                         packet_hash,
-                         sizeof(receipt.packet_hash));
-                receipt.message_id = deferred.message_id;
-                receipt.created_ms = millis();
-                session.pending_packet_receipts.push_back(receipt);
+                delivery_attempt_ledger_.noteLinkPacketReceipt(
+                    packet_hash,
+                    session.link_id,
+                    deferred->message_id,
+                    millis(),
+                    kMaxPendingDeliveryReceipts);
             }
         }
         else
         {
             sent = queueOutgoingResource(session,
-                                         deferred.payload.data(),
-                                         deferred.payload.size(),
-                                         deferred.resource_flags,
-                                         deferred.request_id.empty() ? nullptr : deferred.request_id.data(),
-                                         deferred.request_id.size(),
-                                         deferred.message_id);
+                                         deferred->payload.data(),
+                                         deferred->payload.size(),
+                                         deferred->resource_flags,
+                                         deferred->request_id.empty()
+                                             ? nullptr
+                                             : deferred->request_id.data(),
+                                         deferred->request_id.size(),
+                                         deferred->message_id);
         }
 
         if (!sent)
@@ -9282,46 +9100,27 @@ void LxmfAdapter::flushDeferredLinkPayloads(LinkSession& session)
             break;
         }
 
-        if (deferred.message_id != 0)
-        {
-            sys::EventBus::publish(
-                new sys::ChatSendResultEvent(deferred.message_id,
-                                             MessageStatus::Queued),
-                0);
-        }
-
         if (session.destination == LocalDestinationKind::Delivery)
         {
             (void)sendLinkIdentify(session);
         }
 
-        if (deferred.message_id != 0)
+        if (deferred->message_id != 0)
         {
             Serial.printf("[LXMF][%s] awaiting_proof msg=%lu path=link payload_len=%u representation=%s\n",
                           session.destination ==
                                   LocalDestinationKind::Propagation
                               ? "PropagationTX"
                               : "DirectTX",
-                          static_cast<unsigned long>(deferred.message_id),
-                          static_cast<unsigned>(deferred.payload.size()),
-                          deferred.payload.size() <= session.mdu
+                          static_cast<unsigned long>(deferred->message_id),
+                          static_cast<unsigned>(deferred->payload.size()),
+                          deferred->payload.size() <= session.mdu
                               ? "packet"
                               : "resource");
         }
 
-        session.deferred_payloads.erase(session.deferred_payloads.begin());
+        link_manager_.popFirstDeferredPayload(session);
     }
-}
-
-void LxmfAdapter::expirePath(
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize])
-{
-    if (!destination_hash)
-    {
-        return;
-    }
-
-    path_manager_.expirePath(destination_hash);
 }
 
 LxmfAdapter::LinkSession* LxmfAdapter::findLinkSession(
@@ -9352,6 +9151,17 @@ void LxmfAdapter::cullLinkSessions()
         kLinkKeepaliveTimeoutFactor,
         5000};
     const runtime::ResourceRuntimeLimits resource_limits{kResourceTransferTtlMs};
+    delivery_attempt_ledger_.takeExpiredReceipts(
+        runtime::DeliveryAttemptKind::LinkPacket,
+        now_ms,
+        kLinkPacketReceiptTtlMs,
+        [this](const runtime::DeliveryAttemptReceipt& receipt)
+        {
+            if (receipt.message_id != 0)
+            {
+                delivery_notifier_.failed(receipt.message_id);
+            }
+        });
 
     link_manager_.forEachSession(
         [this, now_ms, &call_snapshot, &limits, &resource_limits](LinkSession& session)
@@ -9359,12 +9169,10 @@ void LxmfAdapter::cullLinkSessions()
             if (session.destination == LocalDestinationKind::CallAudio &&
                 session.state == LinkState::Active)
             {
-                if (session.call_wire_profile ==
-                        ReticulumCallWireProfile::SidebandLxst &&
-                    reticulum::lxst::call::phaseTimedOut(
-                        session.lxst_call,
-                        now_ms))
+                if (lxst_telephony_client_.phaseTimedOut(session, now_ms))
                 {
+                    const auto& call_state =
+                        lxst_telephony_client_.state(session);
                     char link_hash[12] = {};
                     formatHashPrefix(session.link_id,
                                      link_hash,
@@ -9372,14 +9180,14 @@ void LxmfAdapter::cullLinkSessions()
                     Serial.printf("[LXMF][Call] phase_timeout link=%s phase=%s local=%u remote=%u elapsed_ms=%lu\n",
                                   link_hash,
                                   reticulum::lxst::call::phaseName(
-                                      session.lxst_call.phase),
+                                      call_state.phase),
                                   static_cast<unsigned>(
-                                      session.lxst_call.local_status),
+                                      call_state.local_status),
                                   static_cast<unsigned>(
-                                      session.lxst_call.remote_status),
+                                      call_state.remote_status),
                                   static_cast<unsigned long>(
                                       now_ms -
-                                      session.lxst_call.phase_started_ms));
+                                      call_state.phase_started_ms));
                     (void)dispatchLxstCallEvent(
                         session,
                         {reticulum::lxst::call::EventType::Timeout});
@@ -9411,35 +9219,29 @@ void LxmfAdapter::cullLinkSessions()
             }
 
             link_manager_.cullSessionTables(session, now_ms, limits);
-            session.pending_packet_receipts.erase(
-                std::remove_if(
-                    session.pending_packet_receipts.begin(),
-                    session.pending_packet_receipts.end(),
-                    [now_ms](const runtime::LinkPacketReceipt& receipt)
-                    {
-                        if (now_ms - receipt.created_ms <=
-                            kLinkPacketReceiptTtlMs)
-                        {
-                            return false;
-                        }
-                        if (receipt.message_id != 0)
-                        {
-                            sys::EventBus::publish(
-                                new sys::ChatSendResultEvent(receipt.message_id,
-                                                             false),
-                                0);
-                        }
-                        return true;
-                    }),
-                session.pending_packet_receipts.end());
-            link_manager_.takeExpiredOutgoingResourceMessageIds(
+            link_manager_.forEachExpiredOutgoingResource(
                 session,
                 now_ms,
                 kResourceTransferTtlMs,
-                [](uint32_t message_id)
+                [this, &session](
+                    const runtime::LinkResourceTransfer& resource)
                 {
-                    sys::EventBus::publish(
-                        new sys::ChatSendResultEvent(message_id, false), 0);
+                    runtime::DeliveryAttemptReceipt* receipt =
+                        delivery_attempt_ledger_.findLinkResourceReceipt(
+                            session.link_id,
+                            resource.resource_hash);
+                    if (!receipt)
+                    {
+                        return;
+                    }
+                    const uint32_t message_id = receipt->message_id;
+                    delivery_attempt_ledger_.removeLinkResourceReceipt(
+                        session.link_id,
+                        resource.resource_hash);
+                    if (message_id != 0)
+                    {
+                        delivery_notifier_.failed(message_id);
+                    }
                 });
             link_manager_.cullResources(session, now_ms, resource_limits);
             const runtime::LinkRuntimeMaintenance maintenance =
@@ -9485,7 +9287,7 @@ LxmfAdapter::PeerInfo* LxmfAdapter::rememberPeerIdentity(
     reticulum::computeNameHash("lxmf", "delivery", name_hash);
     reticulum::computeDestinationHash(name_hash, identity_hash, delivery_hash);
 
-    PeerInfo& peer = upsertPeer(delivery_hash);
+    PeerInfo& peer = destination_registry_.upsertDestination(delivery_hash);
     copyHash(peer.identity_hash, identity_hash, sizeof(peer.identity_hash));
     memcpy(peer.enc_pub, combined_pub, LxmfIdentity::kEncPubKeySize);
     memcpy(peer.sig_pub,
@@ -9729,7 +9531,7 @@ bool LxmfAdapter::acceptVerifiedEnvelopeForDestination(
         }
 
         delivery_context.peer_node_id = peer->node_id;
-        delivery_context.peer_identity = reticulumIdentityForPeer(*peer);
+        delivery_context.peer_identity = runtime::reticulumIdentityForPeer(*peer);
         delivery_context.conversation_identity =
             hasReticulumDestinationIdentity(conversation_identity)
                 ? conversation_identity
@@ -9897,23 +9699,6 @@ bool LxmfAdapter::acceptVerifiedEnvelopeForDestination(
     return false;
 }
 
-LxmfAdapter::PeerInfo* LxmfAdapter::findPeerByNodeId(NodeId node_id)
-{
-    return destination_registry_.findByNodeId(node_id);
-}
-
-const LxmfAdapter::PeerInfo* LxmfAdapter::findPeerByDestinationHash(
-    const uint8_t hash[reticulum::kTruncatedHashSize]) const
-{
-    return destination_registry_.findByDestinationHash(hash);
-}
-
-const LxmfAdapter::PeerInfo* LxmfAdapter::findPeerByIdentityHash(
-    const uint8_t hash[reticulum::kTruncatedHashSize]) const
-{
-    return destination_registry_.findByIdentityHash(hash);
-}
-
 const ReticulumGroupDestinationConfig* LxmfAdapter::findConfiguredGroupDestination(
     const uint8_t hash[reticulum::kTruncatedHashSize]) const
 {
@@ -9945,167 +9730,77 @@ bool LxmfAdapter::isConfiguredGroupDestination(
            findConfiguredGroupDestination(destination.destination_hash) != nullptr;
 }
 
-LxmfAdapter::PeerInfo& LxmfAdapter::upsertPeer(
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize])
-{
-    return destination_registry_.upsertDestination(destination_hash);
-}
-
-LxmfAdapter::PeerInfo* LxmfAdapter::upsertPeerFromDirectoryRecord(
-    const MeshPeerRecord& record,
-    bool queue_update)
-{
-    if (!meshPeerRecordIsValid(record) || record.flags.ignored ||
-        !meshPeerSameProtocol(record.identity.protocol, MeshProtocol::Reticulum) ||
-        record.identity.kind != MeshPeerIdentityKind::ReticulumDestination ||
-        !record.reticulum.has_public_keys)
-    {
-        return nullptr;
-    }
-
-    const ReticulumPeerIdentity& identity = record.reticulum.identity.valid
-                                                ? record.reticulum.identity
-                                                : record.identity.reticulum;
-    if (!identity.valid ||
-        isZeroBytes(identity.destination_hash, sizeof(identity.destination_hash)) ||
-        isZeroBytes(identity.identity_hash, sizeof(identity.identity_hash)) ||
-        isZeroBytes(record.reticulum.enc_pub, sizeof(record.reticulum.enc_pub)) ||
-        isZeroBytes(record.reticulum.sig_pub, sizeof(record.reticulum.sig_pub)))
-    {
-        return nullptr;
-    }
-
-    PeerInfo& peer = upsertPeer(identity.destination_hash);
-    copyHash(peer.identity_hash, identity.identity_hash, sizeof(peer.identity_hash));
-    memcpy(peer.enc_pub, record.reticulum.enc_pub, sizeof(peer.enc_pub));
-    memcpy(peer.sig_pub, record.reticulum.sig_pub, sizeof(peer.sig_pub));
-    if (record.reticulum.has_ratchet &&
-        !isZeroBytes(record.reticulum.ratchet_pub,
-                     sizeof(record.reticulum.ratchet_pub)))
-    {
-        memcpy(peer.ratchet_pub,
-               record.reticulum.ratchet_pub,
-               sizeof(peer.ratchet_pub));
-        peer.has_ratchet = true;
-        peer.ratchet_seen_s = record.reticulum.ratchet_seen_s;
-    }
-    else
-    {
-        memset(peer.ratchet_pub, 0, sizeof(peer.ratchet_pub));
-        peer.has_ratchet = false;
-        peer.ratchet_seen_s = 0;
-    }
-    peer.last_seen_s = record.last_seen_s != 0
-                           ? record.last_seen_s
-                           : currentTimestampSeconds();
-    peer.last_path_request_ms = 0;
-    copyCString(peer.display_name, sizeof(peer.display_name), record.display_name);
-    if (queue_update)
-    {
-        queuePeerUpdate(peer);
-    }
-    return &peer;
-}
-
 LxmfAdapter::PeerInfo* LxmfAdapter::findOrLoadPeerByNodeId(NodeId node_id)
 {
-    if (node_id == 0)
+    const runtime::PeerDirectoryLoadResult result =
+        peer_directory_service_.findOrLoadByNodeId(destination_registry_,
+                                                   node_id,
+                                                   currentTimestampSeconds());
+    if (!result.status.succeeded())
     {
-        return nullptr;
-    }
-    if (PeerInfo* peer = findPeerByNodeId(node_id))
-    {
-        return peer;
-    }
-    if (!peer_directory_)
-    {
+        if (result.status.code != MeshPeerDirectoryStatusCode::StorageUnavailable &&
+            result.status.code != MeshPeerDirectoryStatusCode::InvalidArgument)
+        {
+            Serial.printf("[LXMF][Directory] peer_lookup miss node=%08lX status=%u\n",
+                          static_cast<unsigned long>(node_id),
+                          static_cast<unsigned>(result.status.code));
+        }
         return nullptr;
     }
 
-    MeshPeerRecord record{};
-    const MeshPeerDirectoryStatus status =
-        peer_directory_->findByNodeId(MeshProtocol::Reticulum, node_id, record);
-    if (!status.succeeded())
+    if (result.loaded_from_directory && result.peer)
     {
-        Serial.printf("[LXMF][Directory] peer_lookup miss node=%08lX status=%u\n",
-                      static_cast<unsigned long>(node_id),
-                      static_cast<unsigned>(status.code));
-        return nullptr;
-    }
-    PeerInfo* peer = upsertPeerFromDirectoryRecord(record, true);
-    if (peer)
-    {
+        queuePeerUpdate(*result.peer);
         Serial.printf("[LXMF][Directory] peer_lookup loaded node=%08lX name=%s\n",
                       static_cast<unsigned long>(node_id),
-                      peer->display_name[0] != '\0' ? peer->display_name : "<unnamed>");
+                      result.peer->display_name[0] != '\0'
+                          ? result.peer->display_name
+                          : "<unnamed>");
     }
-    return peer;
+    return result.peer;
 }
 
 LxmfAdapter::PeerInfo* LxmfAdapter::findOrLoadPeerByDestinationHash(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize])
 {
-    if (!destination_hash)
+    const runtime::PeerDirectoryLoadResult result =
+        peer_directory_service_.findOrLoadByDestinationHash(destination_registry_,
+                                                            destination_hash,
+                                                            currentTimestampSeconds());
+    if (!result.status.succeeded())
     {
-        return nullptr;
-    }
-    if (PeerInfo* peer =
-            destination_registry_.findByDestinationHash(destination_hash))
-    {
-        return peer;
-    }
-    if (!peer_directory_)
-    {
+        if (result.status.code != MeshPeerDirectoryStatusCode::StorageUnavailable &&
+            result.status.code != MeshPeerDirectoryStatusCode::InvalidArgument)
+        {
+            char dest[12] = {};
+            formatHashPrefix(destination_hash, dest, sizeof(dest));
+            Serial.printf("[LXMF][Directory] peer_lookup miss dest=%s status=%u\n",
+                          dest,
+                          static_cast<unsigned>(result.status.code));
+        }
         return nullptr;
     }
 
-    MeshPeerIdentity identity{};
-    identity.protocol = MeshProtocol::Reticulum;
-    identity.kind = MeshPeerIdentityKind::ReticulumDestination;
-    identity.reticulum = makeReticulumDestinationIdentity(destination_hash);
-    MeshPeerRecord record{};
-    const MeshPeerDirectoryStatus status = peer_directory_->find(identity, record);
-    if (!status.succeeded())
+    if (result.loaded_from_directory && result.peer)
     {
+        queuePeerUpdate(*result.peer);
         char dest[12] = {};
-        formatHashPrefix(destination_hash, dest, sizeof(dest));
-        Serial.printf("[LXMF][Directory] peer_lookup miss dest=%s status=%u\n",
-                      dest,
-                      static_cast<unsigned>(status.code));
-        return nullptr;
-    }
-    PeerInfo* peer = upsertPeerFromDirectoryRecord(record, true);
-    if (peer)
-    {
-        char dest[12] = {};
-        formatHashPrefix(peer->destination_hash, dest, sizeof(dest));
+        formatHashPrefix(result.peer->destination_hash, dest, sizeof(dest));
         Serial.printf("[LXMF][Directory] peer_lookup loaded dest=%s name=%s\n",
                       dest,
-                      peer->display_name[0] != '\0' ? peer->display_name : "<unnamed>");
+                      result.peer->display_name[0] != '\0'
+                          ? result.peer->display_name
+                          : "<unnamed>");
     }
-    return peer;
+    return result.peer;
 }
 
 MeshActionResult LxmfAdapter::persistPeerAddressNow(const PeerInfo& peer,
                                                     bool favorite) const
 {
-    if (isZeroBytes(peer.destination_hash, sizeof(peer.destination_hash)) ||
-        isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash)) ||
-        isZeroBytes(peer.enc_pub, sizeof(peer.enc_pub)) ||
-        isZeroBytes(peer.sig_pub, sizeof(peer.sig_pub)))
-    {
-        return MeshActionResult::fail(MeshOperationFailure::PeerKeyMissing);
-    }
-    if (!peer_directory_)
-    {
-        return MeshActionResult::fail(MeshOperationFailure::NotReady);
-    }
-
-    if (!recordPeerInDirectory(peer, MeshPeerSource::Manual, true, favorite))
-    {
-        return MeshActionResult::fail(MeshOperationFailure::Unknown);
-    }
-    return MeshActionResult::success();
+    return peer_directory_service_.persistPeerAddressNow(peer,
+                                                         favorite,
+                                                         currentTimestampSeconds());
 }
 
 bool LxmfAdapter::recordPeerInDirectory(const PeerInfo& peer,
@@ -10113,72 +9808,32 @@ bool LxmfAdapter::recordPeerInDirectory(const PeerInfo& peer,
                                         bool update_favorite,
                                         bool favorite) const
 {
-    if (!peer_directory_ ||
-        isZeroBytes(peer.destination_hash, sizeof(peer.destination_hash)) ||
-        isZeroBytes(peer.identity_hash, sizeof(peer.identity_hash)) ||
-        isZeroBytes(peer.enc_pub, sizeof(peer.enc_pub)) ||
-        isZeroBytes(peer.sig_pub, sizeof(peer.sig_pub)))
+    const runtime::PeerDirectoryWriteResult result =
+        peer_directory_service_.recordPeer(peer,
+                                           source,
+                                           update_favorite,
+                                           favorite,
+                                           currentTimestampSeconds());
+    if (!result.record_status.succeeded())
     {
-        return false;
-    }
-
-    MeshPeerRecord record{};
-    record.valid = true;
-    record.identity = makeMeshPeerReticulumIdentity(reticulumIdentityForPeer(peer));
-    record.source = source;
-    const uint32_t now_s = currentTimestampSeconds();
-    record.first_seen_s = peer.last_seen_s != 0 ? peer.last_seen_s : now_s;
-    record.last_seen_s = peer.last_seen_s != 0 ? peer.last_seen_s : now_s;
-    copyMeshPeerText(record.display_name,
-                     sizeof(record.display_name),
-                     peer.display_name);
-    record.reticulum.identity = record.identity.reticulum;
-    record.reticulum.has_public_keys = true;
-    memcpy(record.reticulum.enc_pub,
-           peer.enc_pub,
-           sizeof(record.reticulum.enc_pub));
-    memcpy(record.reticulum.sig_pub,
-           peer.sig_pub,
-           sizeof(record.reticulum.sig_pub));
-    if (peerHasUsableRatchet(peer))
-    {
-        record.reticulum.has_ratchet = true;
-        memcpy(record.reticulum.ratchet_pub,
-               peer.ratchet_pub,
-               sizeof(record.reticulum.ratchet_pub));
-        record.reticulum.ratchet_seen_s = peer.ratchet_seen_s;
-    }
-    record.reticulum.delivery = true;
-
-    MeshPeerUserFlags flags{};
-    if (update_favorite)
-    {
-        MeshPeerRecord existing{};
-        if (peer_directory_->find(record.identity, existing).succeeded())
+        if (result.record_status.code != MeshPeerDirectoryStatusCode::StorageUnavailable &&
+            result.record_status.code != MeshPeerDirectoryStatusCode::InvalidArgument)
         {
-            flags = existing.flags;
+            Serial.printf("[LXMF][Directory] address_save failed status=%u\n",
+                          static_cast<unsigned>(result.record_status.code));
         }
-        flags.favorite = favorite;
-    }
-
-    const MeshPeerDirectoryStatus record_status = peer_directory_->record(record);
-    if (!record_status.succeeded())
-    {
-        Serial.printf("[LXMF][Directory] address_save failed status=%u\n",
-                      static_cast<unsigned>(record_status.code));
         return false;
     }
 
-    if (update_favorite)
+    if (!result.flags_status.succeeded())
     {
-        const MeshPeerDirectoryStatus flags_status =
-            peer_directory_->setUserFlags(record.identity, flags);
-        if (!flags_status.succeeded())
+        if (result.flags_status.code != MeshPeerDirectoryStatusCode::StorageUnavailable &&
+            result.flags_status.code != MeshPeerDirectoryStatusCode::InvalidArgument)
         {
             Serial.printf("[LXMF][Directory] flag_save failed status=%u\n",
-                          static_cast<unsigned>(flags_status.code));
-            return false;
+                          static_cast<unsigned>(result.flags_status.code));
         }
+        return false;
     }
     return true;
 }
@@ -10234,7 +9889,7 @@ void LxmfAdapter::pumpPendingPeerUpdates()
     --pending_peer_projection_count_;
     last_peer_projection_ms_ = now_ms;
 
-    const PeerInfo* peer = findPeerByNodeId(node_id);
+    const PeerInfo* peer = destination_registry_.findByNodeId(node_id);
     if (peer)
     {
         publishPeerUpdate(*peer);
@@ -10265,44 +9920,48 @@ void LxmfAdapter::publishPeerUpdate(const PeerInfo& peer) const
         0,
         0,
         0xFF);
-    node_event->reticulum_identity = reticulumIdentityForPeer(peer);
+    node_event->reticulum_identity = runtime::reticulumIdentityForPeer(peer);
     sys::EventBus::publish(node_event, 0);
 }
 
 void LxmfAdapter::loadDirectoryPeers()
 {
-    if (!peer_directory_)
+    if (!peer_directory_service_.hasDirectory())
     {
         Serial.printf("[LXMF][Directory] load skipped reason=no_mesh_peer_directory\n");
         return;
     }
 
-    std::size_t count = 0;
-    const MeshPeerDirectoryStatus status =
-        peer_directory_->loadRecent(MeshProtocol::Reticulum,
-                                    peer_directory_load_entries_.data(),
-                                    peer_directory_load_entries_.size(),
-                                    &count);
-    if (!status.succeeded())
+    std::array<NodeId, kPeerDirectoryHotLoadRecords> loaded_nodes = {};
+    const runtime::PeerDirectoryLoadRecentResult result =
+        peer_directory_service_.loadRecent(destination_registry_,
+                                           peer_directory_load_entries_.data(),
+                                           peer_directory_load_entries_.size(),
+                                           loaded_nodes.data(),
+                                           loaded_nodes.size(),
+                                           currentTimestampSeconds());
+    if (!result.status.succeeded())
     {
         Serial.printf("[LXMF][Directory] load failed status=%u\n",
-                      static_cast<unsigned>(status.code));
+                      static_cast<unsigned>(result.status.code));
         return;
     }
 
-    std::size_t loaded = 0;
-    for (std::size_t index = 0; index < count; ++index)
+    const std::size_t queued_count =
+        result.loaded < loaded_nodes.size() ? result.loaded : loaded_nodes.size();
+    for (std::size_t index = 0; index < queued_count; ++index)
     {
-        if (upsertPeerFromDirectoryRecord(peer_directory_load_entries_[index], true))
+        const PeerInfo* peer = destination_registry_.findByNodeId(loaded_nodes[index]);
+        if (peer)
         {
-            ++loaded;
+            queuePeerUpdate(*peer);
         }
     }
 
-    if (loaded > 0)
+    if (result.loaded > 0)
     {
         Serial.printf("[LXMF][Directory] loaded addresses=%u directory=mesh_peer_directory\n",
-                      static_cast<unsigned>(loaded));
+                      static_cast<unsigned>(result.loaded));
     }
 }
 

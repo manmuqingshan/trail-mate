@@ -101,6 +101,71 @@ void PathManager::resolvePendingPathRequest(
     runtime::resolvePendingPathRequest(transport_, destination_hash);
 }
 
+bool PathManager::pendingPathRequestCoolingDown(
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    uint32_t now_ms,
+    uint32_t retry_interval_ms) const
+{
+    const PendingPathRequest* pending =
+        runtime::findPendingPathRequest(transport_, destination_hash);
+    return pending && !pending->resolved && pending->last_attempt_ms != 0 &&
+           (now_ms - pending->last_attempt_ms) < retry_interval_ms;
+}
+
+bool PathManager::shouldRequestPeerPath(
+    const PeerInfo& peer,
+    uint32_t now_ms,
+    uint32_t now_s,
+    uint32_t pending_request_ttl_ms,
+    uint32_t min_request_interval_ms,
+    uint32_t path_ttl_ms,
+    uint32_t refresh_age_s) const
+{
+    if (pendingPathRequestCoolingDown(peer.destination_hash,
+                                      now_ms,
+                                      min_request_interval_ms))
+    {
+        return false;
+    }
+
+    const PendingPathRequest* pending =
+        runtime::findPendingPathRequest(transport_, peer.destination_hash);
+    if (pending && !pending->resolved && pending->created_ms != 0 &&
+        (now_ms - pending->created_ms) < pending_request_ttl_ms)
+    {
+        return false;
+    }
+
+    if (peer.last_path_request_ms != 0 &&
+        (now_ms - peer.last_path_request_ms) < min_request_interval_ms)
+    {
+        return false;
+    }
+
+    const PathEntry* path = findPath(peer.destination_hash, now_ms, path_ttl_ms);
+    if (!path || path->last_seen_s == 0)
+    {
+        return true;
+    }
+
+    if (now_s < path->last_seen_s)
+    {
+        return true;
+    }
+
+    return (now_s - path->last_seen_s) >= refresh_age_s;
+}
+
+void PathManager::notePeerPathRequest(PeerInfo& peer, uint32_t now_ms) const
+{
+    peer.last_path_request_ms = now_ms;
+}
+
+void PathManager::resetPeerPathRequest(PeerInfo& peer) const
+{
+    peer.last_path_request_ms = 0;
+}
+
 void PathManager::notePendingPingReceipt(
     const uint8_t packet_hash[reticulum::kFullHashSize],
     const uint8_t destination_hash[reticulum::kTruncatedHashSize],
@@ -128,40 +193,56 @@ void PathManager::removePendingPingReceipt(
     runtime::removePendingPingReceipt(transport_, proof_hash);
 }
 
-void PathManager::notePendingDeliveryReceipt(
-    const uint8_t packet_hash[reticulum::kFullHashSize],
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
-    const uint8_t peer_sig_pub[LxmfIdentity::kSigPubKeySize],
-    MessageId message_id,
-    uint32_t now_ms,
-    std::size_t max_pending_delivery_receipts)
-{
-    runtime::notePendingDeliveryReceipt(transport_,
-                                        packet_hash,
-                                        destination_hash,
-                                        peer_sig_pub,
-                                        message_id,
-                                        now_ms,
-                                        max_pending_delivery_receipts);
-}
-
-PendingDeliveryReceipt* PathManager::findPendingDeliveryReceipt(
-    const uint8_t proof_hash[reticulum::kTruncatedHashSize])
-{
-    return runtime::findPendingDeliveryReceipt(transport_, proof_hash);
-}
-
-void PathManager::removePendingDeliveryReceipt(
-    const uint8_t proof_hash[reticulum::kTruncatedHashSize])
-{
-    runtime::removePendingDeliveryReceipt(transport_, proof_hash);
-}
-
 PathEntry& PathManager::upsertPath(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize],
     std::size_t max_paths)
 {
     return runtime::upsertPath(transport_, destination_hash, max_paths);
+}
+
+PathEntry* PathManager::observeAnnouncePath(
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    uint8_t hops,
+    const uint8_t random_hash[10],
+    uint32_t now_ms,
+    uint32_t now_s,
+    uint8_t ingress_interface_id,
+    const uint8_t* next_hop_transport,
+    const uint8_t* raw_packet,
+    std::size_t raw_len,
+    std::size_t max_paths)
+{
+    if (!destination_hash || !random_hash)
+    {
+        return nullptr;
+    }
+
+    PathEntry& path = runtime::upsertPath(transport_, destination_hash, max_paths);
+    runtime::applyPathAnnounce(path, hops, random_hash, now_ms, now_s);
+    path.interface_id = ingress_interface_id;
+    path.direct = next_hop_transport == nullptr;
+    runtime::resolvePendingPathRequest(transport_, destination_hash);
+    if (next_hop_transport)
+    {
+        std::memcpy(path.next_hop_transport,
+                    next_hop_transport,
+                    sizeof(path.next_hop_transport));
+    }
+    else
+    {
+        std::memcpy(path.next_hop_transport,
+                    destination_hash,
+                    sizeof(path.next_hop_transport));
+    }
+    if (raw_packet && raw_len <= sizeof(path.cached_announce))
+    {
+        std::memcpy(path.cached_announce, raw_packet, raw_len);
+        path.cached_announce_len = raw_len;
+        reticulum::computePacketHash(raw_packet,
+                                     raw_len,
+                                     path.cached_packet_hash);
+    }
+    return &path;
 }
 
 const PathEntry* PathManager::findPath(

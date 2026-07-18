@@ -6,11 +6,11 @@
 #pragma once
 
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_memory.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_runtime.h"
 
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
 namespace chat::lxmf::runtime
 {
@@ -72,6 +72,10 @@ struct PropagationMessageAcceptance
     ResourcePayloadBuffer local_delivery_payload;
 };
 
+using PropagationMessageAcceptanceList =
+    std::vector<PropagationMessageAcceptance,
+                PsramAllocator<PropagationMessageAcceptance>>;
+
 struct PropagationBatchContext
 {
     bool offer_validated = false;
@@ -93,7 +97,7 @@ struct PropagationBatchAcceptance
 {
     bool remote_propagation_hash_known = false;
     uint8_t remote_propagation_hash[reticulum::kTruncatedHashSize] = {};
-    std::vector<PropagationMessageAcceptance> messages;
+    PropagationMessageAcceptanceList messages;
 };
 
 void propagationServicePathHash(

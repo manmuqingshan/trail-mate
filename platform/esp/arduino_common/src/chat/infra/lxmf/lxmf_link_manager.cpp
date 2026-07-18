@@ -30,6 +30,15 @@ bool hashesEqual(const uint8_t* a, const uint8_t* b, std::size_t len)
     return true;
 }
 
+void copyBytes(uint8_t* out, const uint8_t* in, std::size_t len)
+{
+    if (!out || !in || len == 0)
+    {
+        return;
+    }
+    std::memcpy(out, in, len);
+}
+
 } // namespace
 
 std::size_t LinkManager::size() const
@@ -113,12 +122,86 @@ LinkSession* LinkManager::appendSessionPreserving(
     return &links_.sessions.back();
 }
 
-void LinkManager::discardLastSession()
+void LinkManager::initialiseSession(LinkSession& session,
+                                    const LinkSessionSpec& spec)
 {
-    if (!links_.sessions.empty())
+    session = LinkSession{};
+    copyBytes(session.link_id,
+              spec.link_id,
+              sizeof(session.link_id));
+    copyBytes(session.remote_destination_hash,
+              spec.remote_destination_hash,
+              sizeof(session.remote_destination_hash));
+    copyBytes(session.remote_identity_hash,
+              spec.remote_identity_hash,
+              sizeof(session.remote_identity_hash));
+    copyBytes(session.local_sig_pub,
+              spec.local_sig_pub,
+              sizeof(session.local_sig_pub));
+    copyBytes(session.peer_enc_pub,
+              spec.peer_enc_pub,
+              sizeof(session.peer_enc_pub));
+    copyBytes(session.peer_link_sig_pub,
+              spec.peer_link_sig_pub,
+              sizeof(session.peer_link_sig_pub));
+    copyBytes(session.peer_identity_sig_pub,
+              spec.peer_identity_sig_pub,
+              sizeof(session.peer_identity_sig_pub));
+
+    session.created_ms = spec.now_ms;
+    session.request_ms = spec.now_ms;
+    session.last_inbound_ms = spec.now_ms;
+    session.last_outbound_ms = 0;
+    session.keepalive_interval_ms = spec.keepalive_interval_ms;
+    session.stale_timeout_ms = spec.stale_timeout_ms;
+    session.mtu = spec.mtu;
+    session.mdu = spec.mdu;
+    session.interface_id = spec.interface_id;
+    session.expected_hops = spec.expected_hops;
+    session.destination = spec.destination;
+    session.state = spec.state;
+    session.close_reason = LinkCloseReason::None;
+    session.initiator = spec.initiator;
+    session.remote_identity_known = spec.remote_identity_known;
+    session.validated = spec.validated;
+}
+
+LinkSession* LinkManager::openSession(std::size_t max_link_sessions,
+                                      const LinkSessionSpec& spec)
+{
+    return openSessionPreserving(max_link_sessions, spec, nullptr);
+}
+
+LinkSession* LinkManager::openSessionPreserving(
+    std::size_t max_link_sessions,
+    const LinkSessionSpec& spec,
+    const uint8_t preserve_link_id[reticulum::kTruncatedHashSize])
+{
+    LinkSession* session =
+        appendSessionPreserving(max_link_sessions, preserve_link_id);
+    if (!session)
     {
-        links_.sessions.pop_back();
+        return nullptr;
     }
+    initialiseSession(*session, spec);
+    return session;
+}
+
+bool LinkManager::discardSession(LinkSession& session)
+{
+    const auto it =
+        std::find_if(links_.sessions.begin(),
+                     links_.sessions.end(),
+                     [&session](LinkSession& candidate)
+                     {
+                         return &candidate == &session;
+                     });
+    if (it == links_.sessions.end())
+    {
+        return false;
+    }
+    links_.sessions.erase(it);
+    return true;
 }
 
 bool LinkManager::closeSession(LinkSession& session,
@@ -126,6 +209,184 @@ bool LinkManager::closeSession(LinkSession& session,
                                uint32_t now_ms)
 {
     return runtime::closeLinkSession(session, reason, now_ms);
+}
+
+LinkPendingRequest* LinkManager::queuePendingRequest(
+    LinkSession& session,
+    const uint8_t* request_id,
+    std::size_t request_id_len,
+    uint32_t created_ms,
+    bool awaiting_resource)
+{
+    if (!request_id && request_id_len != 0)
+    {
+        return nullptr;
+    }
+
+    LinkPendingRequest request{};
+    if (request_id_len != 0)
+    {
+        request.request_id.assign(request_id, request_id + request_id_len);
+    }
+    request.created_ms = created_ms;
+    request.awaiting_resource = awaiting_resource;
+    session.pending_requests.push_back(std::move(request));
+    return &session.pending_requests.back();
+}
+
+LinkPendingRequest* LinkManager::findPendingRequest(
+    LinkSession& session,
+    const uint8_t* request_id,
+    std::size_t request_id_len)
+{
+    if (!request_id && request_id_len != 0)
+    {
+        return nullptr;
+    }
+    return findPendingRequestIf(
+        session,
+        [request_id, request_id_len](const LinkPendingRequest& request)
+        {
+            return request.request_id.size() == request_id_len &&
+                   (request_id_len == 0 ||
+                    std::memcmp(request.request_id.data(),
+                                request_id,
+                                request_id_len) == 0);
+        });
+}
+
+const LinkPendingRequest* LinkManager::findPendingRequest(
+    const LinkSession& session,
+    const uint8_t* request_id,
+    std::size_t request_id_len) const
+{
+    if (!request_id && request_id_len != 0)
+    {
+        return nullptr;
+    }
+    return findPendingRequestIf(
+        session,
+        [request_id, request_id_len](const LinkPendingRequest& request)
+        {
+            return request.request_id.size() == request_id_len &&
+                   (request_id_len == 0 ||
+                    std::memcmp(request.request_id.data(),
+                                request_id,
+                                request_id_len) == 0);
+        });
+}
+
+bool LinkManager::markPendingResponseReady(LinkSession& session,
+                                           const uint8_t* request_id,
+                                           std::size_t request_id_len,
+                                           const uint8_t* response_data,
+                                           std::size_t response_len,
+                                           bool data_is_nil)
+{
+    LinkPendingRequest* request =
+        findPendingRequest(session, request_id, request_id_len);
+    if (!request)
+    {
+        return false;
+    }
+
+    request->response_ready = true;
+    request->response.clear();
+    if (!data_is_nil && response_data && response_len != 0)
+    {
+        request->response.assign(response_data, response_data + response_len);
+    }
+    return true;
+}
+
+bool LinkManager::erasePendingRequest(LinkSession& session,
+                                      const LinkPendingRequest& request)
+{
+    auto it = std::find_if(
+        session.pending_requests.begin(),
+        session.pending_requests.end(),
+        [&request](const LinkPendingRequest& candidate)
+        {
+            return &candidate == &request;
+        });
+    if (it == session.pending_requests.end())
+    {
+        return false;
+    }
+    session.pending_requests.erase(it);
+    return true;
+}
+
+std::size_t LinkManager::pendingRequestCount(const LinkSession& session) const
+{
+    return session.pending_requests.size();
+}
+
+DeferredLinkPayload* LinkManager::appendDeferredPayload(
+    LinkSession& session,
+    DeferredLinkPayload&& payload)
+{
+    session.deferred_payloads.push_back(std::move(payload));
+    return &session.deferred_payloads.back();
+}
+
+const DeferredLinkPayload* LinkManager::firstDeferredPayload(
+    const LinkSession& session) const
+{
+    return session.deferred_payloads.empty() ? nullptr
+                                             : &session.deferred_payloads.front();
+}
+
+bool LinkManager::popFirstDeferredPayload(LinkSession& session)
+{
+    if (session.deferred_payloads.empty())
+    {
+        return false;
+    }
+    session.deferred_payloads.erase(session.deferred_payloads.begin());
+    return true;
+}
+
+std::size_t LinkManager::deferredPayloadCount(const LinkSession& session) const
+{
+    return session.deferred_payloads.size();
+}
+
+void LinkManager::touchInbound(LinkSession& session, uint32_t now_ms)
+{
+    session.last_inbound_ms = now_ms;
+}
+
+void LinkManager::touchOutbound(LinkSession& session, uint32_t now_ms)
+{
+    session.last_outbound_ms = now_ms;
+}
+
+void LinkManager::noteKeepaliveSent(LinkSession& session, uint32_t now_ms)
+{
+    session.last_keepalive_ms = now_ms;
+}
+
+void LinkManager::markSessionValidatedActive(LinkSession& session,
+                                             float rtt_s,
+                                             uint32_t keepalive_interval_ms)
+{
+    session.rtt_s = rtt_s;
+    session.validated = true;
+    session.keepalive_interval_ms = keepalive_interval_ms;
+    session.stale_timeout_ms = keepalive_interval_ms * 2U;
+    session.last_keepalive_ms = 0;
+    session.state = LinkState::Active;
+}
+
+bool LinkManager::reactivateSessionIfStale(LinkSession& session)
+{
+    if (session.state != LinkState::Stale)
+    {
+        return false;
+    }
+    session.state = LinkState::Active;
+    return true;
 }
 
 void LinkManager::cullSessionTables(LinkSession& session,
@@ -363,13 +624,6 @@ bool LinkManager::markOutgoingResourceProofReceived(
     uint32_t now_ms)
 {
     return runtime::markResourceProofReceived(resource, expected_proof, now_ms);
-}
-
-uint32_t LinkManager::takeResourceMessageId(LinkResourceTransfer& resource)
-{
-    const uint32_t message_id = resource.message_id;
-    resource.message_id = 0;
-    return message_id;
 }
 
 void LinkManager::touchResource(LinkResourceTransfer& resource, uint32_t now_ms)

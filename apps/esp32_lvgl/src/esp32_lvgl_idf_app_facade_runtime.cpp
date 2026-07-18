@@ -5,6 +5,9 @@
 #include "app/app_facade_access.h"
 #include "app/app_facades.h"
 #include "board/BoardBase.h"
+#include "chat/delivery/chat_delivery_event_port.h"
+#include "chat/delivery/chat_delivery_event_projector.h"
+#include "chat/delivery/chat_delivery_read_model.h"
 #include "chat/infra/contact_store_core.h"
 #include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/infra/mesh_protocol_utils.h"
@@ -1234,6 +1237,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             return false;
         }
         chat_service_.reset(new chat::ChatService(chat_model_, meshAdapter(), *chat_store_));
+        chat_service_->setDeliveryEventPort(&delivery_event_port_);
         chat_service_->setActiveProtocol(config_.mesh_protocol);
         chat_service_->switchChannel(config_.chat_channel == 1 ? chat::ChannelId::SECONDARY
                                                                : chat::ChannelId::PRIMARY);
@@ -1410,6 +1414,19 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     chat::IMeshAdapter* getMeshAdapter() override { return &meshAdapter(); }
     const chat::IMeshAdapter* getMeshAdapter() const override { return &meshAdapter(); }
     chat::NodeId getSelfNodeId() const override { return meshAdapter().getNodeId(); }
+    chat::delivery::ChatDeliveryReadModel* getChatDeliveryReadModel() override
+    {
+        return &delivery_read_model_;
+    }
+    const chat::delivery::ChatDeliveryReadModel*
+    getChatDeliveryReadModel() const override
+    {
+        return &delivery_read_model_;
+    }
+    chat::delivery::IChatDeliveryEventPort* getChatDeliveryEventPort() override
+    {
+        return &delivery_event_port_;
+    }
 
     team::TeamController* getTeamController() override { return team_controller_.get(); }
     team::TeamPairingService* getTeamPairing() override { return team_pairing_service_.get(); }
@@ -1755,8 +1772,22 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         case sys::EventType::ChatSendResult:
         {
             auto* result_event = static_cast<sys::ChatSendResultEvent*>(event);
-            chat_service_->handleSendResult(result_event->msg_id,
-                                            result_event->status);
+            if (result_event->has_protocol)
+            {
+                chat_service_->handleSendResultForProtocol(
+                    result_event->msg_id,
+                    result_event->protocol,
+                    result_event->status,
+                    result_event->timestamp,
+                    result_event->failure);
+            }
+            else
+            {
+                chat_service_->handleSendResult(result_event->msg_id,
+                                                result_event->status,
+                                                result_event->timestamp,
+                                                result_event->failure);
+            }
             return false;
         }
         case sys::EventType::NodeInfoUpdate:
@@ -1853,6 +1884,11 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     IdfNullMeshAdapter null_mesh_adapter_{};
     chat::MeshAdapterRouter mesh_router_{};
     chat::IMeshAdapter* mesh_adapter_ = &null_mesh_adapter_;
+    chat::delivery::ChatDeliveryReadModel delivery_read_model_{};
+    chat::delivery::ChatDeliveryEventProjector delivery_projector_{
+        delivery_read_model_};
+    chat::delivery::ProjectingChatDeliveryEventPort delivery_event_port_{
+        delivery_projector_};
     std::unique_ptr<chat::ChatService> chat_service_{};
     std::unique_ptr<team::ITeamCrypto> team_crypto_{};
     std::unique_ptr<team::ITeamEventSink> team_event_sink_{};

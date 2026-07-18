@@ -122,6 +122,38 @@ bool shouldRequireDirectPki(uint8_t encrypt_mode, uint32_t dest_node, uint32_t p
            allowPkiForPortnum(portnum);
 }
 
+chat::delivery::SendFailureKind failureKindFromRoutingError(
+    meshtastic_Routing_Error reason)
+{
+    switch (reason)
+    {
+    case meshtastic_Routing_Error_NONE:
+        return chat::delivery::SendFailureKind::None;
+    case meshtastic_Routing_Error_TIMEOUT:
+    case meshtastic_Routing_Error_MAX_RETRANSMIT:
+    case meshtastic_Routing_Error_NO_RESPONSE:
+    case meshtastic_Routing_Error_NO_ROUTE:
+        return chat::delivery::SendFailureKind::AckTimeout;
+    case meshtastic_Routing_Error_NO_INTERFACE:
+    case meshtastic_Routing_Error_DUTY_CYCLE_LIMIT:
+    case meshtastic_Routing_Error_RATE_LIMIT_EXCEEDED:
+        return chat::delivery::SendFailureKind::RadioSendFailed;
+    case meshtastic_Routing_Error_NO_CHANNEL:
+        return chat::delivery::SendFailureKind::ChannelKeyMissing;
+    case meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY:
+    case meshtastic_Routing_Error_PKI_FAILED:
+        return chat::delivery::SendFailureKind::PeerKeyMissing;
+    case meshtastic_Routing_Error_GOT_NAK:
+    case meshtastic_Routing_Error_BAD_REQUEST:
+    case meshtastic_Routing_Error_NOT_AUTHORIZED:
+    case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
+    case meshtastic_Routing_Error_ADMIN_PUBLIC_KEY_UNAUTHORIZED:
+    case meshtastic_Routing_Error_TOO_LARGE:
+        return chat::delivery::SendFailureKind::Rejected;
+    }
+    return chat::delivery::SendFailureKind::Unknown;
+}
+
 int16_t coreRadioRssi(float rssi)
 {
     if (!std::isfinite(rssi))
@@ -1398,7 +1430,7 @@ bool MtAdapter::queueMqttProxyPublishFromWire(const uint8_t* wire_data,
         return false;
     }
 
-    if (mqtt_proxy_settings_.encryption_enabled)
+    if (mqtt_proxy_settings_.encryption_enabled || is_pki)
     {
         std::memset(&scratch.packet, 0, sizeof(scratch.packet));
         if (!makeEncryptedPacketFromWire(wire_data, wire_size, &scratch.packet))
@@ -2155,10 +2187,13 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                 if (decoded.request_id != 0 && header.to == node_id_)
                 {
                     bool ok = true;
+                    meshtastic_Routing_Error routing_reason =
+                        meshtastic_Routing_Error_NONE;
                     if (routing.which_variant == meshtastic_Routing_error_reason_tag &&
                         routing.error_reason != meshtastic_Routing_Error_NONE)
                     {
                         ok = false;
+                        routing_reason = routing.error_reason;
                     }
                     if (routing.which_variant == meshtastic_Routing_error_reason_tag &&
                         (routing.error_reason == meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY ||
@@ -2190,7 +2225,13 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                              (unsigned long)decoded.request_id,
                              ok ? 1 : 0);
                     sys::EventBus::publish(
-                        new sys::ChatSendResultEvent(decoded.request_id, ok), 0);
+                        new sys::ChatSendResultEvent(
+                            decoded.request_id,
+                            ok ? chat::MessageStatus::Delivered
+                               : chat::MessageStatus::Failed,
+                            chat::MeshProtocol::Meshtastic,
+                            failureKindFromRoutingError(routing_reason)),
+                        0);
                 }
             }
             else
@@ -2267,7 +2308,10 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         ChannelId channel_id = decoded_channel_id;
         if (header.channel != 0 && header.from != node_id_)
         {
-            rememberNodeLastChannel(header.from, channel_id, millis());
+            rememberNodeRuntimeRx(header.from,
+                                  channel_id,
+                                  rx_meta.origin == chat::RxOrigin::External,
+                                  millis());
         }
         if (node_metadata_decoded)
         {
@@ -2646,7 +2690,9 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
         (channel == ChannelId::SECONDARY) ? secondary_channel_hash_ : primary_channel_hash_;
     uint8_t hop_limit = config_.hop_limit;
     uint32_t dest = (pending.dest != 0) ? pending.dest : kBroadcastNodeId;
-    bool track_ack = true;
+    const bool dest_last_seen_via_mqtt =
+        dest != kBroadcastNodeId && nodeLastSeenViaMqtt(dest);
+    bool track_ack = !dest_last_seen_via_mqtt;
     bool air_want_ack = shouldSetAirWantAck(dest, track_ack);
 
     // Upstream Meshtastic requires PKI for direct unicast traffic on
@@ -2686,8 +2732,8 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
         payload = pki_buffer.data();
         payload_len = pki_len;
         channel_hash = 0; // PKI channel
-        track_ack = true;
-        air_want_ack = true;
+        track_ack = !dest_last_seen_via_mqtt;
+        air_want_ack = shouldSetAirWantAck(dest, track_ack);
         use_pki = true;
     }
 
@@ -2735,12 +2781,27 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
              (unsigned)psk_len,
              (unsigned)wire_size,
              (unsigned long)dest);
-    if (!board_.isRadioOnline())
+    bool tx_ok = false;
+    if (board_.isRadioOnline())
+    {
+        tx_ok = transmitWirePacket(wire_buffer.data(), wire_size);
+    }
+    else if (!dest_last_seen_via_mqtt)
     {
         return false;
     }
-
-    bool ok = transmitWirePacket(wire_buffer.data(), wire_size);
+    bool mqtt_ok = false;
+    if (tx_ok || dest_last_seen_via_mqtt)
+    {
+        mqtt_ok = queueMqttProxyPublishFromWire(wire_buffer.data(),
+                                                wire_size,
+                                                use_pki
+                                                    ? nullptr
+                                                    : (decoded_ok ? &decoded
+                                                                  : nullptr),
+                                                channel);
+    }
+    const bool ok = dest_last_seen_via_mqtt ? (tx_ok || mqtt_ok) : tx_ok;
     LORA_LOG("[LORA] TX text id=%08lX ch=%u len=%u ok=%d\n",
              (unsigned long)pending.msg_id,
              static_cast<unsigned>(channel),
@@ -2750,11 +2811,13 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
     {
         trackPendingAck(pending.msg_id, dest, channel, channel_hash, wire_buffer.data(), wire_size);
     }
-    if (ok)
+    else if (ok)
     {
-        queueMqttProxyPublishFromWire(wire_buffer.data(), wire_size,
-                                      decoded_ok ? &decoded : nullptr,
-                                      channel);
+        sys::EventBus::publish(
+            new sys::ChatSendResultEvent(pending.msg_id,
+                                         chat::MessageStatus::Sent,
+                                         chat::MeshProtocol::Meshtastic),
+            0);
     }
     return ok;
 }
@@ -3703,6 +3766,25 @@ void MtAdapter::rememberNodeLastChannel(uint32_t node_id, ChannelId channel, uin
         entry->last_channel = channel;
         entry->has_last_channel = true;
     }
+}
+
+void MtAdapter::rememberNodeRuntimeRx(uint32_t node_id,
+                                      ChannelId channel,
+                                      bool via_mqtt,
+                                      uint32_t now_ms)
+{
+    if (auto* entry = upsertNodeRuntime(node_id, now_ms))
+    {
+        entry->last_channel = channel;
+        entry->has_last_channel = true;
+        entry->last_seen_via_mqtt = via_mqtt;
+    }
+}
+
+bool MtAdapter::nodeLastSeenViaMqtt(uint32_t node_id) const
+{
+    const auto* entry = findNodeRuntime(node_id);
+    return entry && entry->last_seen_via_mqtt;
 }
 
 uint32_t MtAdapter::getNodeInfoReplyMs(uint32_t node_id) const
@@ -4699,8 +4781,18 @@ void MtAdapter::emitRoutingResultToPhone(uint32_t request_id,
                  static_cast<unsigned>(app_receive_queue_.size()));
     }
 
+    const bool own_self_echo = from == node_id_ && to == node_id_;
+    const chat::MessageStatus status =
+        reason != meshtastic_Routing_Error_NONE
+            ? chat::MessageStatus::Failed
+            : (own_self_echo ? chat::MessageStatus::Sent
+                             : chat::MessageStatus::Delivered);
     sys::EventBus::publish(
-        new sys::ChatSendResultEvent(request_id, reason == meshtastic_Routing_Error_NONE), 0);
+        new sys::ChatSendResultEvent(request_id,
+                                     status,
+                                     chat::MeshProtocol::Meshtastic,
+                                     failureKindFromRoutingError(reason)),
+        0);
 }
 
 } // namespace meshtastic

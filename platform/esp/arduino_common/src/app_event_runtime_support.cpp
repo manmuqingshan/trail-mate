@@ -169,10 +169,16 @@ void handleTeamChatNotification(app::IAppFacade& app_context, const sys::TeamCha
 void handleChatSendResultFeedback(app::IAppFacade& app_context,
                                   const sys::ChatSendResultEvent& event)
 {
+    const chat::ChatMessage* message =
+        event.has_protocol
+            ? app_context.getChatService().getMessageForProtocol(
+                  event.msg_id,
+                  event.protocol)
+            : app_context.getChatService().getMessage(event.msg_id);
     chatDeliveryFeedback().onChatSendResult(
         event.msg_id,
         event.success,
-        app_context.getChatService().getMessage(event.msg_id));
+        message);
 }
 
 void tickUiRuntime(app::IAppFacade& app_context)

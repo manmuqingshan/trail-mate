@@ -12,6 +12,7 @@
 #include <cstring>
 #include <vector>
 
+#include "chat/delivery/chat_delivery_types.h"
 #include "chat/domain/chat_types.h"
 #include "chat/domain/contact_types.h"
 #include "team/domain/team_events.h"
@@ -120,15 +121,35 @@ struct ChatSendResultEvent : public Event
     uint32_t msg_id;
     bool success;
     chat::MessageStatus status;
+    chat::delivery::SendFailureKind failure =
+        chat::delivery::SendFailureKind::None;
+    bool has_protocol = false;
+    chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic;
 
-    ChatSendResultEvent(uint32_t id, bool ok)
-        : Event(EventType::ChatSendResult), msg_id(id), success(ok),
-          status(ok ? chat::MessageStatus::Sent : chat::MessageStatus::Failed) {}
-
-    ChatSendResultEvent(uint32_t id, chat::MessageStatus result_status)
+    ChatSendResultEvent(uint32_t id,
+                        chat::MessageStatus result_status,
+                        chat::MeshProtocol source_protocol)
         : Event(EventType::ChatSendResult), msg_id(id),
           success(result_status != chat::MessageStatus::Failed),
-          status(result_status) {}
+          status(result_status),
+          failure(result_status == chat::MessageStatus::Failed
+                      ? chat::delivery::SendFailureKind::Unknown
+                      : chat::delivery::SendFailureKind::None),
+          has_protocol(true),
+          protocol(source_protocol) {}
+
+    ChatSendResultEvent(uint32_t id,
+                        chat::MessageStatus result_status,
+                        chat::MeshProtocol source_protocol,
+                        chat::delivery::SendFailureKind failure_kind)
+        : Event(EventType::ChatSendResult), msg_id(id),
+          success(result_status != chat::MessageStatus::Failed),
+          status(result_status),
+          failure(result_status == chat::MessageStatus::Failed
+                      ? failure_kind
+                      : chat::delivery::SendFailureKind::None),
+          has_protocol(true),
+          protocol(source_protocol) {}
 };
 
 enum class ReticulumPingResult : uint8_t

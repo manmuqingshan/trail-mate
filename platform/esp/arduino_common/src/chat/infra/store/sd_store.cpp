@@ -587,6 +587,93 @@ bool SdStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
     return updated;
 }
 
+bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
+                                             MeshProtocol protocol,
+                                             MessageStatus status)
+{
+    if (!ready_ || msg_id == 0)
+    {
+        return false;
+    }
+
+    std::vector<IndexEntry> entries;
+    if (!readIndex(entries))
+    {
+        return false;
+    }
+
+    bool updated = false;
+    for (auto& entry : entries)
+    {
+        if (static_cast<MeshProtocol>(entry.protocol) != protocol)
+        {
+            continue;
+        }
+        const ConversationId conv = conversationFromIndexEntry(entry);
+        char path[96]{};
+        buildConversationPath(conv, path, sizeof(path));
+        if (!storage::sd_exists(path))
+        {
+            continue;
+        }
+
+        storage::SdRuntimeFile file;
+        if (!file.open(path, "r+"))
+        {
+            continue;
+        }
+
+        FileHeader header{};
+        if (!loadFileHeader(file, header) ||
+            !upgradeConversationFile(file, path, header))
+        {
+            file.close();
+            continue;
+        }
+
+        for (uint16_t index = 0; index < header.count; ++index)
+        {
+            const uint16_t slot =
+                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
+                                      kMaxMessagesPerConv);
+            Record rec{};
+            if (!readRecord(file, header, slot, rec))
+            {
+                continue;
+            }
+            if (rec.msg_id != msg_id || rec.from != 0 ||
+                static_cast<MeshProtocol>(rec.protocol) != protocol)
+            {
+                continue;
+            }
+
+            rec.status = static_cast<uint8_t>(status);
+            updated = writeRecord(file, slot, rec);
+            if (updated)
+            {
+                file.flush();
+                if (entry.last_msg_id == msg_id)
+                {
+                    entry.status = static_cast<uint8_t>(status);
+                }
+            }
+            break;
+        }
+
+        file.close();
+        if (updated)
+        {
+            break;
+        }
+    }
+
+    if (updated)
+    {
+        (void)writeIndex(entries);
+    }
+    return updated;
+}
+
 bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
 {
     if (!ready_ || msg_id == 0)
@@ -630,6 +717,72 @@ bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
                                       kMaxMessagesPerConv);
             Record rec{};
             if (!readRecord(file, header, slot, rec) || rec.text_len == 0 || rec.msg_id != msg_id)
+            {
+                continue;
+            }
+            if (out)
+            {
+                *out = messageFromRecord(rec);
+            }
+            file.close();
+            return true;
+        }
+        file.close();
+    }
+    return false;
+}
+
+bool SdStore::getMessageForProtocol(MessageId msg_id,
+                                    MeshProtocol protocol,
+                                    ChatMessage* out) const
+{
+    if (!ready_ || msg_id == 0)
+    {
+        return false;
+    }
+
+    std::vector<IndexEntry> entries;
+    if (!readIndex(entries))
+    {
+        return false;
+    }
+
+    for (const auto& entry : entries)
+    {
+        if (static_cast<MeshProtocol>(entry.protocol) != protocol)
+        {
+            continue;
+        }
+        const ConversationId conv = conversationFromIndexEntry(entry);
+        char path[96]{};
+        buildConversationPath(conv, path, sizeof(path));
+        if (!storage::sd_exists(path))
+        {
+            continue;
+        }
+
+        storage::SdRuntimeFile file;
+        if (!file.open(path, "r"))
+        {
+            continue;
+        }
+
+        FileHeader header{};
+        if (!loadFileHeader(file, header))
+        {
+            file.close();
+            continue;
+        }
+
+        for (uint16_t index = 0; index < header.count; ++index)
+        {
+            const uint16_t slot =
+                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
+                                      kMaxMessagesPerConv);
+            Record rec{};
+            if (!readRecord(file, header, slot, rec) || rec.text_len == 0 ||
+                rec.msg_id != msg_id ||
+                static_cast<MeshProtocol>(rec.protocol) != protocol)
             {
                 continue;
             }

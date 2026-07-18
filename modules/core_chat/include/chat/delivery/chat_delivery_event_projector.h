@@ -5,19 +5,6 @@
 namespace chat::delivery
 {
 
-enum class SendFailureKind : uint8_t
-{
-    None,
-    PeerKeyMissing,
-    ChannelKeyMissing,
-    LocalIdentityMissing,
-    RadioSendFailed,
-    AckTimeout,
-    UnsupportedProtocol,
-    Rejected,
-    Unknown,
-};
-
 class ChatDeliveryEventProjector
 {
   public:

@@ -74,7 +74,7 @@ bool resourceIsComplete(const LinkResourceTransfer& resource)
 } // namespace
 
 LinkResourceTransfer* findLinkResource(
-    std::vector<LinkResourceTransfer>& resources,
+    LinkResourceTransferList& resources,
     const uint8_t resource_hash[reticulum::kFullHashSize])
 {
     if (!resource_hash)
@@ -93,7 +93,7 @@ LinkResourceTransfer* findLinkResource(
 }
 
 const LinkResourceTransfer* findLinkResource(
-    const std::vector<LinkResourceTransfer>& resources,
+    const LinkResourceTransferList& resources,
     const uint8_t resource_hash[reticulum::kFullHashSize])
 {
     if (!resource_hash)
@@ -111,7 +111,7 @@ const LinkResourceTransfer* findLinkResource(
     return nullptr;
 }
 
-bool eraseLinkResourceByHash(std::vector<LinkResourceTransfer>& resources,
+bool eraseLinkResourceByHash(LinkResourceTransferList& resources,
                              const uint8_t resource_hash[reticulum::kFullHashSize])
 {
     if (!resource_hash)
@@ -518,7 +518,7 @@ void cullLinkResources(LinkSession& session,
                        uint32_t now_ms,
                        const ResourceRuntimeLimits& limits)
 {
-    auto cull_resources = [now_ms, &limits](std::vector<LinkResourceTransfer>& resources)
+    auto cull_resources = [now_ms, &limits](LinkResourceTransferList& resources)
     {
         resources.erase(
             std::remove_if(resources.begin(),

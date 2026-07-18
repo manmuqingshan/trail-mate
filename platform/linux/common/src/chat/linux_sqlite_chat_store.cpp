@@ -1097,6 +1097,47 @@ bool LinuxSqliteChatStore::updateMessageStatus(
     return ok;
 }
 
+bool LinuxSqliteChatStore::updateMessageStatusForProtocol(
+    ::chat::MessageId msg_id,
+    ::chat::MeshProtocol protocol,
+    ::chat::MessageStatus status)
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    DatabaseHandle handle;
+    if (!handle)
+    {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    constexpr const char* kSql =
+        "UPDATE chat_messages SET status=?1 "
+        "WHERE sequence=("
+        "SELECT sequence FROM chat_messages "
+        "WHERE msg_id=?2 AND protocol=?3 AND from_node=0 "
+        "ORDER BY sequence DESC LIMIT 1"
+        ");";
+    bool ok = false;
+    if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK)
+    {
+        ok = sqlite3_bind_int(stmt, 1, statusValue(status)) == SQLITE_OK &&
+             sqlite3_bind_int64(stmt,
+                                2,
+                                static_cast<sqlite3_int64>(msg_id)) ==
+                 SQLITE_OK &&
+             sqlite3_bind_int(stmt, 3, protocolValue(protocol)) == SQLITE_OK &&
+             sqlite3_step(stmt) == SQLITE_DONE &&
+             sqlite3_changes(handle.db) > 0;
+    }
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
 bool LinuxSqliteChatStore::getMessage(::chat::MessageId msg_id,
                                       ::chat::ChatMessage* out) const
 {
@@ -1124,6 +1165,49 @@ bool LinuxSqliteChatStore::getMessage(::chat::MessageId msg_id,
     if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK &&
         sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(msg_id)) ==
             SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        if (out != nullptr)
+        {
+            *out = readMessage(stmt, 0);
+        }
+        found = true;
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+bool LinuxSqliteChatStore::getMessageForProtocol(
+    ::chat::MessageId msg_id,
+    ::chat::MeshProtocol protocol,
+    ::chat::ChatMessage* out) const
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    DatabaseHandle handle;
+    if (!handle)
+    {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    constexpr const char* kSql =
+        "SELECT protocol, channel, peer, from_node, msg_id, timestamp, text, "
+        "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status, "
+        "reticulum_identity_valid, reticulum_destination_hash, "
+        "reticulum_identity_hash "
+        "FROM chat_messages "
+        "WHERE msg_id=?1 AND protocol=?2 "
+        "ORDER BY sequence DESC LIMIT 1;";
+    bool found = false;
+    if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK &&
+        sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(msg_id)) ==
+            SQLITE_OK &&
+        sqlite3_bind_int(stmt, 2, protocolValue(protocol)) == SQLITE_OK &&
         sqlite3_step(stmt) == SQLITE_ROW)
     {
         if (out != nullptr)

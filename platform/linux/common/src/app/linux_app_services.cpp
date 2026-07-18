@@ -2173,8 +2173,21 @@ void LinuxAppServices::dispatchPendingEvents(std::size_t max_events)
         {
             break;
         }
-        impl_->chat_service.handleSendResult(msg_id, ok);
-        ::sys::EventBus::publish(new ::sys::ChatSendResultEvent(msg_id, ok), 0);
+        const auto protocol = impl_->chat_service.getActiveProtocol();
+        const auto status = ok ? ::chat::MessageStatus::Sent
+                               : ::chat::MessageStatus::Failed;
+        const auto failure =
+            ok ? ::chat::delivery::SendFailureKind::None
+               : ::chat::delivery::SendFailureKind::RadioSendFailed;
+        impl_->chat_service.handleSendResultForProtocol(
+            msg_id,
+            protocol,
+            status,
+            0,
+            failure);
+        ::sys::EventBus::publish(
+            new ::sys::ChatSendResultEvent(msg_id, status, protocol, failure),
+            0);
     }
 
     std::size_t processed = 0;

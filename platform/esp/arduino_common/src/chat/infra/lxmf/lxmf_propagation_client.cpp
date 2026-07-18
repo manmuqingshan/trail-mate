@@ -133,6 +133,84 @@ bool PropagationClient::removeFirstPendingUpload()
     return true;
 }
 
+void PropagationClient::markUploadWaitingForNode(
+    PendingPropagationUpload& upload)
+{
+    upload.state = PropagationUploadState::WaitingNode;
+#if !defined(TRAIL_MATE_RETICULUM_PARSE_ONLY)
+    stamp_.reset();
+#endif
+}
+
+bool PropagationClient::bindUploadNode(PendingPropagationUpload& upload,
+                                       const PropagationPeerState& node)
+{
+    const bool node_changed =
+        !bytesEqual(upload.node_hash,
+                    node.propagation_hash,
+                    sizeof(upload.node_hash)) ||
+        upload.stamp_cost != node.stamp_cost;
+    if (node_changed)
+    {
+#if !defined(TRAIL_MATE_RETICULUM_PARSE_ONLY)
+        stamp_.reset();
+#endif
+        copyBytes(upload.node_hash,
+                  node.propagation_hash,
+                  sizeof(upload.node_hash));
+        upload.stamp_cost = node.stamp_cost;
+    }
+    if (node_changed || upload.state == PropagationUploadState::WaitingNode)
+    {
+        upload.state = PropagationUploadState::NeedsStamp;
+    }
+    return node_changed;
+}
+
+bool PropagationClient::beginUploadStamp(PendingPropagationUpload& upload)
+{
+    if (upload.state != PropagationUploadState::NeedsStamp)
+    {
+        return false;
+    }
+#if !defined(TRAIL_MATE_RETICULUM_PARSE_ONLY)
+    if (stamp_.begin(upload.transient_id, upload.stamp_cost))
+    {
+        upload.state = PropagationUploadState::Stamping;
+        return true;
+    }
+#endif
+    upload.state = PropagationUploadState::Failed;
+    return false;
+}
+
+bool PropagationClient::completeUploadStamp(
+    PendingPropagationUpload& upload,
+    const uint8_t stamp[reticulum::kFullHashSize])
+{
+    if (!stamp || upload.state != PropagationUploadState::Stamping)
+    {
+        upload.state = PropagationUploadState::Failed;
+        return false;
+    }
+    upload.transient_data.insert(upload.transient_data.end(),
+                                 stamp,
+                                 stamp + reticulum::kFullHashSize);
+    upload.state = PropagationUploadState::Ready;
+    return true;
+}
+
+void PropagationClient::markUploadFailed(PendingPropagationUpload& upload)
+{
+    upload.state = PropagationUploadState::Failed;
+}
+
+void PropagationClient::markUploadQueuedToLink(
+    PendingPropagationUpload& upload)
+{
+    upload.state = PropagationUploadState::QueuedToLink;
+}
+
 void PropagationClient::markExpiredUploads(uint32_t now_ms, uint32_t ttl_ms)
 {
     for (auto& upload : state_.pending_uploads)
@@ -145,9 +223,9 @@ void PropagationClient::markExpiredUploads(uint32_t now_ms, uint32_t ttl_ms)
     }
 }
 
-std::vector<PendingPropagationUpload> PropagationClient::takeFailedUploads()
+PendingPropagationUploadList PropagationClient::takeFailedUploads()
 {
-    std::vector<PendingPropagationUpload> failed;
+    PendingPropagationUploadList failed;
     auto& uploads = state_.pending_uploads;
     for (auto it = uploads.begin(); it != uploads.end();)
     {
@@ -162,9 +240,9 @@ std::vector<PendingPropagationUpload> PropagationClient::takeFailedUploads()
     return failed;
 }
 
-std::vector<PendingPropagationUpload> PropagationClient::takeAllPendingUploads()
+PendingPropagationUploadList PropagationClient::takeAllPendingUploads()
 {
-    std::vector<PendingPropagationUpload> uploads;
+    PendingPropagationUploadList uploads;
     uploads.swap(state_.pending_uploads);
     return uploads;
 }

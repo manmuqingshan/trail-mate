@@ -64,7 +64,7 @@ bool materialiseLxmfAppDataDelivery(const DecodedAppData& payload,
     delivery.incoming.channel = ChannelId::PRIMARY;
     delivery.incoming.want_response = payload.want_response;
     delivery.incoming.rx_meta = context.rx_meta;
-    delivery.payload = payload.payload;
+    delivery.payload.assign(payload.payload.begin(), payload.payload.end());
 
     *out_delivery = std::move(delivery);
     return true;

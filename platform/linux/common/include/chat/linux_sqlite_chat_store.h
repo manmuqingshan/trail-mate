@@ -33,8 +33,14 @@ class LinuxSqliteChatStore final : public ::chat::IChatStore
     void clearAll() override;
     bool updateMessageStatus(::chat::MessageId msg_id,
                              ::chat::MessageStatus status) override;
+    bool updateMessageStatusForProtocol(::chat::MessageId msg_id,
+                                        ::chat::MeshProtocol protocol,
+                                        ::chat::MessageStatus status) override;
     bool getMessage(::chat::MessageId msg_id,
                     ::chat::ChatMessage* out) const override;
+    bool getMessageForProtocol(::chat::MessageId msg_id,
+                               ::chat::MeshProtocol protocol,
+                               ::chat::ChatMessage* out) const override;
     void flush() override;
 
   private:

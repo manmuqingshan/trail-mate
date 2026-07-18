@@ -39,7 +39,13 @@ class RamStore : public IChatStore
     void clearConversation(const ConversationId& conv) override;
     void clearAll() override;
     bool updateMessageStatus(MessageId msg_id, MessageStatus status) override;
+    bool updateMessageStatusForProtocol(MessageId msg_id,
+                                        MeshProtocol protocol,
+                                        MessageStatus status) override;
     bool getMessage(MessageId msg_id, ChatMessage* out) const override;
+    bool getMessageForProtocol(MessageId msg_id,
+                               MeshProtocol protocol,
+                               ChatMessage* out) const override;
     bool hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const override;
 
   private:

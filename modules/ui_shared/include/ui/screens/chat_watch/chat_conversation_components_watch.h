@@ -36,7 +36,11 @@ class ChatConversationScreen
     void addMessage(const ::ui::chat::MessageRow& row);
     void clearMessages();
     void scrollToBottom();
-    bool updateMessageStatus(chat::MessageId msg_id, chat::MessageStatus status);
+    bool updateMessageStatus(
+        chat::MessageId msg_id,
+        chat::MessageStatus status,
+        bool has_protocol = false,
+        chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic);
 
     void setActionCallback(void (*cb)(ActionIntent intent, void*), void* user_data);
     void setMessageActionCallback(

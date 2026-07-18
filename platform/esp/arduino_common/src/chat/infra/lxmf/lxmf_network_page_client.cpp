@@ -169,4 +169,72 @@ PendingNomadPageRequest* NetworkPageClient::findByRequestId(
     return nullptr;
 }
 
+bool NetworkPageClient::attemptDue(const PendingNomadPageRequest& request,
+                                   uint32_t now_ms,
+                                   uint32_t retry_interval_ms) const
+{
+    return request.last_attempt_ms == 0 ||
+           (now_ms - request.last_attempt_ms) >= retry_interval_ms;
+}
+
+bool NetworkPageClient::pathRequestDue(
+    const PendingNomadPageRequest& request,
+    uint32_t now_ms,
+    uint32_t retry_interval_ms) const
+{
+    return request.last_path_request_ms == 0 ||
+           (now_ms - request.last_path_request_ms) >= retry_interval_ms;
+}
+
+uint32_t NetworkPageClient::lastAttemptAge(
+    const PendingNomadPageRequest& request,
+    uint32_t now_ms) const
+{
+    return request.last_attempt_ms != 0 ? (now_ms - request.last_attempt_ms)
+                                        : 0U;
+}
+
+void NetworkPageClient::noteAttempt(PendingNomadPageRequest& request,
+                                    uint32_t now_ms)
+{
+    request.last_attempt_ms = now_ms;
+}
+
+void NetworkPageClient::notePathRequest(PendingNomadPageRequest& request,
+                                        bool sent,
+                                        uint32_t now_ms)
+{
+    request.last_path_request_ms = now_ms;
+    if (sent)
+    {
+        request.path_requested = true;
+    }
+}
+
+void NetworkPageClient::noteLinkStart(PendingNomadPageRequest& request,
+                                      bool sent,
+                                      uint32_t now_ms,
+                                      bool accumulate_success)
+{
+    request.last_attempt_ms = now_ms;
+    request.link_started =
+        accumulate_success ? (request.link_started || sent) : sent;
+}
+
+bool NetworkPageClient::noteRequestPacketSent(
+    PendingNomadPageRequest& request,
+    const uint8_t* request_id,
+    std::size_t request_id_len,
+    uint32_t now_ms)
+{
+    if (!request_id || request_id_len != sizeof(request.request_id))
+    {
+        return false;
+    }
+    copyHash(request.request_id, request_id, sizeof(request.request_id));
+    request.last_attempt_ms = now_ms;
+    request.request_sent = true;
+    return true;
+}
+
 } // namespace chat::lxmf::runtime

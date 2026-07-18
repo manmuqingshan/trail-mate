@@ -47,6 +47,19 @@ class PathManager
         std::size_t max_pending_path_requests);
     void resolvePendingPathRequest(
         const uint8_t destination_hash[reticulum::kTruncatedHashSize]);
+    bool pendingPathRequestCoolingDown(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+        uint32_t now_ms,
+        uint32_t retry_interval_ms) const;
+    bool shouldRequestPeerPath(const PeerInfo& peer,
+                               uint32_t now_ms,
+                               uint32_t now_s,
+                               uint32_t pending_request_ttl_ms,
+                               uint32_t min_request_interval_ms,
+                               uint32_t path_ttl_ms,
+                               uint32_t refresh_age_s) const;
+    void notePeerPathRequest(PeerInfo& peer, uint32_t now_ms) const;
+    void resetPeerPathRequest(PeerInfo& peer) const;
 
     void notePendingPingReceipt(
         const uint8_t packet_hash[reticulum::kFullHashSize],
@@ -59,20 +72,19 @@ class PathManager
     void removePendingPingReceipt(
         const uint8_t proof_hash[reticulum::kTruncatedHashSize]);
 
-    void notePendingDeliveryReceipt(
-        const uint8_t packet_hash[reticulum::kFullHashSize],
-        const uint8_t destination_hash[reticulum::kTruncatedHashSize],
-        const uint8_t peer_sig_pub[LxmfIdentity::kSigPubKeySize],
-        MessageId message_id,
-        uint32_t now_ms,
-        std::size_t max_pending_delivery_receipts);
-    PendingDeliveryReceipt* findPendingDeliveryReceipt(
-        const uint8_t proof_hash[reticulum::kTruncatedHashSize]);
-    void removePendingDeliveryReceipt(
-        const uint8_t proof_hash[reticulum::kTruncatedHashSize]);
-
     PathEntry& upsertPath(
         const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+        std::size_t max_paths);
+    PathEntry* observeAnnouncePath(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+        uint8_t hops,
+        const uint8_t random_hash[10],
+        uint32_t now_ms,
+        uint32_t now_s,
+        uint8_t ingress_interface_id,
+        const uint8_t* next_hop_transport,
+        const uint8_t* raw_packet,
+        std::size_t raw_len,
         std::size_t max_paths);
     const PathEntry* findPath(
         const uint8_t destination_hash[reticulum::kTruncatedHashSize],
@@ -109,15 +121,6 @@ class PathManager
     void forEachPendingPingReceipt(Fn&& fn) const
     {
         for (const auto& receipt : transport_.pending_ping_receipts)
-        {
-            fn(receipt);
-        }
-    }
-
-    template <typename Fn>
-    void forEachPendingDeliveryReceipt(Fn&& fn) const
-    {
-        for (const auto& receipt : transport_.pending_delivery_receipts)
         {
             fn(receipt);
         }

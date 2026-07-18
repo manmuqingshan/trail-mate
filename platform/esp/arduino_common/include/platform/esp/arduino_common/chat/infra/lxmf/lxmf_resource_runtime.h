@@ -10,7 +10,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
 namespace chat::lxmf::runtime
 {
@@ -27,7 +26,7 @@ struct ResourceWindowRequest
     bool valid = false;
     bool needs_more_hashmap = false;
     std::array<uint8_t, kResourceMapHashLen> last_known_hash = {};
-    std::vector<std::array<uint8_t, kResourceMapHashLen>> requested_hashes;
+    RuntimeMapHashList requested_hashes;
 };
 
 enum class ResourceAssemblyResult : uint8_t
@@ -38,12 +37,12 @@ enum class ResourceAssemblyResult : uint8_t
 };
 
 LinkResourceTransfer* findLinkResource(
-    std::vector<LinkResourceTransfer>& resources,
+    LinkResourceTransferList& resources,
     const uint8_t resource_hash[reticulum::kFullHashSize]);
 const LinkResourceTransfer* findLinkResource(
-    const std::vector<LinkResourceTransfer>& resources,
+    const LinkResourceTransferList& resources,
     const uint8_t resource_hash[reticulum::kFullHashSize]);
-bool eraseLinkResourceByHash(std::vector<LinkResourceTransfer>& resources,
+bool eraseLinkResourceByHash(LinkResourceTransferList& resources,
                              const uint8_t resource_hash[reticulum::kFullHashSize]);
 
 LinkResourceAssembly* findLinkResourceAssembly(

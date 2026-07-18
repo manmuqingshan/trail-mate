@@ -86,7 +86,7 @@ void LxmfAdapter::updateCallRuntimePeer(LinkSession& session,
         call_profile::runtimeWireProfile(session.call_wire_profile);
     call_peer.codec2_mode = call_profile::runtimeCodec2Mode(
         session.call_wire_profile,
-        session.lxst_call.profile);
+        lxst_telephony_client_.profile(session));
     ::platform::ui::reticulum_call::update_peer(call_peer);
 }
 
@@ -114,10 +114,11 @@ bool LxmfAdapter::beginIncomingCallRuntime(LinkSession& session,
         call_profile::runtimeWireProfile(session.call_wire_profile);
     call_peer.codec2_mode = call_profile::runtimeCodec2Mode(
         session.call_wire_profile,
-        session.lxst_call.profile);
-    session.call_runtime_started =
+        lxst_telephony_client_.profile(session));
+    const bool runtime_started =
         ::platform::ui::reticulum_call::begin_incoming(call_peer);
-    if (session.call_runtime_started && session.state == LinkState::Active)
+    lxst_telephony_client_.markRuntimeStarted(session, runtime_started);
+    if (runtime_started && session.state == LinkState::Active)
     {
         ::platform::ui::reticulum_call::mark_link_active(session.link_id);
     }
@@ -127,26 +128,23 @@ bool LxmfAdapter::beginIncomingCallRuntime(LinkSession& session,
     Serial.printf("[LXMF][CallRX] identified link=%s wire=%u runtime=%u peer=%s\n",
                   link_hash,
                   static_cast<unsigned>(session.call_wire_profile),
-                  session.call_runtime_started ? 1U : 0U,
+                  runtime_started ? 1U : 0U,
                   call_peer.display_name ? call_peer.display_name : "<unknown>");
-    return session.call_runtime_started;
+    return runtime_started;
 }
 
 bool LxmfAdapter::sendLxstSignal(LinkSession& session,
                                  uint16_t signal,
                                  bool call_admission_control)
 {
-    if (session.destination != LocalDestinationKind::CallAudio ||
-        session.call_wire_profile != ReticulumCallWireProfile::SidebandLxst)
+    if (!lxst_telephony_client_.isSidebandSession(session))
     {
         return false;
     }
 
-    uint8_t* scratch = lxst_telephony_client_.scratch();
-    size_t payload_len = lxst_telephony_client_.scratchCapacity();
-    if (!reticulum::lxst::encodeSignalling(signal,
-                                           scratch,
-                                           &payload_len))
+    uint8_t* scratch = nullptr;
+    size_t payload_len = 0;
+    if (!lxst_telephony_client_.encodeSignal(signal, &scratch, &payload_len))
     {
         return false;
     }
@@ -171,17 +169,18 @@ bool LxmfAdapter::dispatchLxstCallEvent(
     LinkSession& session,
     const reticulum::lxst::call::Event& event)
 {
-    if (session.destination != LocalDestinationKind::CallAudio ||
-        session.call_wire_profile != ReticulumCallWireProfile::SidebandLxst)
+    if (!lxst_telephony_client_.isSidebandSession(session))
     {
         return false;
     }
 
-    const auto previous_phase = session.lxst_call.phase;
-    const auto transition = reticulum::lxst::call::dispatch(
-        &session.lxst_call,
+    reticulum::lxst::call::Phase previous_phase =
+        reticulum::lxst::call::Phase::Idle;
+    const auto transition = lxst_telephony_client_.dispatch(
+        session,
         event,
-        millis());
+        millis(),
+        &previous_phase);
     if (!transition.accepted)
     {
         return false;
@@ -193,7 +192,8 @@ bool LxmfAdapter::dispatchLxstCallEvent(
                   link_hash,
                   static_cast<unsigned>(event.type),
                   reticulum::lxst::call::phaseName(previous_phase),
-                  reticulum::lxst::call::phaseName(session.lxst_call.phase),
+                  reticulum::lxst::call::phaseName(
+                      lxst_telephony_client_.phase(session)),
                   static_cast<unsigned>(transition.action_count));
 
     bool closes_link = false;
@@ -225,7 +225,7 @@ bool LxmfAdapter::dispatchLxstCallEvent(
         case reticulum::lxst::call::Action::BeginRinging:
         {
             const PeerInfo* peer =
-                findPeerByIdentityHash(session.remote_identity_hash);
+                destination_registry_.findByIdentityHash(session.remote_identity_hash);
             const bool admitted =
                 peer && beginIncomingCallRuntime(session, *peer);
             return dispatchLxstCallEvent(
@@ -244,7 +244,7 @@ bool LxmfAdapter::dispatchLxstCallEvent(
             action_ok = sendLxstSignal(
                 session,
                 reticulum::lxst::kPreferredProfile +
-                    session.lxst_call.profile,
+                    lxst_telephony_client_.profile(session),
                 true);
             break;
         case reticulum::lxst::call::Action::SendConnecting:
@@ -332,16 +332,16 @@ bool LxmfAdapter::handleLxstPacket(LinkSession& session,
         {
             updateCallRuntimePeer(
                 session,
-                findPeerByIdentityHash(session.remote_identity_hash));
+                destination_registry_.findByIdentityHash(session.remote_identity_hash));
         }
     }
 
     const reticulum::audio_call::Codec2Mode expected_mode =
-        call_profile::audioCodec2Mode(session.lxst_call.profile);
+        call_profile::audioCodec2Mode(lxst_telephony_client_.profile(session));
     for (size_t index = 0; index < decoded.frame_count; ++index)
     {
         const auto& frame = decoded.frames[index];
-        if (session.lxst_call.phase !=
+        if (lxst_telephony_client_.phase(session) !=
                 reticulum::lxst::call::Phase::Active ||
             frame.codec != reticulum::lxst::kCodec2 ||
             !frame.codec2_mode_valid ||
@@ -391,7 +391,8 @@ bool LxmfAdapter::sendCallAudioPacket(LinkSession& session,
                                               payload_len,
                                               &decoded) ||
         decoded.mode !=
-            call_profile::audioCodec2Mode(session.lxst_call.profile))
+            call_profile::audioCodec2Mode(
+                lxst_telephony_client_.profile(session)))
     {
         return false;
     }
@@ -495,7 +496,7 @@ void LxmfAdapter::pumpReticulumAudioCall()
 #endif
                      !call_session->initiator &&
                      call_snapshot.accepted &&
-                     call_session->lxst_call.phase ==
+                     lxst_telephony_client_.phase(*call_session) ==
                          reticulum::lxst::call::Phase::CalleeRinging)
             {
                 (void)dispatchLxstCallEvent(

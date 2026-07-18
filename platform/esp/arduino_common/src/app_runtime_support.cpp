@@ -463,8 +463,22 @@ bool dispatchEvent(app::IAppFacade& app_context, sys::Event* event)
     case sys::EventType::ChatSendResult:
     {
         auto* result_event = static_cast<sys::ChatSendResultEvent*>(event);
-        app_context.getChatService().handleSendResult(result_event->msg_id,
-                                                      result_event->status);
+        if (result_event->has_protocol)
+        {
+            app_context.getChatService().handleSendResultForProtocol(
+                result_event->msg_id,
+                result_event->protocol,
+                result_event->status,
+                result_event->timestamp,
+                result_event->failure);
+        }
+        else
+        {
+            app_context.getChatService().handleSendResult(result_event->msg_id,
+                                                          result_event->status,
+                                                          result_event->timestamp,
+                                                          result_event->failure);
+        }
         return false;
     }
     case sys::EventType::NodeInfoUpdate:

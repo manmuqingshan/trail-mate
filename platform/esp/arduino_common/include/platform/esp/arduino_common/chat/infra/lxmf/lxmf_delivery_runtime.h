@@ -7,11 +7,11 @@
 
 #include "chat/domain/chat_types.h"
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_memory.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <vector>
 
 namespace chat::lxmf::runtime
 {
@@ -49,7 +49,7 @@ struct LxmfMaterialisedText
 struct LxmfMaterialisedAppData
 {
     MeshIncomingData incoming{};
-    std::vector<uint8_t> payload;
+    RuntimeByteBuffer payload;
 };
 
 struct LxmfVerifiedDelivery

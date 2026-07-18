@@ -241,6 +241,38 @@ bool InternalFsStore::updateMessageStatus(::chat::MessageId msg_id, ::chat::Mess
     return false;
 }
 
+bool InternalFsStore::updateMessageStatusForProtocol(
+    ::chat::MessageId msg_id,
+    ::chat::MeshProtocol protocol,
+    ::chat::MessageStatus status)
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    for (auto& pair : conversations_)
+    {
+        auto& storage = pair.second;
+        const size_t count = storage.messages.size();
+        for (size_t i = 0; i < count; ++i)
+        {
+            ::chat::ChatMessage* msg = &storage.messages[i].message;
+            if (!msg || msg->msg_id != msg_id || msg->protocol != protocol ||
+                msg->from != 0)
+            {
+                continue;
+            }
+            msg->status = status;
+            markDirty();
+            maybeSave();
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool InternalFsStore::getMessage(::chat::MessageId msg_id, ::chat::ChatMessage* out) const
 {
     if (msg_id == 0)
@@ -254,6 +286,37 @@ bool InternalFsStore::getMessage(::chat::MessageId msg_id, ::chat::ChatMessage* 
         for (const auto& entry : storage.messages)
         {
             if (entry.message.msg_id != msg_id)
+            {
+                continue;
+            }
+            if (out)
+            {
+                *out = entry.message;
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool InternalFsStore::getMessageForProtocol(
+    ::chat::MessageId msg_id,
+    ::chat::MeshProtocol protocol,
+    ::chat::ChatMessage* out) const
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    for (const auto& pair : conversations_)
+    {
+        const auto& storage = pair.second;
+        for (const auto& entry : storage.messages)
+        {
+            if (entry.message.msg_id != msg_id ||
+                entry.message.protocol != protocol)
             {
                 continue;
             }

@@ -54,7 +54,11 @@ class ChatConversationScreen
     void clearMessages();
     void scrollToTop();
     void scrollToBottom();
-    bool updateMessageStatus(chat::MessageId msg_id, chat::MessageStatus status);
+    bool updateMessageStatus(
+        chat::MessageId msg_id,
+        chat::MessageStatus status,
+        bool has_protocol = false,
+        chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic);
 
     void setActionCallback(void (*cb)(ActionIntent intent, void*), void* user_data);
     void setMessageActionCallback(

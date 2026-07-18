@@ -51,9 +51,18 @@ class PropagationClient
     PendingPropagationUpload* firstPendingUpload();
     const PendingPropagationUpload* firstPendingUpload() const;
     bool removeFirstPendingUpload();
+    void markUploadWaitingForNode(PendingPropagationUpload& upload);
+    bool bindUploadNode(PendingPropagationUpload& upload,
+                        const PropagationPeerState& node);
+    bool beginUploadStamp(PendingPropagationUpload& upload);
+    bool completeUploadStamp(
+        PendingPropagationUpload& upload,
+        const uint8_t stamp[reticulum::kFullHashSize]);
+    void markUploadFailed(PendingPropagationUpload& upload);
+    void markUploadQueuedToLink(PendingPropagationUpload& upload);
     void markExpiredUploads(uint32_t now_ms, uint32_t ttl_ms);
-    std::vector<PendingPropagationUpload> takeFailedUploads();
-    std::vector<PendingPropagationUpload> takeAllPendingUploads();
+    PendingPropagationUploadList takeFailedUploads();
+    PendingPropagationUploadList takeAllPendingUploads();
     void resetStampingUploads();
 
     void resetForDisabled();

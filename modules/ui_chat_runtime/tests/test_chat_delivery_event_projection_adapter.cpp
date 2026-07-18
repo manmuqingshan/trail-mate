@@ -10,6 +10,15 @@
 
 namespace
 {
+::chat::delivery::ChatDeliveryRef refFor(::chat::MessageId id,
+                                         ::chat::MeshProtocol protocol =
+                                             ::chat::MeshProtocol::Meshtastic)
+{
+    ::chat::delivery::ChatDeliveryRef ref{};
+    ref.protocol_id = id;
+    ref.protocol = static_cast<uint8_t>(protocol);
+    return ref;
+}
 
 class FakeMeshAdapter final : public ::chat::IMeshAdapter
 {
@@ -71,8 +80,7 @@ int main()
         sent_id, ::chat::MessageStatus::Queued, 1200);
 
     ::chat::delivery::ChatDeliveryRecord record{};
-    assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
-                           record));
+    assert(read_model.find(refFor(sent_id), record));
     assert(record.state == ::chat::delivery::DeliveryState::Queued);
     assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
     assert(record.updated_at_ms == 1200);
@@ -81,23 +89,20 @@ int main()
     projection_adapter.onChatSendResult(
         sent_id, ::chat::MessageStatus::Sent, 1234);
 
-    assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
-                           record));
+    assert(read_model.find(refFor(sent_id), record));
     assert(record.state == ::chat::delivery::DeliveryState::Sent);
     assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
     assert(record.updated_at_ms == 1234);
     service.handleSendResult(sent_id, ::chat::MessageStatus::Delivered);
     projection_adapter.onChatSendResult(
         sent_id, ::chat::MessageStatus::Delivered, 1250);
-    assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
-                           record));
+    assert(read_model.find(refFor(sent_id), record));
     assert(record.state == ::chat::delivery::DeliveryState::Delivered);
     assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
     assert(record.updated_at_ms == 1250);
     projection_adapter.onChatSendResult(
         sent_id, ::chat::MessageStatus::Failed, 1300);
-    assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, sent_id, 0},
-                           record));
+    assert(read_model.find(refFor(sent_id), record));
     assert(record.state == ::chat::delivery::DeliveryState::Delivered);
     assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
     assert(record.updated_at_ms == 1250);
@@ -110,28 +115,82 @@ int main()
     projection_adapter.onChatSendResult(
         failed_id, ::chat::MessageStatus::Failed, 2345);
 
-    assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, failed_id, 0},
-                           record));
+    assert(read_model.find(refFor(failed_id), record));
     assert(record.state == ::chat::delivery::DeliveryState::Failed);
     assert(record.failure == ::chat::delivery::DeliveryFailureKind::Unknown);
     assert(record.updated_at_ms == 2345);
 
+    const auto ack_failed_id =
+        service.sendText(::chat::ChannelId::PRIMARY, "ackfail", 0);
+    assert(ack_failed_id == 702);
+    service.handleSendResult(ack_failed_id,
+                             ::chat::MessageStatus::Failed,
+                             0,
+                             ::chat::delivery::SendFailureKind::AckTimeout);
+    projection_adapter.onChatSendResult(
+        ack_failed_id,
+        ::chat::MessageStatus::Failed,
+        2400,
+        ::chat::delivery::SendFailureKind::AckTimeout,
+        true,
+        ::chat::MeshProtocol::Meshtastic);
+    assert(read_model.find(refFor(ack_failed_id), record));
+    assert(record.state == ::chat::delivery::DeliveryState::Failed);
+    assert(record.failure == ::chat::delivery::DeliveryFailureKind::AckTimeout);
+
     const auto timeout_id =
         service.sendText(::chat::ChannelId::PRIMARY, "timeout", 0);
-    assert(timeout_id == 702);
+    assert(timeout_id == 703);
     projection_adapter.onAckTimeout(timeout_id, 3456);
-    assert(read_model.find(::chat::delivery::ChatDeliveryRef{0, timeout_id, 0},
-                           record));
+    assert(read_model.find(refFor(timeout_id), record));
     assert(record.state == ::chat::delivery::DeliveryState::Failed);
     assert(record.failure == ::chat::delivery::DeliveryFailureKind::AckTimeout);
     assert(record.updated_at_ms == 3456);
 
     projection_adapter.onAckTimeout(0, 4567);
-    assert(read_model.size() == 3);
+    assert(read_model.size() == 4);
+
+    adapter.next_id = 800;
+    service.setActiveProtocol(::chat::MeshProtocol::Meshtastic);
+    const auto mt_collision_id =
+        service.sendText(::chat::ChannelId::PRIMARY, "mt collision", 0);
+    assert(mt_collision_id == 800);
+
+    adapter.next_id = 800;
+    service.setActiveProtocol(::chat::MeshProtocol::MeshCore);
+    const auto mc_collision_id =
+        service.sendText(::chat::ChannelId::PRIMARY, "mc collision", 0);
+    assert(mc_collision_id == 800);
+
+    projection_adapter.onChatSendResult(
+        mc_collision_id,
+        ::chat::MessageStatus::Delivered,
+        5100,
+        ::chat::delivery::SendFailureKind::None,
+        true,
+        ::chat::MeshProtocol::MeshCore);
+    projection_adapter.onChatSendResult(
+        mt_collision_id,
+        ::chat::MessageStatus::Failed,
+        5200,
+        ::chat::delivery::SendFailureKind::AckTimeout,
+        true,
+        ::chat::MeshProtocol::Meshtastic);
+
+    assert(read_model.find(
+        refFor(800, ::chat::MeshProtocol::MeshCore),
+        record));
+    assert(record.state == ::chat::delivery::DeliveryState::Delivered);
+    assert(record.failure == ::chat::delivery::DeliveryFailureKind::None);
+    assert(read_model.find(
+        refFor(800, ::chat::MeshProtocol::Meshtastic),
+        record));
+    assert(record.state == ::chat::delivery::DeliveryState::Failed);
+    assert(record.failure == ::chat::delivery::DeliveryFailureKind::AckTimeout);
 
     projection_adapter.onChatSendResult(
         9999, ::chat::MessageStatus::Failed, 0);
-    assert(read_model.size() == 3);
+    assert(read_model.size() == 6);
 
     return 0;
 }

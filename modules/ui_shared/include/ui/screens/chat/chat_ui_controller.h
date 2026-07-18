@@ -89,7 +89,10 @@ class UiController : public IChatUiRefreshSink
     void handleMessageListAction(ChatMessageListScreen::ActionIntent intent,
                                  const chat::ConversationId& conv);
     void onRuntimeMessageArrived(chat::MessageId msg_id) override;
-    void onRuntimeSendResult(chat::MessageId msg_id) override;
+    void onRuntimeSendResult(
+        chat::MessageId msg_id,
+        bool has_protocol = false,
+        chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic) override;
     void onRuntimeUnreadChanged() override;
     void showKeyVerification(
         const ::ui::key_verification::KeyVerificationSnapshot& snapshot) override;

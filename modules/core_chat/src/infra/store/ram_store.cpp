@@ -191,6 +191,28 @@ bool RamStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
     return false;
 }
 
+bool RamStore::updateMessageStatusForProtocol(MessageId msg_id,
+                                              MeshProtocol protocol,
+                                              MessageStatus status)
+{
+    if (msg_id == 0) return false;
+    for (auto& pair : conversations_)
+    {
+        ConversationStorage& storage = pair.second;
+        size_t count = storage.messages.size();
+        for (size_t i = 0; i < count; ++i)
+        {
+            ChatMessage* msg = &storage.messages[i].message;
+            if (!msg) continue;
+            if (msg->msg_id != msg_id || msg->protocol != protocol) continue;
+            if (msg->from != 0) continue; // only update outgoing messages
+            msg->status = status;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool RamStore::getMessage(MessageId msg_id, ChatMessage* out) const
 {
     if (msg_id == 0)
@@ -204,6 +226,35 @@ bool RamStore::getMessage(MessageId msg_id, ChatMessage* out) const
         for (const auto& entry : storage.messages)
         {
             if (entry.message.msg_id != msg_id)
+            {
+                continue;
+            }
+            if (out)
+            {
+                *out = entry.message;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+bool RamStore::getMessageForProtocol(MessageId msg_id,
+                                     MeshProtocol protocol,
+                                     ChatMessage* out) const
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    for (const auto& pair : conversations_)
+    {
+        const ConversationStorage& storage = pair.second;
+        for (const auto& entry : storage.messages)
+        {
+            if (entry.message.msg_id != msg_id ||
+                entry.message.protocol != protocol)
             {
                 continue;
             }

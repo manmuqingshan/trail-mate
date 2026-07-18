@@ -19,7 +19,10 @@ ChatDeliveryEventProjectionAdapter::ChatDeliveryEventProjectionAdapter(
 void ChatDeliveryEventProjectionAdapter::onChatSendResult(
     ::chat::MessageId msg_id,
     ::chat::MessageStatus status,
-    uint32_t timestamp_ms)
+    uint32_t timestamp_ms,
+    ::chat::delivery::SendFailureKind failure,
+    bool has_protocol,
+    ::chat::MeshProtocol protocol)
 {
     if (!::chat::delivery::ChatOutboxService::isOutboundStatusUpdate(status))
     {
@@ -27,6 +30,10 @@ void ChatDeliveryEventProjectionAdapter::onChatSendResult(
     }
 
     const ::chat::ChatMessage* message = chat_service_.getMessage(msg_id);
+    if (has_protocol)
+    {
+        message = chat_service_.getMessageForProtocol(msg_id, protocol);
+    }
     if (!::chat::delivery::ChatOutboxService::shouldApplyStatus(message,
                                                                 status))
     {
@@ -34,9 +41,16 @@ void ChatDeliveryEventProjectionAdapter::onChatSendResult(
     }
     const auto state =
         ::chat::delivery::ChatOutboxService::toDeliveryState(status);
-    const auto failure =
-        ::chat::delivery::ChatOutboxService::failureForStatus(status);
-    (void)publishSendResult(msg_id, state, failure, timestamp_ms);
+    if (status != ::chat::MessageStatus::Failed)
+    {
+        failure = ::chat::delivery::SendFailureKind::None;
+    }
+    (void)publishSendResult(msg_id,
+                            has_protocol,
+                            protocol,
+                            state,
+                            failure,
+                            timestamp_ms);
 }
 
 void ChatDeliveryEventProjectionAdapter::onAckTimeout(
@@ -45,6 +59,8 @@ void ChatDeliveryEventProjectionAdapter::onAckTimeout(
 {
     (void)publishSendResult(
         msg_id,
+        false,
+        ::chat::MeshProtocol::Meshtastic,
         ::chat::delivery::DeliveryState::Failed,
         ::chat::delivery::SendFailureKind::AckTimeout,
         timestamp_ms);
@@ -52,6 +68,8 @@ void ChatDeliveryEventProjectionAdapter::onAckTimeout(
 
 bool ChatDeliveryEventProjectionAdapter::publishSendResult(
     ::chat::MessageId msg_id,
+    bool has_protocol,
+    ::chat::MeshProtocol protocol,
     ::chat::delivery::DeliveryState state,
     ::chat::delivery::SendFailureKind failure,
     uint32_t timestamp_ms)
@@ -61,7 +79,9 @@ bool ChatDeliveryEventProjectionAdapter::publishSendResult(
         return false;
     }
 
-    const ::chat::ChatMessage* message = chat_service_.getMessage(msg_id);
+    const ::chat::ChatMessage* message =
+        has_protocol ? chat_service_.getMessageForProtocol(msg_id, protocol)
+                     : chat_service_.getMessage(msg_id);
     if (message == nullptr)
     {
         return false;

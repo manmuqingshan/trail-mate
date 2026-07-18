@@ -11,6 +11,29 @@
 namespace chat::lxmf::runtime
 {
 
+struct LinkSessionSpec
+{
+    const uint8_t* link_id = nullptr;
+    const uint8_t* remote_destination_hash = nullptr;
+    const uint8_t* remote_identity_hash = nullptr;
+    const uint8_t* local_sig_pub = nullptr;
+    const uint8_t* peer_enc_pub = nullptr;
+    const uint8_t* peer_link_sig_pub = nullptr;
+    const uint8_t* peer_identity_sig_pub = nullptr;
+    uint32_t now_ms = 0;
+    uint32_t keepalive_interval_ms = 15000;
+    uint32_t stale_timeout_ms = 30000;
+    uint16_t mtu = reticulum::kReticulumMtu;
+    uint16_t mdu = reticulum::kReticulumMdu;
+    uint8_t interface_id = 0;
+    uint8_t expected_hops = 0;
+    LocalDestinationKind destination = LocalDestinationKind::Delivery;
+    LinkState state = LinkState::Pending;
+    bool initiator = false;
+    bool remote_identity_known = false;
+    bool validated = false;
+};
+
 class LinkManager
 {
   public:
@@ -32,15 +55,52 @@ class LinkManager
         const uint8_t destination_hash[reticulum::kTruncatedHashSize],
         LocalDestinationKind kind);
 
-    LinkSession* appendSession(std::size_t max_link_sessions);
-    LinkSession* appendSessionPreserving(
+    LinkSession* openSession(std::size_t max_link_sessions,
+                             const LinkSessionSpec& spec);
+    LinkSession* openSessionPreserving(
         std::size_t max_link_sessions,
+        const LinkSessionSpec& spec,
         const uint8_t preserve_link_id[reticulum::kTruncatedHashSize]);
-    void discardLastSession();
+    bool discardSession(LinkSession& session);
 
     bool closeSession(LinkSession& session,
                       LinkCloseReason reason,
                       uint32_t now_ms);
+    LinkPendingRequest* queuePendingRequest(LinkSession& session,
+                                            const uint8_t* request_id,
+                                            std::size_t request_id_len,
+                                            uint32_t created_ms,
+                                            bool awaiting_resource);
+    LinkPendingRequest* findPendingRequest(LinkSession& session,
+                                           const uint8_t* request_id,
+                                           std::size_t request_id_len);
+    const LinkPendingRequest* findPendingRequest(
+        const LinkSession& session,
+        const uint8_t* request_id,
+        std::size_t request_id_len) const;
+    bool markPendingResponseReady(LinkSession& session,
+                                  const uint8_t* request_id,
+                                  std::size_t request_id_len,
+                                  const uint8_t* response_data,
+                                  std::size_t response_len,
+                                  bool data_is_nil);
+    bool erasePendingRequest(LinkSession& session,
+                             const LinkPendingRequest& request);
+    std::size_t pendingRequestCount(const LinkSession& session) const;
+    DeferredLinkPayload* appendDeferredPayload(
+        LinkSession& session,
+        DeferredLinkPayload&& payload);
+    const DeferredLinkPayload* firstDeferredPayload(
+        const LinkSession& session) const;
+    bool popFirstDeferredPayload(LinkSession& session);
+    std::size_t deferredPayloadCount(const LinkSession& session) const;
+    void touchInbound(LinkSession& session, uint32_t now_ms);
+    void touchOutbound(LinkSession& session, uint32_t now_ms);
+    void noteKeepaliveSent(LinkSession& session, uint32_t now_ms);
+    void markSessionValidatedActive(LinkSession& session,
+                                    float rtt_s,
+                                    uint32_t keepalive_interval_ms);
+    bool reactivateSessionIfStale(LinkSession& session);
     void cullSessionTables(LinkSession& session,
                            uint32_t now_ms,
                            const LinkRuntimeLimits& limits);
@@ -133,36 +193,20 @@ class LinkManager
         LinkResourceTransfer& resource,
         const uint8_t expected_proof[reticulum::kFullHashSize],
         uint32_t now_ms);
-    uint32_t takeResourceMessageId(LinkResourceTransfer& resource);
     void touchResource(LinkResourceTransfer& resource, uint32_t now_ms);
 
     template <typename Fn>
-    void takeTrackedOutgoingResourceMessageIds(LinkSession& session, Fn&& fn)
+    void forEachExpiredOutgoingResource(const LinkSession& session,
+                                        uint32_t now_ms,
+                                        uint32_t ttl_ms,
+                                        Fn&& fn) const
     {
-        for (auto& resource : session.outgoing_resources)
+        for (const auto& resource : session.outgoing_resources)
         {
-            if (resource.message_id != 0)
+            if (resource.last_activity_ms == 0 ||
+                now_ms - resource.last_activity_ms > ttl_ms)
             {
-                fn(resource.message_id);
-                resource.message_id = 0;
-            }
-        }
-    }
-
-    template <typename Fn>
-    void takeExpiredOutgoingResourceMessageIds(LinkSession& session,
-                                               uint32_t now_ms,
-                                               uint32_t ttl_ms,
-                                               Fn&& fn)
-    {
-        for (auto& resource : session.outgoing_resources)
-        {
-            if (resource.message_id != 0 &&
-                (resource.last_activity_ms == 0 ||
-                 now_ms - resource.last_activity_ms > ttl_ms))
-            {
-                fn(resource.message_id);
-                resource.message_id = 0;
+                fn(resource);
             }
         }
     }
@@ -197,7 +241,50 @@ class LinkManager
         }
     }
 
+    template <typename Predicate>
+    LinkPendingRequest* findPendingRequestIf(LinkSession& session,
+                                             Predicate&& predicate)
+    {
+        for (auto& request : session.pending_requests)
+        {
+            if (predicate(request))
+            {
+                return &request;
+            }
+        }
+        return nullptr;
+    }
+
+    template <typename Predicate>
+    const LinkPendingRequest* findPendingRequestIf(
+        const LinkSession& session,
+        Predicate&& predicate) const
+    {
+        for (const auto& request : session.pending_requests)
+        {
+            if (predicate(request))
+            {
+                return &request;
+            }
+        }
+        return nullptr;
+    }
+
+    template <typename Fn>
+    void forEachDeferredPayload(const LinkSession& session, Fn&& fn) const
+    {
+        for (const auto& payload : session.deferred_payloads)
+        {
+            fn(payload);
+        }
+    }
+
   private:
+    LinkSession* appendSession(std::size_t max_link_sessions);
+    LinkSession* appendSessionPreserving(
+        std::size_t max_link_sessions,
+        const uint8_t preserve_link_id[reticulum::kTruncatedHashSize]);
+    void initialiseSession(LinkSession& session, const LinkSessionSpec& spec);
     bool ensureCapacity(std::size_t max_link_sessions,
                         const uint8_t preserve_link_id[reticulum::kTruncatedHashSize]);
 

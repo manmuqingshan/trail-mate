@@ -20,11 +20,18 @@ class ChatDeliveryEventProjectionAdapter
 
     void onChatSendResult(::chat::MessageId msg_id,
                           ::chat::MessageStatus status,
-                          uint32_t timestamp_ms = 0);
+                          uint32_t timestamp_ms = 0,
+                          ::chat::delivery::SendFailureKind failure =
+                              ::chat::delivery::SendFailureKind::Unknown,
+                          bool has_protocol = false,
+                          ::chat::MeshProtocol protocol =
+                              ::chat::MeshProtocol::Meshtastic);
     void onAckTimeout(::chat::MessageId msg_id, uint32_t timestamp_ms = 0);
 
   private:
     bool publishSendResult(::chat::MessageId msg_id,
+                           bool has_protocol,
+                           ::chat::MeshProtocol protocol,
                            ::chat::delivery::DeliveryState state,
                            ::chat::delivery::SendFailureKind failure,
                            uint32_t timestamp_ms);

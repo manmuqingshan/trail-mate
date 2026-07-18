@@ -129,6 +129,15 @@ class IChatStore
      * @return true if updated
      */
     virtual bool updateMessageStatus(MessageId msg_id, MessageStatus status) = 0;
+    virtual bool updateMessageStatusForProtocol(MessageId msg_id,
+                                                MeshProtocol protocol,
+                                                MessageStatus status)
+    {
+        (void)msg_id;
+        (void)protocol;
+        (void)status;
+        return false;
+    }
 
     /**
      * @brief Look up a stored message by message ID
@@ -137,6 +146,15 @@ class IChatStore
      * @return true if found
      */
     virtual bool getMessage(MessageId msg_id, ChatMessage* out) const = 0;
+    virtual bool getMessageForProtocol(MessageId msg_id,
+                                       MeshProtocol protocol,
+                                       ChatMessage* out) const
+    {
+        (void)msg_id;
+        (void)protocol;
+        (void)out;
+        return false;
+    }
 
     /**
      * @brief Check whether an LXMF message hash has already been stored.

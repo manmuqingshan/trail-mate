@@ -29,11 +29,25 @@ enum class DeliveryFailureKind : uint8_t
     Unknown,
 };
 
+enum class SendFailureKind : uint8_t
+{
+    None,
+    PeerKeyMissing,
+    ChannelKeyMissing,
+    LocalIdentityMissing,
+    RadioSendFailed,
+    AckTimeout,
+    UnsupportedProtocol,
+    Rejected,
+    Unknown,
+};
+
 struct ChatDeliveryRef
 {
     uint64_t local_id = 0;
     uint32_t protocol_id = 0;
     uint32_t nonce_or_seq = 0;
+    uint8_t protocol = 0;
 
     bool isValid() const
     {
@@ -44,7 +58,8 @@ struct ChatDeliveryRef
     {
         return local_id == other.local_id &&
                protocol_id == other.protocol_id &&
-               nonce_or_seq == other.nonce_or_seq;
+               nonce_or_seq == other.nonce_or_seq &&
+               protocol == other.protocol;
     }
 };
 

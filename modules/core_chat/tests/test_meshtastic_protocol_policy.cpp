@@ -184,6 +184,9 @@ int main()
                MqttProxyRejectReason::None);
 
         settings.encryption_enabled = false;
+        assert(validateMqttProxyPublish(settings, chat::ChannelId::PRIMARY, false, true) ==
+               MqttProxyRejectReason::None);
+        assert(shouldPublishToMqtt(settings, chat::ChannelId::PRIMARY, false, true));
         assert(validateMqttDecodedDownlinkPayload(settings,
                                                   true,
                                                   meshtastic_PortNum_ADMIN_APP) ==

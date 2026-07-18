@@ -403,35 +403,20 @@ bool AnnounceIngestor::ingest(const uint8_t* raw_packet,
         return true;
     }
 
-    result.path = &path_manager.upsertPath(packet.destination_hash,
-                                           options.max_paths);
-    applyPathAnnounce(*result.path,
-                      packet.hops,
-                      result.announce.random_hash,
-                      options.now_ms,
-                      options.now_s);
-    result.path->interface_id = options.ingress_interface_id;
-    result.path->direct = (packet.transport_id == nullptr);
-    path_manager.resolvePendingPathRequest(packet.destination_hash);
-    if (packet.transport_id)
+    result.path = path_manager.observeAnnouncePath(packet.destination_hash,
+                                                   packet.hops,
+                                                   result.announce.random_hash,
+                                                   options.now_ms,
+                                                   options.now_s,
+                                                   options.ingress_interface_id,
+                                                   packet.transport_id,
+                                                   raw_packet,
+                                                   raw_len,
+                                                   options.max_paths);
+    if (!result.path)
     {
-        copyHash(result.path->next_hop_transport,
-                 packet.transport_id,
-                 sizeof(result.path->next_hop_transport));
-    }
-    else
-    {
-        copyHash(result.path->next_hop_transport,
-                 packet.destination_hash,
-                 sizeof(result.path->next_hop_transport));
-    }
-    if (raw_len <= sizeof(result.path->cached_announce))
-    {
-        std::memcpy(result.path->cached_announce, raw_packet, raw_len);
-        result.path->cached_announce_len = raw_len;
-        reticulum::computePacketHash(raw_packet,
-                                     raw_len,
-                                     result.path->cached_packet_hash);
+        result.reason = "path_observe_failed";
+        return false;
     }
 
     result.delivery_announce = isLxmfDeliveryAnnounce(result.announce);

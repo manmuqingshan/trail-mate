@@ -74,6 +74,38 @@ bool shouldRequireDirectPki(uint8_t encrypt_mode, ::chat::NodeId dest_node, uint
            allowPkiForPortnum(portnum);
 }
 
+::chat::delivery::SendFailureKind failureKindFromRoutingError(
+    meshtastic_Routing_Error reason)
+{
+    switch (reason)
+    {
+    case meshtastic_Routing_Error_NONE:
+        return ::chat::delivery::SendFailureKind::None;
+    case meshtastic_Routing_Error_TIMEOUT:
+    case meshtastic_Routing_Error_MAX_RETRANSMIT:
+    case meshtastic_Routing_Error_NO_RESPONSE:
+    case meshtastic_Routing_Error_NO_ROUTE:
+        return ::chat::delivery::SendFailureKind::AckTimeout;
+    case meshtastic_Routing_Error_NO_INTERFACE:
+    case meshtastic_Routing_Error_DUTY_CYCLE_LIMIT:
+    case meshtastic_Routing_Error_RATE_LIMIT_EXCEEDED:
+        return ::chat::delivery::SendFailureKind::RadioSendFailed;
+    case meshtastic_Routing_Error_NO_CHANNEL:
+        return ::chat::delivery::SendFailureKind::ChannelKeyMissing;
+    case meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY:
+    case meshtastic_Routing_Error_PKI_FAILED:
+        return ::chat::delivery::SendFailureKind::PeerKeyMissing;
+    case meshtastic_Routing_Error_GOT_NAK:
+    case meshtastic_Routing_Error_BAD_REQUEST:
+    case meshtastic_Routing_Error_NOT_AUTHORIZED:
+    case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
+    case meshtastic_Routing_Error_ADMIN_PUBLIC_KEY_UNAUTHORIZED:
+    case meshtastic_Routing_Error_TOO_LARGE:
+        return ::chat::delivery::SendFailureKind::Rejected;
+    }
+    return ::chat::delivery::SendFailureKind::Unknown;
+}
+
 void logMeshtasticRx(const char* format, ...)
 {
     char buffer[192] = {};
@@ -2087,8 +2119,17 @@ void MeshtasticRadioAdapter::emitRoutingResult(uint32_t request_id, meshtastic_R
         return;
     }
 
+    const bool own_self_echo = from == node_id_ && to == node_id_;
+    const ::chat::MessageStatus status =
+        reason != meshtastic_Routing_Error_NONE
+            ? ::chat::MessageStatus::Failed
+            : (own_self_echo ? ::chat::MessageStatus::Sent
+                             : ::chat::MessageStatus::Delivered);
     sys::EventBus::publish(
-        new sys::ChatSendResultEvent(request_id, reason == meshtastic_Routing_Error_NONE),
+        new sys::ChatSendResultEvent(request_id,
+                                     status,
+                                     ::chat::MeshProtocol::Meshtastic,
+                                     failureKindFromRoutingError(reason)),
         0);
 
     meshtastic_Routing routing = meshtastic_Routing_init_default;
@@ -3824,7 +3865,7 @@ bool MeshtasticRadioAdapter::queueMqttProxyPublishFromWire(const uint8_t* wire_d
         return false;
     }
 
-    if (mqtt_proxy_settings_.encryption_enabled)
+    if (mqtt_proxy_settings_.encryption_enabled || is_pki)
     {
         std::memset(&scratch.packet, 0, sizeof(scratch.packet));
         if (!makeEncryptedPacketFromWire(wire_data, wire_size, &scratch.packet))

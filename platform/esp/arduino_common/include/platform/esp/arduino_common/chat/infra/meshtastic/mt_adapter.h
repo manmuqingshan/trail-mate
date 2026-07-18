@@ -289,6 +289,7 @@ class MtAdapter : public chat::IMeshAdapter
         NodeId node_id = 0;
         ChannelId last_channel = ChannelId::PRIMARY;
         bool has_last_channel = false;
+        bool last_seen_via_mqtt = false;
         uint32_t nodeinfo_reply_ms = 0;
         uint32_t last_touch_ms = 0;
     };
@@ -376,6 +377,11 @@ class MtAdapter : public chat::IMeshAdapter
     void eraseNodeRuntime(uint32_t node_id);
     bool getNodeLastChannel(uint32_t node_id, ChannelId* out) const;
     void rememberNodeLastChannel(uint32_t node_id, ChannelId channel, uint32_t now_ms);
+    void rememberNodeRuntimeRx(uint32_t node_id,
+                               ChannelId channel,
+                               bool via_mqtt,
+                               uint32_t now_ms);
+    bool nodeLastSeenViaMqtt(uint32_t node_id) const;
     uint32_t getNodeInfoReplyMs(uint32_t node_id) const;
     void setNodeInfoReplyMs(uint32_t node_id, uint32_t now_ms);
     bool sendRoutingAck(uint32_t dest, uint32_t request_id, uint8_t channel_hash,

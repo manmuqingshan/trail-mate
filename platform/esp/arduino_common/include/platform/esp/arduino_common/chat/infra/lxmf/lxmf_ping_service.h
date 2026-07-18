@@ -6,6 +6,7 @@
 #pragma once
 
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_memory.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -21,6 +22,9 @@ struct PendingPingRequest
     uint32_t last_path_request_ms = 0;
     uint32_t last_send_attempt_ms = 0;
 };
+
+using PendingPingRequestList =
+    std::vector<PendingPingRequest, PsramAllocator<PendingPingRequest>>;
 
 enum class PendingPingQueueResult
 {
@@ -107,7 +111,7 @@ class PingService
     }
 
   private:
-    std::vector<PendingPingRequest> pending_;
+    PendingPingRequestList pending_;
 };
 
 } // namespace chat::lxmf::runtime

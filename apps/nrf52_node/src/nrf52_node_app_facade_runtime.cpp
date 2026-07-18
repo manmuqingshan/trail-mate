@@ -876,11 +876,30 @@ void AppFacadeRuntime::dispatchPendingEvents(std::size_t max_events)
         {
             auto* result = static_cast<sys::ChatSendResultEvent*>(event);
             const chat::ChatMessage* message =
-                chat_service_ ? chat_service_->getMessage(result->msg_id) : nullptr;
+                chat_service_
+                    ? (result->has_protocol
+                           ? chat_service_->getMessageForProtocol(result->msg_id,
+                                                                  result->protocol)
+                           : chat_service_->getMessage(result->msg_id))
+                    : nullptr;
             if (chat_service_ && message)
             {
                 const bool local_outgoing = message->from == 0;
-                chat_service_->handleSendResult(result->msg_id, result->status);
+                if (result->has_protocol)
+                {
+                    chat_service_->handleSendResultForProtocol(result->msg_id,
+                                                               result->protocol,
+                                                               result->status,
+                                                               result->timestamp,
+                                                               result->failure);
+                }
+                else
+                {
+                    chat_service_->handleSendResult(result->msg_id,
+                                                    result->status,
+                                                    result->timestamp,
+                                                    result->failure);
+                }
                 if (local_outgoing)
                 {
                     pending_chat_send_result_feedback_ = true;

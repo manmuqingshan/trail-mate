@@ -35,8 +35,15 @@ constexpr size_t kMaxPrefixedSenderLen = 20;
 }
 
 bool message_ref_matches_id(const ::ui::chat::MessageRef& ref,
-                            chat::MessageId msg_id)
+                            chat::MessageId msg_id,
+                            bool has_protocol,
+                            chat::MeshProtocol protocol)
 {
+    if (has_protocol && ref.protocol != 0 &&
+        ref.protocol != static_cast<uint8_t>(protocol))
+    {
+        return false;
+    }
     if (ref.protocol_id != 0)
     {
         return ref.protocol_id == msg_id;
@@ -346,7 +353,9 @@ void ChatConversationScreen::scrollToBottom()
 }
 
 bool ChatConversationScreen::updateMessageStatus(const chat::MessageId msg_id,
-                                                 const chat::MessageStatus status)
+                                                 const chat::MessageStatus status,
+                                                 bool has_protocol,
+                                                 chat::MeshProtocol protocol)
 {
     if (!guard_ || !guard_->alive || msg_id == 0)
     {
@@ -355,7 +364,7 @@ bool ChatConversationScreen::updateMessageStatus(const chat::MessageId msg_id,
 
     for (auto& item : messages_)
     {
-        if (!message_ref_matches_id(item.ref, msg_id))
+        if (!message_ref_matches_id(item.ref, msg_id, has_protocol, protocol))
         {
             continue;
         }

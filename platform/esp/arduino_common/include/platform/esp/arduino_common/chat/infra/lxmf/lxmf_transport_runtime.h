@@ -27,8 +27,6 @@ struct TransportRuntimeLimits
     std::size_t max_pending_ping_receipts = 0;
     uint32_t path_ttl_ms = 0;
     uint32_t pending_ping_receipt_ttl_ms = 0;
-    std::size_t max_pending_delivery_receipts = 0;
-    uint32_t pending_delivery_receipt_ttl_ms = 0;
 };
 
 enum class PathAnnounceDecision : uint8_t
@@ -96,21 +94,6 @@ PendingPingReceipt* findPendingPingReceipt(
     TransportRuntime& transport,
     const uint8_t proof_hash[reticulum::kTruncatedHashSize]);
 void removePendingPingReceipt(
-    TransportRuntime& transport,
-    const uint8_t proof_hash[reticulum::kTruncatedHashSize]);
-
-void notePendingDeliveryReceipt(
-    TransportRuntime& transport,
-    const uint8_t packet_hash[reticulum::kFullHashSize],
-    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
-    const uint8_t peer_sig_pub[LxmfIdentity::kSigPubKeySize],
-    MessageId message_id,
-    uint32_t now_ms,
-    std::size_t max_pending_delivery_receipts);
-PendingDeliveryReceipt* findPendingDeliveryReceipt(
-    TransportRuntime& transport,
-    const uint8_t proof_hash[reticulum::kTruncatedHashSize]);
-void removePendingDeliveryReceipt(
     TransportRuntime& transport,
     const uint8_t proof_hash[reticulum::kTruncatedHashSize]);
 

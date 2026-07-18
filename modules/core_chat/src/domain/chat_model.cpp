@@ -73,6 +73,44 @@ bool ChatModel::updateMessageStatus(MessageId msg_id, MessageStatus status)
     return false;
 }
 
+bool ChatModel::updateMessageStatusForProtocol(MessageId msg_id,
+                                               MeshProtocol protocol,
+                                               MessageStatus status)
+{
+    for (auto& pair : conversations_)
+    {
+        ConversationData& data = pair.second;
+        for (size_t i = 0; i < data.messages.size(); i++)
+        {
+            ChatMessage* msg = &data.messages[i].message;
+            if (!msg || msg->msg_id != msg_id || msg->protocol != protocol)
+            {
+                continue;
+            }
+            msg->status = status;
+            failed_messages_.erase(
+                std::remove_if(failed_messages_.begin(),
+                               failed_messages_.end(),
+                               [msg_id, protocol](const ChatMessage& failed)
+                               {
+                                   return failed.msg_id == msg_id &&
+                                          failed.protocol == protocol;
+                               }),
+                failed_messages_.end());
+            if (status == MessageStatus::Failed)
+            {
+                if (failed_messages_.size() >= MAX_FAILED_MESSAGES)
+                {
+                    failed_messages_.erase(failed_messages_.begin());
+                }
+                failed_messages_.push_back(*msg);
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 void ChatModel::onSendResult(MessageId msg_id, bool ok)
 {
     (void)updateMessageStatus(msg_id, ok ? MessageStatus::Sent : MessageStatus::Failed);
@@ -128,6 +166,24 @@ const ChatMessage* ChatModel::getMessage(MessageId msg_id) const
         {
             const ChatMessage* msg = &data.messages[i].message;
             if (msg && msg->msg_id == msg_id)
+            {
+                return msg;
+            }
+        }
+    }
+    return nullptr;
+}
+
+const ChatMessage* ChatModel::getMessageForProtocol(MessageId msg_id,
+                                                    MeshProtocol protocol) const
+{
+    for (const auto& pair : conversations_)
+    {
+        const ConversationData& data = pair.second;
+        for (size_t i = 0; i < data.messages.size(); i++)
+        {
+            const ChatMessage* msg = &data.messages[i].message;
+            if (msg && msg->msg_id == msg_id && msg->protocol == protocol)
             {
                 return msg;
             }

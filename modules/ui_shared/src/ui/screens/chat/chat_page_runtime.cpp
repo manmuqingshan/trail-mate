@@ -49,7 +49,13 @@ class ChatServiceRetryChatMessagePort final
                 ::chat::delivery::ChatDeliveryActionFailure::InvalidRef);
         }
 
-        const ::chat::ChatMessage* message = chat_service_.getMessage(msg_id);
+        const bool has_protocol = ref.protocol != 0;
+        const auto protocol =
+            static_cast<::chat::MeshProtocol>(ref.protocol);
+        const ::chat::ChatMessage* message =
+            has_protocol ? chat_service_.getMessageForProtocol(msg_id,
+                                                               protocol)
+                         : chat_service_.getMessage(msg_id);
         if (message == nullptr)
         {
             return ::chat::delivery::ChatDeliveryActionResult::fail(
@@ -61,7 +67,11 @@ class ChatServiceRetryChatMessagePort final
                 ::chat::delivery::ChatDeliveryActionFailure::NotRetryable);
         }
 
-        if (!chat_service_.resendFailed(msg_id))
+        const bool resent =
+            has_protocol ? chat_service_.resendFailedForProtocol(msg_id,
+                                                                 protocol)
+                         : chat_service_.resendFailed(msg_id);
+        if (!resent)
         {
             return ::chat::delivery::ChatDeliveryActionResult::fail(
                 ::chat::delivery::ChatDeliveryActionFailure::Rejected);
@@ -256,29 +266,43 @@ void enter(const shell::Host* host, lv_obj_t* parent)
                                           ? chat::ChannelId::SECONDARY
                                           : chat::ChannelId::PRIMARY;
     auto& chat_service = app::messagingFacade().getChatService();
-    s_delivery_read_model =
-        std::unique_ptr<::chat::delivery::ChatDeliveryReadModel>(
-            new ::chat::delivery::ChatDeliveryReadModel());
-    s_delivery_projector =
-        std::unique_ptr<::chat::delivery::ChatDeliveryEventProjector>(
-            new ::chat::delivery::ChatDeliveryEventProjector(
-                *s_delivery_read_model));
-    s_delivery_event_port =
-        std::unique_ptr<::chat::delivery::ProjectingChatDeliveryEventPort>(
-            new ::chat::delivery::ProjectingChatDeliveryEventPort(
-                *s_delivery_projector));
-    s_delivery_event_adapter =
-        std::unique_ptr<::ui_chat_runtime::ChatDeliveryEventProjectionAdapter>(
-            new ::ui_chat_runtime::ChatDeliveryEventProjectionAdapter(
-                chat_service,
-                *s_delivery_event_port));
+    ::chat::delivery::ChatDeliveryReadModel* delivery_read_model =
+        app::messagingFacade().getChatDeliveryReadModel();
+    ::chat::delivery::IChatDeliveryEventPort* delivery_event_port =
+        app::messagingFacade().getChatDeliveryEventPort();
+    const bool using_facade_delivery =
+        delivery_read_model != nullptr && delivery_event_port != nullptr;
+    if (!using_facade_delivery)
+    {
+        s_delivery_read_model =
+            std::unique_ptr<::chat::delivery::ChatDeliveryReadModel>(
+                new ::chat::delivery::ChatDeliveryReadModel());
+        s_delivery_projector =
+            std::unique_ptr<::chat::delivery::ChatDeliveryEventProjector>(
+                new ::chat::delivery::ChatDeliveryEventProjector(
+                    *s_delivery_read_model));
+        s_delivery_event_port =
+            std::unique_ptr<::chat::delivery::ProjectingChatDeliveryEventPort>(
+                new ::chat::delivery::ProjectingChatDeliveryEventPort(
+                    *s_delivery_projector));
+        delivery_read_model = s_delivery_read_model.get();
+        delivery_event_port = s_delivery_event_port.get();
+    }
+    if (!using_facade_delivery)
+    {
+        s_delivery_event_adapter =
+            std::unique_ptr<::ui_chat_runtime::ChatDeliveryEventProjectionAdapter>(
+                new ::ui_chat_runtime::ChatDeliveryEventProjectionAdapter(
+                    chat_service,
+                    *delivery_event_port));
+    }
     s_delivery_retry_port =
         std::unique_ptr<ChatServiceRetryChatMessagePort>(
             new ChatServiceRetryChatMessagePort(chat_service));
     s_delivery_action_service =
         std::unique_ptr<::chat::delivery::ChatDeliveryActionService>(
             new ::chat::delivery::ChatDeliveryActionService(
-                *s_delivery_read_model,
+                *delivery_read_model,
                 s_delivery_retry_port.get()));
     s_delivery_action_adapter =
         std::unique_ptr<::ui_chat_runtime::ChatDeliveryActionPortAdapter>(
@@ -288,7 +312,7 @@ void enter(const shell::Host* host, lv_obj_t* parent)
         new ::ui::presentation_sources::ChatPresentationSource(
             chat_service,
             &app::messagingFacade().getContactService(),
-            s_delivery_read_model.get(),
+            delivery_read_model,
             app::messagingFacade().getMeshAdapter()));
     s_chat_sink = std::unique_ptr<::ui::presentation_sources::RuntimeChatActionSink>(
         new ::ui::presentation_sources::RuntimeChatActionSink(chat_service));

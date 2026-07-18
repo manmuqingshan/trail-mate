@@ -100,11 +100,18 @@ void ChatPageRuntimeEventPump::handleChatSendResult(
     if (delivery_adapter_ != nullptr)
     {
         delivery_adapter_->onChatSendResult(
-            event.msg_id, event.status, event.timestamp);
+            event.msg_id,
+            event.status,
+            event.timestamp,
+            event.failure,
+            event.has_protocol,
+            event.protocol);
     }
     if (ui_ != nullptr)
     {
-        ui_->onRuntimeSendResult(event.msg_id);
+        ui_->onRuntimeSendResult(event.msg_id,
+                                 event.has_protocol,
+                                 event.protocol);
     }
 }
 
