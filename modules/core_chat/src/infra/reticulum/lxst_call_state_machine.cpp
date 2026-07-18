@@ -13,6 +13,7 @@ namespace
 {
 
 constexpr uint32_t kIdentifyTimeoutMs = 15000;
+constexpr uint32_t kIdentifyAvailableRetryMs = 1200;
 constexpr uint32_t kRingTimeoutMs = 60000;
 constexpr uint32_t kDialTimeoutMs = 70000;
 constexpr uint32_t kMediaSetupTimeoutMs = 5000;
@@ -242,6 +243,18 @@ Transition dispatch(State* state, const Event& event, uint32_t now_ms)
     {
         return transition;
     }
+    if (event.type == EventType::ControlRetry)
+    {
+        if (state->role == Role::Callee &&
+            state->phase == Phase::CalleeAwaitingIdentity &&
+            now_ms - state->last_available_ms >= kIdentifyAvailableRetryMs)
+        {
+            state->last_available_ms = now_ms;
+            transition.accepted = true;
+            appendAction(transition, Action::SendAvailable);
+        }
+        return transition;
+    }
     if (event.type == EventType::LocalHangup ||
         event.type == EventType::OperationFailed ||
         event.type == EventType::Timeout)
@@ -286,6 +299,7 @@ Transition dispatch(State* state, const Event& event, uint32_t now_ms)
             state->phase == Phase::CalleeAwaitingLink)
         {
             state->local_status = kStatusAvailable;
+            state->last_available_ms = now_ms;
             enterPhase(*state, Phase::CalleeAwaitingIdentity, now_ms);
             appendAction(transition, Action::SendAvailable);
             return transition;

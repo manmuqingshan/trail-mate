@@ -473,6 +473,17 @@ void LxmfAdapter::pumpReticulumAudioCall()
         if (call_snapshot.realtime_phase !=
             ::platform::ui::reticulum_call::RealtimePhase::ClosingCall)
         {
+            if (call_session->call_wire_profile ==
+                    ReticulumCallWireProfile::SidebandLxst &&
+                !call_session->initiator &&
+                lxst_telephony_client_.phase(*call_session) ==
+                    reticulum::lxst::call::Phase::CalleeAwaitingIdentity)
+            {
+                (void)dispatchLxstCallEvent(
+                    *call_session,
+                    {reticulum::lxst::call::EventType::ControlRetry});
+            }
+
 #if TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT
             if (call_session->call_wire_profile ==
                     ReticulumCallWireProfile::MeshChatCallAudio &&

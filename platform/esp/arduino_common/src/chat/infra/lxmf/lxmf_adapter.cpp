@@ -4859,6 +4859,15 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
     {
         if (!decryptLinkPayload(session, packet.payload, packet.payload_len, &plaintext))
         {
+            if (session.destination == LocalDestinationKind::CallAudio)
+            {
+                char link_hash[12] = {};
+                formatHashPrefix(session.link_id, link_hash, sizeof(link_hash));
+                Serial.printf("[LXMF][CallRX] data_drop link=%s context=%u reason=decrypt payload=%u\n",
+                              link_hash,
+                              static_cast<unsigned>(context),
+                              static_cast<unsigned>(packet.payload_len));
+            }
             return false;
         }
     }
@@ -4906,8 +4915,12 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
     }
     else if (context == static_cast<uint8_t>(reticulum::PacketContext::LinkIdentify))
     {
+        bool identify_len_ok = false;
+        bool identify_signature_ok = false;
+        bool identify_peer_ok = false;
         if (payload_len == reticulum::kCombinedPublicKeySize + reticulum::kSignatureSize)
         {
+            identify_len_ok = true;
             const uint8_t* combined_pub = payload_ptr;
             const uint8_t* signature = payload_ptr + reticulum::kCombinedPublicKeySize;
             std::array<uint8_t, reticulum::kTruncatedHashSize + reticulum::kCombinedPublicKeySize> signed_data{};
@@ -4918,9 +4931,11 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
             const uint8_t* sign_pub = combined_pub + LxmfIdentity::kEncPubKeySize;
             if (LxmfIdentity::verify(sign_pub, signature, signed_data.data(), signed_data.size()))
             {
+                identify_signature_ok = true;
                 PeerInfo* peer = rememberPeerIdentity(combined_pub);
                 if (peer)
                 {
+                    identify_peer_ok = true;
                     if (session.destination != LocalDestinationKind::CallAudio &&
                         session.destination != LocalDestinationKind::NomadPage)
                     {
@@ -4950,6 +4965,29 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
                     }
                 }
                 handled = true;
+            }
+        }
+        if (session.destination == LocalDestinationKind::CallAudio)
+        {
+            char link_hash[12] = {};
+            formatHashPrefix(session.link_id, link_hash, sizeof(link_hash));
+            if (handled)
+            {
+                Serial.printf("[LXMF][CallRX] identify_ok link=%s peer=%u phase=%s\n",
+                              link_hash,
+                              identify_peer_ok ? 1U : 0U,
+                              reticulum::lxst::call::phaseName(
+                                  lxst_telephony_client_.phase(session)));
+            }
+            else
+            {
+                const char* reason = !identify_len_ok
+                                         ? "len"
+                                         : (!identify_signature_ok ? "signature" : "peer");
+                Serial.printf("[LXMF][CallRX] identify_drop link=%s reason=%s payload=%u\n",
+                              link_hash,
+                              reason,
+                              static_cast<unsigned>(payload_len));
             }
         }
         should_prove = handled;
@@ -5035,8 +5073,23 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
         if (payload_len == reticulum::kTruncatedHashSize &&
             hashesEqual(payload_ptr, session.link_id, sizeof(session.link_id)))
         {
+            if (session.destination == LocalDestinationKind::CallAudio)
+            {
+                char link_hash[12] = {};
+                formatHashPrefix(session.link_id, link_hash, sizeof(link_hash));
+                Serial.printf("[LXMF][CallRX] link_close link=%s reason=remote\n",
+                              link_hash);
+            }
             closeLinkSession(session, LinkCloseReason::RemoteClose);
             handled = true;
+        }
+        else if (session.destination == LocalDestinationKind::CallAudio)
+        {
+            char link_hash[12] = {};
+            formatHashPrefix(session.link_id, link_hash, sizeof(link_hash));
+            Serial.printf("[LXMF][CallRX] link_close_drop link=%s payload=%u\n",
+                          link_hash,
+                          static_cast<unsigned>(payload_len));
         }
     }
     else if (context == static_cast<uint8_t>(reticulum::PacketContext::Keepalive))

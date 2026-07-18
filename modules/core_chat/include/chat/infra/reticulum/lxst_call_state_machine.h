@@ -48,6 +48,7 @@ enum class EventType : uint8_t
     OperationFailed,
     Timeout,
     LinkClosed,
+    ControlRetry,
 };
 
 struct Event
@@ -94,6 +95,7 @@ struct State
     uint16_t local_status = 0;
     uint16_t remote_status = 0;
     uint32_t phase_started_ms = 0;
+    uint32_t last_available_ms = 0;
     bool media_prepared = false;
 };
 

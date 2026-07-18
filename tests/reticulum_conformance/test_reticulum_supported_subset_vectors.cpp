@@ -1031,6 +1031,21 @@ void expectLxstCallStateMachine()
 
     transition = lxst_call::dispatch(
         &callee,
+        {lxst_call::EventType::ControlRetry},
+        now_ms + 1000);
+    assert(!transition.accepted);
+
+    transition = lxst_call::dispatch(
+        &callee,
+        {lxst_call::EventType::ControlRetry},
+        now_ms + 1200);
+    assert(transition.accepted);
+    assert(hasAction(transition, lxst_call::Action::SendAvailable));
+    assert(callee.phase == lxst_call::Phase::CalleeAwaitingIdentity);
+    now_ms += 1200;
+
+    transition = lxst_call::dispatch(
+        &callee,
         {lxst_call::EventType::RemoteIdentified},
         ++now_ms);
     assert(hasAction(transition, lxst_call::Action::BeginRinging));
