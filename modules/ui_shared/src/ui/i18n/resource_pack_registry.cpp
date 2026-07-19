@@ -89,7 +89,7 @@ constexpr bool kFlashPackStorageEnabled = false;
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
 constexpr bool kAllowSynchronousContentSupplementFontLoad = false;
-constexpr bool kAllowDeferredContentSupplementFontLoad = false;
+constexpr bool kAllowDeferredContentSupplementFontLoad = true;
 #else
 constexpr bool kAllowSynchronousContentSupplementFontLoad = true;
 constexpr bool kAllowDeferredContentSupplementFontLoad = true;

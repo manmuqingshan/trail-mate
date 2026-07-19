@@ -57,6 +57,26 @@
 
 > 不再进行协议预判，也不维护节点协议映射。
 
+### 业务状态统一边界
+
+“单协议运行”不表示每个协议可以各自拥有一套 UI 消息状态。
+
+MT / MC / RT adapter 只能把协议事实映射成 protocol-aware event：
+
+- message identity
+- queued / sending / sent / delivered / failed
+- failure kind
+- read/unread reference
+- retry eligibility
+
+这些事实必须进入共享的 `MessageLedger`、`ChatDeliveryEventProjector`、
+`ReadStateLedger` 和 conversation projection。UI 上的气泡状态 badge、
+conversation unread badge、发送失败反馈和 retry 动作都不得从协议 adapter
+私有状态直接推断。
+
+完整 owner 边界见
+`docs/specification/RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`。
+
 ---
 
 ## 4) Settings 规划
@@ -102,7 +122,7 @@ These settings write into the existing `AppConfig` / `MeshConfig` fields and use
 
 - Meshtastic：功能完整（含 NodeInfo、channel identity/config、plain MQTT client）
 - MeshCore：RAW_CUSTOM 文本收发闭环，channel slot/name/key 可在设备端配置，plain MQTT client 已有独立配置入口
-- Reticulum：作为独立协议运行，Settings 暴露 bearer/gateway/identity 配置
+- Reticulum：作为默认独立协议运行，Settings 暴露 bearer/gateway/identity 配置；产品 call path 只支持 Sideband-compatible LXST
 - BLE 手机桥：ESP Arduino 当前产品固件不编译、不启动、不在 Settings 中展示
 
 ---

@@ -197,6 +197,7 @@ ChatService::ChatService(ChatModel& model,
                          MeshProtocol active_protocol)
     : model_(model), adapter_(adapter), store_(store),
       message_ledger_(model, store),
+      read_state_ledger_(model, store),
       current_channel_(ChannelId::PRIMARY),
       active_protocol_(active_protocol)
 {
@@ -581,10 +582,9 @@ void ChatService::clearConversation(const ConversationId& conv)
     recent_incoming_.clear();
 }
 
-void ChatService::markConversationRead(const ConversationId& conv)
+bool ChatService::markConversationRead(const ConversationId& conv)
 {
-    model_.markRead(conv);
-    store_.setUnread(conv, 0);
+    return read_state_ledger_.markRead(conv, model_enabled_);
 }
 
 void ChatService::processIncoming()

@@ -11,6 +11,7 @@
 #include "../ports/i_mesh_adapter.h"
 #include "chat/delivery/chat_delivery_event_port.h"
 #include "chat/delivery/chat_message_ledger.h"
+#include "chat/read/chat_read_state_ledger.h"
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -100,7 +101,7 @@ class ChatService
      * @brief Mark conversation as read
      * @param conv Conversation ID
      */
-    void markConversationRead(const ConversationId& conv);
+    bool markConversationRead(const ConversationId& conv);
 
     /**
      * @brief Resend failed message
@@ -273,6 +274,7 @@ class ChatService
     IMeshAdapter& adapter_;
     IChatStore& store_;
     delivery::ChatMessageLedger message_ledger_;
+    read::ChatReadStateLedger read_state_ledger_;
     ChannelId current_channel_;
     bool model_enabled_ = true;
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;

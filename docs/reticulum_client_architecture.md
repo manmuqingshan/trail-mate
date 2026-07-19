@@ -2,6 +2,11 @@
 
 Status: accepted for implementation
 
+This document is a Reticulum-specific child of
+`docs/specification/RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`. If Reticulum
+implementation work conflicts with that ownership freeze, update the freeze
+and this document before changing code.
+
 ## Product boundary
 
 Trail Mate is a Reticulum client. It is not a general-purpose Reticulum
@@ -94,16 +99,20 @@ runtime.
 
 ## Projection contract
 
-Contacts contains identities that can represent a person in messaging or
-telephony. A record is eligible when it has a verified LXMF delivery destination
-or a verified LXST telephony destination that can be joined to an identity.
-Propagation nodes, Nomad/web services, unknown announces, gateways, interfaces,
-and path hops are excluded.
+Contacts contains identities that can represent a person in messaging. A record
+is eligible only after it has a valid LXMF address/person projection with a
+destination hash, identity hash, encryption public key, and signing public key.
+Favorites, manual imports, and ignored state are contact-book facts. Runtime
+announces may appear as nearby people, but propagation nodes, Nomad/web
+services, telephony services, unknown announces, gateways, interfaces, and path
+hops are excluded.
 
-Network contains Nomad/Micron service destinations and their path/service
-metadata. Propagation nodes are maintained by the propagation client and are
-not presented as contacts. Gateways and interfaces are connection diagnostics,
-not directory entries.
+Network contains non-contact Reticulum projections. `lxmf.propagation` is a
+message relay projection, `nomadnetwork.node` is a web/service projection,
+`lxst.telephony` and legacy `call.audio` are telephony-service projections, and
+unknown announces are diagnostics. PropagationClient may maintain relay metadata
+in the background; Contacts never reads raw announce records to recreate these
+items.
 
 ## LXST call state machine
 
@@ -166,6 +175,59 @@ buffer with underflow recovery and overflow accounting; capture cannot block
 speaker cadence. The platform audio adapter owns ES8311/I2S setup, microphone
 gain, speaker volume, and teardown.
 
+## Notification and audio design
+
+Notification is a product runtime, not a side effect of Chat UI or Contacts UI.
+Incoming messages, contact/person discovery notifications, and Settings tone
+preview all call the notification runtime. That runtime reads user policy
+(`chat_message_alerts`, `chat_contact_alerts`, vibration, tone volume) and
+emits tone/vibration intents to the platform audio owner.
+
+The platform audio owner is the only code allowed to open, configure, and close
+ES8311/I2S hardware. Call ring, call media playback, message tones, and preview
+tones may have different owners at the policy level, but they must rendezvous at
+the same audio adapter boundary. If call media is active, non-call notification
+audio must fail or defer explicitly instead of silently stealing the audio
+session.
+
+## LoRa TX scheduler design
+
+Meshtastic LoRa TX is a scheduler-owned resource. `sendText()`,
+`sendAppData()`, key verification, runtime protocol effects, ACK retry, and
+MQTT downlink relay enqueue work. The periodic adapter tick drains work through
+a single air-time budget and shared `min_tx_interval_ms_`.
+
+This means:
+
+- A public send API returning success means "accepted by the scheduler".
+- Radio transmission happens from the scheduler tick, never from UI/event/RX
+  hot paths.
+- MQTT downlink keeps gateway relay semantics, but `from + id + channel`
+  duplicate suppression and bounded queues protect the LoRa air and UI.
+- Queue-full, duty-cycle, radio-offline, and retry exhaustion are explicit
+  deferred/drop/failure reasons; they are not represented by frozen UI.
+
+## Reticulum adapter owner cleanup
+
+`LxmfAdapter` remains the product protocol facade, but it must not own every
+runtime fact itself. The following embedded Reticulum owners are mandatory:
+
+- `RuntimeBudget` owns call/nomad/sleep/saver/P4-screen runtime scheduling
+  policy.
+- `AnnounceScheduler` owns local announce pending, retry, interval, and
+  rebroadcast throttling.
+- `DeferredDiscoveryQueue` owns bounded public-discovery deferral,
+  packet-hash de-duplication, and drop-oldest accounting.
+- `RawRxTelemetry` owns RX summary counters and suppressed-detail log cadence.
+- `AdapterScratchBuffers` owns MTU-sized packet scratch storage.
+- `PeerDirectoryService` owns Reticulum peer directory persistence, hot-load,
+  and projection queueing; adapter only publishes the final projection event.
+
+Any future change that reintroduces these facts as ad-hoc fields in
+`LxmfAdapter` is a boundary violation. New link, path, propagation, ping,
+network-page, and call facts must move toward their existing owners rather than
+adding branches to the adapter.
+
 ## UI interruption contract
 
 The call experience is a page, not a modal. A global interruption navigator
@@ -203,7 +265,8 @@ bottom-aligned volume shortcuts. It does not own call or resource state.
 - Direct and propagation copies of one LXMF hash create one chat item and one
   unread transition across reboot.
 - Contacts excludes propagation, service, unknown, gateway, and interface
-  entries; Network exposes Nomad services.
+  entries; Network exposes relay, web/service, telephony-service, and unknown
+  diagnostic projections.
 - Message delivery status is proof/receipt-backed.
 - `LxmfAdapter` no longer owns the main Reticulum fact state and is reduced to a
   facade/coordinator shell.

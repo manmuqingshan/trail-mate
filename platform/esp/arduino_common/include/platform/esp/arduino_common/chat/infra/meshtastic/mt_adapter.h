@@ -63,7 +63,6 @@ class MtAdapter : public chat::IMeshAdapter
                      bool want_response = false) override;
     bool pollIncomingData(MeshIncomingData* out) override;
     bool requestNodeInfo(NodeId dest, bool want_response) override;
-    bool sendMeshPacket(const meshtastic_MeshPacket& packet);
     bool startKeyVerification(NodeId node_id) override;
     bool submitKeyVerificationNumber(NodeId node_id, uint64_t nonce, uint32_t number) override;
     bool isPkiReady() const override;
@@ -217,6 +216,8 @@ class MtAdapter : public chat::IMeshAdapter
 
     static constexpr std::size_t kIncomingQueueDepth = 12;
     static constexpr std::size_t kPendingSendQueueDepth = 8;
+    static constexpr uint8_t kSendQueueDrainPerTick = 1;
+    static constexpr uint8_t kLoRaAirTxBudgetPerTick = 1;
 
     sys::RingBuffer<PendingSend, kPendingSendQueueDepth> send_queue_;
     ::chat::infra::IncomingTextQueue<kIncomingQueueDepth> receive_queue_;
@@ -228,7 +229,6 @@ class MtAdapter : public chat::IMeshAdapter
     static constexpr std::size_t kMqttDownlinkWireMaxLen = 255;
     static constexpr std::size_t kPendingMqttDownlinkTxDepth = 8;
     static constexpr std::size_t kMqttDownlinkSeenDepth = 24;
-    static constexpr uint8_t kMqttDownlinkTxDrainPerTick = 1;
     static constexpr uint8_t kMqttDownlinkTxMaxRetries = 2;
     static constexpr uint32_t kMqttDownlinkSeenTtlMs = 300000;
 
@@ -343,6 +343,15 @@ class MtAdapter : public chat::IMeshAdapter
     size_t protocol_action_count_ = 0;
 
     bool sendPacket(const PendingSend& pending);
+    bool sendAppDataNow(ChannelId channel,
+                        uint32_t portnum,
+                        const uint8_t* payload,
+                        size_t len,
+                        NodeId dest,
+                        bool want_ack,
+                        MessageId packet_id,
+                        bool want_response);
+    bool sendMeshPacket(const meshtastic_MeshPacket& packet);
     bool sendNodeInfoTo(uint32_t dest, bool want_response,
                         ChannelId channel = ChannelId::PRIMARY);
     void maybeBroadcastNodeInfo(uint32_t now_ms);
@@ -362,7 +371,8 @@ class MtAdapter : public chat::IMeshAdapter
                                    meshtastic_Routing_Error reason);
     bool enqueueSendPacketAction(const runtime::SendPacketEffect& packet);
     bool popProtocolAction();
-    void processProtocolActionQueue(uint32_t now_ms);
+    bool processProtocolActionQueue(uint32_t now_ms,
+                                    uint8_t& tx_budget_remaining);
     bool executeProtocolAction(const PendingProtocolAction& action);
     bool resolvePskForChannelHash(uint8_t channel_hash,
                                   const uint8_t** out_psk,
@@ -384,7 +394,10 @@ class MtAdapter : public chat::IMeshAdapter
     void trackPendingAck(uint32_t msg_id, uint32_t dest, ChannelId channel, uint8_t channel_hash,
                          const uint8_t* wire_data, size_t wire_size);
     void clearPendingAck(uint32_t msg_id);
-    void retryPendingAck(uint32_t msg_id, PendingAckSlot& slot);
+    bool retryPendingAck(uint32_t msg_id,
+                         PendingAckSlot& slot,
+                         uint32_t now_ms,
+                         uint8_t& tx_budget_remaining);
     bool initPkiKeys();
     void loadPkiNodeKeys();
     void savePkiNodeKey(uint32_t node_id, const uint8_t* key, size_t key_len);
@@ -469,7 +482,8 @@ class MtAdapter : public chat::IMeshAdapter
                                   MessageId msg_id,
                                   uint8_t channel_hash,
                                   uint32_t now_ms);
-    void processMqttDownlinkTxQueue(uint32_t now_ms);
+    bool processMqttDownlinkTxQueue(uint32_t now_ms,
+                                    uint8_t& tx_budget_remaining);
     bool queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
                                const char* channel_id);
     bool queueMqttProxyPublishFromWire(const uint8_t* wire_data,

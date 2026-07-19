@@ -12,6 +12,11 @@ UI refresh belongs to the controller.
 
 The controller must not own runtime event projection or runtime scheduling.
 
+The event pump is a router, not a business-state owner. Message delivery,
+read/unread, retry, and protocol identity ownership is frozen by
+`RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`; this pump must route events into those
+owners and notify UI refresh sinks from their projections.
+
 ## Types
 
 ### `IChatUiRefreshSink`
@@ -91,12 +96,16 @@ event-driven delivery feedback mechanism in
 
 ### `ChatNewMessageEvent`
 
-1. Chat service already owns message storage.
-2. `ChatPageRuntimeEventPump` calls `IChatUiRefreshSink::onRuntimeMessageArrived(...)`.
+1. The message has already entered the message owner path.
+2. Read/unread changes, if any, are produced by the read-state owner path.
+3. `ChatPageRuntimeEventPump` calls `IChatUiRefreshSink::onRuntimeMessageArrived(...)`.
 
 ### `ChatUnreadChangedEvent`
 
-1. `ChatPageRuntimeEventPump` calls `IChatUiRefreshSink::onRuntimeUnreadChanged()`.
+1. `ReadStateLedger` / projection state has changed.
+2. `ChatPageRuntimeEventPump` calls `IChatUiRefreshSink::onRuntimeUnreadChanged()`.
+
+The pump must not clear badges or mutate unread counters directly.
 
 ### Key Verification Events
 

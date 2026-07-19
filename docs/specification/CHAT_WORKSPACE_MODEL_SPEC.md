@@ -21,6 +21,7 @@ It does not own:
 - ACK tracker
 - retry state
 - failure inference
+- read/unread ledger
 
 ## Pattern
 
@@ -54,6 +55,46 @@ ChatWorkspaceModel::markRead(id)
 ```
 
 The model forwards actions to `IChatActionSink`.
+
+## Read State Authority
+
+`ChatWorkspaceModel::markRead(id)` is a UI intent. It is not the authoritative
+read-state mutation.
+
+The authoritative read/unread owner is `ReadStateLedger`, as frozen by
+`RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`.
+
+Required flow:
+
+```text
+Renderer
+    -> ChatWorkspaceModel::markRead(...)
+    -> IChatActionSink
+    -> app/runtime read command
+    -> ReadStateLedger commit or pending result
+    -> ConversationProjectionStore / ChatPresentationSource
+    -> unread badge projection
+```
+
+The workspace model may optimistically keep local selection and offsets, but it
+must not claim durable read success. Conversation index entries, SD file
+headers, unread counters, and app badges are projections of the ledger. They
+may cache or mirror read state, but they must be rebuildable from
+`MessageLedger + ReadStateLedger`.
+
+Renderers must not hide an unread badge as the source of truth. They may only
+show the projection returned by `IChatPresentationSource`, or a clearly pending
+state produced by the read command path.
+
+Mark-read failure semantics must stay explicit:
+
+- committed: projection may clear the unread badge.
+- pending: projection may show a temporary pending read state.
+- failed: projection must not pretend the conversation is read.
+
+This rule applies equally to Meshtastic, MeshCore, and Reticulum conversations.
+The read reference must preserve protocol identity; a bare message id or peer id
+is not a valid cross-protocol read key.
 
 ## Protocol Send Eligibility
 

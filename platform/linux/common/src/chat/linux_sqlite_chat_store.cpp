@@ -924,14 +924,14 @@ std::vector<::chat::ConversationMeta> LinuxSqliteChatStore::loadConversationPage
     return list;
 }
 
-void LinuxSqliteChatStore::setUnread(const ::chat::ConversationId& conv,
+bool LinuxSqliteChatStore::setUnread(const ::chat::ConversationId& conv,
                                      int unread)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     DatabaseHandle handle;
     if (!handle)
     {
-        return;
+        return false;
     }
 
     sqlite3_stmt* stmt = nullptr;
@@ -942,13 +942,15 @@ void LinuxSqliteChatStore::setUnread(const ::chat::ConversationId& conv,
         "ON CONFLICT(protocol, channel, peer, reticulum_destination_key) "
         "DO UPDATE SET "
         "unread=excluded.unread;";
+    bool ok = false;
     if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK)
     {
-        (void)(bindUnreadConversation(stmt, 1, conv) &&
-               sqlite3_bind_int(stmt, 5, std::max(0, unread)) == SQLITE_OK &&
-               sqlite3_step(stmt) == SQLITE_DONE);
+        ok = bindUnreadConversation(stmt, 1, conv) &&
+             sqlite3_bind_int(stmt, 5, std::max(0, unread)) == SQLITE_OK &&
+             sqlite3_step(stmt) == SQLITE_DONE;
     }
     sqlite3_finalize(stmt);
+    return ok;
 }
 
 int LinuxSqliteChatStore::getUnread(

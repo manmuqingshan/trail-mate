@@ -355,4 +355,92 @@ PeerDirectoryLoadRecentResult PeerDirectoryService::loadRecent(
     return result;
 }
 
+PeerDirectoryLoadRecentResult PeerDirectoryService::loadRecentAndQueue(
+    DestinationRegistry& registry,
+    uint32_t now_s)
+{
+    std::array<NodeId, kHotLoadRecords> loaded_nodes = {};
+    PeerDirectoryLoadRecentResult result = loadRecent(registry,
+                                                      hot_load_records_.data(),
+                                                      hot_load_records_.size(),
+                                                      loaded_nodes.data(),
+                                                      loaded_nodes.size(),
+                                                      now_s);
+    if (!result.status.succeeded())
+    {
+        return result;
+    }
+
+    const std::size_t queued_count =
+        result.loaded < loaded_nodes.size() ? result.loaded : loaded_nodes.size();
+    for (std::size_t index = 0; index < queued_count; ++index)
+    {
+        const PeerInfo* peer = registry.findByNodeId(loaded_nodes[index]);
+        if (peer)
+        {
+            queuePeerUpdate(*peer);
+        }
+    }
+    return result;
+}
+
+void PeerDirectoryService::queuePeerUpdate(const PeerInfo& peer)
+{
+    if (peer.node_id == 0)
+    {
+        return;
+    }
+
+    for (std::size_t index = 0; index < pending_projection_count_; ++index)
+    {
+        if (pending_projection_nodes_[index] == peer.node_id)
+        {
+            return;
+        }
+    }
+
+    if (pending_projection_count_ >= pending_projection_nodes_.size())
+    {
+        return;
+    }
+
+    pending_projection_nodes_[pending_projection_count_] = peer.node_id;
+    ++pending_projection_count_;
+}
+
+void PeerDirectoryService::pumpQueuedPeerUpdates(DestinationRegistry& registry,
+                                                 IPeerProjectionSink& sink,
+                                                 uint32_t now_ms,
+                                                 bool maintenance_window,
+                                                 uint32_t sleep_interval_ms,
+                                                 uint32_t screen_interval_ms)
+{
+    if (pending_projection_count_ == 0)
+    {
+        return;
+    }
+
+    const uint32_t interval_ms =
+        maintenance_window ? sleep_interval_ms : screen_interval_ms;
+    if (last_projection_ms_ != 0 &&
+        (now_ms - last_projection_ms_) < interval_ms)
+    {
+        return;
+    }
+
+    const NodeId node_id = pending_projection_nodes_[0];
+    for (std::size_t index = 1; index < pending_projection_count_; ++index)
+    {
+        pending_projection_nodes_[index - 1U] = pending_projection_nodes_[index];
+    }
+    --pending_projection_count_;
+    last_projection_ms_ = now_ms;
+
+    const PeerInfo* peer = registry.findByNodeId(node_id);
+    if (peer)
+    {
+        sink.publishPeerUpdate(*peer);
+    }
+}
+
 } // namespace chat::lxmf::runtime

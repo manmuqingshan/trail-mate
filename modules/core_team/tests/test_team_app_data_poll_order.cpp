@@ -98,7 +98,7 @@ class FakeChatStore final : public chat::IChatStore
         }
         return {};
     }
-    void setUnread(const chat::ConversationId&, int) override {}
+    bool setUnread(const chat::ConversationId&, int) override { return true; }
     int getUnread(const chat::ConversationId&) const override { return 0; }
     void clearConversation(const chat::ConversationId&) override {}
     void clearAll() override {}

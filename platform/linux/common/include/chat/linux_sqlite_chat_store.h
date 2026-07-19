@@ -27,7 +27,7 @@ class LinuxSqliteChatStore final : public ::chat::IChatStore
         std::size_t offset,
         std::size_t limit,
         std::size_t* total) override;
-    void setUnread(const ::chat::ConversationId& conv, int unread) override;
+    bool setUnread(const ::chat::ConversationId& conv, int unread) override;
     int getUnread(const ::chat::ConversationId& conv) const override;
     void clearConversation(const ::chat::ConversationId& conv) override;
     void clearAll() override;

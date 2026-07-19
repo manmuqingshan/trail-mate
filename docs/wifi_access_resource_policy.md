@@ -5,6 +5,11 @@ Trail Mate devices. It prevents HTTP downloads, MQTT, Reticulum Wi-Fi gateway,
 OTA, SD writes, and UI wake rendering from competing as independent owners of
 the same small device resources.
 
+Runtime ownership rules for calls, protocol traffic, audio, font loading, and
+UI projection are frozen by
+`docs/specification/RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`. This Wi-Fi policy is
+the resource-specific child contract for the Wi-Fi owner.
+
 ## Distinctions
 
 - `platform::ui::wifi` is the Wi-Fi control plane. It owns STA configuration,

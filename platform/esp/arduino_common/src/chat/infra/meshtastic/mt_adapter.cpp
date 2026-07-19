@@ -465,6 +465,40 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         return false;
     }
 
+    runtime::SendPacketEffect packet{};
+    packet.protocol = MeshProtocol::Meshtastic;
+    packet.channel = channel;
+    packet.dest = dest;
+    packet.portnum = portnum;
+    packet.request_id = (packet_id != 0) ? packet_id : next_packet_id_++;
+    if (packet_id != 0 && packet_id >= next_packet_id_)
+    {
+        next_packet_id_ = packet_id + 1;
+        if (next_packet_id_ == 0)
+        {
+            next_packet_id_ = 1;
+        }
+    }
+    packet.want_ack = want_ack;
+    packet.want_response = want_response;
+    if (!packet.payload.assign(payload, len))
+    {
+        return false;
+    }
+    return enqueueSendPacketAction(packet);
+}
+
+bool MtAdapter::sendAppDataNow(ChannelId channel, uint32_t portnum,
+                               const uint8_t* payload, size_t len,
+                               NodeId dest, bool want_ack,
+                               MessageId packet_id,
+                               bool want_response)
+{
+    if (!ready_ || !config_.tx_enabled)
+    {
+        return false;
+    }
+
     uint32_t now_ms = millis();
     if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
         (now_ms - last_tx_ms_) < min_tx_interval_ms_)
@@ -2685,9 +2719,11 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 void MtAdapter::processSendQueue()
 {
     uint32_t now = millis();
+    uint8_t tx_budget_remaining = kLoRaAirTxBudgetPerTick;
 
     maybeBroadcastNodeInfo(now);
-    processProtocolActionQueue(now);
+    const bool protocol_tx_queued =
+        processProtocolActionQueue(now, tx_budget_remaining);
 
     for (std::size_t index = 0; index < pending_ack_states_.capacity();)
     {
@@ -2704,7 +2740,11 @@ void MtAdapter::processSendQueue()
         {
             if (pending.retransmit_count < MAX_ACK_RETRIES)
             {
-                retryPendingAck(msg_id, *slot);
+                if (retryPendingAck(msg_id, *slot, now, tx_budget_remaining))
+                {
+                    ++index;
+                    continue;
+                }
                 ++index;
                 continue;
             }
@@ -2732,12 +2772,15 @@ void MtAdapter::processSendQueue()
         ++index;
     }
 
-    if (!send_queue_.empty())
+    if (!send_queue_.empty() && tx_budget_remaining > 0)
     {
         LORA_LOG("[LORA] TX queue pending=%u\n", (unsigned)send_queue_.size());
     }
 
-    while (!send_queue_.empty())
+    uint8_t drained = 0;
+    while (!send_queue_.empty() &&
+           drained < kSendQueueDrainPerTick &&
+           tx_budget_remaining > 0)
     {
         PendingSend* pending = send_queue_.get(0);
         if (!pending)
@@ -2762,8 +2805,10 @@ void MtAdapter::processSendQueue()
         {
             // Success, remove from queue
             last_tx_ms_ = now;
+            --tx_budget_remaining;
             PendingSend discarded{};
             send_queue_.popOldest(&discarded);
+            ++drained;
         }
         else
         {
@@ -2795,14 +2840,25 @@ void MtAdapter::processSendQueue()
         }
     }
 
-    processMqttDownlinkTxQueue(now);
+    const bool downlink_tx_queued =
+        processMqttDownlinkTxQueue(now, tx_budget_remaining);
+    if (protocol_tx_queued || downlink_tx_queued)
+    {
+        LORA_LOG("[LORA] airtime tick_budget protocol=%u downlink=%u remaining=%u\n",
+                 protocol_tx_queued ? 1U : 0U,
+                 downlink_tx_queued ? 1U : 0U,
+                 static_cast<unsigned>(tx_budget_remaining));
+    }
 }
 
-void MtAdapter::processMqttDownlinkTxQueue(uint32_t now_ms)
+bool MtAdapter::processMqttDownlinkTxQueue(uint32_t now_ms,
+                                           uint8_t& tx_budget_remaining)
 {
+    bool tx_queued = false;
     uint8_t drained = 0;
     while (!mqtt_downlink_tx_queue_.empty() &&
-           drained < kMqttDownlinkTxDrainPerTick)
+           drained < kSendQueueDrainPerTick &&
+           tx_budget_remaining > 0)
     {
         PendingMqttDownlinkTx* pending = mqtt_downlink_tx_queue_.get(0);
         if (!pending)
@@ -2842,6 +2898,8 @@ void MtAdapter::processMqttDownlinkTxQueue(uint32_t now_ms)
         if (transmitWirePacket(pending->wire.data(), pending->wire_size))
         {
             last_tx_ms_ = now_ms;
+            --tx_budget_remaining;
+            tx_queued = true;
             LORA_LOG("[MQTT][DownlinkTX] sent_to_radio from=%08lX to=%08lX id=%08lX ch=0x%02X len=%u retries=%u age_ms=%lu depth=%u\n",
                      static_cast<unsigned long>(pending->from),
                      static_cast<unsigned long>(pending->to),
@@ -2884,6 +2942,7 @@ void MtAdapter::processMqttDownlinkTxQueue(uint32_t now_ms)
                  static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
         break;
     }
+    return tx_queued;
 }
 
 bool MtAdapter::sendPacket(const PendingSend& pending)
@@ -3562,10 +3621,14 @@ bool MtAdapter::executeProtocolAction(const PendingProtocolAction& action)
     }
 }
 
-void MtAdapter::processProtocolActionQueue(uint32_t now_ms)
+bool MtAdapter::processProtocolActionQueue(uint32_t now_ms,
+                                           uint8_t& tx_budget_remaining)
 {
+    bool tx_queued = false;
     size_t processed = 0;
-    while (protocol_action_count_ > 0 && processed < protocol_action_queue_.size())
+    while (protocol_action_count_ > 0 &&
+           processed < protocol_action_queue_.size() &&
+           tx_budget_remaining > 0)
     {
         PendingProtocolAction& action = protocol_action_queue_[protocol_action_head_];
         if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
@@ -3584,6 +3647,8 @@ void MtAdapter::processProtocolActionQueue(uint32_t now_ms)
                 setNodeInfoReplyMs(action.peer, action.nodeinfo_reply_ms);
             }
             last_tx_ms_ = now_ms;
+            --tx_budget_remaining;
+            tx_queued = true;
             popProtocolAction();
         }
         else
@@ -3602,6 +3667,7 @@ void MtAdapter::processProtocolActionQueue(uint32_t now_ms)
         }
         ++processed;
     }
+    return tx_queued;
 }
 
 bool MtAdapter::sendChannelAppDataViaCore(uint32_t portnum,
@@ -3713,10 +3779,22 @@ void MtAdapter::clearPendingAck(uint32_t msg_id)
     pending_ack_states_.erase(msg_id);
 }
 
-void MtAdapter::retryPendingAck(uint32_t msg_id, PendingAckSlot& slot)
+bool MtAdapter::retryPendingAck(uint32_t msg_id,
+                                PendingAckSlot& slot,
+                                uint32_t now_ms,
+                                uint8_t& tx_budget_remaining)
 {
+    if (tx_budget_remaining == 0)
+    {
+        return false;
+    }
+    if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
+        (now_ms - last_tx_ms_) < min_tx_interval_ms_)
+    {
+        return false;
+    }
     PendingAckState& pending = slot.meta;
-    pending.last_attempt_ms = millis();
+    pending.last_attempt_ms = now_ms;
     ++pending.retransmit_count;
     mt_diag_log("[MT][RETX] req=%08lX dest=%08lX try=%u len=%u\n",
                 static_cast<unsigned long>(msg_id),
@@ -3731,11 +3809,13 @@ void MtAdapter::retryPendingAck(uint32_t msg_id, PendingAckSlot& slot)
     if (transmitWirePacket(slot.wire.data(), slot.wire_size))
     {
         last_tx_ms_ = pending.last_attempt_ms;
-        return;
+        --tx_budget_remaining;
+        return true;
     }
     LORA_LOG("[LORA] TX retry immediate fail req=%08lX try=%u\n",
              static_cast<unsigned long>(msg_id),
              static_cast<unsigned>(pending.retransmit_count));
+    return false;
 }
 
 bool MtAdapter::initPkiKeys()
@@ -4594,41 +4674,19 @@ bool MtAdapter::sendKeyVerificationPacket(uint32_t dest, const meshtastic_KeyVer
         return false;
     }
 
-    auto& tx = tx_scratch_;
-    auto& data_buf = tx.data;
-    auto& pki_buf = tx.pki;
-    auto& wire_buffer = tx.wire;
-    size_t data_size = data_buf.size();
-    if (!encodeAppData(meshtastic_PortNum_KEY_VERIFICATION_APP,
-                       kv_buf, kv_stream.bytes_written,
-                       want_response, data_buf.data(), &data_size))
+    runtime::SendPacketEffect packet{};
+    packet.protocol = MeshProtocol::Meshtastic;
+    packet.channel = ChannelId::PRIMARY;
+    packet.dest = dest;
+    packet.portnum = meshtastic_PortNum_KEY_VERIFICATION_APP;
+    packet.request_id = next_packet_id_++;
+    packet.want_ack = false;
+    packet.want_response = want_response;
+    if (!packet.payload.assign(kv_buf, kv_stream.bytes_written))
     {
         return false;
     }
-
-    size_t pki_len = pki_buf.size();
-    MessageId msg_id = next_packet_id_++;
-    if (!encryptPkiPayload(dest, msg_id, data_buf.data(), data_size, pki_buf.data(), &pki_len))
-    {
-        return false;
-    }
-
-    size_t wire_size = wire_buffer.size();
-    uint8_t hop_limit = config_.hop_limit;
-    uint8_t channel_hash = 0;
-    bool want_ack = false;
-    if (!buildWirePacket(pki_buf.data(), pki_len, node_id_, msg_id,
-                         dest, channel_hash, hop_limit, want_ack,
-                         nullptr, 0, wire_buffer.data(), &wire_size))
-    {
-        return false;
-    }
-
-    if (transmitWirePacket(wire_buffer.data(), wire_size))
-    {
-        return true;
-    }
-    return false;
+    return enqueueSendPacketAction(packet);
 }
 
 bool MtAdapter::sendRoutingAck(uint32_t dest, uint32_t request_id, uint8_t channel_hash,
@@ -4846,14 +4904,14 @@ bool MtAdapter::sendProtocolPacketEffect(const runtime::SendPacketEffect& packet
     const size_t payload_len = packet.payload.size();
     if (packet.response_request_id == 0)
     {
-        return sendAppData(packet.channel,
-                           packet.portnum,
-                           payload,
-                           payload_len,
-                           packet.dest,
-                           packet.want_ack,
-                           packet.request_id,
-                           packet.want_response);
+        return sendAppDataNow(packet.channel,
+                              packet.portnum,
+                              payload,
+                              payload_len,
+                              packet.dest,
+                              packet.want_ack,
+                              packet.request_id,
+                              packet.want_response);
     }
 
     auto& mesh_packet = protocol_effect_packet_scratch_;

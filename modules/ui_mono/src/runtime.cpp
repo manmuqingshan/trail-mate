@@ -5362,7 +5362,7 @@ void Runtime::enterPage(Page page)
     {
         if (app())
         {
-            app()->getChatService().markConversationRead(active_conversation_);
+            (void)app()->getChatService().markConversationRead(active_conversation_);
         }
         rebuildMessages();
         message_focus_started_ms_ = nowMs();

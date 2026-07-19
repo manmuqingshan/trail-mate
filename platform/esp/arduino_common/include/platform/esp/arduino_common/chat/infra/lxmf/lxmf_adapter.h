@@ -10,7 +10,10 @@
 #include "chat/infra/mesh_incoming_queue.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/ports/i_mesh_peer_directory.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_adapter_scratch.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_announce_ingestor.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_announce_scheduler.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_deferred_discovery_queue.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_attempt_ledger.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_notifier.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_planner.h"
@@ -25,10 +28,11 @@
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_ping_service.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_client.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_propagation_stamp_runtime.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_budget.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_runtime_state.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_rx_telemetry.h"
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_interfaces.h"
 #include "platform/ui/reticulum_page_runtime.h"
-#include "sys/ringbuf.h"
 
 #include <array>
 #include <cstddef>
@@ -37,7 +41,7 @@
 namespace chat::lxmf
 {
 
-class LxmfAdapter : public IMeshAdapter
+class LxmfAdapter : public IMeshAdapter, private runtime::IPeerProjectionSink
 {
   public:
     explicit LxmfAdapter(LoraBoard& board,
@@ -110,6 +114,7 @@ class LxmfAdapter : public IMeshAdapter
     using PendingPropagationUpload = runtime::PendingPropagationUpload;
     using PropagationSyncStage = runtime::PropagationSyncStage;
     using PendingNomadPageRequest = runtime::PendingNomadPageRequest;
+    using RuntimeBudget = runtime::RuntimeBudget;
 
     static bool resolveLocalDestinationForAnnounce(
         void* context,
@@ -126,39 +131,11 @@ class LxmfAdapter : public IMeshAdapter
     static constexpr uint32_t kAnnounceRebroadcastIntervalMs = 60000;
     static constexpr uint32_t kPeerProjectionScreenIntervalMs = 2000;
     static constexpr uint32_t kPeerProjectionSleepIntervalMs = 250;
-    static constexpr std::size_t kPendingPeerProjectionDepth = 24;
-    static constexpr std::size_t kDeferredDiscoveryDepth = 8;
-    static constexpr std::size_t kPeerDirectoryHotLoadRecords = 64;
     static constexpr std::size_t kMaxPendingPingRequests = 4;
     static constexpr std::size_t kMaxPendingNomadPageRequests = 4;
     static constexpr std::size_t kNomadPagePathMaxLen = 64;
     static constexpr uint32_t kNomadPageRequestTtlMs = 90000;
     static constexpr uint32_t kNomadPageSendRetryMs = 1500;
-
-    struct RuntimeBudget
-    {
-        uint8_t live_packet_limit = 1;
-        uint8_t deferred_discovery_limit = 0;
-        bool allow_public_discovery = false;
-        bool allow_persistence = false;
-        bool allow_peer_projection = false;
-        bool allow_announce_tx = true;
-        bool allow_propagation_client = false;
-        bool drop_public_discovery = false;
-        const char* phase = "screen";
-    };
-
-    struct DeferredDiscoveryPacket
-    {
-        uint8_t data[reticulum::kReticulumMtu] = {};
-        size_t len = 0;
-        RxMeta rx_meta{};
-        reticulum::interfaces::InterfaceKind interface_kind =
-            reticulum::interfaces::InterfaceKind::LoRa;
-        reticulum::interfaces::InterfaceId interface_id =
-            reticulum::interfaces::kInvalidInterfaceId;
-        uint8_t packet_hash[reticulum::kFullHashSize] = {};
-    };
 
     struct OutboundLxmfDispatch
     {
@@ -172,12 +149,8 @@ class LxmfAdapter : public IMeshAdapter
 
     reticulum::interfaces::ReticulumInterfaceSet interfaces_;
     uint32_t network_config_generation_ = 0;
-    reticulum::interfaces::RxPacket rx_packet_scratch_{};
-    uint8_t announce_tx_signed_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t announce_tx_payload_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t announce_tx_packet_scratch_[reticulum::kReticulumMtu] = {};
-    sys::RingBuffer<DeferredDiscoveryPacket, kDeferredDiscoveryDepth> deferred_discovery_queue_;
-    DeferredDiscoveryPacket deferred_discovery_scratch_{};
+    runtime::AdapterScratchBuffers scratch_{};
+    runtime::DeferredDiscoveryQueue deferred_discovery_;
     LxmfIdentity identity_;
     MeshConfig config_{};
     static constexpr std::size_t kIncomingQueueDepth = 12;
@@ -197,46 +170,10 @@ class LxmfAdapter : public IMeshAdapter
     runtime::LxmfDeliveryNotifier delivery_notifier_;
     std::string user_long_name_;
     std::string user_short_name_;
-    uint32_t last_announce_ms_ = 0;
-    uint32_t last_announce_attempt_ms_ = 0;
-    uint32_t last_lora_discovery_sample_ms_ = 0;
-    uint32_t last_wifi_discovery_sample_ms_ = 0;
-    uint32_t last_rx_summary_ms_ = 0;
-    uint32_t last_announce_rebroadcast_ms_ = 0;
-    uint32_t rx_summary_packets_ = 0;
-    uint32_t rx_summary_wifi_skipped_ = 0;
-    uint32_t rx_summary_duplicates_ = 0;
-    uint32_t rx_summary_parse_failed_ = 0;
-    uint32_t rx_summary_deferred_ = 0;
-    uint32_t rx_summary_deferred_dropped_ = 0;
-    uint32_t rx_summary_throttled_discovery_ = 0;
-    uint32_t last_lora_discovery_detail_log_ms_ = 0;
-    uint32_t suppressed_lora_discovery_detail_logs_ = 0;
-    uint32_t last_lora_announce_ignore_log_ms_ = 0;
-    uint32_t suppressed_lora_announce_ignore_logs_ = 0;
-    std::array<NodeId, kPendingPeerProjectionDepth> pending_peer_projection_nodes_{};
-    std::size_t pending_peer_projection_count_ = 0;
-    std::array<MeshPeerRecord, kPeerDirectoryHotLoadRecords> peer_directory_load_entries_{};
-    uint8_t nomad_page_request_payload_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t nomad_page_wire_payload_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t nomad_page_packet_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t link_request_payload_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t link_request_packet_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t link_request_routed_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t path_request_packet_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t proof_packet_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t routed_packet_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t forward_packet_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t lxmf_tx_packet_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t encrypted_payload_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t link_wire_payload_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t link_packet_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t resource_advertisement_scratch_[reticulum::kReticulumMtu] = {};
-    uint8_t resource_hashmap_update_scratch_[reticulum::kReticulumMtu] = {};
+    runtime::AnnounceScheduler announce_scheduler_;
+    runtime::RawRxTelemetry rx_telemetry_;
     std::size_t link_request_packet_len_ = 0;
-    uint32_t last_peer_projection_ms_ = 0;
     uint32_t next_app_packet_id_ = 1;
-    bool announce_pending_ = true;
     bool peers_loaded_ = false;
     RxMeta active_rx_meta_{};
     bool has_active_rx_meta_ = false;
@@ -390,9 +327,8 @@ class LxmfAdapter : public IMeshAdapter
                                bool favorite) const;
     PeerInfo* rememberPeerIdentity(const uint8_t combined_pub[reticulum::kCombinedPublicKeySize],
                                    const char* display_name = nullptr);
-    void queuePeerUpdate(const PeerInfo& peer);
     void pumpPendingPeerUpdates();
-    void publishPeerUpdate(const PeerInfo& peer) const;
+    void publishPeerUpdate(const PeerInfo& peer) override;
     void loadPersistedPeers();
     void loadDirectoryPeers();
     uint32_t currentTimestampSeconds() const;

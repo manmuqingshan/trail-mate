@@ -54,8 +54,10 @@ Trail Mate's Reticulum UI projections follow client-facing object semantics:
   name are both valid. Current upstream LXMF arrays may contain additional
   fields such as stamp cost and supported functionality; supported parsers must
   ignore trailing fields they do not need.
-- Network consumes `nomadnetwork.node` announces as Nomad nodes. Their display
-  name is decoded from text app data and is separate from LXMF peer naming.
+- Network consumes non-contact Reticulum announces. `nomadnetwork.node`
+  announces are web/service nodes, `lxmf.propagation` announces are message
+  relays, `lxst.telephony` and legacy `call.audio` announces are telephony
+  services, and unknown announces are diagnostics. These are not Contacts rows.
 - A verified `lxst.telephony` destination may enrich a person already joined by
   identity; it does not create a service-shaped contact by itself.
 - `lxmf.propagation`, legacy `call.audio`, and unknown announces may be stored
@@ -147,6 +149,71 @@ scroll position across timer refreshes. Data snapshots may contain more records
 than the visible UI window, preferably in PSRAM-backed storage when available.
 Reticulum Contacts search may stream over the SD address book, but the UI must
 still cap the number of projected rows.
+
+## LoRa TX Scheduler Budget
+
+LoRa TX is an air-time budgeted runtime resource. It is not safe for UI,
+event-bus, BLE/phone facade, MQTT RX, key-verification RX, or application action
+paths to synchronously push arbitrary packets to the radio.
+
+Required scheduler model:
+
+- Public adapter APIs such as `sendText()` and `sendAppData()` enqueue work and
+  return whether the work was accepted by the scheduler.
+- Runtime protocol effects, key verification replies, routing replies, ACK
+  retry, and MQTT downlink relay enqueue into bounded queues.
+- One periodic adapter tick owns the air-time budget. The tick drains protocol
+  actions, ACK retry, ordinary sends, and MQTT downlink under the same
+  `kLoRaAirTxBudgetPerTick`.
+- `min_tx_interval_ms_` is global across those TX owners. A recent TX from one
+  owner defers every other owner.
+- MQTT downlink relay must keep official gateway behavior, but must deduplicate
+  by `from + id + channel`, bound queue depth, bound per-tick drain, and report
+  full/deferred/drop reasons.
+- UI projections may show queued/deferred/failed states, but UI must not block
+  waiting for the radio task or retry loop.
+
+Forbidden scheduler shapes:
+
+- `injectMqttEnvelope()` or MQTT RX hot path calling `transmitWirePacket()`.
+- `sendAppData()` directly calling `transmitWirePacket()` as the normal public
+  path.
+- Key verification RX handlers synchronously transmitting replies.
+- Separate local drain counters that allow protocol actions, app sends, ACK
+  retry, and MQTT downlink each to consume a full TX slot in the same tick.
+
+## Reticulum Runtime Owner Budget
+
+The embedded Reticulum adapter is allowed to coordinate owners, but it must not
+re-own runtime state that already has a policy owner:
+
+- `RuntimeBudget` owns phase-to-budget decisions.
+- `AnnounceScheduler` owns announce pending/retry/rebroadcast cadence.
+- `DeferredDiscoveryQueue` owns bounded public discovery deferral.
+- `RawRxTelemetry` owns RX summary and suppression counters.
+- `AdapterScratchBuffers` owns long-lived MTU packet scratch.
+- `PeerDirectoryService` owns Reticulum peer hot-load and projection queueing.
+
+This keeps UI responsiveness and packet fairness reviewable: budget decisions,
+queue pressure, telemetry counters, and projection backpressure can each be
+tested without reading the whole adapter.
+
+## Notification / Audio Budget
+
+Notification is a product policy runtime. Chat, Contacts, Settings, and Team
+events may request feedback, but they must not directly own the speaker or
+vibrator.
+
+Required model:
+
+- Message notifications, contact/person notifications, and Settings tone
+  preview call Notification runtime.
+- Notification runtime reads user policy and emits tone/vibration intent.
+- Platform audio adapter owns the ES8311/I2S speaker and microphone session.
+- Call ring and call media have realtime priority. Non-call notification audio
+  must not steal an active call audio session.
+- If an audio owner cannot play, it must expose a failure/deferred result or log
+  from the owner boundary.
 
 ## Regression Checks
 

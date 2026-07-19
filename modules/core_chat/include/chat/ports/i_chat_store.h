@@ -102,7 +102,7 @@ class IChatStore
      * @param conv Conversation ID
      * @param unread Unread count
      */
-    virtual void setUnread(const ConversationId& conv, int unread) = 0;
+    virtual bool setUnread(const ConversationId& conv, int unread) = 0;
 
     /**
      * @brief Get unread count for conversation

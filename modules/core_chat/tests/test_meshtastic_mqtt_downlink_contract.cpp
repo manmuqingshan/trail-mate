@@ -59,7 +59,11 @@ int main(int argc, char** argv)
     assert(contains(header, "struct MqttDownlinkSeenEntry"));
     assert(contains(header, "mqtt_downlink_tx_queue_"));
     assert(contains(header, "mqtt_downlink_seen_"));
-    assert(contains(header, "kMqttDownlinkTxDrainPerTick"));
+    assert(contains(header, "kSendQueueDrainPerTick"));
+    assert(contains(header, "kLoRaAirTxBudgetPerTick"));
+    assert(contains(header, "bool processProtocolActionQueue(uint32_t now_ms,"));
+    assert(contains(header, "bool processMqttDownlinkTxQueue(uint32_t now_ms,"));
+    assert(contains(header, "uint8_t& tx_budget_remaining"));
 
     const std::size_t inject_begin =
         positionOf(source, "bool MtAdapter::injectMqttEnvelope");
@@ -75,15 +79,45 @@ int main(int argc, char** argv)
 
     const std::size_t process_send_begin =
         positionOf(source, "void MtAdapter::processSendQueue()");
-    const std::size_t process_mqtt_begin =
-        positionOfAfter(source, "void MtAdapter::processMqttDownlinkTxQueue", process_send_begin);
-    assert(positionOfAfter(source, "processMqttDownlinkTxQueue(now);", process_send_begin) <
+    const std::size_t process_mqtt_begin = positionOfAfter(
+        source, "bool MtAdapter::processMqttDownlinkTxQueue", process_send_begin);
+    assert(positionOfAfter(source,
+                           "uint8_t tx_budget_remaining = kLoRaAirTxBudgetPerTick;",
+                           process_send_begin) < process_mqtt_begin);
+    assert(positionOfAfter(source,
+                           "processProtocolActionQueue(now, tx_budget_remaining);",
+                           process_send_begin) < process_mqtt_begin);
+    assert(positionOfAfter(source, "drained < kSendQueueDrainPerTick", process_send_begin) <
            process_mqtt_begin);
-    assert(contains(source, "drained < kMqttDownlinkTxDrainPerTick"));
+    assert(positionOfAfter(source,
+                           "processMqttDownlinkTxQueue(now, tx_budget_remaining);",
+                           process_send_begin) < process_mqtt_begin);
+    assert(contains(source, "tx_budget_remaining > 0"));
+    assert(contains(source, "--tx_budget_remaining;"));
     assert(contains(source, "isMqttDownlinkRecentlySeen(header.from, header.id, header.channel"));
     assert(contains(source, "reason=pending_queue_full"));
     assert(contains(source, "reason=airtime_budget"));
     assert(contains(source, "\"radio_queue_full\""));
+
+    const std::size_t public_app_data =
+        positionOf(source, "bool MtAdapter::sendAppData(ChannelId channel");
+    const std::size_t app_data_now =
+        positionOfAfter(source, "bool MtAdapter::sendAppDataNow", public_app_data);
+    const std::string public_app_data_body =
+        source.substr(public_app_data, app_data_now - public_app_data);
+    assert(contains(public_app_data_body, "runtime::SendPacketEffect packet{};"));
+    assert(contains(public_app_data_body, "return enqueueSendPacketAction(packet);"));
+    assert(notContains(public_app_data_body, "transmitWirePacket("));
+
+    const std::size_t key_verify_begin =
+        positionOf(source, "bool MtAdapter::sendKeyVerificationPacket");
+    const std::size_t routing_ack_begin =
+        positionOfAfter(source, "bool MtAdapter::sendRoutingAck", key_verify_begin);
+    const std::string key_verify_body =
+        source.substr(key_verify_begin, routing_ack_begin - key_verify_begin);
+    assert(contains(key_verify_body, "runtime::SendPacketEffect packet{};"));
+    assert(contains(key_verify_body, "return enqueueSendPacketAction(packet);"));
+    assert(notContains(key_verify_body, "transmitWirePacket("));
 
     return 0;
 }

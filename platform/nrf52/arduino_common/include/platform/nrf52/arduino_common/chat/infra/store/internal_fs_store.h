@@ -25,7 +25,7 @@ class InternalFsStore final : public ::chat::IChatStore
     std::vector<::chat::ConversationMeta> loadConversationPage(size_t offset,
                                                                size_t limit,
                                                                size_t* total) override;
-    void setUnread(const ::chat::ConversationId& conv, int unread) override;
+    bool setUnread(const ::chat::ConversationId& conv, int unread) override;
     int getUnread(const ::chat::ConversationId& conv) const override;
     void clearConversation(const ::chat::ConversationId& conv) override;
     void clearAll() override;

@@ -22,6 +22,7 @@ class SdStore final : public IChatStore
   public:
     static constexpr const char* kDir = "/chat";
     static constexpr const char* kIndexFile = "/chat/index.bin";
+    static constexpr const char* kReadStateFile = "/chat/read_state.bin";
     static constexpr const char* kReticulumLxmfSeenFile = "/chat/lxmf_seen.bin";
     static constexpr size_t kMaxMessagesPerConv = 1000;
     static constexpr size_t kMaxReticulumLxmfSeen = 1024;
@@ -43,7 +44,7 @@ class SdStore final : public IChatStore
     std::vector<ConversationMeta> loadConversationPage(size_t offset,
                                                        size_t limit,
                                                        size_t* total) override;
-    void setUnread(const ConversationId& conv, int unread) override;
+    bool setUnread(const ConversationId& conv, int unread) override;
     int getUnread(const ConversationId& conv) const override;
     void clearConversation(const ConversationId& conv) override;
     void clearAll() override;
@@ -170,6 +171,26 @@ class SdStore final : public IChatStore
         char preview[kPreviewLen] = {};
     } __attribute__((packed));
 
+    struct ReadStateHeader
+    {
+        uint32_t magic = 0;
+        uint16_t version = 0;
+        uint16_t count = 0;
+    } __attribute__((packed));
+
+    struct ReadStateEntry
+    {
+        uint8_t protocol = 0;
+        uint8_t channel = 0;
+        uint8_t flags = 0;
+        uint8_t reserved = 0;
+        uint16_t unread = 0;
+        uint16_t reserved2 = 0;
+        uint32_t peer = 0;
+        uint8_t reticulum_destination_hash[kReticulumPeerHashSize] = {};
+        uint8_t reticulum_identity_hash[kReticulumPeerHashSize] = {};
+    } __attribute__((packed));
+
     struct LxmfSeenHeader
     {
         uint32_t magic = 0;
@@ -183,14 +204,16 @@ class SdStore final : public IChatStore
         uint8_t hash[kReticulumLxmfHashSize] = {};
     } __attribute__((packed));
 
-    static constexpr uint32_t kFileMagic = 0x474F4C43;     // "CLOG"
-    static constexpr uint32_t kIndexMagic = 0x54414843;    // "CHAT"
-    static constexpr uint32_t kLxmfSeenMagic = 0x4E45584C; // "LXEN"
+    static constexpr uint32_t kFileMagic = 0x474F4C43;      // "CLOG"
+    static constexpr uint32_t kIndexMagic = 0x54414843;     // "CHAT"
+    static constexpr uint32_t kReadStateMagic = 0x44525343; // "CSRD"
+    static constexpr uint32_t kLxmfSeenMagic = 0x4E45584C;  // "LXEN"
     static constexpr uint16_t kLegacyVersion = 2;
     static constexpr uint16_t kReticulumIdentityVersion = 3;
     static constexpr uint16_t kRxOriginVersion = 4;
     static constexpr uint16_t kFileVersion = 5;
     static constexpr uint16_t kIndexVersion = 3;
+    static constexpr uint16_t kReadStateVersion = 1;
     static constexpr uint16_t kLxmfSeenVersion = 1;
 
     bool ensureFs() const;
@@ -200,6 +223,18 @@ class SdStore final : public IChatStore
     bool readIndex(std::vector<IndexEntry>& entries) const;
     bool writeIndex(const std::vector<IndexEntry>& entries) const;
     bool ensureIndex(std::vector<IndexEntry>& entries);
+    bool readReadState(std::vector<ReadStateEntry>& entries) const;
+    bool writeReadState(const std::vector<ReadStateEntry>& entries) const;
+    bool findReadStateEntry(const ConversationId& conv,
+                            std::vector<ReadStateEntry>& entries,
+                            size_t* out_idx) const;
+    bool findReadStateEntry(const ConversationId& conv,
+                            const std::vector<ReadStateEntry>& entries,
+                            size_t* out_idx) const;
+    bool readStateUnreadOnly(const ConversationId& conv, uint16_t* unread) const;
+    bool readStateUnreadOrLegacy(const ConversationId& conv, uint16_t* unread) const;
+    bool writeReadStateUnread(const ConversationId& conv, uint16_t unread) const;
+    bool removeReadStateEntry(const ConversationId& conv) const;
     bool findIndexEntry(const ConversationId& conv,
                         std::vector<IndexEntry>& entries,
                         size_t* out_idx) const;
@@ -251,6 +286,11 @@ class SdStore final : public IChatStore
                                               const ConversationId& conv);
     static ConversationId conversationFromIndexEntry(const IndexEntry& entry);
     static ConversationMeta metaFromIndexEntry(const IndexEntry& entry);
+    static bool readStateEntryHasReticulumIdentity(const ReadStateEntry& entry);
+    static bool readStateEntryMatchesConversation(const ReadStateEntry& entry,
+                                                  const ConversationId& conv);
+    static ReadStateEntry readStateEntryFromConversation(const ConversationId& conv,
+                                                         uint16_t unread);
     static bool hasLogSuffix(const char* name);
 
     bool ready_ = false;

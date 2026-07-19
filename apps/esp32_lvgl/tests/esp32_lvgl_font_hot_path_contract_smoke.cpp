@@ -53,6 +53,8 @@ int main(int argc, char** argv)
         repo_root / "modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp");
 
     assert(contains(registry, "bool s_defer_font_load_overlay_present = false;"));
+    assert(contains(registry, "constexpr bool kAllowSynchronousContentSupplementFontLoad = false;"));
+    assert(contains(registry, "constexpr bool kAllowDeferredContentSupplementFontLoad = true;"));
     assert(contains(registry, "font_load_overlay_policy()"));
     assert(contains(registry, "Policy::Overlay"));
     assert(contains(registry, "Policy::OverlayImmediate"));

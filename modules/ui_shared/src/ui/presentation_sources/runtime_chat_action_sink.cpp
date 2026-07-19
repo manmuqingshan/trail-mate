@@ -103,7 +103,10 @@ ui::UiActionResult RuntimeChatActionSink::markRead(ui::chat::ConversationId id)
         return ui::UiActionResult::fail(ui::UiActionFailure::Unsupported);
     }
 
-    chat_service_.markConversationRead(core_id);
+    if (!chat_service_.markConversationRead(core_id))
+    {
+        return ui::UiActionResult::fail(ui::UiActionFailure::Rejected);
+    }
     return ui::UiActionResult::success();
 }
 

@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "platform/esp/arduino_common/battery_guard.h"
+#include "platform/esp/arduino_common/notification_runtime.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/common/build_info.h"
 #if defined(ARDUINO_T_LORA_PAGER)
@@ -175,7 +176,9 @@ void set_message_tone_volume(uint8_t volume_percent)
 
 void play_message_tone()
 {
-    board.playMessageTone();
+    (void)::platform::esp::arduino_common::notification::play_alert(
+        board,
+        ::platform::esp::arduino_common::notification::AlertKind::Preview);
 }
 
 bool sd_ready()

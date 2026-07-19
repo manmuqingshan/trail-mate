@@ -12,6 +12,10 @@
 
 #include <cstdint>
 
+#ifndef TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT
+#define TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT 0
+#endif
+
 namespace chat::lxmf::call_profile
 {
 
@@ -29,10 +33,14 @@ inline ::platform::ui::reticulum_call::Codec2Mode runtimeCodec2Mode(
     ReticulumCallWireProfile wire_profile,
     uint16_t lxst_profile)
 {
+#if TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT
     if (wire_profile == ReticulumCallWireProfile::MeshChatCallAudio)
     {
         return ::platform::ui::reticulum_call::Codec2Mode::Mode1200;
     }
+#else
+    (void)wire_profile;
+#endif
 
     (void)lxst_profile;
     return ::platform::ui::reticulum_call::Codec2Mode::Mode3200;
@@ -41,9 +49,14 @@ inline ::platform::ui::reticulum_call::Codec2Mode runtimeCodec2Mode(
 inline ::platform::ui::reticulum_call::WireProfile runtimeWireProfile(
     ReticulumCallWireProfile wire_profile)
 {
+#if TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT
     return wire_profile == ReticulumCallWireProfile::MeshChatCallAudio
                ? ::platform::ui::reticulum_call::WireProfile::MeshChatCallAudio
                : ::platform::ui::reticulum_call::WireProfile::SidebandLxst;
+#else
+    (void)wire_profile;
+    return ::platform::ui::reticulum_call::WireProfile::SidebandLxst;
+#endif
 }
 
 } // namespace chat::lxmf::call_profile

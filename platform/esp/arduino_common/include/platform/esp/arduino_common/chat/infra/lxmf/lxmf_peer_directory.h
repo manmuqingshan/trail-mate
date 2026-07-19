@@ -8,6 +8,7 @@
 #include "chat/ports/i_mesh_peer_directory.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_destination_registry.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -42,9 +43,19 @@ struct PeerDirectoryLoadRecentResult
 
 ReticulumPeerIdentity reticulumIdentityForPeer(const PeerInfo& peer);
 
+class IPeerProjectionSink
+{
+  public:
+    virtual ~IPeerProjectionSink() = default;
+    virtual void publishPeerUpdate(const PeerInfo& peer) = 0;
+};
+
 class PeerDirectoryService
 {
   public:
+    static constexpr std::size_t kPendingProjectionDepth = 24;
+    static constexpr std::size_t kHotLoadRecords = 64;
+
     explicit PeerDirectoryService(IMeshPeerDirectory* directory = nullptr);
     PeerDirectoryService(const PeerDirectoryService&) = delete;
     PeerDirectoryService& operator=(const PeerDirectoryService&) = delete;
@@ -85,8 +96,24 @@ class PeerDirectoryService
                                              std::size_t max_loaded_nodes,
                                              uint32_t now_s) const;
 
+    PeerDirectoryLoadRecentResult loadRecentAndQueue(DestinationRegistry& registry,
+                                                     uint32_t now_s);
+
+    void queuePeerUpdate(const PeerInfo& peer);
+
+    void pumpQueuedPeerUpdates(DestinationRegistry& registry,
+                               IPeerProjectionSink& sink,
+                               uint32_t now_ms,
+                               bool maintenance_window,
+                               uint32_t sleep_interval_ms,
+                               uint32_t screen_interval_ms);
+
   private:
     IMeshPeerDirectory* directory_ = nullptr;
+    std::array<NodeId, kPendingProjectionDepth> pending_projection_nodes_{};
+    std::size_t pending_projection_count_ = 0;
+    std::array<MeshPeerRecord, kHotLoadRecords> hot_load_records_{};
+    uint32_t last_projection_ms_ = 0;
 };
 
 } // namespace chat::lxmf::runtime

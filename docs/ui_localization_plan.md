@@ -2,8 +2,8 @@
 
 历史说明：
 本文件记录的是一份较早期的实现计划，已经不再是当前的规范性设计来源。
-当前本地化契约见 [`docs/LOCALIZATION_SPEC.md`](./LOCALIZATION_SPEC.md)，
-pack/runtime 机制说明见 [`docs/LOCALE_PACKS.md`](./LOCALE_PACKS.md)。
+当前本地化契约见 [`docs/specification/LOCALIZATION_SPEC.md`](specification/LOCALIZATION_SPEC.md)，
+pack/runtime 机制说明见 [`docs/specification/LOCALE_PACKS.md`](specification/LOCALE_PACKS.md)。
 尤其需要注意的是，本计划中仍保留了 `display_language` 这类历史概念，
 它们已经被当前的 locale-pack 架构取代。
 

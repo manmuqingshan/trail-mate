@@ -2,10 +2,13 @@
 
 本文档解释 pack 机制与打包细节。
 整个本地化系统的规范性规格现在位于
-[`docs/specs/LOCALIZATION_SPEC.md`](./LOCALIZATION_SPEC.md)。
-如果两份文档之间存在冲突，以 `LOCALIZATION_SPEC.md` 为准。
+[`docs/specification/LOCALIZATION_SPEC.md`](./LOCALIZATION_SPEC.md)。
+runtime owner 总边界见
+[`docs/specification/RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`](./RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md)。
+如果这些文档之间存在冲突，以 `RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md` 和
+`LOCALIZATION_SPEC.md` 为准。
 语言包打包、发布、版本、archive 与 catalog 更新规则见
-[`docs/specs/LOCALE_PACK_RELEASE_SPEC.md`](./LOCALE_PACK_RELEASE_SPEC.md)。
+[`docs/specification/LOCALE_PACK_RELEASE_SPEC.md`](./LOCALE_PACK_RELEASE_SPEC.md)。
 
 ## 目标
 
@@ -122,9 +125,9 @@ CJK 字体 pack 必须把常用中文/全角标点当作 pack 资源处理，而
 
 1. 从 `settings/display_locale` 解析当前活动 locale。
 2. 当该 locale 被激活时，立即加载活动 UI font pack。
-3. 活动 content font pack 采用惰性加载，只在 content-scope 文本真正需要时才加载。
+3. 活动 content font pack 采用 owner-controlled 惰性加载，只在 content-scope 文本真正需要时请求加载。
 4. ESP 上，如果活动 locale 显式声明 `preferred_content_supplement_packs`，registry 可以在 locale 激活阶段按 supplement 预算预加载这些已编目的 content supplement。
-5. 如果当前文本包含活动 content chain 尚未覆盖的 codepoint，则惰性加载额外的 content supplement pack。
+5. 如果当前文本包含活动 content chain 尚未覆盖的 codepoint，则由 `FontRuntimeCoordinator` / `ResourcePackRegistry` 安排额外 content supplement pack 的前台加载、延迟重试或失败诊断；页面/widget 不得私自读取字体，也不得永久跳过已安装可用字体。
 6. 切换 locale 时，会卸载所有运行时已加载的外部字体，并从头重建整条链。
 
 这意味着，一个设备可以安装很多 pack，但任意时刻真正驻留在 RAM 中的只会是 active locale 需要的 UI/content 字体，以及当前 memory profile 允许的少量 content supplement。

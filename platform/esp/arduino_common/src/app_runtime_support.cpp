@@ -17,6 +17,7 @@
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/chat/infra/mesh_mqtt_client_runtime.h"
 #include "platform/esp/arduino_common/device_identity.h"
+#include "platform/esp/arduino_common/notification_runtime.h"
 #include "platform/esp/arduino_common/reticulum_call_audio_runtime.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/ui/gps_runtime.h"
@@ -304,18 +305,7 @@ int contactAlertMode()
 
 void triggerNodeInfoFeedback(app::IAppFacade& app_context)
 {
-    BoardBase* board = app_context.getBoard();
-    if (!board)
-    {
-        return;
-    }
-
-    if (platform::ui::settings_store::get_bool(kSettingsNs, "vibration_enabled", true))
-    {
-        board->vibrator();
-    }
-
-    board->playMessageTone();
+    (void)notification::play_alert(app_context, notification::AlertKind::Contact);
 }
 
 std::string resolveNodeInfoName(app::IAppFacade& app_context, const sys::NodeInfoUpdateEvent& node_event)

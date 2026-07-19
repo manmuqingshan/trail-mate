@@ -312,9 +312,10 @@ class PagingStore final : public ::chat::IChatStore
         return {meta};
     }
 
-    void setUnread(const ::chat::ConversationId&, int unread) override
+    bool setUnread(const ::chat::ConversationId&, int unread) override
     {
         unread_ = unread;
+        return true;
     }
 
     int getUnread(const ::chat::ConversationId&) const override

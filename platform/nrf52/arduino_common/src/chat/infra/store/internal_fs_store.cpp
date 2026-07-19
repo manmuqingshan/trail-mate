@@ -171,11 +171,12 @@ std::vector<::chat::ConversationMeta> InternalFsStore::loadConversationPage(size
                                                  list.begin() + static_cast<long>(end));
 }
 
-void InternalFsStore::setUnread(const ::chat::ConversationId& conv, int unread)
+bool InternalFsStore::setUnread(const ::chat::ConversationId& conv, int unread)
 {
     getConversationStorage(conv).unread_count = unread;
     markDirty();
-    maybeSave();
+    maybeSave(true);
+    return !dirty_;
 }
 
 int InternalFsStore::getUnread(const ::chat::ConversationId& conv) const

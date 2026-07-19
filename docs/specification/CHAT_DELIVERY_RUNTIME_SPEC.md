@@ -25,6 +25,23 @@ Final user-visible send feedback is also runtime feedback. It must flow
 through the delivery feedback mechanism defined in
 `CHAT_DELIVERY_FEEDBACK_SPEC.md`, not through a page-local compose widget.
 
+Delivery state and read state are separate ledgers:
+
+```text
+Protocol send / ACK / proof / receipt
+  -> MessageLedger / ChatDeliveryEventProjector
+  -> delivery projection
+
+User opens or marks a conversation read
+  -> ReadStateLedger
+  -> unread projection
+```
+
+`ChatDeliveryReadModel` may project outgoing status, but it must not own
+read/unread, app badge counts, or conversation read watermarks. Those facts
+belong to `ReadStateLedger` as defined in
+`RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`.
+
 ## Types
 
 Phase 7.1 introduces:
@@ -56,8 +73,9 @@ Phase 7.3 adds:
 `ProjectingChatDeliveryEventPort` adapts that port to
 `ChatDeliveryEventProjector`.
 
-`ChatDeliveryEventProjectionAdapter` maps existing `ChatSendResultEvent` and
-ACK timeout hooks into the delivery event port.
+`ChatDeliveryEventProjectionAdapter` maps protocol-aware send result events and
+ACK timeout hooks into the delivery event port. New active paths must not reduce
+send results to `msg_id + bool`; they must preserve protocol and failure kind.
 
 `ChatDeliveryMessageProjection` maps existing coarse `ChatMessage::status`
 into delivery records.
@@ -132,13 +150,28 @@ into `MessageRow`.
 
 ## Message Reference
 
-Phase 7.1 uses `ChatDeliveryRef` as a compatibility reference:
+`ChatDeliveryRef` must identify a message inside one protocol namespace.
+Bare `msg_id` is not sufficient for active MT / MC / RT delivery paths.
+
+Phase 7.1 introduced `ChatDeliveryRef` as a compatibility reference:
 
 - `local_id`
 - `protocol_id`
 - `nonce_or_seq`
 
-Existing `ChatMessage::msg_id` maps to `protocol_id` first.
+Existing `ChatMessage::msg_id` may map to `protocol_id` first for compatibility,
+but active send-result, retry, and presentation lookup paths must carry the
+message protocol alongside the protocol id.
+
+Required mapping intent:
+
+- Meshtastic: protocol + from/to + packet id + channel when available.
+- MeshCore: protocol + frame/app ACK identity or route/control identity.
+- Reticulum: protocol + LXMF hash and destination identity.
+
+The UI may render a small status badge, but the badge must be a projection of
+this protocol-aware reference. A renderer must not look up or retry messages by
+bare `msg_id`.
 
 ## Failure Kinds
 
@@ -151,6 +184,17 @@ Phase 7.1 recognizes:
 - `UnsupportedProtocol`
 - `Rejected`
 - `Unknown`
+
+New protocol adapters must map failures before they reach the delivery
+projector. `Unknown` is a compatibility fallback, not a normal design target.
+
+Examples:
+
+- ACK wait expired: `AckTimeout`
+- radio or transport rejected TX: `RadioSendFailed`
+- peer or local identity missing: `PeerKeyMissing` / `LocalIdentityMissing`
+- active protocol cannot send this conversation: `UnsupportedProtocol`
+- runtime policy rejected the operation: `Rejected`
 
 ## Non-Goals
 
@@ -165,3 +209,9 @@ Phase 7.1 does not make `ChatWorkspaceModel` own delivery state.
 Phase 7.1 does not make renderers infer pending/failure.
 
 Phase 7.1 does not resolve Team rich payload delivery semantics.
+
+## Relationship To Runtime Ownership Freeze
+
+`RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md` is the higher-level boundary document for
+message, delivery, retry, read/unread, and projection ownership. If a future
+delivery change needs a new owner, update that document first, then this spec.

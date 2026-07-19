@@ -143,10 +143,11 @@ std::vector<ConversationMeta> RamStore::loadConversationPage(size_t offset,
     return list;
 }
 
-void RamStore::setUnread(const ConversationId& conv, int unread)
+bool RamStore::setUnread(const ConversationId& conv, int unread)
 {
     ConversationStorage& storage = getConversationStorage(conv);
     storage.unread_count = unread;
+    return true;
 }
 
 int RamStore::getUnread(const ConversationId& conv) const

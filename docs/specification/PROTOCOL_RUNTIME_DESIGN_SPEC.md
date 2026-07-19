@@ -144,6 +144,11 @@ Runtime 是协议真相所在：
 - `MeshCoreRuntime` 解释 MeshCore Intent、incoming frame、trace path、NodeInfo control、tick；
 - runtime 可以拥有 State，但不能拥有平台 IO。
 
+Runtime 可以拥有协议状态机，但不能绕过产品业务 ledger。文本消息、投递状态、
+read/unread、conversation badge、retry eligibility 必须进入共享 Chat/Message owner，
+而不是停留在某个协议 adapter 的私有状态中。这个边界由
+`RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md` 冻结。
+
 ### Facade
 
 Facade 是 UI / ChatService 面对协议系统的稳定用例入口。它不是 protocol runtime 的别名，也不是
@@ -179,6 +184,11 @@ Facade 不得：
 Facade 的职责是隔离上层与协议编排。上层不应该直接拼 `ProtocolIntent` 后调用 runtime，
 也不应该直接遍历 `ProtocolEffects` 后调用 executor。active UI / ChatService 入口必须迁入
 `MeshProtocolFacade` 或本规格明确命名的等价边界。
+
+Facade 返回的 app-facing result 必须保持 protocol-aware identity。对于 chat send/read/retry
+相关结果，facade 或 adapter 不得降级成 bare `msg_id + bool`。协议 runtime 可以输出协议事实，
+但消息业务状态必须由 `MessageLedger`、`ChatDeliveryEventProjector` 和 `ReadStateLedger`
+统一投影。
 
 `MeshProtocolFacade` 默认捕获 `EmitActionResultEffect`、`PublishIncomingTextEffect`、
 `PublishIncomingDataEffect`、`PublishNodeInfoEffect` 等 app-facing projection，让 UI 可以从
@@ -727,6 +737,8 @@ Before changing protocol code:
 6. Update this spec when the pattern boundary changes.
 7. Update `PROTOCOL_ADAPTER_DRIFT_AUDIT.md` when a drift item is resolved or accepted.
 8. Run GitNexus impact analysis before edits and `detect-changes` before commit.
+9. Verify message, delivery, read/unread, Contacts, Network, and call resources
+   still obey `RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`.
 
 ## Relationship To Other Specs
 

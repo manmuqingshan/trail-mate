@@ -487,24 +487,27 @@ English、基础特殊字符输入与精选 emoji 输入必须在没有任何外
 
 这两条链不能被简化成“只要非 ASCII 就统一切换某个 CJK 字体”的旁路实现。
 
-### 4.5.1 Content Font Load Is Not A Render-Side Blocking Operation
+### 4.5.1 Content Font Load Must Be Owned And User-Visible
 
-内容文本缺字检测与外部字体加载是两个不同动作。
+内容文本缺字检测与外部字体加载是两个不同动作，但缺字不能被永久跳过。
 
 1. `ensure_content_font_for_text()` 可以发现当前内容字体链缺少某些 codepoint。
-2. 它不能在 ESP / display-shared SD-SPI 设备的页面渲染、列表构建、LVGL 事件或 timer 路径里同步加载外部 `font.bin`。
-3. ESP 上的内容补充字体加载必须被视为后台/显式动作；在后台 runtime 完成前，页面使用当前已加载字体链并记录缺字诊断。
-4. 固件内置字体只有在 runtime pack manifest 以 `source=builtin` 显式声明时才算运行时 loaded 状态；ESP 不得隐式注册 CJK 内置字体来替代外部 `zh-hans-core/font.bin`。
-5. 已加载字体是否覆盖某个 codepoint 必须以实际 glyph lookup 为准；manifest/range 只能用于选择候选 pack，不能替代渲染能力判断。
-6. 外部 `font.bin` 加载失败后必须进入 backoff，不能因为多条联系人名、聊天消息或节点名重复触发同一个失败文件读取。
-7. 显式切换 locale 时加载 UI 字体属于 locale 激活流程；这不能被内容文本缺字路径复用成隐式 SD 读。
-8. 外部 `source=binfont` 字体 pack 必须在 catalog 阶段验证 `font.bin` 路径可规范化且可打开；缺少 payload 的 locale 不能进入可选 locale 列表。
-9. 任何用户可见路径中被运行时明确允许的同步外部字体加载，必须先显示阻塞式 busy modal，加载完成或失败后关闭。这个规则不以字体包大小为条件；纯 deferred/backoff 路径只记录诊断，不显示“正在加载”的假窗口。
-10. “显示 busy modal” 的代码语义不是只创建 LVGL 对象，而是必须在进入 `lv_binfont_create()` / 外部 `font.bin` 读取之前，强制把 modal flush 到屏幕。当前绑定点是 `resource_pack_registry.cpp` 的 `ScopedFontLoadOverlay`，它是 `load_font_pack()` 的唯一同步字体加载 UI 边界。
-11. ESP 上所有通过 LVGL FS 读取外部 `font.bin` 的同步加载，都必须进入完整的 shared-SPI bus transaction。`lv_begin_external_font_load_fs_scope()` 不能只是 depth flag 或“让每次 FS callback 多等一点”的旁路；它必须成功取得 runtime bus token 后，才允许进入 `lv_binfont_create()`。
-12. 外部字体加载事务取得 bus token 失败属于瞬时 `bus_busy`，只能进入短退避并保留后续重试机会；只有已经取得 bus token 但 `lv_binfont_create()` 返回空，才按字体文件/格式失败进入长 backoff。
+2. 它不能自己决定“因为在热路径、因为 active locale 是 `en`、因为这是 content supplement，所以不加载”。
+3. 它必须把缺字事实交给 `FontRuntimeCoordinator` / `ResourcePackRegistry`，由统一 owner 选择已加载字体、安排前台加载、延迟重试或报告失败。
+4. CJK/Japanese/Korean/Arabic 等 content text 的字体需求不由 display locale 决定；`active_locale=en` 时，中文聊天、联系人名、Network/Nomad 内容仍然可以触发已安装 `zh-hans-core` 等 content supplement 加载。
+5. 普通页面渲染、列表构建、LVGL 事件或 timer 路径不得无主静默阻塞 SD-backed `font.bin` 读取。
+6. 同步外部字体加载是合法路径，但它必须是用户可见的 foreground operation：先显示 loading/progress/busy modal 或页面，强制 flush 到屏幕，再进入 `lv_binfont_create()` / 外部 `font.bin` 读取。
+7. 如果运行时选择 deferred load，页面可以暂时使用当前已加载字体链并记录缺字诊断；deferred 只能是 pending/retry 状态，不能变成永久 hard skip。
+8. 固件内置字体只有在 runtime pack manifest 以 `source=builtin` 显式声明时才算运行时 loaded 状态；ESP 不得隐式注册 CJK 内置字体来替代外部 `zh-hans-core/font.bin`。
+9. 已加载字体是否覆盖某个 codepoint 必须以实际 glyph lookup 为准；manifest/range 只能用于选择候选 pack，不能替代渲染能力判断。
+10. 外部 `font.bin` 加载失败后必须进入 backoff，不能因为多条联系人名、聊天消息或节点名重复触发同一个失败文件读取。
+11. 显式切换 locale 时加载 UI 字体属于 locale 激活流程；内容文本缺字路径可以请求内容字体 owner，但不能在页面/widget 内私自复用 SD 读。
+12. 外部 `source=binfont` 字体 pack 必须在 catalog 阶段验证 `font.bin` 路径可规范化且可打开；缺少 payload 的 locale 不能进入可选 locale 列表。
+13. “显示 busy modal” 的代码语义不是只创建 LVGL 对象，而是必须在进入 `lv_binfont_create()` / 外部 `font.bin` 读取之前，强制把 modal flush 到屏幕。当前绑定点是 `resource_pack_registry.cpp` 的 `ScopedFontLoadOverlay`，它是 `load_font_pack()` 的唯一同步字体加载 UI 边界。
+14. ESP 上所有通过 LVGL FS 读取外部 `font.bin` 的同步加载，都必须进入完整的 shared-SPI bus transaction。`lv_begin_external_font_load_fs_scope()` 不能只是 depth flag 或“让每次 FS callback 多等一点”的旁路；它必须成功取得 runtime bus token 后，才允许进入 `lv_binfont_create()`。
+15. 外部字体加载事务取得 bus token 失败属于瞬时 `bus_busy`，只能进入短退避并保留后续重试机会；只有已经取得 bus token 但 `lv_binfont_create()` 返回空，才按字体文件/格式失败进入长 backoff。
 
-这条规则的目标是保护 UI 实时域：联系人页、聊天页、地图 overlay、节点详情页等内容页面不得因为遇到中文/日文/韩文/阿拉伯文本而把 UI 线程拖入 SD 阻塞 IO。
+这条规则的目标是同时保护 UI 实时域和内容可读性：联系人页、聊天页、地图 overlay、节点详情页等内容页面不得因为遇到中文/日文/韩文/阿拉伯文本而静默拖入无主 SD 阻塞 IO，也不得为了避免阻塞而让可用字体永远不加载。
 
 ### 4.5.1.1 External Font Load Transaction
 
@@ -892,17 +895,18 @@ Glyph 判定边界：
 
 如果与其他文档冲突，优先级如下：
 
-1. `docs/LOCALIZATION_SPEC.md`
-2. `docs/specs/LOCALE_PACK_RELEASE_SPEC.md`
-3. `docs/LOCALE_PACKS.md`
-4. 各 `packs/<bundle-id>/README.md`
-5. `docs/ui_localization_plan.md`
+1. `docs/specification/RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`
+2. `docs/specification/LOCALIZATION_SPEC.md`
+3. `docs/specification/LOCALE_PACK_RELEASE_SPEC.md`
+4. `docs/LOCALE_PACKS.md`
+5. 各 `packs/<bundle-id>/README.md`
+6. `docs/ui_localization_plan.md`
 
 其中：
 
 1. `docs/LOCALE_PACKS.md`
    - 负责解释 pack 机制、布局和字段
-2. `docs/specs/LOCALE_PACK_RELEASE_SPEC.md`
+2. `docs/specification/LOCALE_PACK_RELEASE_SPEC.md`
    - 负责解释打包、发布、版本、catalog、archive 与更新可见性
 3. `docs/ui_localization_plan.md`
    - 仅保留历史演进价值，不再作为当前设计依据

@@ -1251,8 +1251,9 @@ bool UConsoleChatWorkspaceModel::selectConversation(
 {
     active_conversation_ = conversation;
     active_initialized_ = true;
-    services_.chat().markConversationRead(active_conversation_);
-    action_status_ = "Conversation selected.";
+    action_status_ = services_.chat().markConversationRead(active_conversation_)
+                         ? "Conversation selected."
+                         : "Conversation selected. Read state not saved.";
     return true;
 }
 

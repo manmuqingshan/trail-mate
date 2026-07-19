@@ -34,7 +34,7 @@ class RamStore : public IChatStore
     std::vector<ConversationMeta> loadConversationPage(size_t offset,
                                                        size_t limit,
                                                        size_t* total) override;
-    void setUnread(const ConversationId& conv, int unread) override;
+    bool setUnread(const ConversationId& conv, int unread) override;
     int getUnread(const ConversationId& conv) const override;
     void clearConversation(const ConversationId& conv) override;
     void clearAll() override;

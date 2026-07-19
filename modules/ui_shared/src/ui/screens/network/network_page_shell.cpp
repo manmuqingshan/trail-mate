@@ -4,6 +4,7 @@
 #include "app/app_facade_access.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/reticulum_network_projection_policy.h"
 #include "platform/ui/reticulum_page_runtime.h"
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
@@ -66,6 +67,7 @@ namespace
 {
 
 namespace rtdir = ::platform::ui::reticulum_directory;
+namespace rtnet = ::platform::ui::reticulum_network;
 namespace rtpage = ::platform::ui::reticulum_page;
 namespace micron = ::ui::screens::network::micron;
 
@@ -920,14 +922,14 @@ const char* aspect_label(rtdir::AnnounceAspect aspect)
     case rtdir::AnnounceAspect::LxmfDelivery:
         return "LXMF";
     case rtdir::AnnounceAspect::LxmfPropagation:
-        return "Prop";
+        return "Relay";
     case rtdir::AnnounceAspect::CallAudio:
         return "Call";
     case rtdir::AnnounceAspect::NomadNetworkNode:
-        return "Nomad";
+        return "Web";
     case rtdir::AnnounceAspect::Unknown:
     default:
-        return "Node";
+        return "Unknown";
     }
 }
 
@@ -942,12 +944,16 @@ const char* announce_display_label(const rtdir::AnnounceRecord& announce,
     {
         return "Anonymous Node";
     }
+    if (announce.aspect == rtdir::AnnounceAspect::LxmfPropagation)
+    {
+        return "Message Relay";
+    }
     if (announce.aspect == rtdir::AnnounceAspect::LxmfDelivery ||
         announce.aspect == rtdir::AnnounceAspect::CallAudio)
     {
         return "Anonymous Peer";
     }
-    return fallback ? fallback : "";
+    return fallback ? fallback : "Unknown Service";
 }
 
 const char* address_display_label(const rtdir::LxmfAddressRecord& address,
@@ -962,7 +968,7 @@ const char* address_display_label(const rtdir::LxmfAddressRecord& address,
 
 bool announce_visible_in_directory(const rtdir::AnnounceRecord& announce)
 {
-    return announce.valid && announce.aspect == rtdir::AnnounceAspect::NomadNetworkNode;
+    return rtnet::visible(announce);
 }
 
 std::size_t visible_announce_count()

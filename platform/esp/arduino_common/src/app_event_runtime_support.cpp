@@ -5,11 +5,10 @@
 #include <string>
 
 #include "app/app_facades.h"
-#include "board/BoardBase.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_runtime_support.h"
-#include "platform/ui/settings_store.h"
+#include "platform/esp/arduino_common/notification_runtime.h"
 #include "sys/event_bus.h"
 #include "team/protocol/team_chat.h"
 #include "ui/chat_ui_runtime.h"
@@ -25,12 +24,9 @@ namespace platform::esp::arduino_common
 namespace
 {
 
-constexpr const char* kSettingsNs = "settings";
-constexpr const char* kMessageAlertsKey = "chat_message_alerts";
-
 bool messageAlertsEnabled()
 {
-    return platform::ui::settings_store::get_int(kSettingsNs, kMessageAlertsKey, 1) != 0;
+    return notification::message_alerts_enabled();
 }
 
 bool isTeamRuntimeEvent(sys::EventType type)
@@ -74,16 +70,7 @@ class UiFeedbackChatDeliveryFeedbackPort final
 
 void triggerMessageFeedback(app::IAppFacade& app_context)
 {
-    BoardBase* board = app_context.getBoard();
-    if (!board)
-    {
-        return;
-    }
-    if (platform::ui::settings_store::get_bool(kSettingsNs, "vibration_enabled", true))
-    {
-        board->vibrator();
-    }
-    board->playMessageTone();
+    (void)notification::play_alert(app_context, notification::AlertKind::Message);
 }
 
 std::string resolveContactName(app::IAppFacade& app_context, chat::NodeId node_id)

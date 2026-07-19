@@ -7,6 +7,10 @@
 
 #include "chat/infra/reticulum/lxst_telephony_wire.h"
 
+#ifndef TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT
+#define TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT 0
+#endif
+
 namespace chat::lxmf::runtime
 {
 
@@ -55,7 +59,12 @@ void LxstTelephonyClient::beginCallerSession(
     uint16_t profile,
     uint32_t now_ms)
 {
+#if TRAIL_MATE_ENABLE_MESHCHAT_CALL_AUDIO_COMPAT
     session.call_wire_profile = wire_profile;
+#else
+    (void)wire_profile;
+    session.call_wire_profile = ReticulumCallWireProfile::SidebandLxst;
+#endif
     session.call_runtime_started = false;
     session.lxst_call = reticulum::lxst::call::makeCaller(profile, now_ms);
 }
