@@ -35,7 +35,7 @@
 #include <ctime>
 
 #ifndef CHAT_UI_LOG_ENABLE
-#define CHAT_UI_LOG_ENABLE 0
+#define CHAT_UI_LOG_ENABLE 1
 #endif
 
 #if CHAT_UI_LOG_ENABLE
@@ -483,16 +483,46 @@ void applySnapshotMessagesToConversation(
     ChatConversationScreen& conversation,
     ConversationScrollAnchor scroll_anchor = ConversationScrollAnchor::Bottom)
 {
+    const uint32_t started_ms = lv_tick_get();
+    CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot begin messages=%u offset=%u total=%u older=%u newer=%u anchor=%u\n",
+                static_cast<unsigned>(snapshot.message_count),
+                static_cast<unsigned>(snapshot.message_offset),
+                static_cast<unsigned>(snapshot.message_total_count),
+                snapshot.has_older_messages ? 1U : 0U,
+                snapshot.has_newer_messages ? 1U : 0U,
+                static_cast<unsigned>(scroll_anchor));
     conversation.clearMessages();
+    CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot clear_done elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     for (size_t i = 0; i < snapshot.message_count; ++i)
     {
+        const uint32_t item_started_ms = lv_tick_get();
+        const auto& row = snapshot.messages[i];
+        CHAT_UI_LOG("[ChatUiTrace] stage=apply_message begin index=%u local_id=%llu protocol_id=%lu outgoing=%u delivery=%u text_len=%u\n",
+                    static_cast<unsigned>(i),
+                    static_cast<unsigned long long>(row.ref.local_id),
+                    static_cast<unsigned long>(row.ref.protocol_id),
+                    row.outgoing ? 1U : 0U,
+                    static_cast<unsigned>(row.delivery),
+                    static_cast<unsigned>(std::strlen(row.text.c_str())));
         conversation.addMessage(snapshot.messages[i]);
+        CHAT_UI_LOG("[ChatUiTrace] stage=apply_message done index=%u elapsed_ms=%lu total_elapsed_ms=%lu\n",
+                    static_cast<unsigned>(i),
+                    static_cast<unsigned long>(lv_tick_elaps(item_started_ms)),
+                    static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     }
+    CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot messages_done elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     conversation.setHistoryPaging(snapshot.has_older_messages,
                                   snapshot.has_newer_messages,
                                   snapshot.message_offset,
                                   snapshot.message_total_count);
+    CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot paging_done elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     conversation.setLocationOverlay(buildConversationLocationOverlay(snapshot));
+    CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot location_done participants=%u elapsed_ms=%lu\n",
+                static_cast<unsigned>(snapshot.location_participant_count),
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     if (scroll_anchor == ConversationScrollAnchor::Top)
     {
         conversation.scrollToTop();
@@ -501,6 +531,8 @@ void applySnapshotMessagesToConversation(
     {
         conversation.scrollToBottom();
     }
+    CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot end elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
 
 const char* key_verification_action_failure_message(::ui::UiActionResult result)
@@ -938,6 +970,15 @@ void UiController::switchToChannelList()
 
 void UiController::switchToConversation(chat::ConversationId conv)
 {
+    const uint32_t started_ms = lv_tick_get();
+    CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation begin state=%u protocol=%u channel=%u peer=%08lX team=%u compose=%p conversation=%p\n",
+                static_cast<unsigned>(state_),
+                static_cast<unsigned>(conv.protocol),
+                static_cast<unsigned>(conv.channel),
+                static_cast<unsigned long>(conv.peer),
+                isTeamConversation(conv) ? 1U : 0U,
+                compose_.get(),
+                conversation_.get());
     closeConversationInfoModal(true);
     closeTeamPositionPicker(true);
     state_ = State::Conversation;
@@ -965,8 +1006,12 @@ void UiController::switchToConversation(chat::ConversationId conv)
     }
     if (compose_)
     {
+        CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation compose_cleanup begin elapsed_ms=%lu\n",
+                    static_cast<unsigned long>(lv_tick_elaps(started_ms)));
         cleanupComposeIme();
         compose_.reset();
+        CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation compose_cleanup done elapsed_ms=%lu\n",
+                    static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     }
 
 #if defined(ARDUINO_T_WATCH_S3)
@@ -983,10 +1028,15 @@ void UiController::switchToConversation(chat::ConversationId conv)
 
     if (!conversation_)
     {
+        CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation create_screen begin elapsed_ms=%lu\n",
+                    static_cast<unsigned long>(lv_tick_elaps(started_ms)));
         conversation_.reset(new ChatConversationScreen(parent_, conv));
         conversation_->setActionCallback(handle_conversation_action, this);
         conversation_->setMessageActionCallback(handle_conversation_message_action, this);
         conversation_->setBackCallback(handle_conversation_back, this);
+        CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation create_screen done valid=%u elapsed_ms=%lu\n",
+                    conversation_ ? 1U : 0U,
+                    static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     }
     else
     {
@@ -1028,11 +1078,14 @@ void UiController::switchToConversation(chat::ConversationId conv)
 
     const ::ui::chat::ConversationId ui_conv =
         chat_presentation_adapters::toUiConversationId(conv);
-    (void)chat_model_.selectConversation(ui_conv);
-    if (chat_model_.markRead(ui_conv).ok)
-    {
-        conversation_list_dirty_ = true;
-    }
+    CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation select begin elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+    const ::ui::UiActionResult select_result =
+        chat_model_.selectConversation(ui_conv);
+    CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation select done ok=%u failure=%u elapsed_ms=%lu\n",
+                select_result.ok ? 1U : 0U,
+                static_cast<unsigned>(select_result.failure),
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 
     // Update header (prefer contact name, else short_name)
     std::string title = resolveConversationDisplayName(conv);
@@ -1060,11 +1113,37 @@ void UiController::switchToConversation(chat::ConversationId conv)
     conversation_->updateBatteryFromBoard();
     std::string header = "[" + std::string(protocol_short_label(conv.protocol)) + "] " + title;
     conversation_->setHeaderText(header.c_str(), nullptr);
+    CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation header_done title_len=%u elapsed_ms=%lu\n",
+                static_cast<unsigned>(header.size()),
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 
-    if (loadChatSnapshot())
+    CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation snapshot begin elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+    const bool snapshot_loaded = loadChatSnapshot();
+    CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation snapshot done ok=%u messages=%u conversations=%u offset=%u total=%u elapsed_ms=%lu\n",
+                snapshot_loaded ? 1U : 0U,
+                static_cast<unsigned>(chat_snapshot_buffer_.message_count),
+                static_cast<unsigned>(chat_snapshot_buffer_.conversation_count),
+                static_cast<unsigned>(chat_snapshot_buffer_.message_offset),
+                static_cast<unsigned>(chat_snapshot_buffer_.message_total_count),
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+    if (snapshot_loaded)
     {
         applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
     }
+    CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation mark_read begin elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+    const ::ui::UiActionResult mark_read_result = chat_model_.markRead(ui_conv);
+    CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation mark_read done ok=%u failure=%u elapsed_ms=%lu\n",
+                mark_read_result.ok ? 1U : 0U,
+                static_cast<unsigned>(mark_read_result.failure),
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+    if (mark_read_result.ok)
+    {
+        conversation_list_dirty_ = true;
+    }
+    CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation end elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
 
 void UiController::switchToCompose(chat::ConversationId conv)
@@ -1432,8 +1511,18 @@ void UiController::openConversationInfoModal(const chat::ConversationId& conv)
 
 void UiController::handleSendMessage(const std::string& text)
 {
+    const uint32_t started_ms = lv_tick_get();
+    CHAT_UI_LOG("[ChatUiTrace] stage=handle_send begin state=%u protocol=%u channel=%u peer=%08lX team=%u text_len=%u\n",
+                static_cast<unsigned>(state_),
+                static_cast<unsigned>(current_conv_.protocol),
+                static_cast<unsigned>(current_conv_.channel),
+                static_cast<unsigned long>(current_conv_.peer),
+                team_conv_active_ ? 1U : 0U,
+                static_cast<unsigned>(text.size()));
     if (text.empty())
     {
+        CHAT_UI_LOG("[ChatUiTrace] stage=handle_send reject reason=empty elapsed_ms=%lu\n",
+                    static_cast<unsigned long>(lv_tick_elaps(started_ms)));
         return;
     }
     if (team_conv_active_)
@@ -1448,27 +1537,44 @@ void UiController::handleSendMessage(const std::string& text)
     }
     if (!chat_support::supports_local_text_chat())
     {
+        CHAT_UI_LOG("[ChatUiTrace] stage=handle_send reject reason=unsupported elapsed_ms=%lu\n",
+                    static_cast<unsigned long>(lv_tick_elaps(started_ms)));
         ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
         return;
     }
 
+    CHAT_UI_LOG("[ChatUiTrace] stage=handle_send model begin elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     const ::ui::UiActionResult result = chat_model_.sendMessage(text.c_str());
+    CHAT_UI_LOG("[ChatUiTrace] stage=handle_send model done ok=%u failure=%u elapsed_ms=%lu\n",
+                result.ok ? 1U : 0U,
+                static_cast<unsigned>(result.failure),
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     if (!result.ok)
     {
         ::ui::feedback::show_notice(local_text_send_failure_message(result),
                                     2000);
     }
     handleComposeSendDone(result.ok, false);
+    CHAT_UI_LOG("[ChatUiTrace] stage=handle_send end elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
 
 void UiController::handleComposeSendDone(bool ok, bool timeout)
 {
-    (void)ok;
-    (void)timeout;
+    CHAT_UI_LOG("[ChatUiTrace] stage=compose_send_done begin ok=%u timeout=%u state=%u\n",
+                ok ? 1U : 0U,
+                timeout ? 1U : 0U,
+                static_cast<unsigned>(state_));
     if (state_ == State::Compose)
     {
         switchToConversation(current_conv_);
+        CHAT_UI_LOG("[ChatUiTrace] stage=compose_send_done switched state=%u\n",
+                    static_cast<unsigned>(state_));
+        return;
     }
+    CHAT_UI_LOG("[ChatUiTrace] stage=compose_send_done skipped reason=state state=%u\n",
+                static_cast<unsigned>(state_));
 }
 
 void UiController::refreshUnreadCounts()
@@ -2133,8 +2239,15 @@ void UiController::handleConversationMessageAction(
 
 void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
 {
+    const uint32_t started_ms = lv_tick_get();
+    CHAT_UI_LOG("[ChatUiTrace] stage=compose_action begin intent=%u state=%u compose=%p team=%u\n",
+                static_cast<unsigned>(intent),
+                static_cast<unsigned>(state_),
+                compose_.get(),
+                team_conv_active_ ? 1U : 0U);
     if (!compose_)
     {
+        CHAT_UI_LOG("[ChatUiTrace] stage=compose_action reject reason=no_compose\n");
         return;
     }
     if (isTeamPositionPickerOpen())
@@ -2176,13 +2289,22 @@ void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
 
     if (intent == ChatComposeScreen::ActionIntent::Send)
     {
+        CHAT_UI_LOG("[ChatUiTrace] stage=compose_action read_text begin elapsed_ms=%lu\n",
+                    static_cast<unsigned long>(lv_tick_elaps(started_ms)));
         std::string text = compose_->getText();
+        CHAT_UI_LOG("[ChatUiTrace] stage=compose_action read_text done len=%u elapsed_ms=%lu\n",
+                    static_cast<unsigned>(text.size()),
+                    static_cast<unsigned long>(lv_tick_elaps(started_ms)));
         if (!text.empty())
         {
             handleSendMessage(text);
+            CHAT_UI_LOG("[ChatUiTrace] stage=compose_action send_return elapsed_ms=%lu\n",
+                        static_cast<unsigned long>(lv_tick_elaps(started_ms)));
             return;
         }
     }
+    CHAT_UI_LOG("[ChatUiTrace] stage=compose_action fallback_switch elapsed_ms=%lu\n",
+                static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     switchToConversation(current_conv_);
 }
 

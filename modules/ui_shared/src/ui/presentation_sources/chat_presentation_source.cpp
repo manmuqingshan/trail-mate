@@ -7,10 +7,21 @@
 #include "ui_presentation/common/fixed_text.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <string>
+
+#ifndef CHAT_UI_SEND_TRACE_ENABLE
+#define CHAT_UI_SEND_TRACE_ENABLE 1
+#endif
+
+#if CHAT_UI_SEND_TRACE_ENABLE
+#define CHAT_SNAPSHOT_TRACE(...) std::printf(__VA_ARGS__)
+#else
+#define CHAT_SNAPSHOT_TRACE(...)
+#endif
 
 namespace ui::presentation_sources
 {
@@ -381,6 +392,14 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
     const ui::chat::ChatWorkspaceRequest& request,
     ui::chat::ChatWorkspaceSnapshot& out) const
 {
+    const auto started = std::chrono::steady_clock::now();
+    CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source begin kind=%u protocol=%u primary=%lu secondary=%lu conv_offset=%u msg_offset=%u\n",
+                        static_cast<unsigned>(request.selected.kind),
+                        static_cast<unsigned>(request.selected.protocol),
+                        static_cast<unsigned long>(request.selected.primary),
+                        static_cast<unsigned long>(request.selected.secondary),
+                        static_cast<unsigned>(request.conversation_offset),
+                        static_cast<unsigned>(request.message_offset));
     ui::chat::resetChatWorkspaceSnapshot(out);
     out.header.valid = true;
     out.header.version = 1;
@@ -388,10 +407,22 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
     ui::copyText(out.composer_placeholder, "Message");
 
     std::size_t total = 0;
+    CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source conversations begin elapsed_ms=%lld\n",
+                        static_cast<long long>(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - started)
+                                .count()));
     const auto conversations = chat_service_.getConversations(
         request.conversation_offset,
         kMaxConversationRows,
         &total);
+    CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source conversations done loaded=%u total=%u elapsed_ms=%lld\n",
+                        static_cast<unsigned>(conversations.size()),
+                        static_cast<unsigned>(total),
+                        static_cast<long long>(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - started)
+                                .count()));
 
     out.conversation_count = conversations.size() < kMaxConversationRows
                                  ? conversations.size()
@@ -409,6 +440,12 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
         copyString(row.title, conversationTitle(meta, contact_service_));
         copyString(row.subtitle, meta.preview);
     }
+    CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source conversation_rows done count=%u elapsed_ms=%lld\n",
+                        static_cast<unsigned>(out.conversation_count),
+                        static_cast<long long>(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - started)
+                                .count()));
 
     out.selected_conversation = request.selected;
 
@@ -416,12 +453,34 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
     if (chat_presentation_adapters::toCoreConversationId(request.selected,
                                                          core_selected))
     {
+        CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source selected mapped protocol=%u channel=%u peer=%08lX elapsed_ms=%lld\n",
+                            static_cast<unsigned>(core_selected.protocol),
+                            static_cast<unsigned>(core_selected.channel),
+                            static_cast<unsigned long>(core_selected.peer),
+                            static_cast<long long>(
+                                std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - started)
+                                    .count()));
         std::size_t total_messages = 0;
+        CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source messages begin offset=%u limit=%u elapsed_ms=%lld\n",
+                            static_cast<unsigned>(request.message_offset),
+                            static_cast<unsigned>(kMaxMessageRows),
+                            static_cast<long long>(
+                                std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - started)
+                                    .count()));
         const auto messages =
             chat_service_.getMessagePageFromLatest(core_selected,
                                                    request.message_offset,
                                                    kMaxMessageRows,
                                                    &total_messages);
+        CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source messages done loaded=%u total=%u elapsed_ms=%lld\n",
+                            static_cast<unsigned>(messages.size()),
+                            static_cast<unsigned>(total_messages),
+                            static_cast<long long>(
+                                std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - started)
+                                    .count()));
         const ::chat::NodeId self_node =
             mesh_adapter_ != nullptr ? mesh_adapter_->getNodeId() : 0;
         if (self_node != 0)
@@ -497,6 +556,21 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
             appendMessageLocationParticipant(
                 out, contact_service_, message, self_node);
         }
+        CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source message_rows done count=%u participants=%u elapsed_ms=%lld\n",
+                            static_cast<unsigned>(out.message_count),
+                            static_cast<unsigned>(out.location_participant_count),
+                            static_cast<long long>(
+                                std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - started)
+                                    .count()));
+    }
+    else
+    {
+        CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source selected reject reason=conversation_map elapsed_ms=%lld\n",
+                            static_cast<long long>(
+                                std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - started)
+                                    .count()));
     }
 
     const bool selected_supported =
@@ -507,6 +581,15 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
                                                                     core_selected) &&
                    chat_service_.canSendToConversation(core_selected);
     out.composer_enabled = out.can_send;
+    CHAT_SNAPSHOT_TRACE("[ChatUiTrace] stage=snapshot_source end can_send=%u conversations=%u messages=%u total=%u elapsed_ms=%lld\n",
+                        out.can_send ? 1U : 0U,
+                        static_cast<unsigned>(out.conversation_count),
+                        static_cast<unsigned>(out.message_count),
+                        static_cast<unsigned>(out.message_total_count),
+                        static_cast<long long>(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - started)
+                                .count()));
     return true;
 }
 

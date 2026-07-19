@@ -29,7 +29,7 @@
 #include <ctime>
 
 #ifndef CHAT_CONVERSATION_LOG_ENABLE
-#define CHAT_CONVERSATION_LOG_ENABLE 0
+#define CHAT_CONVERSATION_LOG_ENABLE 1
 #endif
 
 #if CHAT_CONVERSATION_LOG_ENABLE
@@ -693,8 +693,20 @@ ChatConversationScreen::~ChatConversationScreen()
 
 void ChatConversationScreen::addMessage(const ::ui::chat::MessageRow& row)
 {
+    const uint32_t started_ms = lv_tick_get();
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_add begin local_id=%llu protocol_id=%lu existing=%u outgoing=%u delivery=%u\n",
+                          static_cast<unsigned long long>(row.ref.local_id),
+                          static_cast<unsigned long>(row.ref.protocol_id),
+                          static_cast<unsigned>(messages_.size()),
+                          row.outgoing ? 1U : 0U,
+                          static_cast<unsigned>(row.delivery));
     if (!guard_ || !guard_->alive || !msg_list_ || !lv_obj_is_valid(msg_list_))
     {
+        CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_add reject guard=%u alive=%u list=%p valid=%u\n",
+                              guard_ ? 1U : 0U,
+                              guard_ && guard_->alive ? 1U : 0U,
+                              msg_list_,
+                              msg_list_ && lv_obj_is_valid(msg_list_) ? 1U : 0U);
         return;
     }
     if (messages_.size() >= MAX_DISPLAY_MESSAGES)
@@ -708,23 +720,41 @@ void ChatConversationScreen::addMessage(const ::ui::chat::MessageRow& row)
     }
 
     createMessageItem(row);
-    scrollToBottom();
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_add item_done count=%u elapsed_ms=%lu\n",
+                          static_cast<unsigned>(messages_.size()),
+                          static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_add end count=%u elapsed_ms=%lu\n",
+                          static_cast<unsigned>(messages_.size()),
+                          static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
 
 void ChatConversationScreen::clearMessages()
 {
+    const uint32_t started_ms = lv_tick_get();
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_clear begin count=%u guard=%u alive=%u\n",
+                          static_cast<unsigned>(messages_.size()),
+                          guard_ ? 1U : 0U,
+                          guard_ && guard_->alive ? 1U : 0U);
     if (!guard_ || !guard_->alive)
     {
+        CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_clear reject\n");
         return;
     }
+    size_t index = 0;
     for (auto& item : messages_)
     {
         if (item.container)
         {
+            CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_clear delete index=%u elapsed_ms=%lu\n",
+                                  static_cast<unsigned>(index),
+                                  static_cast<unsigned long>(lv_tick_elaps(started_ms)));
             lv_obj_del(item.container);
         }
+        ++index;
     }
     messages_.clear();
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_clear end elapsed_ms=%lu\n",
+                          static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
 
 void ChatConversationScreen::scrollToTop()
@@ -1251,8 +1281,19 @@ void ChatConversationScreen::syncLocationMapVisibility()
 
 void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row)
 {
+    const uint32_t started_ms = lv_tick_get();
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=create_message begin local_id=%llu protocol_id=%lu outgoing=%u delivery=%u text_len=%u\n",
+                          static_cast<unsigned long long>(row.ref.local_id),
+                          static_cast<unsigned long>(row.ref.protocol_id),
+                          row.outgoing ? 1U : 0U,
+                          static_cast<unsigned>(row.delivery),
+                          static_cast<unsigned>(std::strlen(row.text.c_str())));
     if (!guard_ || !guard_->alive || !msg_list_)
     {
+        CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=create_message reject guard=%u alive=%u list=%p\n",
+                              guard_ ? 1U : 0U,
+                              guard_ && guard_->alive ? 1U : 0U,
+                              msg_list_);
         return;
     }
     MessageItem item;
@@ -1370,6 +1411,9 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
                                              max_meta_w);
         update_delivery_status_chip(item.status_label, row.delivery);
     }
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=create_message metadata_done local_id=%llu elapsed_ms=%lu\n",
+                          static_cast<unsigned long long>(row.ref.local_id),
+                          static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 
     item.text_label = chat::ui::layout::create_bubble_text(bubble);
     chat::ui::conversation::styles::apply_bubble_text(item.text_label);
@@ -1404,11 +1448,38 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
         }
     }
     lv_label_set_text(item.text_label, display_text.c_str());
+    const uint32_t font_started_ms = lv_tick_get();
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=create_message font_begin local_id=%llu text_len=%u elapsed_ms=%lu\n",
+                          static_cast<unsigned long long>(row.ref.local_id),
+                          static_cast<unsigned>(display_text.size()),
+                          static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     ::ui::fonts::apply_chat_content_font(item.text_label, display_text.c_str());
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=create_message font_done local_id=%llu font_ms=%lu elapsed_ms=%lu\n",
+                          static_cast<unsigned long long>(row.ref.local_id),
+                          static_cast<unsigned long>(lv_tick_elaps(font_started_ms)),
+                          static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 
-    const lv_coord_t max_text_w = std::max<lv_coord_t>(max_bubble_w - 2 * bubble_pad_x(), 24);
-    lv_obj_update_layout(item.text_label);
-    const lv_coord_t natural_text_w = lv_obj_get_width(item.text_label);
+    const lv_coord_t max_text_w =
+        std::max<lv_coord_t>(max_bubble_w - 2 * bubble_pad_x(), 24);
+    const uint32_t measure_started_ms = lv_tick_get();
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=create_message measure_begin local_id=%llu elapsed_ms=%lu\n",
+                          static_cast<unsigned long long>(row.ref.local_id),
+                          static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+    lv_point_t natural_text_size{};
+    lv_text_get_size(
+        &natural_text_size,
+        display_text.c_str(),
+        lv_obj_get_style_text_font(item.text_label, LV_PART_MAIN),
+        lv_obj_get_style_text_letter_space(item.text_label, LV_PART_MAIN),
+        lv_obj_get_style_text_line_space(item.text_label, LV_PART_MAIN),
+        LV_COORD_MAX,
+        LV_TEXT_FLAG_NONE);
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=create_message measure_done local_id=%llu measure_ms=%lu width=%ld elapsed_ms=%lu\n",
+                          static_cast<unsigned long long>(row.ref.local_id),
+                          static_cast<unsigned long>(lv_tick_elaps(measure_started_ms)),
+                          static_cast<long>(natural_text_size.x),
+                          static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+    const lv_coord_t natural_text_w = natural_text_size.x;
     if (natural_text_w > max_text_w)
     {
         lv_obj_set_width(item.text_label, max_text_w);
@@ -1427,6 +1498,10 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     chat::ui::layout::align_message_row(item.container, is_self);
 
     messages_.push_back(std::move(item));
+    CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=create_message end local_id=%llu count=%u elapsed_ms=%lu\n",
+                          static_cast<unsigned long long>(row.ref.local_id),
+                          static_cast<unsigned>(messages_.size()),
+                          static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
 
 void ChatConversationScreen::enableRetryAction(MessageItem& item)
