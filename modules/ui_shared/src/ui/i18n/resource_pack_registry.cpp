@@ -89,8 +89,10 @@ constexpr bool kFlashPackStorageEnabled = false;
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
 constexpr bool kAllowSynchronousContentSupplementFontLoad = false;
+constexpr bool kAllowDeferredContentSupplementFontLoad = false;
 #else
 constexpr bool kAllowSynchronousContentSupplementFontLoad = true;
+constexpr bool kAllowDeferredContentSupplementFontLoad = true;
 #endif
 
 enum class FontPackUsage : uint8_t
@@ -1670,13 +1672,20 @@ bool can_activate_content_supplement_for_text(const FontPackRecord& pack)
     // not retried per label.
     return pack.builtin ||
            is_font_runtime_loaded(pack) ||
-           (can_load_font_from_content_hot_path(pack) &&
+           ((can_load_font_from_content_hot_path(pack) ||
+             can_load_font_from_activation_path(pack)) &&
             font_pack_supports_content(pack) &&
             can_add_content_supplement(pack));
 #else
     (void)pack;
     return true;
 #endif
+}
+
+bool can_schedule_deferred_content_supplement_load(const FontPackRecord& pack)
+{
+    return kAllowDeferredContentSupplementFontLoad ||
+           can_load_font_from_content_hot_path(pack);
 }
 
 bool can_preload_small_content_supplement(const FontPackRecord& pack)
@@ -3444,6 +3453,15 @@ void queue_deferred_content_supplement_load(FontPackRecord& pack, const char* re
                     pack.source_path.empty() ? "<none>" : pack.source_path.c_str());
         return;
     }
+    if (!can_schedule_deferred_content_supplement_load(pack))
+    {
+        std::printf("%s font load skipped id=%s role=content_supplement reason=ui_hot_path_no_deferred_load active_locale=%s source=%s\n",
+                    kLogTag,
+                    pack.id.c_str(),
+                    s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                    pack.source_path.empty() ? "<none>" : pack.source_path.c_str());
+        return;
+    }
     if (s_content_supplement_load_async_pending || s_content_supplement_retry_timer)
     {
         return;
@@ -3582,9 +3600,17 @@ bool ensure_content_font_for_text(const char* text)
             {
                 log_font_load_deferred(*candidate, "content_supplement", reason);
             }
-            else
+            else if (can_schedule_deferred_content_supplement_load(*candidate))
             {
                 queue_deferred_content_supplement_load(*candidate, reason);
+            }
+            else
+            {
+                std::printf("%s font load skipped id=%s role=content_supplement reason=ui_hot_path_no_deferred_load active_locale=%s source=%s\n",
+                            kLogTag,
+                            candidate->id.c_str(),
+                            s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                            candidate->source_path.empty() ? "<none>" : candidate->source_path.c_str());
             }
             break;
         }
@@ -3640,6 +3666,12 @@ bool ensure_content_font_for_text(const char* text)
     }
 
     return missing.empty();
+}
+
+bool prepare_content_font_for_text(const char* text, bool force_overlay)
+{
+    ScopedExternalFontActivation activation(force_overlay);
+    return ensure_content_font_for_text(text);
 }
 
 std::size_t ime_count()

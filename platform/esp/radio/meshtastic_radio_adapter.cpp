@@ -442,7 +442,7 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
                  static_cast<unsigned long>(header.id));
         return;
     }
-    if (dedup_.isDuplicate(header.from, header.id))
+    if (dedup_.isDuplicate(header.from, header.id, header.channel))
     {
         ESP_LOGI(kTag,
                  "rx drop duplicate from=%08lX id=%08lX",
@@ -450,7 +450,7 @@ void MeshtasticRadioAdapter::processReceivedPacket(const uint8_t* data, size_t s
                  static_cast<unsigned long>(header.id));
         return;
     }
-    dedup_.markSeen(header.from, header.id);
+    dedup_.markSeen(header.from, header.id, header.channel);
 
     const chat::ChannelId channel =
         channel_from_hash(header.channel, primary_channel_hash_, secondary_channel_hash_);

@@ -130,6 +130,15 @@ int main()
     {
         const auto policy = resolveMeshtasticMqttDownlinkPolicy(
             "!00000000", 0xA1B3B57CUL, 0x4A59CD8CUL,
+            0xB0B0B0B0UL, true);
+        assert(policy.accept_locally);
+        assert(policy.transmit_to_mesh);
+        assert(policy.reason == MeshtasticMqttDownlinkReason::TransmitToMesh);
+    }
+
+    {
+        const auto policy = resolveMeshtasticMqttDownlinkPolicy(
+            "!00000000", 0xA1B3B57CUL, 0x4A59CD8CUL,
             kMeshtasticBroadcastNode, false);
         assert(policy.accept_locally);
         assert(!policy.transmit_to_mesh);

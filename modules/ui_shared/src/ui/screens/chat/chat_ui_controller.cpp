@@ -1029,6 +1029,10 @@ void UiController::switchToConversation(chat::ConversationId conv)
     const ::ui::chat::ConversationId ui_conv =
         chat_presentation_adapters::toUiConversationId(conv);
     (void)chat_model_.selectConversation(ui_conv);
+    if (chat_model_.markRead(ui_conv).ok)
+    {
+        conversation_list_dirty_ = true;
+    }
 
     // Update header (prefer contact name, else short_name)
     std::string title = resolveConversationDisplayName(conv);
@@ -1060,10 +1064,6 @@ void UiController::switchToConversation(chat::ConversationId conv)
     if (loadChatSnapshot())
     {
         applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
-    }
-    if (chat_model_.markRead(ui_conv).ok)
-    {
-        conversation_list_dirty_ = true;
     }
 }
 

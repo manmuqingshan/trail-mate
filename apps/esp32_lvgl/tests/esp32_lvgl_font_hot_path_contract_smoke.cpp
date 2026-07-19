@@ -71,6 +71,12 @@ int main(int argc, char** argv)
     const std::size_t budget_check = position_of(registry, "can_add_content_supplement(pack)");
     assert(hot_path_guard < hot_path_check);
     assert(hot_path_check < budget_check);
+    const std::size_t deferred_guard =
+        position_of(registry, "bool can_schedule_deferred_content_supplement_load");
+    assert(hot_path_guard < deferred_guard);
+    assert(contains(registry, "can_load_font_from_activation_path(pack)"));
+    assert(contains(registry, "bool prepare_content_font_for_text"));
+    assert(contains(registry, "ScopedExternalFontActivation activation(force_overlay);"));
 
     const std::size_t content_ensure = position_of(registry, "bool ensure_content_font_for_text");
     const std::size_t supplement_check = position_of(
@@ -78,14 +84,24 @@ int main(int argc, char** argv)
         "!can_activate_content_supplement_for_text(*candidate)");
     const std::size_t hot_path_reason = position_of_after(registry, "\"ui_hot_path\"", supplement_check);
     const std::size_t content_budget_reason = position_of_after(registry, "\"content_budget\"", supplement_check);
+    const std::size_t deferred_candidate_guard = position_of_after(
+        registry,
+        "can_schedule_deferred_content_supplement_load(*candidate)",
+        supplement_check);
     const std::size_t deferred_queue = position_of_after(
         registry,
         "queue_deferred_content_supplement_load(*candidate, reason);",
-        supplement_check);
+        deferred_candidate_guard);
+    const std::size_t deferred_skip = position_of_after(
+        registry,
+        "ui_hot_path_no_deferred_load",
+        deferred_candidate_guard);
     assert(content_ensure < supplement_check);
     assert(supplement_check < hot_path_reason);
     assert(supplement_check < content_budget_reason);
-    assert(supplement_check < deferred_queue);
+    assert(supplement_check < deferred_candidate_guard);
+    assert(deferred_candidate_guard < deferred_queue);
+    assert(deferred_candidate_guard < deferred_skip);
 
     const std::size_t async_schedule =
         position_of(registry, "bool schedule_deferred_content_supplement_async");
@@ -122,6 +138,12 @@ int main(int argc, char** argv)
         registry,
         "foreground::make_snapshot(foreground::Slot::I18nFontLoad,\n"
         "                                      foreground::Policy::OverlayImmediate"));
+
+    const std::string network_page = read_file(
+        repo_root / "modules/ui_shared/src/ui/screens/network/network_page_shell.cpp");
+    assert(contains(network_page, "prepare_content_font_for_text(g_state.page_body.data(), true)"));
+    assert(contains(network_page, "::ui::fonts::apply_content_font(label,"));
+    assert(contains(network_page, "::ui::fonts::apply_content_font(text,"));
 
     return 0;
 }

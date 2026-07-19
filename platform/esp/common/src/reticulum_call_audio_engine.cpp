@@ -29,6 +29,7 @@ constexpr uint8_t kJitterStartFrames = 3;
 constexpr uint8_t kJitterMaxFrames = 32;
 constexpr uint8_t kInboundDrainLimit = 4;
 constexpr uint8_t kIoFailureLimit = 25;
+constexpr uint8_t kCallSpeakerVolumePercent = 100;
 constexpr float kTxPcmGain = 1.0f;
 constexpr float kRxPcmGain = 1.0f;
 constexpr uint32_t kCaptureTaskStackBytes = 20 * 1024;
@@ -590,6 +591,7 @@ bool media_start()
         return false;
     }
     s_backend_open = true;
+    set_speaker_volume(kCallSpeakerVolumePercent);
 
     const auto snapshot = ::platform::ui::reticulum_call::snapshot();
     const CodecSelection selection = codec_selection(snapshot);

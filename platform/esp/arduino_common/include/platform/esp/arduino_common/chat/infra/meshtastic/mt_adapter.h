@@ -225,6 +225,40 @@ class MtAdapter : public chat::IMeshAdapter
     sys::RingBuffer<meshtastic_MqttClientProxyMessage, kMqttProxyQueueDepth> mqtt_proxy_queue_;
     MqttProxySettings mqtt_proxy_settings_;
 
+    static constexpr std::size_t kMqttDownlinkWireMaxLen = 255;
+    static constexpr std::size_t kPendingMqttDownlinkTxDepth = 8;
+    static constexpr std::size_t kMqttDownlinkSeenDepth = 24;
+    static constexpr uint8_t kMqttDownlinkTxDrainPerTick = 1;
+    static constexpr uint8_t kMqttDownlinkTxMaxRetries = 2;
+    static constexpr uint32_t kMqttDownlinkSeenTtlMs = 300000;
+
+    struct PendingMqttDownlinkTx
+    {
+        std::array<uint8_t, kMqttDownlinkWireMaxLen> wire{};
+        size_t wire_size = 0;
+        NodeId from = 0;
+        NodeId to = 0;
+        MessageId msg_id = 0;
+        uint8_t channel_hash = 0;
+        uint8_t retry_count = 0;
+        uint32_t first_seen_ms = 0;
+        uint32_t last_attempt_ms = 0;
+    };
+
+    struct MqttDownlinkSeenEntry
+    {
+        bool used = false;
+        NodeId from = 0;
+        MessageId msg_id = 0;
+        uint8_t channel_hash = 0;
+        uint32_t seen_ms = 0;
+    };
+
+    sys::RingBuffer<PendingMqttDownlinkTx, kPendingMqttDownlinkTxDepth>
+        mqtt_downlink_tx_queue_;
+    std::array<MqttDownlinkSeenEntry, kMqttDownlinkSeenDepth> mqtt_downlink_seen_{};
+    size_t mqtt_downlink_seen_next_ = 0;
+
     struct MqttDownlinkScratchBuffers
     {
         meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
@@ -424,6 +458,18 @@ class MtAdapter : public chat::IMeshAdapter
     bool injectMqttEnvelope(const meshtastic_MeshPacket& packet,
                             const char* channel_id,
                             const char* gateway_id);
+    bool enqueueMqttDownlinkTx(const uint8_t* wire_data,
+                               size_t wire_size,
+                               const PacketHeaderWire& header);
+    bool isMqttDownlinkRecentlySeen(NodeId from,
+                                    MessageId msg_id,
+                                    uint8_t channel_hash,
+                                    uint32_t now_ms);
+    void rememberMqttDownlinkSeen(NodeId from,
+                                  MessageId msg_id,
+                                  uint8_t channel_hash,
+                                  uint32_t now_ms);
+    void processMqttDownlinkTxQueue(uint32_t now_ms);
     bool queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
                                const char* channel_id);
     bool queueMqttProxyPublishFromWire(const uint8_t* wire_data,

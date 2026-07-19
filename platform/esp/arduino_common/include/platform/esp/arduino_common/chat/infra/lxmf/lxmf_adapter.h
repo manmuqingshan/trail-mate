@@ -143,6 +143,7 @@ class LxmfAdapter : public IMeshAdapter
         bool allow_persistence = false;
         bool allow_peer_projection = false;
         bool allow_announce_tx = true;
+        bool allow_propagation_client = false;
         bool drop_public_discovery = false;
         const char* phase = "screen";
     };

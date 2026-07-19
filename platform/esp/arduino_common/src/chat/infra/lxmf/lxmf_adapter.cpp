@@ -768,6 +768,40 @@ bool isNomadNetworkNodeAnnounce(const reticulum::ParsedAnnounce& announce)
     return hashesEqual(expected_name_hash, announce.name_hash, sizeof(expected_name_hash));
 }
 
+bool isLxstTelephonyAnnounce(const reticulum::ParsedAnnounce& announce)
+{
+    if (!announce.valid || !announce.name_hash)
+    {
+        return false;
+    }
+
+    uint8_t expected_name_hash[reticulum::kNameHashSize] = {};
+    reticulum::computeNameHash("lxst", "telephony", expected_name_hash);
+    return hashesEqual(expected_name_hash, announce.name_hash, sizeof(expected_name_hash));
+}
+
+bool isLxstTelephonyAnnouncePacket(const reticulum::ParsedPacket& packet)
+{
+    if (!packet.valid || packet.packet_type != reticulum::PacketType::Announce)
+    {
+        return false;
+    }
+
+    reticulum::ParsedAnnounce announce{};
+    return reticulum::parseAnnounce(packet, &announce) &&
+           isLxstTelephonyAnnounce(announce);
+}
+
+bool isLoRaInterfaceId(reticulum::interfaces::InterfaceId interface_id)
+{
+    return interface_id == reticulum::interfaces::kLoRaInterfaceId;
+}
+
+bool isLoRaPath(const runtime::PathEntry* path)
+{
+    return path && isLoRaInterfaceId(path->interface_id);
+}
+
 bool packetContextUsesRawLinkPayload(uint8_t context)
 {
     return context == static_cast<uint8_t>(reticulum::PacketContext::Keepalive) ||
@@ -1551,6 +1585,27 @@ void LxmfAdapter::processPropagationClient()
     }
 
     const PropagationPeerState* node = selectActivePropagationPeer();
+    const PathEntry* node_path =
+        node ? path_manager_.findPath(node->propagation_hash, millis(), kPathTtlMs)
+             : nullptr;
+    if (node && !node_path)
+    {
+        (void)sendPathRequestForDestination(node->propagation_hash);
+        return;
+    }
+    if (node && isLoRaPath(node_path))
+    {
+        if (propagation_client_.hasPendingUploads())
+        {
+            if (PendingPropagationUpload* upload =
+                    propagation_client_.firstPendingUpload())
+            {
+                propagation_client_.markUploadWaitingForNode(*upload);
+            }
+        }
+        return;
+    }
+
     if (propagation_client_.hasPendingUploads())
     {
         PendingPropagationUpload* pending_upload =
@@ -2573,6 +2628,7 @@ bool LxmfAdapter::broadcastSelfIdentity()
     const bool call_audio_ok = sendAnnounce(LocalDestinationKind::CallAudio);
     const bool call_audio_complete =
         !interfaces_.wifiGatewayConfigured() ||
+        !interfaces_.hasReadyWifiGateway() ||
         lastAnnounceTxReachedRequiredInterfaces(call_audio_ok);
     if (delivery_ok || propagation_ok || call_audio_ok)
     {
@@ -2680,6 +2736,14 @@ MeshActionResult LxmfAdapter::startReticulumAudioCall(
 
     const PathEntry* path =
         path_manager_.findPath(call_destination_hash, millis(), kPathTtlMs);
+    if (isLoRaPath(path))
+    {
+        char call_hash[12] = {};
+        formatHashPrefix(call_destination_hash, call_hash, sizeof(call_hash));
+        Serial.printf("[LXMF][CallTX] ignore_path dest=%s reason=lora_not_supported\n",
+                      call_hash);
+        path = nullptr;
+    }
     bool path_requested = false;
     bool path_waiting = false;
     if (!path)
@@ -3223,6 +3287,7 @@ LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
         budget.allow_persistence = false;
         budget.allow_peer_projection = false;
         budget.allow_announce_tx = false;
+        budget.allow_propagation_client = false;
         budget.drop_public_discovery = true;
         budget.phase = "call";
         return budget;
@@ -3236,6 +3301,7 @@ LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
         budget.allow_persistence = false;
         budget.allow_peer_projection = false;
         budget.allow_announce_tx = false;
+        budget.allow_propagation_client = false;
         budget.drop_public_discovery = true;
         budget.phase = "nomad";
         return budget;
@@ -3245,13 +3311,28 @@ LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
         screen_runtime::is_sleeping() && !screen_runtime::is_saver_active();
     if (maintenance_window)
     {
-        budget.live_packet_limit = kMaxIngressPacketsPerPoll;
+        budget.live_packet_limit = 1;
         budget.deferred_discovery_limit = 1;
         budget.allow_public_discovery = true;
-        budget.allow_persistence = true;
-        budget.allow_peer_projection = true;
-        budget.allow_announce_tx = true;
+        budget.allow_persistence = false;
+        budget.allow_peer_projection = false;
+        budget.allow_announce_tx = false;
+        budget.allow_propagation_client = false;
         budget.phase = "sleep";
+        return budget;
+    }
+
+    if (screen_runtime::is_saver_active())
+    {
+        budget.live_packet_limit = 1;
+        budget.deferred_discovery_limit = 0;
+        budget.allow_public_discovery = false;
+        budget.allow_persistence = false;
+        budget.allow_peer_projection = false;
+        budget.allow_announce_tx = false;
+        budget.allow_propagation_client = false;
+        budget.drop_public_discovery = true;
+        budget.phase = "saver";
         return budget;
     }
 
@@ -3266,6 +3347,7 @@ LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
     budget.allow_persistence = true;
     budget.allow_peer_projection = true;
     budget.allow_announce_tx = true;
+    budget.allow_propagation_client = true;
     budget.phase = "p4_screen";
     return budget;
 #endif
@@ -3276,7 +3358,9 @@ LxmfAdapter::RuntimeBudget LxmfAdapter::makeRuntimeBudget() const
     budget.allow_persistence = false;
     budget.allow_peer_projection = !screen_runtime::is_saver_active();
     budget.allow_announce_tx = true;
-    budget.phase = screen_runtime::is_saver_active() ? "saver" : "screen";
+    budget.allow_propagation_client = true;
+    budget.drop_public_discovery = true;
+    budget.phase = "screen";
     return budget;
 }
 
@@ -3329,7 +3413,10 @@ void LxmfAdapter::processRuntime()
     propagation_client_.cull(currentTimestampSeconds(), propagation_limits);
 
     pumpNomadPageRequests();
-    processPropagationClient();
+    if (budget.allow_propagation_client)
+    {
+        processPropagationClient();
+    }
     processDeferredDiscoveryPackets(budget);
 
     if (budget.allow_peer_projection)
@@ -3501,6 +3588,11 @@ bool LxmfAdapter::processOneRadioPacket(
 
     if (shouldDeferDiscoveryPacket(parsed, ingress_interface, budget))
     {
+        if (deferred_replay)
+        {
+            noteRxSummary(false, false, false, false, true);
+            return false;
+        }
         if (!hasDeferredDiscoveryPacket(packet_hash) &&
             enqueueDeferredDiscoveryPacket(rx_packet, packet_hash))
         {
@@ -3544,7 +3636,7 @@ bool LxmfAdapter::processOneRadioPacket(
                                     packet_len,
                                     parsed,
                                     ingress_interface,
-                                    budget.allow_persistence || deferred_replay);
+                                    budget.allow_persistence);
     case runtime::PacketRoute::Proof:
         return handleProofPacket(packet, packet_len, parsed, ingress_interface);
     case runtime::PacketRoute::LinkRequest:
@@ -3916,7 +4008,7 @@ bool LxmfAdapter::lastAnnounceTxReachedRequiredInterfaces(bool sent) const
     {
         return false;
     }
-    return interfaces_.lastTxResult().reachedRequiredInterfaces();
+    return interfaces_.lastTxResult().sent();
 }
 
 bool LxmfAdapter::handleAnnouncePacket(const uint8_t* raw_packet, size_t raw_len,
@@ -4551,7 +4643,11 @@ bool LxmfAdapter::handleLinkRequestPacket(
         if (local_kind == LocalDestinationKind::CallAudio &&
             ingress_interface == reticulum::interfaces::InterfaceKind::LoRa)
         {
-            return false;
+            char call_hash[12] = {};
+            formatHashPrefix(packet.destination_hash, call_hash, sizeof(call_hash));
+            Serial.printf("[LXMF][CallRX] reject_bearer dest=%s reason=lora_not_supported\n",
+                          call_hash);
+            return true;
         }
 
         if (!packet.payload ||
@@ -4702,27 +4798,9 @@ bool LxmfAdapter::handleLinkRequestPacket(
         return sendLinkHandshakeProof(*session);
     }
 
-    const PathEntry* path =
-        path_manager_.findPath(packet.destination_hash, millis(), kPathTtlMs);
-    if (!path)
-    {
-        return false;
-    }
-
-    uint8_t link_id[reticulum::kTruncatedHashSize] = {};
-    if (computeLinkIdFromLinkRequest(raw_packet, raw_len, packet, link_id))
-    {
-        LinkRelayEntry& relay =
-            path_manager_.upsertLinkRelay(link_id, kMaxLinkRelays);
-        relay.initiator_interface_id = active_ingress_interface_id_;
-        relay.responder_interface_id = path->interface_id;
-        relay.initiator_hops = packet.hops;
-        relay.responder_hops = path->hops;
-        relay.last_seen_ms = millis();
-    }
-
-    return sendForwardPlan(packet,
-                           packet_router_.planPathForward(*path, packet.hops));
+    // Trail Mate is a Reticulum endpoint client. It should not become a
+    // transient transport router on LoRa and spend airtime forwarding links.
+    return false;
 }
 
 bool LxmfAdapter::handlePathRequestPacket(const reticulum::ParsedPacket& packet)
@@ -4772,17 +4850,19 @@ bool LxmfAdapter::handlePathRequestPacket(const reticulum::ParsedPacket& packet)
     if (isLocalDestinationHash(requested_hash, &local_kind))
     {
         (void)tag;
+        if (local_kind == LocalDestinationKind::CallAudio &&
+            isLoRaInterfaceId(active_ingress_interface_id_))
+        {
+            char call_hash[12] = {};
+            formatHashPrefix(requested_hash, call_hash, sizeof(call_hash));
+            Serial.printf("[LXMF][PathRX] skip_response dest=%s kind=call_audio reason=lora_not_supported\n",
+                          call_hash);
+            return true;
+        }
         return sendAnnounce(local_kind, reticulum::PacketContext::PathResponse);
     }
 
-    const PathEntry* path =
-        path_manager_.findPath(requested_hash, millis(), kPathTtlMs);
-    if (!path || path->cached_announce_len == 0)
-    {
-        return true;
-    }
-
-    return sendCachedAnnounceResponse(*path, reticulum::PacketContext::PathResponse);
+    return true;
 }
 
 bool LxmfAdapter::handleCacheRequestPacket(const reticulum::ParsedPacket& packet)
@@ -6530,43 +6610,10 @@ bool LxmfAdapter::sendForwardPlan(const reticulum::ParsedPacket& packet,
 bool LxmfAdapter::maybeForwardTransportPacket(const uint8_t* raw_packet, size_t raw_len,
                                               const reticulum::ParsedPacket& packet)
 {
-    if (!raw_packet || raw_len == 0 || !packet.destination_hash)
-    {
-        return false;
-    }
-
-    if (!packet.transport_id ||
-        !hashesEqual(packet.transport_id, identity_.identityHash(), reticulum::kTruncatedHashSize))
-    {
-        return false;
-    }
-
-    if (isLocalDestinationHash(packet.destination_hash, nullptr))
-    {
-        return false;
-    }
-
-    const PathEntry* path =
-        path_manager_.findPath(packet.destination_hash, millis(), kPathTtlMs);
-    if (!path)
-    {
-        return false;
-    }
-
-    if (packet.packet_type != reticulum::PacketType::Proof &&
-        packet.packet_type != reticulum::PacketType::Announce)
-    {
-        uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
-        reticulum::computeTruncatedPacketHash(raw_packet, raw_len, proof_hash);
-        path_manager_.rememberReversePath(proof_hash,
-                                          active_ingress_interface_id_,
-                                          path->hops,
-                                          millis(),
-                                          kMaxReverseEntries);
-    }
-
-    return sendForwardPlan(packet,
-                           packet_router_.planPathForward(*path, packet.hops));
+    (void)raw_packet;
+    (void)raw_len;
+    (void)packet;
+    return false;
 }
 
 bool LxmfAdapter::maybeForwardLinkPacket(const uint8_t* raw_packet, size_t raw_len,
@@ -6574,34 +6621,8 @@ bool LxmfAdapter::maybeForwardLinkPacket(const uint8_t* raw_packet, size_t raw_l
 {
     (void)raw_packet;
     (void)raw_len;
-
-    if (!packet.destination_hash)
-    {
-        return false;
-    }
-
-    if (packet.destination_type != reticulum::DestinationType::Link)
-    {
-        return false;
-    }
-
-    LinkRelayEntry* relay = path_manager_.findLinkRelay(packet.destination_hash);
-    if (!relay)
-    {
-        return false;
-    }
-
-    const runtime::PacketForwardPlan plan =
-        packet_router_.planLinkRelayForward(*relay,
-                                            active_ingress_interface_id_,
-                                            packet.hops);
-    if (!plan.forward)
-    {
-        return false;
-    }
-
-    relay->last_seen_ms = millis();
-    return sendForwardPlan(packet, plan);
+    (void)packet;
+    return false;
 }
 
 bool LxmfAdapter::sendProofForPacket(const uint8_t* raw_packet, size_t raw_len)
@@ -6968,6 +6989,14 @@ bool LxmfAdapter::sendLinkRequest(LinkSession& session)
     bool routed = false;
     const PathEntry* tx_path =
         path_manager_.findPath(parsed.destination_hash, millis(), kPathTtlMs);
+    if (session.destination == LocalDestinationKind::CallAudio &&
+        isLoRaPath(tx_path))
+    {
+        Serial.printf("[LXMF][LinkTX] request_fail dest=%s kind=%u reason=call_lora_path\n",
+                      dest_hash,
+                      static_cast<unsigned>(session.destination));
+        return false;
+    }
     if (tx_path && tx_path->hops > 1 && !tx_path->direct)
     {
         tx_packet_len = sizeof(link_request_routed_scratch_);
@@ -7390,6 +7419,11 @@ bool LxmfAdapter::sendCachedAnnounceResponse(const PathEntry& path,
     {
         return false;
     }
+    if (isLoRaInterfaceId(active_ingress_interface_id_) &&
+        isLxstTelephonyAnnouncePacket(parsed))
+    {
+        return true;
+    }
 
     std::memset(routed_packet_scratch_, 0, sizeof(routed_packet_scratch_));
     size_t packet_len = sizeof(routed_packet_scratch_);
@@ -7706,27 +7740,9 @@ bool LxmfAdapter::shouldRebroadcastAnnounce(
     const reticulum::ParsedPacket& packet,
     reticulum::interfaces::InterfaceKind ingress_interface) const
 {
-    if (ingress_interface == reticulum::interfaces::InterfaceKind::WifiGateway)
-    {
-        return false;
-    }
-    if (!packet.destination_hash)
-    {
-        return false;
-    }
-    if (packet.context == static_cast<uint8_t>(reticulum::PacketContext::PathResponse))
-    {
-        return false;
-    }
-    if (packet.hops >= kMaxTransportHops)
-    {
-        return false;
-    }
-    if (hashesEqual(packet.destination_hash, identity_.destinationHash(), reticulum::kTruncatedHashSize))
-    {
-        return false;
-    }
-    return true;
+    (void)packet;
+    (void)ingress_interface;
+    return false;
 }
 
 bool LxmfAdapter::rebroadcastAnnounce(const PathEntry& path, const reticulum::ParsedPacket& packet)

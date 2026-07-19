@@ -891,6 +891,15 @@ meshtastic_Routing_Error MtAdapter::getLastRoutingError() const
 void MtAdapter::setMqttProxySettings(const MqttProxySettings& settings)
 {
     const bool root_changed = mqtt_proxy_settings_.root != settings.root;
+    const bool downlink_policy_changed =
+        mqtt_proxy_settings_.enabled != settings.enabled ||
+        mqtt_proxy_settings_.proxy_to_client_enabled != settings.proxy_to_client_enabled ||
+        mqtt_proxy_settings_.encryption_enabled != settings.encryption_enabled ||
+        mqtt_proxy_settings_.primary_downlink_enabled != settings.primary_downlink_enabled ||
+        mqtt_proxy_settings_.secondary_downlink_enabled != settings.secondary_downlink_enabled ||
+        mqtt_proxy_settings_.root != settings.root ||
+        mqtt_proxy_settings_.primary_channel_id != settings.primary_channel_id ||
+        mqtt_proxy_settings_.secondary_channel_id != settings.secondary_channel_id;
     const bool changed = mqtt_proxy_settings_.enabled != settings.enabled ||
                          mqtt_proxy_settings_.proxy_to_client_enabled != settings.proxy_to_client_enabled ||
                          mqtt_proxy_settings_.encryption_enabled != settings.encryption_enabled ||
@@ -909,6 +918,21 @@ void MtAdapter::setMqttProxySettings(const MqttProxySettings& settings)
                  static_cast<unsigned>(dropped),
                  mqtt_proxy_settings_.root.c_str(),
                  settings.root.c_str());
+    }
+    if (downlink_policy_changed)
+    {
+        const size_t dropped = mqtt_downlink_tx_queue_.size();
+        mqtt_downlink_tx_queue_.clear();
+        for (auto& entry : mqtt_downlink_seen_)
+        {
+            entry = MqttDownlinkSeenEntry{};
+        }
+        mqtt_downlink_seen_next_ = 0;
+        if (dropped > 0)
+        {
+            LORA_LOG("[MQTT][DownlinkTX] settings changed drop pending=%u\n",
+                     static_cast<unsigned>(dropped));
+        }
     }
     mqtt_proxy_settings_ = settings;
     if (changed)
@@ -1275,8 +1299,8 @@ bool MtAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
         }
         else
         {
-            const bool tx_ok = transmitWirePacket(wire_buffer, wire_size);
-            LORA_LOG("[MQTT] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
+            const bool tx_ok = enqueueMqttDownlinkTx(wire_buffer, wire_size, *tx_header);
+            LORA_LOG("[MQTT] downlink mesh tx scheduled id=%08lX ch=0x%02X len=%u ok=%u\n",
                      (unsigned long)tx_header->id,
                      (unsigned)tx_header->channel,
                      (unsigned)wire_size,
@@ -1287,6 +1311,145 @@ bool MtAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
     processReceivedPacket(wire_buffer, wire_size);
     LORA_LOG("[MQTT] downlink local rx complete id=%08lX origin=mqtt\n",
              (unsigned long)tx_header->id);
+    return true;
+}
+
+bool MtAdapter::isMqttDownlinkRecentlySeen(NodeId from,
+                                           MessageId msg_id,
+                                           uint8_t channel_hash,
+                                           uint32_t now_ms)
+{
+    for (auto& entry : mqtt_downlink_seen_)
+    {
+        if (!entry.used)
+        {
+            continue;
+        }
+        if (now_ms - entry.seen_ms > kMqttDownlinkSeenTtlMs)
+        {
+            entry = MqttDownlinkSeenEntry{};
+            continue;
+        }
+        if (entry.from == from &&
+            entry.msg_id == msg_id &&
+            entry.channel_hash == channel_hash)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MtAdapter::rememberMqttDownlinkSeen(NodeId from,
+                                         MessageId msg_id,
+                                         uint8_t channel_hash,
+                                         uint32_t now_ms)
+{
+    for (auto& entry : mqtt_downlink_seen_)
+    {
+        if (entry.used &&
+            entry.from == from &&
+            entry.msg_id == msg_id &&
+            entry.channel_hash == channel_hash)
+        {
+            entry.seen_ms = now_ms;
+            return;
+        }
+    }
+
+    for (auto& entry : mqtt_downlink_seen_)
+    {
+        if (!entry.used || now_ms - entry.seen_ms > kMqttDownlinkSeenTtlMs)
+        {
+            entry.used = true;
+            entry.from = from;
+            entry.msg_id = msg_id;
+            entry.channel_hash = channel_hash;
+            entry.seen_ms = now_ms;
+            return;
+        }
+    }
+
+    MqttDownlinkSeenEntry& entry = mqtt_downlink_seen_[mqtt_downlink_seen_next_];
+    mqtt_downlink_seen_next_ = (mqtt_downlink_seen_next_ + 1U) % mqtt_downlink_seen_.size();
+    entry.used = true;
+    entry.from = from;
+    entry.msg_id = msg_id;
+    entry.channel_hash = channel_hash;
+    entry.seen_ms = now_ms;
+}
+
+bool MtAdapter::enqueueMqttDownlinkTx(const uint8_t* wire_data,
+                                      size_t wire_size,
+                                      const PacketHeaderWire& header)
+{
+    if (!wire_data || wire_size == 0 || wire_size > kMqttDownlinkWireMaxLen)
+    {
+        LORA_LOG("[MQTT][DownlinkTX] drop reason=invalid_wire id=%08lX len=%u\n",
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(wire_size));
+        return false;
+    }
+
+    const uint32_t now_ms = millis();
+    if (isMqttDownlinkRecentlySeen(header.from, header.id, header.channel, now_ms))
+    {
+        LORA_LOG("[MQTT][DownlinkTX] skip reason=duplicate from=%08lX id=%08lX ch=0x%02X depth=%u\n",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(header.channel),
+                 static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+        return true;
+    }
+
+    for (size_t i = 0; i < mqtt_downlink_tx_queue_.size(); ++i)
+    {
+        const PendingMqttDownlinkTx* pending = mqtt_downlink_tx_queue_.get(i);
+        if (pending &&
+            pending->from == header.from &&
+            pending->msg_id == header.id &&
+            pending->channel_hash == header.channel)
+        {
+            rememberMqttDownlinkSeen(header.from, header.id, header.channel, now_ms);
+            LORA_LOG("[MQTT][DownlinkTX] skip reason=already_queued from=%08lX id=%08lX ch=0x%02X depth=%u\n",
+                     static_cast<unsigned long>(header.from),
+                     static_cast<unsigned long>(header.id),
+                     static_cast<unsigned>(header.channel),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            return true;
+        }
+    }
+
+    if (mqtt_downlink_tx_queue_.isFull())
+    {
+        rememberMqttDownlinkSeen(header.from, header.id, header.channel, now_ms);
+        LORA_LOG("[MQTT][DownlinkTX] drop reason=pending_queue_full from=%08lX to=%08lX id=%08lX ch=0x%02X depth=%u\n",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.to),
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(header.channel),
+                 static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+        return false;
+    }
+
+    PendingMqttDownlinkTx pending{};
+    std::memcpy(pending.wire.data(), wire_data, wire_size);
+    pending.wire_size = wire_size;
+    pending.from = header.from;
+    pending.to = header.to;
+    pending.msg_id = header.id;
+    pending.channel_hash = header.channel;
+    pending.first_seen_ms = now_ms;
+
+    mqtt_downlink_tx_queue_.append(pending);
+    rememberMqttDownlinkSeen(header.from, header.id, header.channel, now_ms);
+    LORA_LOG("[MQTT][DownlinkTX] queued from=%08lX to=%08lX id=%08lX ch=0x%02X len=%u depth=%u\n",
+             static_cast<unsigned long>(header.from),
+             static_cast<unsigned long>(header.to),
+             static_cast<unsigned long>(header.id),
+             static_cast<unsigned>(header.channel),
+             static_cast<unsigned>(wire_size),
+             static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
     return true;
 }
 
@@ -1663,7 +1826,7 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 #endif
 
     // Check for duplicates
-    if (dedup_.isDuplicate(header.from, header.id))
+    if (dedup_.isDuplicate(header.from, header.id, header.channel))
     {
         mt_diag_dropf(&header, "dedup");
         LORA_LOG("[LORA] RX dedup from=%08lX id=%08lX\n",
@@ -1975,7 +2138,7 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 
     // Only mark packets as seen after we have successfully identified and decoded them.
     // This avoids poisoning dedup for retries when a packet failed due to stale PKI state.
-    dedup_.markSeen(header.from, header.id);
+    dedup_.markSeen(header.from, header.id, header.channel);
 
     if (plaintext_len > 0)
     {
@@ -2630,6 +2793,96 @@ void MtAdapter::processSendQueue()
                 break;
             }
         }
+    }
+
+    processMqttDownlinkTxQueue(now);
+}
+
+void MtAdapter::processMqttDownlinkTxQueue(uint32_t now_ms)
+{
+    uint8_t drained = 0;
+    while (!mqtt_downlink_tx_queue_.empty() &&
+           drained < kMqttDownlinkTxDrainPerTick)
+    {
+        PendingMqttDownlinkTx* pending = mqtt_downlink_tx_queue_.get(0);
+        if (!pending)
+        {
+            break;
+        }
+
+        if (!config_.tx_enabled)
+        {
+            LORA_LOG("[MQTT][DownlinkTX] drop reason=tx_disabled from=%08lX id=%08lX ch=0x%02X depth=%u\n",
+                     static_cast<unsigned long>(pending->from),
+                     static_cast<unsigned long>(pending->msg_id),
+                     static_cast<unsigned>(pending->channel_hash),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            PendingMqttDownlinkTx discarded{};
+            mqtt_downlink_tx_queue_.popOldest(&discarded);
+            continue;
+        }
+
+        if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
+            (now_ms - last_tx_ms_) < min_tx_interval_ms_)
+        {
+            LORA_LOG("[MQTT][DownlinkTX] deferred reason=airtime_budget id=%08lX wait_ms=%lu depth=%u\n",
+                     static_cast<unsigned long>(pending->msg_id),
+                     static_cast<unsigned long>(min_tx_interval_ms_ - (now_ms - last_tx_ms_)),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            break;
+        }
+
+        if (pending->retry_count > 0 &&
+            (now_ms - pending->last_attempt_ms) < RETRY_DELAY_MS)
+        {
+            break;
+        }
+
+        pending->last_attempt_ms = now_ms;
+        if (transmitWirePacket(pending->wire.data(), pending->wire_size))
+        {
+            last_tx_ms_ = now_ms;
+            LORA_LOG("[MQTT][DownlinkTX] sent_to_radio from=%08lX to=%08lX id=%08lX ch=0x%02X len=%u retries=%u age_ms=%lu depth=%u\n",
+                     static_cast<unsigned long>(pending->from),
+                     static_cast<unsigned long>(pending->to),
+                     static_cast<unsigned long>(pending->msg_id),
+                     static_cast<unsigned>(pending->channel_hash),
+                     static_cast<unsigned>(pending->wire_size),
+                     static_cast<unsigned>(pending->retry_count),
+                     static_cast<unsigned long>(now_ms - pending->first_seen_ms),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            PendingMqttDownlinkTx discarded{};
+            mqtt_downlink_tx_queue_.popOldest(&discarded);
+            ++drained;
+            continue;
+        }
+
+        ++pending->retry_count;
+        const char* reason = board_.isRadioOnline() ? "radio_queue_full" : "radio_offline";
+        if (pending->retry_count > kMqttDownlinkTxMaxRetries)
+        {
+            LORA_LOG("[MQTT][DownlinkTX] drop reason=%s from=%08lX to=%08lX id=%08lX ch=0x%02X retries=%u age_ms=%lu depth=%u\n",
+                     reason,
+                     static_cast<unsigned long>(pending->from),
+                     static_cast<unsigned long>(pending->to),
+                     static_cast<unsigned long>(pending->msg_id),
+                     static_cast<unsigned>(pending->channel_hash),
+                     static_cast<unsigned>(pending->retry_count),
+                     static_cast<unsigned long>(now_ms - pending->first_seen_ms),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            PendingMqttDownlinkTx discarded{};
+            mqtt_downlink_tx_queue_.popOldest(&discarded);
+            continue;
+        }
+
+        LORA_LOG("[MQTT][DownlinkTX] deferred reason=%s from=%08lX id=%08lX ch=0x%02X retries=%u depth=%u\n",
+                 reason,
+                 static_cast<unsigned long>(pending->from),
+                 static_cast<unsigned long>(pending->msg_id),
+                 static_cast<unsigned>(pending->channel_hash),
+                 static_cast<unsigned>(pending->retry_count),
+                 static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+        break;
     }
 }
 

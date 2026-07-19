@@ -2057,9 +2057,9 @@ void emit_micron_text_token(lv_obj_t* row,
     lv_obj_set_width(label, LV_SIZE_CONTENT);
     lv_obj_set_style_max_width(label, LV_PCT(100), LV_PART_MAIN);
     apply_micron_label_style(label, style, default_bg, font);
-    ::ui::fonts::apply_localized_font(label,
-                                      text,
-                                      font ? font : (style.bold ? body_font() : caption_font()));
+    ::ui::fonts::apply_content_font(label,
+                                    text,
+                                    font ? font : (style.bold ? body_font() : caption_font()));
 }
 
 void emit_micron_text(lv_obj_t* row,
@@ -2282,9 +2282,9 @@ void emit_micron_link(lv_obj_t* row,
     lv_label_set_long_mode(text, LV_LABEL_LONG_CLIP);
     lv_obj_set_width(text, LV_SIZE_CONTENT);
     apply_micron_label_style(text, style, default_bg);
-    ::ui::fonts::apply_localized_font(text,
-                                      visible,
-                                      style.bold ? body_font() : caption_font());
+    ::ui::fonts::apply_content_font(text,
+                                    visible,
+                                    style.bold ? body_font() : caption_font());
     lv_obj_center(text);
 
     if (request_fields)
@@ -3601,7 +3601,11 @@ void render_cached_page(const rtpage::Status& status,
 {
     clear_viewport();
     g_state.rendered_shell_address[0] = '\0';
-    render_micron_body(g_state.page_body.data(), body_len, status.truncated);
+    const std::size_t render_len =
+        body_len < g_state.page_body.size() ? body_len : g_state.page_body.size() - 1U;
+    g_state.page_body[render_len] = '\0';
+    (void)::ui::i18n::prepare_content_font_for_text(g_state.page_body.data(), true);
+    render_micron_body(g_state.page_body.data(), render_len, status.truncated);
     jump_to_rendered_micron_anchor(anchor);
 }
 

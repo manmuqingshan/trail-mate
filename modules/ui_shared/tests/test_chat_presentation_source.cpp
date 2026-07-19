@@ -471,6 +471,20 @@ const ui::chat::ConversationLocationParticipant* findLocationParticipant(
     return nullptr;
 }
 
+uint16_t unreadForConversation(const ui::chat::ChatWorkspaceSnapshot& snapshot,
+                               const ui::chat::ConversationId& id)
+{
+    for (size_t i = 0; i < snapshot.conversation_count; ++i)
+    {
+        if (snapshot.conversations[i].id == id)
+        {
+            return snapshot.conversations[i].unread_count;
+        }
+    }
+    assert(false);
+    return 0;
+}
+
 void setNodePosition(::chat::contacts::ContactService& contacts,
                      uint32_t node_id,
                      int32_t lat_e7,
@@ -669,6 +683,10 @@ int main()
     assert(snapshot.messages[0].source_unverified);
     assert(snapshot.messages[0].sender_node_id == 0x648144D4);
     assert(std::strcmp(snapshot.messages[0].sender_label.c_str(), "Mother") == 0);
+    assert(unreadForConversation(snapshot, broadcast) == 1);
+    assert(sink.markRead(broadcast).ok);
+    assert(source.buildChatWorkspaceSnapshot(request, snapshot));
+    assert(unreadForConversation(snapshot, broadcast) == 0);
 
     const uint32_t paging_peer = 0x00ABCDEF;
     contacts.updateNodeInfo(paging_peer,

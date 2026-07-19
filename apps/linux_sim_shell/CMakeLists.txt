@@ -346,6 +346,27 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_meshtastic_protocol_policy_smoke
              COMMAND trailmate_meshtastic_protocol_policy_smoke)
 
+    add_executable(trailmate_mt_dedup_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mt_dedup.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_dedup.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+    target_include_directories(trailmate_mt_dedup_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_mt_dedup_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_mt_dedup_smoke
+             COMMAND trailmate_mt_dedup_smoke)
+
+    add_executable(trailmate_meshtastic_mqtt_downlink_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_meshtastic_mqtt_downlink_contract.cpp")
+    target_compile_features(trailmate_meshtastic_mqtt_downlink_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_meshtastic_mqtt_downlink_contract_smoke
+             COMMAND trailmate_meshtastic_mqtt_downlink_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
     add_executable(trailmate_protocol_effect_executor_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_protocol_effect_executor.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_packet_wire.cpp"
