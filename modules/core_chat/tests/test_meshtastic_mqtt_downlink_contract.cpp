@@ -54,6 +54,9 @@ int main(int argc, char** argv)
     const std::string source = readFile(
         repo_root /
         "platform/esp/arduino_common/src/chat/infra/meshtastic/mt_adapter.cpp");
+    const std::string helpers = readFile(
+        repo_root /
+        "modules/core_chat/src/infra/meshtastic/mt_protocol_helpers.cpp");
 
     assert(contains(header, "struct PendingMqttDownlinkTx"));
     assert(contains(header, "struct MqttDownlinkSeenEntry"));
@@ -61,6 +64,7 @@ int main(int argc, char** argv)
     assert(contains(header, "mqtt_downlink_seen_"));
     assert(contains(header, "kSendQueueDrainPerTick"));
     assert(contains(header, "kLoRaAirTxBudgetPerTick"));
+    assert(contains(header, "kPkiNodeTableDepth = 64"));
     assert(contains(header, "bool processProtocolActionQueue(uint32_t now_ms,"));
     assert(contains(header, "bool processMqttDownlinkTxQueue(uint32_t now_ms,"));
     assert(contains(header, "uint8_t& tx_budget_remaining"));
@@ -98,6 +102,19 @@ int main(int argc, char** argv)
     assert(contains(source, "reason=pending_queue_full"));
     assert(contains(source, "reason=airtime_budget"));
     assert(contains(source, "\"radio_queue_full\""));
+    assert(contains(source, "const bool is_broadcast = dest == kBroadcastNodeId;"));
+    assert(contains(source, "bool track_ack = !is_broadcast && !dest_last_seen_via_mqtt;"));
+    assert(contains(source, "tx_ok || dest_last_seen_via_mqtt || is_broadcast"));
+    assert(contains(source, "header.to == kBroadcastNodeId && pending_slot && !from_is"));
+    assert(contains(source, "waiting_for_peer_key"));
+    assert(contains(source, "MAX_PKI_KEY_EXCHANGE_RETRIES"));
+    assert(contains(source, "executePkiResync(runtime::MeshtasticPkiResyncCause::PeerKeyMissing"));
+    assert(contains(source, "isPermanentQueuedTextFailure"));
+    assert(contains(source, "readPkiNodeKeyFromDirectory"));
+    assert(contains(source, "loadPkiNodeKeyFromDirectory"));
+    assert(contains(source, "findCachedPkiNodeKey"));
+    assert(contains(source, "std::min<std::size_t>(send_queue_.size(), kPendingSendQueueDepth)"));
+    assert(contains(helpers, "return want_ack && dest != kBroadcastNodeId;"));
 
     const std::size_t public_app_data =
         positionOf(source, "bool MtAdapter::sendAppData(ChannelId channel");

@@ -294,6 +294,202 @@ bool textContains(const char* haystack, const char* needle)
     return haystack && needle && std::strstr(haystack, needle) != nullptr;
 }
 
+bool hasMeshPeerText(const char* text)
+{
+    return text && text[0] != '\0';
+}
+
+void copyNonEmptyMeshPeerText(char* out, std::size_t out_len, const char* text)
+{
+    if (hasMeshPeerText(text))
+    {
+        copyMeshPeerText(out, out_len, text);
+    }
+}
+
+bool hasNodeFacts(const MeshPeerNodeFacts& facts)
+{
+    return hasMeshPeerText(facts.short_name) ||
+           hasMeshPeerText(facts.long_name) ||
+           facts.role != 0xFF ||
+           facts.hw_model != 0 ||
+           facts.channel != 0xFF ||
+           facts.hops_away != 0xFF ||
+           facts.has_macaddr ||
+           facts.via_mqtt;
+}
+
+void mergeNodeFacts(MeshPeerNodeFacts& dst, const MeshPeerNodeFacts& src)
+{
+    const bool source_has_facts = hasNodeFacts(src);
+    copyNonEmptyMeshPeerText(dst.short_name, sizeof(dst.short_name), src.short_name);
+    copyNonEmptyMeshPeerText(dst.long_name, sizeof(dst.long_name), src.long_name);
+    if (src.role != 0xFF)
+    {
+        dst.role = src.role;
+    }
+    if (src.hw_model != 0)
+    {
+        dst.hw_model = src.hw_model;
+    }
+    if (src.channel != 0xFF)
+    {
+        dst.channel = src.channel;
+    }
+    if (src.hops_away != 0xFF)
+    {
+        dst.hops_away = src.hops_away;
+    }
+    if (src.has_macaddr)
+    {
+        dst.has_macaddr = true;
+        std::memcpy(dst.macaddr, src.macaddr, sizeof(dst.macaddr));
+    }
+    if (source_has_facts)
+    {
+        dst.via_mqtt = src.via_mqtt;
+    }
+}
+
+void mergeMeshtasticFacts(MeshtasticPeerFacts& dst,
+                          const MeshtasticPeerFacts& src)
+{
+    mergeNodeFacts(dst.node, src.node);
+    if (src.has_public_key &&
+        meshPeerHasNonZeroBytes(src.public_key,
+                                kMeshPeerMeshtasticPublicKeyLen))
+    {
+        const bool changed =
+            !dst.has_public_key ||
+            std::memcmp(dst.public_key,
+                        src.public_key,
+                        kMeshPeerMeshtasticPublicKeyLen) != 0;
+        dst.has_public_key = true;
+        std::memcpy(dst.public_key,
+                    src.public_key,
+                    kMeshPeerMeshtasticPublicKeyLen);
+        dst.key_manually_verified =
+            changed ? src.key_manually_verified
+                    : (dst.key_manually_verified || src.key_manually_verified);
+    }
+}
+
+void mergeMeshCoreFacts(MeshCorePeerFacts& dst,
+                        const MeshCorePeerFacts& src)
+{
+    mergeNodeFacts(dst.node, src.node);
+    if (src.has_public_key &&
+        meshPeerHasNonZeroBytes(src.public_key,
+                                kMeshPeerMeshCorePublicKeyLen))
+    {
+        const bool changed =
+            !dst.has_public_key ||
+            std::memcmp(dst.public_key,
+                        src.public_key,
+                        kMeshPeerMeshCorePublicKeyLen) != 0;
+        dst.has_public_key = true;
+        std::memcpy(dst.public_key,
+                    src.public_key,
+                    kMeshPeerMeshCorePublicKeyLen);
+        dst.public_key_verified =
+            changed ? src.public_key_verified
+                    : (dst.public_key_verified || src.public_key_verified);
+    }
+    if (src.has_peer_hash)
+    {
+        dst.has_peer_hash = true;
+        dst.peer_hash = src.peer_hash;
+    }
+    if (src.has_next_hop)
+    {
+        dst.has_next_hop = true;
+        dst.next_hop = src.next_hop;
+    }
+}
+
+void mergeReticulumFacts(ReticulumPeerFacts& dst,
+                         const ReticulumPeerFacts& src)
+{
+    if (src.identity.valid)
+    {
+        dst.identity = src.identity;
+    }
+    if (src.has_public_keys &&
+        meshPeerHasNonZeroBytes(src.enc_pub, kMeshPeerReticulumPublicKeyLen) &&
+        meshPeerHasNonZeroBytes(src.sig_pub, kMeshPeerReticulumPublicKeyLen))
+    {
+        dst.has_public_keys = true;
+        std::memcpy(dst.enc_pub, src.enc_pub, sizeof(dst.enc_pub));
+        std::memcpy(dst.sig_pub, src.sig_pub, sizeof(dst.sig_pub));
+    }
+    if (src.has_ratchet &&
+        meshPeerHasNonZeroBytes(src.ratchet_pub, kMeshPeerReticulumRatchetLen))
+    {
+        dst.has_ratchet = true;
+        std::memcpy(dst.ratchet_pub,
+                    src.ratchet_pub,
+                    sizeof(dst.ratchet_pub));
+        dst.ratchet_seen_s = src.ratchet_seen_s;
+    }
+    dst.delivery = dst.delivery || src.delivery;
+    dst.propagation = dst.propagation || src.propagation;
+}
+
+MeshPeerSource mergePeerSource(MeshPeerSource existing,
+                               MeshPeerSource incoming)
+{
+    if (incoming == MeshPeerSource::Unknown)
+    {
+        return existing;
+    }
+    if (incoming == MeshPeerSource::Manual ||
+        incoming == MeshPeerSource::Import)
+    {
+        return incoming;
+    }
+    if (existing == MeshPeerSource::Manual ||
+        existing == MeshPeerSource::Import)
+    {
+        return existing;
+    }
+    if (existing == MeshPeerSource::Unknown)
+    {
+        return incoming;
+    }
+    return incoming;
+}
+
+MeshPeerRecord mergePeerRecordFacts(const MeshPeerRecord& existing,
+                                    const MeshPeerRecord& incoming)
+{
+    MeshPeerRecord next = existing;
+    next.valid = existing.valid || incoming.valid;
+    next.source = mergePeerSource(existing.source, incoming.source);
+    if (existing.first_seen_s != 0 && incoming.first_seen_s != 0)
+    {
+        next.first_seen_s = std::min(existing.first_seen_s, incoming.first_seen_s);
+    }
+    else
+    {
+        next.first_seen_s = existing.first_seen_s != 0
+                                ? existing.first_seen_s
+                                : incoming.first_seen_s;
+    }
+    next.last_seen_s = std::max(existing.last_seen_s, incoming.last_seen_s);
+    if (next.last_seen_s < next.first_seen_s)
+    {
+        next.last_seen_s = next.first_seen_s;
+    }
+    copyNonEmptyMeshPeerText(next.display_name,
+                             sizeof(next.display_name),
+                             incoming.display_name);
+    next.flags = existing.flags;
+    mergeMeshtasticFacts(next.meshtastic, incoming.meshtastic);
+    mergeMeshCoreFacts(next.meshcore, incoming.meshcore);
+    mergeReticulumFacts(next.reticulum, incoming.reticulum);
+    return next;
+}
+
 NodeId reticulumNodeIdFromDestinationHash(const uint8_t* destination_hash)
 {
     if (!destination_hash)
@@ -369,15 +565,8 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::record(
     const std::size_t existing_index = findIndex(record.identity);
     if (existing_index < records_.size())
     {
-        MeshPeerRecord next = record;
         const MeshPeerRecord& existing = records_[existing_index];
-        next.first_seen_s =
-            existing.first_seen_s != 0 ? existing.first_seen_s : record.first_seen_s;
-        if (next.last_seen_s < next.first_seen_s)
-        {
-            next.last_seen_s = next.first_seen_s;
-        }
-        next.flags = existing.flags;
+        MeshPeerRecord next = mergePeerRecordFacts(existing, record);
         records_[existing_index] = next;
         dirty_ = true;
         maybeSave();

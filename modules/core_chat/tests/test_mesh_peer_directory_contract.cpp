@@ -392,6 +392,57 @@ chat::MeshPeerRecord makeMeshtasticPeer(uint32_t node_id,
     return record;
 }
 
+chat::MeshPeerRecord makeMeshtasticKeyOnlyPeer(uint32_t node_id,
+                                               uint8_t seed,
+                                               uint32_t seen_s)
+{
+    chat::MeshPeerRecord record{};
+    record.valid = true;
+    record.identity =
+        chat::makeMeshPeerNodeIdentity(chat::MeshProtocol::Meshtastic, node_id);
+    record.source = chat::MeshPeerSource::RuntimeRx;
+    record.first_seen_s = seen_s;
+    record.last_seen_s = seen_s;
+    record.meshtastic.has_public_key = true;
+    for (std::size_t index = 0;
+         index < chat::kMeshPeerMeshtasticPublicKeyLen;
+         ++index)
+    {
+        record.meshtastic.public_key[index] =
+            static_cast<uint8_t>(seed + index);
+    }
+    return record;
+}
+
+chat::MeshPeerRecord makeMeshtasticNodeOnlyPeer(uint32_t node_id,
+                                                const char* display_name,
+                                                const char* short_name,
+                                                uint32_t seen_s,
+                                                bool via_mqtt)
+{
+    chat::MeshPeerRecord record{};
+    record.valid = true;
+    record.identity =
+        chat::makeMeshPeerNodeIdentity(chat::MeshProtocol::Meshtastic, node_id);
+    record.source = chat::MeshPeerSource::RuntimeRx;
+    record.first_seen_s = seen_s;
+    record.last_seen_s = seen_s;
+    chat::copyMeshPeerText(record.display_name,
+                           sizeof(record.display_name),
+                           display_name);
+    chat::copyMeshPeerText(record.meshtastic.node.short_name,
+                           sizeof(record.meshtastic.node.short_name),
+                           short_name);
+    chat::copyMeshPeerText(record.meshtastic.node.long_name,
+                           sizeof(record.meshtastic.node.long_name),
+                           display_name);
+    record.meshtastic.node.role = 2;
+    record.meshtastic.node.channel = 0;
+    record.meshtastic.node.hops_away = 1;
+    record.meshtastic.node.via_mqtt = via_mqtt;
+    return record;
+}
+
 chat::MeshPeerRecord makeMeshCorePeer(uint8_t seed,
                                       const char* name,
                                       uint32_t seen_s)
@@ -691,6 +742,75 @@ void core_persists_records_and_preserves_user_flags()
     }
 }
 
+void core_merges_sparse_meshtastic_records_without_losing_key_or_node_facts()
+{
+    CountingMeshPeerDirectoryBlobStore blob;
+    chat::MeshPeerDirectoryCore::Options options{};
+    options.meshtastic_capacity = {8, 4};
+    options.auto_save = true;
+    const uint32_t node_id = 0x9E6A7154;
+    const auto identity =
+        chat::makeMeshPeerNodeIdentity(chat::MeshProtocol::Meshtastic,
+                                       node_id);
+
+    {
+        chat::MeshPeerDirectoryCore directory(blob, options);
+        assert(directory.begin().succeeded());
+
+        auto node_only = makeMeshtasticNodeOnlyPeer(node_id,
+                                                    "alpha node",
+                                                    "alpha",
+                                                    10,
+                                                    true);
+        assert(directory.record(node_only).succeeded());
+
+        auto key_only = makeMeshtasticKeyOnlyPeer(node_id, 0x42, 20);
+        assert(directory.record(key_only).succeeded());
+
+        chat::MeshPeerRecord loaded{};
+        assert(directory.find(identity, loaded).succeeded());
+        assert(loaded.first_seen_s == 10);
+        assert(loaded.last_seen_s == 20);
+        assert(std::strcmp(loaded.display_name, "alpha node") == 0);
+        assert(std::strcmp(loaded.meshtastic.node.short_name, "alpha") == 0);
+        assert(loaded.meshtastic.node.role == 2);
+        assert(loaded.meshtastic.node.via_mqtt);
+        assert(loaded.meshtastic.has_public_key);
+        assert(loaded.meshtastic.public_key[0] == 0x42);
+
+        auto refreshed_node = makeMeshtasticNodeOnlyPeer(node_id,
+                                                         "alpha fresh",
+                                                         "fresh",
+                                                         30,
+                                                         false);
+        refreshed_node.meshtastic.node.role = 7;
+        assert(directory.record(refreshed_node).succeeded());
+
+        loaded = chat::MeshPeerRecord{};
+        assert(directory.find(identity, loaded).succeeded());
+        assert(loaded.first_seen_s == 10);
+        assert(loaded.last_seen_s == 30);
+        assert(std::strcmp(loaded.display_name, "alpha fresh") == 0);
+        assert(std::strcmp(loaded.meshtastic.node.short_name, "fresh") == 0);
+        assert(loaded.meshtastic.node.role == 7);
+        assert(!loaded.meshtastic.node.via_mqtt);
+        assert(loaded.meshtastic.has_public_key);
+        assert(loaded.meshtastic.public_key[0] == 0x42);
+    }
+
+    {
+        chat::MeshPeerDirectoryCore directory(blob, options);
+        assert(directory.begin().succeeded());
+
+        chat::MeshPeerRecord loaded{};
+        assert(directory.find(identity, loaded).succeeded());
+        assert(std::strcmp(loaded.display_name, "alpha fresh") == 0);
+        assert(std::strcmp(loaded.meshtastic.node.short_name, "fresh") == 0);
+        assert(loaded.meshtastic.has_public_key);
+        assert(loaded.meshtastic.public_key[0] == 0x42);
+    }
+}
+
 void remove_and_clear_protocol_are_directory_behaviors()
 {
     MemoryMeshPeerDirectory directory;
@@ -721,6 +841,7 @@ int main()
     search_and_user_flags_are_directory_behaviors();
     find_by_node_id_preserves_reticulum_destination_identity();
     core_persists_records_and_preserves_user_flags();
+    core_merges_sparse_meshtastic_records_without_losing_key_or_node_facts();
     remove_and_clear_protocol_are_directory_behaviors();
     return 0;
 }

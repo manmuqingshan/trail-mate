@@ -187,6 +187,8 @@ class MtAdapter : public chat::IMeshAdapter
         NodeId dest;
         uint32_t retry_count;
         uint32_t last_attempt;
+        uint8_t key_exchange_count = 0;
+        bool waiting_for_peer_key = false;
     };
 
     enum class PendingProtocolActionType : uint8_t
@@ -302,11 +304,13 @@ class MtAdapter : public chat::IMeshAdapter
     static constexpr size_t MAX_PACKET_SIZE = 255;
     static constexpr uint32_t RETRY_DELAY_MS = 1000;
     static constexpr uint8_t MAX_RETRIES = 3;
+    static constexpr uint32_t PKI_KEY_EXCHANGE_RETRY_MS = 5000;
+    static constexpr uint8_t MAX_PKI_KEY_EXCHANGE_RETRIES = 2;
     static constexpr uint32_t NODEINFO_INTERVAL_MS = 3 * 60 * 60 * 1000;
     static constexpr uint32_t PKI_BACKOFF_MS = 5 * 60 * 1000;
     static constexpr uint32_t ACK_TIMEOUT_MS = 15000;
     static constexpr uint8_t MAX_ACK_RETRIES = 3;
-    static constexpr size_t kPkiNodeTableDepth = 16;
+    static constexpr size_t kPkiNodeTableDepth = 64;
     static constexpr size_t kNodeRuntimeTableDepth = 64;
     static constexpr size_t kProtocolActionQueueSize = 8;
     struct PkiNodeKeyEntry
@@ -411,6 +415,12 @@ class MtAdapter : public chat::IMeshAdapter
                                    const uint8_t* key,
                                    uint32_t last_seen_s);
     void touchPkiNodeKey(uint32_t node_id);
+    bool readPkiNodeKeyFromDirectory(uint32_t node_id,
+                                     uint8_t out_key[32],
+                                     uint32_t* out_last_seen_s) const;
+    bool loadPkiNodeKeyFromDirectory(uint32_t node_id);
+    PkiNodeKeyEntry* findCachedPkiNodeKey(uint32_t node_id);
+    const PkiNodeKeyEntry* findCachedPkiNodeKey(uint32_t node_id) const;
     PkiNodeKeyEntry* findPkiNodeKey(uint32_t node_id);
     const PkiNodeKeyEntry* findPkiNodeKey(uint32_t node_id) const;
     PkiNodeKeyEntry* upsertPkiNodeKey(uint32_t node_id, const uint8_t* key, uint32_t last_seen_s,
