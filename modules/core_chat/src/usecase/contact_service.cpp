@@ -92,6 +92,8 @@ ContactService::ContactService(INodeStore& node_store, IContactStore& contact_st
 
 void ContactService::begin()
 {
+    node_store_.setActiveProtocol(active_protocol_);
+    contact_store_.setActiveProtocol(active_protocol_);
     node_store_.begin();
     contact_store_.begin();
 
@@ -101,6 +103,16 @@ void ContactService::begin()
         (void)ensureNodeExistsForContact(contact_ids[i]);
     }
 
+    invalidateCache();
+}
+
+void ContactService::setActiveProtocol(MeshProtocol protocol)
+{
+    active_protocol_ = protocol == MeshProtocol::RNode
+                           ? MeshProtocol::Reticulum
+                           : protocol;
+    node_store_.setActiveProtocol(active_protocol_);
+    contact_store_.setActiveProtocol(active_protocol_);
     invalidateCache();
 }
 
@@ -435,6 +447,14 @@ void ContactService::buildCache() const
     const auto& node_entries = node_store_.getEntries();
     for (const auto& entry : node_entries)
     {
+        const MeshProtocol entry_protocol =
+            entry.protocol == static_cast<uint8_t>(MeshProtocol::RNode)
+                ? MeshProtocol::Reticulum
+                : static_cast<MeshProtocol>(entry.protocol);
+        if (entry_protocol != active_protocol_)
+        {
+            continue;
+        }
         if (!isNodeVisible(entry.last_seen))
         {
             continue;

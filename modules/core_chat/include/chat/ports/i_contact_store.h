@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "chat/domain/chat_types.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -22,6 +24,11 @@ class IContactStore
 {
   public:
     virtual ~IContactStore() = default;
+
+    virtual void setActiveProtocol(MeshProtocol protocol)
+    {
+        (void)protocol;
+    }
 
     /**
      * @brief Initialize store (load from persistent storage)

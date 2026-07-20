@@ -1,6 +1,7 @@
 #pragma once
 
 #include "chat/domain/chat_types.h"
+#include "chat/domain/contact_types.h"
 #include "chat/domain/reticulum_identity.h"
 
 #include <cstddef>
@@ -18,6 +19,7 @@ constexpr std::size_t kMeshPeerMeshCorePublicKeyLen = 32;
 constexpr std::size_t kMeshPeerReticulumPublicKeyLen = 32;
 constexpr std::size_t kMeshPeerReticulumRatchetLen = 32;
 constexpr std::size_t kMeshPeerMacAddrLen = 6;
+constexpr std::size_t kMeshPeerUserAliasMaxLen = 12;
 
 enum class MeshPeerSource : uint8_t
 {
@@ -69,6 +71,8 @@ struct MeshPeerNodeFacts
 struct MeshtasticPeerFacts
 {
     MeshPeerNodeFacts node{};
+    bool has_next_hop = false;
+    uint8_t next_hop = 0;
     bool has_public_key = false;
     uint8_t public_key[kMeshPeerMeshtasticPublicKeyLen] = {};
     bool key_manually_verified = false;
@@ -84,6 +88,7 @@ struct MeshCorePeerFacts
     uint8_t peer_hash = 0;
     bool has_next_hop = false;
     uint8_t next_hop = 0;
+    NodeId node_id_hint = 0;
 };
 
 struct ReticulumPeerFacts
@@ -99,6 +104,18 @@ struct ReticulumPeerFacts
     bool propagation = false;
 };
 
+struct MeshPeerObservations
+{
+    bool has_snr = false;
+    float snr = 0.0f;
+    bool has_rssi = false;
+    float rssi = 0.0f;
+    bool has_device_metrics = false;
+    contacts::NodeDeviceMetrics device_metrics{};
+    bool has_position = false;
+    contacts::NodePosition position{};
+};
+
 struct MeshPeerRecord
 {
     bool valid = false;
@@ -107,7 +124,9 @@ struct MeshPeerRecord
     uint32_t first_seen_s = 0;
     uint32_t last_seen_s = 0;
     char display_name[kMeshPeerDisplayNameMaxLen] = {};
+    char user_alias[kMeshPeerUserAliasMaxLen + 1] = {};
     MeshPeerUserFlags flags{};
+    MeshPeerObservations observations{};
     MeshtasticPeerFacts meshtastic{};
     MeshCorePeerFacts meshcore{};
     ReticulumPeerFacts reticulum{};

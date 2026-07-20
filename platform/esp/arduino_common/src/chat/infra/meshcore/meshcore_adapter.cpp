@@ -1677,6 +1677,8 @@ void MeshCoreAdapter::savePeerPubKeyToDirectory(const PeerRouteEntry& route)
     record.meshcore.public_key_verified = route.pubkey_verified;
     record.meshcore.has_peer_hash = true;
     record.meshcore.peer_hash = route.peer_hash;
+    record.meshcore.node_id_hint =
+        deriveNodeIdFromPubkey(route.pubkey, sizeof(route.pubkey));
 
     const MeshPeerDirectoryStatus status = peer_directory_->record(record);
     if (!status.succeeded())

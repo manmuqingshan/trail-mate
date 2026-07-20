@@ -811,6 +811,40 @@ void core_merges_sparse_meshtastic_records_without_losing_key_or_node_facts()
     }
 }
 
+void verified_keys_cannot_be_replaced_by_runtime_observations()
+{
+    const uint32_t node_id = 0x12345678U;
+    chat::MeshPeerRecord verified =
+        makeMeshtasticKeyOnlyPeer(node_id, 0x20U, 10U);
+    verified.meshtastic.key_manually_verified = true;
+
+    chat::MeshPeerRecord observed =
+        makeMeshtasticKeyOnlyPeer(node_id, 0x80U, 20U);
+    observed.meshtastic.key_manually_verified = false;
+    chat::copyMeshPeerText(observed.display_name,
+                           sizeof(observed.display_name),
+                           "fresh name");
+
+    const chat::MeshPeerRecord merged =
+        chat::mergeMeshPeerRecordFacts(verified, observed);
+    assert(merged.meshtastic.key_manually_verified);
+    assert(std::memcmp(merged.meshtastic.public_key,
+                       verified.meshtastic.public_key,
+                       chat::kMeshPeerMeshtasticPublicKeyLen) == 0);
+    assert(std::strcmp(merged.display_name, "fresh name") == 0);
+
+    chat::MeshPeerRecord meshcore = makeMeshCorePeer(0x11U, "trusted", 10U);
+    chat::MeshPeerRecord conflicting = meshcore;
+    conflicting.meshcore.public_key_verified = false;
+    conflicting.meshcore.public_key[0] ^= 0x7FU;
+    const chat::MeshPeerRecord meshcore_merged =
+        chat::mergeMeshPeerRecordFacts(meshcore, conflicting);
+    assert(meshcore_merged.meshcore.public_key_verified);
+    assert(std::memcmp(meshcore_merged.meshcore.public_key,
+                       meshcore.meshcore.public_key,
+                       chat::kMeshPeerMeshCorePublicKeyLen) == 0);
+}
+
 void remove_and_clear_protocol_are_directory_behaviors()
 {
     MemoryMeshPeerDirectory directory;
@@ -842,6 +876,7 @@ int main()
     find_by_node_id_preserves_reticulum_destination_identity();
     core_persists_records_and_preserves_user_flags();
     core_merges_sparse_meshtastic_records_without_losing_key_or_node_facts();
+    verified_keys_cannot_be_replaced_by_runtime_observations();
     remove_and_clear_protocol_are_directory_behaviors();
     return 0;
 }

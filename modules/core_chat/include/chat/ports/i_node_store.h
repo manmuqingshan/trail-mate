@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "chat/domain/chat_types.h"
 #include "chat/domain/contact_types.h"
 #include <cstdint>
 #include <vector>
@@ -63,6 +64,11 @@ class INodeStore
 {
   public:
     virtual ~INodeStore() = default;
+
+    virtual void setActiveProtocol(MeshProtocol protocol)
+    {
+        (void)protocol;
+    }
 
     /**
      * @brief Initialize store (load from persistent storage)

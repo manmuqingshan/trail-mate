@@ -6,6 +6,9 @@
 #pragma once
 
 #include "../domain/chat_types.h"
+
+#include <algorithm>
+#include <cstddef>
 #include <vector>
 
 namespace chat
@@ -27,6 +30,19 @@ class IChatStore
     virtual void append(const ChatMessage& msg) = 0;
 
     /**
+     * Append a message and report whether its authoritative record is durable.
+     *
+     * In-memory stores cannot fail independently and may inherit this default.
+     * Persistent stores override it so the message ledger can defer transient
+     * storage failures without inventing a second UI or protocol path.
+     */
+    virtual bool appendDurably(const ChatMessage& msg)
+    {
+        append(msg);
+        return true;
+    }
+
+    /**
      * Persist an incoming message and any durable delivery identity it owns.
      *
      * Stores that cannot fail independently may inherit this implementation.
@@ -35,8 +51,7 @@ class IChatStore
      */
     virtual bool appendIncomingDurably(const ChatMessage& msg)
     {
-        append(msg);
-        return true;
+        return appendDurably(msg);
     }
 
     /**
@@ -96,6 +111,53 @@ class IChatStore
     virtual std::vector<ConversationMeta> loadConversationPage(size_t offset,
                                                                size_t limit,
                                                                size_t* total) = 0;
+
+    /**
+     * Load conversations owned by one product protocol partition.
+     *
+     * Stores with physical protocol partitions override this method. The
+     * default keeps non-persistent stores source-compatible while ensuring the
+     * application query, rather than the UI, owns protocol filtering.
+     */
+    virtual std::vector<ConversationMeta> loadConversationPageForProtocol(
+        MeshProtocol protocol,
+        size_t offset,
+        size_t limit,
+        size_t* total)
+    {
+        const MeshProtocol normalized =
+            protocol == MeshProtocol::RNode ? MeshProtocol::Reticulum : protocol;
+        size_t all_total = 0;
+        std::vector<ConversationMeta> all =
+            loadConversationPage(0, 0, &all_total);
+        std::vector<ConversationMeta> filtered;
+        filtered.reserve(all.size());
+        for (const ConversationMeta& meta : all)
+        {
+            const MeshProtocol item_protocol =
+                meta.id.protocol == MeshProtocol::RNode
+                    ? MeshProtocol::Reticulum
+                    : meta.id.protocol;
+            if (item_protocol == normalized)
+            {
+                filtered.push_back(meta);
+            }
+        }
+        if (total)
+        {
+            *total = filtered.size();
+        }
+        if (offset >= filtered.size())
+        {
+            return {};
+        }
+        const size_t end =
+            limit == 0 ? filtered.size()
+                       : std::min(filtered.size(), offset + limit);
+        return std::vector<ConversationMeta>(
+            filtered.begin() + static_cast<std::ptrdiff_t>(offset),
+            filtered.begin() + static_cast<std::ptrdiff_t>(end));
+    }
 
     /**
      * @brief Set unread count for conversation

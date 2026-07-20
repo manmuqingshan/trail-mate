@@ -25,6 +25,10 @@ HOT_PATH_PREFIXES = (
 
 HOT_PATH_FILES = {
     "platform/esp/arduino_common/src/ble/meshtastic_ble.cpp",
+    "platform/esp/arduino_common/src/chat/infra/store/protocol_chat_codec.cpp",
+    "platform/esp/arduino_common/src/chat/infra/store/protocol_peer_codec.cpp",
+    "platform/esp/arduino_common/src/chat/infra/store/sd_protocol_peer_repository.cpp",
+    "platform/esp/arduino_common/src/chat/infra/store/sd_store.cpp",
 }
 
 HOT_HEADER_PREFIXES = (
@@ -36,6 +40,10 @@ HOT_HEADER_PREFIXES = (
 
 HOT_HEADER_FILES = {
     "platform/esp/arduino_common/include/ble/meshtastic_ble.h",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/store/protocol_chat_codec.h",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/store/protocol_peer_codec.h",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/store/sd_protocol_peer_repository.h",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/store/sd_store.h",
 }
 
 APP_CONFIG_PATHS = {
@@ -100,7 +108,7 @@ def is_under(relative: str, prefixes: tuple[str, ...]) -> bool:
 def git_tracked_files() -> list[Path]:
     try:
         result = subprocess.run(
-            ["git", "ls-files"],
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
             cwd=REPO_ROOT,
             check=True,
             text=True,
@@ -109,7 +117,8 @@ def git_tracked_files() -> list[Path]:
         )
     except (OSError, subprocess.CalledProcessError):
         return []
-    return [REPO_ROOT / line for line in result.stdout.splitlines() if line]
+    paths = [REPO_ROOT / line for line in result.stdout.splitlines() if line]
+    return [path for path in paths if path.is_file()]
 
 
 def walk_source_files() -> list[Path]:

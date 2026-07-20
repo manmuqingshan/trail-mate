@@ -115,7 +115,7 @@ struct ChatWorkspaceSnapshot
     ui::SnapshotHeader header;
 
     static constexpr size_t kMaxLocationParticipants = 16;
-    static constexpr size_t kMaxMessages = 20;
+    static constexpr size_t kMaxMessages = 10;
 
     ConversationRow conversations[16]{};
     size_t conversation_count = 0;

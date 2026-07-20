@@ -10,6 +10,9 @@
 namespace chat
 {
 
+MeshPeerRecord mergeMeshPeerRecordFacts(const MeshPeerRecord& existing,
+                                        const MeshPeerRecord& incoming);
+
 class MeshPeerDirectoryCore final : public IMeshPeerDirectory
 {
   public:

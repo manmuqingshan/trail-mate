@@ -58,65 +58,125 @@ int main(int argc, char** argv)
     const std::string source = readFile(
         repo_root /
         "platform/esp/arduino_common/src/chat/infra/store/sd_store.cpp");
+    const std::string codec = readFile(
+        repo_root /
+        "platform/esp/arduino_common/src/chat/infra/store/protocol_chat_codec.cpp");
+    const std::string journal = readFile(
+        repo_root /
+        "platform/esp/arduino_common/src/chat/infra/store/fixed_slot_journal.cpp");
+    const std::string peer_header = readFile(
+        repo_root /
+        "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/store/sd_protocol_peer_repository.h");
+    const std::string peer_source = readFile(
+        repo_root /
+        "platform/esp/arduino_common/src/chat/infra/store/sd_protocol_peer_repository.cpp");
+    const std::string peer_codec = readFile(
+        repo_root /
+        "platform/esp/arduino_common/src/chat/infra/store/protocol_peer_codec.cpp");
+    const std::string bindings = readFile(
+        repo_root /
+        "platform/esp/arduino_common/src/app_context_platform_bindings.cpp");
 
-    assert(contains(header, "kReadStateFile = \"/chat/read_state.bin\""));
-    assert(contains(header, "struct ReadStateEntry"));
-    assert(contains(header, "kReadStateMagic"));
-    assert(contains(header, "readStateUnreadOrLegacy"));
-    assert(contains(header, "writeReadStateUnread"));
-    assert(contains(header, "removeReadStateEntry"));
+    assert(contains(header, "kRoot = \"/data/v2\""));
+    assert(contains(header, "kMeshtasticRoot = \"/data/v2/mt/chat\""));
+    assert(contains(header, "kMeshCoreRoot = \"/data/v2/mc/chat\""));
+    assert(contains(header, "kReticulumRoot = \"/data/v2/rt/chat\""));
+    assert(contains(header, "PsramAllocator"));
+    assert(contains(header, "mutable ScratchBuffer scratch_"));
+    assert(!contains(header, "mutable uint8_t scratch_"));
+    assert(!contains(header, "RecordV2"));
+    assert(!contains(header, "RecordV3"));
+    assert(!contains(header, "RecordV4"));
+    assert(!contains(header, "kReadStateFile"));
+    assert(!contains(source, "\"/chat/"));
+    assert(!contains(source, "Legacy"));
 
-    const std::string ctor_body =
-        bodyBetween(source, "SdStore::SdStore()", "void SdStore::append");
-    assert(contains(ctor_body, "reconcileIndexUnread(entries)"));
-    assert(positionOf(ctor_body, "reconcileIndexUnread(entries)") <
-           positionOf(ctor_body, "writeIndex(entries)"));
+    assert(contains(codec, "kMeshtasticTextMax"));
+    assert(contains(codec, "kMeshCoreTextMax"));
+    assert(contains(codec, "kReticulumTextMax"));
+    assert(contains(codec, "struct MeshtasticMessageSlot"));
+    assert(contains(codec, "struct MeshCoreMessageSlot"));
+    assert(contains(codec, "struct ReticulumMessageSlot"));
+    assert(contains(journal, "kStorageSchemaVersion"));
+    assert(contains(journal, "PartialTail"));
+    assert(contains(journal, "replaceFileAtomically"));
+    assert(contains(journal, "recoverAtomicFile"));
 
     const std::string append_body = bodyBetween(
-        source, "bool SdStore::appendInternal", "std::vector<ChatMessage> SdStore::loadRecent");
-    assert(positionOf(append_body, "already_committed") <
-           positionOf(append_body, "readStateUnreadOrLegacy(conv, &committed_unread)"));
-    assert(positionOf(append_body, "readStateUnreadOrLegacy(conv, &committed_unread)") <
-           positionOf(append_body, "updateIndexForMessage(msg, committed_unread)"));
-    assert(positionOf(append_body, "writeReadStateUnread(conv, unread)") <
-           positionOf(append_body, "updateIndexForMessage(msg, unread)"));
-    assert(positionOf(append_body, "CHAT_STORE_LOG(\"[AppContext] chat unread persist failed stage=read_state") <
-           positionOf(append_body, "removeReadStateEntry(conv)"));
+        source,
+        "bool SdStore::appendInternal",
+        "std::vector<ChatMessage> SdStore::loadRecent");
+    assert(positionOf(append_body, "appendMessageRecord(message, sequence)") <
+           positionOf(append_body, "rememberReticulumHash"));
+    assert(positionOf(append_body, "rememberReticulumHash") <
+           positionOf(append_body, "appendCatalogProjection"));
+    assert(contains(append_body, "projection_dirty_"));
+    assert(contains(append_body, "authoritative=1"));
+    assert(contains(append_body, "return true;"));
 
-    const std::string set_unread_body =
+    const std::string unread_body =
         bodyBetween(source, "bool SdStore::setUnread", "int SdStore::getUnread");
-    assert(positionOf(set_unread_body, "writeReadStateUnread(conv, unread_count)") <
-           positionOf(set_unread_body, "writeConversationUnread(conv, unread_count)"));
-    assert(positionOf(set_unread_body, "writeConversationUnread(conv, unread_count)") <
-           positionOf(set_unread_body, "entries[index].unread = unread_count"));
-    assert(positionOf(set_unread_body, "entries[index].unread = unread_count") <
-           positionOf(set_unread_body, "writeIndex(entries)"));
+    assert(positionOf(unread_body, "appendReadProjection(projection)") <
+           positionOf(unread_body, "appendCatalogProjection(*catalog)"));
+    assert(contains(unread_body, "last_read_sequence"));
 
-    const std::string get_unread_body =
-        bodyBetween(source, "int SdStore::getUnread", "void SdStore::clearConversation");
-    assert(contains(get_unread_body, "readStateUnreadOrLegacy(conv, &unread)"));
+    const std::string conversation_query = bodyBetween(
+        source,
+        "SdStore::loadConversationPageForProtocol",
+        "bool SdStore::setUnread");
+    assert(contains(conversation_query, "sameProtocol"));
 
-    const std::string clear_conversation_body =
-        bodyBetween(source, "void SdStore::clearConversation", "void SdStore::clearAll");
-    assert(contains(clear_conversation_body, "removeReadStateEntry(conv)"));
+    const std::string clear_all = bodyBetween(
+        source,
+        "void SdStore::clearAll",
+        "bool SdStore::updateMessageStatus");
+    assert(contains(clear_all, "removeTree(protocolRoot(protocol))"));
+    assert(!contains(clear_all, "RecordV"));
 
-    const std::string clear_all_body =
-        bodyBetween(source, "void SdStore::clearAll", "bool SdStore::updateMessageStatus");
-    assert(contains(clear_all_body, "sd_remove(kReadStateFile)"));
-    assert(contains(clear_all_body, "sd_remove(kTempReadStateFile)"));
-    assert(contains(clear_all_body, "sd_remove(kBackupReadStateFile)"));
+    assert(contains(peer_header, "IProtocolPeerRepository"));
+    assert(contains(peer_header, "PsramAllocator<MeshPeerRecord>"));
+    assert(contains(peer_source, "\"peers.snapshot\""));
+    assert(contains(peer_source, "\"peers.delta\""));
+    assert(contains(peer_source, "\"contacts.snapshot\""));
+    assert(contains(peer_source, "\"contacts.delta\""));
+    assert(contains(peer_source, "kEphemeralPeerCapacity = 2048U"));
+    assert(contains(peer_source, "kProtectedContactCapacity = 4096U"));
+    assert(contains(peer_source, "peerIsProtected"));
+    assert(contains(peer_source, "peerReferencedByConversation"));
+    assert(contains(peer_source, "replaceFileAtomically"));
+    assert(contains(peer_codec, "validPeerIdentityForProtocol"));
+    assert(contains(peer_codec, "validContactIdentityForProtocol"));
+    const std::string peer_prefix = bodyBetween(
+        peer_codec,
+        "struct PeerPrefix",
+        "struct NodeFactsSlot");
+    assert(!contains(peer_prefix, "user_alias"));
+    assert(!contains(bindings, "EspSdMeshPeerDirectoryBlobStore"));
+    assert(!contains(bindings, "chat::meshtastic::NodeStore"));
+    assert(!contains(bindings, "chat::contacts::ContactStore"));
+    assert(!contains(bindings, "\"/nodes.bin\""));
+    assert(!contains(bindings, "\"/contacts.dat\""));
+    assert(!contains(bindings, "\"/mesh/peers.bin\""));
+    assert(!std::filesystem::exists(
+        repo_root /
+        "platform/esp/arduino_common/src/chat/infra/meshtastic/node_store.cpp"));
+    assert(!std::filesystem::exists(
+        repo_root /
+        "platform/esp/arduino_common/src/chat/infra/contact_store.cpp"));
 
-    const std::string reconcile_body =
-        bodyBetween(source, "bool SdStore::reconcileIndexUnread", "bool SdStore::readIndex");
-    assert(positionOf(reconcile_body, "readStateUnreadOrLegacy(conv, &durable_unread)") <
-           positionOf(reconcile_body, "durable_unread = entry.unread"));
-    assert(positionOf(reconcile_body, "durable_unread = entry.unread") <
-           positionOf(reconcile_body, "writeReadStateUnread(conv, durable_unread)"));
-
-    const std::string rebuild_body =
-        bodyBetween(source, "void SdStore::rebuildIndex", "bool SdStore::loadFileHeader");
-    assert(contains(rebuild_body, "readStateUnreadOrLegacy(conv, &ledger_unread)"));
-    assert(contains(rebuild_body, "writeReadStateUnread(conv, unread)"));
+    const std::string seen_load = bodyBetween(
+        source,
+        "bool SdStore::loadSeenJournal",
+        "bool SdStore::reconcileProtocolCatalog");
+    assert(contains(seen_load, "rebuildSeenJournalFromMessages"));
+    assert(contains(seen_load, "authoritative=messages"));
+    const std::string flush_body = bodyBetween(
+        source,
+        "void SdStore::flush",
+        "bool SdStore::ensureLayout");
+    assert(contains(flush_body, "projection_dirty_"));
+    assert(contains(flush_body, "kProjectionRetryIntervalMs"));
+    assert(contains(flush_body, "BackgroundWorkerBounded"));
 
     return 0;
 }

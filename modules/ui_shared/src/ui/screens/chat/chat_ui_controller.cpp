@@ -35,7 +35,7 @@
 #include <ctime>
 
 #ifndef CHAT_UI_LOG_ENABLE
-#define CHAT_UI_LOG_ENABLE 1
+#define CHAT_UI_LOG_ENABLE 0
 #endif
 
 #if CHAT_UI_LOG_ENABLE
@@ -883,7 +883,6 @@ void UiController::onRuntimeMessageArrived(chat::MessageId msg_id)
         updateConversationMetaForMessage(*latest, !is_current_conversation);
         if (is_current_conversation)
         {
-            (void)updateConversationViewForIncoming(*latest);
             reloadConversationView();
             (void)chat_model_.markRead(
                 chat_presentation_adapters::toUiConversationId(current_conv_));
@@ -1740,22 +1739,6 @@ void UiController::updateConversationMetaForMessage(const chat::ChatMessage& msg
 
     cached_conversations_.insert(cached_conversations_.begin(), meta);
     normalizeConversationNames(cached_conversations_);
-}
-
-bool UiController::updateConversationViewForIncoming(const chat::ChatMessage& msg)
-{
-    if (!conversation_)
-    {
-        return false;
-    }
-
-    if (!(current_conv_ == chat::conversationIdForMessage(msg)))
-    {
-        return false;
-    }
-
-    reloadConversationView();
-    return true;
 }
 
 void UiController::reloadConversationView()

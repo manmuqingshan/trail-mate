@@ -14,7 +14,7 @@
 #include <string>
 
 #ifndef CHAT_UI_SEND_TRACE_ENABLE
-#define CHAT_UI_SEND_TRACE_ENABLE 1
+#define CHAT_UI_SEND_TRACE_ENABLE 0
 #endif
 
 #if CHAT_UI_SEND_TRACE_ENABLE

@@ -40,7 +40,7 @@ using ::platform::esp::arduino_common::storage::SdRuntimeFile;
 constexpr const char* kConfigDir = "/trailmate/reticulum";
 constexpr const char* kAnnouncesPath = "/trailmate/reticulum/announces.tsv";
 constexpr const char* kAnnouncesTempPath = "/trailmate/reticulum/announces.tmp";
-constexpr const char* kLxmfAddressesPath = "/mesh/peers.bin";
+constexpr const char* kLxmfAddressesPath = "/data/v2/rt/peers.*";
 constexpr std::size_t kMaxDirectoryEntries = 1024;
 constexpr std::size_t kMaxLineBytes = 4096;
 constexpr std::size_t kMaxTsvFields = 14;

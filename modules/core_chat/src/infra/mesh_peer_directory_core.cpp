@@ -355,6 +355,11 @@ void mergeMeshtasticFacts(MeshtasticPeerFacts& dst,
                           const MeshtasticPeerFacts& src)
 {
     mergeNodeFacts(dst.node, src.node);
+    if (src.has_next_hop)
+    {
+        dst.has_next_hop = true;
+        dst.next_hop = src.next_hop;
+    }
     if (src.has_public_key &&
         meshPeerHasNonZeroBytes(src.public_key,
                                 kMeshPeerMeshtasticPublicKeyLen))
@@ -364,6 +369,10 @@ void mergeMeshtasticFacts(MeshtasticPeerFacts& dst,
             std::memcmp(dst.public_key,
                         src.public_key,
                         kMeshPeerMeshtasticPublicKeyLen) != 0;
+        if (changed && dst.has_public_key && dst.key_manually_verified)
+        {
+            return;
+        }
         dst.has_public_key = true;
         std::memcpy(dst.public_key,
                     src.public_key,
@@ -387,6 +396,10 @@ void mergeMeshCoreFacts(MeshCorePeerFacts& dst,
             std::memcmp(dst.public_key,
                         src.public_key,
                         kMeshPeerMeshCorePublicKeyLen) != 0;
+        if (changed && dst.has_public_key && dst.public_key_verified)
+        {
+            return;
+        }
         dst.has_public_key = true;
         std::memcpy(dst.public_key,
                     src.public_key,
@@ -404,6 +417,10 @@ void mergeMeshCoreFacts(MeshCorePeerFacts& dst,
     {
         dst.has_next_hop = true;
         dst.next_hop = src.next_hop;
+    }
+    if (src.node_id_hint != 0)
+    {
+        dst.node_id_hint = src.node_id_hint;
     }
 }
 
@@ -459,8 +476,8 @@ MeshPeerSource mergePeerSource(MeshPeerSource existing,
     return incoming;
 }
 
-MeshPeerRecord mergePeerRecordFacts(const MeshPeerRecord& existing,
-                                    const MeshPeerRecord& incoming)
+MeshPeerRecord mergePeerRecordFactsImpl(const MeshPeerRecord& existing,
+                                        const MeshPeerRecord& incoming)
 {
     MeshPeerRecord next = existing;
     next.valid = existing.valid || incoming.valid;
@@ -483,7 +500,31 @@ MeshPeerRecord mergePeerRecordFacts(const MeshPeerRecord& existing,
     copyNonEmptyMeshPeerText(next.display_name,
                              sizeof(next.display_name),
                              incoming.display_name);
+    copyNonEmptyMeshPeerText(next.user_alias,
+                             sizeof(next.user_alias),
+                             incoming.user_alias);
     next.flags = existing.flags;
+    if (incoming.observations.has_snr)
+    {
+        next.observations.has_snr = true;
+        next.observations.snr = incoming.observations.snr;
+    }
+    if (incoming.observations.has_rssi)
+    {
+        next.observations.has_rssi = true;
+        next.observations.rssi = incoming.observations.rssi;
+    }
+    if (incoming.observations.has_device_metrics)
+    {
+        next.observations.has_device_metrics = true;
+        next.observations.device_metrics =
+            incoming.observations.device_metrics;
+    }
+    if (incoming.observations.has_position)
+    {
+        next.observations.has_position = true;
+        next.observations.position = incoming.observations.position;
+    }
     mergeMeshtasticFacts(next.meshtastic, incoming.meshtastic);
     mergeMeshCoreFacts(next.meshcore, incoming.meshcore);
     mergeReticulumFacts(next.reticulum, incoming.reticulum);
@@ -503,6 +544,12 @@ NodeId reticulumNodeIdFromDestinationHash(const uint8_t* destination_hash)
 }
 
 } // namespace
+
+MeshPeerRecord mergeMeshPeerRecordFacts(const MeshPeerRecord& existing,
+                                        const MeshPeerRecord& incoming)
+{
+    return mergePeerRecordFactsImpl(existing, incoming);
+}
 
 MeshPeerDirectoryCore::MeshPeerDirectoryCore(
     IMeshPeerDirectoryBlobStore& blob_store)
@@ -566,7 +613,7 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::record(
     if (existing_index < records_.size())
     {
         const MeshPeerRecord& existing = records_[existing_index];
-        MeshPeerRecord next = mergePeerRecordFacts(existing, record);
+        MeshPeerRecord next = mergeMeshPeerRecordFacts(existing, record);
         records_[existing_index] = next;
         dirty_ = true;
         maybeSave();

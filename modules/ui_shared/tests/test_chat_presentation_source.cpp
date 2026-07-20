@@ -503,6 +503,7 @@ void setNodePosition(::chat::contacts::ContactService& contacts,
 
 int main()
 {
+    static_assert(::ui::chat::ChatWorkspaceSnapshot::kMaxMessages == 10);
     sys::set_epoch_seconds_provider([]() -> uint32_t
                                     { return 1700000000U; });
     sys::set_millis_provider([]() -> uint32_t

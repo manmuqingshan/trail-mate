@@ -270,6 +270,45 @@ class ChatService
         std::size_t count = 0;
     };
 
+    static constexpr std::size_t kDeferredIncomingDepth = 8;
+    static constexpr std::size_t kDeferredIncomingTextMaxLen = 255;
+
+    struct DeferredIncomingQueue
+    {
+        struct Slot
+        {
+            MeshProtocol protocol = MeshProtocol::Meshtastic;
+            ChannelId channel = ChannelId::PRIMARY;
+            NodeId from = 0;
+            NodeId to = 0;
+            MessageId msg_id = 0;
+            uint32_t timestamp = 0;
+            uint8_t hop_limit = 0xFF;
+            bool encrypted = false;
+            ReticulumPeerIdentity reticulum_identity{};
+            bool has_reticulum_lxmf_hash = false;
+            uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
+            bool source_unverified = false;
+            RxMeta rx_meta{};
+            IncomingIdentity identity{};
+            std::array<char, kDeferredIncomingTextMaxLen + 1> text{};
+            uint16_t text_len = 0;
+        };
+
+        void clear();
+        [[nodiscard]] bool empty() const { return count == 0; }
+        [[nodiscard]] bool contains(const IncomingIdentity& identity) const;
+        bool push(const MeshIncomingText& incoming,
+                  MeshProtocol protocol,
+                  const IncomingIdentity& identity);
+        bool peek(MeshIncomingText& incoming, MeshProtocol& protocol) const;
+        void pop();
+
+        std::array<Slot, kDeferredIncomingDepth> slots{};
+        std::size_t head = 0;
+        std::size_t count = 0;
+    };
+
     ChatModel& model_;
     IMeshAdapter& adapter_;
     IChatStore& store_;
@@ -280,6 +319,7 @@ class ChatService
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;
     mutable ChatMessage store_lookup_cache_{};
     RecentIncomingWindow recent_incoming_{};
+    DeferredIncomingQueue deferred_incoming_{};
 
     std::vector<IncomingTextObserver*> incoming_text_observers_;
     std::vector<IncomingMessageObserver*> incoming_message_observers_;
@@ -287,7 +327,15 @@ class ChatService
     std::vector<IncomingDataObserver*> incoming_data_observers_;
 
     [[nodiscard]] bool isDuplicateIncoming(const ChatMessage& msg) const;
+    [[nodiscard]] bool isDeferredIncoming(const ChatMessage& msg) const;
+    [[nodiscard]] static IncomingIdentity incomingIdentityForMessage(
+        const ChatMessage& msg);
     void rememberIncoming(const ChatMessage& msg);
+    static ChatMessage incomingChatMessage(const MeshIncomingText& incoming,
+                                           MeshProtocol protocol);
+    void commitIncoming(const MeshIncomingText& incoming,
+                        const ChatMessage& message);
+    void retryDeferredIncoming();
     MeshSendResult sendTextResolvedDetailed(
         ChannelId channel,
         const std::string& text,

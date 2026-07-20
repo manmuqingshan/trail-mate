@@ -38,6 +38,20 @@ uint32_t persistable_incoming_timestamp(const MeshIncomingText& incoming)
     }
     return persistable_now_timestamp();
 }
+
+const char* persistence_name(delivery::LedgerPersistence persistence)
+{
+    switch (persistence)
+    {
+    case delivery::LedgerPersistence::Durable:
+        return "durable";
+    case delivery::LedgerPersistence::Deferred:
+        return "deferred";
+    case delivery::LedgerPersistence::Rejected:
+        return "rejected";
+    }
+    return "unknown";
+}
 } // namespace
 
 #ifndef CHAT_SERVICE_LOG_ENABLE
@@ -51,13 +65,23 @@ uint32_t persistable_incoming_timestamp(const MeshIncomingText& incoming)
 #endif
 
 #ifndef CHAT_SERVICE_DIAG_LOG_ENABLE
-#define CHAT_SERVICE_DIAG_LOG_ENABLE 1
+#define CHAT_SERVICE_DIAG_LOG_ENABLE 0
 #endif
 
 #if CHAT_SERVICE_DIAG_LOG_ENABLE
 #define CHAT_SERVICE_DIAG_LOG(...) std::printf(__VA_ARGS__)
 #else
 #define CHAT_SERVICE_DIAG_LOG(...)
+#endif
+
+#ifndef CHAT_SERVICE_EVENT_LOG_ENABLE
+#define CHAT_SERVICE_EVENT_LOG_ENABLE 1
+#endif
+
+#if CHAT_SERVICE_EVENT_LOG_ENABLE
+#define CHAT_SERVICE_EVENT_LOG(...) std::printf(__VA_ARGS__)
+#else
+#define CHAT_SERVICE_EVENT_LOG(...)
 #endif
 
 const char* failure_name(MeshOperationFailure failure)
@@ -231,6 +255,110 @@ void ChatService::RecentIncomingWindow::remember(const IncomingIdentity& identit
     }
 }
 
+void ChatService::DeferredIncomingQueue::clear()
+{
+    for (Slot& slot : slots)
+    {
+        slot = Slot{};
+    }
+    head = 0;
+    count = 0;
+}
+
+bool ChatService::DeferredIncomingQueue::contains(
+    const IncomingIdentity& identity) const
+{
+    for (std::size_t offset = 0; offset < count; ++offset)
+    {
+        const std::size_t index = (head + offset) % slots.size();
+        if (slots[index].identity == identity)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ChatService::DeferredIncomingQueue::push(
+    const MeshIncomingText& incoming,
+    MeshProtocol protocol,
+    const IncomingIdentity& identity)
+{
+    if (count >= slots.size() ||
+        incoming.text.size() > kDeferredIncomingTextMaxLen)
+    {
+        return false;
+    }
+
+    const std::size_t index = (head + count) % slots.size();
+    Slot& slot = slots[index];
+    slot = Slot{};
+    slot.protocol = protocol;
+    slot.channel = incoming.channel;
+    slot.from = incoming.from;
+    slot.to = incoming.to;
+    slot.msg_id = incoming.msg_id;
+    slot.timestamp = incoming.timestamp;
+    slot.hop_limit = incoming.hop_limit;
+    slot.encrypted = incoming.encrypted;
+    slot.reticulum_identity = incoming.reticulum_identity;
+    slot.has_reticulum_lxmf_hash = incoming.has_reticulum_lxmf_hash;
+    std::memcpy(slot.reticulum_lxmf_hash,
+                incoming.reticulum_lxmf_hash,
+                sizeof(slot.reticulum_lxmf_hash));
+    slot.source_unverified = incoming.source_unverified;
+    slot.rx_meta = incoming.rx_meta;
+    slot.identity = identity;
+    slot.text_len = static_cast<uint16_t>(incoming.text.size());
+    if (slot.text_len > 0)
+    {
+        std::memcpy(slot.text.data(), incoming.text.data(), slot.text_len);
+    }
+    slot.text[slot.text_len] = '\0';
+    ++count;
+    return true;
+}
+
+bool ChatService::DeferredIncomingQueue::peek(
+    MeshIncomingText& incoming,
+    MeshProtocol& protocol) const
+{
+    if (count == 0)
+    {
+        return false;
+    }
+
+    const Slot& slot = slots[head];
+    protocol = slot.protocol;
+    incoming.channel = slot.channel;
+    incoming.from = slot.from;
+    incoming.to = slot.to;
+    incoming.msg_id = slot.msg_id;
+    incoming.timestamp = slot.timestamp;
+    incoming.hop_limit = slot.hop_limit;
+    incoming.encrypted = slot.encrypted;
+    incoming.reticulum_identity = slot.reticulum_identity;
+    incoming.has_reticulum_lxmf_hash = slot.has_reticulum_lxmf_hash;
+    std::memcpy(incoming.reticulum_lxmf_hash,
+                slot.reticulum_lxmf_hash,
+                sizeof(incoming.reticulum_lxmf_hash));
+    incoming.source_unverified = slot.source_unverified;
+    incoming.rx_meta = slot.rx_meta;
+    incoming.text.assign(slot.text.data(), slot.text_len);
+    return true;
+}
+
+void ChatService::DeferredIncomingQueue::pop()
+{
+    if (count == 0)
+    {
+        return;
+    }
+    slots[head] = Slot{};
+    head = (head + 1) % slots.size();
+    --count;
+}
+
 MessageId ChatService::sendText(ChannelId channel, const std::string& text, NodeId peer)
 {
     return sendTextWithId(channel, text, 0, peer);
@@ -354,17 +482,20 @@ MeshSendResult ChatService::sendTextResolvedDetailed(
     msg.reticulum_identity = result.reticulum_identity;
     msg.status = result.ok ? MessageStatus::Queued : MessageStatus::Failed;
 
-    message_ledger_.recordOutbound(
-        msg,
-        model_enabled_,
-        result.ok ? delivery::SendFailureKind::None
-                  : delivery_failure_from_mesh_operation(result.failure));
-    CHAT_SERVICE_DIAG_LOG("[ChatService][TX] stored msg=%lu status=%u peer=%08lX dest=%s text=\"%s\"\n",
-                          static_cast<unsigned long>(msg.msg_id),
-                          static_cast<unsigned>(msg.status),
-                          static_cast<unsigned long>(msg.peer),
-                          dest_hash,
-                          text_preview);
+    const delivery::LedgerPersistence persistence =
+        message_ledger_.recordOutbound(
+            msg,
+            model_enabled_,
+            result.ok ? delivery::SendFailureKind::None
+                      : delivery_failure_from_mesh_operation(result.failure));
+    if (persistence != delivery::LedgerPersistence::Durable)
+    {
+        CHAT_SERVICE_EVENT_LOG("[ChatService][TX] ledger msg=%lu persistence=%s status=%u protocol=%s\n",
+                               static_cast<unsigned long>(msg.msg_id),
+                               persistence_name(persistence),
+                               static_cast<unsigned>(msg.status),
+                               protocol_name(msg.protocol));
+    }
 
     if (result.ok && result.msg_id != 0)
     {
@@ -537,7 +668,7 @@ bool ChatService::resendFailedForProtocol(MessageId msg_id,
 
 std::vector<ChatMessage> ChatService::getRecentMessages(const ConversationId& conv, size_t limit) const
 {
-    return store_.loadRecent(conv, limit);
+    return message_ledger_.loadRecent(conv, limit);
 }
 
 std::vector<ChatMessage> ChatService::getMessagePageFromLatest(
@@ -546,20 +677,29 @@ std::vector<ChatMessage> ChatService::getMessagePageFromLatest(
     size_t limit,
     size_t* total) const
 {
-    return store_.loadPageFromLatest(conv, offset_from_latest, limit, total);
+    return message_ledger_.loadPageFromLatest(conv,
+                                              offset_from_latest,
+                                              limit,
+                                              total);
 }
 
 std::vector<ConversationMeta> ChatService::getConversations(size_t offset,
                                                             size_t limit,
                                                             size_t* total) const
 {
-    return store_.loadConversationPage(offset, limit, total);
+    return message_ledger_.loadConversationPage(active_protocol_,
+                                                offset,
+                                                limit,
+                                                total);
 }
 
 int ChatService::getTotalUnread() const
 {
     size_t total = 0;
-    auto convs = store_.loadConversationPage(0, 0, &total);
+    auto convs = store_.loadConversationPageForProtocol(active_protocol_,
+                                                        0,
+                                                        0,
+                                                        &total);
     int sum = 0;
     for (const auto& conv : convs)
     {
@@ -570,6 +710,8 @@ int ChatService::getTotalUnread() const
 
 void ChatService::clearAllMessages()
 {
+    message_ledger_.clear();
+    deferred_incoming_.clear();
     model_.clearAll();
     store_.clearAll();
     recent_incoming_.clear();
@@ -577,6 +719,8 @@ void ChatService::clearAllMessages()
 
 void ChatService::clearConversation(const ConversationId& conv)
 {
+    message_ledger_.clearConversation(conv);
+    deferred_incoming_.clear();
     model_.clearConversation(conv);
     store_.clearConversation(conv);
     recent_incoming_.clear();
@@ -589,25 +733,19 @@ bool ChatService::markConversationRead(const ConversationId& conv)
 
 void ChatService::processIncoming()
 {
+    (void)message_ledger_.flushPendingWrites(1);
+    retryDeferredIncoming();
+
+    static constexpr std::size_t kIncomingDrainBudget = 4;
+    std::size_t drained = 0;
     MeshIncomingText incoming_text;
-    while (adapter_.pollIncomingText(&incoming_text))
+    while (drained < kIncomingDrainBudget &&
+           adapter_.pollIncomingText(&incoming_text))
     {
-        ChatMessage msg;
-        msg.protocol = active_protocol_;
-        msg.channel = incoming_text.channel;
-        msg.from = incoming_text.from;
-        msg.peer = normalize_conversation_peer(incoming_text.to) == 0 ? 0 : incoming_text.from;
-        msg.msg_id = incoming_text.msg_id;
-        msg.timestamp = persistable_incoming_timestamp(incoming_text);
-        msg.text = incoming_text.text;
-        msg.reticulum_identity = incoming_text.reticulum_identity;
-        msg.has_reticulum_lxmf_hash = incoming_text.has_reticulum_lxmf_hash;
-        std::memcpy(msg.reticulum_lxmf_hash,
-                    incoming_text.reticulum_lxmf_hash,
-                    sizeof(msg.reticulum_lxmf_hash));
-        msg.source_unverified = incoming_text.source_unverified;
-        msg.rx_origin = incoming_text.rx_meta.origin;
-        msg.status = MessageStatus::Incoming;
+        ++drained;
+        const MeshProtocol incoming_protocol = active_protocol_;
+        ChatMessage msg = incomingChatMessage(incoming_text,
+                                              incoming_protocol);
 
         const ReticulumPeerIdentity* incoming_identity =
             hasReticulumDestinationIdentity(incoming_text.reticulum_identity)
@@ -618,7 +756,7 @@ void ChatService::processIncoming()
                                      incoming_dest_hash,
                                      sizeof(incoming_dest_hash));
         CHAT_SERVICE_DIAG_LOG("[ChatService][RX] text protocol=%s msg=%lu from=%08lX to=%08lX peer=%08lX dest=%s len=%u encrypted=%u unverified=%u lxmf_hash=%u\n",
-                              protocol_name(active_protocol_),
+                              protocol_name(incoming_protocol),
                               static_cast<unsigned long>(msg.msg_id),
                               static_cast<unsigned long>(msg.from),
                               static_cast<unsigned long>(incoming_text.to),
@@ -653,48 +791,43 @@ void ChatService::processIncoming()
             continue;
         }
 
-        if (!store_.appendIncomingDurably(msg))
+        if (isDeferredIncoming(msg))
         {
-            CHAT_SERVICE_DIAG_LOG("[ChatService][RX] durable append failed protocol=%s msg=%lu lxmf_hash=%u\n",
-                                  protocol_name(active_protocol_),
-                                  static_cast<unsigned long>(msg.msg_id),
-                                  chat::hasReticulumLxmfMessageHash(msg) ? 1U : 0U);
-            if (IIncomingDeliveryCommitPort* commit_port =
-                    adapter_.incomingDeliveryCommitPort())
-            {
-                commit_port->commitIncomingText(incoming_text, false);
-            }
+            CHAT_SERVICE_DIAG_LOG("[ChatService][RX] pending duplicate held protocol=%s msg=%lu\n",
+                                  protocol_name(incoming_protocol),
+                                  static_cast<unsigned long>(msg.msg_id));
             continue;
         }
 
-        rememberIncoming(msg);
-
-        if (model_enabled_)
+        if (message_ledger_.recordIncoming(msg) !=
+            delivery::LedgerPersistence::Durable)
         {
-            model_.onIncoming(msg);
-        }
-
-        if (IIncomingDeliveryCommitPort* commit_port =
-                adapter_.incomingDeliveryCommitPort())
-        {
-            commit_port->commitIncomingText(incoming_text, true);
-        }
-
-        for (auto* observer : incoming_message_observers_)
-        {
-            if (observer)
+            const IncomingIdentity identity = incomingIdentityForMessage(msg);
+            if (deferred_incoming_.push(incoming_text,
+                                        incoming_protocol,
+                                        identity))
             {
-                observer->onIncomingMessage(msg, &incoming_text.rx_meta);
+                CHAT_SERVICE_EVENT_LOG("[ChatService][RX] deferred protocol=%s msg=%lu depth=%u lxmf_hash=%u\n",
+                                       protocol_name(incoming_protocol),
+                                       static_cast<unsigned long>(msg.msg_id),
+                                       static_cast<unsigned>(deferred_incoming_.count),
+                                       chat::hasReticulumLxmfMessageHash(msg) ? 1U : 0U);
             }
-        }
-
-        for (auto* observer : incoming_text_observers_)
-        {
-            if (observer)
+            else
             {
-                observer->onIncomingText(incoming_text);
+                CHAT_SERVICE_EVENT_LOG("[ChatService][RX] rejected reason=deferred_full protocol=%s msg=%lu depth=%u\n",
+                                       protocol_name(incoming_protocol),
+                                       static_cast<unsigned long>(msg.msg_id),
+                                       static_cast<unsigned>(deferred_incoming_.count));
+                if (IIncomingDeliveryCommitPort* commit_port =
+                        adapter_.incomingDeliveryCommitPort())
+                {
+                    commit_port->commitIncomingText(incoming_text, false);
+                }
             }
+            continue;
         }
+        commitIncoming(incoming_text, msg);
     }
 
     if (incoming_data_observers_.empty())
@@ -741,6 +874,21 @@ bool ChatService::isDuplicateIncoming(const ChatMessage& msg) const
         return false;
     }
 
+    return recent_incoming_.contains(incomingIdentityForMessage(msg));
+}
+
+bool ChatService::isDeferredIncoming(const ChatMessage& msg) const
+{
+    if (msg.msg_id == 0 && !chat::hasReticulumLxmfMessageHash(msg))
+    {
+        return false;
+    }
+    return deferred_incoming_.contains(incomingIdentityForMessage(msg));
+}
+
+ChatService::IncomingIdentity ChatService::incomingIdentityForMessage(
+    const ChatMessage& msg)
+{
     IncomingIdentity identity{};
     identity.protocol = msg.protocol;
     identity.channel = msg.channel;
@@ -761,7 +909,7 @@ bool ChatService::isDuplicateIncoming(const ChatMessage& msg) const
             identity.reticulum_destination_hash,
             msg.reticulum_identity);
     }
-    return recent_incoming_.contains(identity);
+    return identity;
 }
 
 void ChatService::rememberIncoming(const ChatMessage& msg)
@@ -772,27 +920,84 @@ void ChatService::rememberIncoming(const ChatMessage& msg)
         return;
     }
 
-    IncomingIdentity identity{};
-    identity.protocol = msg.protocol;
-    identity.channel = msg.channel;
-    identity.from = msg.from;
-    identity.peer = msg.peer;
-    identity.msg_id = msg.msg_id;
-    if (chat::hasReticulumLxmfMessageHash(msg))
+    recent_incoming_.remember(incomingIdentityForMessage(msg));
+}
+
+ChatMessage ChatService::incomingChatMessage(
+    const MeshIncomingText& incoming,
+    MeshProtocol protocol)
+{
+    ChatMessage message;
+    message.protocol = protocol;
+    message.channel = incoming.channel;
+    message.from = incoming.from;
+    message.peer = normalize_conversation_peer(incoming.to) == 0
+                       ? 0
+                       : incoming.from;
+    message.msg_id = incoming.msg_id;
+    message.timestamp = persistable_incoming_timestamp(incoming);
+    message.text = incoming.text;
+    message.reticulum_identity = incoming.reticulum_identity;
+    message.has_reticulum_lxmf_hash = incoming.has_reticulum_lxmf_hash;
+    std::memcpy(message.reticulum_lxmf_hash,
+                incoming.reticulum_lxmf_hash,
+                sizeof(message.reticulum_lxmf_hash));
+    message.source_unverified = incoming.source_unverified;
+    message.rx_origin = incoming.rx_meta.origin;
+    message.status = MessageStatus::Incoming;
+    return message;
+}
+
+void ChatService::commitIncoming(const MeshIncomingText& incoming,
+                                 const ChatMessage& message)
+{
+    rememberIncoming(message);
+    if (model_enabled_)
     {
-        identity.has_reticulum_lxmf_hash = true;
-        std::memcpy(identity.reticulum_lxmf_hash,
-                    msg.reticulum_lxmf_hash,
-                    sizeof(identity.reticulum_lxmf_hash));
+        model_.onIncoming(message);
     }
-    if (msg.protocol == MeshProtocol::Reticulum &&
-        hasReticulumDestinationIdentity(msg.reticulum_identity))
+    if (IIncomingDeliveryCommitPort* commit_port =
+            adapter_.incomingDeliveryCommitPort())
     {
-        identity.has_reticulum_destination = copyReticulumDestinationHash(
-            identity.reticulum_destination_hash,
-            msg.reticulum_identity);
+        commit_port->commitIncomingText(incoming, true);
     }
-    recent_incoming_.remember(identity);
+    for (auto* observer : incoming_message_observers_)
+    {
+        if (observer)
+        {
+            observer->onIncomingMessage(message, &incoming.rx_meta);
+        }
+    }
+    for (auto* observer : incoming_text_observers_)
+    {
+        if (observer)
+        {
+            observer->onIncomingText(incoming);
+        }
+    }
+}
+
+void ChatService::retryDeferredIncoming()
+{
+    MeshIncomingText incoming{};
+    MeshProtocol protocol = MeshProtocol::Meshtastic;
+    if (!deferred_incoming_.peek(incoming, protocol))
+    {
+        return;
+    }
+
+    const ChatMessage message = incomingChatMessage(incoming, protocol);
+    if (message_ledger_.recordIncoming(message) !=
+        delivery::LedgerPersistence::Durable)
+    {
+        return;
+    }
+    deferred_incoming_.pop();
+    CHAT_SERVICE_EVENT_LOG("[ChatService][RX] deferred commit protocol=%s msg=%lu remaining=%u\n",
+                           protocol_name(protocol),
+                           static_cast<unsigned long>(message.msg_id),
+                           static_cast<unsigned>(deferred_incoming_.count));
+    commitIncoming(incoming, message);
 }
 
 void ChatService::flushStore()
@@ -929,11 +1134,7 @@ void ChatService::setDeliveryEventPort(
 
 const ChatMessage* ChatService::getMessage(MessageId msg_id) const
 {
-    if (const ChatMessage* msg = model_.getMessage(msg_id))
-    {
-        return msg;
-    }
-    if (store_.getMessage(msg_id, &store_lookup_cache_))
+    if (message_ledger_.findMessage(msg_id, store_lookup_cache_))
     {
         return &store_lookup_cache_;
     }
@@ -944,11 +1145,9 @@ const ChatMessage* ChatService::getMessageForProtocol(
     MessageId msg_id,
     MeshProtocol protocol) const
 {
-    if (const ChatMessage* msg = model_.getMessageForProtocol(msg_id, protocol))
-    {
-        return msg;
-    }
-    if (store_.getMessageForProtocol(msg_id, protocol, &store_lookup_cache_))
+    if (message_ledger_.findMessageForProtocol(msg_id,
+                                               protocol,
+                                               store_lookup_cache_))
     {
         return &store_lookup_cache_;
     }

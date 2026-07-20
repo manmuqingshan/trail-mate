@@ -162,6 +162,23 @@ class CountingIncomingObserver final : public chat::ChatService::IncomingMessage
     chat::MessageId last_msg_id = 0;
 };
 
+class TransientIncomingStore final : public chat::RamStore
+{
+  public:
+    bool appendIncomingDurably(const chat::ChatMessage& message) override
+    {
+        if (failures > 0)
+        {
+            --failures;
+            return false;
+        }
+        append(message);
+        return true;
+    }
+
+    int failures = 0;
+};
+
 const chat::ChatMessage* onlyMessage(chat::ChatService& service,
                                      const chat::ConversationId& conv)
 {
@@ -540,7 +557,10 @@ int main()
         {
             incoming_mesh.pushIncoming(0x1234ABCDU, 0x1000U + i, "window fill");
         }
-        incoming_service.processIncoming();
+        for (std::size_t tick = 0; tick < 64; ++tick)
+        {
+            incoming_service.processIncoming();
+        }
         assert(incoming_observer.count == 257);
 
         incoming_mesh.pushIncoming(0x1234ABCDU, 0x10FFU, "recent duplicate");
@@ -548,6 +568,34 @@ int main()
         incoming_service.processIncoming();
         assert(incoming_observer.count == 258);
         assert(incoming_observer.last_msg_id == 0x42U);
+    }
+
+    {
+        chat::ChatModel incoming_model;
+        FakeMeshAdapter incoming_mesh;
+        TransientIncomingStore incoming_store;
+        incoming_store.failures = 1;
+        chat::ChatService incoming_service(incoming_model,
+                                           incoming_mesh,
+                                           incoming_store);
+        CountingIncomingObserver incoming_observer;
+        incoming_service.addIncomingMessageObserver(&incoming_observer);
+        const chat::ConversationId broadcast(chat::ChannelId::PRIMARY,
+                                             0,
+                                             chat::MeshProtocol::Meshtastic);
+
+        incoming_mesh.pushIncoming(0x1234ABCDU, 0x77U, "deferred");
+        incoming_service.processIncoming();
+        assert(incoming_store.loadRecent(broadcast, 10).empty());
+        assert(incoming_observer.count == 0);
+
+        incoming_mesh.pushIncoming(0x1234ABCDU, 0x77U, "deferred");
+        incoming_service.processIncoming();
+        const auto committed = incoming_store.loadRecent(broadcast, 10);
+        assert(committed.size() == 1);
+        assert(committed.front().msg_id == 0x77U);
+        assert(incoming_store.getUnread(broadcast) == 1);
+        assert(incoming_observer.count == 1);
     }
 
     {

@@ -89,6 +89,33 @@ platform feedback through `IChatDeliveryFeedbackPort`.
 `ChatPresentationSource` reads the delivery read model and projects state
 into `MessageRow`.
 
+`ChatMessageLedger` also owns transient persistence pressure. A persistent
+store reports authoritative append success through `appendDurably(...)`.
+Transient failure enters a bounded pending-write queue owned by the ledger;
+the presentation source reads a merged ledger page, never a page-local fallback.
+
+Incoming publication is a two-phase boundary:
+
+```text
+decode -> durable append/defer -> delivery commit -> model/event/notification
+```
+
+`appendIncomingDurably(...)` failure must not drop the message and must not
+publish it early. The runtime retries with a bounded per-tick budget. Once the
+append succeeds, observers are invoked exactly once. Queue exhaustion is an
+explicit rejection, not a silent loss.
+
+On ESP, the physical commit and recovery rules are frozen by
+`PROTOCOL_PARTITIONED_STORAGE_V2_SPEC.md`. A protocol message slot is
+authoritative; catalog/read/status are projections. Once an inbound message and
+its required RT LXMF dedup identity are durable, catalog failure must not block
+observer, UI, or notification publication.
+
+On ESP shared-SPI targets, chat append and status transactions use a
+non-blocking outer SPI lease. Failure to obtain the lease produces `Deferred`;
+the hot path must not multiply the storage runtime's per-operation wait or run
+a synchronous full index rebuild.
+
 ## Boundaries
 
 `ChatDeliveryReadModel` may:
@@ -200,9 +227,15 @@ Examples:
 
 Phase 7.1 does not implement a full retry engine.
 
+The bounded persistence retry owned by `ChatMessageLedger` is not a protocol
+retransmission engine. It only completes local authoritative message/status
+commit after transient storage contention.
+
 Phase 7.1 does not change radio packet format.
 
-Phase 7.1 does not move all ChatService storage.
+Phase 7.1 does not move delivery business ownership into the physical store.
+`SdStore` may own protocol-partitioned journals, but delivery meaning remains in
+MessageLedger and the delivery projector.
 
 Phase 7.1 does not make `ChatWorkspaceModel` own delivery state.
 

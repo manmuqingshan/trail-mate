@@ -152,7 +152,6 @@ class UiController : public IChatUiRefreshSink
     std::string resolveConversationDisplayName(const chat::ConversationId& conv) const;
     void applyConversationListToUi();
     void updateConversationMetaForMessage(const chat::ChatMessage& msg, bool increment_unread);
-    bool updateConversationViewForIncoming(const chat::ChatMessage& msg);
     void reloadConversationView();
     // Team text, read projection, and location action sends flow through
     // ChatTeamWorkflow.

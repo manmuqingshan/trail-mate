@@ -161,12 +161,12 @@ class AppContext final : public IAppBleFacade
 
     chat::contacts::INodeStore* getNodeStore() override
     {
-        return node_store_.get();
+        return node_store_;
     }
 
     const chat::contacts::INodeStore* getNodeStore() const override
     {
-        return node_store_.get();
+        return node_store_;
     }
 
     bool getDeviceMacAddress(uint8_t out_mac[6]) const override;
@@ -175,12 +175,12 @@ class AppContext final : public IAppBleFacade
 
     chat::contacts::IContactStore* getContactStore()
     {
-        return contact_store_.get();
+        return contact_store_;
     }
 
     const chat::contacts::IContactStore* getContactStore() const
     {
-        return contact_store_.get();
+        return contact_store_;
     }
 
     void saveConfig() override;
@@ -272,10 +272,10 @@ class AppContext final : public IAppBleFacade
     std::unique_ptr<chat::ChatModel> chat_model_;
 
     std::unique_ptr<chat::IChatStore> chat_store_;
-    std::unique_ptr<chat::IMeshPeerDirectory> mesh_peer_directory_;
+    std::unique_ptr<chat::IProtocolPeerRepository> mesh_peer_directory_;
     std::unique_ptr<chat::IMeshAdapter> mesh_router_;
-    std::unique_ptr<chat::contacts::INodeStore> node_store_;
-    std::unique_ptr<chat::contacts::IContactStore> contact_store_;
+    chat::contacts::INodeStore* node_store_ = nullptr;
+    chat::contacts::IContactStore* contact_store_ = nullptr;
 
     std::unique_ptr<chat::ChatService> chat_service_;
     std::unique_ptr<chat::contacts::ContactService> contact_service_;

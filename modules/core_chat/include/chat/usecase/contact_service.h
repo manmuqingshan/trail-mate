@@ -40,6 +40,9 @@ class ContactService
      */
     void begin();
 
+    /** Selects the only protocol partition visible to contact queries. */
+    void setActiveProtocol(MeshProtocol protocol);
+
     void applyNodeUpdate(uint32_t node_id, const NodeUpdate& update);
 
     /**
@@ -159,6 +162,7 @@ class ContactService
   private:
     INodeStore& node_store_;
     IContactStore& contact_store_;
+    MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;
     mutable std::vector<NodeInfo> cached_nodes_; // Cache for getContacts/getNearby
     mutable uint32_t cache_timestamp_;
     static constexpr uint32_t kCacheTimeoutMs = 1000; // 1 second cache

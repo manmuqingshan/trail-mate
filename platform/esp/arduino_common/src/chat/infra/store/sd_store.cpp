@@ -1,12 +1,13 @@
 /**
  * @file sd_store.cpp
- * @brief SD-backed ESP Arduino chat storage using per-conversation log files.
+ * @brief Protocol-partitioned append-only ESP chat storage.
  */
 
 #include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
 
-#include "chat/infra/mesh_protocol_utils.h"
+#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/common/shared_spi_bus_arbiter.h"
 
 #if defined(ARDUINO)
 #include <Arduino.h>
@@ -15,13 +16,13 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-#include <string>
 
 namespace chat
 {
 namespace
 {
-namespace storage = ::platform::esp::arduino_common::storage;
+namespace storage_runtime = ::platform::esp::arduino_common::storage;
+namespace storage_v2 = ::chat::storage::v2;
 
 #if defined(ARDUINO)
 #define CHAT_STORE_LOG(...) Serial.printf(__VA_ARGS__)
@@ -29,104 +30,125 @@ namespace storage = ::platform::esp::arduino_common::storage;
 #define CHAT_STORE_LOG(...) std::printf(__VA_ARGS__)
 #endif
 
-constexpr uint8_t kRecordHasReticulumIdentityFlag = 0x01U;
-constexpr uint8_t kRecordSourceUnverifiedFlag = 0x02U;
-constexpr uint8_t kRecordHasReticulumLxmfHashFlag = 0x04U;
-constexpr uint8_t kIndexHasReticulumIdentityFlag = 0x01U;
-constexpr uint8_t kReadStateHasReticulumIdentityFlag = 0x01U;
-// FileHeader::reserved is a durable unread count once the valid bit is set.
-constexpr uint16_t kUnreadStateValidMask = 0x8000U;
-constexpr uint16_t kUnreadStateCountMask = 0x7FFFU;
-constexpr const char* kTempIndexFile = "/chat/index.tmp";
-constexpr const char* kBackupIndexFile = "/chat/index.bak";
-constexpr const char* kTempReadStateFile = "/chat/read_state.tmp";
-constexpr const char* kBackupReadStateFile = "/chat/read_state.bak";
+constexpr uint32_t kChatStoreBusResource = 5;
+constexpr uint32_t kChatStoreBusOwnerId = 0x43484154U; // CHAT
+constexpr const char* kChatStoreBusOwner = "chat_store_v2";
 
-static_assert(SdStore::kMaxMessagesPerConv <= kUnreadStateCountMask,
-              "Unread state must cover a full conversation ring");
+::platform::esp::common::SharedSpiBusAdapter s_chat_store_bus_adapter(
+    kChatStoreBusOwner,
+    kChatStoreBusOwnerId);
+::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_chat_store_bus_policy(
+    0,
+    0,
+    0,
+    0);
+sys::runtime::StorageBusArbiter s_chat_store_bus_arbiter(s_chat_store_bus_adapter,
+                                                         s_chat_store_bus_policy);
 
-uint16_t encodeUnreadState(uint16_t unread)
+constexpr MeshProtocol kProtocols[] = {
+    MeshProtocol::Meshtastic,
+    MeshProtocol::MeshCore,
+    MeshProtocol::Reticulum,
+};
+
+std::size_t protocolIndex(MeshProtocol protocol)
 {
-    return static_cast<uint16_t>(kUnreadStateValidMask |
-                                 std::min<uint16_t>(unread, kUnreadStateCountMask));
+    if (protocol == MeshProtocol::MeshCore)
+    {
+        return 1;
+    }
+    if (protocol == MeshProtocol::Reticulum ||
+        protocol == MeshProtocol::RNode)
+    {
+        return 2;
+    }
+    return 0;
 }
 
-bool decodeUnreadState(uint16_t state, uint16_t* unread)
+bool sameConversationKey(const ConversationId& lhs,
+                         const ConversationId& rhs)
 {
-    if ((state & kUnreadStateValidMask) == 0)
+    const MeshProtocol lhs_protocol =
+        lhs.protocol == MeshProtocol::RNode ? MeshProtocol::Reticulum
+                                            : lhs.protocol;
+    const MeshProtocol rhs_protocol =
+        rhs.protocol == MeshProtocol::RNode ? MeshProtocol::Reticulum
+                                            : rhs.protocol;
+    if (lhs_protocol != rhs_protocol || lhs.channel != rhs.channel)
     {
         return false;
     }
-    if (unread)
+    if (lhs_protocol == MeshProtocol::Reticulum)
     {
-        *unread = static_cast<uint16_t>(state & kUnreadStateCountMask);
+        const bool lhs_has_destination =
+            hasReticulumDestinationIdentity(lhs.reticulum_identity);
+        const bool rhs_has_destination =
+            hasReticulumDestinationIdentity(rhs.reticulum_identity);
+        if (lhs_has_destination || rhs_has_destination)
+        {
+            return lhs_has_destination && rhs_has_destination &&
+                   sameReticulumDestinationHash(lhs.reticulum_identity,
+                                                rhs.reticulum_identity);
+        }
     }
+    return lhs.peer == rhs.peer;
+}
+
+bool copyTextPreview(char* out,
+                     std::size_t out_len,
+                     const std::string& text)
+{
+    if (!out || out_len == 0U)
+    {
+        return false;
+    }
+    const std::size_t length = std::min(out_len - 1U, text.size());
+    if (length != 0U)
+    {
+        std::memcpy(out, text.data(), length);
+    }
+    out[length] = '\0';
     return true;
 }
 
-bool readExact(storage::SdRuntimeFile& file, void* out, size_t len)
+bool hasSuffix(const char* value, const char* suffix)
 {
-    return file.read(out, len) == static_cast<int>(len);
-}
-
-bool writeExact(storage::SdRuntimeFile& file, const void* data, size_t len)
-{
-    return file.write(data, len) == len;
-}
-
-const char* protocolTag(MeshProtocol protocol)
-{
-    return chat::infra::meshProtocolSlug(protocol);
-}
-
-bool hasReticulumConversationKey(const ConversationId& conv)
-{
-    return conv.protocol == MeshProtocol::Reticulum &&
-           hasReticulumDestinationIdentity(conv.reticulum_identity);
-}
-
-bool sameReticulumDestination(const ReticulumPeerIdentity& identity,
-                              const uint8_t* destination_hash)
-{
-    return sameReticulumDestinationHash(identity, destination_hash);
-}
-
-bool validLxmfMessageHash(const uint8_t* lxmf_hash)
-{
-    return lxmf_hash &&
-           !isAllZeroKeyBytes(lxmf_hash, kReticulumLxmfHashSize);
-}
-
-void copyReticulumIdentityToStorage(uint8_t* destination_hash,
-                                    uint8_t* identity_hash,
-                                    const ReticulumPeerIdentity& identity)
-{
-    if (!destination_hash || !identity_hash)
+    if (!value || !suffix)
     {
-        return;
+        return false;
     }
-    (void)copyReticulumIdentityHashes(destination_hash, identity_hash, identity);
+    const std::size_t value_len = std::strlen(value);
+    const std::size_t suffix_len = std::strlen(suffix);
+    return value_len >= suffix_len &&
+           std::memcmp(value + value_len - suffix_len,
+                       suffix,
+                       suffix_len) == 0;
 }
 
-void readReticulumIdentityFromStorage(ReticulumPeerIdentity& identity,
-                                      const uint8_t* destination_hash,
-                                      const uint8_t* identity_hash)
+bool replaceSnapshot(const char* temp_path, const char* final_path)
 {
-    if (!destination_hash || !identity_hash)
+    if (!temp_path || !final_path)
     {
-        return;
+        return false;
     }
-    identity = makeReticulumPeerIdentity(destination_hash, identity_hash);
+    char backup_path[160] = {};
+    std::snprintf(backup_path,
+                  sizeof(backup_path),
+                  "%s.bak",
+                  final_path);
+    return storage_v2::replaceFileAtomically(temp_path,
+                                             final_path,
+                                             backup_path);
 }
 
-void hashToHex(const uint8_t* hash, char* out, size_t out_len)
+void hashToHex(const uint8_t* hash, char* out, std::size_t out_len)
 {
     static constexpr char kHex[] = "0123456789abcdef";
-    if (!hash || !out || out_len < (kReticulumPeerHashSize * 2U + 1U))
+    if (!hash || !out || out_len < kReticulumPeerHashSize * 2U + 1U)
     {
         return;
     }
-    for (size_t index = 0; index < kReticulumPeerHashSize; ++index)
+    for (std::size_t index = 0; index < kReticulumPeerHashSize; ++index)
     {
         out[index * 2U] = kHex[(hash[index] >> 4U) & 0x0FU];
         out[index * 2U + 1U] = kHex[hash[index] & 0x0FU];
@@ -134,637 +156,504 @@ void hashToHex(const uint8_t* hash, char* out, size_t out_len)
     out[kReticulumPeerHashSize * 2U] = '\0';
 }
 
-std::string pathInChatDir(const char* name)
-{
-    if (!name || name[0] == '\0')
-    {
-        return {};
-    }
-    if (name[0] == '/')
-    {
-        return std::string(name);
-    }
-    return std::string(SdStore::kDir) + "/" + name;
-}
 } // namespace
 
 SdStore::SdStore()
 {
-    ready_ = ensureFs() && ensureDir();
-    if (!ready_)
+    scratch_.resize(kScratchCapacity);
+    catalog_.reserve(64);
+    read_state_.reserve(64);
+    statuses_.reserve(256);
+    seen_hot_.reserve(256);
+    storage_runtime::PersistenceBusGate startup_gate(
+        s_chat_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::DurableCommit,
+        3000U,
+        kChatStoreBusResource,
+        kChatStoreBusOwnerId + 9U,
+        kChatStoreBusOwnerId);
+    ready_ = startup_gate.locked() && ensureLayout() && loadRuntimeState();
+    if (ready_)
     {
-        CHAT_STORE_LOG("[AppContext] chat store=SdStore layout=logs ready=0 root=%s\n", kDir);
-        return;
+        for (MeshProtocol protocol : kProtocols)
+        {
+            if (!compactProtocolProjections(protocol))
+            {
+                projection_dirty_[protocolIndex(protocol)] = true;
+            }
+        }
     }
-
-    std::vector<IndexEntry> entries;
-    if (!readIndex(entries) &&
-        (!recoverIndex() || !readIndex(entries)))
-    {
-        rebuildIndex();
-        (void)readIndex(entries);
-    }
-    if (reconcileIndexUnread(entries))
-    {
-        unread_reconcile_pending_ = !writeIndex(entries);
-    }
-    CHAT_STORE_LOG("[AppContext] chat store=SdStore layout=logs root=%s index=%u\n",
-                   kDir,
-                   static_cast<unsigned>(entries.size()));
+    CHAT_STORE_LOG("[ChatStoreV2] ready=%u root=%s conversations=%u statuses=%u seen_hot=%u\n",
+                   ready_ ? 1U : 0U,
+                   kRoot,
+                   static_cast<unsigned>(catalog_.size()),
+                   static_cast<unsigned>(statuses_.size()),
+                   static_cast<unsigned>(seen_hot_.size()));
 }
 
 void SdStore::append(const ChatMessage& msg)
 {
-    (void)appendInternal(msg);
+    if (!appendDurably(msg))
+    {
+        CHAT_STORE_LOG("[ChatStoreV2] append deferred protocol=%s msg=%08lX\n",
+                       protocolSlug(msg.protocol),
+                       static_cast<unsigned long>(msg.msg_id));
+    }
+}
+
+bool SdStore::appendDurably(const ChatMessage& msg)
+{
+    return appendInternal(msg, false);
 }
 
 bool SdStore::appendIncomingDurably(const ChatMessage& msg)
 {
-    return appendInternal(msg);
+    return appendInternal(msg, true);
 }
 
-bool SdStore::appendInternal(const ChatMessage& msg)
+bool SdStore::appendInternal(const ChatMessage& input, bool incoming_commit)
 {
-    if (!ready_ || !ensureDir())
+    storage_runtime::PersistenceBusGate transaction_gate(
+        s_chat_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::DurableCommit,
+        0,
+        kChatStoreBusResource,
+        kChatStoreBusOwnerId + 1U,
+        kChatStoreBusOwnerId);
+    if (!transaction_gate.locked() || !ready_)
     {
         return false;
     }
 
-    const ConversationId conv = conversationIdForMessage(msg);
-    storage::SdRuntimeFile file;
-    FileHeader header{};
-    if (!openConversationForUpdate(conv, file, header))
+    ChatMessage message = input;
+    message.protocol = normalizeProtocol(message.protocol);
+    if (!storage_v2::supportedProtocol(message.protocol) ||
+        message.text.size() >
+            (message.protocol == MeshProtocol::Meshtastic
+                 ? storage_v2::kMeshtasticTextMax
+             : message.protocol == MeshProtocol::MeshCore
+                 ? storage_v2::kMeshCoreTextMax
+                 : storage_v2::kReticulumTextMax) ||
+        !ensureProtocolLayout(message.protocol))
     {
         return false;
     }
 
-    if (chat::hasReticulumLxmfMessageHash(msg))
+    const ConversationId conversation = conversationIdForMessage(message);
+    bool already_stored = false;
+    uint32_t stored_count = 0;
+    if (!storedMessageMatches(message, &already_stored, &stored_count))
     {
-        bool already_committed = false;
-        if (!conversationContainsReticulumLxmfHash(file,
-                                                   header,
-                                                   msg.reticulum_lxmf_hash,
-                                                   &already_committed))
-        {
-            file.close();
-            return false;
-        }
-        if (already_committed)
-        {
-            uint16_t committed_unread = 0;
-            if (!readStateUnreadOrLegacy(conv, &committed_unread))
-            {
-                committed_unread = 0;
-            }
-            file.close();
-            updateIndexForMessage(msg, committed_unread);
-            return rememberReticulumLxmfMessageHash(msg.reticulum_lxmf_hash);
-        }
-    }
-
-    uint16_t unread = 0;
-    if (!readStateUnreadOrLegacy(conv, &unread))
-    {
-        unread = 0;
-    }
-    if (msg.status == MessageStatus::Incoming && unread < kUnreadStateCountMask)
-    {
-        unread = static_cast<uint16_t>(unread + 1U);
-    }
-
-    const Record rec = recordFromMessage(msg);
-    if (!writeRecord(file, header.head, rec))
-    {
-        file.close();
         return false;
     }
 
-    header.head = static_cast<uint16_t>((header.head + 1U) % kMaxMessagesPerConv);
-    if (header.count < kMaxMessagesPerConv)
+    if (!already_stored)
     {
-        header.count = static_cast<uint16_t>(header.count + 1U);
-    }
-
-    header.reserved = encodeUnreadState(unread);
-    if (!file.seek(0) || !writeExact(file, &header, sizeof(header)))
-    {
-        file.close();
-        return false;
-    }
-    if (!file.flush())
-    {
-        file.close();
-        return false;
-    }
-    file.close();
-
-    if (!writeReadStateUnread(conv, unread))
-    {
-        CHAT_STORE_LOG("[AppContext] chat unread persist failed stage=read_state unread=%u\n",
-                       static_cast<unsigned>(unread));
-        unread_reconcile_pending_ = true;
-        if (!removeReadStateEntry(conv))
+        const uint32_t sequence = stored_count + 1U;
+        if (!appendMessageRecord(message, sequence))
         {
             return false;
         }
+        stored_count = sequence;
     }
-    updateIndexForMessage(msg, unread);
-    if (chat::hasReticulumLxmfMessageHash(msg))
+
+    if (incoming_commit && chat::hasReticulumLxmfMessageHash(message) &&
+        !rememberReticulumHash(message.reticulum_lxmf_hash))
     {
-        return rememberReticulumLxmfMessageHash(msg.reticulum_lxmf_hash);
+        // The message record is authoritative and retry detection above is
+        // idempotent. Do not publish until its Reticulum dedup identity is also
+        // durable.
+        return false;
     }
+
+    storage_v2::ChatCatalogProjection* projection = findCatalog(conversation);
+    const bool new_projection = projection == nullptr;
+    if (!projection)
+    {
+        storage_v2::ChatCatalogProjection created{};
+        created.conversation = conversation;
+        catalog_.push_back(created);
+        projection = &catalog_.back();
+    }
+    const bool projection_was_current =
+        projection->message_count == stored_count &&
+        projection->last_message_id == message.msg_id;
+    if (!projection_was_current || new_projection)
+    {
+        projection->conversation = conversation;
+        projection->message_count = stored_count;
+        projection->last_sequence = stored_count;
+        projection->last_message_id = message.msg_id;
+        projection->last_timestamp = message.timestamp;
+        projection->last_status = message.status;
+        projection->deleted = false;
+        const storage_v2::ChatReadProjection* read_state =
+            findReadState(conversation);
+        projection->unread = countUnreadAfter(
+            conversation,
+            read_state ? read_state->last_read_sequence : 0U);
+        copyTextPreview(projection->preview,
+                        sizeof(projection->preview),
+                        message.text);
+        if (!appendCatalogProjection(*projection))
+        {
+            projection_dirty_[protocolIndex(message.protocol)] = true;
+            CHAT_STORE_LOG("[ChatStoreV2] projection deferred protocol=%s msg=%08lX authoritative=1\n",
+                           protocolSlug(message.protocol),
+                           static_cast<unsigned long>(message.msg_id));
+        }
+    }
+
+    CHAT_STORE_LOG("[ChatStoreV2] commit protocol=%s msg=%08lX seq=%lu duplicate=%u publish=1\n",
+                   protocolSlug(message.protocol),
+                   static_cast<unsigned long>(message.msg_id),
+                   static_cast<unsigned long>(stored_count),
+                   already_stored ? 1U : 0U);
     return true;
 }
 
-std::vector<ChatMessage> SdStore::loadRecent(const ConversationId& conv, size_t n)
+std::vector<ChatMessage> SdStore::loadRecent(const ConversationId& conv,
+                                             std::size_t n)
 {
     return loadPageFromLatest(conv, 0, n, nullptr);
 }
 
-std::vector<ChatMessage> SdStore::loadPageFromLatest(const ConversationId& conv,
-                                                     size_t offset_from_latest,
-                                                     size_t limit,
-                                                     size_t* total)
+std::vector<ChatMessage> SdStore::loadPageFromLatest(
+    const ConversationId& input,
+    std::size_t offset_from_latest,
+    std::size_t limit,
+    std::size_t* total)
 {
-    std::vector<ChatMessage> out;
+    ConversationId conversation = input;
+    conversation.protocol = normalizeProtocol(conversation.protocol);
+    const uint32_t count = messageCountOnDisk(conversation);
     if (total)
     {
-        *total = 0;
-    }
-    if (!ready_ || limit == 0)
-    {
-        return out;
+        *total = count;
     }
 
-    char path[96]{};
-    buildConversationPath(conv, path, sizeof(path));
-    if (!storage::sd_exists(path))
+    std::vector<ChatMessage> result;
+    if (limit == 0U || offset_from_latest >= count)
     {
-        return out;
+        return result;
     }
-
-    storage::SdRuntimeFile file;
-    if (!file.open(path, "r"))
+    const uint32_t end = count - static_cast<uint32_t>(offset_from_latest);
+    const uint32_t start =
+        end > limit ? end - static_cast<uint32_t>(limit) : 0U;
+    result.reserve(end - start);
+    for (uint32_t ordinal = start; ordinal < end; ++ordinal)
     {
-        return out;
-    }
-
-    FileHeader header{};
-    if (!loadFileHeader(file, header) || header.count == 0)
-    {
-        file.close();
-        return out;
-    }
-
-    if (total)
-    {
-        *total = header.count;
-    }
-    if (offset_from_latest >= header.count)
-    {
-        file.close();
-        return out;
-    }
-
-    const size_t available = header.count - offset_from_latest;
-    const size_t to_read = std::min<size_t>(limit, available);
-    const size_t logical_start = header.count - offset_from_latest - to_read;
-    const uint16_t start = static_cast<uint16_t>(
-        (header.head + kMaxMessagesPerConv - header.count + logical_start) %
-        kMaxMessagesPerConv);
-
-    out.reserve(to_read);
-    for (size_t index = 0; index < to_read; ++index)
-    {
-        const uint16_t slot = static_cast<uint16_t>((start + index) % kMaxMessagesPerConv);
-        Record rec{};
-        if (!readRecord(file, header, slot, rec) || rec.text_len == 0)
+        ChatMessage message{};
+        if (readMessageByOrdinal(conversation, ordinal, message))
         {
-            continue;
+            result.push_back(std::move(message));
         }
-        out.push_back(messageFromRecord(rec));
     }
-    file.close();
-    return out;
+    return result;
 }
 
-std::vector<ConversationMeta> SdStore::loadConversationPage(size_t offset,
-                                                            size_t limit,
-                                                            size_t* total)
+std::vector<ConversationMeta> SdStore::loadConversationPage(
+    std::size_t offset,
+    std::size_t limit,
+    std::size_t* total)
 {
-    std::vector<IndexEntry> entries;
-    if (!ready_ || !ensureIndex(entries))
+    std::vector<ConversationMeta> result;
+    result.reserve(catalog_.size());
+    for (const storage_v2::ChatCatalogProjection& projection : catalog_)
     {
-        if (total)
+        if (!projection.deleted && projection.message_count != 0U)
         {
-            *total = 0;
+            result.push_back(makeMeta(projection));
         }
-        return {};
     }
-
-    std::sort(entries.begin(),
-              entries.end(),
-              [](const IndexEntry& a, const IndexEntry& b)
-              {
-                  return a.last_timestamp > b.last_timestamp;
-              });
-
+    std::stable_sort(result.begin(),
+                     result.end(),
+                     [](const ConversationMeta& lhs,
+                        const ConversationMeta& rhs)
+                     {
+                         return lhs.last_timestamp > rhs.last_timestamp;
+                     });
     if (total)
     {
-        *total = entries.size();
+        *total = result.size();
     }
-    if (offset >= entries.size())
+    if (offset >= result.size())
     {
         return {};
     }
-
-    size_t end = entries.size();
-    if (limit != 0 && offset + limit < end)
-    {
-        end = offset + limit;
-    }
-
-    std::vector<ConversationMeta> list;
-    list.reserve(end - offset);
-    for (size_t index = offset; index < end; ++index)
-    {
-        list.push_back(metaFromIndexEntry(entries[index]));
-    }
-    return list;
+    const std::size_t end =
+        limit == 0U ? result.size()
+                    : std::min(result.size(), offset + limit);
+    return std::vector<ConversationMeta>(
+        result.begin() + static_cast<std::ptrdiff_t>(offset),
+        result.begin() + static_cast<std::ptrdiff_t>(end));
 }
 
-bool SdStore::setUnread(const ConversationId& conv, int unread)
+std::vector<ConversationMeta> SdStore::loadConversationPageForProtocol(
+    MeshProtocol protocol,
+    std::size_t offset,
+    std::size_t limit,
+    std::size_t* total)
 {
-    if (!ready_)
+    protocol = normalizeProtocol(protocol);
+    std::vector<ConversationMeta> result;
+    for (const storage_v2::ChatCatalogProjection& projection : catalog_)
+    {
+        if (!projection.deleted && projection.message_count != 0U &&
+            sameProtocol(projection.conversation.protocol, protocol))
+        {
+            result.push_back(makeMeta(projection));
+        }
+    }
+    std::stable_sort(result.begin(),
+                     result.end(),
+                     [](const ConversationMeta& lhs,
+                        const ConversationMeta& rhs)
+                     {
+                         return lhs.last_timestamp > rhs.last_timestamp;
+                     });
+    if (total)
+    {
+        *total = result.size();
+    }
+    if (offset >= result.size())
+    {
+        return {};
+    }
+    const std::size_t end =
+        limit == 0U ? result.size()
+                    : std::min(result.size(), offset + limit);
+    return std::vector<ConversationMeta>(
+        result.begin() + static_cast<std::ptrdiff_t>(offset),
+        result.begin() + static_cast<std::ptrdiff_t>(end));
+}
+
+bool SdStore::setUnread(const ConversationId& input, int unread)
+{
+    storage_runtime::PersistenceBusGate transaction_gate(
+        s_chat_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::DurableCommit,
+        0,
+        kChatStoreBusResource,
+        kChatStoreBusOwnerId + 2U,
+        kChatStoreBusOwnerId);
+    if (!transaction_gate.locked() || !ready_)
     {
         return false;
     }
-
-    const uint16_t unread_count = static_cast<uint16_t>(
-        std::min<int>(std::max(0, unread), kUnreadStateCountMask));
-    if (!writeReadStateUnread(conv, unread_count))
+    ConversationId conversation = input;
+    conversation.protocol = normalizeProtocol(conversation.protocol);
+    storage_v2::ChatCatalogProjection* catalog = findCatalog(conversation);
+    if (!catalog)
     {
-        CHAT_STORE_LOG("[AppContext] chat unread persist failed stage=read_state unread=%u\n",
-                       static_cast<unsigned>(unread_count));
+        return unread == 0;
+    }
+    const uint32_t bounded_unread =
+        unread <= 0 ? 0U : static_cast<uint32_t>(unread);
+    storage_v2::ChatReadProjection projection{};
+    projection.conversation = conversation;
+    projection.last_read_sequence =
+        sequenceForUnread(conversation, bounded_unread);
+    if (!appendReadProjection(projection))
+    {
         return false;
     }
-
-    const bool header_written = writeConversationUnread(conv, unread_count);
-    if (!header_written)
+    storage_v2::ChatReadProjection* current = findReadState(conversation);
+    if (current)
     {
-        CHAT_STORE_LOG("[AppContext] chat unread persist failed stage=conversation_header unread=%u\n",
-                       static_cast<unsigned>(unread_count));
+        *current = projection;
     }
-
-    std::vector<IndexEntry> entries;
-    if (!ensureIndex(entries))
+    else
     {
-        unread_reconcile_pending_ = true;
-        return true;
+        read_state_.push_back(projection);
     }
-
-    size_t index = 0;
-    if (!findIndexEntry(conv, entries, &index))
+    catalog->unread = countUnreadAfter(conversation,
+                                       projection.last_read_sequence);
+    if (!appendCatalogProjection(*catalog))
     {
-        return true;
-    }
-    entries[index].unread = unread_count;
-    const bool index_written = writeIndex(entries);
-    if (!index_written)
-    {
-        CHAT_STORE_LOG("[AppContext] chat unread persist failed stage=index unread=%u\n",
-                       static_cast<unsigned>(unread_count));
-        unread_reconcile_pending_ = true;
-        rebuildIndex();
+        projection_dirty_[protocolIndex(conversation.protocol)] = true;
     }
     return true;
 }
 
-int SdStore::getUnread(const ConversationId& conv) const
+int SdStore::getUnread(const ConversationId& input) const
 {
-    if (!ready_)
-    {
-        return 0;
-    }
-
-    uint16_t unread = 0;
-    if (readStateUnreadOrLegacy(conv, &unread))
-    {
-        return unread;
-    }
-    return 0;
+    ConversationId conversation = input;
+    conversation.protocol = normalizeProtocol(conversation.protocol);
+    const storage_v2::ChatCatalogProjection* projection =
+        findCatalog(conversation);
+    return projection ? static_cast<int>(projection->unread) : 0;
 }
 
-void SdStore::clearConversation(const ConversationId& conv)
+void SdStore::clearConversation(const ConversationId& input)
 {
-    if (!ready_)
+    storage_runtime::PersistenceBusGate transaction_gate(
+        s_chat_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::DurableCommit,
+        0,
+        kChatStoreBusResource,
+        kChatStoreBusOwnerId + 3U,
+        kChatStoreBusOwnerId);
+    if (!transaction_gate.locked() || !ready_)
+    {
+        return;
+    }
+    ConversationId conversation = input;
+    conversation.protocol = normalizeProtocol(conversation.protocol);
+    char path[128]{};
+    buildConversationDirectory(conversation, path, sizeof(path));
+    if (!removeTree(path))
     {
         return;
     }
 
-    (void)removeReadStateEntry(conv);
-
-    char path[96]{};
-    buildConversationPath(conv, path, sizeof(path));
-    if (storage::sd_exists(path))
+    storage_v2::ChatCatalogProjection tombstone{};
+    if (const storage_v2::ChatCatalogProjection* existing =
+            findCatalog(conversation))
     {
-        storage::sd_remove(path);
+        tombstone = *existing;
     }
+    tombstone.conversation = conversation;
+    tombstone.deleted = true;
+    (void)appendCatalogProjection(tombstone);
 
-    std::vector<IndexEntry> entries;
-    if (!readIndex(entries))
-    {
-        return;
-    }
-    entries.erase(std::remove_if(entries.begin(),
-                                 entries.end(),
-                                 [&](const IndexEntry& entry)
-                                 {
-                                     return indexEntryMatchesConversation(entry, conv);
-                                 }),
-                  entries.end());
-    (void)writeIndex(entries);
+    storage_v2::ChatReadProjection read_tombstone{};
+    read_tombstone.conversation = conversation;
+    read_tombstone.deleted = true;
+    (void)appendReadProjection(read_tombstone);
+
+    catalog_.erase(std::remove_if(catalog_.begin(),
+                                  catalog_.end(),
+                                  [&](const auto& value)
+                                  {
+                                      return sameConversationKey(
+                                          value.conversation,
+                                          conversation);
+                                  }),
+                   catalog_.end());
+    read_state_.erase(std::remove_if(read_state_.begin(),
+                                     read_state_.end(),
+                                     [&](const auto& value)
+                                     {
+                                         return sameConversationKey(
+                                             value.conversation,
+                                             conversation);
+                                     }),
+                      read_state_.end());
 }
 
 void SdStore::clearAll()
 {
-    if (!ready_)
+    storage_runtime::PersistenceBusGate transaction_gate(
+        s_chat_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::RecoveryExclusive,
+        0,
+        kChatStoreBusResource,
+        kChatStoreBusOwnerId + 4U,
+        kChatStoreBusOwnerId);
+    if (!transaction_gate.locked())
     {
         return;
     }
-
-    if (storage::sd_exists(kIndexFile))
+    for (MeshProtocol protocol : kProtocols)
     {
-        storage::sd_remove(kIndexFile);
+        (void)removeTree(protocolRoot(protocol));
     }
-    if (storage::sd_exists(kTempIndexFile))
-    {
-        storage::sd_remove(kTempIndexFile);
-    }
-    if (storage::sd_exists(kBackupIndexFile))
-    {
-        storage::sd_remove(kBackupIndexFile);
-    }
-    if (storage::sd_exists(kReadStateFile))
-    {
-        storage::sd_remove(kReadStateFile);
-    }
-    if (storage::sd_exists(kTempReadStateFile))
-    {
-        storage::sd_remove(kTempReadStateFile);
-    }
-    if (storage::sd_exists(kBackupReadStateFile))
-    {
-        storage::sd_remove(kBackupReadStateFile);
-    }
-
-    std::vector<std::string> log_paths;
-    storage::SdRuntimeDir dir;
-    if (dir.open(kDir))
-    {
-        char name[96]{};
-        bool is_dir = false;
-        while (dir.read_next(name, sizeof(name), &is_dir))
-        {
-            if (!is_dir && hasLogSuffix(name))
-            {
-                log_paths.push_back(pathInChatDir(name));
-            }
-        }
-        dir.close();
-    }
-
-    for (const auto& path : log_paths)
-    {
-        if (!path.empty() && storage::sd_exists(path.c_str()))
-        {
-            storage::sd_remove(path.c_str());
-        }
-    }
-    unread_reconcile_pending_ = false;
+    catalog_.clear();
+    read_state_.clear();
+    statuses_.clear();
+    seen_hot_.clear();
+    std::memset(projection_dirty_, 0, sizeof(projection_dirty_));
+    ready_ = ensureLayout();
 }
 
 bool SdStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
 {
-    if (!ready_ || msg_id == 0)
+    ChatMessage message{};
+    if (!getMessage(msg_id, &message))
     {
         return false;
     }
-
-    std::vector<IndexEntry> entries;
-    if (!readIndex(entries))
-    {
-        return false;
-    }
-
-    bool updated = false;
-    for (auto& entry : entries)
-    {
-        const ConversationId conv = conversationFromIndexEntry(entry);
-        char path[96]{};
-        buildConversationPath(conv, path, sizeof(path));
-        if (!storage::sd_exists(path))
-        {
-            continue;
-        }
-
-        storage::SdRuntimeFile file;
-        if (!file.open(path, "r+"))
-        {
-            continue;
-        }
-
-        FileHeader header{};
-        if (!loadFileHeader(file, header) ||
-            !upgradeConversationFile(file, path, header))
-        {
-            file.close();
-            continue;
-        }
-
-        for (uint16_t index = 0; index < header.count; ++index)
-        {
-            const uint16_t slot =
-                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
-                                      kMaxMessagesPerConv);
-            Record rec{};
-            if (!readRecord(file, header, slot, rec))
-            {
-                continue;
-            }
-            if (rec.msg_id != msg_id || rec.from != 0)
-            {
-                continue;
-            }
-
-            rec.status = static_cast<uint8_t>(status);
-            updated = writeRecord(file, slot, rec);
-            if (updated)
-            {
-                file.flush();
-                if (entry.last_msg_id == msg_id)
-                {
-                    entry.status = static_cast<uint8_t>(status);
-                }
-            }
-            break;
-        }
-
-        file.close();
-        if (updated)
-        {
-            break;
-        }
-    }
-
-    if (updated)
-    {
-        (void)writeIndex(entries);
-    }
-    return updated;
+    return updateMessageStatusForProtocol(msg_id, message.protocol, status);
 }
 
 bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
                                              MeshProtocol protocol,
                                              MessageStatus status)
 {
-    if (!ready_ || msg_id == 0)
+    protocol = normalizeProtocol(protocol);
+    if (msg_id == 0U || !storage_v2::supportedProtocol(protocol))
+    {
+        return false;
+    }
+    ChatMessage message{};
+    if (!getMessageForProtocol(msg_id, protocol, &message) ||
+        message.from != 0U)
     {
         return false;
     }
 
-    std::vector<IndexEntry> entries;
-    if (!readIndex(entries))
+    storage_runtime::PersistenceBusGate transaction_gate(
+        s_chat_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::DurableCommit,
+        0,
+        kChatStoreBusResource,
+        kChatStoreBusOwnerId + 5U,
+        kChatStoreBusOwnerId);
+    if (!transaction_gate.locked())
     {
         return false;
     }
-
-    bool updated = false;
-    for (auto& entry : entries)
+    storage_v2::ChatStatusProjection projection{};
+    projection.message_id = msg_id;
+    projection.status = status;
+    if (const storage_v2::ChatStatusProjection* current =
+            findStatus(msg_id, protocol))
     {
-        if (static_cast<MeshProtocol>(entry.protocol) != protocol)
-        {
-            continue;
-        }
-        const ConversationId conv = conversationFromIndexEntry(entry);
-        char path[96]{};
-        buildConversationPath(conv, path, sizeof(path));
-        if (!storage::sd_exists(path))
-        {
-            continue;
-        }
-
-        storage::SdRuntimeFile file;
-        if (!file.open(path, "r+"))
-        {
-            continue;
-        }
-
-        FileHeader header{};
-        if (!loadFileHeader(file, header) ||
-            !upgradeConversationFile(file, path, header))
-        {
-            file.close();
-            continue;
-        }
-
-        for (uint16_t index = 0; index < header.count; ++index)
-        {
-            const uint16_t slot =
-                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
-                                      kMaxMessagesPerConv);
-            Record rec{};
-            if (!readRecord(file, header, slot, rec))
-            {
-                continue;
-            }
-            if (rec.msg_id != msg_id || rec.from != 0 ||
-                static_cast<MeshProtocol>(rec.protocol) != protocol)
-            {
-                continue;
-            }
-
-            rec.status = static_cast<uint8_t>(status);
-            updated = writeRecord(file, slot, rec);
-            if (updated)
-            {
-                file.flush();
-                if (entry.last_msg_id == msg_id)
-                {
-                    entry.status = static_cast<uint8_t>(status);
-                }
-            }
-            break;
-        }
-
-        file.close();
-        if (updated)
-        {
-            break;
-        }
+        projection.sequence = current->sequence + 1U;
+    }
+    else
+    {
+        projection.sequence = 1U;
+    }
+    if (!appendStatusProjection(protocol, projection))
+    {
+        return false;
+    }
+    storage_v2::ChatStatusProjection* current = findStatus(msg_id, protocol);
+    if (current)
+    {
+        *current = projection;
+    }
+    else
+    {
+        ProtocolStatusProjection state{};
+        state.protocol = protocol;
+        state.value = projection;
+        statuses_.push_back(state);
     }
 
-    if (updated)
+    const ConversationId conversation = conversationIdForMessage(message);
+    storage_v2::ChatCatalogProjection* catalog = findCatalog(conversation);
+    if (catalog && catalog->last_message_id == msg_id)
     {
-        (void)writeIndex(entries);
+        catalog->last_status = status;
+        if (!appendCatalogProjection(*catalog))
+        {
+            projection_dirty_[protocolIndex(protocol)] = true;
+        }
     }
-    return updated;
+    return true;
 }
 
 bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
 {
-    if (!ready_ || msg_id == 0)
+    for (MeshProtocol protocol : kProtocols)
     {
-        return false;
-    }
-
-    std::vector<IndexEntry> entries;
-    if (!readIndex(entries))
-    {
-        return false;
-    }
-
-    for (const auto& entry : entries)
-    {
-        const ConversationId conv = conversationFromIndexEntry(entry);
-        char path[96]{};
-        buildConversationPath(conv, path, sizeof(path));
-        if (!storage::sd_exists(path))
+        if (getMessageForProtocol(msg_id, protocol, out))
         {
-            continue;
-        }
-
-        storage::SdRuntimeFile file;
-        if (!file.open(path, "r"))
-        {
-            continue;
-        }
-
-        FileHeader header{};
-        if (!loadFileHeader(file, header))
-        {
-            file.close();
-            continue;
-        }
-
-        for (uint16_t index = 0; index < header.count; ++index)
-        {
-            const uint16_t slot =
-                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
-                                      kMaxMessagesPerConv);
-            Record rec{};
-            if (!readRecord(file, header, slot, rec) || rec.text_len == 0 || rec.msg_id != msg_id)
-            {
-                continue;
-            }
-            if (out)
-            {
-                *out = messageFromRecord(rec);
-            }
-            file.close();
             return true;
         }
-        file.close();
     }
     return false;
 }
@@ -773,1484 +662,1739 @@ bool SdStore::getMessageForProtocol(MessageId msg_id,
                                     MeshProtocol protocol,
                                     ChatMessage* out) const
 {
-    if (!ready_ || msg_id == 0)
+    protocol = normalizeProtocol(protocol);
+    if (msg_id == 0U)
     {
         return false;
     }
-
-    std::vector<IndexEntry> entries;
-    if (!readIndex(entries))
+    for (const storage_v2::ChatCatalogProjection& projection : catalog_)
     {
-        return false;
-    }
-
-    for (const auto& entry : entries)
-    {
-        if (static_cast<MeshProtocol>(entry.protocol) != protocol)
+        if (projection.deleted ||
+            !sameProtocol(projection.conversation.protocol, protocol))
         {
             continue;
         }
-        const ConversationId conv = conversationFromIndexEntry(entry);
-        char path[96]{};
-        buildConversationPath(conv, path, sizeof(path));
-        if (!storage::sd_exists(path))
+        for (uint32_t ordinal = projection.message_count; ordinal > 0U;
+             --ordinal)
         {
-            continue;
-        }
-
-        storage::SdRuntimeFile file;
-        if (!file.open(path, "r"))
-        {
-            continue;
-        }
-
-        FileHeader header{};
-        if (!loadFileHeader(file, header))
-        {
-            file.close();
-            continue;
-        }
-
-        for (uint16_t index = 0; index < header.count; ++index)
-        {
-            const uint16_t slot =
-                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
-                                      kMaxMessagesPerConv);
-            Record rec{};
-            if (!readRecord(file, header, slot, rec) || rec.text_len == 0 ||
-                rec.msg_id != msg_id ||
-                static_cast<MeshProtocol>(rec.protocol) != protocol)
+            ChatMessage message{};
+            if (!readMessageByOrdinal(projection.conversation,
+                                      ordinal - 1U,
+                                      message) ||
+                message.msg_id != msg_id)
             {
                 continue;
             }
             if (out)
             {
-                *out = messageFromRecord(rec);
+                *out = std::move(message);
             }
-            file.close();
             return true;
         }
-        file.close();
     }
     return false;
 }
 
-bool SdStore::hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const
+bool SdStore::hasReticulumLxmfMessageHash(const uint8_t* hash) const
 {
-    if (!ready_ || !validLxmfMessageHash(lxmf_hash))
+    if (!hash || isAllZeroKeyBytes(hash, kReticulumLxmfHashSize))
     {
         return false;
     }
-
-    storage::SdRuntimeFile file;
-    if (!file.open(kReticulumLxmfSeenFile, "r"))
+    for (const storage_v2::ReticulumSeenProjection& seen : seen_hot_)
     {
-        return false;
-    }
-
-    LxmfSeenHeader header{};
-    if (!loadLxmfSeenHeader(file, header))
-    {
-        file.close();
-        return false;
-    }
-
-    for (uint16_t index = 0; index < header.count; ++index)
-    {
-        const uint16_t slot =
-            static_cast<uint16_t>((header.head + kMaxReticulumLxmfSeen - header.count + index) %
-                                  kMaxReticulumLxmfSeen);
-        LxmfSeenRecord rec{};
-        if (!readLxmfSeenRecord(file, slot, rec))
+        if (std::memcmp(seen.hash, hash, sizeof(seen.hash)) == 0)
         {
-            continue;
-        }
-        if (std::memcmp(rec.hash, lxmf_hash, kReticulumLxmfHashSize) == 0)
-        {
-            file.close();
             return true;
         }
     }
-    file.close();
+
+    for (const char* name : {"seen.delta", "seen.snapshot"})
+    {
+        char path[128]{};
+        buildProjectionPath(MeshProtocol::Reticulum,
+                            name,
+                            path,
+                            sizeof(path));
+        const auto inspection = journal_.inspect(
+            path,
+            MeshProtocol::Reticulum,
+            storage_v2::JournalKind::ReticulumSeen,
+            storage_v2::reticulumSeenSlotSize());
+        for (uint32_t index = inspection.slot_count; index > 0U; --index)
+        {
+            if (!journal_.read(path,
+                               MeshProtocol::Reticulum,
+                               storage_v2::JournalKind::ReticulumSeen,
+                               storage_v2::reticulumSeenSlotSize(),
+                               index - 1U,
+                               scratch_.data()))
+            {
+                continue;
+            }
+            storage_v2::ReticulumSeenProjection projection{};
+            if (storage_v2::decodeReticulumSeenSlot(
+                    scratch_.data(),
+                    storage_v2::reticulumSeenSlotSize(),
+                    projection) &&
+                std::memcmp(projection.hash, hash, sizeof(projection.hash)) == 0)
+            {
+                return true;
+            }
+        }
+    }
     return false;
 }
 
 void SdStore::flush()
 {
+    if (!ready_)
+    {
+        return;
+    }
+    const uint32_t now_ms = millis();
+    if (last_projection_retry_ms_ != 0U &&
+        now_ms - last_projection_retry_ms_ < kProjectionRetryIntervalMs)
+    {
+        return;
+    }
+    MeshProtocol protocol = MeshProtocol::Meshtastic;
+    bool found_dirty = false;
+    for (std::size_t offset = 0U; offset < 3U; ++offset)
+    {
+        const std::size_t index =
+            (static_cast<std::size_t>(flush_protocol_cursor_) + offset) % 3U;
+        if (projection_dirty_[index])
+        {
+            protocol = kProtocols[index];
+            flush_protocol_cursor_ = static_cast<uint8_t>((index + 1U) % 3U);
+            found_dirty = true;
+            break;
+        }
+    }
+    if (!found_dirty)
+    {
+        return;
+    }
+    last_projection_retry_ms_ = now_ms;
+    storage_runtime::PersistenceBusGate maintenance_gate(
+        s_chat_store_bus_arbiter,
+        sys::runtime::BusAccessPolicy::BackgroundWorkerBounded,
+        0U,
+        kChatStoreBusResource,
+        kChatStoreBusOwnerId + 10U,
+        kChatStoreBusOwnerId);
+    if (maintenance_gate.locked())
+    {
+        (void)compactProtocolProjections(protocol);
+    }
 }
 
-bool SdStore::ensureFs() const
+bool SdStore::ensureLayout() const
 {
-    return storage::sd_card_ready();
-}
-
-bool SdStore::ensureDir() const
-{
-    if (!ensureFs())
+    if (!storage_runtime::sd_card_ready() || !ensureDirectory("/data") ||
+        !ensureDirectory(kRoot))
     {
         return false;
     }
-    if (storage::sd_is_directory(kDir))
+    for (MeshProtocol protocol : kProtocols)
     {
-        return true;
-    }
-    return storage::sd_mkdir(kDir);
-}
-
-bool SdStore::recoverIndex() const
-{
-    if (storage::sd_exists(kIndexFile))
-    {
-        return false;
-    }
-    const auto restore_candidate = [this](const char* path, const char* source)
-    {
-        if (!storage::sd_exists(path) || !storage::sd_rename(path, kIndexFile))
+        if (!ensureProtocolLayout(protocol))
         {
             return false;
         }
-        std::vector<IndexEntry> recovered;
-        if (readIndex(recovered))
-        {
-            CHAT_STORE_LOG("[AppContext] chat store=SdStore recovered index source=%s\n",
-                           source);
-            return true;
-        }
-        (void)storage::sd_remove(kIndexFile);
-        return false;
-    };
+    }
+    return true;
+}
 
-    if (restore_candidate(kTempIndexFile, "temp"))
+bool SdStore::ensureProtocolLayout(MeshProtocol protocol) const
+{
+    protocol = normalizeProtocol(protocol);
+    const char* slug = protocolSlug(protocol);
+    char protocol_dir[64]{};
+    char conversations[96]{};
+    std::snprintf(protocol_dir,
+                  sizeof(protocol_dir),
+                  "%s/%s",
+                  kRoot,
+                  slug);
+    std::snprintf(conversations,
+                  sizeof(conversations),
+                  "%s/conversations",
+                  protocolRoot(protocol));
+    return ensureDirectory(protocol_dir) &&
+           ensureDirectory(protocolRoot(protocol)) &&
+           ensureDirectory(conversations);
+}
+
+bool SdStore::loadRuntimeState()
+{
+    catalog_.clear();
+    read_state_.clear();
+    statuses_.clear();
+    seen_hot_.clear();
+    bool ok = true;
+    for (MeshProtocol protocol : kProtocols)
+    {
+        ok = loadProtocolState(protocol) && ok;
+    }
+    ok = loadSeenJournal() && ok;
+    return ok;
+}
+
+bool SdStore::loadProtocolState(MeshProtocol protocol)
+{
+    if (!recoverProjectionSnapshot(protocol, "catalog") ||
+        !recoverProjectionSnapshot(protocol, "read") ||
+        !recoverProjectionSnapshot(protocol, "status"))
+    {
+        return false;
+    }
+    bool ok = true;
+    ok = loadCatalogJournal(protocol, "catalog.snapshot") && ok;
+    ok = loadCatalogJournal(protocol, "catalog.delta") && ok;
+    ok = loadReadJournal(protocol, "read.snapshot") && ok;
+    ok = loadReadJournal(protocol, "read.delta") && ok;
+    ok = loadStatusJournal(protocol, "status.snapshot") && ok;
+    ok = loadStatusJournal(protocol, "status.delta") && ok;
+    return reconcileProtocolCatalog(protocol) && ok;
+}
+
+bool SdStore::loadCatalogJournal(MeshProtocol protocol, const char* name)
+{
+    char path[128]{};
+    buildProjectionPath(protocol, name, path, sizeof(path));
+    const auto inspection = journal_.inspect(
+        path,
+        protocol,
+        hasSuffix(name, ".snapshot")
+            ? storage_v2::JournalKind::CatalogSnapshot
+            : storage_v2::JournalKind::CatalogDelta,
+        storage_v2::catalogSlotSize(protocol));
+    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
     {
         return true;
     }
-    return restore_candidate(kBackupIndexFile, "backup");
-}
-
-bool SdStore::reconcileIndexUnread(std::vector<IndexEntry>& entries) const
-{
-    bool changed = false;
-    for (auto& entry : entries)
+    if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready &&
+        inspection.state !=
+            storage_v2::FixedSlotJournalEngine::State::PartialTail)
     {
-        const ConversationId conv = conversationFromIndexEntry(entry);
-        uint16_t durable_unread = 0;
-        if (!readStateUnreadOrLegacy(conv, &durable_unread))
+        projection_dirty_[protocolIndex(protocol)] = true;
+        return true;
+    }
+    const storage_v2::JournalKind kind =
+        hasSuffix(name, ".snapshot")
+            ? storage_v2::JournalKind::CatalogSnapshot
+            : storage_v2::JournalKind::CatalogDelta;
+    for (uint32_t index = 0; index < inspection.slot_count; ++index)
+    {
+        storage_v2::ChatCatalogProjection projection{};
+        if (!journal_.read(path,
+                           protocol,
+                           kind,
+                           storage_v2::catalogSlotSize(protocol),
+                           index,
+                           scratch_.data()) ||
+            !storage_v2::decodeCatalogSlot(protocol,
+                                           scratch_.data(),
+                                           storage_v2::catalogSlotSize(protocol),
+                                           projection))
         {
-            durable_unread = entry.unread;
-            (void)writeReadStateUnread(conv, durable_unread);
+            projection_dirty_[protocolIndex(protocol)] = true;
+            continue;
         }
-        if (entry.unread != durable_unread)
+        storage_v2::ChatCatalogProjection* existing =
+            findCatalog(projection.conversation);
+        if (projection.deleted)
         {
-            entry.unread = durable_unread;
-            changed = true;
-        }
-    }
-    return changed;
-}
-
-bool SdStore::readIndex(std::vector<IndexEntry>& entries) const
-{
-    entries.clear();
-    if (!ensureFs() || !storage::sd_exists(kIndexFile))
-    {
-        return false;
-    }
-
-    storage::SdRuntimeFile file;
-    if (!file.open(kIndexFile, "r"))
-    {
-        return false;
-    }
-
-    IndexHeader header{};
-    if (!readExact(file, &header, sizeof(header)) ||
-        header.magic != kIndexMagic ||
-        (header.version != kIndexVersion && header.version != kLegacyVersion))
-    {
-        file.close();
-        return false;
-    }
-
-    entries.reserve(header.count);
-    bool ok = true;
-    for (uint16_t index = 0; ok && index < header.count; ++index)
-    {
-        IndexEntry entry{};
-        if (header.version == kLegacyVersion)
-        {
-            IndexEntryV2 legacy_entry{};
-            ok = readExact(file, &legacy_entry, sizeof(legacy_entry));
-            if (ok)
+            if (existing)
             {
-                entry.protocol = legacy_entry.protocol;
-                entry.channel = legacy_entry.channel;
-                entry.status = legacy_entry.status;
-                entry.unread = legacy_entry.unread;
-                entry.peer = legacy_entry.peer;
-                entry.last_msg_id = legacy_entry.last_msg_id;
-                entry.last_timestamp = legacy_entry.last_timestamp;
-                entry.last_from = legacy_entry.last_from;
-                entry.preview_len = legacy_entry.preview_len;
-                std::memcpy(entry.preview,
-                            legacy_entry.preview,
-                            sizeof(entry.preview));
+                catalog_.erase(catalog_.begin() +
+                               static_cast<std::ptrdiff_t>(existing -
+                                                           catalog_.data()));
             }
+        }
+        else if (existing)
+        {
+            *existing = projection;
         }
         else
         {
-            ok = readExact(file, &entry, sizeof(entry));
+            catalog_.push_back(projection);
         }
-        if (ok)
-        {
-            entries.push_back(entry);
-        }
-    }
-    file.close();
-    if (!ok)
-    {
-        entries.clear();
-        return false;
     }
     return true;
 }
 
-bool SdStore::writeIndex(const std::vector<IndexEntry>& entries) const
+bool SdStore::loadReadJournal(MeshProtocol protocol, const char* name)
 {
-    if (!ensureDir())
+    char path[128]{};
+    buildProjectionPath(protocol, name, path, sizeof(path));
+    const storage_v2::JournalKind kind =
+        hasSuffix(name, ".snapshot")
+            ? storage_v2::JournalKind::ReadStateSnapshot
+            : storage_v2::JournalKind::ReadStateDelta;
+    const auto inspection = journal_.inspect(
+        path,
+        protocol,
+        kind,
+        storage_v2::readStateSlotSize(protocol));
+    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
     {
-        return false;
+        return true;
     }
-
-    if (storage::sd_exists(kTempIndexFile))
+    if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready &&
+        inspection.state !=
+            storage_v2::FixedSlotJournalEngine::State::PartialTail)
     {
-        storage::sd_remove(kTempIndexFile);
+        projection_dirty_[protocolIndex(protocol)] = true;
+        return true;
     }
-
-    storage::SdRuntimeFile file;
-    if (!file.open(kTempIndexFile, "w"))
+    for (uint32_t index = 0; index < inspection.slot_count; ++index)
     {
-        return false;
-    }
-
-    IndexHeader header{};
-    header.magic = kIndexMagic;
-    header.version = kIndexVersion;
-    header.count = static_cast<uint16_t>(std::min<size_t>(entries.size(), 0xFFFFU));
-    bool ok = writeExact(file, &header, sizeof(header));
-    for (size_t index = 0; ok && index < header.count; ++index)
-    {
-        ok = writeExact(file, &entries[index], sizeof(IndexEntry));
-    }
-    file.flush();
-    file.close();
-
-    if (!ok)
-    {
-        storage::sd_remove(kTempIndexFile);
-        return false;
-    }
-
-    const bool had_index = storage::sd_exists(kIndexFile);
-    if (had_index)
-    {
-        if (storage::sd_exists(kBackupIndexFile) &&
-            !storage::sd_remove(kBackupIndexFile))
+        storage_v2::ChatReadProjection projection{};
+        if (!journal_.read(path,
+                           protocol,
+                           kind,
+                           storage_v2::readStateSlotSize(protocol),
+                           index,
+                           scratch_.data()) ||
+            !storage_v2::decodeReadStateSlot(
+                protocol,
+                scratch_.data(),
+                storage_v2::readStateSlotSize(protocol),
+                projection))
         {
-            storage::sd_remove(kTempIndexFile);
-            return false;
+            projection_dirty_[protocolIndex(protocol)] = true;
+            continue;
         }
-        if (!storage::sd_rename(kIndexFile, kBackupIndexFile))
+        storage_v2::ChatReadProjection* existing =
+            findReadState(projection.conversation);
+        if (projection.deleted)
         {
-            storage::sd_remove(kTempIndexFile);
-            return false;
-        }
-    }
-    if (!storage::sd_rename(kTempIndexFile, kIndexFile))
-    {
-        if (had_index && !storage::sd_exists(kIndexFile))
-        {
-            (void)storage::sd_rename(kBackupIndexFile, kIndexFile);
-        }
-        storage::sd_remove(kTempIndexFile);
-        return false;
-    }
-    if (storage::sd_exists(kBackupIndexFile))
-    {
-        (void)storage::sd_remove(kBackupIndexFile);
-    }
-    return true;
-}
-
-bool SdStore::readReadState(std::vector<ReadStateEntry>& entries) const
-{
-    entries.clear();
-    if (!ensureFs() || !storage::sd_exists(kReadStateFile))
-    {
-        return false;
-    }
-
-    storage::SdRuntimeFile file;
-    if (!file.open(kReadStateFile, "r"))
-    {
-        return false;
-    }
-
-    ReadStateHeader header{};
-    if (!readExact(file, &header, sizeof(header)) ||
-        header.magic != kReadStateMagic ||
-        header.version != kReadStateVersion)
-    {
-        file.close();
-        return false;
-    }
-
-    entries.reserve(header.count);
-    bool ok = true;
-    for (uint16_t index = 0; ok && index < header.count; ++index)
-    {
-        ReadStateEntry entry{};
-        ok = readExact(file, &entry, sizeof(entry));
-        if (ok)
-        {
-            entries.push_back(entry);
-        }
-    }
-    file.close();
-    if (!ok)
-    {
-        entries.clear();
-        return false;
-    }
-    return true;
-}
-
-bool SdStore::writeReadState(const std::vector<ReadStateEntry>& entries) const
-{
-    if (!ensureDir())
-    {
-        return false;
-    }
-
-    if (storage::sd_exists(kTempReadStateFile))
-    {
-        storage::sd_remove(kTempReadStateFile);
-    }
-
-    storage::SdRuntimeFile file;
-    if (!file.open(kTempReadStateFile, "w"))
-    {
-        return false;
-    }
-
-    ReadStateHeader header{};
-    header.magic = kReadStateMagic;
-    header.version = kReadStateVersion;
-    header.count = static_cast<uint16_t>(std::min<size_t>(entries.size(), 0xFFFFU));
-    bool ok = writeExact(file, &header, sizeof(header));
-    for (size_t index = 0; ok && index < header.count; ++index)
-    {
-        ok = writeExact(file, &entries[index], sizeof(ReadStateEntry));
-    }
-    file.flush();
-    file.close();
-
-    if (!ok)
-    {
-        storage::sd_remove(kTempReadStateFile);
-        return false;
-    }
-
-    const bool had_state = storage::sd_exists(kReadStateFile);
-    if (had_state)
-    {
-        if (storage::sd_exists(kBackupReadStateFile) &&
-            !storage::sd_remove(kBackupReadStateFile))
-        {
-            storage::sd_remove(kTempReadStateFile);
-            return false;
-        }
-        if (!storage::sd_rename(kReadStateFile, kBackupReadStateFile))
-        {
-            storage::sd_remove(kTempReadStateFile);
-            return false;
-        }
-    }
-    if (!storage::sd_rename(kTempReadStateFile, kReadStateFile))
-    {
-        if (had_state && !storage::sd_exists(kReadStateFile))
-        {
-            (void)storage::sd_rename(kBackupReadStateFile, kReadStateFile);
-        }
-        storage::sd_remove(kTempReadStateFile);
-        return false;
-    }
-    if (storage::sd_exists(kBackupReadStateFile))
-    {
-        (void)storage::sd_remove(kBackupReadStateFile);
-    }
-    return true;
-}
-
-bool SdStore::findReadStateEntry(const ConversationId& conv,
-                                 std::vector<ReadStateEntry>& entries,
-                                 size_t* out_idx) const
-{
-    return findReadStateEntry(
-        conv,
-        static_cast<const std::vector<ReadStateEntry>&>(entries),
-        out_idx);
-}
-
-bool SdStore::findReadStateEntry(const ConversationId& conv,
-                                 const std::vector<ReadStateEntry>& entries,
-                                 size_t* out_idx) const
-{
-    for (size_t index = 0; index < entries.size(); ++index)
-    {
-        if (readStateEntryMatchesConversation(entries[index], conv))
-        {
-            if (out_idx)
+            if (existing)
             {
-                *out_idx = index;
+                read_state_.erase(
+                    read_state_.begin() +
+                    static_cast<std::ptrdiff_t>(existing - read_state_.data()));
             }
-            return true;
         }
-    }
-    return false;
-}
-
-bool SdStore::readStateUnreadOnly(const ConversationId& conv, uint16_t* unread) const
-{
-    if (!unread)
-    {
-        return false;
-    }
-    std::vector<ReadStateEntry> entries;
-    if (!readReadState(entries))
-    {
-        return false;
-    }
-    size_t index = 0;
-    if (!findReadStateEntry(conv, entries, &index))
-    {
-        return false;
-    }
-    *unread = entries[index].unread;
-    return true;
-}
-
-bool SdStore::readStateUnreadOrLegacy(const ConversationId& conv, uint16_t* unread) const
-{
-    if (!unread)
-    {
-        return false;
-    }
-    if (readStateUnreadOnly(conv, unread))
-    {
-        return true;
-    }
-    if (readConversationUnread(conv, unread))
-    {
-        (void)writeReadStateUnread(conv, *unread);
-        return true;
-    }
-    std::vector<IndexEntry> entries;
-    size_t index = 0;
-    if (readIndex(entries) && findIndexEntry(conv, entries, &index))
-    {
-        *unread = entries[index].unread;
-        (void)writeReadStateUnread(conv, *unread);
-        return true;
-    }
-    return false;
-}
-
-bool SdStore::writeReadStateUnread(const ConversationId& conv, uint16_t unread) const
-{
-    std::vector<ReadStateEntry> entries;
-    if (!readReadState(entries))
-    {
-        entries.clear();
-    }
-
-    size_t index = 0;
-    if (findReadStateEntry(conv, entries, &index))
-    {
-        entries[index] = readStateEntryFromConversation(conv, unread);
-    }
-    else
-    {
-        entries.push_back(readStateEntryFromConversation(conv, unread));
-    }
-    return writeReadState(entries);
-}
-
-bool SdStore::removeReadStateEntry(const ConversationId& conv) const
-{
-    std::vector<ReadStateEntry> entries;
-    if (!readReadState(entries))
-    {
-        return true;
-    }
-    const size_t before = entries.size();
-    entries.erase(std::remove_if(entries.begin(),
-                                 entries.end(),
-                                 [&](const ReadStateEntry& entry)
-                                 {
-                                     return readStateEntryMatchesConversation(entry, conv);
-                                 }),
-                  entries.end());
-    if (entries.size() == before)
-    {
-        return true;
-    }
-    return writeReadState(entries);
-}
-
-bool SdStore::ensureIndex(std::vector<IndexEntry>& entries)
-{
-    bool loaded = readIndex(entries);
-    if (!loaded && recoverIndex())
-    {
-        loaded = readIndex(entries);
-    }
-    if (!loaded)
-    {
-        rebuildIndex();
-        loaded = readIndex(entries);
-    }
-    if (!loaded)
-    {
-        return false;
-    }
-    if (unread_reconcile_pending_)
-    {
-        const bool changed = reconcileIndexUnread(entries);
-        if (!changed || writeIndex(entries))
+        else if (existing)
         {
-            unread_reconcile_pending_ = false;
+            *existing = projection;
+        }
+        else
+        {
+            read_state_.push_back(projection);
         }
     }
     return true;
 }
 
-bool SdStore::findIndexEntry(const ConversationId& conv,
-                             std::vector<IndexEntry>& entries,
-                             size_t* out_idx) const
+bool SdStore::loadStatusJournal(MeshProtocol protocol, const char* name)
 {
-    return findIndexEntry(conv,
-                          static_cast<const std::vector<IndexEntry>&>(entries),
-                          out_idx);
+    char path[128]{};
+    buildProjectionPath(protocol, name, path, sizeof(path));
+    const storage_v2::JournalKind kind =
+        hasSuffix(name, ".snapshot")
+            ? storage_v2::JournalKind::StatusSnapshot
+            : storage_v2::JournalKind::StatusDelta;
+    const auto inspection = journal_.inspect(path,
+                                             protocol,
+                                             kind,
+                                             storage_v2::statusSlotSize());
+    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
+    {
+        return true;
+    }
+    if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready &&
+        inspection.state !=
+            storage_v2::FixedSlotJournalEngine::State::PartialTail)
+    {
+        projection_dirty_[protocolIndex(protocol)] = true;
+        return true;
+    }
+    for (uint32_t index = 0; index < inspection.slot_count; ++index)
+    {
+        storage_v2::ChatStatusProjection projection{};
+        if (!journal_.read(path,
+                           protocol,
+                           kind,
+                           storage_v2::statusSlotSize(),
+                           index,
+                           scratch_.data()) ||
+            !storage_v2::decodeStatusSlot(scratch_.data(),
+                                          storage_v2::statusSlotSize(),
+                                          projection))
+        {
+            projection_dirty_[protocolIndex(protocol)] = true;
+            continue;
+        }
+        storage_v2::ChatStatusProjection* existing =
+            findStatus(projection.message_id, protocol);
+        if (existing)
+        {
+            *existing = projection;
+        }
+        else
+        {
+            ProtocolStatusProjection state{};
+            state.protocol = normalizeProtocol(protocol);
+            state.value = projection;
+            statuses_.push_back(state);
+        }
+    }
+    return true;
 }
 
-bool SdStore::findIndexEntry(const ConversationId& conv,
-                             const std::vector<IndexEntry>& entries,
-                             size_t* out_idx) const
+bool SdStore::loadSeenJournal()
 {
-    for (size_t index = 0; index < entries.size(); ++index)
+    if (!recoverProjectionSnapshot(MeshProtocol::Reticulum, "seen"))
     {
-        const IndexEntry& entry = entries[index];
-        if (indexEntryMatchesConversation(entry, conv))
+        return false;
+    }
+    bool journal_found = false;
+    bool rebuild_required = false;
+    for (const char* name : {"seen.snapshot", "seen.delta"})
+    {
+        char path[128]{};
+        buildProjectionPath(MeshProtocol::Reticulum,
+                            name,
+                            path,
+                            sizeof(path));
+        const auto inspection = journal_.inspect(
+            path,
+            MeshProtocol::Reticulum,
+            storage_v2::JournalKind::ReticulumSeen,
+            storage_v2::reticulumSeenSlotSize());
+        if (inspection.state ==
+            storage_v2::FixedSlotJournalEngine::State::Missing)
         {
-            if (out_idx)
+            continue;
+        }
+        journal_found = true;
+        if (inspection.state !=
+                storage_v2::FixedSlotJournalEngine::State::Ready &&
+            inspection.state !=
+                storage_v2::FixedSlotJournalEngine::State::PartialTail)
+        {
+            rebuild_required = true;
+            continue;
+        }
+        if (inspection.state ==
+            storage_v2::FixedSlotJournalEngine::State::PartialTail)
+        {
+            rebuild_required = true;
+        }
+        const uint32_t start =
+            inspection.slot_count > kSeenHotCapacity
+                ? inspection.slot_count - static_cast<uint32_t>(kSeenHotCapacity)
+                : 0U;
+        for (uint32_t index = start; index < inspection.slot_count; ++index)
+        {
+            storage_v2::ReticulumSeenProjection projection{};
+            if (!journal_.read(path,
+                               MeshProtocol::Reticulum,
+                               storage_v2::JournalKind::ReticulumSeen,
+                               storage_v2::reticulumSeenSlotSize(),
+                               index,
+                               scratch_.data()) ||
+                !storage_v2::decodeReticulumSeenSlot(
+                    scratch_.data(),
+                    storage_v2::reticulumSeenSlotSize(),
+                    projection))
             {
-                *out_idx = index;
+                rebuild_required = true;
+                continue;
             }
-            return true;
+            if (seen_hot_.size() == kSeenHotCapacity)
+            {
+                seen_hot_.erase(seen_hot_.begin());
+            }
+            seen_hot_.push_back(projection);
         }
     }
-    return false;
+    if (!journal_found)
+    {
+        for (const storage_v2::ChatCatalogProjection& projection : catalog_)
+        {
+            if (!projection.deleted &&
+                sameProtocol(projection.conversation.protocol,
+                             MeshProtocol::Reticulum) &&
+                messageCountOnDisk(projection.conversation) > 0U)
+            {
+                rebuild_required = true;
+                break;
+            }
+        }
+    }
+    return !rebuild_required || rebuildSeenJournalFromMessages();
 }
 
-void SdStore::updateIndexForMessage(const ChatMessage& msg, uint16_t unread)
+bool SdStore::rebuildSeenJournalFromMessages()
 {
-    std::vector<IndexEntry> entries;
-    if (!ensureIndex(entries))
+    char final_path[128] = {};
+    char temp_path[128] = {};
+    char backup_path[128] = {};
+    char delta_path[128] = {};
+    buildProjectionPath(MeshProtocol::Reticulum,
+                        "seen.snapshot",
+                        final_path,
+                        sizeof(final_path));
+    buildProjectionPath(MeshProtocol::Reticulum,
+                        "seen.snapshot.tmp",
+                        temp_path,
+                        sizeof(temp_path));
+    buildProjectionPath(MeshProtocol::Reticulum,
+                        "seen.snapshot.bak",
+                        backup_path,
+                        sizeof(backup_path));
+    buildProjectionPath(MeshProtocol::Reticulum,
+                        "seen.delta",
+                        delta_path,
+                        sizeof(delta_path));
+    (void)storage_runtime::sd_remove(temp_path);
+    const std::size_t slot_size = storage_v2::reticulumSeenSlotSize();
+    if (!journal_.create(temp_path,
+                         MeshProtocol::Reticulum,
+                         storage_v2::JournalKind::ReticulumSeen,
+                         slot_size))
     {
-        entries.clear();
+        return false;
     }
 
-    const ConversationId conv = conversationIdForMessage(msg);
-    size_t index = 0;
-    if (!findIndexEntry(conv, entries, &index))
+    seen_hot_.clear();
+    uint32_t rebuilt = 0U;
+    for (const storage_v2::ChatCatalogProjection& catalog : catalog_)
     {
-        IndexEntry entry{};
-        entry.protocol = static_cast<uint8_t>(msg.protocol);
-        entry.channel = static_cast<uint8_t>(msg.channel);
-        entry.peer = msg.peer;
-        if (hasReticulumConversationKey(conv))
-        {
-            entry.flags |= kIndexHasReticulumIdentityFlag;
-            copyReticulumIdentityToStorage(entry.reticulum_destination_hash,
-                                           entry.reticulum_identity_hash,
-                                           conv.reticulum_identity);
-        }
-        entries.push_back(entry);
-        index = entries.size() - 1;
-    }
-
-    IndexEntry& entry = entries[index];
-    entry.unread = std::min<uint16_t>(unread, kUnreadStateCountMask);
-    entry.protocol = static_cast<uint8_t>(msg.protocol);
-    entry.channel = static_cast<uint8_t>(msg.channel);
-    entry.status = static_cast<uint8_t>(msg.status);
-    entry.peer = msg.peer;
-    entry.flags &= static_cast<uint8_t>(~kIndexHasReticulumIdentityFlag);
-    std::memset(entry.reticulum_destination_hash, 0, sizeof(entry.reticulum_destination_hash));
-    std::memset(entry.reticulum_identity_hash, 0, sizeof(entry.reticulum_identity_hash));
-    if (hasReticulumConversationKey(conv))
-    {
-        entry.flags |= kIndexHasReticulumIdentityFlag;
-        copyReticulumIdentityToStorage(entry.reticulum_destination_hash,
-                                       entry.reticulum_identity_hash,
-                                       conv.reticulum_identity);
-    }
-    entry.last_msg_id = msg.msg_id;
-    entry.last_timestamp = msg.timestamp;
-    entry.last_from = msg.from;
-    entry.preview_len = static_cast<uint16_t>(std::min<size_t>(msg.text.size(), kPreviewLen));
-    std::memset(entry.preview, 0, sizeof(entry.preview));
-    if (entry.preview_len > 0)
-    {
-        std::memcpy(entry.preview, msg.text.data(), entry.preview_len);
-    }
-    const bool index_written = writeIndex(entries);
-    if (!index_written)
-    {
-        unread_reconcile_pending_ = true;
-        rebuildIndex();
-    }
-}
-
-void SdStore::rebuildIndex()
-{
-    if (!ensureDir())
-    {
-        return;
-    }
-
-    std::vector<IndexEntry> entries;
-    storage::SdRuntimeDir dir;
-    if (!dir.open(kDir))
-    {
-        return;
-    }
-
-    char name[96]{};
-    bool is_dir = false;
-    while (dir.read_next(name, sizeof(name), &is_dir))
-    {
-        if (is_dir || !hasLogSuffix(name))
+        if (catalog.deleted ||
+            !sameProtocol(catalog.conversation.protocol,
+                          MeshProtocol::Reticulum))
         {
             continue;
         }
-
-        const std::string path = pathInChatDir(name);
-        storage::SdRuntimeFile file;
-        if (path.empty() || !file.open(path.c_str(), "r"))
+        const uint32_t message_count =
+            messageCountOnDisk(catalog.conversation);
+        for (uint32_t ordinal = 0U; ordinal < message_count; ++ordinal)
         {
-            continue;
-        }
-
-        FileHeader header{};
-        if (!loadFileHeader(file, header))
-        {
-            file.close();
-            continue;
-        }
-
-        ChatMessage last_msg;
-        bool have_last = false;
-        uint16_t unread = 0;
-        const bool has_header_unread = decodeUnreadState(header.reserved, &unread);
-        for (uint16_t index = 0; index < header.count; ++index)
-        {
-            const uint16_t slot =
-                static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
-                                      kMaxMessagesPerConv);
-            Record rec{};
-            if (!readRecord(file, header, slot, rec) || rec.text_len == 0)
+            ChatMessage message{};
+            if (!readMessageByOrdinal(catalog.conversation,
+                                      ordinal,
+                                      message) ||
+                !chat::hasReticulumLxmfMessageHash(message))
             {
                 continue;
             }
-            ChatMessage msg = messageFromRecord(rec);
-            if (!has_header_unread &&
-                msg.status == MessageStatus::Incoming &&
-                unread < kUnreadStateCountMask)
+            storage_v2::ReticulumSeenProjection projection{};
+            std::memcpy(projection.hash,
+                        message.reticulum_lxmf_hash,
+                        sizeof(projection.hash));
+            if (!storage_v2::encodeReticulumSeenSlot(projection,
+                                                     scratch_.data(),
+                                                     slot_size) ||
+                !journal_.append(temp_path,
+                                 MeshProtocol::Reticulum,
+                                 storage_v2::JournalKind::ReticulumSeen,
+                                 slot_size,
+                                 scratch_.data()))
             {
-                ++unread;
+                (void)storage_runtime::sd_remove(temp_path);
+                return false;
             }
-            if (!have_last || msg.timestamp >= last_msg.timestamp)
+            if (seen_hot_.size() == kSeenHotCapacity)
             {
-                last_msg = msg;
-                have_last = true;
+                seen_hot_.erase(seen_hot_.begin());
             }
+            seen_hot_.push_back(projection);
+            ++rebuilt;
         }
-        file.close();
+    }
+    if (!storage_v2::replaceFileAtomically(temp_path,
+                                           final_path,
+                                           backup_path))
+    {
+        return false;
+    }
+    (void)storage_runtime::sd_remove(delta_path);
+    CHAT_STORE_LOG("[ChatStoreV2] seen rebuilt hashes=%lu authoritative=messages\n",
+                   static_cast<unsigned long>(rebuilt));
+    return true;
+}
 
-        if (!have_last)
+bool SdStore::recoverProjectionSnapshot(MeshProtocol protocol,
+                                        const char* base_name)
+{
+    if (!base_name || base_name[0] == '\0')
+    {
+        return false;
+    }
+    char final_path[128] = {};
+    char temp_path[128] = {};
+    char backup_path[128] = {};
+    char name[40] = {};
+    std::snprintf(name, sizeof(name), "%s.snapshot", base_name);
+    buildProjectionPath(protocol, name, final_path, sizeof(final_path));
+    std::snprintf(name, sizeof(name), "%s.snapshot.tmp", base_name);
+    buildProjectionPath(protocol, name, temp_path, sizeof(temp_path));
+    std::snprintf(name, sizeof(name), "%s.snapshot.bak", base_name);
+    buildProjectionPath(protocol, name, backup_path, sizeof(backup_path));
+    return storage_v2::recoverAtomicFile(final_path,
+                                         temp_path,
+                                         backup_path);
+}
+
+bool SdStore::reconcileProtocolCatalog(MeshProtocol protocol)
+{
+    protocol = normalizeProtocol(protocol);
+    for (storage_v2::ChatCatalogProjection& projection : catalog_)
+    {
+        if (sameProtocol(projection.conversation.protocol, protocol))
+        {
+            projection.deleted = true;
+        }
+    }
+
+    char conversations_path[96]{};
+    std::snprintf(conversations_path,
+                  sizeof(conversations_path),
+                  "%s/conversations",
+                  protocolRoot(protocol));
+    storage_runtime::SdRuntimeDir directory;
+    if (!directory.open(conversations_path))
+    {
+        return false;
+    }
+    char name[80]{};
+    bool is_directory = false;
+    while (directory.read_next(name, sizeof(name), &is_directory))
+    {
+        if (is_directory && name[0] != '\0' &&
+            !reconcileConversationDirectory(protocol, name))
+        {
+            projection_dirty_[protocolIndex(protocol)] = true;
+        }
+    }
+    catalog_.erase(std::remove_if(catalog_.begin(),
+                                  catalog_.end(),
+                                  [&](const auto& value)
+                                  {
+                                      return sameProtocol(
+                                                 value.conversation.protocol,
+                                                 protocol) &&
+                                             value.deleted;
+                                  }),
+                   catalog_.end());
+    return true;
+}
+
+bool SdStore::reconcileConversationDirectory(MeshProtocol protocol,
+                                             const char* directory_name)
+{
+    char directory_path[128]{};
+    std::snprintf(directory_path,
+                  sizeof(directory_path),
+                  "%s/conversations/%s",
+                  protocolRoot(protocol),
+                  directory_name);
+    const std::size_t slot_size = storage_v2::messageSlotSize(protocol);
+    uint32_t total_count = 0;
+    uint32_t last_segment = 0;
+    uint32_t last_segment_count = 0;
+    bool found_segment = false;
+    for (uint32_t segment = 0; segment < 10000U; ++segment)
+    {
+        char path[128]{};
+        std::snprintf(path,
+                      sizeof(path),
+                      "%s/%04lu.msg",
+                      directory_path,
+                      static_cast<unsigned long>(segment));
+        auto inspection = journal_.inspect(
+            path,
+            protocol,
+            storage_v2::JournalKind::MessageSegment,
+            slot_size);
+        if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
+        {
+            break;
+        }
+        if (inspection.state ==
+            storage_v2::FixedSlotJournalEngine::State::PartialTail)
+        {
+            if (!repairPartialJournal(path,
+                                      protocol,
+                                      storage_v2::JournalKind::MessageSegment,
+                                      slot_size))
+            {
+                return false;
+            }
+            inspection = journal_.inspect(
+                path,
+                protocol,
+                storage_v2::JournalKind::MessageSegment,
+                slot_size);
+        }
+        if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready)
+        {
+            return false;
+        }
+        found_segment = true;
+        total_count += inspection.slot_count;
+        last_segment = segment;
+        last_segment_count = inspection.slot_count;
+        if (inspection.slot_count < slotsPerMessageSegment(protocol))
+        {
+            break;
+        }
+    }
+    if (!found_segment || total_count == 0U || last_segment_count == 0U)
+    {
+        return true;
+    }
+
+    char last_path[128]{};
+    std::snprintf(last_path,
+                  sizeof(last_path),
+                  "%s/%04lu.msg",
+                  directory_path,
+                  static_cast<unsigned long>(last_segment));
+    if (!journal_.read(last_path,
+                       protocol,
+                       storage_v2::JournalKind::MessageSegment,
+                       slot_size,
+                       last_segment_count - 1U,
+                       scratch_.data()))
+    {
+        return false;
+    }
+    ChatMessage latest{};
+    uint32_t sequence = 0;
+    if (!storage_v2::decodeMessageSlot(protocol,
+                                       scratch_.data(),
+                                       slot_size,
+                                       latest,
+                                       &sequence))
+    {
+        return false;
+    }
+    applyStoredStatus(latest);
+    const ConversationId conversation = conversationIdForMessage(latest);
+    storage_v2::ChatCatalogProjection* projection = findCatalog(conversation);
+    const bool catalog_current =
+        projection && projection->message_count == total_count &&
+        projection->last_message_id == latest.msg_id &&
+        projection->last_sequence == sequence;
+    if (!projection)
+    {
+        storage_v2::ChatCatalogProjection created{};
+        created.conversation = conversation;
+        catalog_.push_back(created);
+        projection = &catalog_.back();
+    }
+    const uint32_t last_read =
+        findReadState(conversation)
+            ? findReadState(conversation)->last_read_sequence
+            : 0U;
+    projection->conversation = conversation;
+    projection->message_count = total_count;
+    projection->last_sequence = sequence;
+    projection->last_message_id = latest.msg_id;
+    projection->last_timestamp = latest.timestamp;
+    projection->last_status = latest.status;
+    projection->deleted = false;
+    copyTextPreview(projection->preview,
+                    sizeof(projection->preview),
+                    latest.text);
+    if (!catalog_current)
+    {
+        projection->unread = countUnreadAfter(conversation, last_read);
+        projection_dirty_[protocolIndex(protocol)] = true;
+    }
+    return true;
+}
+
+std::size_t SdStore::slotsPerMessageSegment(MeshProtocol protocol) const
+{
+    const std::size_t slot_size = storage_v2::messageSlotSize(protocol);
+    if (slot_size == 0U || kMessageSegmentBytes <=
+                               storage_v2::FixedSlotJournalEngine::headerSize())
+    {
+        return 0U;
+    }
+    return (kMessageSegmentBytes -
+            storage_v2::FixedSlotJournalEngine::headerSize()) /
+           slot_size;
+}
+
+uint32_t SdStore::messageCountOnDisk(const ConversationId& conversation) const
+{
+    const std::size_t slot_size =
+        storage_v2::messageSlotSize(conversation.protocol);
+    uint32_t total_count = 0;
+    for (uint32_t segment = 0; segment < 10000U; ++segment)
+    {
+        char path[128]{};
+        buildMessageSegmentPath(conversation, segment, path, sizeof(path));
+        const auto inspection = journal_.inspect(
+            path,
+            conversation.protocol,
+            storage_v2::JournalKind::MessageSegment,
+            slot_size);
+        if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
+        {
+            break;
+        }
+        if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready &&
+            inspection.state !=
+                storage_v2::FixedSlotJournalEngine::State::PartialTail)
+        {
+            break;
+        }
+        total_count += inspection.slot_count;
+        if (inspection.slot_count < slotsPerMessageSegment(conversation.protocol))
+        {
+            break;
+        }
+    }
+    return total_count;
+}
+
+bool SdStore::readMessageByOrdinal(const ConversationId& input,
+                                   uint32_t ordinal,
+                                   ChatMessage& out_message,
+                                   uint32_t* out_sequence) const
+{
+    ConversationId conversation = input;
+    conversation.protocol = normalizeProtocol(conversation.protocol);
+    const std::size_t capacity = slotsPerMessageSegment(conversation.protocol);
+    const std::size_t slot_size =
+        storage_v2::messageSlotSize(conversation.protocol);
+    if (capacity == 0U || slot_size > scratch_.size())
+    {
+        return false;
+    }
+    const uint32_t segment = static_cast<uint32_t>(ordinal / capacity);
+    const uint32_t slot = static_cast<uint32_t>(ordinal % capacity);
+    char path[128]{};
+    buildMessageSegmentPath(conversation, segment, path, sizeof(path));
+    if (!journal_.read(path,
+                       conversation.protocol,
+                       storage_v2::JournalKind::MessageSegment,
+                       slot_size,
+                       slot,
+                       scratch_.data()) ||
+        !storage_v2::decodeMessageSlot(conversation.protocol,
+                                       scratch_.data(),
+                                       slot_size,
+                                       out_message,
+                                       out_sequence))
+    {
+        return false;
+    }
+    applyStoredStatus(out_message);
+    return true;
+}
+
+bool SdStore::latestStoredMessage(const ConversationId& conversation,
+                                  ChatMessage& out_message,
+                                  uint32_t* out_count) const
+{
+    const uint32_t count = messageCountOnDisk(conversation);
+    if (out_count)
+    {
+        *out_count = count;
+    }
+    return count != 0U &&
+           readMessageByOrdinal(conversation, count - 1U, out_message);
+}
+
+bool SdStore::storedMessageMatches(const ChatMessage& message,
+                                   bool* out_matches,
+                                   uint32_t* out_count) const
+{
+    if (!out_matches || !out_count)
+    {
+        return false;
+    }
+    *out_matches = false;
+    *out_count = 0U;
+    const ConversationId conversation = conversationIdForMessage(message);
+    ChatMessage latest{};
+    if (!latestStoredMessage(conversation, latest, out_count))
+    {
+        return *out_count == 0U;
+    }
+    *out_matches = sameStoredMessage(latest, message);
+    return true;
+}
+
+bool SdStore::appendMessageRecord(const ChatMessage& message,
+                                  uint32_t sequence)
+{
+    const ConversationId conversation = conversationIdForMessage(message);
+    char directory[128]{};
+    buildConversationDirectory(conversation, directory, sizeof(directory));
+    if (!ensureDirectory(directory))
+    {
+        return false;
+    }
+    const std::size_t capacity = slotsPerMessageSegment(message.protocol);
+    const std::size_t slot_size = storage_v2::messageSlotSize(message.protocol);
+    if (capacity == 0U || slot_size > scratch_.size() || sequence == 0U ||
+        !storage_v2::encodeMessageSlot(message,
+                                       sequence,
+                                       scratch_.data(),
+                                       slot_size))
+    {
+        return false;
+    }
+    const uint32_t ordinal = sequence - 1U;
+    const uint32_t segment = static_cast<uint32_t>(ordinal / capacity);
+    const uint32_t expected_slot = static_cast<uint32_t>(ordinal % capacity);
+    char path[128]{};
+    buildMessageSegmentPath(conversation, segment, path, sizeof(path));
+    auto inspection = journal_.inspect(path,
+                                       message.protocol,
+                                       storage_v2::JournalKind::MessageSegment,
+                                       slot_size);
+    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::PartialTail)
+    {
+        if (!repairPartialJournal(path,
+                                  message.protocol,
+                                  storage_v2::JournalKind::MessageSegment,
+                                  slot_size))
+        {
+            return false;
+        }
+        inspection = journal_.inspect(path,
+                                      message.protocol,
+                                      storage_v2::JournalKind::MessageSegment,
+                                      slot_size);
+    }
+    if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Missing &&
+        inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready)
+    {
+        return false;
+    }
+    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Ready &&
+        inspection.slot_count != expected_slot)
+    {
+        return false;
+    }
+    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing &&
+        expected_slot != 0U)
+    {
+        return false;
+    }
+    // Tail recovery reuses scratch_, so restore the command record before the
+    // authoritative append.
+    if (!storage_v2::encodeMessageSlot(message,
+                                       sequence,
+                                       scratch_.data(),
+                                       slot_size))
+    {
+        return false;
+    }
+    return journal_.append(path,
+                           message.protocol,
+                           storage_v2::JournalKind::MessageSegment,
+                           slot_size,
+                           scratch_.data());
+}
+
+bool SdStore::repairPartialJournal(const char* path,
+                                   MeshProtocol protocol,
+                                   storage_v2::JournalKind kind,
+                                   std::size_t slot_size) const
+{
+    const auto inspection = journal_.inspect(path, protocol, kind, slot_size);
+    if (inspection.state !=
+        storage_v2::FixedSlotJournalEngine::State::PartialTail)
+    {
+        return inspection.state ==
+               storage_v2::FixedSlotJournalEngine::State::Ready;
+    }
+    char temp[144]{};
+    char backup[144]{};
+    std::snprintf(temp, sizeof(temp), "%s.repair", path);
+    std::snprintf(backup, sizeof(backup), "%s.partial", path);
+    (void)storage_runtime::sd_remove(temp);
+    (void)storage_runtime::sd_remove(backup);
+    if (!journal_.create(temp, protocol, kind, slot_size))
+    {
+        return false;
+    }
+    for (uint32_t index = 0; index < inspection.slot_count; ++index)
+    {
+        if (!journal_.read(path,
+                           protocol,
+                           kind,
+                           slot_size,
+                           index,
+                           scratch_.data()) ||
+            !journal_.append(temp,
+                             protocol,
+                             kind,
+                             slot_size,
+                             scratch_.data()))
+        {
+            (void)storage_runtime::sd_remove(temp);
+            return false;
+        }
+    }
+    if (!storage_runtime::sd_rename(path, backup) ||
+        !storage_runtime::sd_rename(temp, path))
+    {
+        if (!storage_runtime::sd_exists(path))
+        {
+            (void)storage_runtime::sd_rename(backup, path);
+        }
+        (void)storage_runtime::sd_remove(temp);
+        return false;
+    }
+    (void)storage_runtime::sd_remove(backup);
+    return true;
+}
+
+bool SdStore::appendCatalogProjection(
+    const storage_v2::ChatCatalogProjection& projection)
+{
+    const MeshProtocol protocol =
+        normalizeProtocol(projection.conversation.protocol);
+    const std::size_t slot_size = storage_v2::catalogSlotSize(protocol);
+    if (slot_size > scratch_.size() ||
+        !storage_v2::encodeCatalogSlot(protocol,
+                                       projection,
+                                       scratch_.data(),
+                                       slot_size))
+    {
+        return false;
+    }
+    char path[128]{};
+    buildProjectionPath(protocol, "catalog.delta", path, sizeof(path));
+    return journal_.append(path,
+                           protocol,
+                           storage_v2::JournalKind::CatalogDelta,
+                           slot_size,
+                           scratch_.data());
+}
+
+bool SdStore::appendReadProjection(
+    const storage_v2::ChatReadProjection& projection)
+{
+    const MeshProtocol protocol =
+        normalizeProtocol(projection.conversation.protocol);
+    const std::size_t slot_size = storage_v2::readStateSlotSize(protocol);
+    if (slot_size > scratch_.size() ||
+        !storage_v2::encodeReadStateSlot(protocol,
+                                         projection,
+                                         scratch_.data(),
+                                         slot_size))
+    {
+        return false;
+    }
+    char path[128]{};
+    buildProjectionPath(protocol, "read.delta", path, sizeof(path));
+    auto inspection = journal_.inspect(path,
+                                       protocol,
+                                       storage_v2::JournalKind::ReadStateDelta,
+                                       slot_size);
+    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::PartialTail &&
+        !repairPartialJournal(path,
+                              protocol,
+                              storage_v2::JournalKind::ReadStateDelta,
+                              slot_size))
+    {
+        return false;
+    }
+    if (!storage_v2::encodeReadStateSlot(protocol,
+                                         projection,
+                                         scratch_.data(),
+                                         slot_size))
+    {
+        return false;
+    }
+    return journal_.append(path,
+                           protocol,
+                           storage_v2::JournalKind::ReadStateDelta,
+                           slot_size,
+                           scratch_.data());
+}
+
+bool SdStore::appendStatusProjection(
+    MeshProtocol protocol,
+    const storage_v2::ChatStatusProjection& projection)
+{
+    protocol = normalizeProtocol(protocol);
+    const std::size_t slot_size = storage_v2::statusSlotSize();
+    if (slot_size > scratch_.size() ||
+        !storage_v2::encodeStatusSlot(projection,
+                                      scratch_.data(),
+                                      slot_size))
+    {
+        return false;
+    }
+    char path[128]{};
+    buildProjectionPath(protocol, "status.delta", path, sizeof(path));
+    auto inspection = journal_.inspect(path,
+                                       protocol,
+                                       storage_v2::JournalKind::StatusDelta,
+                                       slot_size);
+    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::PartialTail &&
+        !repairPartialJournal(path,
+                              protocol,
+                              storage_v2::JournalKind::StatusDelta,
+                              slot_size))
+    {
+        return false;
+    }
+    if (!storage_v2::encodeStatusSlot(projection,
+                                      scratch_.data(),
+                                      slot_size))
+    {
+        return false;
+    }
+    return journal_.append(path,
+                           protocol,
+                           storage_v2::JournalKind::StatusDelta,
+                           slot_size,
+                           scratch_.data());
+}
+
+bool SdStore::appendSeenProjection(
+    const storage_v2::ReticulumSeenProjection& projection) const
+{
+    const std::size_t slot_size = storage_v2::reticulumSeenSlotSize();
+    if (slot_size > scratch_.size() ||
+        !storage_v2::encodeReticulumSeenSlot(projection,
+                                             scratch_.data(),
+                                             slot_size))
+    {
+        return false;
+    }
+    char path[128]{};
+    buildProjectionPath(MeshProtocol::Reticulum,
+                        "seen.delta",
+                        path,
+                        sizeof(path));
+    auto inspection = journal_.inspect(
+        path,
+        MeshProtocol::Reticulum,
+        storage_v2::JournalKind::ReticulumSeen,
+        slot_size);
+    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::PartialTail &&
+        !repairPartialJournal(path,
+                              MeshProtocol::Reticulum,
+                              storage_v2::JournalKind::ReticulumSeen,
+                              slot_size))
+    {
+        return false;
+    }
+    if (!storage_v2::encodeReticulumSeenSlot(projection,
+                                             scratch_.data(),
+                                             slot_size))
+    {
+        return false;
+    }
+    return journal_.append(path,
+                           MeshProtocol::Reticulum,
+                           storage_v2::JournalKind::ReticulumSeen,
+                           slot_size,
+                           scratch_.data());
+}
+
+bool SdStore::rememberReticulumHash(const uint8_t* hash)
+{
+    if (hasReticulumLxmfMessageHash(hash))
+    {
+        return true;
+    }
+    storage_v2::ReticulumSeenProjection projection{};
+    std::memcpy(projection.hash, hash, sizeof(projection.hash));
+    if (!appendSeenProjection(projection))
+    {
+        return false;
+    }
+    if (seen_hot_.size() == kSeenHotCapacity)
+    {
+        seen_hot_.erase(seen_hot_.begin());
+    }
+    seen_hot_.push_back(projection);
+    return true;
+}
+
+storage_v2::ChatCatalogProjection* SdStore::findCatalog(
+    const ConversationId& conversation)
+{
+    for (storage_v2::ChatCatalogProjection& projection : catalog_)
+    {
+        if (sameConversationKey(projection.conversation, conversation))
+        {
+            return &projection;
+        }
+    }
+    return nullptr;
+}
+
+const storage_v2::ChatCatalogProjection* SdStore::findCatalog(
+    const ConversationId& conversation) const
+{
+    for (const storage_v2::ChatCatalogProjection& projection : catalog_)
+    {
+        if (sameConversationKey(projection.conversation, conversation))
+        {
+            return &projection;
+        }
+    }
+    return nullptr;
+}
+
+storage_v2::ChatReadProjection* SdStore::findReadState(
+    const ConversationId& conversation)
+{
+    for (storage_v2::ChatReadProjection& projection : read_state_)
+    {
+        if (sameConversationKey(projection.conversation, conversation))
+        {
+            return &projection;
+        }
+    }
+    return nullptr;
+}
+
+const storage_v2::ChatReadProjection* SdStore::findReadState(
+    const ConversationId& conversation) const
+{
+    for (const storage_v2::ChatReadProjection& projection : read_state_)
+    {
+        if (sameConversationKey(projection.conversation, conversation))
+        {
+            return &projection;
+        }
+    }
+    return nullptr;
+}
+
+storage_v2::ChatStatusProjection* SdStore::findStatus(MessageId message_id,
+                                                      MeshProtocol protocol)
+{
+    for (ProtocolStatusProjection& state : statuses_)
+    {
+        if (sameProtocol(state.protocol, protocol) &&
+            state.value.message_id == message_id)
+        {
+            return &state.value;
+        }
+    }
+    return nullptr;
+}
+
+const storage_v2::ChatStatusProjection* SdStore::findStatus(
+    MessageId message_id,
+    MeshProtocol protocol) const
+{
+    for (const ProtocolStatusProjection& state : statuses_)
+    {
+        if (sameProtocol(state.protocol, protocol) &&
+            state.value.message_id == message_id)
+        {
+            return &state.value;
+        }
+    }
+    return nullptr;
+}
+
+void SdStore::applyStoredStatus(ChatMessage& message) const
+{
+    if (message.from != 0U)
+    {
+        return;
+    }
+    if (const storage_v2::ChatStatusProjection* status =
+            findStatus(message.msg_id, message.protocol))
+    {
+        message.status = status->status;
+    }
+}
+
+uint32_t SdStore::countUnreadAfter(const ConversationId& conversation,
+                                   uint32_t last_read_sequence) const
+{
+    const uint32_t count = messageCountOnDisk(conversation);
+    uint32_t unread = 0;
+    for (uint32_t ordinal = last_read_sequence; ordinal < count; ++ordinal)
+    {
+        ChatMessage message{};
+        uint32_t sequence = 0;
+        if (readMessageByOrdinal(conversation,
+                                 ordinal,
+                                 message,
+                                 &sequence) &&
+            sequence > last_read_sequence &&
+            message.status == MessageStatus::Incoming)
+        {
+            ++unread;
+        }
+    }
+    return unread;
+}
+
+uint32_t SdStore::sequenceForUnread(const ConversationId& conversation,
+                                    uint32_t unread) const
+{
+    const uint32_t count = messageCountOnDisk(conversation);
+    if (unread == 0U)
+    {
+        return count;
+    }
+    uint32_t incoming = 0;
+    for (uint32_t ordinal = count; ordinal > 0U; --ordinal)
+    {
+        ChatMessage message{};
+        uint32_t sequence = 0;
+        if (!readMessageByOrdinal(conversation,
+                                  ordinal - 1U,
+                                  message,
+                                  &sequence) ||
+            message.status != MessageStatus::Incoming)
         {
             continue;
         }
-
-        const ConversationId conv = conversationIdForMessage(last_msg);
-        uint16_t ledger_unread = 0;
-        if (readStateUnreadOrLegacy(conv, &ledger_unread))
+        ++incoming;
+        if (incoming == unread)
         {
-            unread = ledger_unread;
-        }
-
-        IndexEntry entry{};
-        entry.protocol = static_cast<uint8_t>(last_msg.protocol);
-        entry.channel = static_cast<uint8_t>(last_msg.channel);
-        entry.status = static_cast<uint8_t>(last_msg.status);
-        entry.unread = unread;
-        entry.peer = last_msg.peer;
-        if (last_msg.protocol == MeshProtocol::Reticulum &&
-            hasReticulumDestinationIdentity(last_msg.reticulum_identity))
-        {
-            entry.flags |= kIndexHasReticulumIdentityFlag;
-            copyReticulumIdentityToStorage(entry.reticulum_destination_hash,
-                                           entry.reticulum_identity_hash,
-                                           last_msg.reticulum_identity);
-        }
-        entry.last_msg_id = last_msg.msg_id;
-        entry.last_timestamp = last_msg.timestamp;
-        entry.last_from = last_msg.from;
-        entry.preview_len = static_cast<uint16_t>(std::min<size_t>(last_msg.text.size(), kPreviewLen));
-        if (entry.preview_len > 0)
-        {
-            std::memcpy(entry.preview, last_msg.text.data(), entry.preview_len);
-        }
-        entries.push_back(entry);
-        if (!readStateUnreadOnly(conv, &ledger_unread))
-        {
-            (void)writeReadStateUnread(conv, unread);
-        }
-        if (!has_header_unread)
-        {
-            (void)writeConversationUnread(conv, unread);
+            return sequence > 0U ? sequence - 1U : 0U;
         }
     }
-    dir.close();
-
-    unread_reconcile_pending_ = !writeIndex(entries);
-    CHAT_STORE_LOG("[AppContext] chat store=SdStore rebuild index entries=%u\n",
-                   static_cast<unsigned>(entries.size()));
+    return 0U;
 }
 
-bool SdStore::loadFileHeader(storage::SdRuntimeFile& file, FileHeader& header) const
+bool SdStore::rewriteCatalogSnapshot(MeshProtocol protocol)
 {
-    if (!file.is_open() || file.size() < sizeof(FileHeader))
-    {
-        return false;
-    }
-    if (!file.seek(0) || !readExact(file, &header, sizeof(header)))
-    {
-        return false;
-    }
-    return header.magic == kFileMagic &&
-           (header.version == kFileVersion ||
-            header.version == kRxOriginVersion ||
-            header.version == kReticulumIdentityVersion ||
-            header.version == kLegacyVersion) &&
-           header.head < kMaxMessagesPerConv && header.count <= kMaxMessagesPerConv;
+    char final_path[128]{};
+    char temp_path[128]{};
+    buildProjectionPath(protocol,
+                        "catalog.snapshot",
+                        final_path,
+                        sizeof(final_path));
+    buildProjectionPath(protocol,
+                        "catalog.snapshot.tmp",
+                        temp_path,
+                        sizeof(temp_path));
+    return rewriteJournalFromCatalog(protocol, final_path, temp_path);
 }
 
-bool SdStore::initFileHeader(storage::SdRuntimeFile& file) const
+bool SdStore::rewriteReadSnapshot(MeshProtocol protocol)
 {
-    FileHeader header{};
-    header.magic = kFileMagic;
-    header.version = kFileVersion;
-    if (!file.seek(0) || !writeExact(file, &header, sizeof(header)))
-    {
-        return false;
-    }
-    return file.flush();
+    char final_path[128]{};
+    char temp_path[128]{};
+    buildProjectionPath(protocol,
+                        "read.snapshot",
+                        final_path,
+                        sizeof(final_path));
+    buildProjectionPath(protocol,
+                        "read.snapshot.tmp",
+                        temp_path,
+                        sizeof(temp_path));
+    return rewriteJournalFromReadState(protocol, final_path, temp_path);
 }
 
-bool SdStore::upgradeConversationFile(storage::SdRuntimeFile& file,
-                                      const char* path,
-                                      FileHeader& header) const
+bool SdStore::rewriteStatusSnapshot(MeshProtocol protocol)
 {
-    if (header.version == kFileVersion)
-    {
-        return true;
-    }
-    if ((header.version != kLegacyVersion &&
-         header.version != kReticulumIdentityVersion &&
-         header.version != kRxOriginVersion) ||
-        !path || path[0] == '\0')
-    {
-        return false;
-    }
-
-    std::vector<Record> records;
-    records.reserve(header.count);
-    for (uint16_t index = 0; index < header.count; ++index)
-    {
-        const uint16_t slot =
-            static_cast<uint16_t>((header.head + kMaxMessagesPerConv - header.count + index) %
-                                  kMaxMessagesPerConv);
-        Record rec{};
-        if (!readRecord(file, header, slot, rec))
-        {
-            return false;
-        }
-        records.push_back(rec);
-    }
-
-    file.close();
-    const std::string temp_path = std::string(path) + ".upgrade";
-    const std::string backup_path = std::string(path) + ".bak";
-    if (storage::sd_exists(temp_path.c_str()))
-    {
-        (void)storage::sd_remove(temp_path.c_str());
-    }
-    if (storage::sd_exists(backup_path.c_str()) &&
-        !storage::sd_remove(backup_path.c_str()))
-    {
-        return false;
-    }
-    if (!file.open(temp_path.c_str(), "w+"))
-    {
-        return false;
-    }
-
-    FileHeader upgraded{};
-    upgraded.magic = kFileMagic;
-    upgraded.version = kFileVersion;
-    upgraded.reserved = header.reserved;
-    upgraded.count = static_cast<uint16_t>(std::min<size_t>(records.size(), kMaxMessagesPerConv));
-    upgraded.head = static_cast<uint16_t>(upgraded.count % kMaxMessagesPerConv);
-    if (!file.seek(0) || !writeExact(file, &upgraded, sizeof(upgraded)))
-    {
-        file.close();
-        (void)storage::sd_remove(temp_path.c_str());
-        return false;
-    }
-    for (uint16_t index = 0; index < upgraded.count; ++index)
-    {
-        if (!writeRecord(file, index, records[index]))
-        {
-            file.close();
-            (void)storage::sd_remove(temp_path.c_str());
-            return false;
-        }
-    }
-    if (!file.flush())
-    {
-        file.close();
-        (void)storage::sd_remove(temp_path.c_str());
-        return false;
-    }
-    file.close();
-
-    if (!storage::sd_rename(path, backup_path.c_str()))
-    {
-        (void)storage::sd_remove(temp_path.c_str());
-        return false;
-    }
-    if (!storage::sd_rename(temp_path.c_str(), path))
-    {
-        (void)storage::sd_rename(backup_path.c_str(), path);
-        (void)storage::sd_remove(temp_path.c_str());
-        return false;
-    }
-    if (!file.open(path, "r+") || !loadFileHeader(file, header) ||
-        header.version != kFileVersion)
-    {
-        file.close();
-        (void)storage::sd_remove(path);
-        (void)storage::sd_rename(backup_path.c_str(), path);
-        return false;
-    }
-    (void)storage::sd_remove(backup_path.c_str());
-    return true;
+    char final_path[128]{};
+    char temp_path[128]{};
+    buildProjectionPath(protocol,
+                        "status.snapshot",
+                        final_path,
+                        sizeof(final_path));
+    buildProjectionPath(protocol,
+                        "status.snapshot.tmp",
+                        temp_path,
+                        sizeof(temp_path));
+    return rewriteJournalFromStatus(protocol, final_path, temp_path);
 }
 
-bool SdStore::readRecord(storage::SdRuntimeFile& file,
-                         const FileHeader& header,
-                         uint16_t slot,
-                         Record& rec) const
+bool SdStore::compactProtocolProjections(MeshProtocol protocol)
 {
-    if (slot >= kMaxMessagesPerConv)
+    protocol = normalizeProtocol(protocol);
+    char catalog_delta[128]{};
+    char read_delta[128]{};
+    char status_delta[128]{};
+    buildProjectionPath(protocol,
+                        "catalog.delta",
+                        catalog_delta,
+                        sizeof(catalog_delta));
+    buildProjectionPath(protocol,
+                        "read.delta",
+                        read_delta,
+                        sizeof(read_delta));
+    buildProjectionPath(protocol,
+                        "status.delta",
+                        status_delta,
+                        sizeof(status_delta));
+    const auto catalog_inspection = journal_.inspect(
+        catalog_delta,
+        protocol,
+        storage_v2::JournalKind::CatalogDelta,
+        storage_v2::catalogSlotSize(protocol));
+    const auto read_inspection = journal_.inspect(
+        read_delta,
+        protocol,
+        storage_v2::JournalKind::ReadStateDelta,
+        storage_v2::readStateSlotSize(protocol));
+    const auto status_inspection = journal_.inspect(
+        status_delta,
+        protocol,
+        storage_v2::JournalKind::StatusDelta,
+        storage_v2::statusSlotSize());
+    const bool compact_catalog =
+        projection_dirty_[protocolIndex(protocol)] ||
+        catalog_inspection.slot_count >= kCatalogCompactThreshold;
+    const bool compact_read =
+        read_inspection.slot_count >= kReadCompactThreshold;
+    const bool compact_status =
+        status_inspection.slot_count >= kStatusCompactThreshold;
+    if (compact_catalog && !rewriteCatalogSnapshot(protocol))
     {
         return false;
     }
-    size_t record_size = sizeof(Record);
-    if (header.version == kLegacyVersion)
-    {
-        record_size = sizeof(RecordV2);
-    }
-    else if (header.version == kReticulumIdentityVersion)
-    {
-        record_size = sizeof(RecordV3);
-    }
-    else if (header.version == kRxOriginVersion)
-    {
-        record_size = sizeof(RecordV4);
-    }
-    const uint64_t offset = sizeof(FileHeader) + static_cast<uint64_t>(slot) * record_size;
-    if (file.size() < offset + record_size)
+    if (compact_read && !rewriteReadSnapshot(protocol))
     {
         return false;
     }
-    if (!file.seek(offset))
+    if (compact_status && !rewriteStatusSnapshot(protocol))
     {
         return false;
     }
-    if (header.version == kFileVersion)
+    if (compact_catalog)
     {
-        return readExact(file, &rec, sizeof(rec));
+        (void)storage_runtime::sd_remove(catalog_delta);
+        projection_dirty_[protocolIndex(protocol)] = false;
     }
-
-    if (header.version == kRxOriginVersion)
+    if (compact_read)
     {
-        RecordV4 rec_v4{};
-        if (!readExact(file, &rec_v4, sizeof(rec_v4)))
-        {
-            return false;
-        }
-        rec.protocol = rec_v4.protocol;
-        rec.channel = rec_v4.channel;
-        rec.status = rec_v4.status;
-        rec.flags = rec_v4.flags;
-        rec.rx_origin = rec_v4.rx_origin;
-        rec.text_len = rec_v4.text_len;
-        rec.from = rec_v4.from;
-        rec.peer = rec_v4.peer;
-        rec.msg_id = rec_v4.msg_id;
-        rec.timestamp = rec_v4.timestamp;
-        std::memcpy(rec.reticulum_destination_hash,
-                    rec_v4.reticulum_destination_hash,
-                    sizeof(rec.reticulum_destination_hash));
-        std::memcpy(rec.reticulum_identity_hash,
-                    rec_v4.reticulum_identity_hash,
-                    sizeof(rec.reticulum_identity_hash));
-        std::memcpy(rec.text, rec_v4.text, sizeof(rec.text));
-        return true;
+        (void)storage_runtime::sd_remove(read_delta);
     }
-
-    if (header.version == kReticulumIdentityVersion)
+    if (compact_status)
     {
-        RecordV3 rec_v3{};
-        if (!readExact(file, &rec_v3, sizeof(rec_v3)))
-        {
-            return false;
-        }
-        rec.protocol = rec_v3.protocol;
-        rec.channel = rec_v3.channel;
-        rec.status = rec_v3.status;
-        rec.flags = rec_v3.flags;
-        rec.text_len = rec_v3.text_len;
-        rec.from = rec_v3.from;
-        rec.peer = rec_v3.peer;
-        rec.msg_id = rec_v3.msg_id;
-        rec.timestamp = rec_v3.timestamp;
-        std::memcpy(rec.reticulum_destination_hash,
-                    rec_v3.reticulum_destination_hash,
-                    sizeof(rec.reticulum_destination_hash));
-        std::memcpy(rec.reticulum_identity_hash,
-                    rec_v3.reticulum_identity_hash,
-                    sizeof(rec.reticulum_identity_hash));
-        std::memcpy(rec.text, rec_v3.text, sizeof(rec.text));
-        return true;
-    }
-
-    RecordV2 legacy_rec{};
-    if (header.version != kLegacyVersion ||
-        !readExact(file, &legacy_rec, sizeof(legacy_rec)))
-    {
-        return false;
-    }
-    rec.protocol = legacy_rec.protocol;
-    rec.channel = legacy_rec.channel;
-    rec.status = legacy_rec.status;
-    rec.text_len = legacy_rec.text_len;
-    rec.from = legacy_rec.from;
-    rec.peer = legacy_rec.peer;
-    rec.msg_id = legacy_rec.msg_id;
-    rec.timestamp = legacy_rec.timestamp;
-    std::memcpy(rec.text, legacy_rec.text, sizeof(rec.text));
-    return true;
-}
-
-bool SdStore::writeRecord(storage::SdRuntimeFile& file, uint16_t slot, const Record& rec) const
-{
-    if (slot >= kMaxMessagesPerConv)
-    {
-        return false;
-    }
-    const uint64_t offset = sizeof(FileHeader) + static_cast<uint64_t>(slot) * sizeof(Record);
-    return file.seek(offset) && writeExact(file, &rec, sizeof(rec));
-}
-
-bool SdStore::initLxmfSeenFile(storage::SdRuntimeFile& file) const
-{
-    LxmfSeenHeader header{};
-    header.magic = kLxmfSeenMagic;
-    header.version = kLxmfSeenVersion;
-    if (!file.seek(0) || !writeExact(file, &header, sizeof(header)))
-    {
-        return false;
-    }
-    return file.flush();
-}
-
-bool SdStore::loadLxmfSeenHeader(storage::SdRuntimeFile& file,
-                                 LxmfSeenHeader& header) const
-{
-    if (!file.is_open() || file.size() < sizeof(LxmfSeenHeader))
-    {
-        return false;
-    }
-    if (!file.seek(0) || !readExact(file, &header, sizeof(header)))
-    {
-        return false;
-    }
-    return header.magic == kLxmfSeenMagic &&
-           header.version == kLxmfSeenVersion &&
-           header.head < kMaxReticulumLxmfSeen &&
-           header.count <= kMaxReticulumLxmfSeen;
-}
-
-bool SdStore::readLxmfSeenRecord(storage::SdRuntimeFile& file,
-                                 uint16_t slot,
-                                 LxmfSeenRecord& rec) const
-{
-    if (slot >= kMaxReticulumLxmfSeen)
-    {
-        return false;
-    }
-    const uint64_t offset =
-        sizeof(LxmfSeenHeader) + static_cast<uint64_t>(slot) * sizeof(LxmfSeenRecord);
-    if (file.size() < offset + sizeof(LxmfSeenRecord))
-    {
-        return false;
-    }
-    return file.seek(offset) && readExact(file, &rec, sizeof(rec));
-}
-
-bool SdStore::writeLxmfSeenRecord(storage::SdRuntimeFile& file,
-                                  uint16_t slot,
-                                  const LxmfSeenRecord& rec) const
-{
-    if (slot >= kMaxReticulumLxmfSeen)
-    {
-        return false;
-    }
-    const uint64_t offset =
-        sizeof(LxmfSeenHeader) + static_cast<uint64_t>(slot) * sizeof(LxmfSeenRecord);
-    return file.seek(offset) && writeExact(file, &rec, sizeof(rec));
-}
-
-bool SdStore::rememberReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const
-{
-    if (!ready_ || !validLxmfMessageHash(lxmf_hash) || !ensureDir())
-    {
-        return false;
-    }
-    if (hasReticulumLxmfMessageHash(lxmf_hash))
-    {
-        return true;
-    }
-
-    storage::SdRuntimeFile file;
-    if (storage::sd_exists(kReticulumLxmfSeenFile))
-    {
-        if (!file.open(kReticulumLxmfSeenFile, "r+"))
-        {
-            return false;
-        }
-    }
-    else if (!file.open(kReticulumLxmfSeenFile, "w+"))
-    {
-        return false;
-    }
-
-    LxmfSeenHeader header{};
-    if (!loadLxmfSeenHeader(file, header))
-    {
-        if (!initLxmfSeenFile(file) || !loadLxmfSeenHeader(file, header))
-        {
-            file.close();
-            return false;
-        }
-    }
-
-    LxmfSeenRecord rec{};
-    std::memcpy(rec.hash, lxmf_hash, sizeof(rec.hash));
-    if (!writeLxmfSeenRecord(file, header.head, rec))
-    {
-        file.close();
-        return false;
-    }
-
-    header.head = static_cast<uint16_t>((header.head + 1U) % kMaxReticulumLxmfSeen);
-    if (header.count < kMaxReticulumLxmfSeen)
-    {
-        header.count = static_cast<uint16_t>(header.count + 1U);
-    }
-    if (!file.seek(0) || !writeExact(file, &header, sizeof(header)) || !file.flush())
-    {
-        file.close();
-        return false;
-    }
-    file.close();
-    return true;
-}
-
-bool SdStore::conversationContainsReticulumLxmfHash(
-    storage::SdRuntimeFile& file,
-    const FileHeader& header,
-    const uint8_t* lxmf_hash,
-    bool* found) const
-{
-    if (!file.is_open() || !validLxmfMessageHash(lxmf_hash) || !found)
-    {
-        return false;
-    }
-    *found = false;
-    for (uint16_t index = 0; index < header.count; ++index)
-    {
-        const uint16_t slot = static_cast<uint16_t>(
-            (header.head + kMaxMessagesPerConv - header.count + index) %
-            kMaxMessagesPerConv);
-        Record rec{};
-        if (!readRecord(file, header, slot, rec))
-        {
-            return false;
-        }
-        if ((rec.flags & kRecordHasReticulumLxmfHashFlag) != 0 &&
-            std::memcmp(rec.reticulum_lxmf_hash,
-                        lxmf_hash,
-                        kReticulumLxmfHashSize) == 0)
-        {
-            *found = true;
-            return true;
-        }
+        (void)storage_runtime::sd_remove(status_delta);
     }
     return true;
 }
 
-bool SdStore::openConversationForUpdate(const ConversationId& conv,
-                                        storage::SdRuntimeFile& file,
-                                        FileHeader& header) const
+bool SdStore::rewriteJournalFromCatalog(MeshProtocol protocol,
+                                        const char* final_path,
+                                        const char* temp_path)
 {
-    char path[96]{};
-    buildConversationPath(conv, path, sizeof(path));
-
-    if (storage::sd_exists(path))
+    const std::size_t slot_size = storage_v2::catalogSlotSize(protocol);
+    (void)storage_runtime::sd_remove(temp_path);
+    if (!journal_.create(temp_path,
+                         protocol,
+                         storage_v2::JournalKind::CatalogSnapshot,
+                         slot_size))
     {
-        if (!file.open(path, "r+"))
+        return false;
+    }
+    for (const storage_v2::ChatCatalogProjection& projection : catalog_)
+    {
+        if (!sameProtocol(projection.conversation.protocol, protocol) ||
+            projection.deleted)
         {
+            continue;
+        }
+        if (!storage_v2::encodeCatalogSlot(protocol,
+                                           projection,
+                                           scratch_.data(),
+                                           slot_size) ||
+            !journal_.append(temp_path,
+                             protocol,
+                             storage_v2::JournalKind::CatalogSnapshot,
+                             slot_size,
+                             scratch_.data()))
+        {
+            (void)storage_runtime::sd_remove(temp_path);
             return false;
         }
-        if (loadFileHeader(file, header) && upgradeConversationFile(file, path, header))
+    }
+    return replaceSnapshot(temp_path, final_path);
+}
+
+bool SdStore::rewriteJournalFromReadState(MeshProtocol protocol,
+                                          const char* final_path,
+                                          const char* temp_path)
+{
+    const std::size_t slot_size = storage_v2::readStateSlotSize(protocol);
+    (void)storage_runtime::sd_remove(temp_path);
+    if (!journal_.create(temp_path,
+                         protocol,
+                         storage_v2::JournalKind::ReadStateSnapshot,
+                         slot_size))
+    {
+        return false;
+    }
+    for (const storage_v2::ChatReadProjection& projection : read_state_)
+    {
+        if (!sameProtocol(projection.conversation.protocol, protocol) ||
+            projection.deleted)
         {
-            return true;
+            continue;
         }
-        file.close();
-        return false;
+        if (!storage_v2::encodeReadStateSlot(protocol,
+                                             projection,
+                                             scratch_.data(),
+                                             slot_size) ||
+            !journal_.append(temp_path,
+                             protocol,
+                             storage_v2::JournalKind::ReadStateSnapshot,
+                             slot_size,
+                             scratch_.data()))
+        {
+            (void)storage_runtime::sd_remove(temp_path);
+            return false;
+        }
     }
-
-    if (!file.open(path, "w+"))
-    {
-        return false;
-    }
-    if (!initFileHeader(file))
-    {
-        file.close();
-        return false;
-    }
-    return loadFileHeader(file, header);
+    return replaceSnapshot(temp_path, final_path);
 }
 
-bool SdStore::readConversationUnread(const ConversationId& conv, uint16_t* unread) const
+bool SdStore::rewriteJournalFromStatus(MeshProtocol protocol,
+                                       const char* final_path,
+                                       const char* temp_path)
 {
-    if (!unread)
-    {
-        return false;
-    }
-
-    char path[96]{};
-    buildConversationPath(conv, path, sizeof(path));
-    storage::SdRuntimeFile file;
-    if (!storage::sd_exists(path) || !file.open(path, "r"))
-    {
-        return false;
-    }
-
-    FileHeader header{};
-    const bool ok = loadFileHeader(file, header) &&
-                    decodeUnreadState(header.reserved, unread);
-    file.close();
-    return ok;
-}
-
-bool SdStore::writeConversationUnread(const ConversationId& conv, uint16_t unread) const
-{
-    char path[96]{};
-    buildConversationPath(conv, path, sizeof(path));
-    storage::SdRuntimeFile file;
-    if (!storage::sd_exists(path) || !file.open(path, "r+"))
+    const std::size_t slot_size = storage_v2::statusSlotSize();
+    (void)storage_runtime::sd_remove(temp_path);
+    if (!journal_.create(temp_path,
+                         protocol,
+                         storage_v2::JournalKind::StatusSnapshot,
+                         slot_size))
     {
         return false;
     }
-
-    FileHeader header{};
-    if (!loadFileHeader(file, header) ||
-        !upgradeConversationFile(file, path, header))
+    for (const ProtocolStatusProjection& state : statuses_)
     {
-        file.close();
-        return false;
+        if (!sameProtocol(state.protocol, protocol))
+        {
+            continue;
+        }
+        if (!storage_v2::encodeStatusSlot(state.value,
+                                          scratch_.data(),
+                                          slot_size) ||
+            !journal_.append(temp_path,
+                             protocol,
+                             storage_v2::JournalKind::StatusSnapshot,
+                             slot_size,
+                             scratch_.data()))
+        {
+            (void)storage_runtime::sd_remove(temp_path);
+            return false;
+        }
     }
-    header.reserved = encodeUnreadState(unread);
-    const bool ok = file.seek(0) &&
-                    writeExact(file, &header, sizeof(header)) &&
-                    file.flush();
-    file.close();
-    return ok;
+    return replaceSnapshot(temp_path, final_path);
 }
 
-void SdStore::buildConversationPath(const ConversationId& conv, char* out, size_t out_len) const
+MeshProtocol SdStore::normalizeProtocol(MeshProtocol protocol)
 {
-    if (!out || out_len == 0)
-    {
-        return;
-    }
-    if (hasReticulumConversationKey(conv))
-    {
-        uint8_t destination_hash[kReticulumPeerHashSize] = {};
-        char destination_key[kReticulumPeerHashSize * 2U + 1U]{};
-        (void)copyReticulumDestinationHash(destination_hash,
-                                           conv.reticulum_identity);
-        hashToHex(destination_hash, destination_key, sizeof(destination_key));
-        std::snprintf(out,
-                      out_len,
-                      "%s/%s_r_%s.log",
-                      kDir,
-                      protocolTag(conv.protocol),
-                      destination_key);
-        return;
-    }
-    if (conv.peer == 0)
-    {
-        std::snprintf(out,
-                      out_len,
-                      "%s/%s_broadcast_%s.log",
-                      kDir,
-                      protocolTag(conv.protocol),
-                      channelName(conv.channel));
-        return;
-    }
-
-    std::snprintf(out,
-                  out_len,
-                  "%s/%s_n_%08lX.log",
-                  kDir,
-                  protocolTag(conv.protocol),
-                  static_cast<unsigned long>(conv.peer));
+    return protocol == MeshProtocol::RNode ? MeshProtocol::Reticulum : protocol;
 }
 
-const char* SdStore::channelName(ChannelId channel) const
+const char* SdStore::protocolRoot(MeshProtocol protocol)
 {
-    switch (channel)
+    protocol = normalizeProtocol(protocol);
+    if (protocol == MeshProtocol::MeshCore)
     {
-    case ChannelId::PRIMARY:
-        return "LongFast";
-    case ChannelId::SECONDARY:
-        return "Squad";
-    default:
-        return "Unknown";
+        return kMeshCoreRoot;
     }
+    if (protocol == MeshProtocol::Reticulum)
+    {
+        return kReticulumRoot;
+    }
+    return kMeshtasticRoot;
 }
 
-ChatMessage SdStore::messageFromRecord(const Record& rec)
+const char* SdStore::protocolSlug(MeshProtocol protocol)
 {
-    ChatMessage msg;
-    msg.protocol = static_cast<MeshProtocol>(rec.protocol);
-    msg.channel = static_cast<ChannelId>(rec.channel);
-    msg.from = rec.from;
-    msg.peer = rec.peer;
-    msg.msg_id = rec.msg_id;
-    msg.timestamp = rec.timestamp;
-    msg.text.assign(rec.text, std::min<size_t>(rec.text_len, sizeof(rec.text)));
-    msg.status = static_cast<MessageStatus>(rec.status);
-    msg.rx_origin = static_cast<RxOrigin>(rec.rx_origin);
-    msg.source_unverified = (rec.flags & kRecordSourceUnverifiedFlag) != 0;
-    if ((rec.flags & kRecordHasReticulumIdentityFlag) != 0)
+    protocol = normalizeProtocol(protocol);
+    if (protocol == MeshProtocol::MeshCore)
     {
-        readReticulumIdentityFromStorage(msg.reticulum_identity,
-                                         rec.reticulum_destination_hash,
-                                         rec.reticulum_identity_hash);
+        return "mc";
     }
-    if ((rec.flags & kRecordHasReticulumLxmfHashFlag) != 0)
+    if (protocol == MeshProtocol::Reticulum)
     {
-        std::memcpy(msg.reticulum_lxmf_hash,
-                    rec.reticulum_lxmf_hash,
-                    sizeof(msg.reticulum_lxmf_hash));
+        return "rt";
     }
-    return msg;
+    return "mt";
 }
 
-SdStore::Record SdStore::recordFromMessage(const ChatMessage& msg)
+bool SdStore::sameProtocol(MeshProtocol lhs, MeshProtocol rhs)
 {
-    Record rec{};
-    rec.protocol = static_cast<uint8_t>(msg.protocol);
-    rec.channel = static_cast<uint8_t>(msg.channel);
-    rec.status = static_cast<uint8_t>(msg.status);
-    rec.text_len = static_cast<uint16_t>(std::min<size_t>(msg.text.size(), sizeof(rec.text)));
-    rec.from = msg.from;
-    rec.peer = msg.peer;
-    rec.msg_id = msg.msg_id;
-    rec.timestamp = msg.timestamp;
-    rec.rx_origin = static_cast<uint8_t>(msg.rx_origin);
-    if (msg.source_unverified)
-    {
-        rec.flags |= kRecordSourceUnverifiedFlag;
-    }
-    if (msg.protocol == MeshProtocol::Reticulum &&
-        hasReticulumDestinationIdentity(msg.reticulum_identity))
-    {
-        rec.flags |= kRecordHasReticulumIdentityFlag;
-        copyReticulumIdentityToStorage(rec.reticulum_destination_hash,
-                                       rec.reticulum_identity_hash,
-                                       msg.reticulum_identity);
-    }
-    if (chat::hasReticulumLxmfMessageHash(msg))
-    {
-        rec.flags |= kRecordHasReticulumLxmfHashFlag;
-        std::memcpy(rec.reticulum_lxmf_hash,
-                    msg.reticulum_lxmf_hash,
-                    sizeof(rec.reticulum_lxmf_hash));
-    }
-    if (rec.text_len > 0)
-    {
-        std::memcpy(rec.text, msg.text.data(), rec.text_len);
-    }
-    return rec;
+    return normalizeProtocol(lhs) == normalizeProtocol(rhs);
 }
 
-bool SdStore::indexEntryHasReticulumIdentity(const IndexEntry& entry)
+bool SdStore::sameStoredMessage(const ChatMessage& lhs,
+                                const ChatMessage& rhs)
 {
-    return static_cast<MeshProtocol>(entry.protocol) == MeshProtocol::Reticulum &&
-           (entry.flags & kIndexHasReticulumIdentityFlag) != 0;
-}
-
-bool SdStore::indexEntryMatchesConversation(const IndexEntry& entry,
-                                            const ConversationId& conv)
-{
-    if (entry.protocol != static_cast<uint8_t>(conv.protocol) ||
-        entry.channel != static_cast<uint8_t>(conv.channel))
+    if (!sameProtocol(lhs.protocol, rhs.protocol) ||
+        !sameConversationKey(conversationIdForMessage(lhs),
+                             conversationIdForMessage(rhs)))
     {
         return false;
     }
-
-    const bool conv_has_reticulum_key = hasReticulumConversationKey(conv);
-    const bool entry_has_reticulum_key = indexEntryHasReticulumIdentity(entry);
-    if (conv_has_reticulum_key || entry_has_reticulum_key)
+    if (chat::hasReticulumLxmfMessageHash(lhs) &&
+        chat::hasReticulumLxmfMessageHash(rhs))
     {
-        return conv_has_reticulum_key && entry_has_reticulum_key &&
-               sameReticulumDestination(conv.reticulum_identity,
-                                        entry.reticulum_destination_hash);
+        return std::memcmp(lhs.reticulum_lxmf_hash,
+                           rhs.reticulum_lxmf_hash,
+                           kReticulumLxmfHashSize) == 0;
     }
-    return entry.peer == conv.peer;
+    if (lhs.msg_id != 0U || rhs.msg_id != 0U)
+    {
+        return lhs.msg_id == rhs.msg_id && lhs.from == rhs.from;
+    }
+    return lhs.from == rhs.from && lhs.timestamp == rhs.timestamp &&
+           lhs.text == rhs.text;
 }
 
-bool SdStore::readStateEntryHasReticulumIdentity(const ReadStateEntry& entry)
+ConversationMeta SdStore::makeMeta(
+    const storage_v2::ChatCatalogProjection& projection)
 {
-    return static_cast<MeshProtocol>(entry.protocol) == MeshProtocol::Reticulum &&
-           (entry.flags & kReadStateHasReticulumIdentityFlag) != 0;
-}
-
-bool SdStore::readStateEntryMatchesConversation(const ReadStateEntry& entry,
-                                                const ConversationId& conv)
-{
-    if (entry.protocol != static_cast<uint8_t>(conv.protocol) ||
-        entry.channel != static_cast<uint8_t>(conv.channel))
-    {
-        return false;
-    }
-
-    const bool conv_has_reticulum_key = hasReticulumConversationKey(conv);
-    const bool entry_has_reticulum_key = readStateEntryHasReticulumIdentity(entry);
-    if (conv_has_reticulum_key || entry_has_reticulum_key)
-    {
-        return conv_has_reticulum_key && entry_has_reticulum_key &&
-               sameReticulumDestination(conv.reticulum_identity,
-                                        entry.reticulum_destination_hash);
-    }
-    return entry.peer == conv.peer;
-}
-
-SdStore::ReadStateEntry SdStore::readStateEntryFromConversation(
-    const ConversationId& conv,
-    uint16_t unread)
-{
-    ReadStateEntry entry{};
-    entry.protocol = static_cast<uint8_t>(conv.protocol);
-    entry.channel = static_cast<uint8_t>(conv.channel);
-    entry.unread = static_cast<uint16_t>(
-        std::min<uint16_t>(unread, kUnreadStateCountMask));
-    entry.peer = conv.peer;
-    if (hasReticulumConversationKey(conv))
-    {
-        entry.flags |= kReadStateHasReticulumIdentityFlag;
-        copyReticulumIdentityToStorage(entry.reticulum_destination_hash,
-                                       entry.reticulum_identity_hash,
-                                       conv.reticulum_identity);
-    }
-    return entry;
-}
-
-ConversationId SdStore::conversationFromIndexEntry(const IndexEntry& entry)
-{
-    ConversationId conv(static_cast<ChannelId>(entry.channel),
-                        entry.peer,
-                        static_cast<MeshProtocol>(entry.protocol));
-    if (indexEntryHasReticulumIdentity(entry))
-    {
-        readReticulumIdentityFromStorage(conv.reticulum_identity,
-                                         entry.reticulum_destination_hash,
-                                         entry.reticulum_identity_hash);
-    }
-    return conv;
-}
-
-ConversationMeta SdStore::metaFromIndexEntry(const IndexEntry& entry)
-{
-    ConversationMeta meta;
-    meta.id = conversationFromIndexEntry(entry);
-    meta.preview.assign(entry.preview, std::min<size_t>(entry.preview_len, sizeof(entry.preview)));
-    meta.last_timestamp = entry.last_timestamp;
-    meta.unread = entry.unread;
-    meta.reticulum_identity = meta.id.reticulum_identity;
-    if (entry.peer == 0 && !indexEntryHasReticulumIdentity(entry))
+    ConversationMeta meta{};
+    meta.id = projection.conversation;
+    meta.preview = projection.preview;
+    meta.last_timestamp = projection.last_timestamp;
+    meta.unread = static_cast<int>(projection.unread);
+    meta.reticulum_identity = projection.conversation.reticulum_identity;
+    if (projection.conversation.peer == 0U &&
+        projection.conversation.protocol != MeshProtocol::Reticulum)
     {
         meta.name = "Broadcast";
     }
+    else if (projection.conversation.protocol == MeshProtocol::Reticulum &&
+             hasReticulumDestinationIdentity(
+                 projection.conversation.reticulum_identity))
+    {
+        char name[12]{};
+        std::snprintf(name,
+                      sizeof(name),
+                      "%02X%02X%02X%02X",
+                      projection.conversation.reticulum_identity
+                          .destination_hash[0],
+                      projection.conversation.reticulum_identity
+                          .destination_hash[1],
+                      projection.conversation.reticulum_identity
+                          .destination_hash[2],
+                      projection.conversation.reticulum_identity
+                          .destination_hash[3]);
+        meta.name = name;
+    }
     else
     {
-        char buf[16];
-        std::snprintf(buf,
-                      sizeof(buf),
+        char name[16]{};
+        std::snprintf(name,
+                      sizeof(name),
                       "%04lX",
-                      static_cast<unsigned long>(entry.peer & 0xFFFFUL));
-        meta.name = buf;
+                      static_cast<unsigned long>(projection.conversation.peer &
+                                                 0xFFFFU));
+        meta.name = name;
     }
     return meta;
 }
 
-bool SdStore::hasLogSuffix(const char* name)
+void SdStore::buildConversationDirectory(const ConversationId& input,
+                                         char* out,
+                                         std::size_t out_len)
 {
-    if (!name)
+    if (!out || out_len == 0U)
+    {
+        return;
+    }
+    ConversationId conversation = input;
+    conversation.protocol = normalizeProtocol(conversation.protocol);
+    if (conversation.protocol == MeshProtocol::Reticulum &&
+        hasReticulumDestinationIdentity(conversation.reticulum_identity))
+    {
+        char hash[2U * kReticulumPeerHashSize + 1U]{};
+        hashToHex(conversation.reticulum_identity.destination_hash,
+                  hash,
+                  sizeof(hash));
+        std::snprintf(out,
+                      out_len,
+                      "%s/conversations/d_%s",
+                      protocolRoot(conversation.protocol),
+                      hash);
+        return;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "%s/conversations/c%02X_p%08lX",
+                  protocolRoot(conversation.protocol),
+                  static_cast<unsigned>(conversation.channel),
+                  static_cast<unsigned long>(conversation.peer));
+}
+
+void SdStore::buildMessageSegmentPath(const ConversationId& conversation,
+                                      uint32_t segment,
+                                      char* out,
+                                      std::size_t out_len)
+{
+    char directory[112]{};
+    buildConversationDirectory(conversation, directory, sizeof(directory));
+    std::snprintf(out,
+                  out_len,
+                  "%s/%04lu.msg",
+                  directory,
+                  static_cast<unsigned long>(segment));
+}
+
+void SdStore::buildProjectionPath(MeshProtocol protocol,
+                                  const char* name,
+                                  char* out,
+                                  std::size_t out_len)
+{
+    if (!out || out_len == 0U)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "%s/%s", protocolRoot(protocol), name);
+}
+
+bool SdStore::ensureDirectory(const char* path)
+{
+    return path && path[0] != '\0' &&
+           (storage_runtime::sd_is_directory(path) ||
+            storage_runtime::sd_mkdir(path));
+}
+
+bool SdStore::removeTree(const char* path)
+{
+    if (!path || std::strncmp(path, kRoot, std::strlen(kRoot)) != 0)
     {
         return false;
     }
-    const char* suffix = std::strstr(name, ".log");
-    return suffix != nullptr && suffix[4] == '\0';
+    if (!storage_runtime::sd_exists(path))
+    {
+        return true;
+    }
+    if (!storage_runtime::sd_is_directory(path))
+    {
+        return storage_runtime::sd_remove(path);
+    }
+    storage_runtime::SdRuntimeDir directory;
+    if (!directory.open(path))
+    {
+        return false;
+    }
+    char name[96]{};
+    bool is_directory = false;
+    bool ok = true;
+    while (directory.read_next(name, sizeof(name), &is_directory))
+    {
+        char child[160]{};
+        std::snprintf(child, sizeof(child), "%s/%s", path, name);
+        ok = (is_directory ? removeTree(child)
+                           : storage_runtime::sd_remove(child)) &&
+             ok;
+    }
+    directory.close();
+    return storage_runtime::sd_rmdir(path) && ok;
 }
 
 } // namespace chat

@@ -16,6 +16,7 @@
 #include "chat/runtime/self_identity_policy.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/memory_diag.h"
+#include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "sys/event_bus.h"
@@ -222,16 +223,27 @@ void AppContext::initContactServices()
         return;
     }
 
-    auto contact_services = platform_bindings_.create_contact_services();
+    if (!mesh_peer_directory_)
+    {
+        Serial.printf("[AppContext] protocol peer repository unavailable\n");
+        return;
+    }
+
+    auto contact_services =
+        platform_bindings_.create_contact_services(*mesh_peer_directory_);
     if (!contact_services.isValid())
     {
         Serial.printf("[AppContext] contact service bundle invalid\n");
         return;
     }
 
-    node_store_ = std::move(contact_services.node_store);
-    contact_store_ = std::move(contact_services.contact_store);
+    node_store_ = &mesh_peer_directory_->nodeStoreView();
+    contact_store_ = &mesh_peer_directory_->contactStoreView();
     contact_service_ = std::move(contact_services.service);
+    if (contact_service_)
+    {
+        contact_service_->setActiveProtocol(config_.mesh_protocol);
+    }
 }
 
 chat::IMeshAdapter* AppContext::getMeshAdapter()
@@ -582,6 +594,10 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
     {
         chat_service_->setActiveProtocol(normalized);
     }
+    if (contact_service_)
+    {
+        contact_service_->setActiveProtocol(normalized);
+    }
 
     if (persist)
     {
@@ -628,6 +644,11 @@ void AppContext::updateCoreServices()
     if (event_runtime_hooks_.update_core_services)
     {
         event_runtime_hooks_.update_core_services(*this);
+    }
+    if (mesh_peer_directory_ &&
+        !::platform::ui::reticulum_call::resource_preempt_active())
+    {
+        (void)mesh_peer_directory_->flush();
     }
 }
 

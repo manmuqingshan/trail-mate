@@ -272,6 +272,50 @@ Settings 可以配置：
 3. 在 retry、delivery action、presentation lookup 中丢掉 protocol 字段。
 4. 因为找不到消息就创建另一个同内容 outgoing item。
 
+### Message Persistence And Publication
+
+消息内容、发送状态和 UI/通知事件必须走同一条 ledger 主路径：
+
+```text
+decoded incoming
+  -> MessageLedger durable append or bounded deferred queue
+  -> incoming delivery commit
+  -> ChatModel / EventBus / notification
+  -> conversation projection
+
+outgoing protocol acceptance
+  -> MessageLedger durable append or bounded deferred queue
+  -> protocol-aware delivery event
+  -> conversation projection
+```
+
+硬约束：
+
+1. incoming 只有在 authoritative message record、dedup identity 和 read-state commit
+   成功后才能发布 `ChatNewMessageEvent`、通知、震动或声音。
+2. SD/SPI 暂时不可用时，incoming 进入固定深度 deferred queue；重试成功后只提交和发布
+   一次。队列满必须输出明确 rejected/drop reason，并向支持 two-phase commit 的协议返回失败。
+3. outgoing record 或后续 status 写入失败时，由 `MessageLedger` 保留 bounded pending write；
+   message page、conversation page 和 lookup 必须合并该 pending state，不能谎报 `stored`，
+   也不能让 UI 另造临时消息。
+4. pending write 每个 runtime tick 只允许执行有限预算。ESP chat store 必须先以 non-blocking
+   方式取得共享 SPI transaction lease；拿不到立即 deferred，不能在同一 tick 连续等待多个
+   250ms SD 操作。
+5. conversation index、header mirror 和 UI cache 仍然只是 projection。projection 写失败可以让
+   ledger operation 保持 pending，但不得触发收发热路径中的同步全盘 `rebuildIndex()`。
+6. message/status retry 必须幂等。已经写入 conversation log、但后续 ledger/projection 写失败的
+   消息，重试时只能完成未完成的提交，不能追加第二条相同记录。
+7. chat workspace 最新页固定为 10 条；翻页继续使用同一个 ledger page API。runtime event 对
+   当前会话最多触发一次 snapshot reload，不允许辅助函数和调用者各做一次全量重建。
+
+禁止：
+
+1. `appendIncomingDurably(...) == false` 后直接 `continue` 并丢弃消息。
+2. 调用返回 `void append(...)` 后无条件记录 `stored`。
+3. UI 监听 raw MQTT/LoRa packet，或在持久化失败时自行合成 message bubble。
+4. 为了修复通知而绕过 durable commit 直接调用 notification/audio。
+5. index 写失败后在消息收发 tick 内同步扫描所有 conversation log。
+
 ## Read And Unread Contract
 
 `ReadStateLedger` 是 read/unread 的唯一权威。
@@ -494,6 +538,41 @@ Contacts 和 Network 都只能消费 projection，不允许读取 raw announce �
 4. old mutation 已删除，而不是留作 fallback。
 5. compatibility code 与 product graph 隔离。
 
+## Protocol-Partitioned Storage V2 Contract
+
+ESP Arduino 产品运行时的 Chat/Peer/Contact 持久化只允许使用：
+
+```text
+/data/v2/mt
+/data/v2/mc
+/data/v2/rt
+```
+
+权威规则：
+
+1. message journal 是消息事实；catalog/read/status 是可重建 projection。
+2. RT message journal 是 LXMF seen ledger 的重建来源。
+3. `SdProtocolPeerRepository` 是 peer facts 和 contact user facts 的唯一 owner。
+4. `INodeStore`、`IContactStore` 是 repository view，不是独立 store。
+5. contact alias/favorite/ignored/trusted 只写 contact journal，不重复写 peer slot。
+6. active protocol 必须在 application query 边界过滤，UI 不读取三协议全量后再过滤。
+7. nearby 只能淘汰 unprotected peer；contact 和 conversation reference 永远受保护。
+8. snapshot 只能通过 temp/backup/final 原子替换；掉电后只恢复 v2 backup。
+9. 大 projection/peer/contact/pending buffer 优先使用唯一的 strict PSRAM allocator。
+10. 启动阶段可以做有界 compaction；普通 UI tick 不得反复扫描或重写完整 projection。
+
+ESP product graph 禁止重新注册：
+
+```text
+/chat/*
+/nodes.bin
+/contacts.dat
+/mesh/peers.bin
+```
+
+禁止以“兼容”为名在 v2 失败后读取旧格式。完整规则见
+`PROTOCOL_PARTITIONED_STORAGE_V2_SPEC.md`。
+
 ## Prohibited Patch Patterns
 
 以下修改方式禁止进入主线：
@@ -546,6 +625,10 @@ Contacts 和 Network 都只能消费 projection，不允许读取 raw announce �
 14. message alerts/contact alerts/vibration/audio volume 策略不改变 delivery 或 unread 事实。
 15. Contacts 不出现 propagation、service、gateway/interface、unknown announce。
 16. Network 能呈现服务和网络基础设施，不污染 Contacts。
+17. MQTT/LoRa/RT durable message 不因 catalog projection 失败而不展示或不通知。
+18. peer refresh 不会覆盖 contact alias/flags 或已验证 key。
+19. nearby 达到容量时不会淘汰 contact 或已有 conversation peer。
+20. RT seen journal 损坏后从 authoritative RT message journal 重建，历史消息不重复投影。
 
 ## Relationship To Existing Specs
 
@@ -559,5 +642,8 @@ Contacts 和 Network 都只能消费 projection，不允许读取 raw announce �
 6. `docs/reticulum_client_architecture.md`
 7. `docs/wifi_access_resource_policy.md`
 8. `docs/MULTI_PROTOCOL_SUPPORT.md`
+9. `docs/specification/PROTOCOL_PARTITIONED_STORAGE_V2_SPEC.md`
+10. `docs/design/PROTOCOL_PARTITIONED_STORAGE_V2_OVERVIEW.md`
+11. `docs/design/PROTOCOL_PARTITIONED_STORAGE_V2_DETAILED_DESIGN.md`
 
 当实现与本文档冲突时，不能通过局部代码补丁解决；必须回到 owner 边界，修正主路径。

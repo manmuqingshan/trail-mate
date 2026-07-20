@@ -21,6 +21,38 @@ class RecordingDeliveryEventPort final
     int count = 0;
 };
 
+class TransientStore final : public chat::RamStore
+{
+  public:
+    bool appendDurably(const chat::ChatMessage& message) override
+    {
+        if (append_failures > 0)
+        {
+            --append_failures;
+            return false;
+        }
+        append(message);
+        return true;
+    }
+
+    bool updateMessageStatusForProtocol(chat::MessageId msg_id,
+                                        chat::MeshProtocol protocol,
+                                        chat::MessageStatus status) override
+    {
+        if (status_failures > 0)
+        {
+            --status_failures;
+            return false;
+        }
+        return RamStore::updateMessageStatusForProtocol(msg_id,
+                                                        protocol,
+                                                        status);
+    }
+
+    int append_failures = 0;
+    int status_failures = 0;
+};
+
 chat::ChatMessage outgoing(chat::MessageId id, chat::MessageStatus status)
 {
     chat::ChatMessage message;
@@ -199,6 +231,82 @@ int main()
     assert(collision_store.getMessageForProtocol(
         500,
         chat::MeshProtocol::Reticulum,
+        &stored));
+    assert(stored.status == chat::MessageStatus::Delivered);
+
+    chat::ChatModel deferred_model;
+    TransientStore deferred_store;
+    deferred_store.append_failures = 1;
+    chat::delivery::ChatMessageLedger deferred_ledger(deferred_model,
+                                                      deferred_store);
+    assert(deferred_ledger.recordOutbound(
+               outgoing(600, chat::MessageStatus::Queued),
+               true) == chat::delivery::LedgerPersistence::Deferred);
+    assert(!deferred_store.getMessage(600, &stored));
+    std::size_t deferred_total = 0;
+    const chat::ConversationId deferred_conversation(
+        chat::ChannelId::PRIMARY,
+        0xAABBCCDD,
+        chat::MeshProtocol::Meshtastic);
+    auto deferred_page = deferred_ledger.loadPageFromLatest(
+        deferred_conversation,
+        0,
+        10,
+        &deferred_total);
+    assert(deferred_total == 1);
+    assert(deferred_page.size() == 1);
+    assert(deferred_page.front().msg_id == 600);
+    auto deferred_conversations = deferred_ledger.loadConversationPage(
+        chat::MeshProtocol::Meshtastic,
+        0,
+        10,
+        &deferred_total);
+    assert(deferred_total == 1);
+    assert(deferred_conversations.size() == 1);
+    assert(deferred_conversations.front().id == deferred_conversation);
+    assert(deferred_conversations.front().preview == "ledger");
+    assert(deferred_ledger.applyOutboundStatusForProtocol(
+        600,
+        chat::MeshProtocol::Meshtastic,
+        chat::MessageStatus::Delivered,
+        true));
+    assert(deferred_ledger.flushPendingWrites(1) == 1);
+    assert(deferred_store.getMessageForProtocol(
+        600,
+        chat::MeshProtocol::Meshtastic,
+        &stored));
+    assert(stored.status == chat::MessageStatus::Delivered);
+    deferred_page = deferred_ledger.loadPageFromLatest(
+        deferred_conversation,
+        0,
+        10,
+        &deferred_total);
+    assert(deferred_total == 1);
+    assert(deferred_page.size() == 1);
+
+    deferred_store.status_failures = 1;
+    deferred_ledger.recordOutbound(
+        outgoing(601, chat::MessageStatus::Queued),
+        true);
+    assert(deferred_ledger.applyOutboundStatusForProtocol(
+        601,
+        chat::MeshProtocol::Meshtastic,
+        chat::MessageStatus::Delivered,
+        true));
+    assert(deferred_store.getMessageForProtocol(
+        601,
+        chat::MeshProtocol::Meshtastic,
+        &stored));
+    assert(stored.status == chat::MessageStatus::Queued);
+    assert(deferred_ledger.findMessageForProtocol(
+        601,
+        chat::MeshProtocol::Meshtastic,
+        stored));
+    assert(stored.status == chat::MessageStatus::Delivered);
+    assert(deferred_ledger.flushPendingWrites(1) == 1);
+    assert(deferred_store.getMessageForProtocol(
+        601,
+        chat::MeshProtocol::Meshtastic,
         &stored));
     assert(stored.status == chat::MessageStatus::Delivered);
 

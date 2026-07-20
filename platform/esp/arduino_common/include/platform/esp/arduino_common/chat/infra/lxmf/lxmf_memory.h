@@ -6,101 +6,21 @@
 #pragma once
 
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "platform/esp/arduino_common/memory/psram_allocator.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#include <limits>
-#include <new>
 #include <utility>
 #include <vector>
-
-#if defined(ESP_PLATFORM)
-#include <esp_heap_caps.h>
-#endif
 
 namespace chat::lxmf::runtime
 {
 
-[[noreturn]] inline void allocation_failed()
-{
-#if defined(__cpp_exceptions) || defined(__EXCEPTIONS)
-    throw std::bad_alloc();
-#else
-    std::abort();
-#endif
-}
-
+// LXMF keeps its public buffer aliases while sharing the platform allocator.
 template <typename T>
-class PsramAllocator
-{
-  public:
-    using value_type = T;
-
-    PsramAllocator() noexcept = default;
-
-    template <typename U>
-    PsramAllocator(const PsramAllocator<U>&) noexcept
-    {
-    }
-
-    T* allocate(std::size_t count)
-    {
-        if (count > std::numeric_limits<std::size_t>::max() / sizeof(T))
-        {
-            allocation_failed();
-        }
-
-        const std::size_t bytes = count * sizeof(T);
-        if (bytes == 0)
-        {
-            return nullptr;
-        }
-
-#if defined(ESP_PLATFORM)
-        void* ptr = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-#else
-        void* ptr = std::malloc(bytes);
-#endif
-        if (!ptr)
-        {
-            allocation_failed();
-        }
-        return static_cast<T*>(ptr);
-    }
-
-    void deallocate(T* ptr, std::size_t) noexcept
-    {
-        if (!ptr)
-        {
-            return;
-        }
-#if defined(ESP_PLATFORM)
-        heap_caps_free(ptr);
-#else
-        std::free(ptr);
-#endif
-    }
-
-    template <typename U>
-    struct rebind
-    {
-        using other = PsramAllocator<U>;
-    };
-};
-
-template <typename T, typename U>
-bool operator==(const PsramAllocator<T>&, const PsramAllocator<U>&) noexcept
-{
-    return true;
-}
-
-template <typename T, typename U>
-bool operator!=(const PsramAllocator<T>&, const PsramAllocator<U>&) noexcept
-{
-    return false;
-}
+using PsramAllocator =
+    ::platform::esp::arduino_common::memory::PsramAllocator<T>;
 
 using RuntimeByteBuffer = std::vector<uint8_t, PsramAllocator<uint8_t>>;
 using RuntimeByteBufferList =

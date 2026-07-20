@@ -13,6 +13,7 @@
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/ports/i_mesh_peer_directory.h"
 #include "chat/ports/i_node_store.h"
+#include "chat/ports/i_protocol_peer_repository.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "team/ports/i_team_crypto.h"
@@ -40,7 +41,7 @@ struct ChatServicesBundle
 {
     std::unique_ptr<chat::ChatModel> model;
     std::unique_ptr<chat::IChatStore> store;
-    std::unique_ptr<chat::IMeshPeerDirectory> mesh_peer_directory;
+    std::unique_ptr<chat::IProtocolPeerRepository> mesh_peer_directory;
     std::unique_ptr<chat::IMeshAdapter> mesh_runtime;
     std::unique_ptr<chat::ChatService> service;
     std::unique_ptr<chat::ChatService::IncomingMessageObserver> incoming_message_observer;
@@ -54,13 +55,11 @@ struct ChatServicesBundle
 
 struct ContactServicesBundle
 {
-    std::unique_ptr<chat::contacts::INodeStore> node_store;
-    std::unique_ptr<chat::contacts::IContactStore> contact_store;
     std::unique_ptr<chat::contacts::ContactService> service;
 
     bool isValid() const
     {
-        return node_store && contact_store && service;
+        return service != nullptr;
     }
 };
 
@@ -106,7 +105,8 @@ struct AppContextPlatformBindings
         std::unique_ptr<chat::IMeshAdapter> (*)(chat::MeshProtocol protocol,
                                                 LoraBoard& lora_board,
                                                 chat::IMeshPeerDirectory* peer_directory);
-    using ContactServicesFactory = ContactServicesBundle (*)();
+    using ContactServicesFactory =
+        ContactServicesBundle (*)(chat::IProtocolPeerRepository& repository);
     using TeamServicesFactory = TeamServicesBundle (*)(chat::IMeshAdapter& mesh_adapter);
     using SelfNodeIdProvider = chat::NodeId (*)();
 
