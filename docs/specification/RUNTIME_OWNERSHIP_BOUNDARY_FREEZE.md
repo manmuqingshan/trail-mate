@@ -465,6 +465,29 @@ Meshtastic MQTT downlink 可以保持 gateway 语义，但必须经过统一空�
 3. 让 UI tick 承担 relay flush。
 4. 没有去重地把同一 downlink burst 多次打到空口。
 
+## Network Page Cache Worker Contract
+
+Nomad page cache 读取属于后台存储工作，Network 页面只提交请求和读取投影。
+
+规则：
+
+1. page body、完成状态和请求状态必须由 `PageCacheLoadState` 唯一持有；大块 state 必须放在
+   PSRAM，不允许静默回退到 internal heap。
+2. PageCache worker 的 stack/TCB 必须在进入 Network 前具有确定的内存所有权，不能在页面
+   tick 中反复动态分配 task stack。
+3. worker 只有 `not-started -> running` 或 `not-started -> unavailable` 两条启动路径；启动失败
+   是可观察的终止状态，不能把 mutex/queue 已创建误认为 worker 可用。
+4. `request_cached_page_load()` 和 `poll_cached_page_load()` 在 worker unavailable 时必须快速返回
+   明确状态，不能继续排队、等待 SD，或在每帧重新创建 task。
+5. cache read/write 必须经过 PageCache bus owner；UI 不等待 SD/shared-SPI transaction 完成。
+
+禁止：
+
+1. `xTaskCreate()` 失败后保留一个看似可用、实际没有 consumer 的 queue。
+2. 在 Network render/timer 路径逐帧重试 task 创建并刷日志。
+3. 为解决 internal heap 碎片而把 PageCache state 或不适合的 task stack 随意回退到 PSRAM。
+4. task 创建失败后退回 UI 线程同步读取 Nomad page cache。
+
 ## Font And Localization Runtime Contract
 
 字体是 runtime resource，不是页面私有修复点。

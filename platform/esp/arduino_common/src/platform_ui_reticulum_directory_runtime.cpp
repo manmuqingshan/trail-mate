@@ -1983,6 +1983,7 @@ struct PageCacheLoadState
     SemaphoreHandle_t mutex = nullptr;
     QueueHandle_t signal = nullptr;
     TaskHandle_t task = nullptr;
+    bool task_start_attempted = false;
     bool pending = false;
     bool active = false;
     bool completed = false;
@@ -2010,6 +2011,10 @@ struct PageRequestProgressSlot
 };
 
 PageCacheLoadState* s_page_cache_load_state = nullptr;
+bool s_page_cache_load_state_allocation_attempted = false;
+StaticTask_t s_page_cache_task_tcb{};
+StackType_t s_page_cache_task_stack[(kPageCacheAsyncTaskStackBytes + sizeof(StackType_t) - 1U) /
+                                    sizeof(StackType_t)]{};
 PageRequestProgressSlot s_request_progress[kPageProgressDepth]{};
 uint32_t s_request_progress_order = 1;
 portMUX_TYPE s_request_progress_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -2486,14 +2491,8 @@ void set_request_status(Status& out,
 
 PageCacheLoadState* allocate_page_cache_load_state()
 {
-    void* storage = heap_caps_malloc_prefer(sizeof(PageCacheLoadState),
-                                            2,
-                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
-                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!storage)
-    {
-        storage = ::operator new(sizeof(PageCacheLoadState), std::nothrow);
-    }
+    void* storage = heap_caps_malloc(sizeof(PageCacheLoadState),
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     return storage ? new (storage) PageCacheLoadState() : nullptr;
 }
 
@@ -2593,36 +2592,60 @@ bool start_page_cache_load_task(PageCacheLoadState& state)
     {
         return true;
     }
-    if (!state.mutex || !state.signal)
+    if (state.task_start_attempted || !state.mutex || !state.signal)
     {
         return false;
     }
+    state.task_start_attempted = true;
 
-    const BaseType_t ok = xTaskCreate(page_cache_load_task_entry,
-                                      "rtpg_cache",
-                                      kPageCacheAsyncTaskStackBytes,
-                                      &state,
-                                      kPageCacheAsyncTaskPriority,
-                                      &state.task);
-    if (ok != pdPASS)
+    state.task = xTaskCreateStatic(page_cache_load_task_entry,
+                                   "rtpg_cache",
+                                   kPageCacheAsyncTaskStackBytes,
+                                   &state,
+                                   kPageCacheAsyncTaskPriority,
+                                   s_page_cache_task_stack,
+                                   &s_page_cache_task_tcb);
+    if (!state.task)
     {
-        state.task = nullptr;
-        std::printf("[Reticulum][PageCache] async task_create_failed rc=%ld\n",
-                    static_cast<long>(ok));
+        std::printf("[Reticulum][PageCache] async task_create_failed "
+                    "stack=static_internal bytes=%u internal_free=%u "
+                    "internal_largest=%u\n",
+                    static_cast<unsigned>(kPageCacheAsyncTaskStackBytes),
+                    static_cast<unsigned>(
+                        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                    static_cast<unsigned>(heap_caps_get_largest_free_block(
+                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
         return false;
     }
+    std::printf("[Reticulum][PageCache] async worker started "
+                "stack=static_internal bytes=%u\n",
+                static_cast<unsigned>(kPageCacheAsyncTaskStackBytes));
     return true;
 }
 
 PageCacheLoadState* ensure_page_cache_load_state()
 {
-    if (!s_page_cache_load_state)
+    if (!s_page_cache_load_state &&
+        !s_page_cache_load_state_allocation_attempted)
     {
+        s_page_cache_load_state_allocation_attempted = true;
         s_page_cache_load_state = allocate_page_cache_load_state();
         if (s_page_cache_load_state)
         {
-            std::printf("[Reticulum][PageCache] async state allocated bytes=%u\n",
+            std::printf("[Reticulum][PageCache] async state allocated "
+                        "memory=psram bytes=%u\n",
                         static_cast<unsigned>(sizeof(PageCacheLoadState)));
+        }
+        else
+        {
+            std::printf("[Reticulum][PageCache] async state allocation_failed "
+                        "memory=psram bytes=%u psram_free=%u "
+                        "psram_largest=%u\n",
+                        static_cast<unsigned>(sizeof(PageCacheLoadState)),
+                        static_cast<unsigned>(
+                            heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+                        static_cast<unsigned>(heap_caps_get_largest_free_block(
+                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
         }
     }
     PageCacheLoadState* state = s_page_cache_load_state;
@@ -2642,7 +2665,10 @@ PageCacheLoadState* ensure_page_cache_load_state()
     {
         return nullptr;
     }
-    (void)start_page_cache_load_task(*state);
+    if (!start_page_cache_load_task(*state))
+    {
+        return nullptr;
+    }
     return state;
 }
 
