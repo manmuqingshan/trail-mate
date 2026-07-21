@@ -7233,6 +7233,10 @@ bool LxmfAdapter::routeAndSendPacket(const uint8_t* raw_packet, size_t raw_len,
     {
         return send_packet(raw_packet, raw_len);
     }
+    if (!interfaces_.isInterfaceSelected(path->interface_id))
+    {
+        return send_packet(raw_packet, raw_len);
+    }
     if (path->hops <= 1 || path->direct)
     {
         return send_packet(raw_packet, raw_len, path->interface_id);

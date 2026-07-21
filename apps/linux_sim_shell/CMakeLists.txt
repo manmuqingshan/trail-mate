@@ -299,7 +299,7 @@ if(BUILD_TESTING)
                      "${TRAIL_MATE_REPO_ROOT}")
 
     add_executable(trailmate_lxmf_runtime_budget_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_lxmf_runtime_budget.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_lxmf_runtime_budget.cpp"
         "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_runtime_budget.cpp")
     target_include_directories(trailmate_lxmf_runtime_budget_smoke
         PRIVATE
@@ -311,7 +311,7 @@ if(BUILD_TESTING)
              COMMAND trailmate_lxmf_runtime_budget_smoke)
 
     add_executable(trailmate_lxmf_announce_scheduler_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_lxmf_announce_scheduler.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_lxmf_announce_scheduler.cpp"
         "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_announce_scheduler.cpp")
     target_include_directories(trailmate_lxmf_announce_scheduler_smoke
         PRIVATE
@@ -322,7 +322,7 @@ if(BUILD_TESTING)
              COMMAND trailmate_lxmf_announce_scheduler_smoke)
 
     add_executable(trailmate_lxmf_deferred_discovery_queue_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_lxmf_deferred_discovery_queue.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_lxmf_deferred_discovery_queue.cpp"
         "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_deferred_discovery_queue.cpp")
     target_include_directories(trailmate_lxmf_deferred_discovery_queue_smoke
         PRIVATE
@@ -334,6 +334,31 @@ if(BUILD_TESTING)
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_lxmf_deferred_discovery_queue_smoke
              COMMAND trailmate_lxmf_deferred_discovery_queue_smoke)
+
+    add_executable(trailmate_protocol_chat_storage_v2_codec_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_protocol_chat_storage_v2_codec.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/store/protocol_chat_codec.cpp")
+    target_include_directories(trailmate_protocol_chat_storage_v2_codec_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/include")
+    target_compile_features(trailmate_protocol_chat_storage_v2_codec_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_protocol_chat_storage_v2_codec_smoke
+             COMMAND trailmate_protocol_chat_storage_v2_codec_smoke)
+
+    add_executable(trailmate_protocol_peer_storage_v2_codec_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_protocol_peer_storage_v2_codec.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/store/protocol_peer_codec.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/store/protocol_chat_codec.cpp")
+    target_include_directories(trailmate_protocol_peer_storage_v2_codec_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/include")
+    target_compile_features(trailmate_protocol_peer_storage_v2_codec_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_protocol_peer_storage_v2_codec_smoke
+             COMMAND trailmate_protocol_peer_storage_v2_codec_smoke)
 
     add_executable(trailmate_chat_delivery_event_projection_adapter_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_chat_runtime/tests/test_chat_delivery_event_projection_adapter.cpp"

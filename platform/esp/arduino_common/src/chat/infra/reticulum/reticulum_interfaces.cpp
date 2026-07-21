@@ -1670,11 +1670,8 @@ void ReticulumInterfaceSet::maintain()
 
 bool ReticulumInterfaceSet::hasReadyInterface() const
 {
-    if (loraEnabled() && lora_.isReady())
-    {
-        return true;
-    }
-    return hasReadyWifiGateway();
+    return (loraSelectedForRuntime() && lora_.isReady()) ||
+           (wifiSelectedForRuntime() && hasReadyWifiGateway());
 }
 
 bool ReticulumInterfaceSet::hasReadyWifiGateway() const
@@ -1698,6 +1695,30 @@ bool ReticulumInterfaceSet::wifiGatewayConfigured() const
     return hasConfiguredIpInterface();
 }
 
+bool ReticulumInterfaceSet::isInterfaceSelected(InterfaceId interface_id) const
+{
+    if (interface_id == kLoRaInterfaceId)
+    {
+        return loraSelectedForRuntime();
+    }
+    if (!wifiSelectedForRuntime())
+    {
+        return false;
+    }
+    if (auto_.owns(interface_id))
+    {
+        return auto_.isReady();
+    }
+    for (uint8_t index = 0; index < tcp_count_; ++index)
+    {
+        if (tcp_[index].interfaceId() == interface_id)
+        {
+            return tcp_[index].isReady();
+        }
+    }
+    return false;
+}
+
 bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
 {
     last_tx_result_ = {};
@@ -1707,25 +1728,28 @@ bool ReticulumInterfaceSet::sendPacket(const uint8_t* data, size_t len)
     }
 
     maintain();
-    last_tx_result_.lora_required = loraEnabled();
+    last_tx_result_.lora_required = loraSelectedForRuntime();
     last_tx_result_.lora_ready =
         last_tx_result_.lora_required && lora_.isReady();
-    last_tx_result_.wifi_required = hasConfiguredIpInterface();
-    last_tx_result_.wifi_ready = hasReadyWifiGateway();
+    last_tx_result_.wifi_required = wifiSelectedForRuntime();
+    last_tx_result_.wifi_ready =
+        last_tx_result_.wifi_required && hasReadyWifiGateway();
 
     if (last_tx_result_.lora_ready && lora_.sendPacket(data, len))
     {
         last_tx_result_.lora_ok = true;
         ++last_tx_result_.sent_count;
     }
-    if (auto_.isReady() && auto_.sendPacket(data, len))
+    if (last_tx_result_.wifi_required && auto_.isReady() &&
+        auto_.sendPacket(data, len))
     {
         last_tx_result_.wifi_ok = true;
         ++last_tx_result_.sent_count;
     }
     for (uint8_t index = 0; index < tcp_count_; ++index)
     {
-        if (tcp_[index].isReady() && tcp_[index].sendPacket(data, len))
+        if (last_tx_result_.wifi_required && tcp_[index].isReady() &&
+            tcp_[index].sendPacket(data, len))
         {
             last_tx_result_.wifi_ok = true;
             ++last_tx_result_.sent_count;
@@ -1765,13 +1789,19 @@ bool ReticulumInterfaceSet::sendPacketOn(InterfaceId interface_id,
     if (interface_id == kLoRaInterfaceId)
     {
         last_tx_result_.lora_required = true;
-        last_tx_result_.lora_ready = loraEnabled() && lora_.isReady();
+        last_tx_result_.lora_ready =
+            loraSelectedForRuntime() && lora_.isReady();
         sent = last_tx_result_.lora_ready && lora_.sendPacket(data, len);
         last_tx_result_.lora_ok = sent;
     }
     else
     {
         last_tx_result_.wifi_required = true;
+        const bool call_wifi_override = call_link_id != nullptr;
+        if (!call_wifi_override && !wifiSelectedForRuntime())
+        {
+            return false;
+        }
         if (auto_.owns(interface_id))
         {
             last_tx_result_.wifi_ready = auto_.isReady();
@@ -1863,6 +1893,8 @@ bool ReticulumInterfaceSet::pollIncomingPacket(RxPacket* out)
     }
 
     maintain();
+    const bool lora_selected = loraSelectedForRuntime();
+    const bool wifi_selected = wifiSelectedForRuntime();
     const uint8_t source_count = static_cast<uint8_t>(2U + tcp_count_);
     for (uint8_t offset = 0; offset < source_count; ++offset)
     {
@@ -1871,15 +1903,15 @@ bool ReticulumInterfaceSet::pollIncomingPacket(RxPacket* out)
         bool got = false;
         if (index == 0)
         {
-            got = loraEnabled() && lora_.pollPacket(out);
+            got = lora_selected && lora_.pollPacket(out);
         }
         else if (index == 1)
         {
-            got = auto_.pollPacket(out);
+            got = wifi_selected && auto_.pollPacket(out);
         }
         else
         {
-            got = tcp_[index - 2U].pollPacket(out);
+            got = wifi_selected && tcp_[index - 2U].pollPacket(out);
         }
         if (got)
         {
@@ -1895,12 +1927,12 @@ bool ReticulumInterfaceSet::pollIncomingPacket(RxPacket* out)
 
 bool ReticulumInterfaceSet::pollLegacyIncomingData(MeshIncomingData* out)
 {
-    return loraEnabled() && lora_.pollLegacyIncomingData(out);
+    return loraSelectedForRuntime() && lora_.pollLegacyIncomingData(out);
 }
 
 void ReticulumInterfaceSet::handleRawPacket(const uint8_t* data, size_t size)
 {
-    if (loraEnabled())
+    if (loraSelectedForRuntime())
     {
         lora_.handleRawPacket(data, size);
     }
@@ -1929,9 +1961,15 @@ float ReticulumInterfaceSet::lastRxSnr() const
     return lora_.lastRxSnr();
 }
 
-bool ReticulumInterfaceSet::loraEnabled() const
+bool ReticulumInterfaceSet::loraAllowed() const
 {
     if (::platform::ui::reticulum_call::resource_preempt_active())
+    {
+        return false;
+    }
+    if (!config_.reticulum_lora_enabled ||
+        config_.reticulum_interface_policy ==
+            ReticulumInterfacePolicy::WifiGatewayOnly)
     {
         return false;
     }
@@ -1949,6 +1987,35 @@ bool ReticulumInterfaceSet::loraEnabled() const
         }
     }
     return false;
+}
+
+bool ReticulumInterfaceSet::wifiAllowed() const
+{
+    return config_.reticulum_wifi_gateway_enabled &&
+           config_.reticulum_interface_policy !=
+               ReticulumInterfacePolicy::LoRaOnly &&
+           hasConfiguredIpInterface();
+}
+
+bool ReticulumInterfaceSet::loraSelectedForRuntime() const
+{
+    if (!loraAllowed())
+    {
+        return false;
+    }
+    return config_.reticulum_interface_policy != ReticulumInterfacePolicy::All ||
+           !hasReadyWifiGateway();
+}
+
+bool ReticulumInterfaceSet::wifiSelectedForRuntime() const
+{
+    if (!wifiAllowed())
+    {
+        return false;
+    }
+    return config_.reticulum_interface_policy ==
+               ReticulumInterfacePolicy::WifiGatewayOnly ||
+           hasReadyWifiGateway();
 }
 
 bool ReticulumInterfaceSet::hasConfiguredIpInterface() const
@@ -1969,7 +2036,7 @@ bool ReticulumInterfaceSet::hasConfiguredIpInterface() const
 
 void ReticulumInterfaceSet::syncSharedLoRaRxGate()
 {
-    const bool suppress = !loraEnabled();
+    const bool suppress = !loraSelectedForRuntime();
 #if defined(ARDUINO)
     if (shared_lora_rx_suppressed_ == suppress &&
         app::AppTasks::isRadioReceiveSuppressed() == suppress)

@@ -143,7 +143,10 @@ bool withSharedSpiRadioAccess(const char* owner,
                                                  request);
     if (!bus_token.acquired())
     {
-        log_radio_spi_lock_timeout(owner, wait_ticks);
+        if (wait_ticks != 0)
+        {
+            log_radio_spi_lock_timeout(owner, wait_ticks);
+        }
         return false;
     }
     fn();
@@ -1121,7 +1124,7 @@ int TDeckBoard::startRadioReceive()
 uint32_t TDeckBoard::getRadioIrqFlags()
 {
     uint32_t flags = 0;
-    if (withSharedSpiRadioAccess("radio_irq", pdMS_TO_TICKS(20), [&]()
+    if (withSharedSpiRadioAccess("radio_irq", 0, [&]()
                                  { flags = radio_.getIrqFlags(); }))
     {
         return flags;

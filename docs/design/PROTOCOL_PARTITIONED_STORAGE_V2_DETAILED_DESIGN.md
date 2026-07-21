@@ -81,7 +81,7 @@ repository. They have no files and no independent caches.
 
 ```text
 create SdStore
-  -> acquire startup storage lease
+  -> acquire store aggregate mutex
   -> recover snapshot backups
   -> load protocol projections
   -> reconcile catalog from message segments
@@ -89,7 +89,7 @@ create SdStore
   -> compact threshold-exceeding projections
 
 create SdProtocolPeerRepository(SdStore)
-  -> acquire startup storage lease
+  -> acquire peer aggregate mutex
   -> create /data/v2/{mt,mc,rt}
   -> recover peer/contact snapshot backups
   -> load peer snapshot + delta
@@ -153,7 +153,7 @@ the tombstone is durable.
 1. Resolve the node ID in the active protocol partition.
 2. Require MT node identity, MC public key, or RT destination identity.
 3. Build a complete contact projection with alias and flags.
-4. Acquire a bounded durable storage lease.
+4. Hold the peer aggregate mutex while constructing the complete transaction.
 5. Append and flush `contacts.delta`.
 6. Apply the projection to memory.
 7. Refresh only the affected peer/node projection.
@@ -181,7 +181,8 @@ eligible peer exists, insertion returns `CapacityExceeded`.
 
 ## Pending Peer Delta Queue
 
-Peer observations must not block packet or UI work on shared SPI contention.
+Peer observations use bounded per-operation SD access and must not own the
+physical SPI bus across a repository transaction.
 
 The queue uses a PSRAM vector plus a head index; draining does not repeatedly
 erase the first vector element. Consecutive pending full-record updates for the
@@ -201,8 +202,9 @@ delta thresholds are exceeded:
 - peer/contact: 1024 deltas.
 
 Normal chat `flush()` does not inspect and compact all healthy journals. It
-only retries a dirty protocol projection, at most once per five seconds, using
-a non-blocking background SPI lease.
+only retries a dirty protocol projection, at most once per five seconds. Each
+filesystem operation uses the bounded SD runtime guard; compaction never wraps
+the complete operation sequence in a physical SPI lease.
 
 Snapshot replacement sequence:
 
@@ -236,15 +238,29 @@ through backup files.
 
 ## Concurrency And SPI
 
-The peer repository serializes its aggregate with a FreeRTOS mutex. It holds one
-repository lock while applying an aggregate transaction.
+`SdStore` and `SdProtocolPeerRepository` each own a recursive FreeRTOS mutex.
+The mutex serializes in-memory vectors, journal sequence numbers, merge
+invariants, and the logical transaction that connects them. Recursive locking
+is required because public query/update methods may call another method on the
+same owner. This mutex is a state lock, not a bus lock.
 
-All peer/contact journal I/O uses the shared storage bus arbiter. Peer appends
-request a zero-wait background lease; contact edits use a bounded durable lease.
+`sd_card_runtime` is the only normal owner of physical SD/display/radio SPI
+arbitration. `open`, `read`, `write`, `flush`, `exists`, `rename`, and `remove`
+take bounded per-operation guards. Store/repository/page-cache code must not
+acquire `PersistenceBusGate` or `SharedSpiBusAdapter` around a sequence of those
+operations. Doing so stretches physical ownership across CPU work and creates
+radio/display starvation even when every nested file call is individually
+bounded.
 
-Chat authoritative append uses a zero-wait durable lease and delegates retry to
-`MessageLedger`. No renderer waits for radio TX, MQTT forwarding, LoRa airtime,
-or projection compaction.
+Explicit hardware sessions are separate: SD unmount/recovery, USB mass storage,
+and user-visible external font loading may own an exclusive bus/session token
+under their dedicated lifecycle specification. They must not be copied into a
+normal message, peer, or page-cache repository.
+
+No renderer waits for radio TX, MQTT forwarding, LoRa airtime, or projection
+compaction. SPI contention can delay or fail a bounded filesystem operation;
+the ledger/repository retry policy handles that result without converting a
+state mutex into physical bus ownership.
 
 ## Test Matrix
 
@@ -255,6 +271,8 @@ or projection compaction.
 | Seen journal corrupt | Rebuilt from RT message journals |
 | Peer append SPI busy | Peer visible in memory; ordered delta queued |
 | Contact append SPI busy | Contact edit fails; memory unchanged |
+| Chat append while radio IRQ polling | SD and radio take separate bounded physical turns; no transaction-wide SPI hold |
+| Nomad page cache read during LoRa activity | Page state is serialized; SD runtime releases SPI between file operations |
 | MC node observed before key | Temporary peer persists; cannot become contact |
 | MC key later arrives | Stable record then temporary tombstone |
 | RT protocol event before destination identity | Temporary record upgrades to destination |
@@ -262,4 +280,3 @@ or projection compaction.
 | Nearby capacity full | Oldest unprotected nearby evicted |
 | All peers protected | New nearby rejected; contacts retained |
 | Power loss during snapshot rename | Backup restored at startup |
-

@@ -71,7 +71,11 @@ bool tryAcquire(Session* out_session)
     out_session->impl = handles.board;
     if (!app::AppTasks::areRadioTasksPaused())
     {
-        app::AppTasks::pauseRadioTasks();
+        if (!app::AppTasks::pauseRadioTasks())
+        {
+            *out_session = {};
+            return false;
+        }
         out_session->paused_radio_tasks = true;
     }
 

@@ -171,7 +171,7 @@ class MemoryMeshPeerDirectory final : public chat::IMeshPeerDirectory
                 chat::MeshPeerDirectoryStatusCode::InvalidArgument);
         }
 
-        *out_count = 0;
+        std::vector<chat::MeshPeerRecord> matches;
         for (const auto& record : records_)
         {
             if (!chat::meshPeerSameProtocol(record.identity.protocol, protocol))
@@ -182,15 +182,19 @@ class MemoryMeshPeerDirectory final : public chat::IMeshPeerDirectory
             {
                 continue;
             }
-            if (*out_count < max_records)
-            {
-                out_records[*out_count] = record;
-            }
-            ++(*out_count);
-            if (*out_count >= max_records)
-            {
-                break;
-            }
+            matches.push_back(record);
+        }
+        std::sort(matches.begin(),
+                  matches.end(),
+                  [](const chat::MeshPeerRecord& lhs,
+                     const chat::MeshPeerRecord& rhs)
+                  {
+                      return lhs.last_seen_s > rhs.last_seen_s;
+                  });
+        *out_count = std::min(max_records, matches.size());
+        for (std::size_t index = 0; index < *out_count; ++index)
+        {
+            out_records[index] = matches[index];
         }
         return chat::MeshPeerDirectoryStatus::success();
     }
@@ -640,21 +644,24 @@ void search_and_user_flags_are_directory_behaviors()
     assert(directory.begin().succeeded());
 
     auto beta = makeReticulumPeer(0x60, "beta trail", 1);
+    auto recent_beta = makeReticulumPeer(0x62, "beta summit", 3);
     assert(directory.record(makeReticulumPeer(0x61, "alpha trail", 2))
                .succeeded());
     assert(directory.record(beta).succeeded());
+    assert(directory.record(recent_beta).succeeded());
 
-    chat::MeshPeerRecord records[1]{};
+    chat::MeshPeerRecord records[2]{};
     std::size_t count = 0;
     assert(directory
                .search(chat::MeshProtocol::Reticulum,
                        "beta",
                        records,
-                       1,
+                       2,
                        &count)
                .succeeded());
-    assert(count == 1);
-    assert(std::strcmp(records[0].display_name, "beta trail") == 0);
+    assert(count == 2);
+    assert(std::strcmp(records[0].display_name, "beta summit") == 0);
+    assert(std::strcmp(records[1].display_name, "beta trail") == 0);
 
     chat::MeshPeerUserFlags flags{};
     flags.favorite = true;

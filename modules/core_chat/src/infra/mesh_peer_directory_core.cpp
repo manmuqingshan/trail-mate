@@ -740,7 +740,8 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::search(
             MeshPeerDirectoryStatusCode::InvalidArgument);
     }
 
-    *out_count = 0;
+    std::vector<const MeshPeerRecord*> matches;
+    matches.reserve(records_.size());
     for (const auto& record : records_)
     {
         if (!meshPeerSameProtocol(record.identity.protocol, protocol) ||
@@ -748,15 +749,18 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::search(
         {
             continue;
         }
-        if (*out_count < max_records)
-        {
-            out_records[*out_count] = record;
-        }
-        ++(*out_count);
-        if (*out_count >= max_records)
-        {
-            break;
-        }
+        matches.push_back(&record);
+    }
+    std::sort(matches.begin(),
+              matches.end(),
+              [](const MeshPeerRecord* lhs, const MeshPeerRecord* rhs)
+              {
+                  return lhs->last_seen_s > rhs->last_seen_s;
+              });
+    *out_count = std::min(max_records, matches.size());
+    for (std::size_t index = 0; index < *out_count; ++index)
+    {
+        out_records[index] = *matches[index];
     }
     return MeshPeerDirectoryStatus::success();
 }

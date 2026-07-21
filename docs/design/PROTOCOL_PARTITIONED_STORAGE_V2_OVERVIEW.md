@@ -43,6 +43,12 @@ projections, not authoritative mutable blobs.
 **CQRS projection:** UI queries read catalog/contact/node projections. Incoming
 message and peer writes do not wait for expensive UI-oriented reconstruction.
 
+**Two-level concurrency ownership:** Store/repository recursive mutexes protect
+aggregate state and sequence invariants. They never represent physical SPI
+ownership. `SdRuntimeFile`/`SdRuntimeDir` alone acquire the shared SPI bus for
+each bounded filesystem operation. A repository transaction must not hold a
+shared-SPI token around a sequence of SD runtime calls.
+
 ## High-Level Commit Flows
 
 ### Incoming Message

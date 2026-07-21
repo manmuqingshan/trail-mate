@@ -14,6 +14,7 @@ LXMF_H = REPO_ROOT / "platform/esp/arduino_common/include/platform/esp/arduino_c
 RT_CPP = REPO_ROOT / "platform/esp/arduino_common/src/chat/infra/reticulum/reticulum_adapter.cpp"
 RT_H = REPO_ROOT / "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
 RTDIR_CPP = REPO_ROOT / "platform/esp/arduino_common/src/platform_ui_reticulum_directory_runtime.cpp"
+RTIF_CPP = REPO_ROOT / "platform/esp/arduino_common/src/chat/infra/reticulum/reticulum_interfaces.cpp"
 
 LARGE_LOCAL_PATTERN = re.compile(
     r"\buint8_t\s+\w+\s*\[\s*"
@@ -48,6 +49,7 @@ def main() -> int:
     rt_cpp = RT_CPP.read_text(encoding="utf-8")
     rt_h = RT_H.read_text(encoding="utf-8")
     rtdir_cpp = RTDIR_CPP.read_text(encoding="utf-8")
+    rtif_cpp = RTIF_CPP.read_text(encoding="utf-8")
 
     for signature in (
         "bool LxmfAdapter::pollIncomingText",
@@ -58,17 +60,48 @@ def main() -> int:
             if forbidden in body:
                 violations.append(f"{signature} must not call {forbidden}()")
 
-    if "maybePersistPeers(true)" in lxmf_cpp:
-        violations.append("Reticulum RX paths must not force maybePersistPeers(true)")
-
-    maybe_persist_body = method_body(lxmf_cpp, "bool LxmfAdapter::maybePersistPeers")
-    non_force_branch = maybe_persist_body.split("const bool ok = persistPeers()", 1)[0]
-    if "if (!force)" not in non_force_branch or "return true;" not in non_force_branch:
-        violations.append("maybePersistPeers(false) must return before persistPeers()")
+    announce_body = method_body(lxmf_cpp, "bool LxmfAdapter::handleAnnouncePacket")
+    peer_record_pos = announce_body.find("recordPeerInDirectory(")
+    if peer_record_pos >= 0:
+        gate_pos = announce_body.rfind("allow_persistence", 0, peer_record_pos)
+        if gate_pos < 0:
+            violations.append(
+                "announce peer-directory writes must be gated by allow_persistence"
+            )
 
     for stale_name in ("kWifiDiscoverySampleIntervalMs", "consumeWifiDiscoveryBudget"):
         if stale_name in lxmf_cpp or stale_name in lxmf_h:
             violations.append(f"stale Wi-Fi-only discovery budget name remains: {stale_name}")
+
+    carrier_checks = {
+        "bool ReticulumInterfaceSet::sendPacket(": (
+            "loraSelectedForRuntime()",
+            "wifiSelectedForRuntime()",
+        ),
+        "bool ReticulumInterfaceSet::pollIncomingPacket": (
+            "loraSelectedForRuntime()",
+            "wifiSelectedForRuntime()",
+        ),
+        "void ReticulumInterfaceSet::handleRawPacket": (
+            "loraSelectedForRuntime()",
+        ),
+        "void ReticulumInterfaceSet::syncSharedLoRaRxGate": (
+            "loraSelectedForRuntime()",
+        ),
+    }
+    for signature, required_calls in carrier_checks.items():
+        body = method_body(rtif_cpp, signature)
+        for required_call in required_calls:
+            if required_call not in body:
+                violations.append(
+                    f"{signature} must use the shared carrier selection owner"
+                )
+
+    route_body = method_body(lxmf_cpp, "bool LxmfAdapter::routeAndSendPacket")
+    if "isInterfaceSelected(path->interface_id)" not in route_body:
+        violations.append(
+            "Reticulum routing must reject paths bound to an unselected carrier"
+        )
 
     if "void processSendQueue() override;" not in rt_h:
         violations.append("ReticulumAdapter must expose processSendQueue() as the runtime pump hook")
@@ -78,23 +111,23 @@ def main() -> int:
 
     process_pos = lxmf_cpp.find("bool LxmfAdapter::processOneRadioPacket")
     defer_pos = lxmf_cpp.find("shouldDeferDiscoveryPacket", process_pos)
-    remember_pos = lxmf_cpp.find("rememberPacket(packet_hash)", process_pos)
+    remember_pos = lxmf_cpp.find("rememberPacket(packet_hash,", process_pos)
     if process_pos < 0 or defer_pos < 0 or remember_pos < 0 or defer_pos > remember_pos:
         violations.append("Reticulum packets must be eligible for discovery deferral before rememberPacket()")
 
-    if "record_announce(directory_announce)" in method_body(lxmf_cpp, "bool LxmfAdapter::handleAnnouncePacket"):
-        announce_body = method_body(lxmf_cpp, "bool LxmfAdapter::handleAnnouncePacket")
+    if "record_announce(directory_announce)" in announce_body:
         record_pos = announce_body.find("record_announce(directory_announce)")
         gate_pos = announce_body.rfind("if (allow_persistence)", 0, record_pos)
         if gate_pos < 0:
             violations.append("record_announce() must be gated by allow_persistence")
 
     record_announce_body = method_body(rtdir_cpp, "Status record_announce(")
-    record_address_body = method_body(rtdir_cpp, "Status record_lxmf_address(")
     if "queue_announce_async(record)" not in record_announce_body:
         violations.append("record_announce() must queue, not synchronously upsert SD")
-    if "queue_lxmf_address_async(record)" not in record_address_body:
-        violations.append("record_lxmf_address() must queue, not synchronously upsert SD")
+    if "record_lxmf_address(" in lxmf_cpp:
+        violations.append(
+            "Reticulum runtime must write peer facts through PeerDirectoryService"
+        )
     if "read_byte()" in rtdir_cpp:
         violations.append("Reticulum directory TSV reads must use chunked LineReader, not read_byte()")
 

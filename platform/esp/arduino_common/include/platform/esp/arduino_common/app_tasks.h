@@ -27,11 +27,14 @@ class AppTasks
 
     struct RadioPacket
     {
-        uint8_t* data;
-        size_t size;
-        bool is_tx; // true for TX, false for RX
+        uint8_t* data = nullptr;
+        size_t size = 0;
+        bool is_tx = false; // true for TX, false for RX
         float rssi = 0.0f;
         float snr = 0.0f;
+        uint32_t queued_ms = 0;
+        uint32_t next_attempt_ms = 0;
+        uint8_t retry_count = 0;
     };
 
     /**
@@ -80,7 +83,7 @@ class AppTasks
     /**
      * @brief Pause radio + mesh tasks (for exclusive radio modes like walkie-talkie)
      */
-    static void pauseRadioTasks();
+    static bool pauseRadioTasks(uint32_t timeout_ms = 2000U);
 
     /**
      * @brief Resume radio + mesh tasks after pause
@@ -130,11 +133,14 @@ class AppTasks
     static TaskHandle_t mesh_task_handle_;
     static LoraBoard* board_;
     static chat::IMeshAdapter* adapter_;
-    static bool radio_tasks_paused_;
+    static uint8_t* radio_rx_scratch_;
+    static volatile bool radio_tasks_paused_;
     static volatile bool radio_receive_active_;
     static volatile bool radio_receive_restart_pending_;
     static volatile bool radio_receive_suppressed_;
     static volatile bool radio_transmit_active_;
+    static volatile bool radio_task_quiesced_;
+    static volatile bool mesh_task_quiesced_;
 };
 
 } // namespace app

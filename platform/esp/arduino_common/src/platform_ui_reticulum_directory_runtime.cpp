@@ -3,9 +3,7 @@
 
 #if defined(ARDUINO)
 #include "chat/ports/i_mesh_peer_directory.h"
-#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #elif defined(ESP_PLATFORM)
@@ -1951,25 +1949,7 @@ constexpr const char* kPagesDir = "/fs/trailmate/reticulum/pages";
 constexpr const char* kDefaultPagePath = "/page/index.mu";
 constexpr uint32_t kPageCacheReadWaitMs = 60;
 constexpr uint32_t kPageCacheWriteWaitMs = 120;
-#if defined(ARDUINO)
-constexpr uint32_t kPageCacheBusResource = 5;
-constexpr uint32_t kPageCacheBusOwnerId = 0x4E504147u; // 'NPAG'
-constexpr const char* kPageCacheBusOwner = "reticulum_page_cache";
-
-::platform::esp::common::SharedSpiBusAdapter s_page_cache_bus_adapter(
-    kPageCacheBusOwner,
-    kPageCacheBusOwnerId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_page_cache_bus_policy(
-    kPageCacheReadWaitMs,
-    kPageCacheReadWaitMs,
-    kPageCacheWriteWaitMs,
-    kPageCacheWriteWaitMs);
-sys::runtime::StorageBusArbiter s_page_cache_bus_arbiter(
-    s_page_cache_bus_adapter,
-    s_page_cache_bus_policy);
-#else
 SemaphoreHandle_t s_page_storage_mutex = nullptr;
-#endif
 
 RequestStartHandler s_request_handler = nullptr;
 void* s_request_context = nullptr;
@@ -2025,49 +2005,13 @@ enum class PageCacheBusAccess : uint8_t
     Write,
 };
 
-#if defined(ARDUINO)
-class PageCacheBusGate final
-{
-  public:
-    explicit PageCacheBusGate(PageCacheBusAccess access)
-        : gate_(s_page_cache_bus_arbiter,
-                policyFor(access),
-                waitMsFor(access),
-                kPageCacheBusResource,
-                kPageCacheBusOwnerId + static_cast<uint32_t>(access),
-                kPageCacheBusOwnerId)
-    {
-    }
-
-    bool locked() const
-    {
-        return gate_.locked();
-    }
-
-  private:
-    static sys::runtime::BusAccessPolicy policyFor(PageCacheBusAccess access)
-    {
-        return access == PageCacheBusAccess::Write
-                   ? sys::runtime::BusAccessPolicy::DurableCommit
-                   : sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
-    }
-
-    static uint32_t waitMsFor(PageCacheBusAccess access)
-    {
-        return access == PageCacheBusAccess::Write ? kPageCacheWriteWaitMs
-                                                   : kPageCacheReadWaitMs;
-    }
-
-    ::platform::esp::arduino_common::storage::PersistenceBusGate gate_;
-};
-#else
 bool ensure_page_storage_mutex()
 {
     if (s_page_storage_mutex)
     {
         return true;
     }
-    s_page_storage_mutex = xSemaphoreCreateMutex();
+    s_page_storage_mutex = xSemaphoreCreateRecursiveMutex();
     return s_page_storage_mutex != nullptr;
 }
 
@@ -2083,15 +2027,15 @@ class PageCacheBusGate final
         const uint32_t wait_ms = access == PageCacheBusAccess::Write
                                      ? kPageCacheWriteWaitMs
                                      : kPageCacheReadWaitMs;
-        locked_ = xSemaphoreTake(s_page_storage_mutex, pdMS_TO_TICKS(wait_ms)) ==
-                  pdTRUE;
+        locked_ = xSemaphoreTakeRecursive(s_page_storage_mutex,
+                                          pdMS_TO_TICKS(wait_ms)) == pdTRUE;
     }
 
     ~PageCacheBusGate()
     {
         if (locked_)
         {
-            xSemaphoreGive(s_page_storage_mutex);
+            xSemaphoreGiveRecursive(s_page_storage_mutex);
         }
     }
 
@@ -2106,7 +2050,6 @@ class PageCacheBusGate final
   private:
     bool locked_ = false;
 };
-#endif
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {

@@ -1,8 +1,7 @@
 #include "platform/esp/arduino_common/chat/infra/store/sd_protocol_peer_repository.h"
 
-#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
+#include "platform/esp/arduino_common/storage/scoped_state_lock.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
 
 #include <Arduino.h>
 
@@ -29,47 +28,7 @@ constexpr std::size_t kProtectedContactCapacity = 4096U;
 constexpr std::size_t kPeerHotCacheCapacity[] = {16U, 128U, 64U};
 constexpr uint32_t kBootCompactionDeltaThreshold = 1024U;
 constexpr std::size_t kPendingFlushBudget = 4U;
-constexpr uint32_t kPeerStoreBusResource = 5U;
-constexpr uint32_t kPeerStoreBusOwnerId = 0x50454552U; // PEER
-constexpr const char* kPeerStoreBusOwner = "protocol_peer_v2";
-
-::platform::esp::common::SharedSpiBusAdapter s_peer_store_bus_adapter(
-    kPeerStoreBusOwner,
-    kPeerStoreBusOwnerId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_peer_store_bus_policy(
-    0,
-    0,
-    0,
-    0);
-sys::runtime::StorageBusArbiter s_peer_store_bus_arbiter(
-    s_peer_store_bus_adapter,
-    s_peer_store_bus_policy);
-
-class ScopedRepositoryLock final
-{
-  public:
-    explicit ScopedRepositoryLock(SemaphoreHandle_t mutex)
-        : mutex_(mutex), locked_(mutex_ && xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE)
-    {
-    }
-
-    ~ScopedRepositoryLock()
-    {
-        if (locked_)
-        {
-            xSemaphoreGive(mutex_);
-        }
-    }
-
-    bool locked() const
-    {
-        return locked_;
-    }
-
-  private:
-    SemaphoreHandle_t mutex_ = nullptr;
-    bool locked_ = false;
-};
+using ScopedRepositoryLock = storage_runtime::ScopedRecursiveStateLock;
 
 bool hasText(const char* text)
 {
@@ -110,7 +69,7 @@ const MeshPeerNodeFacts* nodeFacts(const MeshPeerRecord& record)
 
 SdProtocolPeerRepository::SdProtocolPeerRepository(IChatStore& chat_store)
     : chat_store_(chat_store),
-      mutex_(xSemaphoreCreateMutex()),
+      mutex_(xSemaphoreCreateRecursiveMutex()),
       node_store_view_(*this),
       contact_store_view_(*this)
 {
@@ -142,14 +101,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::begin()
         return MeshPeerDirectoryStatus::success();
     }
 
-    storage_runtime::PersistenceBusGate bus_gate(
-        s_peer_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::DurableCommit,
-        3000U,
-        kPeerStoreBusResource,
-        kPeerStoreBusOwnerId + 1U,
-        kPeerStoreBusOwnerId);
-    if (!bus_gate.locked() || !ensureLayout())
+    if (!ensureLayout())
     {
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::StorageUnavailable);
@@ -524,17 +476,6 @@ bool SdProtocolPeerRepository::appendPeerDelta(
     {
         return false;
     }
-    storage_runtime::PersistenceBusGate bus_gate(
-        s_peer_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::BackgroundWorkerBounded,
-        0U,
-        kPeerStoreBusResource,
-        kPeerStoreBusOwnerId + 2U,
-        kPeerStoreBusOwnerId);
-    if (!bus_gate.locked())
-    {
-        return false;
-    }
     char path[96] = {};
     buildProtocolPath(protocol, "peers.delta", path, sizeof(path));
     if (!journal_.append(path,
@@ -559,17 +500,6 @@ bool SdProtocolPeerRepository::appendContactDelta(
                                        projection,
                                        slot_scratch_.data(),
                                        slot_size))
-    {
-        return false;
-    }
-    storage_runtime::PersistenceBusGate bus_gate(
-        s_peer_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::DurableCommit,
-        250U,
-        kPeerStoreBusResource,
-        kPeerStoreBusOwnerId + 3U,
-        kPeerStoreBusOwnerId);
-    if (!bus_gate.locked())
     {
         return false;
     }
@@ -993,7 +923,12 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::search(
             MeshPeerDirectoryStatusCode::InvalidArgument);
     }
     protocol = normalizeProtocol(protocol);
-    *out_count = 0U;
+    using PeerPtrVector = std::vector<
+        const MeshPeerRecord*,
+        ::platform::esp::arduino_common::memory::PsramAllocator<
+            const MeshPeerRecord*>>;
+    PeerPtrVector matches;
+    matches.reserve(peers_.size());
     for (const MeshPeerRecord& peer : peers_)
     {
         const MeshPeerNodeFacts* facts = nodeFacts(peer);
@@ -1006,15 +941,18 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::search(
         {
             continue;
         }
-        if (*out_count < max_records)
-        {
-            out_records[*out_count] = peer;
-        }
-        ++(*out_count);
-        if (*out_count >= max_records)
-        {
-            break;
-        }
+        matches.push_back(&peer);
+    }
+    std::sort(matches.begin(),
+              matches.end(),
+              [](const MeshPeerRecord* lhs, const MeshPeerRecord* rhs)
+              {
+                  return lhs->last_seen_s > rhs->last_seen_s;
+              });
+    *out_count = std::min(max_records, matches.size());
+    for (std::size_t index = 0U; index < *out_count; ++index)
+    {
+        out_records[index] = *matches[index];
     }
     return MeshPeerDirectoryStatus::success();
 }
@@ -1122,14 +1060,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::clearProtocol(
         pending_peer_deltas_.end());
     overlayContactFacts();
 
-    storage_runtime::PersistenceBusGate bus_gate(
-        s_peer_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::DurableCommit,
-        1000U,
-        kPeerStoreBusResource,
-        kPeerStoreBusOwnerId + 4U,
-        kPeerStoreBusOwnerId);
-    if (!bus_gate.locked() || !rewritePeerSnapshot(protocol))
+    if (!rewritePeerSnapshot(protocol))
     {
         return MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
     }

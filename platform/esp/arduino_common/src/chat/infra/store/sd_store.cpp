@@ -5,9 +5,8 @@
 
 #include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
 
-#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
+#include "platform/esp/arduino_common/storage/scoped_state_lock.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
 
 #if defined(ARDUINO)
 #include <Arduino.h>
@@ -29,21 +28,6 @@ namespace storage_v2 = ::chat::storage::v2;
 #else
 #define CHAT_STORE_LOG(...) std::printf(__VA_ARGS__)
 #endif
-
-constexpr uint32_t kChatStoreBusResource = 5;
-constexpr uint32_t kChatStoreBusOwnerId = 0x43484154U; // CHAT
-constexpr const char* kChatStoreBusOwner = "chat_store_v2";
-
-::platform::esp::common::SharedSpiBusAdapter s_chat_store_bus_adapter(
-    kChatStoreBusOwner,
-    kChatStoreBusOwnerId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_chat_store_bus_policy(
-    0,
-    0,
-    0,
-    0);
-sys::runtime::StorageBusArbiter s_chat_store_bus_arbiter(s_chat_store_bus_adapter,
-                                                         s_chat_store_bus_policy);
 
 constexpr MeshProtocol kProtocols[] = {
     MeshProtocol::Meshtastic,
@@ -159,20 +143,14 @@ void hashToHex(const uint8_t* hash, char* out, std::size_t out_len)
 } // namespace
 
 SdStore::SdStore()
+    : mutex_(xSemaphoreCreateRecursiveMutex())
 {
     scratch_.resize(kScratchCapacity);
     catalog_.reserve(64);
     read_state_.reserve(64);
     statuses_.reserve(256);
     seen_hot_.reserve(256);
-    storage_runtime::PersistenceBusGate startup_gate(
-        s_chat_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::DurableCommit,
-        3000U,
-        kChatStoreBusResource,
-        kChatStoreBusOwnerId + 9U,
-        kChatStoreBusOwnerId);
-    ready_ = startup_gate.locked() && ensureLayout() && loadRuntimeState();
+    ready_ = mutex_ && ensureLayout() && loadRuntimeState();
     if (ready_)
     {
         for (MeshProtocol protocol : kProtocols)
@@ -189,6 +167,15 @@ SdStore::SdStore()
                    static_cast<unsigned>(catalog_.size()),
                    static_cast<unsigned>(statuses_.size()),
                    static_cast<unsigned>(seen_hot_.size()));
+}
+
+SdStore::~SdStore()
+{
+    if (mutex_)
+    {
+        vSemaphoreDelete(mutex_);
+        mutex_ = nullptr;
+    }
 }
 
 void SdStore::append(const ChatMessage& msg)
@@ -213,14 +200,8 @@ bool SdStore::appendIncomingDurably(const ChatMessage& msg)
 
 bool SdStore::appendInternal(const ChatMessage& input, bool incoming_commit)
 {
-    storage_runtime::PersistenceBusGate transaction_gate(
-        s_chat_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::DurableCommit,
-        0,
-        kChatStoreBusResource,
-        kChatStoreBusOwnerId + 1U,
-        kChatStoreBusOwnerId);
-    if (!transaction_gate.locked() || !ready_)
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
     {
         return false;
     }
@@ -324,6 +305,15 @@ std::vector<ChatMessage> SdStore::loadPageFromLatest(
     std::size_t limit,
     std::size_t* total)
 {
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        if (total)
+        {
+            *total = 0U;
+        }
+        return {};
+    }
     ConversationId conversation = input;
     conversation.protocol = normalizeProtocol(conversation.protocol);
     const uint32_t count = messageCountOnDisk(conversation);
@@ -357,6 +347,15 @@ std::vector<ConversationMeta> SdStore::loadConversationPage(
     std::size_t limit,
     std::size_t* total)
 {
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        if (total)
+        {
+            *total = 0U;
+        }
+        return {};
+    }
     std::vector<ConversationMeta> result;
     result.reserve(catalog_.size());
     for (const storage_v2::ChatCatalogProjection& projection : catalog_)
@@ -395,6 +394,15 @@ std::vector<ConversationMeta> SdStore::loadConversationPageForProtocol(
     std::size_t limit,
     std::size_t* total)
 {
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        if (total)
+        {
+            *total = 0U;
+        }
+        return {};
+    }
     protocol = normalizeProtocol(protocol);
     std::vector<ConversationMeta> result;
     for (const storage_v2::ChatCatalogProjection& projection : catalog_)
@@ -430,14 +438,8 @@ std::vector<ConversationMeta> SdStore::loadConversationPageForProtocol(
 
 bool SdStore::setUnread(const ConversationId& input, int unread)
 {
-    storage_runtime::PersistenceBusGate transaction_gate(
-        s_chat_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::DurableCommit,
-        0,
-        kChatStoreBusResource,
-        kChatStoreBusOwnerId + 2U,
-        kChatStoreBusOwnerId);
-    if (!transaction_gate.locked() || !ready_)
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
     {
         return false;
     }
@@ -478,6 +480,11 @@ bool SdStore::setUnread(const ConversationId& input, int unread)
 
 int SdStore::getUnread(const ConversationId& input) const
 {
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        return 0;
+    }
     ConversationId conversation = input;
     conversation.protocol = normalizeProtocol(conversation.protocol);
     const storage_v2::ChatCatalogProjection* projection =
@@ -487,14 +494,8 @@ int SdStore::getUnread(const ConversationId& input) const
 
 void SdStore::clearConversation(const ConversationId& input)
 {
-    storage_runtime::PersistenceBusGate transaction_gate(
-        s_chat_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::DurableCommit,
-        0,
-        kChatStoreBusResource,
-        kChatStoreBusOwnerId + 3U,
-        kChatStoreBusOwnerId);
-    if (!transaction_gate.locked() || !ready_)
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
     {
         return;
     }
@@ -544,14 +545,8 @@ void SdStore::clearConversation(const ConversationId& input)
 
 void SdStore::clearAll()
 {
-    storage_runtime::PersistenceBusGate transaction_gate(
-        s_chat_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::RecoveryExclusive,
-        0,
-        kChatStoreBusResource,
-        kChatStoreBusOwnerId + 4U,
-        kChatStoreBusOwnerId);
-    if (!transaction_gate.locked())
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked())
     {
         return;
     }
@@ -581,6 +576,11 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
                                              MeshProtocol protocol,
                                              MessageStatus status)
 {
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        return false;
+    }
     protocol = normalizeProtocol(protocol);
     if (msg_id == 0U || !storage_v2::supportedProtocol(protocol))
     {
@@ -593,17 +593,6 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
         return false;
     }
 
-    storage_runtime::PersistenceBusGate transaction_gate(
-        s_chat_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::DurableCommit,
-        0,
-        kChatStoreBusResource,
-        kChatStoreBusOwnerId + 5U,
-        kChatStoreBusOwnerId);
-    if (!transaction_gate.locked())
-    {
-        return false;
-    }
     storage_v2::ChatStatusProjection projection{};
     projection.message_id = msg_id;
     projection.status = status;
@@ -648,6 +637,11 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
 
 bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
 {
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        return false;
+    }
     for (MeshProtocol protocol : kProtocols)
     {
         if (getMessageForProtocol(msg_id, protocol, out))
@@ -662,6 +656,11 @@ bool SdStore::getMessageForProtocol(MessageId msg_id,
                                     MeshProtocol protocol,
                                     ChatMessage* out) const
 {
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        return false;
+    }
     protocol = normalizeProtocol(protocol);
     if (msg_id == 0U)
     {
@@ -697,6 +696,11 @@ bool SdStore::getMessageForProtocol(MessageId msg_id,
 
 bool SdStore::hasReticulumLxmfMessageHash(const uint8_t* hash) const
 {
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        return false;
+    }
     if (!hash || isAllZeroKeyBytes(hash, kReticulumLxmfHashSize))
     {
         return false;
@@ -748,7 +752,8 @@ bool SdStore::hasReticulumLxmfMessageHash(const uint8_t* hash) const
 
 void SdStore::flush()
 {
-    if (!ready_)
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
     {
         return;
     }
@@ -777,17 +782,7 @@ void SdStore::flush()
         return;
     }
     last_projection_retry_ms_ = now_ms;
-    storage_runtime::PersistenceBusGate maintenance_gate(
-        s_chat_store_bus_arbiter,
-        sys::runtime::BusAccessPolicy::BackgroundWorkerBounded,
-        0U,
-        kChatStoreBusResource,
-        kChatStoreBusOwnerId + 10U,
-        kChatStoreBusOwnerId);
-    if (maintenance_gate.locked())
-    {
-        (void)compactProtocolProjections(protocol);
-    }
+    (void)compactProtocolProjections(protocol);
 }
 
 bool SdStore::ensureLayout() const

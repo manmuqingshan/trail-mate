@@ -593,6 +593,20 @@ void refresh_contacts_data_impl_internal()
     filter_to_active_protocol(g_contacts_state.nearby_list);
     filter_to_active_protocol(g_contacts_state.ignored_list);
     merge_reticulum_directory_projection();
+    const chat::MeshProtocol active_protocol =
+        chat::infra::normalizeMeshProtocol(
+            app::configFacade().getConfig().mesh_protocol);
+    if (chat::infra::isReticulumMeshProtocol(active_protocol))
+    {
+        std::stable_sort(
+            g_contacts_state.nearby_list.begin(),
+            g_contacts_state.nearby_list.end(),
+            [](const chat::contacts::NodeInfo& lhs,
+               const chat::contacts::NodeInfo& rhs)
+            {
+                return lhs.last_seen > rhs.last_seen;
+            });
+    }
     mark_contacts_data_refreshed();
 
     CONTACTS_LOG("[Contacts] Data refreshed: %zu contacts, %zu nearby, %zu groups, %zu ignored\n",

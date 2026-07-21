@@ -3262,7 +3262,6 @@ static void on_option_clicked(lv_event_t* e)
         {
             rebuild_list = true;
             ::ui::feedback::show_notice(::ui::i18n::tr("Protocol switched"), 2000);
-            restart_now = true;
         }
     }
     if (id == settings::ui::SettingId::ChatRegion)

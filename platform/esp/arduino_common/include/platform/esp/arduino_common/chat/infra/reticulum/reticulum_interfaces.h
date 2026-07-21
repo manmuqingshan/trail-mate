@@ -268,6 +268,7 @@ class ReticulumInterfaceSet
     bool hasReadyInterface() const;
     bool hasReadyWifiGateway() const;
     bool wifiGatewayConfigured() const;
+    bool isInterfaceSelected(InterfaceId interface_id) const;
     bool sendPacket(const uint8_t* data, size_t len);
     bool sendPacketOn(InterfaceId interface_id,
                       const uint8_t* data,
@@ -303,7 +304,10 @@ class ReticulumInterfaceSet
     uint8_t next_poll_index_ = 0;
     bool shared_lora_rx_suppressed_ = false;
 
-    bool loraEnabled() const;
+    bool loraAllowed() const;
+    bool wifiAllowed() const;
+    bool loraSelectedForRuntime() const;
+    bool wifiSelectedForRuntime() const;
     bool hasConfiguredIpInterface() const;
     void syncSharedLoRaRxGate();
 };

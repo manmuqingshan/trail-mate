@@ -411,9 +411,15 @@ void prepare_mass_storage_mode()
 
     if (!app::AppTasks::areRadioTasksPaused())
     {
-        app::AppTasks::pauseRadioTasks();
-        s_radio_tasks_paused_by_usb = true;
-        USB_MSC_LOG("radio tasks paused for USB mass storage\n");
+        if (app::AppTasks::pauseRadioTasks())
+        {
+            s_radio_tasks_paused_by_usb = true;
+            USB_MSC_LOG("radio tasks paused for USB mass storage\n");
+        }
+        else
+        {
+            USB_MSC_LOG("radio task quiesce failed for USB mass storage\n");
+        }
     }
 
     TaskHandle_t gps_task_handle = gps::gps_get_task_handle();

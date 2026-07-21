@@ -10,6 +10,9 @@
 #include "platform/esp/arduino_common/chat/infra/store/protocol_chat_codec.h"
 #include "platform/esp/arduino_common/memory/psram_allocator.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -30,7 +33,7 @@ class SdStore final : public IChatStore
     static constexpr std::size_t kSeenHotCapacity = 4096;
 
     SdStore();
-    ~SdStore() override = default;
+    ~SdStore() override;
 
     bool isReady() const { return ready_; }
 
@@ -204,6 +207,7 @@ class SdStore final : public IChatStore
     static bool removeTree(const char* path);
 
     storage::v2::FixedSlotJournalEngine journal_{};
+    mutable SemaphoreHandle_t mutex_ = nullptr;
     CatalogList catalog_{};
     ReadStateList read_state_{};
     StatusList statuses_{};

@@ -28,6 +28,14 @@ longer ready. In `WifiGatewayOnly`, shared LoRa RX stays suppressed. In
 `LoRaOnly`, shared LoRa RX stays enabled. Outbound LoRa TX may still be queued
 only when the active strategy has selected LoRa.
 
+Carrier selection is a runtime fact, distinct from configured interfaces.
+`sendPacket`, `sendPacketOn`, packet polling, legacy LoRa polling, raw LoRa
+ingress, and the shared RX gate must consult the same selection owner. A path
+learned on a previously selected interface must not reactivate that interface;
+when its interface is no longer selected, routing falls back to the original
+header on the currently selected carrier so that path discovery can converge
+there.
+
 When the screen is on, realtime processing is limited to:
 
 - LXMF direct traffic addressed to this device.
@@ -181,6 +189,26 @@ Forbidden scheduler shapes:
 - Key verification RX handlers synchronously transmitting replies.
 - Separate local drain counters that allow protocol actions, app sends, ACK
   retry, and MQTT downlink each to consume a full TX slot in the same tick.
+
+Shared-SPI busy is a deferred radio condition, not successful airtime. The
+radio task retains the front TX packet and retries it with bounded exponential
+backoff when the board reports SPI access busy. IRQ polling uses a zero-wait
+probe and must never block a frame-critical display operation. Queue buffers and
+RX scratch use PSRAM on PSRAM-capable targets.
+
+## Protocol Switch Lifecycle
+
+Changing MT/MC/RT is a runtime lifecycle transition, not a reboot contract.
+Before a backend is configured or installed, the radio and mesh tasks must
+cooperatively reach quiescent points outside board SPI calls and adapter work.
+Only then may the owner discard old-protocol TX/RX queues, configure the radio,
+install the backend, and switch Chat/Contacts active protocol projections.
+
+If quiescing or installation fails, the old protocol remains active and its
+configuration is reapplied. A task must never be force-suspended while it may
+hold a shared-SPI lock. Settings reports success/failure from this transition;
+it must not issue an unconditional software reset that makes a successful
+switch look like a crash.
 
 ## Reticulum Runtime Owner Budget
 

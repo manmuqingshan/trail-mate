@@ -565,6 +565,10 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
     {
         return false;
     }
+    if (!AppTasks::pauseRadioTasks())
+    {
+        return false;
+    }
 
     const chat::MeshProtocol previous_protocol = config_.mesh_protocol;
     config_.mesh_protocol = normalized;
@@ -587,6 +591,9 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
     if (!mesh_router_->installBackend(normalized, std::move(backend)))
     {
         config_.mesh_protocol = previous_protocol;
+        sync_reticulum_group_config(config_);
+        mesh_router_->applyConfig(config_.activeMeshConfig());
+        AppTasks::resumeRadioTasks();
         return false;
     }
 
@@ -603,6 +610,7 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
     {
         saveConfig();
     }
+    AppTasks::resumeRadioTasks();
     return true;
 }
 

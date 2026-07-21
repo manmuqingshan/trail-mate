@@ -17,6 +17,7 @@
 #include <cstdio>
 
 #define RADIOLIB_ERR_NONE 0
+#define RADIOLIB_ERR_SPI_WRITE_FAILED (-16)
 #define RADIOLIB_SX126X_IRQ_RX_DONE 0x0002U
 #define RADIOLIB_SX126X_IRQ_HEADER_ERR 0x0020U
 #define RADIOLIB_SX126X_IRQ_CRC_ERR 0x0040U
@@ -38,6 +39,7 @@ struct IdfSerialLogAdapter
 
 static constexpr IdfSerialLogAdapter Serial{};
 #endif
+#include <algorithm>
 #include <cstring>
 #include <esp_heap_caps.h>
 
@@ -68,6 +70,8 @@ constexpr uint32_t kMeshTaskStackBytes = 8 * 1024;
 constexpr uint32_t kRadioRxSummaryIntervalMs = 5000;
 constexpr uint32_t kRadioForegroundRxSummaryIntervalMs = 15000;
 constexpr uint32_t kRadioForegroundPostRxQuietMs = 120;
+constexpr uint32_t kRadioTxRetryInitialMs = 25;
+constexpr uint32_t kRadioTxRetryMaxMs = 400;
 
 struct RadioRxSummary
 {
@@ -108,6 +112,49 @@ bool radio_rx_quiet_window_active(uint32_t now_ms, uint32_t quiet_until_ms)
 {
     return quiet_until_ms != 0 &&
            static_cast<int32_t>(quiet_until_ms - now_ms) > 0;
+}
+
+bool deadline_reached(uint32_t now_ms, uint32_t deadline_ms)
+{
+    return deadline_ms == 0U ||
+           static_cast<int32_t>(now_ms - deadline_ms) >= 0;
+}
+
+uint32_t radio_tx_retry_delay_ms(uint8_t retry_count)
+{
+    const uint8_t shift = retry_count > 4U ? 4U : retry_count;
+    const uint32_t delay_ms = kRadioTxRetryInitialMs << shift;
+    return std::min(delay_ms, kRadioTxRetryMaxMs);
+}
+
+bool transient_radio_tx_failure(int state)
+{
+    return state == RADIOLIB_ERR_SPI_WRITE_FAILED;
+}
+
+void drain_radio_packet_queue(QueueHandle_t queue)
+{
+    if (!queue)
+    {
+        return;
+    }
+    AppTasks::RadioPacket packet{};
+    while (xQueueReceive(queue, &packet, 0) == pdPASS)
+    {
+        if (packet.data)
+        {
+            heap_caps_free(packet.data);
+        }
+    }
+}
+
+uint8_t* allocate_radio_packet_buffer(std::size_t size)
+{
+    const uint32_t caps =
+        heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0
+            ? MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+            : MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    return static_cast<uint8_t*>(heap_caps_malloc(size, caps));
 }
 
 uint32_t radio_rx_done_mask()
@@ -218,18 +265,33 @@ TaskHandle_t AppTasks::radio_task_handle_ = nullptr;
 TaskHandle_t AppTasks::mesh_task_handle_ = nullptr;
 LoraBoard* AppTasks::board_ = nullptr;
 chat::IMeshAdapter* AppTasks::adapter_ = nullptr;
-bool AppTasks::radio_tasks_paused_ = false;
+uint8_t* AppTasks::radio_rx_scratch_ = nullptr;
+volatile bool AppTasks::radio_tasks_paused_ = false;
 volatile bool AppTasks::radio_receive_active_ = false;
 volatile bool AppTasks::radio_receive_restart_pending_ = true;
 volatile bool AppTasks::radio_receive_suppressed_ = false;
 volatile bool AppTasks::radio_transmit_active_ = false;
+volatile bool AppTasks::radio_task_quiesced_ = false;
+volatile bool AppTasks::mesh_task_quiesced_ = false;
 
 bool AppTasks::init(LoraBoard& board, chat::IMeshAdapter* adapter)
 {
     board_ = &board;
     adapter_ = adapter;
+    radio_tasks_paused_ = false;
+    radio_task_quiesced_ = false;
+    mesh_task_quiesced_ = false;
     radio_receive_active_ = false;
     radio_receive_restart_pending_ = !radio_receive_suppressed_;
+    if (!radio_rx_scratch_)
+    {
+        radio_rx_scratch_ = allocate_radio_packet_buffer(255U);
+    }
+    if (!radio_rx_scratch_)
+    {
+        Serial.printf("[LORA] RX scratch allocation failed bytes=255\n");
+        return false;
+    }
 
     // Create queues
     radio_tx_queue_ = xQueueCreate(RADIO_QUEUE_SIZE, sizeof(RadioPacket));
@@ -267,36 +329,53 @@ bool AppTasks::init(LoraBoard& board, chat::IMeshAdapter* adapter)
     return (result == pdPASS);
 }
 
-void AppTasks::pauseRadioTasks()
+bool AppTasks::pauseRadioTasks(uint32_t timeout_ms)
 {
     if (radio_tasks_paused_)
     {
-        return;
+        return (radio_task_handle_ == nullptr || radio_task_quiesced_) &&
+               (mesh_task_handle_ == nullptr || mesh_task_quiesced_);
     }
+    const TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
+    if (current_task == radio_task_handle_ || current_task == mesh_task_handle_)
+    {
+        Serial.printf("[LORA] task quiesce rejected caller=owned_task\n");
+        return false;
+    }
+
     radio_tasks_paused_ = true;
     requestRadioReceiveRestart();
-
-    if (radio_task_handle_)
+    const uint32_t start_ms = millis();
+    while ((radio_task_handle_ != nullptr && !radio_task_quiesced_) ||
+           (mesh_task_handle_ != nullptr && !mesh_task_quiesced_))
     {
-        vTaskSuspend(radio_task_handle_);
-    }
-    if (mesh_task_handle_)
-    {
-        vTaskSuspend(mesh_task_handle_);
+        if (timeout_ms != 0U && millis() - start_ms >= timeout_ms)
+        {
+            radio_tasks_paused_ = false;
+            Serial.printf("[LORA] task quiesce timeout radio=%u mesh=%u wait_ms=%lu\n",
+                          radio_task_quiesced_ ? 1U : 0U,
+                          mesh_task_quiesced_ ? 1U : 0U,
+                          static_cast<unsigned long>(millis() - start_ms));
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 
     if (radio_tx_queue_)
     {
-        xQueueReset(radio_tx_queue_);
+        drain_radio_packet_queue(radio_tx_queue_);
     }
     if (radio_rx_queue_)
     {
-        xQueueReset(radio_rx_queue_);
+        drain_radio_packet_queue(radio_rx_queue_);
     }
     if (mesh_queue_)
     {
-        xQueueReset(mesh_queue_);
+        drain_radio_packet_queue(mesh_queue_);
     }
+    Serial.printf("[LORA] tasks quiesced wait_ms=%lu\n",
+                  static_cast<unsigned long>(millis() - start_ms));
+    return true;
 }
 
 void AppTasks::resumeRadioTasks()
@@ -307,14 +386,6 @@ void AppTasks::resumeRadioTasks()
     }
     radio_tasks_paused_ = false;
 
-    if (radio_task_handle_)
-    {
-        vTaskResume(radio_task_handle_);
-    }
-    if (mesh_task_handle_)
-    {
-        vTaskResume(mesh_task_handle_);
-    }
     requestRadioReceiveRestart();
 }
 
@@ -385,8 +456,7 @@ bool AppTasks::enqueueRadioTransmit(const uint8_t* data, size_t size)
         return false;
     }
 
-    uint8_t* copy = static_cast<uint8_t*>(
-        heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    uint8_t* copy = allocate_radio_packet_buffer(size);
     if (!copy)
     {
         return false;
@@ -397,6 +467,7 @@ bool AppTasks::enqueueRadioTransmit(const uint8_t* data, size_t size)
     packet.data = copy;
     packet.size = size;
     packet.is_tx = true;
+    packet.queued_ms = millis();
     if (xQueueSend(radio_tx_queue_, &packet, 0) != pdPASS)
     {
         heap_caps_free(copy);
@@ -422,7 +493,6 @@ void AppTasks::radioTask(void* pvParameters)
 {
     (void)pvParameters;
 
-    uint8_t rx_buffer[255];
     const uint32_t rx_done_mask = radio_rx_done_mask();
     const uint32_t terminal_irq_mask = radio_terminal_irq_mask();
     RadioRxSummary rx_summary{};
@@ -430,6 +500,14 @@ void AppTasks::radioTask(void* pvParameters)
 
     while (true)
     {
+        if (radio_tasks_paused_)
+        {
+            radio_task_quiesced_ = true;
+            vTaskDelay(pdMS_TO_TICKS(5));
+            continue;
+        }
+        radio_task_quiesced_ = false;
+
         if (::platform::ui::reticulum_call::realtime_mode_active())
         {
             requestRadioReceiveRestart();
@@ -439,6 +517,7 @@ void AppTasks::radioTask(void* pvParameters)
 
         bool should_restart_rx = radio_receive_restart_pending_;
         bool handled_tx = false;
+        bool deferred_tx = false;
 
         if (radio_transmit_active_)
         {
@@ -447,12 +526,19 @@ void AppTasks::radioTask(void* pvParameters)
         }
 
         // Process TX queue
-        RadioPacket tx_packet;
-        if (xQueueReceive(radio_tx_queue_, &tx_packet, 0) == pdPASS)
+        RadioPacket tx_packet{};
+        const uint32_t tx_now_ms = millis();
+        RadioPacket queued_packet{};
+        const bool tx_ready =
+            xQueuePeek(radio_tx_queue_, &queued_packet, 0) == pdPASS &&
+            deadline_reached(tx_now_ms, queued_packet.next_attempt_ms);
+        if (tx_ready &&
+            xQueueReceive(radio_tx_queue_, &tx_packet, 0) == pdPASS)
         {
             handled_tx = tx_packet.is_tx && tx_packet.data && tx_packet.size > 0;
             if (tx_packet.is_tx && tx_packet.data && tx_packet.size > 0)
             {
+                bool keep_packet = false;
                 // Send packet
                 if (board_ && board_->isRadioOnline())
                 {
@@ -462,6 +548,55 @@ void AppTasks::radioTask(void* pvParameters)
                     state = board_->transmitRadio(tx_packet.data, tx_packet.size);
                     setRadioTransmitActive(false);
                     LORA_LOG("[LORA] TX queue len=%u state=%d\n", (unsigned)tx_packet.size, state);
+                    if (transient_radio_tx_failure(state))
+                    {
+                        if (tx_packet.retry_count != UINT8_MAX)
+                        {
+                            ++tx_packet.retry_count;
+                        }
+                        tx_packet.next_attempt_ms =
+                            millis() + radio_tx_retry_delay_ms(tx_packet.retry_count);
+                        if (xQueueSendToFront(radio_tx_queue_, &tx_packet, 0) == pdPASS)
+                        {
+                            keep_packet = true;
+                            deferred_tx = true;
+                            LORA_LOG("[LORA] TX deferred len=%u state=%d retry=%u age_ms=%lu\n",
+                                     static_cast<unsigned>(tx_packet.size),
+                                     state,
+                                     static_cast<unsigned>(tx_packet.retry_count),
+                                     static_cast<unsigned long>(millis() - tx_packet.queued_ms));
+                            if (tx_packet.retry_count == 1U ||
+                                (tx_packet.retry_count % 16U) == 0U)
+                            {
+                                Serial.printf("[LORA] TX deferred reason=spi_busy len=%u retry=%u age_ms=%lu\n",
+                                              static_cast<unsigned>(tx_packet.size),
+                                              static_cast<unsigned>(tx_packet.retry_count),
+                                              static_cast<unsigned long>(millis() - tx_packet.queued_ms));
+                            }
+                        }
+                        else
+                        {
+                            Serial.printf("[LORA] TX retry queue lost len=%u state=%d retry=%u\n",
+                                          static_cast<unsigned>(tx_packet.size),
+                                          state,
+                                          static_cast<unsigned>(tx_packet.retry_count));
+                        }
+                    }
+                    else if (state == RADIOLIB_ERR_NONE &&
+                             tx_packet.retry_count != 0U)
+                    {
+                        Serial.printf("[LORA] TX recovered len=%u retries=%u age_ms=%lu\n",
+                                      static_cast<unsigned>(tx_packet.size),
+                                      static_cast<unsigned>(tx_packet.retry_count),
+                                      static_cast<unsigned long>(millis() - tx_packet.queued_ms));
+                    }
+                    else if (state != RADIOLIB_ERR_NONE)
+                    {
+                        Serial.printf("[LORA] TX failed len=%u state=%d age_ms=%lu\n",
+                                      static_cast<unsigned>(tx_packet.size),
+                                      state,
+                                      static_cast<unsigned long>(millis() - tx_packet.queued_ms));
+                    }
                     if (state == RADIOLIB_ERR_NONE && !radio_receive_suppressed_)
                     {
                         int rx_state = board_->startRadioReceive();
@@ -490,8 +625,18 @@ void AppTasks::radioTask(void* pvParameters)
                 {
                     LORA_LOG("[LORA] TX drop (radio offline) len=%u\n", (unsigned)tx_packet.size);
                 }
-                free(tx_packet.data);
+                if (!keep_packet)
+                {
+                    heap_caps_free(tx_packet.data);
+                }
             }
+        }
+
+        if (deferred_tx)
+        {
+            maybe_log_radio_rx_summary(rx_summary);
+            vTaskDelay(kRadioDisplayPressurePollDelay);
+            continue;
         }
 
         if (radio_receive_suppressed_)
@@ -548,14 +693,17 @@ void AppTasks::radioTask(void* pvParameters)
                 packet_length = static_cast<int>(board_->getRadioPacketLength(true));
                 if (packet_length > 0 && packet_length <= 255)
                 {
-                    int state = board_->readRadioData(rx_buffer, packet_length);
+                    int state = board_->readRadioData(radio_rx_scratch_, packet_length);
                     if (radio_read_state_has_payload(state))
                     {
                         RadioPacket rx_packet;
-                        rx_packet.data = (uint8_t*)malloc(packet_length);
+                        rx_packet.data =
+                            allocate_radio_packet_buffer(packet_length);
                         if (rx_packet.data)
                         {
-                            memcpy(rx_packet.data, rx_buffer, packet_length);
+                            memcpy(rx_packet.data,
+                                   radio_rx_scratch_,
+                                   packet_length);
                             rx_packet.size = packet_length;
                             rx_packet.is_tx = false;
                             rx_packet.rssi = board_->getRadioRSSI();
@@ -565,7 +713,7 @@ void AppTasks::radioTask(void* pvParameters)
                             rx_summary.bytes += static_cast<uint32_t>(packet_length);
                             if (xQueueSend(mesh_queue_, &rx_packet, 0) != pdPASS)
                             {
-                                free(rx_packet.data);
+                                heap_caps_free(rx_packet.data);
                                 ++rx_summary.queue_drops;
                             }
                         }
@@ -626,6 +774,14 @@ void AppTasks::meshTask(void* pvParameters)
 
     while (true)
     {
+        if (radio_tasks_paused_)
+        {
+            mesh_task_quiesced_ = true;
+            vTaskDelay(pdMS_TO_TICKS(5));
+            continue;
+        }
+        mesh_task_quiesced_ = false;
+
         // Process received packets
         RadioPacket rx_packet;
         if (::platform::ui::reticulum_call::realtime_mode_active())
@@ -634,7 +790,7 @@ void AppTasks::meshTask(void* pvParameters)
             {
                 if (rx_packet.data)
                 {
-                    free(rx_packet.data);
+                    heap_caps_free(rx_packet.data);
                 }
             }
             if (adapter_)
@@ -653,7 +809,7 @@ void AppTasks::meshTask(void* pvParameters)
                 adapter_->handleRawPacket(rx_packet.data, rx_packet.size);
 
                 // Free buffer
-                free(rx_packet.data);
+                heap_caps_free(rx_packet.data);
             }
         }
 
