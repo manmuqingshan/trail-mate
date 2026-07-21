@@ -816,6 +816,16 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_app_config_defaults_smoke
              COMMAND trailmate_app_config_defaults_smoke)
 
+    add_executable(trailmate_screen_brightness_steps_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_screen_brightness_steps.cpp")
+    target_include_directories(trailmate_screen_brightness_steps_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_screen_brightness_steps_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_screen_brightness_steps_smoke
+             COMMAND trailmate_screen_brightness_steps_smoke)
+
     # MinGW.org's libstdc++ is built without gthreads and does not expose
     # std::mutex. Linux and modern host toolchains exercise this runtime test.
     if(NOT MINGW)

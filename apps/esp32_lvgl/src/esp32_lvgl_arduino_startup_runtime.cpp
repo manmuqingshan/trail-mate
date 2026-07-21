@@ -10,6 +10,7 @@
 #include "platform/esp/arduino_common/display_runtime.h"
 #include "platform/esp/arduino_common/startup_support.h"
 #include "platform/esp/boards/board_runtime.h"
+#include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/settings_store.h"
 #include "ui/app_registry.h"
 #include "ui/app_runtime.h"
@@ -23,11 +24,9 @@ uint8_t readStartupBrightness()
 {
     const int saved = platform::ui::settings_store::get_int("settings", "screen_brightness",
                                                             DEVICE_MAX_BRIGHTNESS_LEVEL);
-    const int clamped =
-        saved < DEVICE_MIN_BRIGHTNESS_LEVEL
-            ? DEVICE_MIN_BRIGHTNESS_LEVEL
-            : (saved > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : saved);
-    return static_cast<uint8_t>(clamped);
+    return platform::ui::screen_brightness_steps::clampLevel(
+        saved,
+        DEVICE_MAX_BRIGHTNESS_LEVEL);
 }
 
 void applyStartupBrightness(const char* stage)

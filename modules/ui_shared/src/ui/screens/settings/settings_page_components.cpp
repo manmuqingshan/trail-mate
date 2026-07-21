@@ -24,6 +24,7 @@
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/firmware_update_runtime.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/settings_backup_runtime.h"
 #include "platform/ui/settings_store.h"
@@ -1059,20 +1060,11 @@ static void play_message_tone_preview()
     device_runtime::play_message_tone();
 }
 
-static constexpr int kScreenBrightnessMin = DEVICE_MIN_BRIGHTNESS_LEVEL;
 static constexpr int kScreenBrightnessMax = DEVICE_MAX_BRIGHTNESS_LEVEL;
 
 static int clamp_screen_brightness(int level)
 {
-    if (level < kScreenBrightnessMin)
-    {
-        return kScreenBrightnessMin;
-    }
-    if (level > kScreenBrightnessMax)
-    {
-        return kScreenBrightnessMax;
-    }
-    return level;
+    return platform::ui::screen_brightness_steps::clampLevel(level, kScreenBrightnessMax);
 }
 
 static void apply_track_recording_runtime(bool enabled)
@@ -4509,16 +4501,16 @@ static const settings::ui::SettingOption kScreenTimeoutOptions[] = {
 };
 
 static const settings::ui::SettingOption kScreenBrightnessOptions[] = {
-    {"10%", 2},
-    {"20%", 3},
-    {"30%", 5},
-    {"40%", 6},
-    {"50%", 8},
-    {"60%", 10},
-    {"70%", 11},
-    {"80%", 13},
-    {"90%", 14},
-    {"100%", 16},
+    {platform::ui::screen_brightness_steps::kStepLabels[0], platform::ui::screen_brightness_steps::levelForStep(0, kScreenBrightnessMax)},
+    {platform::ui::screen_brightness_steps::kStepLabels[1], platform::ui::screen_brightness_steps::levelForStep(1, kScreenBrightnessMax)},
+    {platform::ui::screen_brightness_steps::kStepLabels[2], platform::ui::screen_brightness_steps::levelForStep(2, kScreenBrightnessMax)},
+    {platform::ui::screen_brightness_steps::kStepLabels[3], platform::ui::screen_brightness_steps::levelForStep(3, kScreenBrightnessMax)},
+    {platform::ui::screen_brightness_steps::kStepLabels[4], platform::ui::screen_brightness_steps::levelForStep(4, kScreenBrightnessMax)},
+    {platform::ui::screen_brightness_steps::kStepLabels[5], platform::ui::screen_brightness_steps::levelForStep(5, kScreenBrightnessMax)},
+    {platform::ui::screen_brightness_steps::kStepLabels[6], platform::ui::screen_brightness_steps::levelForStep(6, kScreenBrightnessMax)},
+    {platform::ui::screen_brightness_steps::kStepLabels[7], platform::ui::screen_brightness_steps::levelForStep(7, kScreenBrightnessMax)},
+    {platform::ui::screen_brightness_steps::kStepLabels[8], platform::ui::screen_brightness_steps::levelForStep(8, kScreenBrightnessMax)},
+    {platform::ui::screen_brightness_steps::kStepLabels[9], platform::ui::screen_brightness_steps::levelForStep(9, kScreenBrightnessMax)},
 };
 
 static const settings::ui::SettingOption kSpeakerVolumeOptions[] = {

@@ -17,6 +17,7 @@
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "product_composition/target_ux_binding.h"
@@ -88,12 +89,11 @@ ui::startup_shell::Hooks buildShellHooks(const Esp32LvglRuntimeConfig& config)
     {
         const int saved = platform::ui::settings_store::get_int("settings", "screen_brightness",
                                                                 DEVICE_MAX_BRIGHTNESS_LEVEL);
-        const int clamped =
-            saved < DEVICE_MIN_BRIGHTNESS_LEVEL
-                ? DEVICE_MIN_BRIGHTNESS_LEVEL
-                : (saved > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : saved);
+        const uint8_t clamped = platform::ui::screen_brightness_steps::clampLevel(
+            saved,
+            DEVICE_MAX_BRIGHTNESS_LEVEL);
         (void)platform::esp::idf_common::bsp_runtime::wake_display();
-        platform::ui::device::set_screen_brightness(static_cast<uint8_t>(clamped));
+        platform::ui::device::set_screen_brightness(clamped);
     };
     return hooks;
 }

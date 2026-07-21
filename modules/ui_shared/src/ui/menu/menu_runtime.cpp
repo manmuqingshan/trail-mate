@@ -1,6 +1,5 @@
 #include "ui/menu/menu_runtime.h"
 
-#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -11,6 +10,7 @@
 
 #include "app/app_facade_access.h"
 #include "platform/ui/device_runtime.h"
+#include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/time_runtime.h"
 #include "platform/ui/walkie_runtime.h"
 #include "ui/components/shortcut_help_modal.h"
@@ -282,18 +282,9 @@ void openMenuHelpModal()
 uint8_t nextScreenBrightnessLevel()
 {
     const uint8_t max_level = platform::ui::device::screen_brightness_max();
-    if (max_level == 0)
-    {
-        return 0;
-    }
-
-    const uint8_t current = platform::ui::device::screen_brightness();
-    const uint8_t current_step = static_cast<uint8_t>(
-        std::min<unsigned>((static_cast<unsigned>(current) * 10U + (max_level / 2U)) / max_level,
-                           10U));
-    const uint8_t next_step = current_step >= 10U ? 1U : static_cast<uint8_t>(current_step + 1U);
-    return static_cast<uint8_t>(
-        (static_cast<unsigned>(next_step) * max_level + 5U) / 10U);
+    return platform::ui::screen_brightness_steps::nextLevel(
+        platform::ui::device::screen_brightness(),
+        max_level);
 }
 
 bool cycleScreenBrightness()

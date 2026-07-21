@@ -57,6 +57,11 @@ They must not depend on concrete implementations under `platform/esp/*`,
 - `screen_runtime.h`
   Screen timeout state, brightness-adjacent sleep policy, and user-activity
   lifecycle hooks.
+- `screen_brightness_steps.h`
+  Single source of truth for the user-visible 10%-100% brightness steps,
+  percentage-to-device-level rounding, minimum-level clamping, and shortcut
+  cycling. Settings, startup restore, and main-menu shortcuts must use this
+  policy instead of defining their own brightness tables or arithmetic.
 - `settings_store.h`
   Persistent key/value and blob storage for shared UI/runtime settings.
 - `settings_backup_runtime.h`
