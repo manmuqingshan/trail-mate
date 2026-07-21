@@ -1267,6 +1267,12 @@ bool loadAppConfigFromPreferences(AppConfig& config,
     {
         meshcore_config.meshcore_mqtt_port = 1883;
     }
+    if (meshcore_config.meshcore_mqtt_host[0] == '\0')
+    {
+        strncpy(meshcore_config.meshcore_mqtt_host, AppConfig::kDefaultMeshCoreMqttHost,
+                sizeof(meshcore_config.meshcore_mqtt_host) - 1);
+        meshcore_config.meshcore_mqtt_host[sizeof(meshcore_config.meshcore_mqtt_host) - 1] = '\0';
+    }
     if (meshcore_config.meshcore_mqtt_root[0] == '\0')
     {
         strncpy(meshcore_config.meshcore_mqtt_root, AppConfig::kDefaultMeshCoreMqttRoot,

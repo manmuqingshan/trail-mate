@@ -72,6 +72,12 @@ Trail Mate 当前嵌入式固件的大功能已经定型。未来范围由现有
 - 简单的面包屑轨迹记录，用于路径感知
 - 通过地图图层菜单可即时切换，无需离开当前页面
 
+#### 从地图查看节点信息
+
+![地图节点信息](docs/images/nodeinfo-1.png)
+
+可以直接在地图上选中已发现节点，在不离开态势视图的情况下查看节点所属协议、最后出现时间、缩放级别、坐标和周边离线地图环境。
+
 SD 卡瓦片目录结构示例：
 
 ```text
@@ -109,14 +115,15 @@ Energy Sweep 用于在野外快速观察 Sub-GHz 频段占用，辅助选频与�
 
 ### 📡 去中心化消息（Meshtastic / MeshCore / Reticulum）
 
-![message compose page](docs/images/screenshot_20260118_200651.png)
-
-![messages](docs/images/messages.png)
+| 会话界面 | Reticulum Peer |
+| --- | --- |
+| ![消息会话](docs/images/chat_conversion.png) | ![Reticulum Peer 详情](docs/images/reticulum-1.jpg) |
 
 消息页展示最近会话与历史，方便快速回看。
 
 - Meshtastic、MeshCore 与 Reticulum 三种可切换的产品协议
 - Reticulum 模式使用设备端 Reticulum/LXMF 运行时，可通过 LoRa、AutoInterface 或 TCP 网关等已配置接口传递消息
+- Reticulum Peer 详情展示 Display Name、LXMF Address 和 Identity Hash，便于核对与管理去中心化身份
 - 支持中文
 - 兼容 **Meshtastic 公共网络**（LongFast/PSK）
 - 兼容 **MeshCore 网络**（原生 MeshCore 报文链路）
@@ -125,6 +132,24 @@ Energy Sweep 用于在野外快速观察 Sub-GHz 频段占用，辅助选频与�
 - 联系人、会话与消息在设备端持久化；SD 卡是 Reticulum 网络配置和可编辑联系人目录的配置来源
 
 Reticulum 的 SD 卡配置格式、文件位置、联系人导入方式和设备操作，请参阅 [Reticulum 模式用户指南](https://github.com/vicliu624/trail-mate/wiki/3.5-Configuration-Guide-%28%E4%B8%AD%E6%96%87%29)。
+
+### ☁️ Mesh MQTT（Meshtastic / MeshCore）
+
+![Mesh MQTT 设置](docs/images/mt_mqtt-1.png)
+
+Trail Mate 可以在具备互联网或网关连接时，通过可配置的 MQTT Broker 桥接 Meshtastic 和 MeshCore 流量。两种协议分别拥有独立的启用、上行、下行、Host、Port、Root Topic 和认证设置。Meshtastic 使用其生态默认配置；MeshCore 默认保持关闭，但预置公共测试 Broker `test.mosquitto.org:1883` 和可编辑的 `meshcore` Root。公共 Broker 只适合评估和联调，野外及正式部署应改用私有或自行托管的 Broker。
+
+### 🌐 Nomad Network
+
+| Micron 页面渲染 | 引擎与链接语义 |
+| --- | --- |
+| ![Nomad Network 渲染 Micron 页面](docs/images/nomad-1.png) | ![Nomad Network Micron 链接](docs/images/nomad-2.png) |
+
+| 离线表单状态 | 兼容性诊断 |
+| --- | --- |
+| ![Nomad Network 离线表单](docs/images/nomad-3.png) | ![Nomad Network 兼容性诊断](docs/images/nomad-4.png) |
+
+Nomad Network 可以直接在设备上渲染 Reticulum Micron 页面。嵌入式浏览器支持可导航链接、受约束的布局原语、表单、缓存与离线就绪状态，并会明确展示不支持或未知 Micron 结构的兼容性诊断。它让小型信息服务能够通过 Reticulum 到达设备，而不依赖传统浏览器或公共互联网。
 
 ### 📷 SSTV 图片接收
 
@@ -155,6 +180,12 @@ PC Link 通过 USB CDC-ACM 与上位机连接，提供结构化 HostLink 数据�
 - 面向 APRS 网关/看板的扩展元数据
 - 具备确定性帧格式的传输协议
 
+### 🖥️ Trail Mate Center
+
+[Trail Mate Center](https://github.com/vicliu624/trail-mate-center) 是通过 USB HostLink 连接 Trail Mate 和 Meshtastic 兼容野外设备的桌面控制中心。它基于 Avalonia，把实时地图、节点、团队、事件流、消息、设备配置、会话回放、协议检查和数据导出整合在一个应用中。
+
+它还可以为移动存储介质准备离线 OSM、Terrain、Satellite 和等高线地图，围绕导入的 KML 路线生成缓冲缓存区域，并提供用于覆盖分析、干扰分析、中继选址、校准和结果导出的传播分析工作台。Trail Mate Center 在独立的桌面端仓库中维护，不包含嵌入式固件。
+
 ### 🤝 TAK / 组队模式（ESP-NOW 建队 + LoRa 运行）
 
 ![team join](docs/images/team_join.png)
@@ -173,13 +204,15 @@ PC Link 通过 USB CDC-ACM 与上位机连接，提供结构化 HostLink 数据�
 
 ### 🧭 轨迹记录与循迹
 
-![tracker](docs/images/tracker.png)
-
-![tracker](docs/images/tracker1.png)
+| 第一步：海拔与路线总览 | 第二步：航点图片预览 |
+| --- | --- |
+| ![路线海拔预览](docs/images/route-1.jpg) | ![路线航点图片预览](docs/images/route-2.jpg) |
 
 - 轨迹记录与保存（支持记录/路线模式）
 - 轨迹列表浏览与轨迹聚焦
 - 支持 KML 路线覆盖
+- 两步式路线预览：先查看完整海拔剖面，再逐页浏览带地理位置的远程图片及其在线路中的位置
+- 嵌入式屏幕会持续显示预览进度、已保存图片数量、距离和加载状态
 - GPX 轨迹可通过 USB 大容量存储导出
 
 ### 🎙️ Walkie Talkie 对讲

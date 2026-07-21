@@ -77,7 +77,7 @@ struct AppConfig
     static constexpr const char* kDefaultMeshtasticMqttUsername = "meshdev";
     static constexpr const char* kDefaultMeshtasticMqttPassword = "large4cats";
     static constexpr const char* kDefaultMeshtasticMqttRoot = "msh/CN";
-    static constexpr const char* kDefaultMeshCoreMqttHost = "";
+    static constexpr const char* kDefaultMeshCoreMqttHost = "test.mosquitto.org";
     static constexpr const char* kDefaultMeshCoreMqttRoot = "meshcore";
 #if defined(TRAIL_MATE_LORA_TX_POWER_MAX_DBM)
     // Board/module capability must be declared per build target.

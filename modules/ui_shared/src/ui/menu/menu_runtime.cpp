@@ -1,5 +1,6 @@
 #include "ui/menu/menu_runtime.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -287,16 +288,12 @@ uint8_t nextScreenBrightnessLevel()
     }
 
     const uint8_t current = platform::ui::device::screen_brightness();
-    const uint8_t low = max_level >= 4 ? static_cast<uint8_t>(max_level / 2U) : 1;
-    if (current == 0)
-    {
-        return low;
-    }
-    if (current < max_level)
-    {
-        return max_level;
-    }
-    return 0;
+    const uint8_t current_step = static_cast<uint8_t>(
+        std::min<unsigned>((static_cast<unsigned>(current) * 10U + (max_level / 2U)) / max_level,
+                           10U));
+    const uint8_t next_step = current_step >= 10U ? 1U : static_cast<uint8_t>(current_step + 1U);
+    return static_cast<uint8_t>(
+        (static_cast<unsigned>(next_step) * max_level + 5U) / 10U);
 }
 
 bool cycleScreenBrightness()

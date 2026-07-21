@@ -72,6 +72,12 @@ designed for fast navigation on a physical keyboard without deep menu nesting.
 * Simple breadcrumb trails for path awareness
 * Fast in-page layer switching via map layer menu (no page restart)
 
+#### Node inspection from the map
+
+![map node information](docs/images/nodeinfo-1.png)
+
+Select a discovered node directly on the map to inspect its protocol, last-seen state, zoom level, coordinates, and surrounding offline-map context without leaving the situational view.
+
 Expected SD card tile layout:
 
 ```text
@@ -109,14 +115,15 @@ Energy Sweep provides a fast Sub-GHz occupancy view for channel planning in the 
 
 ### 📡 Decentralized Messaging (Meshtastic / MeshCore / Reticulum)
 
-![message compose page](docs/images/screenshot_20260118_200651.png)
-
-![messages](docs/images/messages.png)
+| Conversation | Reticulum Peer |
+| --- | --- |
+| ![messages](docs/images/chat_conversion.png) | ![Reticulum peer details](docs/images/reticulum-1.jpg) |
 
 Messages view shows recent conversations and history for quick review.
 
 * Three selectable product protocols: Meshtastic, MeshCore, and Reticulum
 * Reticulum mode uses an on-device Reticulum/LXMF runtime and can carry traffic over configured LoRa, AutoInterface, or TCP gateway interfaces
+* Reticulum peer details expose the display name, LXMF address, and identity hash needed to verify and manage decentralized identities
 * Chinese text support
 * Compatible with the **Meshtastic public mesh** (LongFast/PSK)
 * Compatible with **MeshCore networks** (native MeshCore packet path)
@@ -125,6 +132,24 @@ Messages view shows recent conversations and history for quick review.
 * Contacts, conversations, and messages are persisted on-device; the SD card is the configuration source for Reticulum networking and its editable contact directory
 
 For the Reticulum SD-card format, file locations, contact import, and on-device operations, see the [Reticulum Mode User Guide](https://github.com/vicliu624/trail-mate/wiki/3.5-Configuration-Guide).
+
+### ☁️ Mesh MQTT (Meshtastic / MeshCore)
+
+![Mesh MQTT settings](docs/images/mt_mqtt-1.png)
+
+Trail Mate can bridge both Meshtastic and MeshCore traffic through a configurable MQTT broker when Internet or gateway connectivity is available. Each protocol has independent enable, uplink, downlink, host, port, root-topic, and credential settings. Meshtastic ships with its ecosystem defaults; MeshCore ships disabled with the public `test.mosquitto.org:1883` test broker and `meshcore` root as editable starter values. The public broker is intended for evaluation only—field and production deployments should use a private or self-hosted broker.
+
+### 🌐 Nomad Network
+
+| Micron Page Rendering | Engine & Link Semantics |
+| --- | --- |
+| ![Nomad Network rendered Micron page](docs/images/nomad-1.png) | ![Nomad Network Micron links](docs/images/nomad-2.png) |
+
+| Offline Form State | Compatibility Diagnostics |
+| --- | --- |
+| ![Nomad Network offline form](docs/images/nomad-3.png) | ![Nomad Network compatibility diagnostics](docs/images/nomad-4.png) |
+
+Nomad Network renders Reticulum Micron pages directly on the device. The embedded browser supports navigable links, constrained layout primitives, forms, cached/offline-ready state, and visible compatibility diagnostics for unsupported or unknown Micron constructs. It keeps small information services reachable over Reticulum without depending on a conventional web browser or the public Internet.
 
 ### 📷 SSTV Receiver (Slow-Scan TV)
 
@@ -155,6 +180,12 @@ for real-time APRS/iGate integration, diagnostics, and data capture.
 * APRS-oriented metadata for external gateways and dashboards
 * USB CDC-ACM transport with deterministic framing
 
+### 🖥️ Trail Mate Center
+
+[Trail Mate Center](https://github.com/vicliu624/trail-mate-center) is the desktop-side control center for Trail Mate and Meshtastic-compatible field devices connected through USB HostLink. Its Avalonia interface combines live maps, nodes, teams, event streams, messaging, device configuration, replay, protocol inspection, and data export in one application.
+
+It also prepares offline OSM, terrain, satellite, and contour-map regions for removable media; can build a buffered cache around imported KML routes; and provides a propagation workbench for coverage, interference, relay placement, calibration, and result export. Trail Mate Center is maintained as a separate desktop repository and does not contain the embedded firmware.
+
 ### 🤝 TAK / Team Mode (ESP-NOW Pairing + LoRa Ops)
 
 ![team join](docs/images/team_join.png)
@@ -174,13 +205,15 @@ then all team operations run over LoRa.
 
 ### 🧭 Track Recording & Route Following
 
-![tracker](docs/images/tracker.png)
-
-![tracker](docs/images/tracker1.png)
+| Step 1 — Elevation & Route Overview | Step 2 — Waypoint Image Preview |
+| --- | --- |
+| ![route elevation preview](docs/images/route-1.jpg) | ![route waypoint image preview](docs/images/route-2.jpg) |
 
 * Track recording and storage (record/route modes)
 * Track list browsing and route focus
 * KML route overlay support
+* Two-stage route preview: inspect the full elevation profile first, then page through georeferenced remote images and their positions along the route
+* Route preview progress, saved-image counts, distance, and load state remain visible on the embedded display
 * GPX tracks exportable via USB Mass Storage
 
 ### 🎙️ Walkie Talkie

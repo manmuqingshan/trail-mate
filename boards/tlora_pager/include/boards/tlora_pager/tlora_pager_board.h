@@ -522,4 +522,4 @@ extern BoardBase& board;
 } // namespace boards::tlora_pager
 
 #define DEVICE_MAX_BRIGHTNESS_LEVEL 16
-#define DEVICE_MIN_BRIGHTNESS_LEVEL 0
+#define DEVICE_MIN_BRIGHTNESS_LEVEL 2

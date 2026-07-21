@@ -4509,12 +4509,15 @@ static const settings::ui::SettingOption kScreenTimeoutOptions[] = {
 };
 
 static const settings::ui::SettingOption kScreenBrightnessOptions[] = {
-#if DEVICE_MIN_BRIGHTNESS_LEVEL <= 0
-    {"OFF", 0},
-#endif
-    {"25%", 4},
+    {"10%", 2},
+    {"20%", 3},
+    {"30%", 5},
+    {"40%", 6},
     {"50%", 8},
-    {"75%", 12},
+    {"60%", 10},
+    {"70%", 11},
+    {"80%", 13},
+    {"90%", 14},
     {"100%", 16},
 };
 
