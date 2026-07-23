@@ -98,11 +98,11 @@ struct ContactsPageState
     bool focused_filter_mode_valid = false;
 
     // Data (using forward declaration, full type in .cpp)
-    std::vector<chat::contacts::NodeInfo> contacts_list;
-    std::vector<chat::contacts::NodeInfo> nearby_list;
-    std::vector<chat::contacts::NodeInfo> reticulum_group_list;
-    std::vector<chat::contacts::NodeInfo> ignored_list;
-    std::vector<chat::contacts::NodeInfo> display_list;
+    std::vector<chat::contacts::PeerDirectoryItem> contacts_list;
+    std::vector<chat::contacts::PeerDirectoryItem> nearby_list;
+    std::vector<chat::contacts::PeerDirectoryItem> reticulum_group_list;
+    std::vector<chat::contacts::PeerDirectoryItem> ignored_list;
+    std::vector<chat::contacts::PeerDirectoryItem> display_list;
     char search_query[32] = {};
 
     // Timers

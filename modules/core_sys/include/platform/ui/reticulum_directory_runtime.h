@@ -84,6 +84,7 @@ struct LxmfAddressRecord
 const char* announces_path();
 const char* lxmf_addresses_path();
 
+chat::IMeshPeerDirectory& mesh_peer_directory();
 void bind_mesh_peer_directory(chat::IMeshPeerDirectory* directory);
 
 Status record_announce(const AnnounceRecord& record);

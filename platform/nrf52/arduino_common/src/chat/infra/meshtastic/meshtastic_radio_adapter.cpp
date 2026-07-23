@@ -453,11 +453,9 @@ uint32_t nowSeconds()
 } // namespace
 
 MeshtasticRadioAdapter::MeshtasticRadioAdapter(const ::chat::runtime::SelfIdentityProvider* identity_provider,
-                                               NodeStore* node_store,
                                                ::chat::contacts::ContactService* contact_service)
     : node_id_(device_identity::getSelfNodeId()),
       identity_provider_(identity_provider),
-      node_store_(node_store),
       contact_service_(contact_service)
 {
     randomSeed(static_cast<unsigned long>(NRF_FICR->DEVICEADDR[0] ^ NRF_FICR->DEVICEADDR[1] ^ micros()));
@@ -1205,16 +1203,12 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
         {
             contact_service_->applyNodeUpdate(node_id, update);
         }
-        else if (node_store_)
-        {
-            node_store_->applyUpdate(node_id, update);
-        }
     };
 
     if (decoded_ok &&
         ::chat::meshtastic::isNodeMetadataPayload(decoded.portnum) &&
         decoded.payload.size > 0 &&
-        (node_store_ || contact_service_))
+        contact_service_)
     {
         ::chat::meshtastic::NodePayloadDecodeContext context{};
         context.fallback_node_id = header.from;
@@ -1240,6 +1234,28 @@ void MeshtasticRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                         savePkiNodeKey(node.node_id,
                                        node.public_key.data(),
                                        node.public_key.size());
+                        if (contact_service_ &&
+                            node.public_key.size() ==
+                                ::chat::kMeshPeerMeshtasticPublicKeyLen)
+                        {
+                            peer_record_scratch_ = {};
+                            peer_record_scratch_.valid = true;
+                            peer_record_scratch_.identity =
+                                ::chat::makeMeshPeerNodeIdentity(
+                                    ::chat::MeshProtocol::Meshtastic,
+                                    node.node_id);
+                            peer_record_scratch_.source =
+                                ::chat::MeshPeerSource::RuntimeRx;
+                            peer_record_scratch_.last_seen_s = nowSeconds();
+                            peer_record_scratch_.meshtastic.has_public_key =
+                                true;
+                            std::memcpy(
+                                peer_record_scratch_.meshtastic.public_key,
+                                node.public_key.data(),
+                                ::chat::kMeshPeerMeshtasticPublicKeyLen);
+                            (void)contact_service_->recordPeer(
+                                peer_record_scratch_);
+                        }
                     }
                 }
                 maybeBroadcastNodeInfoAfterPeerAnnouncement(node.node_id,
@@ -1575,9 +1591,10 @@ void MeshtasticRadioAdapter::processSendQueue()
                                   pending.channel_hash,
                                   nullptr);
             }
-            if (node_store_ && pending.dest != 0 && pending.dest != kBroadcastNode)
+            if (contact_service_ && pending.dest != 0 &&
+                pending.dest != kBroadcastNode)
             {
-                node_store_->setNextHop(pending.dest, 0, nowSeconds());
+                contact_service_->setNextHop(pending.dest, 0);
             }
             pending_retransmits_.eraseAt(index);
             continue;
@@ -1593,9 +1610,10 @@ void MeshtasticRadioAdapter::processSendQueue()
         {
             header->next_hop = 0;
             pending.fallback_sent = true;
-            if (node_store_ && pending.dest != 0 && pending.dest != kBroadcastNode)
+            if (contact_service_ && pending.dest != 0 &&
+                pending.dest != kBroadcastNode)
             {
-                node_store_->setNextHop(pending.dest, 0, nowSeconds());
+                contact_service_->setNextHop(pending.dest, 0);
             }
         }
 
@@ -2191,12 +2209,12 @@ uint8_t MeshtasticRadioAdapter::ourRelayId() const
 
 uint8_t MeshtasticRadioAdapter::getLearnedNextHop(::chat::NodeId dest, uint8_t relay_node) const
 {
-    if (!node_store_ || dest == 0 || dest == kBroadcastNode)
+    if (!contact_service_ || dest == 0 || dest == kBroadcastNode)
     {
         return 0;
     }
 
-    const uint8_t next_hop = node_store_->getNextHop(dest);
+    const uint8_t next_hop = contact_service_->getNextHop(dest);
     if (next_hop == 0 || next_hop == relay_node)
     {
         return 0;
@@ -2206,11 +2224,12 @@ uint8_t MeshtasticRadioAdapter::getLearnedNextHop(::chat::NodeId dest, uint8_t r
 
 void MeshtasticRadioAdapter::learnNextHop(::chat::NodeId dest, uint8_t next_hop)
 {
-    if (!node_store_ || dest == 0 || dest == kBroadcastNode || next_hop == 0 || next_hop == ourRelayId())
+    if (!contact_service_ || dest == 0 || dest == kBroadcastNode ||
+        next_hop == 0 || next_hop == ourRelayId())
     {
         return;
     }
-    (void)node_store_->setNextHop(dest, next_hop, nowSeconds());
+    (void)contact_service_->setNextHop(dest, next_hop);
 }
 
 MeshtasticRadioAdapter::PacketHistoryEntry* MeshtasticRadioAdapter::findHistory(::chat::NodeId sender, ::chat::MessageId packet_id)
@@ -2382,7 +2401,7 @@ bool MeshtasticRadioAdapter::maybeRebroadcast(const ::chat::meshtastic::PacketHe
 
 void MeshtasticRadioAdapter::updateNodeLastSeen(::chat::NodeId node_id, uint8_t hops_away, ::chat::ChannelId channel)
 {
-    if (node_id == 0 || node_id == node_id_ || (!node_store_ && !contact_service_))
+    if (node_id == 0 || node_id == node_id_ || !contact_service_)
     {
         return;
     }
@@ -2405,12 +2424,7 @@ void MeshtasticRadioAdapter::updateNodeLastSeen(::chat::NodeId node_id, uint8_t 
     update.has_channel = true;
     update.channel = static_cast<uint8_t>(channel);
 
-    if (contact_service_)
-    {
-        contact_service_->applyNodeUpdate(node_id, update);
-        return;
-    }
-    node_store_->applyUpdate(node_id, update);
+    contact_service_->applyNodeUpdate(node_id, update);
 }
 
 void MeshtasticRadioAdapter::handleRoutingPacket(const ::chat::meshtastic::PacketHeaderWire& header,
@@ -2459,9 +2473,9 @@ void MeshtasticRadioAdapter::handleRoutingPacket(const ::chat::meshtastic::Packe
         }
         else if (reason == meshtastic_Routing_Error_GOT_NAK || reason == meshtastic_Routing_Error_NO_ROUTE)
         {
-            if (node_store_)
+            if (contact_service_)
             {
-                node_store_->setNextHop(header.from, 0, nowSeconds());
+                contact_service_->setNextHop(header.from, 0);
             }
         }
 

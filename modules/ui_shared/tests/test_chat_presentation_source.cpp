@@ -1,6 +1,7 @@
 #include "chat/delivery/chat_delivery_message_projection.h"
 #include "chat/delivery/chat_delivery_read_model.h"
 #include "chat/domain/chat_model.h"
+#include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/infra/store/ram_store.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
@@ -92,142 +93,29 @@ class FakeMeshAdapter final : public ::chat::IMeshAdapter
     std::deque<::chat::MeshIncomingText> incoming;
 };
 
-class FakeNodeStore final : public ::chat::contacts::INodeStore
+class MemoryPeerDirectoryBlobStore final
+    : public ::chat::IMeshPeerDirectoryBlobStore
 {
   public:
-    void begin() override {}
-
-    void applyUpdate(uint32_t node_id,
-                     const ::chat::contacts::NodeUpdate& update) override
+    ::chat::MeshPeerDirectoryBlobLoadResult loadBlob(
+        std::vector<uint8_t>& out) override
     {
-        auto* entry = findOrCreate(node_id);
-        if (update.short_name != nullptr)
-        {
-            std::snprintf(entry->short_name,
-                          sizeof(entry->short_name),
-                          "%s",
-                          update.short_name);
-        }
-        if (update.long_name != nullptr)
-        {
-            std::snprintf(entry->long_name,
-                          sizeof(entry->long_name),
-                          "%s",
-                          update.long_name);
-        }
-        if (update.has_last_seen)
-        {
-            entry->last_seen = update.last_seen;
-        }
-        if (update.has_protocol)
-        {
-            entry->protocol = update.protocol;
-        }
-        if (update.reticulum_identity.valid)
-        {
-            entry->reticulum_identity = update.reticulum_identity;
-        }
-        if (update.has_position)
-        {
-            updatePosition(node_id, update.position);
-        }
+        out = bytes_;
+        return bytes_.empty()
+                   ? ::chat::MeshPeerDirectoryBlobLoadResult::Missing
+                   : ::chat::MeshPeerDirectoryBlobLoadResult::Loaded;
     }
 
-    void upsert(uint32_t node_id,
-                const char* short_name,
-                const char* long_name,
-                uint32_t now_secs,
-                float snr = 0.0f,
-                float rssi = 0.0f,
-                uint8_t protocol = 0,
-                uint8_t role = ::chat::contacts::kNodeRoleUnknown,
-                uint8_t hops_away = 0xFF,
-                uint8_t hw_model = 0,
-                uint8_t channel = 0xFF) override
+    bool saveBlob(const uint8_t* data, std::size_t len) override
     {
-        (void)snr;
-        (void)rssi;
-        (void)protocol;
-        (void)role;
-        (void)hops_away;
-        (void)hw_model;
-        (void)channel;
-        auto* entry = findOrCreate(node_id);
-        std::snprintf(entry->short_name,
-                      sizeof(entry->short_name),
-                      "%s",
-                      short_name ? short_name : "");
-        std::snprintf(entry->long_name,
-                      sizeof(entry->long_name),
-                      "%s",
-                      long_name ? long_name : "");
-        entry->last_seen = now_secs;
+        bytes_.assign(data, data + len);
+        return true;
     }
 
-    void updateProtocol(uint32_t, uint8_t, uint32_t) override {}
-
-    void updatePosition(uint32_t node_id,
-                        const ::chat::contacts::NodePosition& position) override
-    {
-        auto* entry = findOrCreate(node_id);
-        entry->position_valid = position.valid;
-        entry->position_latitude_i = position.latitude_i;
-        entry->position_longitude_i = position.longitude_i;
-        entry->position_has_altitude = position.has_altitude;
-        entry->position_altitude = position.altitude;
-        entry->position_timestamp = position.timestamp;
-    }
-
-    bool remove(uint32_t node_id) override
-    {
-        for (auto it = entries.begin(); it != entries.end(); ++it)
-        {
-            if (it->node_id == node_id)
-            {
-                entries.erase(it);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    const std::vector<::chat::contacts::NodeEntry>& getEntries() const override
-    {
-        return entries;
-    }
-
-    void clear() override { entries.clear(); }
-    bool flush() override { return true; }
+    void clearBlob() override { bytes_.clear(); }
 
   private:
-    ::chat::contacts::NodeEntry* findOrCreate(uint32_t node_id)
-    {
-        for (auto& entry : entries)
-        {
-            if (entry.node_id == node_id)
-            {
-                return &entry;
-            }
-        }
-        ::chat::contacts::NodeEntry entry{};
-        entry.node_id = node_id;
-        entries.push_back(entry);
-        return &entries.back();
-    }
-
-    std::vector<::chat::contacts::NodeEntry> entries;
-};
-
-class FakeContactStore final : public ::chat::contacts::IContactStore
-{
-  public:
-    void begin() override {}
-    std::string getNickname(uint32_t) const override { return {}; }
-    bool setNickname(uint32_t, const char*) override { return false; }
-    bool removeNickname(uint32_t) override { return false; }
-    bool hasNickname(const char*) const override { return false; }
-    std::vector<uint32_t> getAllContactIds() const override { return {}; }
-    size_t getCount() const override { return 0; }
+    std::vector<uint8_t> bytes_{};
 };
 
 class PagingStore final : public ::chat::IChatStore
@@ -515,9 +403,10 @@ int main()
     ::chat::RamStore store;
     ::chat::ChatService service(model, mesh, store);
     ::chat::delivery::ChatDeliveryReadModel delivery_read_model;
-    FakeNodeStore node_store;
-    FakeContactStore contact_store;
-    ::chat::contacts::ContactService contacts(node_store, contact_store);
+    MemoryPeerDirectoryBlobStore peer_blob_store;
+    ::chat::MeshPeerDirectoryCore peer_directory(peer_blob_store);
+    ::chat::contacts::ContactService contacts(peer_directory);
+    contacts.begin();
     setNodePosition(contacts, mesh.self_node_id, 312345678, 1219876543);
     setNodePosition(contacts, 1234, 313000000, 1220000000);
     contacts.updateNodeInfo(1234,
@@ -732,10 +621,12 @@ int main()
     assert(snapshot.message_total_count == 25);
     assert(!snapshot.has_newer_messages);
     assert(snapshot.has_older_messages);
-    assert(std::strcmp(snapshot.messages[0].text.c_str(), "page-6") == 0);
-    assert(std::strcmp(snapshot.messages[19].text.c_str(), "page-25") == 0);
+    assert(std::strcmp(snapshot.messages[0].text.c_str(), "page-16") == 0);
+    assert(std::strcmp(snapshot.messages[snapshot.message_count - 1].text.c_str(),
+                       "page-25") == 0);
 
-    paging_request.message_offset = ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
+    paging_request.message_offset =
+        2U * ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
     assert(paging_source.buildChatWorkspaceSnapshot(paging_request, snapshot));
     assert(snapshot.message_count == 5);
     assert(snapshot.message_total_count == 25);

@@ -190,13 +190,13 @@ static void format_reticulum_hash_text(const uint8_t* hash, char* out, size_t ou
     out[chat::kReticulumPeerHashSize * 2U] = '\0';
 }
 
-static bool is_reticulum_node(const chat::contacts::NodeInfo& node)
+static bool is_reticulum_node(const chat::contacts::PeerDirectoryItem& node)
 {
     return node.protocol == chat::contacts::NodeProtocolType::Reticulum ||
            chat::hasReticulumDestinationIdentity(node.reticulum_identity);
 }
 
-static std::string node_display_name_for_contacts(const chat::contacts::NodeInfo& node)
+static std::string node_display_name_for_contacts(const chat::contacts::PeerDirectoryItem& node)
 {
     return contacts::ui::layout::preferred_node_display_name(node);
 }
@@ -281,9 +281,9 @@ static void on_lxmf_address_cancel(void* user_data);
 static void apply_filter_panel_visibility();
 static void toggle_filter_panel_visibility();
 static void contacts_handle_page_shortcut(lv_event_t* event);
-static const chat::contacts::NodeInfo* get_selected_node();
-static const chat::contacts::NodeInfo* get_selected_reticulum_group();
-static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id);
+static const chat::contacts::PeerDirectoryItem* get_selected_node();
+static const chat::contacts::PeerDirectoryItem* get_selected_reticulum_group();
+static const chat::contacts::PeerDirectoryItem* find_node_by_id(uint32_t node_id);
 struct BroadcastTargetSpec;
 static bool get_selected_broadcast_target(BroadcastTargetSpec* out_spec,
                                           std::string* out_title);
@@ -291,7 +291,7 @@ static void open_add_edit_modal(bool is_edit);
 static void open_reticulum_group_config_modal();
 static void open_delete_confirm_modal();
 static void open_node_info_screen_for_node(uint32_t node_id);
-static void open_reticulum_node_info_screen(const chat::contacts::NodeInfo& node,
+static void open_reticulum_node_info_screen(const chat::contacts::PeerDirectoryItem& node,
                                             lv_obj_t* parent);
 static void close_node_info_screen();
 static void modal_close(lv_obj_t*& modal_obj);
@@ -1105,7 +1105,7 @@ static bool contains_ci(const char* text, const char* query)
     return false;
 }
 
-static bool node_matches_search(const chat::contacts::NodeInfo& node)
+static bool node_matches_search(const chat::contacts::PeerDirectoryItem& node)
 {
     if (!search_active())
     {
@@ -1133,7 +1133,7 @@ static bool node_matches_search(const chat::contacts::NodeInfo& node)
            contains_ci(identity_hash, query);
 }
 
-static void build_display_list(const std::vector<chat::contacts::NodeInfo>& source)
+static void build_display_list(const std::vector<chat::contacts::PeerDirectoryItem>& source)
 {
     g_contacts_state.display_list.clear();
     g_contacts_state.display_list.reserve(source.size());
@@ -1151,7 +1151,7 @@ static bool use_search_display_list_for_mode(ContactsMode mode)
     return search_active() && is_searchable_contacts_mode(mode);
 }
 
-static const std::vector<chat::contacts::NodeInfo>* raw_list_for_mode(ContactsMode mode)
+static const std::vector<chat::contacts::PeerDirectoryItem>* raw_list_for_mode(ContactsMode mode)
 {
     switch (mode)
     {
@@ -1169,7 +1169,7 @@ static const std::vector<chat::contacts::NodeInfo>* raw_list_for_mode(ContactsMo
     return nullptr;
 }
 
-static const std::vector<chat::contacts::NodeInfo>* selectable_list_for_mode(
+static const std::vector<chat::contacts::PeerDirectoryItem>* selectable_list_for_mode(
     ContactsMode mode)
 {
     if (use_search_display_list_for_mode(mode))
@@ -1491,7 +1491,7 @@ static void on_back_clicked(lv_event_t* /*e*/)
     contacts_focus_to_filter();
 }
 
-static const chat::contacts::NodeInfo* get_selected_node()
+static const chat::contacts::PeerDirectoryItem* get_selected_node()
 {
     if (g_contacts_state.current_mode == ContactsMode::Broadcast ||
         g_contacts_state.current_mode == ContactsMode::Team ||
@@ -1514,7 +1514,7 @@ static const chat::contacts::NodeInfo* get_selected_node()
     return &(*list)[g_contacts_state.selected_index];
 }
 
-static const chat::contacts::NodeInfo* get_selected_reticulum_group()
+static const chat::contacts::PeerDirectoryItem* get_selected_reticulum_group()
 {
     if (g_contacts_state.current_mode != ContactsMode::Groups ||
         g_contacts_state.selected_index < 0)
@@ -1530,7 +1530,7 @@ static const chat::contacts::NodeInfo* get_selected_reticulum_group()
     return &(*list)[g_contacts_state.selected_index];
 }
 
-static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id)
+static const chat::contacts::PeerDirectoryItem* find_node_by_id(uint32_t node_id)
 {
     for (const auto& node : g_contacts_state.contacts_list)
     {
@@ -1574,8 +1574,8 @@ static bool reticulum_identity_hash_present(
 }
 
 static void merge_reticulum_projection_for_details(
-    chat::contacts::NodeInfo& target,
-    const chat::contacts::NodeInfo& projection)
+    chat::contacts::PeerDirectoryItem& target,
+    const chat::contacts::PeerDirectoryItem& projection)
 {
     if (!is_reticulum_node(projection))
     {
@@ -1820,7 +1820,7 @@ static void on_lxmf_address_apply(const char* text, void* /*user_data*/)
         node_id = chat::reticulum::nodeIdFromDestinationHash(identity.destination_hash);
     }
 
-    const chat::contacts::NodeInfo* existing_node = find_node_by_id(node_id);
+    const chat::contacts::PeerDirectoryItem* existing_node = find_node_by_id(node_id);
     char short_name[10] = {};
     char nickname[13] = {};
     char generated_nickname[13] = {};
@@ -2367,7 +2367,7 @@ static void add_reticulum_detail_row(lv_obj_t* parent,
     lv_label_set_long_mode(value, LV_LABEL_LONG_WRAP);
 }
 
-static const char* reticulum_node_status_text(const chat::contacts::NodeInfo& node,
+static const char* reticulum_node_status_text(const chat::contacts::PeerDirectoryItem& node,
                                               char* out,
                                               size_t out_len)
 {
@@ -2385,7 +2385,7 @@ static const char* reticulum_node_status_text(const chat::contacts::NodeInfo& no
     return out;
 }
 
-static const char* reticulum_link_text(const chat::contacts::NodeInfo& node,
+static const char* reticulum_link_text(const chat::contacts::PeerDirectoryItem& node,
                                        char* out,
                                        size_t out_len)
 {
@@ -2422,7 +2422,7 @@ static void reticulum_node_info_back_requested(void*)
     close_node_info_screen();
 }
 
-static void open_reticulum_node_info_screen(const chat::contacts::NodeInfo& node,
+static void open_reticulum_node_info_screen(const chat::contacts::PeerDirectoryItem& node,
                                             lv_obj_t* parent)
 {
     if (!parent)
@@ -2554,10 +2554,10 @@ static void open_node_info_screen_for_node(uint32_t node_id)
         return;
     }
 
-    const chat::contacts::NodeInfo* node = find_node_by_id(node_id);
+    const chat::contacts::PeerDirectoryItem* node = find_node_by_id(node_id);
     if (!node && g_contacts_state.contact_service)
     {
-        node = g_contacts_state.contact_service->getNodeInfo(node_id);
+        node = g_contacts_state.contact_service->getPeerByNodeId(node_id);
     }
     if (!node)
     {
@@ -2587,10 +2587,10 @@ static void open_node_info_screen_for_node(uint32_t node_id)
                            static_cast<int>(lv_obj_get_height(parent)),
                            lv_obj_has_flag(parent, LV_OBJ_FLAG_HIDDEN) ? 1 : 0);
 
-    chat::contacts::NodeInfo detail_info = *node;
+    chat::contacts::PeerDirectoryItem detail_info = *node;
     if (g_contacts_state.contact_service)
     {
-        const auto* latest = g_contacts_state.contact_service->getNodeInfo(node->node_id);
+        const auto* latest = g_contacts_state.contact_service->getPeerByNodeId(node->node_id);
         if (latest)
         {
             detail_info = *latest;
@@ -3911,7 +3911,7 @@ static const char* reticulum_call_failure_message(const chat::MeshActionResult& 
     return "Call failed";
 }
 
-static bool selected_node_supports_reticulum_call(const chat::contacts::NodeInfo* node)
+static bool selected_node_supports_reticulum_call(const chat::contacts::PeerDirectoryItem* node)
 {
     if (!node || chat_support::active_mesh_protocol() != chat::MeshProtocol::Reticulum)
     {
@@ -3927,7 +3927,7 @@ static bool selected_node_supports_reticulum_call(const chat::contacts::NodeInfo
            chat::hasReticulumDestinationIdentity(node->reticulum_identity);
 }
 
-static bool selected_node_supports_reticulum_ping(const chat::contacts::NodeInfo* node)
+static bool selected_node_supports_reticulum_ping(const chat::contacts::PeerDirectoryItem* node)
 {
     if (!node || chat_support::active_mesh_protocol() != chat::MeshProtocol::Reticulum)
     {
@@ -4125,7 +4125,7 @@ static void open_action_menu_modal()
         return;
     }
 
-    const chat::contacts::NodeInfo* node = get_selected_node();
+    const chat::contacts::PeerDirectoryItem* node = get_selected_node();
     const bool show_ignore = (node != nullptr) &&
                              (g_contacts_state.current_mode == ContactsMode::Contacts ||
                               g_contacts_state.current_mode == ContactsMode::Nearby);
@@ -4445,10 +4445,10 @@ void refresh_ui()
     }
     g_contacts_state.list_items.clear();
     // Choose list by mode (unchanged)
-    std::vector<chat::contacts::NodeInfo> broadcast_list;
-    std::vector<chat::contacts::NodeInfo> team_list;
-    std::vector<chat::contacts::NodeInfo> discover_list;
-    const std::vector<chat::contacts::NodeInfo>* current_list = nullptr;
+    std::vector<chat::contacts::PeerDirectoryItem> broadcast_list;
+    std::vector<chat::contacts::PeerDirectoryItem> team_list;
+    std::vector<chat::contacts::PeerDirectoryItem> discover_list;
+    const std::vector<chat::contacts::PeerDirectoryItem>* current_list = nullptr;
     if (g_contacts_state.current_mode == ContactsMode::Contacts)
     {
         current_list = &g_contacts_state.contacts_list;
@@ -4469,7 +4469,7 @@ void refresh_ui()
     {
         contacts::ui::ContactsTeamSnapshot team_snapshot;
         (void)load_contacts_team_snapshot(team_snapshot);
-        chat::contacts::NodeInfo team_node{};
+        chat::contacts::PeerDirectoryItem team_node{};
         team_node.node_id = 0;
         team_node.last_seen = 0;
         team_node.snr = 0.0f;
@@ -4485,7 +4485,7 @@ void refresh_ui()
     {
         for (size_t i = 0; i < (sizeof(kDiscoveryActionSpecs) / sizeof(kDiscoveryActionSpecs[0])); ++i)
         {
-            chat::contacts::NodeInfo item{};
+            chat::contacts::PeerDirectoryItem item{};
             item.node_id = static_cast<uint32_t>(i + 1);
             item.display_name = ::ui::i18n::tr(kDiscoveryActionSpecs[i].label);
             item.protocol = chat::contacts::NodeProtocolType::MeshCore;
@@ -4503,7 +4503,7 @@ void refresh_ui()
             {
                 continue;
             }
-            chat::contacts::NodeInfo target{};
+            chat::contacts::PeerDirectoryItem target{};
             target.display_name = format_broadcast_target_label(spec);
             target.protocol = (spec.protocol == chat::MeshProtocol::MeshCore)
                                   ? chat::contacts::NodeProtocolType::MeshCore
@@ -4578,7 +4578,7 @@ void refresh_ui()
     }
     if (show_reticulum_group_add_item)
     {
-        chat::contacts::NodeInfo add_node{};
+        chat::contacts::PeerDirectoryItem add_node{};
         add_node.protocol = chat::contacts::NodeProtocolType::Reticulum;
         std::snprintf(add_node.long_name, sizeof(add_node.long_name), "%s", "Add Group");
         add_node.display_name = add_node.long_name;
@@ -4688,7 +4688,7 @@ void refresh_ui()
 
     if (append_back_item)
     {
-        chat::contacts::NodeInfo back_node{};
+        chat::contacts::PeerDirectoryItem back_node{};
         back_node.display_name = ::ui::i18n::tr("Back");
         lv_obj_t* back_item = contacts::ui::layout::create_list_item(
             g_contacts_state.sub_container,

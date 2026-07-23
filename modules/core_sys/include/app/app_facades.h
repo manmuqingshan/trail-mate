@@ -30,7 +30,6 @@ class IChatDeliveryEventPort;
 namespace contacts
 {
 class ContactService;
-class INodeStore;
 } // namespace contacts
 namespace ui
 {
@@ -152,8 +151,6 @@ class IAppBleFacade : public IAppFacade
 {
   public:
     ~IAppBleFacade() override = default;
-    virtual chat::contacts::INodeStore* getNodeStore() = 0;
-    virtual const chat::contacts::INodeStore* getNodeStore() const = 0;
     virtual bool getDeviceMacAddress(uint8_t out_mac[6]) const = 0;
     virtual bool syncCurrentEpochSeconds(uint32_t epoch_seconds) = 0;
     virtual void resetMeshConfig() = 0;

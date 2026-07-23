@@ -1,8 +1,5 @@
 #include "platform/nrf52/arduino_common/chat/infra/blob_file_store.h"
 
-#include "chat/infra/contact_store_core.h"
-#include "chat/infra/node_store_blob_format.h"
-#include "chat/infra/node_store_core.h"
 #include "platform/nrf52/arduino_common/internal_fs_utils.h"
 
 #include <Arduino.h>
@@ -20,9 +17,6 @@ using Adafruit_LittleFS_Namespace::FILE_O_READ;
 constexpr const char* kLogTag = "[nrf52][blob_store]";
 constexpr const char* kTempSuffix = ".tmp";
 constexpr std::size_t kBlobReadChunkBytes = 128;
-constexpr std::size_t kMaxBlobPayloadBytes =
-    ::chat::contacts::NodeStoreCore::kMaxNodes *
-    ::chat::contacts::NodeStoreCore::kSerializedEntrySize;
 
 bool writeBytes(Adafruit_LittleFS_Namespace::File& file, const uint8_t* data, std::size_t len)
 {
@@ -69,9 +63,10 @@ bool readBytes(Adafruit_LittleFS_Namespace::File& file, uint8_t* data, std::size
 
 bool readBlobPayload(Adafruit_LittleFS_Namespace::File& file,
                      std::size_t len,
+                     std::size_t max_len,
                      std::vector<uint8_t>& out)
 {
-    if (len > kMaxBlobPayloadBytes)
+    if (len > max_len)
     {
         return false;
     }
@@ -81,10 +76,14 @@ bool readBlobPayload(Adafruit_LittleFS_Namespace::File& file,
 
 } // namespace
 
-BlobFileStore::BlobFileStore(const char* path, uint32_t magic, uint16_t version)
+BlobFileStore::BlobFileStore(const char* path,
+                             uint32_t magic,
+                             uint16_t version,
+                             std::size_t max_payload_bytes)
     : path_(path),
       magic_(magic),
-      version_(version)
+      version_(version),
+      max_payload_bytes_(max_payload_bytes)
 {
 }
 
@@ -150,7 +149,8 @@ bool BlobFileStore::loadBlob(std::vector<uint8_t>& out)
         return false;
     }
 
-    const bool read_ok = readBlobPayload(file, header.payload_len, out);
+    const bool read_ok =
+        readBlobPayload(file, header.payload_len, max_payload_bytes_, out);
     file.close();
     if (!read_ok || computeCrc(out.data(), out.size()) != header.crc)
     {
@@ -164,7 +164,9 @@ bool BlobFileStore::loadBlob(std::vector<uint8_t>& out)
 
 bool BlobFileStore::saveBlob(const uint8_t* data, size_t len)
 {
-    if (!path_ || !::platform::nrf52::arduino_common::internal_fs::ensureMounted(false, kLogTag))
+    if (!path_ || len > max_payload_bytes_ ||
+        !::platform::nrf52::arduino_common::internal_fs::ensureMounted(false,
+                                                                       kLogTag))
     {
         return false;
     }
@@ -245,40 +247,21 @@ uint32_t BlobFileStore::computeCrc(const uint8_t* data, size_t len)
     return ~crc;
 }
 
-bool NodeBlobFileStore::loadBlob(std::vector<uint8_t>& out)
+::chat::MeshPeerDirectoryBlobLoadResult
+MeshPeerDirectoryBlobFileStore::loadBlob(std::vector<uint8_t>& out)
 {
     if (!store_.loadBlob(out))
     {
-        return false;
+        return ::chat::MeshPeerDirectoryBlobLoadResult::Missing;
     }
-
-    if (!::chat::contacts::isValidNodeBlobSize(out.size()) ||
-        ::chat::contacts::nodeBlobEntryCount(out.size()) > ::chat::contacts::NodeStoreCore::kMaxNodes)
-    {
-        out.clear();
-        store_.clearBlob();
-        return false;
-    }
-
-    return true;
+    return ::chat::MeshPeerDirectoryBlobLoadResult::Loaded;
 }
 
-bool ContactBlobFileStore::loadBlob(std::vector<uint8_t>& out)
+bool MeshPeerDirectoryBlobFileStore::saveBlob(
+    const uint8_t* data,
+    size_t len)
 {
-    if (!store_.loadBlob(out))
-    {
-        return false;
-    }
-
-    if ((out.size() % ::chat::contacts::ContactStoreCore::kSerializedEntrySize) != 0 ||
-        (out.size() / ::chat::contacts::ContactStoreCore::kSerializedEntrySize) > ::chat::contacts::ContactStoreCore::kMaxContacts)
-    {
-        out.clear();
-        store_.clearBlob();
-        return false;
-    }
-
-    return true;
+    return store_.saveBlob(data, len);
 }
 
 } // namespace platform::nrf52::arduino_common::chat::infra

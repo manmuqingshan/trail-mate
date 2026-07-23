@@ -3837,7 +3837,7 @@ void Runtime::renderNodeInfo()
 
 void Runtime::renderNodeCompass()
 {
-    const chat::contacts::NodeInfo* node = selectedNode();
+    const chat::contacts::PeerDirectoryItem* node = selectedNode();
     char right[12] = {};
     if (node != nullptr)
     {
@@ -5480,7 +5480,7 @@ void Runtime::rebuildNodeList()
     contacts.insert(contacts.end(), nearby.begin(), nearby.end());
     contacts.insert(contacts.end(), ignored.begin(), ignored.end());
     std::sort(contacts.begin(), contacts.end(),
-              [](const chat::contacts::NodeInfo& a, const chat::contacts::NodeInfo& b)
+              [](const chat::contacts::PeerDirectoryItem& a, const chat::contacts::PeerDirectoryItem& b)
               {
                   if (a.last_seen != b.last_seen)
                   {
@@ -5937,7 +5937,7 @@ void Runtime::buildMessageInfo()
 
     if (msg->from != 0 && app())
     {
-        if (const auto* node = app()->getContactService().getNodeInfo(msg->from))
+        if (const auto* node = app()->getContactService().getPeerByNodeId(msg->from))
         {
             push_section("NODE");
             push_kv("NM", node->display_name.empty() ? "-" : node->display_name.c_str());
@@ -8067,7 +8067,7 @@ const chat::ChatMessage* Runtime::selectedMessage() const
     return &messages_[index];
 }
 
-const chat::contacts::NodeInfo* Runtime::selectedNode() const
+const chat::contacts::PeerDirectoryItem* Runtime::selectedNode() const
 {
     if (node_count_ == 0)
     {
@@ -8203,7 +8203,7 @@ void Runtime::handleMeshtasticActionResult(
 
 const char* Runtime::nodeActionLabel(size_t index) const
 {
-    const chat::contacts::NodeInfo* node = selectedNode();
+    const chat::contacts::PeerDirectoryItem* node = selectedNode();
     const bool meshtastic_mode = app() && app()->getConfig().mesh_protocol != chat::MeshProtocol::MeshCore;
     const bool can_reply = node && app() &&
                            chat::infra::meshProtocolFromRaw(
@@ -8235,7 +8235,7 @@ void Runtime::executeNodeAction()
 {
     auto* mesh = app() ? app()->getMeshAdapter() : nullptr;
     auto* contacts = app() ? &app()->getContactService() : nullptr;
-    const chat::contacts::NodeInfo* node = selectedNode();
+    const chat::contacts::PeerDirectoryItem* node = selectedNode();
     const bool meshtastic_mode = app() && app()->getConfig().mesh_protocol != chat::MeshProtocol::MeshCore;
     if (!node)
     {
@@ -8413,7 +8413,7 @@ void Runtime::executeNodeAction()
 void Runtime::requestNodePositionExchange()
 {
     auto* mesh = app() ? app()->getMeshAdapter() : nullptr;
-    const chat::contacts::NodeInfo* node = selectedNode();
+    const chat::contacts::PeerDirectoryItem* node = selectedNode();
     if (!node)
     {
         appendBootLog("pos req node na");

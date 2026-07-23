@@ -12,7 +12,6 @@
 #include "mesh/domain/peer_identity.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/mqtt.pb.h"
-#include "platform/nrf52/arduino_common/chat/infra/meshtastic/node_store.h"
 #include "sys/ringbuf.h"
 
 #include <array>
@@ -29,7 +28,6 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     using MqttProxySettings = ::chat::meshtastic::MqttProxyRuntimeSettings;
 
     explicit MeshtasticRadioAdapter(const ::chat::runtime::SelfIdentityProvider* identity_provider = nullptr,
-                                    NodeStore* node_store = nullptr,
                                     ::chat::contacts::ContactService* contact_service = nullptr);
 
     ::chat::MeshCapabilities getCapabilities() const override;
@@ -372,8 +370,8 @@ class MeshtasticRadioAdapter final : public ::chat::IMeshAdapter
     std::string long_name_;
     std::string short_name_;
     const ::chat::runtime::SelfIdentityProvider* identity_provider_ = nullptr;
-    NodeStore* node_store_ = nullptr;
     ::chat::contacts::ContactService* contact_service_ = nullptr;
+    ::chat::MeshPeerRecord peer_record_scratch_{};
     float last_rx_rssi_ = std::numeric_limits<float>::quiet_NaN();
     float last_rx_snr_ = std::numeric_limits<float>::quiet_NaN();
     static constexpr std::size_t kIncomingQueueDepth = 12;

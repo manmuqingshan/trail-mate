@@ -67,7 +67,7 @@ std::string contactDisplayName(const ::chat::contacts::ContactService* contacts,
 
     if (contacts != nullptr)
     {
-        const auto* node = contacts->getNodeInfo(node_id);
+        const auto* node = contacts->getPeerByNodeId(node_id);
         if (node != nullptr)
         {
             if (!node->display_name.empty())
@@ -163,7 +163,7 @@ bool nodePositionToLocation(const ::chat::contacts::ContactService* contacts,
         return false;
     }
 
-    const auto* node = contacts->getNodeInfo(node_id);
+    const auto* node = contacts->getPeerByNodeId(node_id);
     if (node == nullptr || !node->position.valid)
     {
         return false;

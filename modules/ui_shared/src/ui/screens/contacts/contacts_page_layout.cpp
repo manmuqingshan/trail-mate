@@ -66,7 +66,7 @@ static bool same_text(const std::string& lhs, const char* rhs)
     return rhs && lhs == rhs;
 }
 
-std::string preferred_node_display_name(const chat::contacts::NodeInfo& node)
+std::string preferred_node_display_name(const chat::contacts::PeerDirectoryItem& node)
 {
     const bool reticulum_node =
         node.protocol == chat::contacts::NodeProtocolType::Reticulum ||
@@ -275,7 +275,7 @@ void ensure_list_subcontainers()
 }
 
 lv_obj_t* create_list_item(lv_obj_t* parent,
-                           const chat::contacts::NodeInfo& node,
+                           const chat::contacts::PeerDirectoryItem& node,
                            ContactsMode mode,
                            const char* status_text)
 {

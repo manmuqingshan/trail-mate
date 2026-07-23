@@ -49,7 +49,7 @@ void set_label_text_if_changed(lv_obj_t* label, const char* english)
     }
 }
 
-std::string best_name_for(const chat::contacts::NodeInfo& info)
+std::string best_name_for(const chat::contacts::PeerDirectoryItem& info)
 {
     if (!info.display_name.empty())
     {
@@ -185,7 +185,7 @@ void refresh_compass_widget()
                     continue;
                 }
 
-                const chat::contacts::NodeInfo* info = contacts.getNodeInfo(member.node_id);
+                const chat::contacts::PeerDirectoryItem* info = contacts.getPeerByNodeId(member.node_id);
                 if (info == nullptr || !info->position.valid)
                 {
                     continue;

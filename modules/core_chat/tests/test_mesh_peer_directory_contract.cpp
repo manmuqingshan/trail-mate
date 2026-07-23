@@ -1,4 +1,5 @@
 #include "chat/infra/mesh_peer_directory_core.h"
+#include "chat/usecase/contact_service.h"
 
 #include <algorithm>
 #include <cassert>
@@ -210,6 +211,78 @@ class MemoryMeshPeerDirectory final : public chat::IMeshPeerDirectory
                 record.flags = flags;
                 return chat::MeshPeerDirectoryStatus::success();
             }
+        }
+        return chat::MeshPeerDirectoryStatus::fail(
+            chat::MeshPeerDirectoryStatusCode::NotFound);
+    }
+
+    chat::MeshPeerDirectoryStatus visit(
+        chat::MeshProtocol protocol,
+        chat::MeshPeerDirectoryView view,
+        chat::IMeshPeerDirectoryVisitor& visitor) override
+    {
+        for (const auto& record : records_)
+        {
+            const bool contact = chat::meshPeerIsContact(record);
+            const bool matches =
+                view == chat::MeshPeerDirectoryView::All ||
+                (view == chat::MeshPeerDirectoryView::Contacts && contact) ||
+                (view == chat::MeshPeerDirectoryView::Nearby && !contact &&
+                 !record.flags.ignored) ||
+                (view == chat::MeshPeerDirectoryView::Ignored && !contact &&
+                 record.flags.ignored);
+            if (chat::meshPeerSameProtocol(record.identity.protocol, protocol) &&
+                matches && !visitor.visit(record))
+            {
+                break;
+            }
+        }
+        return chat::MeshPeerDirectoryStatus::success();
+    }
+
+    chat::MeshPeerDirectoryStatus setUserAlias(
+        const chat::MeshPeerIdentity& identity,
+        const char* alias) override
+    {
+        for (auto& record : records_)
+        {
+            if (chat::sameMeshPeerIdentity(record.identity, identity))
+            {
+                chat::copyMeshPeerText(record.user_alias,
+                                       sizeof(record.user_alias),
+                                       alias);
+                record.flags.favorite = alias && alias[0] != '\0';
+                return chat::MeshPeerDirectoryStatus::success();
+            }
+        }
+        return chat::MeshPeerDirectoryStatus::fail(
+            chat::MeshPeerDirectoryStatusCode::NotFound);
+    }
+
+    chat::MeshPeerDirectoryStatus setKeyManuallyVerified(
+        const chat::MeshPeerIdentity& identity,
+        bool verified) override
+    {
+        for (auto& record : records_)
+        {
+            if (!chat::sameMeshPeerIdentity(record.identity, identity))
+            {
+                continue;
+            }
+            if (record.identity.protocol == chat::MeshProtocol::Meshtastic)
+            {
+                record.meshtastic.key_manually_verified = verified;
+            }
+            else if (record.identity.protocol == chat::MeshProtocol::MeshCore)
+            {
+                record.meshcore.public_key_verified = verified;
+            }
+            else
+            {
+                return chat::MeshPeerDirectoryStatus::fail(
+                    chat::MeshPeerDirectoryStatusCode::Unsupported);
+            }
+            return chat::MeshPeerDirectoryStatus::success();
         }
         return chat::MeshPeerDirectoryStatus::fail(
             chat::MeshPeerDirectoryStatusCode::NotFound);
@@ -728,6 +801,7 @@ void core_persists_records_and_preserves_user_flags()
         flags.favorite = true;
         flags.trusted = true;
         assert(directory.setUserFlags(alpha_identity, flags).succeeded());
+        assert(directory.setUserAlias(alpha_identity, "Alpha").succeeded());
 
         auto updated = makeMeshtasticPeer(0x0C16AAEC, "alpha fresh", 30);
         assert(directory.record(updated).succeeded());
@@ -746,6 +820,7 @@ void core_persists_records_and_preserves_user_flags()
         assert(std::strcmp(loaded.display_name, "alpha fresh") == 0);
         assert(loaded.flags.favorite);
         assert(loaded.flags.trusted);
+        assert(std::strcmp(loaded.user_alias, "Alpha") == 0);
     }
 }
 
@@ -871,6 +946,33 @@ void remove_and_clear_protocol_are_directory_behaviors()
     assert(!directory.find(meshcore.identity, loaded).succeeded());
 }
 
+void contact_service_projects_one_directory_without_legacy_stores()
+{
+    CountingMeshPeerDirectoryBlobStore blob;
+    chat::MeshPeerDirectoryCore directory(blob);
+    chat::contacts::ContactService contacts(directory);
+    contacts.begin();
+
+    constexpr chat::NodeId node_id = 0x10203040U;
+    contacts.updateNodeInfo(node_id,
+                            "PEER",
+                            "Unified Peer",
+                            8.5F,
+                            -79.0F,
+                            123U,
+                            static_cast<uint8_t>(
+                                chat::contacts::NodeProtocolType::Meshtastic));
+    assert(contacts.addContact(node_id, "Alias"));
+    assert(contacts.getContacts().size() == 1U);
+    assert(contacts.getContactName(node_id) == "Alias");
+
+    assert(contacts.setNextHop(node_id, 0x42U));
+    assert(contacts.getNextHop(node_id) == 0x42U);
+    const auto all = contacts.getAllPeers();
+    assert(all.size() == 1U);
+    assert(all.front().display_name == "Alias");
+}
+
 } // namespace
 
 int main()
@@ -885,5 +987,6 @@ int main()
     core_merges_sparse_meshtastic_records_without_losing_key_or_node_facts();
     verified_keys_cannot_be_replaced_by_runtime_observations();
     remove_and_clear_protocol_are_directory_behaviors();
+    contact_service_projects_one_directory_without_legacy_stores();
     return 0;
 }

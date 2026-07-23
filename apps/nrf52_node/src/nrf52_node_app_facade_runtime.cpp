@@ -1,16 +1,16 @@
-﻿#include "nrf52_node_app_facade_runtime.h"
+#include "nrf52_node_app_facade_runtime.h"
 
 #include "app/app_facade_access.h"
 #include "chat/domain/chat_model.h"
 #include "chat/infra/mesh_adapter_router_core.h"
+#include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/infra/store/ram_store.h"
 #include "chat/runtime/self_identity_provider.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
-#include "platform/nrf52/arduino_common/chat/infra/contact_store.h"
+#include "platform/nrf52/arduino_common/chat/infra/blob_file_store.h"
 #include "platform/nrf52/arduino_common/chat/infra/meshtastic/meshtastic_radio_adapter.h"
-#include "platform/nrf52/arduino_common/chat/infra/meshtastic/node_store.h"
 #include "platform/nrf52/arduino_common/chat/infra/radio_packet_io.h"
 #include "platform/nrf52/arduino_common/chat/infra/store/internal_fs_store.h"
 #include "platform/nrf52/arduino_common/device_identity.h"
@@ -213,31 +213,28 @@ bool AppFacadeRuntime::installMeshBackend(chat::MeshProtocol protocol,
 
 void AppFacadeRuntime::initializeStores()
 {
-    if (node_store_ && contact_store_ && contact_service_)
+    if (mesh_peer_directory_ && contact_service_)
     {
         return;
     }
 
-    auto node_store = std::unique_ptr<platform::nrf52::arduino_common::chat::meshtastic::NodeStore>(
-        new platform::nrf52::arduino_common::chat::meshtastic::NodeStore());
-    auto contact_store = std::unique_ptr<platform::nrf52::arduino_common::chat::infra::ContactStore>(
-        new platform::nrf52::arduino_common::chat::infra::ContactStore());
-    platform::nrf52::arduino_common::chat::infra::ContactStore* contact_store_ptr = contact_store.get();
-    node_store->setProtectedNodeChecker([contact_store_ptr](uint32_t node_id)
-                                        { return contact_store_ptr && contact_store_ptr->hasContactNode(node_id); });
-    node_store_ = std::move(node_store);
-    contact_store_ = std::move(contact_store);
-    contact_service_ = std::unique_ptr<chat::contacts::ContactService>(
-        new chat::contacts::ContactService(*node_store_, *contact_store_));
+    using PeerBlobStore =
+        platform::nrf52::arduino_common::chat::infra::
+            MeshPeerDirectoryBlobFileStore;
+    mesh_peer_directory_blob_store_ =
+        std::unique_ptr<chat::IMeshPeerDirectoryBlobStore>(
+            new PeerBlobStore("/mesh_peers.bin"));
 
-    if (node_store_)
-    {
-        node_store_->begin();
-    }
-    if (contact_store_)
-    {
-        contact_store_->begin();
-    }
+    chat::MeshPeerDirectoryCore::Options options{};
+    options.meshtastic_capacity = {200, 16};
+    options.meshcore_capacity = {64, 32};
+    options.reticulum_capacity = {32, 16};
+    options.auto_save = false;
+    mesh_peer_directory_ = std::unique_ptr<chat::IMeshPeerDirectory>(
+        new chat::MeshPeerDirectoryCore(*mesh_peer_directory_blob_store_,
+                                        options));
+    contact_service_ = std::unique_ptr<chat::contacts::ContactService>(
+        new chat::contacts::ContactService(*mesh_peer_directory_));
     if (contact_service_)
     {
         contact_service_->begin();
@@ -261,10 +258,12 @@ void AppFacadeRuntime::initializeChatRuntime()
     (void)installMeshBackend(chat::MeshProtocol::Meshtastic,
                              platform::nrf52::protocol::createProtocolAdapter(chat::MeshProtocol::Meshtastic,
                                                                               identityProvider(),
-                                                                              static_cast<platform::nrf52::arduino_common::chat::meshtastic::NodeStore*>(node_store_.get()),
                                                                               contact_service_.get()));
     (void)installMeshBackend(chat::MeshProtocol::MeshCore,
-                             platform::nrf52::protocol::createProtocolAdapter(chat::MeshProtocol::MeshCore, identityProvider()));
+                             platform::nrf52::protocol::createProtocolAdapter(
+                                 chat::MeshProtocol::MeshCore,
+                                 identityProvider(),
+                                 contact_service_.get()));
 
     applyMeshConfig();
     applyUserInfo();
@@ -407,8 +406,7 @@ chat::NodeId AppFacadeRuntime::resolveSelfNodeId() const
         NRF_FICR->DEVICEADDR[0],
         NRF_FICR->DEVICEADDR[1],
         NRF_FICR->DEVICEID[0],
-        NRF_FICR->DEVICEID[1],
-        node_store_.get());
+        NRF_FICR->DEVICEID[1]);
 }
 
 void AppFacadeRuntime::applyNetworkLimits()
@@ -582,9 +580,9 @@ void AppFacadeRuntime::broadcastNodeInfo()
 
 void AppFacadeRuntime::clearNodeDb()
 {
-    if (node_store_)
+    if (mesh_peer_directory_)
     {
-        node_store_->clear();
+        (void)mesh_peer_directory_->clearProtocol(config_.mesh_protocol);
     }
     if (contact_service_)
     {
@@ -604,22 +602,10 @@ bool AppFacadeRuntime::clearVolatileStoragePreserveSettings()
 {
     clearNodeDb();
 
-    bool contact_ok = true;
-    if (contact_store_)
-    {
-        auto* nrf_contact_store =
-            static_cast<platform::nrf52::arduino_common::chat::infra::ContactStore*>(contact_store_.get());
-        contact_ok = nrf_contact_store->clear();
-    }
-    if (contact_service_)
-    {
-        contact_service_->clearCache();
-    }
-
     clearMessageDb();
     const bool fs_ok = platform::nrf52::arduino_common::internal_fs::removeVolatileArtifactsPreserveSettings(
         "[nrf52][storage]");
-    return contact_ok && fs_ok;
+    return fs_ok;
 }
 
 ble::BleManager* AppFacadeRuntime::getBleManager()
@@ -686,16 +672,6 @@ void AppFacadeRuntime::restartDevice()
     Serial.flush();
     Serial2.flush();
     NVIC_SystemReset();
-}
-
-chat::contacts::INodeStore* AppFacadeRuntime::getNodeStore()
-{
-    return node_store_.get();
-}
-
-const chat::contacts::INodeStore* AppFacadeRuntime::getNodeStore() const
-{
-    return node_store_.get();
 }
 
 bool AppFacadeRuntime::getDeviceMacAddress(uint8_t out_mac[6]) const
@@ -768,9 +744,9 @@ void AppFacadeRuntime::updateCoreServices()
         if ((now_ms - last_chat_store_flush_ms_) >= kChatStoreFlushIntervalMs)
         {
             chat_service_->flushStore();
-            if (node_store_)
+            if (mesh_peer_directory_)
             {
-                (void)node_store_->flush();
+                (void)mesh_peer_directory_->flush();
             }
             if (auto* mt = getMeshtasticBackend(getMeshAdapter()))
             {
@@ -824,7 +800,7 @@ void AppFacadeRuntime::syncSelfPositionFromGps()
         return;
     }
 
-    const ::chat::contacts::NodeInfo* existing = contact_service_->getNodeInfo(effective_identity_.node_id);
+    const ::chat::contacts::PeerDirectoryItem* existing = contact_service_->getPeerByNodeId(effective_identity_.node_id);
     if (existing && existing->position.valid &&
         existing->position.latitude_i == position.latitude_i &&
         existing->position.longitude_i == position.longitude_i &&

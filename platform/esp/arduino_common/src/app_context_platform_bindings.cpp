@@ -159,16 +159,11 @@ app::ContactServicesBundle create_contact_services(
 {
     app::ContactServicesBundle bundle;
     bundle.service = std::unique_ptr<chat::contacts::ContactService>(
-        new chat::contacts::ContactService(repository.nodeStoreView(),
-                                           repository.contactStoreView()));
+        new chat::contacts::ContactService(repository));
     if (bundle.service)
     {
         bundle.service->begin();
-        Serial.printf("[ContactService] startup nodes=%u nicknames=%u\n",
-                      static_cast<unsigned>(
-                          repository.nodeStoreView().getEntries().size()),
-                      static_cast<unsigned>(
-                          repository.contactStoreView().getCount()));
+        Serial.printf("[ContactService] unified peer directory ready\n");
     }
     return bundle;
 }

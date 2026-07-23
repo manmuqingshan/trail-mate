@@ -1,7 +1,6 @@
 #pragma once
 
-#include "chat/ports/i_contact_blob_store.h"
-#include "chat/ports/i_node_blob_store.h"
+#include "chat/ports/i_mesh_peer_directory_blob_store.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -13,7 +12,10 @@ namespace platform::nrf52::arduino_common::chat::infra
 class BlobFileStore
 {
   public:
-    BlobFileStore(const char* path, uint32_t magic, uint16_t version);
+    BlobFileStore(const char* path,
+                  uint32_t magic,
+                  uint16_t version,
+                  std::size_t max_payload_bytes);
 
     bool loadBlob(std::vector<uint8_t>& out);
     bool saveBlob(const uint8_t* data, size_t len);
@@ -35,35 +37,22 @@ class BlobFileStore
     const char* path_ = nullptr;
     uint32_t magic_ = 0;
     uint16_t version_ = 0;
+    std::size_t max_payload_bytes_ = 0;
 };
 
-class NodeBlobFileStore final : public ::chat::contacts::INodeBlobStore
+class MeshPeerDirectoryBlobFileStore final
+    : public ::chat::IMeshPeerDirectoryBlobStore
 {
   public:
-    explicit NodeBlobFileStore(const char* path)
-        : store_(path, 0x444F4E43UL, 1)
+    explicit MeshPeerDirectoryBlobFileStore(const char* path)
+        : store_(path, 0x5244504DUL, 1, 256U * 1024U)
     {
     }
 
-    bool loadBlob(std::vector<uint8_t>& out) override;
-    bool saveBlob(const uint8_t* data, size_t len) override { return store_.saveBlob(data, len); }
+    ::chat::MeshPeerDirectoryBlobLoadResult loadBlob(
+        std::vector<uint8_t>& out) override;
+    bool saveBlob(const uint8_t* data, size_t len) override;
     void clearBlob() override { store_.clearBlob(); }
-
-  private:
-    BlobFileStore store_;
-};
-
-class ContactBlobFileStore final : public ::chat::IContactBlobStore
-{
-  public:
-    explicit ContactBlobFileStore(const char* path)
-        : store_(path, 0x544E4F43UL, 1)
-    {
-    }
-
-    bool loadBlob(std::vector<uint8_t>& out) override;
-    bool saveBlob(const uint8_t* data, size_t len) override { return store_.saveBlob(data, len); }
-    void clearBlob() { store_.clearBlob(); }
 
   private:
     BlobFileStore store_;

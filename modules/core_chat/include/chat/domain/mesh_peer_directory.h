@@ -132,6 +132,9 @@ struct MeshPeerRecord
     ReticulumPeerFacts reticulum{};
 };
 
+MeshPeerRecord mergeMeshPeerRecordFacts(const MeshPeerRecord& existing,
+                                        const MeshPeerRecord& incoming);
+
 inline bool meshPeerIsReticulumProtocol(MeshProtocol protocol)
 {
     return protocol == MeshProtocol::Reticulum || protocol == MeshProtocol::RNode;
@@ -240,6 +243,51 @@ inline bool makeMeshPeerPublicKeyIdentity(MeshProtocol protocol,
 inline bool meshPeerRecordIsValid(const MeshPeerRecord& record)
 {
     return record.valid && meshPeerIdentityIsValid(record.identity);
+}
+
+inline bool meshPeerIsStableContactIdentity(const MeshPeerIdentity& identity)
+{
+    if (!meshPeerIdentityIsValid(identity))
+    {
+        return false;
+    }
+    if (identity.protocol == MeshProtocol::Meshtastic)
+    {
+        return identity.kind == MeshPeerIdentityKind::NodeId;
+    }
+    if (identity.protocol == MeshProtocol::MeshCore)
+    {
+        return identity.kind == MeshPeerIdentityKind::PublicKey;
+    }
+    return meshPeerIsReticulumProtocol(identity.protocol) &&
+           identity.kind == MeshPeerIdentityKind::ReticulumDestination;
+}
+
+inline NodeId meshPeerProjectedNodeId(const MeshPeerRecord& record)
+{
+    if (record.identity.kind == MeshPeerIdentityKind::NodeId)
+    {
+        return record.identity.node_id;
+    }
+    if (record.identity.protocol == MeshProtocol::MeshCore)
+    {
+        return record.meshcore.node_id_hint;
+    }
+    if (meshPeerIsReticulumProtocol(record.identity.protocol) &&
+        record.identity.reticulum.valid)
+    {
+        const uint8_t* hash = record.identity.reticulum.destination_hash;
+        return (static_cast<NodeId>(hash[12]) << 24) |
+               (static_cast<NodeId>(hash[13]) << 16) |
+               (static_cast<NodeId>(hash[14]) << 8) |
+               static_cast<NodeId>(hash[15]);
+    }
+    return 0;
+}
+
+inline bool meshPeerIsContact(const MeshPeerRecord& record)
+{
+    return record.flags.favorite || record.user_alias[0] != '\0';
 }
 
 inline void copyMeshPeerText(char* out, std::size_t out_len, const char* text)

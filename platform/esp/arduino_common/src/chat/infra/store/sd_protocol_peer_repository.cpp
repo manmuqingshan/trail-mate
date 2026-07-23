@@ -40,18 +40,6 @@ bool textContains(const char* text, const char* query)
     return text && query && std::strstr(text, query) != nullptr;
 }
 
-void copyNodeText(char* out, std::size_t out_len, const char* text)
-{
-    copyMeshPeerText(out, out_len, text ? text : "");
-}
-
-MeshPeerNodeFacts& mutableNodeFacts(MeshPeerRecord& record)
-{
-    return record.identity.protocol == MeshProtocol::MeshCore
-               ? record.meshcore.node
-               : record.meshtastic.node;
-}
-
 const MeshPeerNodeFacts* nodeFacts(const MeshPeerRecord& record)
 {
     if (record.identity.protocol == MeshProtocol::Meshtastic)
@@ -69,9 +57,7 @@ const MeshPeerNodeFacts* nodeFacts(const MeshPeerRecord& record)
 
 SdProtocolPeerRepository::SdProtocolPeerRepository(IChatStore& chat_store)
     : chat_store_(chat_store),
-      mutex_(xSemaphoreCreateRecursiveMutex()),
-      node_store_view_(*this),
-      contact_store_view_(*this)
+      mutex_(xSemaphoreCreateRecursiveMutex())
 {
     peers_.reserve(256U);
     contacts_.reserve(64U);
@@ -138,7 +124,6 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::begin()
         }
     }
     begun_ = true;
-    active_node_projection_dirty_ = true;
     Serial.printf("[PeerStoreV2] ready=1 peers=%u contacts=%u root=%s\n",
                   static_cast<unsigned>(peers_.size()),
                   static_cast<unsigned>(contacts_.size()),
@@ -746,6 +731,8 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::record(
     }
 
     MeshPeerRecord incoming = input;
+    incoming.user_alias[0] = '\0';
+    incoming.flags = {};
     incoming.identity.protocol = normalizeProtocol(incoming.identity.protocol);
     if (incoming.identity.protocol == MeshProtocol::Reticulum &&
         incoming.identity.kind == MeshPeerIdentityKind::ReticulumDestination)
@@ -816,7 +803,6 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::record(
     {
         overlayContactFactsForPeer(peers_[merge_index]);
     }
-    active_node_projection_dirty_ = true;
     if (!immediately_durable)
     {
         Serial.printf("[PeerStoreV2] peer queued protocol=%s pending=%u\n",
@@ -992,6 +978,119 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::setUserFlags(
     return MeshPeerDirectoryStatus::success();
 }
 
+MeshPeerDirectoryStatus SdProtocolPeerRepository::visit(
+    MeshProtocol protocol,
+    MeshPeerDirectoryView view,
+    IMeshPeerDirectoryVisitor& visitor)
+{
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked())
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::StorageUnavailable);
+    }
+    const MeshProtocol normalized = normalizeProtocol(protocol);
+    for (const MeshPeerRecord& peer : peers_)
+    {
+        if (!meshPeerSameProtocol(peer.identity.protocol, normalized))
+        {
+            continue;
+        }
+        const bool contact = meshPeerIsContact(peer);
+        const bool matches =
+            view == MeshPeerDirectoryView::All ||
+            (view == MeshPeerDirectoryView::Contacts && contact) ||
+            (view == MeshPeerDirectoryView::Nearby && !contact &&
+             !peer.flags.ignored) ||
+            (view == MeshPeerDirectoryView::Ignored && !contact &&
+             peer.flags.ignored);
+        if (matches && !visitor.visit(peer))
+        {
+            break;
+        }
+    }
+    return MeshPeerDirectoryStatus::success();
+}
+
+MeshPeerDirectoryStatus SdProtocolPeerRepository::setUserAlias(
+    const MeshPeerIdentity& identity,
+    const char* alias)
+{
+    if (!alias || std::strlen(alias) > kMeshPeerUserAliasMaxLen)
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::InvalidArgument);
+    }
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked())
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::StorageUnavailable);
+    }
+    const std::size_t peer_index = findPeerIndex(identity);
+    if (peer_index >= peers_.size())
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::NotFound);
+    }
+    MeshPeerIdentity stable{};
+    if (!stableContactIdentity(peers_[peer_index], stable))
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::Unsupported);
+    }
+    MeshPeerUserFlags flags = peers_[peer_index].flags;
+    flags.favorite = alias[0] != '\0';
+    const bool remove_projection = alias[0] == '\0' && !flags.ignored &&
+                                   !flags.trusted;
+    return persistContactFacts(stable, flags, alias, remove_projection)
+               ? MeshPeerDirectoryStatus::success()
+               : MeshPeerDirectoryStatus::fail(
+                     MeshPeerDirectoryStatusCode::IoError);
+}
+
+MeshPeerDirectoryStatus SdProtocolPeerRepository::setKeyManuallyVerified(
+    const MeshPeerIdentity& identity,
+    bool verified)
+{
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked())
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::StorageUnavailable);
+    }
+    const std::size_t index = findPeerIndex(identity);
+    if (index >= peers_.size())
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::NotFound);
+    }
+    MeshPeerRecord next = peers_[index];
+    if (next.identity.protocol == MeshProtocol::Meshtastic &&
+        next.meshtastic.has_public_key)
+    {
+        next.meshtastic.key_manually_verified = verified;
+    }
+    else if (next.identity.protocol == MeshProtocol::MeshCore &&
+             (next.meshcore.has_public_key ||
+              next.identity.kind == MeshPeerIdentityKind::PublicKey))
+    {
+        next.meshcore.public_key_verified = verified;
+    }
+    else
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::Unsupported);
+    }
+    if (!appendPeerDelta(storage_v2::PeerProjection{next, false}))
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::StorageUnavailable);
+    }
+    peers_[index] = next;
+    return MeshPeerDirectoryStatus::success();
+}
+
 MeshPeerDirectoryStatus SdProtocolPeerRepository::remove(
     const MeshPeerIdentity& identity)
 {
@@ -1017,7 +1116,6 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::remove(
     tombstone.deleted = true;
     (void)queueOrAppendPeerDelta(tombstone);
     peers_.erase(peers_.begin() + static_cast<std::ptrdiff_t>(index));
-    active_node_projection_dirty_ = true;
     return MeshPeerDirectoryStatus::success();
 }
 
@@ -1064,7 +1162,6 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::clearProtocol(
     {
         return MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
     }
-    active_node_projection_dirty_ = true;
     return MeshPeerDirectoryStatus::success();
 }
 
@@ -1282,708 +1379,7 @@ bool SdProtocolPeerRepository::evictOldestEphemeral(MeshProtocol protocol)
     tombstone.deleted = true;
     (void)queueOrAppendPeerDelta(tombstone);
     peers_.erase(peers_.begin() + static_cast<std::ptrdiff_t>(candidate));
-    active_node_projection_dirty_ = true;
     return true;
-}
-
-contacts::INodeStore& SdProtocolPeerRepository::nodeStoreView()
-{
-    return node_store_view_;
-}
-
-contacts::IContactStore& SdProtocolPeerRepository::contactStoreView()
-{
-    return contact_store_view_;
-}
-
-SdProtocolPeerRepository::NodeStoreView::NodeStoreView(
-    SdProtocolPeerRepository& owner)
-    : owner_(owner)
-{
-}
-
-void SdProtocolPeerRepository::NodeStoreView::setActiveProtocol(
-    MeshProtocol protocol)
-{
-    ScopedRepositoryLock lock(owner_.mutex_);
-    if (!lock.locked())
-    {
-        return;
-    }
-    owner_.active_protocol_ = normalizeProtocol(protocol);
-    owner_.active_node_projection_dirty_ = true;
-}
-
-void SdProtocolPeerRepository::NodeStoreView::begin()
-{
-    (void)owner_.begin();
-}
-
-void SdProtocolPeerRepository::NodeStoreView::applyUpdate(
-    uint32_t node_id,
-    const contacts::NodeUpdate& update)
-{
-    owner_.applyNodeUpdate(node_id, update);
-}
-
-void SdProtocolPeerRepository::NodeStoreView::upsert(
-    uint32_t node_id,
-    const char* short_name,
-    const char* long_name,
-    uint32_t now_secs,
-    float snr,
-    float rssi,
-    uint8_t protocol,
-    uint8_t role,
-    uint8_t hops_away,
-    uint8_t hw_model,
-    uint8_t channel)
-{
-    contacts::NodeUpdate update{};
-    update.short_name = short_name;
-    update.long_name = long_name;
-    update.has_last_seen = true;
-    update.last_seen = now_secs;
-    update.has_snr = !std::isnan(snr);
-    update.snr = snr;
-    update.has_rssi = !std::isnan(rssi);
-    update.rssi = rssi;
-    update.has_protocol = protocol != 0U;
-    update.protocol = protocol;
-    update.has_role = role != contacts::kNodeRoleUnknown;
-    update.role = role;
-    update.has_hops_away = hops_away != 0xFFU;
-    update.hops_away = hops_away;
-    update.has_hw_model = hw_model != 0U;
-    update.hw_model = hw_model;
-    update.has_channel = channel != 0xFFU;
-    update.channel = channel;
-    owner_.applyNodeUpdate(node_id, update);
-}
-
-void SdProtocolPeerRepository::NodeStoreView::updateProtocol(
-    uint32_t node_id,
-    uint8_t protocol,
-    uint32_t now_secs)
-{
-    contacts::NodeUpdate update{};
-    update.has_protocol = protocol != 0U;
-    update.protocol = protocol;
-    update.has_last_seen = true;
-    update.last_seen = now_secs;
-    owner_.applyNodeUpdate(node_id, update);
-}
-
-void SdProtocolPeerRepository::NodeStoreView::updatePosition(
-    uint32_t node_id,
-    const contacts::NodePosition& position)
-{
-    contacts::NodeUpdate update{};
-    update.has_position = true;
-    update.position = position;
-    owner_.applyNodeUpdate(node_id, update);
-}
-
-bool SdProtocolPeerRepository::NodeStoreView::remove(uint32_t node_id)
-{
-    return owner_.removeNode(node_id);
-}
-
-const std::vector<contacts::NodeEntry>&
-SdProtocolPeerRepository::NodeStoreView::getEntries() const
-{
-    return owner_.activeNodeEntries();
-}
-
-void SdProtocolPeerRepository::NodeStoreView::clear()
-{
-    owner_.clearActiveNodes();
-}
-
-bool SdProtocolPeerRepository::NodeStoreView::flush()
-{
-    return owner_.flush().succeeded();
-}
-
-void SdProtocolPeerRepository::applyNodeUpdate(
-    uint32_t node_id,
-    const contacts::NodeUpdate& update)
-{
-    if (node_id == 0U)
-    {
-        return;
-    }
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked() || !begun_)
-    {
-        return;
-    }
-    MeshProtocol protocol = active_protocol_;
-    if (update.has_protocol)
-    {
-        const MeshProtocol requested =
-            static_cast<MeshProtocol>(update.protocol);
-        if (requested == MeshProtocol::Meshtastic ||
-            requested == MeshProtocol::MeshCore ||
-            requested == MeshProtocol::Reticulum ||
-            requested == MeshProtocol::RNode)
-        {
-            protocol = normalizeProtocol(requested);
-        }
-    }
-
-    std::size_t existing_index = findPeerIndexByNodeId(protocol, node_id);
-    MeshPeerRecord incoming{};
-    incoming.valid = true;
-    incoming.source = MeshPeerSource::RuntimeRx;
-    if (protocol == MeshProtocol::Reticulum &&
-        hasReticulumDestinationIdentity(update.reticulum_identity))
-    {
-        incoming.identity = makeMeshPeerReticulumIdentity(
-            update.reticulum_identity);
-    }
-    else if (existing_index < peers_.size())
-    {
-        incoming.identity = peers_[existing_index].identity;
-    }
-    else
-    {
-        incoming.identity = makeMeshPeerNodeIdentity(protocol, node_id);
-    }
-    incoming.identity.protocol = protocol;
-    incoming.first_seen_s = update.has_last_seen ? update.last_seen : 0U;
-    incoming.last_seen_s = update.has_last_seen ? update.last_seen : 0U;
-    if (hasText(update.long_name))
-    {
-        copyMeshPeerText(incoming.display_name,
-                         sizeof(incoming.display_name),
-                         update.long_name);
-    }
-    else if (hasText(update.short_name))
-    {
-        copyMeshPeerText(incoming.display_name,
-                         sizeof(incoming.display_name),
-                         update.short_name);
-    }
-    if (update.has_snr)
-    {
-        incoming.observations.has_snr = true;
-        incoming.observations.snr = update.snr;
-    }
-    if (update.has_rssi)
-    {
-        incoming.observations.has_rssi = true;
-        incoming.observations.rssi = update.rssi;
-    }
-    if (update.has_device_metrics)
-    {
-        incoming.observations.has_device_metrics = true;
-        incoming.observations.device_metrics = update.device_metrics;
-    }
-    if (update.has_position)
-    {
-        incoming.observations.has_position = true;
-        incoming.observations.position = update.position;
-    }
-
-    if (protocol == MeshProtocol::Reticulum)
-    {
-        incoming.reticulum.identity = incoming.identity.reticulum;
-    }
-    else
-    {
-        MeshPeerNodeFacts& facts = mutableNodeFacts(incoming);
-        copyNodeText(facts.short_name,
-                     sizeof(facts.short_name),
-                     update.short_name);
-        copyNodeText(facts.long_name,
-                     sizeof(facts.long_name),
-                     update.long_name);
-        if (update.has_role)
-        {
-            facts.role = update.role;
-        }
-        if (update.has_hw_model)
-        {
-            facts.hw_model = update.hw_model;
-        }
-        if (update.has_channel)
-        {
-            facts.channel = update.channel;
-        }
-        if (update.has_hops_away)
-        {
-            facts.hops_away = update.hops_away;
-        }
-        if (update.has_macaddr)
-        {
-            facts.has_macaddr = true;
-            std::memcpy(facts.macaddr,
-                        update.macaddr,
-                        sizeof(facts.macaddr));
-        }
-        if (update.has_via_mqtt)
-        {
-            facts.via_mqtt = update.via_mqtt;
-        }
-        if (update.has_next_hop)
-        {
-            if (protocol == MeshProtocol::Meshtastic)
-            {
-                incoming.meshtastic.has_next_hop = true;
-                incoming.meshtastic.next_hop = update.next_hop;
-            }
-            else
-            {
-                incoming.meshcore.has_next_hop = true;
-                incoming.meshcore.next_hop = update.next_hop;
-            }
-        }
-        if (protocol == MeshProtocol::MeshCore)
-        {
-            incoming.meshcore.node_id_hint = node_id;
-        }
-    }
-
-    MeshPeerRecord next = incoming;
-    bool identity_upgrade = false;
-    if (existing_index < peers_.size())
-    {
-        next = mergeMeshPeerRecordFacts(peers_[existing_index], incoming);
-        if (!sameMeshPeerIdentity(peers_[existing_index].identity,
-                                  incoming.identity) &&
-            incoming.identity.kind != MeshPeerIdentityKind::NodeId)
-        {
-            next.identity = incoming.identity;
-            identity_upgrade = true;
-        }
-        if (update.has_key_manually_verified)
-        {
-            if (protocol == MeshProtocol::Meshtastic &&
-                next.meshtastic.has_public_key)
-            {
-                next.meshtastic.key_manually_verified =
-                    update.key_manually_verified;
-            }
-            else if (protocol == MeshProtocol::MeshCore &&
-                     next.meshcore.has_public_key)
-            {
-                next.meshcore.public_key_verified =
-                    update.key_manually_verified;
-            }
-        }
-    }
-    const storage_v2::PeerProjection projection{next, false};
-    (void)queueOrAppendPeerDelta(projection);
-    if (identity_upgrade)
-    {
-        storage_v2::PeerProjection tombstone{};
-        tombstone.record = peers_[existing_index];
-        tombstone.deleted = true;
-        (void)queueOrAppendPeerDelta(tombstone);
-    }
-    if (existing_index < peers_.size())
-    {
-        peers_[existing_index] = next;
-    }
-    else
-    {
-        peers_.push_back(next);
-        existing_index = peers_.size() - 1U;
-    }
-
-    if (update.has_is_ignored &&
-        (update.is_ignored ||
-         findContactIndex(peers_[existing_index].identity) < contacts_.size()))
-    {
-        MeshPeerIdentity stable{};
-        if (stableContactIdentity(peers_[existing_index], stable))
-        {
-            MeshPeerUserFlags flags = peers_[existing_index].flags;
-            flags.ignored = update.is_ignored;
-            const bool remove_projection = !flags.favorite && !flags.ignored &&
-                                           !flags.trusted &&
-                                           peers_[existing_index]
-                                                   .user_alias[0] == '\0';
-            (void)persistContactFacts(
-                stable,
-                flags,
-                peers_[existing_index].user_alias,
-                remove_projection);
-        }
-    }
-    overlayContactFactsForPeer(peers_[existing_index]);
-    active_node_projection_dirty_ = true;
-}
-
-bool SdProtocolPeerRepository::removeNode(uint32_t node_id)
-{
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked() || node_id == 0U)
-    {
-        return false;
-    }
-    const std::size_t index = findPeerIndexByNodeId(active_protocol_, node_id);
-    if (index >= peers_.size() || peerIsProtected(peers_[index]))
-    {
-        return false;
-    }
-    storage_v2::PeerProjection tombstone{};
-    tombstone.record = peers_[index];
-    tombstone.deleted = true;
-    (void)queueOrAppendPeerDelta(tombstone);
-    peers_.erase(peers_.begin() + static_cast<std::ptrdiff_t>(index));
-    active_node_projection_dirty_ = true;
-    return true;
-}
-
-void SdProtocolPeerRepository::clearActiveNodes()
-{
-    (void)clearProtocol(active_protocol_);
-}
-
-const std::vector<contacts::NodeEntry>&
-SdProtocolPeerRepository::activeNodeEntries() const
-{
-    ScopedRepositoryLock lock(mutex_);
-    if (lock.locked() && active_node_projection_dirty_)
-    {
-        rebuildActiveNodeProjection();
-    }
-    return active_node_projection_;
-}
-
-void SdProtocolPeerRepository::rebuildActiveNodeProjection() const
-{
-    active_node_projection_.clear();
-    active_node_projection_.reserve(
-        std::count_if(peers_.begin(),
-                      peers_.end(),
-                      [this](const MeshPeerRecord& peer)
-                      {
-                          return meshPeerSameProtocol(
-                              peer.identity.protocol,
-                              active_protocol_);
-                      }));
-    for (const MeshPeerRecord& peer : peers_)
-    {
-        contacts::NodeEntry entry{};
-        if (meshPeerSameProtocol(peer.identity.protocol, active_protocol_) &&
-            toNodeEntry(peer, entry))
-        {
-            active_node_projection_.push_back(entry);
-        }
-    }
-    active_node_projection_dirty_ = false;
-}
-
-bool SdProtocolPeerRepository::toNodeEntry(
-    const MeshPeerRecord& peer,
-    contacts::NodeEntry& out) const
-{
-    const NodeId node_id = projectedNodeId(peer);
-    if (node_id == 0U)
-    {
-        return false;
-    }
-    out = contacts::NodeEntry{};
-    out.node_id = node_id;
-    out.last_seen = peer.last_seen_s;
-    out.protocol = static_cast<uint8_t>(normalizeProtocol(
-        peer.identity.protocol));
-    const MeshPeerNodeFacts* facts = nodeFacts(peer);
-    if (facts)
-    {
-        copyNodeText(out.short_name,
-                     sizeof(out.short_name),
-                     facts->short_name);
-        copyNodeText(out.long_name,
-                     sizeof(out.long_name),
-                     facts->long_name);
-        out.role = facts->role;
-        out.hw_model = facts->hw_model;
-        out.channel = facts->channel;
-        out.hops_away = facts->hops_away;
-        out.has_macaddr = facts->has_macaddr;
-        std::memcpy(out.macaddr, facts->macaddr, sizeof(out.macaddr));
-        out.via_mqtt = facts->via_mqtt;
-    }
-    else
-    {
-        copyNodeText(out.long_name,
-                     sizeof(out.long_name),
-                     peer.display_name);
-        out.role = static_cast<uint8_t>(contacts::NodeRoleType::Client);
-        out.hops_away = 0U;
-    }
-    if (out.long_name[0] == '\0')
-    {
-        copyNodeText(out.long_name,
-                     sizeof(out.long_name),
-                     peer.display_name);
-    }
-    out.snr = peer.observations.has_snr ? peer.observations.snr : 0.0F;
-    out.rssi = peer.observations.has_rssi ? peer.observations.rssi : 0.0F;
-    out.is_ignored = peer.flags.ignored;
-    if (peer.identity.protocol == MeshProtocol::Meshtastic)
-    {
-        out.next_hop = peer.meshtastic.has_next_hop
-                           ? peer.meshtastic.next_hop
-                           : 0U;
-        out.has_public_key = peer.meshtastic.has_public_key;
-        out.key_manually_verified =
-            peer.meshtastic.key_manually_verified;
-    }
-    else if (peer.identity.protocol == MeshProtocol::MeshCore)
-    {
-        out.next_hop = peer.meshcore.has_next_hop
-                           ? peer.meshcore.next_hop
-                           : 0U;
-        out.has_public_key = peer.meshcore.has_public_key ||
-                             peer.identity.kind ==
-                                 MeshPeerIdentityKind::PublicKey;
-        out.key_manually_verified = peer.meshcore.public_key_verified;
-    }
-    else if (peer.identity.protocol == MeshProtocol::Reticulum)
-    {
-        out.has_public_key = peer.reticulum.has_public_keys;
-        out.reticulum_identity = peer.identity.reticulum;
-    }
-    if (peer.observations.has_device_metrics)
-    {
-        out.has_device_metrics = true;
-        out.device_metrics = peer.observations.device_metrics;
-    }
-    if (peer.observations.has_position)
-    {
-        const contacts::NodePosition& position =
-            peer.observations.position;
-        out.position_valid = position.valid;
-        out.position_latitude_i = position.latitude_i;
-        out.position_longitude_i = position.longitude_i;
-        out.position_has_altitude = position.has_altitude;
-        out.position_altitude = position.altitude;
-        out.position_timestamp = position.timestamp;
-        out.position_precision_bits = position.precision_bits;
-        out.position_pdop = position.pdop;
-        out.position_hdop = position.hdop;
-        out.position_vdop = position.vdop;
-        out.position_gps_accuracy_mm = position.gps_accuracy_mm;
-    }
-    return true;
-}
-
-SdProtocolPeerRepository::ContactStoreView::ContactStoreView(
-    SdProtocolPeerRepository& owner)
-    : owner_(owner)
-{
-}
-
-void SdProtocolPeerRepository::ContactStoreView::setActiveProtocol(
-    MeshProtocol protocol)
-{
-    ScopedRepositoryLock lock(owner_.mutex_);
-    if (!lock.locked())
-    {
-        return;
-    }
-    owner_.active_protocol_ = normalizeProtocol(protocol);
-    owner_.active_node_projection_dirty_ = true;
-}
-
-void SdProtocolPeerRepository::ContactStoreView::begin()
-{
-    (void)owner_.begin();
-}
-
-std::string SdProtocolPeerRepository::ContactStoreView::getNickname(
-    uint32_t node_id) const
-{
-    return owner_.nicknameForNode(node_id);
-}
-
-bool SdProtocolPeerRepository::ContactStoreView::setNickname(
-    uint32_t node_id,
-    const char* nickname)
-{
-    return owner_.setNicknameForNode(node_id, nickname);
-}
-
-bool SdProtocolPeerRepository::ContactStoreView::removeNickname(
-    uint32_t node_id)
-{
-    return owner_.removeNicknameForNode(node_id);
-}
-
-bool SdProtocolPeerRepository::ContactStoreView::hasNickname(
-    const char* nickname) const
-{
-    return owner_.hasNicknameForActiveProtocol(nickname);
-}
-
-std::vector<uint32_t>
-SdProtocolPeerRepository::ContactStoreView::getAllContactIds() const
-{
-    return owner_.activeContactIds();
-}
-
-size_t SdProtocolPeerRepository::ContactStoreView::getCount() const
-{
-    return owner_.activeContactCount();
-}
-
-std::string SdProtocolPeerRepository::nicknameForNode(uint32_t node_id) const
-{
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked())
-    {
-        return {};
-    }
-    const std::size_t peer_index = findPeerIndexByNodeId(active_protocol_,
-                                                         node_id);
-    if (peer_index >= peers_.size())
-    {
-        return {};
-    }
-    MeshPeerIdentity stable{};
-    if (!stableContactIdentity(peers_[peer_index], stable))
-    {
-        return {};
-    }
-    const std::size_t contact_index = findContactIndex(stable);
-    return contact_index < contacts_.size()
-               ? std::string(contacts_[contact_index].alias)
-               : std::string();
-}
-
-bool SdProtocolPeerRepository::setNicknameForNode(uint32_t node_id,
-                                                  const char* nickname)
-{
-    if (!nickname || nickname[0] == '\0' ||
-        std::strlen(nickname) > kMeshPeerUserAliasMaxLen)
-    {
-        return false;
-    }
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked())
-    {
-        return false;
-    }
-    const std::size_t peer_index = findPeerIndexByNodeId(active_protocol_,
-                                                         node_id);
-    if (peer_index >= peers_.size())
-    {
-        return false;
-    }
-    MeshPeerIdentity stable{};
-    if (!stableContactIdentity(peers_[peer_index], stable))
-    {
-        return false;
-    }
-    MeshPeerUserFlags flags = peers_[peer_index].flags;
-    flags.favorite = true;
-    return persistContactFacts(stable, flags, nickname, false);
-}
-
-bool SdProtocolPeerRepository::removeNicknameForNode(uint32_t node_id)
-{
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked())
-    {
-        return false;
-    }
-    const std::size_t peer_index = findPeerIndexByNodeId(active_protocol_,
-                                                         node_id);
-    if (peer_index >= peers_.size())
-    {
-        return false;
-    }
-    MeshPeerIdentity stable{};
-    if (!stableContactIdentity(peers_[peer_index], stable))
-    {
-        return false;
-    }
-    const std::size_t contact_index = findContactIndex(stable);
-    if (contact_index >= contacts_.size())
-    {
-        return false;
-    }
-    MeshPeerUserFlags flags = contacts_[contact_index].flags;
-    flags.favorite = false;
-    const bool deleted = !flags.ignored && !flags.trusted;
-    return persistContactFacts(stable, flags, "", deleted);
-}
-
-bool SdProtocolPeerRepository::hasNicknameForActiveProtocol(
-    const char* nickname) const
-{
-    if (!nickname || nickname[0] == '\0')
-    {
-        return false;
-    }
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked())
-    {
-        return false;
-    }
-    for (const storage_v2::ContactProjection& contact : contacts_)
-    {
-        if (meshPeerSameProtocol(contact.identity.protocol,
-                                 active_protocol_) &&
-            std::strcmp(contact.alias, nickname) == 0)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-std::vector<uint32_t> SdProtocolPeerRepository::activeContactIds() const
-{
-    ScopedRepositoryLock lock(mutex_);
-    std::vector<uint32_t> ids;
-    if (!lock.locked())
-    {
-        return ids;
-    }
-    ids.reserve(contacts_.size());
-    for (const storage_v2::ContactProjection& contact : contacts_)
-    {
-        if (!meshPeerSameProtocol(contact.identity.protocol,
-                                  active_protocol_) ||
-            (!contact.flags.favorite && contact.alias[0] == '\0'))
-        {
-            continue;
-        }
-        const std::size_t peer_index = findPeerIndex(contact.identity);
-        if (peer_index < peers_.size())
-        {
-            const NodeId node_id = projectedNodeId(peers_[peer_index]);
-            if (node_id != 0U)
-            {
-                ids.push_back(node_id);
-            }
-        }
-    }
-    return ids;
-}
-
-size_t SdProtocolPeerRepository::activeContactCount() const
-{
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked())
-    {
-        return 0U;
-    }
-    return static_cast<size_t>(std::count_if(
-        contacts_.begin(),
-        contacts_.end(),
-        [this](const storage_v2::ContactProjection& contact)
-        {
-            return meshPeerSameProtocol(contact.identity.protocol,
-                                        active_protocol_) &&
-                   (contact.flags.favorite || contact.alias[0] != '\0');
-        }));
 }
 
 bool SdProtocolPeerRepository::persistContactFacts(
@@ -2021,7 +1417,6 @@ bool SdProtocolPeerRepository::persistContactFacts(
     {
         overlayContactFactsForPeer(peers_[peer_index]);
     }
-    active_node_projection_dirty_ = true;
     return true;
 }
 

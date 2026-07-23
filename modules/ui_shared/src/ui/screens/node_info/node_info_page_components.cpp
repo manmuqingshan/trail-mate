@@ -57,7 +57,7 @@ struct NodeInfoRuntimeState
 {
     bool has_node = false;
     bool map_ready = false;
-    chat::contacts::NodeInfo node{};
+    chat::contacts::PeerDirectoryItem node{};
     map_viewport::GeoPoint self_point{};
     int zoom = map_viewport::kDefaultZoom;
     int pan_x = 0;
@@ -246,7 +246,7 @@ void log_scene_widgets(const char* stage)
                   viewport_status.has_visible_map_data ? 1 : 0);
 }
 
-void log_node_summary(const char* stage, const chat::contacts::NodeInfo& node)
+void log_node_summary(const char* stage, const chat::contacts::PeerDirectoryItem& node)
 {
     NODE_INFO_LOG(
         "%s node id=%08" PRIX32 " protocol=%d channel=%u last_seen=%" PRIu32 " rssi=%.1f snr=%.1f hops=%u next_hop=%u via_mqtt=%d ignored=%d display='%s' short='%s' long='%s'\n",
@@ -994,7 +994,7 @@ map_viewport::Model build_map_model(const map_viewport::GeoPoint& node_point,
     return model;
 }
 
-map_viewport::GeoPoint node_point_from_info(const chat::contacts::NodeInfo& node)
+map_viewport::GeoPoint node_point_from_info(const chat::contacts::PeerDirectoryItem& node)
 {
     map_viewport::GeoPoint point{};
     if (!node.position.valid)
@@ -1017,7 +1017,7 @@ map_viewport::GeoPoint resolve_self_position()
         const chat::NodeId self_node_id = app::messagingFacade().getSelfNodeId();
         if (self_node_id != 0)
         {
-            const auto* self_info = app::messagingFacade().getContactService().getNodeInfo(self_node_id);
+            const auto* self_info = app::messagingFacade().getContactService().getPeerByNodeId(self_node_id);
             if (self_info && self_info->position.valid)
             {
                 point.valid = true;
@@ -1217,7 +1217,7 @@ void format_age_short(uint32_t ts, char* out, size_t out_len)
     return chat::infra::nodeProtocolName(protocol);
 }
 
-std::string preferred_node_title(const chat::contacts::NodeInfo& node)
+std::string preferred_node_title(const chat::contacts::PeerDirectoryItem& node)
 {
     if (!node.display_name.empty())
     {
@@ -1234,7 +1234,7 @@ std::string preferred_node_title(const chat::contacts::NodeInfo& node)
     return ::ui::i18n::tr("NODE INFO");
 }
 
-void set_top_bar_title(const chat::contacts::NodeInfo& node)
+void set_top_bar_title(const chat::contacts::PeerDirectoryItem& node)
 {
     if (!valid_obj(s_top_bar.container))
     {
@@ -1288,12 +1288,12 @@ void hide_unused_info_lines(std::size_t visible_count)
     }
 }
 
-void build_protocol_line(const chat::contacts::NodeInfo& node, char* out, size_t out_len)
+void build_protocol_line(const chat::contacts::PeerDirectoryItem& node, char* out, size_t out_len)
 {
     std::snprintf(out, out_len, "%s", protocol_name(node.protocol));
 }
 
-bool build_rssi_line(const chat::contacts::NodeInfo& node, char* out, size_t out_len)
+bool build_rssi_line(const chat::contacts::PeerDirectoryItem& node, char* out, size_t out_len)
 {
     if (std::isnan(node.rssi))
     {
@@ -1303,7 +1303,7 @@ bool build_rssi_line(const chat::contacts::NodeInfo& node, char* out, size_t out
     return true;
 }
 
-bool build_snr_line(const chat::contacts::NodeInfo& node, char* out, size_t out_len)
+bool build_snr_line(const chat::contacts::PeerDirectoryItem& node, char* out, size_t out_len)
 {
     if (std::isnan(node.snr))
     {
@@ -1313,7 +1313,7 @@ bool build_snr_line(const chat::contacts::NodeInfo& node, char* out, size_t out_
     return true;
 }
 
-bool build_seen_line(const chat::contacts::NodeInfo& node, char* out, size_t out_len)
+bool build_seen_line(const chat::contacts::PeerDirectoryItem& node, char* out, size_t out_len)
 {
     if (node.last_seen == 0)
     {
@@ -2143,7 +2143,7 @@ const NodeInfoWidgets& widgets()
     return s_widgets;
 }
 
-void set_node_info(const chat::contacts::NodeInfo& node)
+void set_node_info(const chat::contacts::PeerDirectoryItem& node)
 {
     NODE_INFO_LOG("set_node_info begin\n");
     log_node_summary("set_node_info", node);

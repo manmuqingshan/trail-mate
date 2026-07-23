@@ -20,7 +20,8 @@ namespace
 {
 
 constexpr uint32_t kMeshPeerDirectoryMagic = 0x5244504DUL; // MPDR
-constexpr uint8_t kMeshPeerDirectoryPersistVersion = 1;
+constexpr uint8_t kMeshPeerDirectoryPersistVersionV1 = 1;
+constexpr uint8_t kMeshPeerDirectoryPersistVersion = 2;
 
 TRAILMATE_PACK_PUSH
 struct PersistedMeshPeerDirectoryHeaderV1
@@ -101,6 +102,14 @@ struct PersistedMeshPeerEntryV1
     uint8_t reticulum_reserved[3] = {};
     uint32_t reticulum_ratchet_seen_s = 0;
     uint8_t reticulum_ratchet_pub[kMeshPeerReticulumRatchetLen] = {};
+} TRAILMATE_PACKED;
+TRAILMATE_PACK_POP
+
+TRAILMATE_PACK_PUSH
+struct PersistedMeshPeerEntryV2
+{
+    PersistedMeshPeerEntryV1 peer{};
+    char user_alias[kMeshPeerUserAliasMaxLen + 1] = {};
 } TRAILMATE_PACKED;
 TRAILMATE_PACK_POP
 
@@ -289,6 +298,27 @@ bool copyFromPersisted(MeshPeerRecord& dst,
     return meshPeerRecordIsValid(dst);
 }
 
+void copyIntoPersisted(PersistedMeshPeerEntryV2& dst,
+                       const MeshPeerRecord& src)
+{
+    dst = {};
+    copyIntoPersisted(dst.peer, src);
+    copyMeshPeerText(dst.user_alias, sizeof(dst.user_alias), src.user_alias);
+}
+
+bool copyFromPersisted(MeshPeerRecord& dst,
+                       const PersistedMeshPeerEntryV2& src)
+{
+    if (!copyFromPersisted(dst, src.peer))
+    {
+        return false;
+    }
+    copyMeshPeerText(dst.user_alias,
+                     sizeof(dst.user_alias),
+                     src.user_alias);
+    return true;
+}
+
 bool textContains(const char* haystack, const char* needle)
 {
     return haystack && needle && std::strstr(haystack, needle) != nullptr;
@@ -297,6 +327,24 @@ bool textContains(const char* haystack, const char* needle)
 bool hasMeshPeerText(const char* text)
 {
     return text && text[0] != '\0';
+}
+
+bool matchesDirectoryView(const MeshPeerRecord& record,
+                          MeshPeerDirectoryView view)
+{
+    const bool contact = meshPeerIsContact(record);
+    switch (view)
+    {
+    case MeshPeerDirectoryView::Contacts:
+        return contact;
+    case MeshPeerDirectoryView::Nearby:
+        return !contact && !record.flags.ignored;
+    case MeshPeerDirectoryView::Ignored:
+        return !contact && record.flags.ignored;
+    case MeshPeerDirectoryView::All:
+    default:
+        return true;
+    }
 }
 
 void copyNonEmptyMeshPeerText(char* out, std::size_t out_len, const char* text)
@@ -500,9 +548,6 @@ MeshPeerRecord mergePeerRecordFactsImpl(const MeshPeerRecord& existing,
     copyNonEmptyMeshPeerText(next.display_name,
                              sizeof(next.display_name),
                              incoming.display_name);
-    copyNonEmptyMeshPeerText(next.user_alias,
-                             sizeof(next.user_alias),
-                             incoming.user_alias);
     next.flags = existing.flags;
     if (incoming.observations.has_snr)
     {
@@ -628,6 +673,8 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::record(
     }
 
     MeshPeerRecord next = record;
+    next.user_alias[0] = '\0';
+    next.flags = {};
     if (next.last_seen_s < next.first_seen_s)
     {
         next.last_seen_s = next.first_seen_s;
@@ -672,6 +719,13 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::findByNodeId(
 
         if (record.identity.kind == MeshPeerIdentityKind::NodeId &&
             record.identity.node_id == node_id)
+        {
+            out_record = record;
+            return MeshPeerDirectoryStatus::success();
+        }
+
+        if (protocol == MeshProtocol::MeshCore &&
+            record.meshcore.node_id_hint == node_id)
         {
             out_record = record;
             return MeshPeerDirectoryStatus::success();
@@ -765,10 +819,56 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::search(
     return MeshPeerDirectoryStatus::success();
 }
 
+MeshPeerDirectoryStatus MeshPeerDirectoryCore::visit(
+    MeshProtocol protocol,
+    MeshPeerDirectoryView view,
+    IMeshPeerDirectoryVisitor& visitor)
+{
+    for (const MeshPeerRecord& record : records_)
+    {
+        if (meshPeerSameProtocol(record.identity.protocol, protocol) &&
+            matchesDirectoryView(record, view) && !visitor.visit(record))
+        {
+            break;
+        }
+    }
+    return MeshPeerDirectoryStatus::success();
+}
+
+MeshPeerDirectoryStatus MeshPeerDirectoryCore::setUserAlias(
+    const MeshPeerIdentity& identity,
+    const char* alias)
+{
+    if (!alias || std::strlen(alias) > kMeshPeerUserAliasMaxLen ||
+        !meshPeerIsStableContactIdentity(identity))
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::InvalidArgument);
+    }
+    const std::size_t index = findIndex(identity);
+    if (index >= records_.size())
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::NotFound);
+    }
+    copyMeshPeerText(records_[index].user_alias,
+                     sizeof(records_[index].user_alias),
+                     alias);
+    records_[index].flags.favorite = alias[0] != '\0';
+    dirty_ = true;
+    maybeSave();
+    return MeshPeerDirectoryStatus::success();
+}
+
 MeshPeerDirectoryStatus MeshPeerDirectoryCore::setUserFlags(
     const MeshPeerIdentity& identity,
     const MeshPeerUserFlags& flags)
 {
+    if (!meshPeerIsStableContactIdentity(identity))
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::Unsupported);
+    }
     const std::size_t index = findIndex(identity);
     if (index >= records_.size())
     {
@@ -776,6 +876,38 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::setUserFlags(
             MeshPeerDirectoryStatusCode::NotFound);
     }
     records_[index].flags = flags;
+    dirty_ = true;
+    maybeSave();
+    return MeshPeerDirectoryStatus::success();
+}
+
+MeshPeerDirectoryStatus MeshPeerDirectoryCore::setKeyManuallyVerified(
+    const MeshPeerIdentity& identity,
+    bool verified)
+{
+    const std::size_t index = findIndex(identity);
+    if (index >= records_.size())
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::NotFound);
+    }
+    MeshPeerRecord& record = records_[index];
+    if (record.identity.protocol == MeshProtocol::Meshtastic &&
+        record.meshtastic.has_public_key)
+    {
+        record.meshtastic.key_manually_verified = verified;
+    }
+    else if (record.identity.protocol == MeshProtocol::MeshCore &&
+             (record.meshcore.has_public_key ||
+              record.identity.kind == MeshPeerIdentityKind::PublicKey))
+    {
+        record.meshcore.public_key_verified = verified;
+    }
+    else
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::Unsupported);
+    }
     dirty_ = true;
     maybeSave();
     return MeshPeerDirectoryStatus::success();
@@ -881,14 +1013,19 @@ bool MeshPeerDirectoryCore::decodeBlob(std::vector<MeshPeerRecord>& out,
     PersistedMeshPeerDirectoryHeaderV1 header{};
     std::memcpy(&header, data, sizeof(header));
     if (header.magic != kMeshPeerDirectoryMagic ||
-        header.version != kMeshPeerDirectoryPersistVersion)
+        (header.version != kMeshPeerDirectoryPersistVersionV1 &&
+         header.version != kMeshPeerDirectoryPersistVersion))
     {
         return false;
     }
 
     const std::size_t entries_len = len - sizeof(header);
-    if ((entries_len % sizeof(PersistedMeshPeerEntryV1)) != 0 ||
-        (entries_len / sizeof(PersistedMeshPeerEntryV1)) != header.count)
+    const std::size_t entry_size =
+        header.version == kMeshPeerDirectoryPersistVersionV1
+            ? sizeof(PersistedMeshPeerEntryV1)
+            : sizeof(PersistedMeshPeerEntryV2);
+    if ((entries_len % entry_size) != 0 ||
+        (entries_len / entry_size) != header.count)
     {
         return false;
     }
@@ -902,12 +1039,25 @@ bool MeshPeerDirectoryCore::decodeBlob(std::vector<MeshPeerRecord>& out,
     out.reserve(header.count);
     for (std::size_t index = 0; index < header.count; ++index)
     {
-        PersistedMeshPeerEntryV1 persisted{};
-        std::memcpy(&persisted,
-                    entries_data + index * sizeof(PersistedMeshPeerEntryV1),
-                    sizeof(persisted));
         MeshPeerRecord record{};
-        if (copyFromPersisted(record, persisted))
+        bool valid = false;
+        if (header.version == kMeshPeerDirectoryPersistVersionV1)
+        {
+            PersistedMeshPeerEntryV1 persisted{};
+            std::memcpy(&persisted,
+                        entries_data + index * entry_size,
+                        sizeof(persisted));
+            valid = copyFromPersisted(record, persisted);
+        }
+        else
+        {
+            PersistedMeshPeerEntryV2 persisted{};
+            std::memcpy(&persisted,
+                        entries_data + index * entry_size,
+                        sizeof(persisted));
+            valid = copyFromPersisted(record, persisted);
+        }
+        if (valid)
         {
             out.push_back(record);
         }
@@ -920,15 +1070,15 @@ void MeshPeerDirectoryCore::encodeBlob(
     const std::vector<MeshPeerRecord>& records)
 {
     const std::size_t entries_len =
-        records.size() * sizeof(PersistedMeshPeerEntryV1);
+        records.size() * sizeof(PersistedMeshPeerEntryV2);
     out.assign(sizeof(PersistedMeshPeerDirectoryHeaderV1) + entries_len, 0);
 
     auto* entries_data = out.data() + sizeof(PersistedMeshPeerDirectoryHeaderV1);
     for (std::size_t index = 0; index < records.size(); ++index)
     {
-        PersistedMeshPeerEntryV1 persisted{};
+        PersistedMeshPeerEntryV2 persisted{};
         copyIntoPersisted(persisted, records[index]);
-        std::memcpy(entries_data + index * sizeof(PersistedMeshPeerEntryV1),
+        std::memcpy(entries_data + index * sizeof(PersistedMeshPeerEntryV2),
                     &persisted,
                     sizeof(persisted));
     }

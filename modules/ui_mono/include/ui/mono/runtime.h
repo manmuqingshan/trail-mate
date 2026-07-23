@@ -293,7 +293,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     uint32_t nowMs() const;
     app::IAppFacade* app() const;
     const chat::ChatMessage* selectedMessage() const;
-    const chat::contacts::NodeInfo* selectedNode() const;
+    const chat::contacts::PeerDirectoryItem* selectedNode() const;
     void executeNodeAction();
     void requestNodePositionExchange();
     chat::MessageId nextMeshtasticActionRequestId(chat::NodeId peer);
@@ -362,7 +362,7 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     size_t conversation_total_ = 0;
 
     static constexpr size_t kMaxNodeItems = 16;
-    chat::contacts::NodeInfo nodes_[kMaxNodeItems]{};
+    chat::contacts::PeerDirectoryItem nodes_[kMaxNodeItems]{};
     size_t node_count_ = 0;
     static constexpr size_t kNodeInfoLines = 24;
     static constexpr size_t kNodeInfoWidth = 40;

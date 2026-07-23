@@ -975,6 +975,11 @@ void bind_mesh_peer_directory(chat::IMeshPeerDirectory* directory)
     s_bound_mesh_peer_directory = directory;
 }
 
+chat::IMeshPeerDirectory& mesh_peer_directory()
+{
+    return local_mesh_peer_directory();
+}
+
 Status record_announce(const AnnounceRecord& record)
 {
     Status out{};

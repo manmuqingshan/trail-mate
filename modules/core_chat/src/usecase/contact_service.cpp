@@ -1,15 +1,15 @@
 /**
  * @file contact_service.cpp
- * @brief Contact service implementation
+ * @brief Contact and peer-directory use cases.
  */
 
 #include "chat/usecase/contact_service.h"
 #include "sys/clock.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <inttypes.h>
 
 namespace chat
@@ -44,7 +44,8 @@ bool same_text(const char* lhs, const char* rhs)
     return std::strcmp(lhs, rhs) == 0;
 }
 
-std::string preferred_node_name(const char* short_name, const char* long_name)
+std::string preferred_node_name(const char* short_name,
+                                const char* long_name)
 {
     if (has_text(long_name) && !same_text(long_name, short_name))
     {
@@ -54,83 +55,394 @@ std::string preferred_node_name(const char* short_name, const char* long_name)
     {
         return std::string(short_name);
     }
-    if (has_text(long_name))
+    return has_text(long_name) ? std::string(long_name) : std::string();
+}
+
+std::string preferred_node_name(const PeerDirectoryItem& peer)
+{
+    if (!peer.display_name.empty() &&
+        !same_text(peer.display_name.c_str(), peer.short_name))
     {
-        return std::string(long_name);
+        return peer.display_name;
     }
-    return std::string();
+    return preferred_node_name(peer.short_name, peer.long_name);
 }
 
-std::string preferred_node_name(const NodeInfo& node)
+MeshProtocol normalize_protocol(MeshProtocol protocol)
 {
-    if (!node.display_name.empty() &&
-        !same_text(node.display_name.c_str(), node.short_name))
+    return protocol == MeshProtocol::RNode ? MeshProtocol::Reticulum
+                                           : protocol;
+}
+
+const MeshPeerNodeFacts* node_facts(const MeshPeerRecord& record)
+{
+    if (record.identity.protocol == MeshProtocol::Meshtastic)
     {
-        return node.display_name;
+        return &record.meshtastic.node;
     }
-    return preferred_node_name(node.short_name, node.long_name);
+    if (record.identity.protocol == MeshProtocol::MeshCore)
+    {
+        return &record.meshcore.node;
+    }
+    return nullptr;
 }
 
-bool is_reticulum_node(const NodeInfo& node)
+MeshPeerNodeFacts* mutable_node_facts(MeshPeerRecord& record)
 {
-    return node.protocol == NodeProtocolType::Reticulum ||
-           hasReticulumDestinationIdentity(node.reticulum_identity);
+    if (record.identity.protocol == MeshProtocol::Meshtastic)
+    {
+        return &record.meshtastic.node;
+    }
+    if (record.identity.protocol == MeshProtocol::MeshCore)
+    {
+        return &record.meshcore.node;
+    }
+    return nullptr;
 }
 
-bool is_reticulum_entry(const NodeEntry& entry)
+void copy_peer_item(PeerDirectoryItem& out, const MeshPeerRecord& record)
 {
-    return static_cast<NodeProtocolType>(entry.protocol) == NodeProtocolType::Reticulum ||
-           hasReticulumDestinationIdentity(entry.reticulum_identity);
+    out = {};
+    out.node_id = meshPeerProjectedNodeId(record);
+    out.last_seen = record.last_seen_s;
+    const MeshProtocol protocol = normalize_protocol(record.identity.protocol);
+    out.protocol = static_cast<NodeProtocolType>(protocol);
+
+    const MeshPeerNodeFacts* facts = node_facts(record);
+    if (facts)
+    {
+        copyMeshPeerText(out.short_name, sizeof(out.short_name),
+                         facts->short_name);
+        copyMeshPeerText(out.long_name, sizeof(out.long_name),
+                         facts->long_name);
+        out.role = static_cast<NodeRoleType>(facts->role);
+        out.hw_model = facts->hw_model;
+        out.channel = facts->channel;
+        out.hops_away = facts->hops_away;
+        out.has_macaddr = facts->has_macaddr;
+        std::memcpy(out.macaddr, facts->macaddr, sizeof(out.macaddr));
+        out.via_mqtt = facts->via_mqtt;
+    }
+    else
+    {
+        copyMeshPeerText(out.long_name, sizeof(out.long_name),
+                         record.display_name);
+        out.role = NodeRoleType::Client;
+        out.hops_away = 0;
+    }
+
+    if (out.long_name[0] == '\0')
+    {
+        copyMeshPeerText(out.long_name, sizeof(out.long_name),
+                         record.display_name);
+    }
+    if (out.short_name[0] == '\0')
+    {
+        std::snprintf(out.short_name,
+                      sizeof(out.short_name),
+                      "%04X",
+                      static_cast<unsigned>(out.node_id & 0xFFFFU));
+    }
+
+    out.snr = record.observations.has_snr ? record.observations.snr : 0.0F;
+    out.rssi = record.observations.has_rssi ? record.observations.rssi : 0.0F;
+    out.is_contact = meshPeerIsContact(record);
+    out.is_ignored = record.flags.ignored;
+    out.has_device_metrics = record.observations.has_device_metrics;
+    if (out.has_device_metrics)
+    {
+        out.device_metrics = record.observations.device_metrics;
+    }
+    if (record.observations.has_position)
+    {
+        out.position = record.observations.position;
+    }
+
+    if (protocol == MeshProtocol::Meshtastic)
+    {
+        out.next_hop = record.meshtastic.has_next_hop
+                           ? record.meshtastic.next_hop
+                           : 0;
+        out.has_public_key = record.meshtastic.has_public_key;
+        out.key_manually_verified =
+            record.meshtastic.key_manually_verified;
+    }
+    else if (protocol == MeshProtocol::MeshCore)
+    {
+        out.next_hop = record.meshcore.has_next_hop
+                           ? record.meshcore.next_hop
+                           : 0;
+        out.has_public_key =
+            record.meshcore.has_public_key ||
+            record.identity.kind == MeshPeerIdentityKind::PublicKey;
+        out.key_manually_verified = record.meshcore.public_key_verified;
+    }
+    else if (protocol == MeshProtocol::Reticulum)
+    {
+        out.reticulum_identity = record.identity.reticulum;
+        out.has_public_key = record.reticulum.has_public_keys;
+    }
+
+    const std::string protocol_name =
+        preferred_node_name(out.short_name, out.long_name);
+    out.display_name = record.user_alias[0] != '\0'
+                           ? std::string(record.user_alias)
+                           : protocol_name;
 }
+
+class ProjectionVisitor final : public IMeshPeerDirectoryVisitor
+{
+  public:
+    explicit ProjectionVisitor(std::vector<PeerDirectoryItem>& out)
+        : out_(out)
+    {
+    }
+
+    bool visit(const MeshPeerRecord& record) override
+    {
+        if (meshPeerProjectedNodeId(record) == 0)
+        {
+            return true;
+        }
+        out_.emplace_back();
+        copy_peer_item(out_.back(), record);
+        return true;
+    }
+
+  private:
+    std::vector<PeerDirectoryItem>& out_;
+};
+
+class ReticulumLookupVisitor final : public IMeshPeerDirectoryVisitor
+{
+  public:
+    ReticulumLookupVisitor(
+        const uint8_t destination_hash[kReticulumPeerHashSize],
+        uint32_t* out_node_id)
+        : destination_hash_(destination_hash), out_node_id_(out_node_id)
+    {
+    }
+
+    bool visit(const MeshPeerRecord& record) override
+    {
+        if (sameReticulumDestinationHash(record.identity.reticulum,
+                                         destination_hash_))
+        {
+            *out_node_id_ = meshPeerProjectedNodeId(record);
+            found_ = *out_node_id_ != 0;
+            return false;
+        }
+        return true;
+    }
+
+    bool found() const { return found_; }
+
+  private:
+    const uint8_t* destination_hash_ = nullptr;
+    uint32_t* out_node_id_ = nullptr;
+    bool found_ = false;
+};
 
 } // namespace
 
-ContactService::ContactService(INodeStore& node_store, IContactStore& contact_store)
-    : node_store_(node_store), contact_store_(contact_store), cache_timestamp_(0)
+ContactService::ContactService(IMeshPeerDirectory& directory)
+    : directory_(directory), cache_timestamp_(0)
 {
 }
 
 void ContactService::begin()
 {
-    node_store_.setActiveProtocol(active_protocol_);
-    contact_store_.setActiveProtocol(active_protocol_);
-    node_store_.begin();
-    contact_store_.begin();
-
-    const std::vector<uint32_t> contact_ids = contact_store_.getAllContactIds();
-    for (size_t i = 0; i < contact_ids.size(); ++i)
-    {
-        (void)ensureNodeExistsForContact(contact_ids[i]);
-    }
-
+    (void)directory_.begin();
     invalidateCache();
 }
 
 void ContactService::setActiveProtocol(MeshProtocol protocol)
 {
-    active_protocol_ = protocol == MeshProtocol::RNode
-                           ? MeshProtocol::Reticulum
-                           : protocol;
-    node_store_.setActiveProtocol(active_protocol_);
-    contact_store_.setActiveProtocol(active_protocol_);
+    active_protocol_ = normalize_protocol(protocol);
     invalidateCache();
 }
 
-void ContactService::applyNodeUpdate(uint32_t node_id, const NodeUpdate& update)
+void ContactService::applyNodeUpdate(uint32_t node_id,
+                                     const NodeUpdate& update)
 {
-    node_store_.applyUpdate(node_id, update);
+    if (node_id == 0)
+    {
+        return;
+    }
+
+    MeshProtocol protocol = active_protocol_;
+    if (update.has_protocol)
+    {
+        const MeshProtocol requested =
+            normalize_protocol(static_cast<MeshProtocol>(update.protocol));
+        if (requested == MeshProtocol::Meshtastic ||
+            requested == MeshProtocol::MeshCore ||
+            requested == MeshProtocol::Reticulum)
+        {
+            protocol = requested;
+        }
+    }
+
+    const bool found =
+        directory_.findByNodeId(protocol, node_id, lookup_scratch_).succeeded();
+    update_scratch_ = {};
+    update_scratch_.valid = true;
+    update_scratch_.source = MeshPeerSource::RuntimeRx;
+    if (protocol == MeshProtocol::Reticulum &&
+        hasReticulumDestinationIdentity(update.reticulum_identity))
+    {
+        update_scratch_.identity =
+            makeMeshPeerReticulumIdentity(update.reticulum_identity);
+        update_scratch_.reticulum.identity = update.reticulum_identity;
+    }
+    else if (found)
+    {
+        update_scratch_.identity = lookup_scratch_.identity;
+    }
+    else
+    {
+        update_scratch_.identity = makeMeshPeerNodeIdentity(protocol, node_id);
+    }
+    update_scratch_.identity.protocol = protocol;
+    if (update.has_last_seen)
+    {
+        update_scratch_.first_seen_s = update.last_seen;
+        update_scratch_.last_seen_s = update.last_seen;
+    }
+    if (has_text(update.long_name))
+    {
+        copyMeshPeerText(update_scratch_.display_name,
+                         sizeof(update_scratch_.display_name),
+                         update.long_name);
+    }
+    else if (has_text(update.short_name))
+    {
+        copyMeshPeerText(update_scratch_.display_name,
+                         sizeof(update_scratch_.display_name),
+                         update.short_name);
+    }
+    if (update.has_snr)
+    {
+        update_scratch_.observations.has_snr = true;
+        update_scratch_.observations.snr = update.snr;
+    }
+    if (update.has_rssi)
+    {
+        update_scratch_.observations.has_rssi = true;
+        update_scratch_.observations.rssi = update.rssi;
+    }
+    if (update.has_device_metrics)
+    {
+        update_scratch_.observations.has_device_metrics = true;
+        update_scratch_.observations.device_metrics = update.device_metrics;
+    }
+    if (update.has_position)
+    {
+        update_scratch_.observations.has_position = true;
+        update_scratch_.observations.position = update.position;
+    }
+
+    MeshPeerNodeFacts* facts = mutable_node_facts(update_scratch_);
+    if (facts)
+    {
+        copyMeshPeerText(facts->short_name,
+                         sizeof(facts->short_name),
+                         update.short_name);
+        copyMeshPeerText(facts->long_name,
+                         sizeof(facts->long_name),
+                         update.long_name);
+        if (update.has_role)
+        {
+            facts->role = update.role;
+        }
+        if (update.has_hw_model)
+        {
+            facts->hw_model = update.hw_model;
+        }
+        if (update.has_channel)
+        {
+            facts->channel = update.channel;
+        }
+        if (update.has_hops_away)
+        {
+            facts->hops_away = update.hops_away;
+        }
+        if (update.has_macaddr)
+        {
+            facts->has_macaddr = true;
+            std::memcpy(facts->macaddr,
+                        update.macaddr,
+                        sizeof(facts->macaddr));
+        }
+        if (update.has_via_mqtt)
+        {
+            facts->via_mqtt = update.via_mqtt;
+        }
+        if (update.has_next_hop)
+        {
+            if (protocol == MeshProtocol::Meshtastic)
+            {
+                update_scratch_.meshtastic.has_next_hop = true;
+                update_scratch_.meshtastic.next_hop = update.next_hop;
+            }
+            else
+            {
+                update_scratch_.meshcore.has_next_hop = true;
+                update_scratch_.meshcore.next_hop = update.next_hop;
+            }
+        }
+        if (protocol == MeshProtocol::MeshCore)
+        {
+            update_scratch_.meshcore.node_id_hint = node_id;
+        }
+    }
+
+    if (!directory_.record(update_scratch_).succeeded())
+    {
+        return;
+    }
+    if (directory_.findByNodeId(protocol, node_id, lookup_scratch_).succeeded())
+    {
+        if (update.has_is_ignored)
+        {
+            MeshPeerUserFlags flags = lookup_scratch_.flags;
+            flags.ignored = update.is_ignored;
+            (void)directory_.setUserFlags(lookup_scratch_.identity, flags);
+        }
+        if (update.has_key_manually_verified)
+        {
+            (void)directory_.setKeyManuallyVerified(
+                lookup_scratch_.identity,
+                update.key_manually_verified);
+        }
+    }
     invalidateCache();
 }
 
-void ContactService::updateNodeInfo(uint32_t node_id, const char* short_name, const char* long_name,
-                                    float snr, float rssi, uint32_t now_secs, uint8_t protocol, uint8_t role,
-                                    uint8_t hops_away, uint8_t hw_model, uint8_t channel)
+bool ContactService::recordPeer(const MeshPeerRecord& record)
 {
-    CONTACT_SERVICE_LOG("[ContactService] updateNodeInfo node=%08lX snr=%.1f rssi=%.1f ts=%lu\n",
-                        (unsigned long)node_id,
-                        snr,
-                        rssi,
-                        (unsigned long)now_secs);
+    const bool recorded = directory_.record(record).succeeded();
+    if (recorded)
+    {
+        invalidateCache();
+    }
+    return recorded;
+}
+
+void ContactService::updateNodeInfo(uint32_t node_id,
+                                    const char* short_name,
+                                    const char* long_name,
+                                    float snr,
+                                    float rssi,
+                                    uint32_t now_secs,
+                                    uint8_t protocol,
+                                    uint8_t role,
+                                    uint8_t hops_away,
+                                    uint8_t hw_model,
+                                    uint8_t channel)
+{
+    CONTACT_SERVICE_LOG(
+        "[ContactService] updateNodeInfo node=%08" PRIX32 "\n", node_id);
     NodeUpdate update{};
     update.short_name = short_name;
     update.long_name = long_name;
@@ -140,64 +452,61 @@ void ContactService::updateNodeInfo(uint32_t node_id, const char* short_name, co
     update.snr = snr;
     update.has_rssi = !std::isnan(rssi);
     update.rssi = rssi;
-    update.has_protocol = (protocol != 0);
+    update.has_protocol = protocol != 0;
     update.protocol = protocol;
-    update.has_role = (role != kNodeRoleUnknown);
+    update.has_role = role != kNodeRoleUnknown;
     update.role = role;
-    update.has_hops_away = (hops_away != 0xFF);
+    update.has_hops_away = hops_away != 0xFF;
     update.hops_away = hops_away;
-    update.has_hw_model = (hw_model != 0);
+    update.has_hw_model = hw_model != 0;
     update.hw_model = hw_model;
-    update.has_channel = (channel != 0xFF);
+    update.has_channel = channel != 0xFF;
     update.channel = channel;
     applyNodeUpdate(node_id, update);
 }
 
-void ContactService::updateNodeProtocol(uint32_t node_id, uint8_t protocol, uint32_t now_secs)
+void ContactService::updateNodeProtocol(uint32_t node_id,
+                                        uint8_t protocol,
+                                        uint32_t now_secs)
 {
     NodeUpdate update{};
-    update.has_protocol = (protocol != 0);
+    update.has_protocol = protocol != 0;
     update.protocol = protocol;
     update.has_last_seen = true;
     update.last_seen = now_secs;
     applyNodeUpdate(node_id, update);
 }
 
-void ContactService::updateNodePosition(uint32_t node_id, const NodePosition& pos)
+void ContactService::updateNodePosition(uint32_t node_id,
+                                        const NodePosition& position)
 {
     NodeUpdate update{};
     update.has_position = true;
-    update.position = pos;
+    update.position = position;
     applyNodeUpdate(node_id, update);
+}
+
+bool ContactService::setNextHop(uint32_t node_id, uint8_t next_hop)
+{
+    NodeUpdate update{};
+    update.has_next_hop = true;
+    update.next_hop = next_hop;
+    update.has_last_seen = true;
+    update.last_seen = ::sys::epoch_seconds_now();
+    applyNodeUpdate(node_id, update);
+    return getNextHop(node_id) == next_hop;
+}
+
+uint8_t ContactService::getNextHop(uint32_t node_id) const
+{
+    const PeerDirectoryItem* peer = getPeerByNodeId(node_id);
+    return peer ? peer->next_hop : 0;
 }
 
 std::string ContactService::getContactName(uint32_t node_id) const
 {
-    std::string nickname = contact_store_.getNickname(node_id);
-    if (!nickname.empty())
-    {
-        return nickname;
-    }
-
-    buildCache();
-    for (const auto& node : cached_nodes_)
-    {
-        if (node.node_id == node_id)
-        {
-            return preferred_node_name(node);
-        }
-    }
-
-    const auto& entries = node_store_.getEntries();
-    for (const auto& entry : entries)
-    {
-        if (entry.node_id == node_id)
-        {
-            return preferred_node_name(entry.short_name, entry.long_name);
-        }
-    }
-
-    return std::string();
+    const PeerDirectoryItem* peer = getPeerByNodeId(node_id);
+    return peer ? preferred_node_name(*peer) : std::string();
 }
 
 std::string ContactService::getReticulumContactName(
@@ -205,152 +514,107 @@ std::string ContactService::getReticulumContactName(
 {
     if (!hasReticulumDestinationIdentity(identity))
     {
-        return std::string();
+        return {};
     }
-
     buildCache();
-    for (const auto& node : cached_nodes_)
+    for (const PeerDirectoryItem& peer : cached_nodes_)
     {
-        if (!sameReticulumDestinationHash(node.reticulum_identity, identity))
+        if (sameReticulumDestinationHash(peer.reticulum_identity, identity))
         {
-            continue;
+            return preferred_node_name(peer);
         }
-
-        const std::string nickname = contact_store_.getNickname(node.node_id);
-        if (is_reticulum_node(node))
-        {
-            const std::string name = preferred_node_name(node);
-            if (!name.empty())
-            {
-                return name;
-            }
-        }
-        if (!nickname.empty())
-        {
-            return nickname;
-        }
-        return preferred_node_name(node);
     }
-
-    const auto& entries = node_store_.getEntries();
-    for (const auto& entry : entries)
-    {
-        if (!sameReticulumDestinationHash(entry.reticulum_identity, identity))
-        {
-            continue;
-        }
-
-        const std::string nickname = contact_store_.getNickname(entry.node_id);
-        if (is_reticulum_entry(entry))
-        {
-            const std::string name =
-                preferred_node_name(entry.short_name, entry.long_name);
-            if (!name.empty())
-            {
-                return name;
-            }
-        }
-        if (!nickname.empty())
-        {
-            return nickname;
-        }
-        return preferred_node_name(entry.short_name, entry.long_name);
-    }
-
-    return std::string();
+    return {};
 }
 
-std::vector<NodeInfo> ContactService::getContacts() const
+std::vector<PeerDirectoryItem> ContactService::getContacts() const
 {
     buildCache();
-    std::vector<NodeInfo> contacts;
-    for (const auto& node : cached_nodes_)
+    std::vector<PeerDirectoryItem> result;
+    for (const PeerDirectoryItem& peer : cached_nodes_)
     {
-        if (node.is_contact)
+        if (peer.is_contact)
         {
-            contacts.push_back(node);
+            result.push_back(peer);
         }
     }
-    return contacts;
+    return result;
 }
 
-std::vector<NodeInfo> ContactService::getNearby() const
+std::vector<PeerDirectoryItem> ContactService::getNearby() const
 {
     buildCache();
-    std::vector<NodeInfo> nearby;
-    for (const auto& node : cached_nodes_)
+    std::vector<PeerDirectoryItem> result;
+    for (const PeerDirectoryItem& peer : cached_nodes_)
     {
-        if (!node.is_contact && !node.is_ignored && isNodeVisible(node.last_seen))
+        if (!peer.is_contact && !peer.is_ignored &&
+            isNodeVisible(peer.last_seen))
         {
-            nearby.push_back(node);
+            result.push_back(peer);
         }
     }
-    return nearby;
+    return result;
 }
 
-std::vector<NodeInfo> ContactService::getIgnoredNodes() const
+std::vector<PeerDirectoryItem> ContactService::getIgnoredNodes() const
 {
     buildCache();
-    std::vector<NodeInfo> ignored;
-    for (const auto& node : cached_nodes_)
+    std::vector<PeerDirectoryItem> result;
+    for (const PeerDirectoryItem& peer : cached_nodes_)
     {
-        if (!node.is_contact && node.is_ignored && isNodeVisible(node.last_seen))
+        if (!peer.is_contact && peer.is_ignored &&
+            isNodeVisible(peer.last_seen))
         {
-            ignored.push_back(node);
+            result.push_back(peer);
         }
     }
-    return ignored;
+    return result;
+}
+
+std::vector<PeerDirectoryItem> ContactService::getAllPeers() const
+{
+    buildCache();
+    return cached_nodes_;
 }
 
 bool ContactService::addContact(uint32_t node_id, const char* nickname)
 {
-    if (!ensureNodeExistsForContact(node_id))
-    {
-        return false;
-    }
-    if (contact_store_.setNickname(node_id, nickname))
-    {
-        invalidateCache();
-        return true;
-    }
-    return false;
+    return editContact(node_id, nickname);
 }
 
 bool ContactService::editContact(uint32_t node_id, const char* nickname)
 {
-    if (!ensureNodeExistsForContact(node_id))
+    if (!nickname || nickname[0] == '\0' ||
+        !ensureNodeExistsForContact(node_id) ||
+        !directory_.setUserAlias(lookup_scratch_.identity, nickname).succeeded())
     {
         return false;
     }
-    if (contact_store_.setNickname(node_id, nickname))
-    {
-        invalidateCache();
-        return true;
-    }
-    return false;
+    invalidateCache();
+    return true;
 }
 
 bool ContactService::removeContact(uint32_t node_id)
 {
-    if (contact_store_.removeNickname(node_id))
+    if (!hasNodeEntry(node_id) ||
+        !directory_.setUserAlias(lookup_scratch_.identity, "").succeeded())
     {
-        invalidateCache();
-        return true;
+        return false;
     }
-    return false;
+    invalidateCache();
+    return true;
 }
 
 bool ContactService::removeNode(uint32_t node_id)
 {
-    bool removed = false;
-    if (contact_store_.removeNickname(node_id))
+    if (!hasNodeEntry(node_id))
     {
-        removed = true;
+        return false;
     }
-    if (node_store_.remove(node_id))
-    {
-        removed = true;
-    }
+    const MeshPeerIdentity identity = lookup_scratch_.identity;
+    (void)directory_.setUserAlias(identity, "");
+    (void)directory_.setUserFlags(identity, MeshPeerUserFlags{});
+    const bool removed = directory_.remove(identity).succeeded();
     if (removed)
     {
         invalidateCache();
@@ -364,36 +628,44 @@ bool ContactService::setNodeIgnored(uint32_t node_id, bool ignored)
     {
         return false;
     }
-
-    NodeUpdate update{};
-    update.has_is_ignored = true;
-    update.is_ignored = ignored;
-    applyNodeUpdate(node_id, update);
-    return true;
+    MeshPeerUserFlags flags = lookup_scratch_.flags;
+    flags.ignored = ignored;
+    const bool updated =
+        directory_.setUserFlags(lookup_scratch_.identity, flags).succeeded();
+    if (updated)
+    {
+        invalidateCache();
+    }
+    return updated;
 }
 
-bool ContactService::setNodeKeyManuallyVerified(uint32_t node_id, bool verified)
+bool ContactService::setNodeKeyManuallyVerified(uint32_t node_id,
+                                                bool verified)
 {
     if (!hasNodeEntry(node_id))
     {
         return false;
     }
-
-    NodeUpdate update{};
-    update.has_key_manually_verified = true;
-    update.key_manually_verified = verified;
-    applyNodeUpdate(node_id, update);
-    return true;
+    const bool updated = directory_.setKeyManuallyVerified(
+                                       lookup_scratch_.identity,
+                                       verified)
+                             .succeeded();
+    if (updated)
+    {
+        invalidateCache();
+    }
+    return updated;
 }
 
-const NodeInfo* ContactService::getNodeInfo(uint32_t node_id) const
+const PeerDirectoryItem* ContactService::getPeerByNodeId(
+    uint32_t node_id) const
 {
     buildCache();
-    for (const auto& node : cached_nodes_)
+    for (const PeerDirectoryItem& peer : cached_nodes_)
     {
-        if (node.node_id == node_id)
+        if (peer.node_id == node_id)
         {
-            return &node;
+            return &peer;
         }
     }
     return nullptr;
@@ -407,18 +679,11 @@ bool ContactService::findNodeIdByReticulumDestinationHash(
     {
         return false;
     }
-
-    const auto& entries = node_store_.getEntries();
-    for (const auto& entry : entries)
-    {
-        if (sameReticulumDestinationHash(entry.reticulum_identity,
-                                         destination_hash))
-        {
-            *out_node_id = entry.node_id;
-            return true;
-        }
-    }
-    return false;
+    ReticulumLookupVisitor visitor(destination_hash, out_node_id);
+    (void)directory_.visit(MeshProtocol::Reticulum,
+                           MeshPeerDirectoryView::All,
+                           visitor);
+    return visitor.found();
 }
 
 void ContactService::clearCache()
@@ -434,132 +699,32 @@ void ContactService::invalidateCache() const
 
 void ContactService::buildCache() const
 {
-    uint32_t now_ms = sys::millis_now();
-    if (cache_timestamp_ != 0 && (now_ms - cache_timestamp_) < kCacheTimeoutMs)
+    const uint32_t now_ms = sys::millis_now();
+    if (cache_timestamp_ != 0 &&
+        (now_ms - cache_timestamp_) < kCacheTimeoutMs)
     {
         return;
     }
-
     cached_nodes_.clear();
-
-    std::vector<uint32_t> contact_ids = contact_store_.getAllContactIds();
-
-    const auto& node_entries = node_store_.getEntries();
-    for (const auto& entry : node_entries)
-    {
-        const MeshProtocol entry_protocol =
-            entry.protocol == static_cast<uint8_t>(MeshProtocol::RNode)
-                ? MeshProtocol::Reticulum
-                : static_cast<MeshProtocol>(entry.protocol);
-        if (entry_protocol != active_protocol_)
-        {
-            continue;
-        }
-        if (!isNodeVisible(entry.last_seen))
-        {
-            continue;
-        }
-
-        NodeInfo info{};
-        info.node_id = entry.node_id;
-        strncpy(info.short_name, entry.short_name, sizeof(info.short_name) - 1);
-        info.short_name[sizeof(info.short_name) - 1] = '\0';
-        strncpy(info.long_name, entry.long_name, sizeof(info.long_name) - 1);
-        info.long_name[sizeof(info.long_name) - 1] = '\0';
-        info.last_seen = entry.last_seen;
-        info.snr = entry.snr;
-        info.rssi = entry.rssi;
-        info.hops_away = entry.hops_away;
-        info.channel = entry.channel;
-        info.protocol = static_cast<NodeProtocolType>(entry.protocol);
-        info.role = static_cast<NodeRoleType>(entry.role);
-        info.hw_model = entry.hw_model;
-        info.next_hop = entry.next_hop;
-        info.has_macaddr = entry.has_macaddr;
-        std::memcpy(info.macaddr, entry.macaddr, sizeof(info.macaddr));
-        info.via_mqtt = entry.via_mqtt;
-        info.is_ignored = entry.is_ignored;
-        info.has_public_key = entry.has_public_key;
-        info.key_manually_verified = entry.key_manually_verified;
-        info.reticulum_identity = entry.reticulum_identity;
-        info.has_device_metrics = entry.has_device_metrics;
-        info.device_metrics = entry.device_metrics;
-        info.position.valid = entry.position_valid;
-        info.position.latitude_i = entry.position_latitude_i;
-        info.position.longitude_i = entry.position_longitude_i;
-        info.position.has_altitude = entry.position_has_altitude;
-        info.position.altitude = entry.position_altitude;
-        info.position.timestamp = entry.position_timestamp;
-        info.position.precision_bits = entry.position_precision_bits;
-        info.position.pdop = entry.position_pdop;
-        info.position.hdop = entry.position_hdop;
-        info.position.vdop = entry.position_vdop;
-        info.position.gps_accuracy_mm = entry.position_gps_accuracy_mm;
-
-        if (info.short_name[0] == '\0')
-        {
-            std::snprintf(info.short_name, sizeof(info.short_name), "%04X",
-                          static_cast<unsigned>(info.node_id & 0xFFFF));
-        }
-
-        info.is_contact = std::find(contact_ids.begin(), contact_ids.end(), entry.node_id) != contact_ids.end();
-
-        const std::string nickname =
-            info.is_contact ? contact_store_.getNickname(entry.node_id) : std::string();
-        const bool reticulum_node = is_reticulum_node(info);
-        if (reticulum_node)
-        {
-            info.display_name = preferred_node_name(info.short_name, info.long_name);
-            if (info.display_name.empty() && !nickname.empty())
-            {
-                info.display_name = nickname;
-            }
-        }
-        else if (!nickname.empty())
-        {
-            info.display_name = nickname;
-        }
-        else
-        {
-            info.display_name = preferred_node_name(info.short_name, info.long_name);
-        }
-
-        cached_nodes_.push_back(info);
-    }
-
+    ProjectionVisitor visitor(cached_nodes_);
+    (void)directory_.visit(active_protocol_,
+                           MeshPeerDirectoryView::All,
+                           visitor);
     cache_timestamp_ = now_ms;
 }
 
 bool ContactService::ensureNodeExistsForContact(uint32_t node_id)
 {
-    if (node_id == 0)
-    {
-        return false;
-    }
-
-    if (hasNodeEntry(node_id))
-    {
-        return true;
-    }
-
-    NodeUpdate update{};
-    update.has_last_seen = true;
-    update.last_seen = 0;
-    applyNodeUpdate(node_id, update);
-    return hasNodeEntry(node_id);
+    return hasNodeEntry(node_id) &&
+           meshPeerIsStableContactIdentity(lookup_scratch_.identity);
 }
 
 bool ContactService::hasNodeEntry(uint32_t node_id) const
 {
-    const auto& entries = node_store_.getEntries();
-    for (size_t i = 0; i < entries.size(); ++i)
-    {
-        if (entries[i].node_id == node_id)
-        {
-            return true;
-        }
-    }
-    return false;
+    return node_id != 0 &&
+           directory_
+               .findByNodeId(active_protocol_, node_id, lookup_scratch_)
+               .succeeded();
 }
 
 bool ContactService::isNodeVisible(uint32_t last_seen) const
@@ -570,44 +735,39 @@ bool ContactService::isNodeVisible(uint32_t last_seen) const
 
 std::string ContactService::formatTimeStatus(uint32_t last_seen) const
 {
-    uint32_t now_secs = sys::epoch_seconds_now();
+    const uint32_t now_secs = sys::epoch_seconds_now();
     if (now_secs < last_seen)
     {
         return "Offline";
     }
-
-    uint32_t age_secs = now_secs - last_seen;
-
+    const uint32_t age_secs = now_secs - last_seen;
     if (age_secs <= 120)
     {
         return "Online";
     }
-
+    char buffer[24] = {};
     if (age_secs < 3600)
     {
-        uint32_t minutes = age_secs / 60;
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "Seen %lum", static_cast<unsigned long>(minutes));
-        return std::string(buf);
+        std::snprintf(buffer,
+                      sizeof(buffer),
+                      "Seen %lum",
+                      static_cast<unsigned long>(age_secs / 60));
     }
-
-    if (age_secs < 86400)
+    else if (age_secs < 86400)
     {
-        uint32_t hours = age_secs / 3600;
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "Seen %luh", static_cast<unsigned long>(hours));
-        return std::string(buf);
+        std::snprintf(buffer,
+                      sizeof(buffer),
+                      "Seen %luh",
+                      static_cast<unsigned long>(age_secs / 3600));
     }
-
-    if (age_secs < 6 * 86400)
+    else
     {
-        uint32_t days = age_secs / 86400;
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "Seen %lud", static_cast<unsigned long>(days));
-        return std::string(buf);
+        std::snprintf(buffer,
+                      sizeof(buffer),
+                      "Seen %lud",
+                      static_cast<unsigned long>(age_secs / 86400));
     }
-
-    return "Offline";
+    return buffer;
 }
 
 } // namespace contacts

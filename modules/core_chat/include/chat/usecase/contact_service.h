@@ -10,8 +10,7 @@
 #pragma once
 
 #include "../domain/contact_types.h"
-#include "../ports/i_contact_store.h"
-#include "../ports/i_node_store.h"
+#include "../ports/i_mesh_peer_directory.h"
 #include <string>
 #include <vector>
 
@@ -29,10 +28,9 @@ class ContactService
   public:
     /**
      * @brief Constructor with dependency injection
-     * @param node_store Node store implementation
-     * @param contact_store Contact store implementation
+     * @param directory Unified durable peer directory
      */
-    ContactService(INodeStore& node_store, IContactStore& contact_store);
+    explicit ContactService(IMeshPeerDirectory& directory);
     ~ContactService() = default;
 
     /**
@@ -44,9 +42,10 @@ class ContactService
     void setActiveProtocol(MeshProtocol protocol);
 
     void applyNodeUpdate(uint32_t node_id, const NodeUpdate& update);
+    bool recordPeer(const MeshPeerRecord& record);
 
     /**
-     * @brief Update node info from NodeInfo packet
+     * @brief Update node facts decoded from a protocol metadata packet
      * @param node_id Node ID
      * @param short_name Short name
      * @param long_name Long name
@@ -67,6 +66,8 @@ class ContactService
      * @brief Update node position info
      */
     void updateNodePosition(uint32_t node_id, const NodePosition& pos);
+    bool setNextHop(uint32_t node_id, uint8_t next_hop);
+    uint8_t getNextHop(uint32_t node_id) const;
 
     /**
      * @brief Get display name for a node (nickname if contact, short_name otherwise)
@@ -85,17 +86,20 @@ class ContactService
     /**
      * @brief Get all contacts (nodes with nicknames)
      */
-    std::vector<NodeInfo> getContacts() const;
+    std::vector<PeerDirectoryItem> getContacts() const;
 
     /**
      * @brief Get all nearby nodes (nodes without nicknames, visible within 6 days)
      */
-    std::vector<NodeInfo> getNearby() const;
+    std::vector<PeerDirectoryItem> getNearby() const;
 
     /**
      * @brief Get ignored non-contact nodes so local admin UIs can still manage them
      */
-    std::vector<NodeInfo> getIgnoredNodes() const;
+    std::vector<PeerDirectoryItem> getIgnoredNodes() const;
+
+    /** Get the active protocol's complete peer-directory projection. */
+    std::vector<PeerDirectoryItem> getAllPeers() const;
 
     /**
      * @brief Add contact (set nickname)
@@ -146,9 +150,9 @@ class ContactService
     /**
      * @brief Get node info by node_id
      * @param node_id Node ID
-     * @return NodeInfo if found, nullptr otherwise
+     * @return Peer projection if found, nullptr otherwise
      */
-    const NodeInfo* getNodeInfo(uint32_t node_id) const;
+    const PeerDirectoryItem* getPeerByNodeId(uint32_t node_id) const;
 
     bool findNodeIdByReticulumDestinationHash(
         const uint8_t destination_hash[kReticulumPeerHashSize],
@@ -160,11 +164,12 @@ class ContactService
     void clearCache();
 
   private:
-    INodeStore& node_store_;
-    IContactStore& contact_store_;
+    IMeshPeerDirectory& directory_;
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;
-    mutable std::vector<NodeInfo> cached_nodes_; // Cache for getContacts/getNearby
+    mutable std::vector<PeerDirectoryItem> cached_nodes_;
     mutable uint32_t cache_timestamp_;
+    mutable MeshPeerRecord update_scratch_{};
+    mutable MeshPeerRecord lookup_scratch_{};
     static constexpr uint32_t kCacheTimeoutMs = 1000; // 1 second cache
 
     void invalidateCache() const;

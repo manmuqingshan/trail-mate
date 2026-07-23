@@ -78,7 +78,7 @@ const NodeInfoWidgets& widgets();
 /**
  * @brief Update UI widgets with NodeInfo data.
  */
-void set_node_info(const chat::contacts::NodeInfo& node);
+void set_node_info(const chat::contacts::PeerDirectoryItem& node);
 
 } // namespace ui
 } // namespace node_info

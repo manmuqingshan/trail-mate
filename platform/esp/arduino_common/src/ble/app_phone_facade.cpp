@@ -5,7 +5,6 @@
 #include "chat/infra/meshcore/meshcore_ble_backend.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
 #include "chat/ports/i_mesh_adapter.h"
-#include "chat/ports/i_node_store.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/chat/infra/meshtastic/mt_adapter.h"
@@ -96,7 +95,8 @@ chat::meshtastic::MtAdapter* getMeshtasticBackend(app::IAppBleFacade& app)
     return static_cast<chat::meshtastic::MtAdapter*>(backend);
 }
 
-void copyNodeView(const chat::contacts::NodeEntry& entry, phone::PhoneNodeView& out)
+void copyNodeView(const chat::contacts::PeerDirectoryItem& entry,
+                  phone::PhoneNodeView& out)
 {
     out = {};
     out.node_id = entry.node_id;
@@ -108,8 +108,8 @@ void copyNodeView(const chat::contacts::NodeEntry& entry, phone::PhoneNodeView& 
     out.hops_away = entry.hops_away;
     out.channel = entry.channel;
     out.next_hop = entry.next_hop;
-    out.protocol = entry.protocol;
-    out.role = entry.role;
+    out.protocol = static_cast<uint8_t>(entry.protocol);
+    out.role = static_cast<uint8_t>(entry.role);
     out.hw_model = entry.hw_model;
     out.has_macaddr = entry.has_macaddr;
     std::memcpy(out.macaddr, entry.macaddr, sizeof(out.macaddr));
@@ -119,17 +119,7 @@ void copyNodeView(const chat::contacts::NodeEntry& entry, phone::PhoneNodeView& 
     out.key_manually_verified = entry.key_manually_verified;
     out.has_device_metrics = entry.has_device_metrics;
     out.device_metrics = entry.device_metrics;
-    out.position.valid = entry.position_valid;
-    out.position.latitude_i = entry.position_latitude_i;
-    out.position.longitude_i = entry.position_longitude_i;
-    out.position.has_altitude = entry.position_has_altitude;
-    out.position.altitude = entry.position_altitude;
-    out.position.timestamp = entry.position_timestamp;
-    out.position.precision_bits = entry.position_precision_bits;
-    out.position.pdop = entry.position_pdop;
-    out.position.hdop = entry.position_hdop;
-    out.position.vdop = entry.position_vdop;
-    out.position.gps_accuracy_mm = entry.position_gps_accuracy_mm;
+    out.position = entry.position;
 }
 } // namespace
 
@@ -247,46 +237,28 @@ bool AppPhoneFacade::pollIncomingPhoneData(chat::MeshIncomingData& out)
 
 std::size_t AppPhoneFacade::phoneNodeCount() const
 {
-    const auto* store = app_.getNodeStore();
-    return store ? store->getEntries().size() : 0;
+    return app_.getContactService().getAllPeers().size();
 }
 
 bool AppPhoneFacade::getPhoneNodeByIndex(std::size_t index, phone::PhoneNodeView& out) const
 {
-    const auto* store = app_.getNodeStore();
-    if (!store)
-    {
-        return false;
-    }
-    const auto& entries = store->getEntries();
+    const auto entries = app_.getContactService().getAllPeers();
     if (index >= entries.size())
     {
         return false;
     }
     copyNodeView(entries[index], out);
-    if (const auto* node = app_.getContactService().getNodeInfo(out.node_id))
-    {
-        out.position = node->position;
-    }
     return true;
 }
 
 bool AppPhoneFacade::findPhoneNode(chat::NodeId node_id, phone::PhoneNodeView& out) const
 {
-    const auto* store = app_.getNodeStore();
-    if (!store)
-    {
-        return false;
-    }
-    for (const auto& entry : store->getEntries())
+    const auto entries = app_.getContactService().getAllPeers();
+    for (const auto& entry : entries)
     {
         if (entry.node_id == node_id)
         {
             copyNodeView(entry, out);
-            if (const auto* node = app_.getContactService().getNodeInfo(out.node_id))
-            {
-                out.position = node->position;
-            }
             return true;
         }
     }

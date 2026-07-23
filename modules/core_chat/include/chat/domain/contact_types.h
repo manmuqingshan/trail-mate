@@ -142,9 +142,9 @@ struct NodeUpdate
 };
 
 /**
- * @brief Base node information
+ * @brief UI-facing projection of one unified peer-directory record.
  */
-struct NodeInfoBase
+struct PeerDirectoryItem
 {
     uint32_t node_id;
     char short_name[10];
@@ -172,24 +172,7 @@ struct NodeInfoBase
     NodePosition position;
 };
 
-/**
- * @brief Meshtastic-specific node info (reserved for future extensions)
- */
-struct MeshtasticNodeInfo : public NodeInfoBase
-{
-};
-
-/**
- * @brief MeshCore-specific node info (reserved for future extensions)
- */
-struct MeshCoreNodeInfo : public NodeInfoBase
-{
-};
-
-/**
- * @brief Node information (from mesh network)
- */
-using NodeInfo = NodeInfoBase;
+static constexpr uint8_t kNodeRoleUnknown = 0xFF;
 
 } // namespace contacts
 } // namespace chat

@@ -71,7 +71,7 @@ namespace
     {
         return {};
     }
-    if (const auto* node = contacts.getNodeInfo(node_id))
+    if (const auto* node = contacts.getPeerByNodeId(node_id))
     {
         if (!node->display_name.empty())
         {
@@ -217,7 +217,7 @@ namespace
 }
 
 [[nodiscard]] ::chat::ChannelId channelForNode(
-    const ::chat::contacts::NodeInfo& node) noexcept
+    const ::chat::contacts::PeerDirectoryItem& node) noexcept
 {
     return node.channel == 1U ? ::chat::ChannelId::SECONDARY
                               : ::chat::ChannelId::PRIMARY;
@@ -357,7 +357,7 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
 }
 
 [[nodiscard]] ChatNodeInfoItem makeNodeInfoItem(
-    const ::chat::contacts::NodeInfo& node)
+    const ::chat::contacts::PeerDirectoryItem& node)
 {
     ChatNodeInfoItem item{};
     item.node_id = node.node_id;
@@ -487,7 +487,7 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
     {
         meta += " / ";
         meta += formatNodeLabel(conversation.id.peer);
-        if (const auto* node = contacts.getNodeInfo(conversation.id.peer))
+        if (const auto* node = contacts.getPeerByNodeId(conversation.id.peer))
         {
             meta += node->via_mqtt ? " / MQTT" : " / LoRa";
         }
@@ -504,7 +504,7 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
     return meta;
 }
 
-[[nodiscard]] const ::chat::contacts::NodeInfo* nodeForConversation(
+[[nodiscard]] const ::chat::contacts::PeerDirectoryItem* nodeForConversation(
     const ::chat::ConversationId& id,
     const ::chat::contacts::ContactService& contacts)
 {
@@ -512,12 +512,12 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
     {
         return nullptr;
     }
-    return contacts.getNodeInfo(id.peer);
+    return contacts.getPeerByNodeId(id.peer);
 }
 
 [[nodiscard]] std::string groupForConversation(
     const ::chat::ConversationMeta& conversation,
-    const ::chat::contacts::NodeInfo* node)
+    const ::chat::contacts::PeerDirectoryItem* node)
 {
     if (conversation.id.peer == 0)
     {
@@ -537,7 +537,7 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
 
 [[nodiscard]] std::string factsForConversation(
     const ::chat::ConversationMeta& conversation,
-    const ::chat::contacts::NodeInfo* node,
+    const ::chat::contacts::PeerDirectoryItem* node,
     bool has_local_gps,
     double local_lat,
     double local_lon)
@@ -813,7 +813,7 @@ void sortConversations(std::vector<::chat::ConversationMeta>& conversations,
 
 void appendNodeConversationIfMissing(
     std::vector<::chat::ConversationMeta>& conversations,
-    const ::chat::contacts::NodeInfo& node,
+    const ::chat::contacts::PeerDirectoryItem& node,
     ::chat::MeshProtocol fallback_protocol)
 {
     if (node.node_id == 0 ||
@@ -962,7 +962,7 @@ ChatWorkspaceSnapshot UConsoleChatWorkspaceModel::snapshot(
                         });
         if (!already_listed && out.nodes.size() < 5U)
         {
-            if (const auto* node = contacts.getNodeInfo(sender))
+            if (const auto* node = contacts.getPeerByNodeId(sender))
             {
                 out.nodes.push_back(makeNodeInfoItem(*node));
             }
@@ -977,7 +977,7 @@ ChatWorkspaceSnapshot UConsoleChatWorkspaceModel::snapshot(
                          return node.node_id == active_conversation_.peer;
                      }))
     {
-        if (const auto* node = contacts.getNodeInfo(active_conversation_.peer))
+        if (const auto* node = contacts.getPeerByNodeId(active_conversation_.peer))
         {
             out.nodes.insert(out.nodes.begin(), makeNodeInfoItem(*node));
         }
@@ -999,7 +999,7 @@ ChatNodeDetailSnapshot UConsoleChatWorkspaceModel::nodeDetails(
         return out;
     }
 
-    const auto* node = services_.contacts().getNodeInfo(node_id);
+    const auto* node = services_.contacts().getPeerByNodeId(node_id);
     if (node == nullptr)
     {
         out.subtitle = "No NodeInfo record is stored locally yet.";
@@ -1019,7 +1019,7 @@ ChatNodeDetailSnapshot UConsoleChatWorkspaceModel::nodeDetails(
         out.lon = static_cast<double>(node->position.longitude_i) / 10000000.0;
 
         if (const auto* self_info =
-                services_.contacts().getNodeInfo(services_.selfNodeId());
+                services_.contacts().getPeerByNodeId(services_.selfNodeId());
             self_info != nullptr && self_info->position.valid)
         {
             out.has_self_position = true;
@@ -1562,7 +1562,7 @@ bool UConsoleChatWorkspaceModel::toggleNodeIgnored(::chat::NodeId node_id)
         action_status_ = "Node is unavailable.";
         return false;
     }
-    const auto* node = services_.contacts().getNodeInfo(node_id);
+    const auto* node = services_.contacts().getPeerByNodeId(node_id);
     if (node == nullptr)
     {
         action_status_ = "Node record is not stored yet.";

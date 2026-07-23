@@ -235,7 +235,7 @@ void format_reticulum_hash(const uint8_t* hash, char* out, size_t out_len)
 
 const chat::ReticulumPeerIdentity& conversation_reticulum_identity(
     const chat::ConversationId& conv,
-    const chat::contacts::NodeInfo* node)
+    const chat::contacts::PeerDirectoryItem* node)
 {
     if (chat::hasReticulumDestinationIdentity(conv.reticulum_identity))
     {
@@ -249,7 +249,7 @@ const chat::ReticulumPeerIdentity& conversation_reticulum_identity(
 }
 
 std::string node_display_name_for_info(const chat::ConversationId& conv,
-                                       const chat::contacts::NodeInfo* node)
+                                       const chat::contacts::PeerDirectoryItem* node)
 {
     if (node)
     {
@@ -1416,7 +1416,7 @@ void UiController::openConversationInfoModal(const chat::ConversationId& conv)
 
     auto& contact_service = app::messagingFacade().getContactService();
     uint32_t node_id = conv.peer;
-    const chat::contacts::NodeInfo* node = nullptr;
+    const chat::contacts::PeerDirectoryItem* node = nullptr;
     if (has_reticulum_destination(conv))
     {
         uint32_t resolved_node_id = 0;
@@ -1429,7 +1429,7 @@ void UiController::openConversationInfoModal(const chat::ConversationId& conv)
     }
     if (node_id != 0)
     {
-        node = contact_service.getNodeInfo(node_id);
+        node = contact_service.getPeerByNodeId(node_id);
     }
 
     const std::string display_name = node_display_name_for_info(conv, node);

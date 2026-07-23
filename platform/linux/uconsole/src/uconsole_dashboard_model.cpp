@@ -189,7 +189,7 @@ void pushOverviewTimeline(std::vector<OverviewTimelineItem>& out,
 }
 
 [[nodiscard]] ContactPreview makeContactPreview(
-    const ::chat::contacts::NodeInfo& node)
+    const ::chat::contacts::PeerDirectoryItem& node)
 {
     ContactPreview preview{};
     preview.name = node.display_name.empty() ? node.short_name : node.display_name;
@@ -216,7 +216,7 @@ void pushOverviewTimeline(std::vector<OverviewTimelineItem>& out,
                    ? "Secondary broadcast"
                    : "Primary broadcast";
     }
-    if (const auto* node = contacts.getNodeInfo(id.peer))
+    if (const auto* node = contacts.getPeerByNodeId(id.peer))
     {
         if (!node->display_name.empty())
         {
@@ -250,7 +250,7 @@ void pushOverviewTimeline(std::vector<OverviewTimelineItem>& out,
                    formatLastSeen(conversation.last_timestamp);
     if (conversation.id.peer != 0)
     {
-        if (const auto* node = contacts.getNodeInfo(conversation.id.peer))
+        if (const auto* node = contacts.getPeerByNodeId(conversation.id.peer))
         {
             preview.detail =
                 std::string("hops ") +
@@ -461,7 +461,7 @@ void appendChatTimeline(std::vector<OverviewTimelineItem>& out,
 }
 
 void appendNodeTimeline(std::vector<OverviewTimelineItem>& out,
-                        const std::vector<::chat::contacts::NodeInfo>& nodes)
+                        const std::vector<::chat::contacts::PeerDirectoryItem>& nodes)
 {
     for (const auto& node : nodes)
     {
@@ -762,7 +762,7 @@ UConsoleDashboardSnapshot UConsoleDashboardModel::snapshot() const
     out.nearby_count = nearby.size();
     out.ignored_count = ignored.size();
 
-    std::vector<::chat::contacts::NodeInfo> visible_nodes{};
+    std::vector<::chat::contacts::PeerDirectoryItem> visible_nodes{};
     visible_nodes.reserve(contacts.size() + nearby.size());
     visible_nodes.insert(visible_nodes.end(), contacts.begin(), contacts.end());
     visible_nodes.insert(visible_nodes.end(), nearby.begin(), nearby.end());

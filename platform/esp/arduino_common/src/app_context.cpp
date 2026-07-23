@@ -237,8 +237,6 @@ void AppContext::initContactServices()
         return;
     }
 
-    node_store_ = &mesh_peer_directory_->nodeStoreView();
-    contact_store_ = &mesh_peer_directory_->contactStoreView();
     contact_service_ = std::move(contact_services.service);
     if (contact_service_)
     {
@@ -726,9 +724,9 @@ chat::NodeId AppContext::getSelfNodeId() const
 
 void AppContext::clearNodeDb()
 {
-    if (node_store_)
+    if (mesh_peer_directory_)
     {
-        node_store_->clear();
+        (void)mesh_peer_directory_->clearProtocol(config_.mesh_protocol);
     }
     if (contact_service_)
     {

@@ -24,17 +24,14 @@ extern char** environ;
 #endif
 
 #include "chat/domain/chat_model.h"
-#include "chat/infra/contact_store_core.h"
-#include "chat/infra/node_store_core.h"
 #include "chat/linux_noop_mesh_adapter.h"
 #include "chat/linux_raw_lora_mesh_adapter.h"
 #include "chat/linux_sqlite_chat_store.h"
-#include "chat/ports/i_contact_blob_store.h"
-#include "chat/ports/i_node_blob_store.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/team_ui_store_runtime.h"
@@ -64,11 +61,6 @@ constexpr const char* kConfigNamespace = "linux_app_facade";
 constexpr const char* kConfigBlobKey = "app_config_v1";
 constexpr uint32_t kConfigBlobMagic = 0x544D4346U; // TMCF
 constexpr uint32_t kConfigBlobVersion = 2U;
-
-constexpr const char* kNodeStoreNamespace = "linux_contact_nodes";
-constexpr const char* kNodeStoreKey = "nodes_v1";
-constexpr const char* kContactStoreNamespace = "linux_contact_names";
-constexpr const char* kContactStoreKey = "contacts_v1";
 
 constexpr ::chat::NodeId kDemoAlphaNodeId = 0x435A1001U;
 constexpr ::chat::NodeId kDemoBravoNodeId = 0x435A1002U;
@@ -352,44 +344,6 @@ void sync_reticulum_group_config(::app::AppConfig& config)
                 status.message,
                 status.detail);
 }
-
-class LinuxNodeBlobStore final : public ::chat::contacts::INodeBlobStore
-{
-  public:
-    bool loadBlob(std::vector<uint8_t>& out) override
-    {
-        return ::platform::ui::settings_store::get_blob(kNodeStoreNamespace, kNodeStoreKey, out);
-    }
-
-    bool saveBlob(const uint8_t* data, size_t len) override
-    {
-        return ::platform::ui::settings_store::put_blob(kNodeStoreNamespace, kNodeStoreKey, data, len);
-    }
-
-    void clearBlob() override
-    {
-        ::platform::ui::settings_store::clear_namespace(kNodeStoreNamespace);
-    }
-};
-
-class LinuxContactBlobStore final : public ::chat::IContactBlobStore
-{
-  public:
-    bool loadBlob(std::vector<uint8_t>& out) override
-    {
-        return ::platform::ui::settings_store::get_blob(kContactStoreNamespace, kContactStoreKey, out);
-    }
-
-    bool saveBlob(const uint8_t* data, size_t len) override
-    {
-        return ::platform::ui::settings_store::put_blob(kContactStoreNamespace, kContactStoreKey, data, len);
-    }
-
-    void clear()
-    {
-        ::platform::ui::settings_store::clear_namespace(kContactStoreNamespace);
-    }
-};
 
 class LinuxLoopbackMeshAdapter final : public ::chat::IMeshAdapter
 {
@@ -1569,11 +1523,9 @@ struct LinuxAppServices::Implementation
         : options(options_in),
           demo_world_enabled(
               ::platform::linux_runtime::demo_world_enabled(options.runtime_mode)),
-          node_blob_store(),
-          contact_blob_store(),
-          node_store(node_blob_store),
-          contact_store(contact_blob_store),
-          contact_service(node_store, contact_store),
+          mesh_peer_directory(
+              ::platform::ui::reticulum_directory::mesh_peer_directory()),
+          contact_service(mesh_peer_directory),
           chat_model(),
           chat_store(),
           raw_lora_enabled(raw_lora_enabled_for_mode(options.runtime_mode)),
@@ -1616,12 +1568,9 @@ struct LinuxAppServices::Implementation
         noop_mesh_adapter.setSelfNodeId(self_node_id);
         raw_lora_mesh_adapter.setSelfNodeId(self_node_id);
         loopback_mesh_adapter.setSelfNodeId(self_node_id);
-        node_store.setProtectedNodeChecker(
-            [self_node_id](uint32_t node_id)
-            {
-                return node_id == self_node_id;
-            });
         contact_service.begin();
+        ::platform::ui::reticulum_directory::bind_mesh_peer_directory(
+            &mesh_peer_directory);
         if (demo_world_enabled)
         {
             seedDemoWorld(self_node_id);
@@ -1631,8 +1580,10 @@ struct LinuxAppServices::Implementation
 
     void clearContactAndNodeData()
     {
-        contact_blob_store.clear();
-        node_store.clear();
+        (void)mesh_peer_directory.clearProtocol(::chat::MeshProtocol::Meshtastic);
+        (void)mesh_peer_directory.clearProtocol(::chat::MeshProtocol::MeshCore);
+        (void)mesh_peer_directory.clearProtocol(::chat::MeshProtocol::RNode);
+        (void)mesh_peer_directory.clearProtocol(::chat::MeshProtocol::Reticulum);
         contact_service.begin();
         demo_seeded = false;
     }
@@ -1749,10 +1700,7 @@ struct LinuxAppServices::Implementation
 
     LinuxAppServicesOptions options{};
     bool demo_world_enabled = false;
-    LinuxNodeBlobStore node_blob_store;
-    LinuxContactBlobStore contact_blob_store;
-    ::chat::contacts::NodeStoreCore node_store;
-    ::chat::contacts::ContactStoreCore contact_store;
+    ::chat::IMeshPeerDirectory& mesh_peer_directory;
     ::chat::contacts::ContactService contact_service;
     ::chat::ChatModel chat_model;
     LinuxSqliteChatStore chat_store;

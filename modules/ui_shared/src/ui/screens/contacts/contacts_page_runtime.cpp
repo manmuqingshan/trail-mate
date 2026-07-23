@@ -107,7 +107,7 @@ static uint32_t hash_reticulum_identity(uint32_t hash,
     return hash;
 }
 
-static uint32_t hash_node(uint32_t hash, const chat::contacts::NodeInfo& node)
+static uint32_t hash_node(uint32_t hash, const chat::contacts::PeerDirectoryItem& node)
 {
     hash = hash_u32(hash, node.node_id);
     hash = hash_text(hash, node.short_name);
@@ -125,7 +125,7 @@ static uint32_t hash_node(uint32_t hash, const chat::contacts::NodeInfo& node)
 }
 
 static uint32_t hash_node_list(uint32_t hash,
-                               const std::vector<chat::contacts::NodeInfo>& nodes)
+                               const std::vector<chat::contacts::PeerDirectoryItem>& nodes)
 {
     hash = hash_u32(hash, static_cast<uint32_t>(nodes.size()));
     for (const auto& node : nodes)
@@ -300,7 +300,7 @@ void refresh_reticulum_group_storage_state(const platform::ui::reticulum_groups:
               status.detail);
 }
 
-bool node_matches_active_protocol(const chat::contacts::NodeInfo& node)
+bool node_matches_active_protocol(const chat::contacts::PeerDirectoryItem& node)
 {
     const chat::MeshProtocol active_protocol =
         chat::infra::normalizeMeshProtocol(
@@ -321,11 +321,11 @@ bool node_matches_active_protocol(const chat::contacts::NodeInfo& node)
                active_protocol) == active_protocol;
 }
 
-void filter_to_active_protocol(std::vector<chat::contacts::NodeInfo>& nodes)
+void filter_to_active_protocol(std::vector<chat::contacts::PeerDirectoryItem>& nodes)
 {
     nodes.erase(std::remove_if(nodes.begin(),
                                nodes.end(),
-                               [](const chat::contacts::NodeInfo& node)
+                               [](const chat::contacts::PeerDirectoryItem& node)
                                {
                                    return !node_matches_active_protocol(node);
                                }),
@@ -354,11 +354,11 @@ std::string reticulum_record_fallback_name(
     return "Anonymous Peer";
 }
 
-chat::contacts::NodeInfo node_from_lxmf_address(
+chat::contacts::PeerDirectoryItem node_from_lxmf_address(
     const rtdir::LxmfAddressRecord& record,
     bool as_contact)
 {
-    chat::contacts::NodeInfo item{};
+    chat::contacts::PeerDirectoryItem item{};
     item.node_id = reticulum_node_id_from_destination_hash(record.destination_hash);
     item.last_seen = record.last_seen_s;
     item.snr = std::numeric_limits<float>::quiet_NaN();
@@ -388,8 +388,8 @@ chat::contacts::NodeInfo node_from_lxmf_address(
     return item;
 }
 
-bool same_reticulum_node(const chat::contacts::NodeInfo& lhs,
-                         const chat::contacts::NodeInfo& rhs)
+bool same_reticulum_node(const chat::contacts::PeerDirectoryItem& lhs,
+                         const chat::contacts::PeerDirectoryItem& rhs)
 {
     if (chat::hasReticulumDestinationIdentity(lhs.reticulum_identity) &&
         chat::hasReticulumDestinationIdentity(rhs.reticulum_identity))
@@ -400,8 +400,8 @@ bool same_reticulum_node(const chat::contacts::NodeInfo& lhs,
     return lhs.node_id != 0 && lhs.node_id == rhs.node_id;
 }
 
-void upsert_reticulum_projection(std::vector<chat::contacts::NodeInfo>& nodes,
-                                 const chat::contacts::NodeInfo& projection,
+void upsert_reticulum_projection(std::vector<chat::contacts::PeerDirectoryItem>& nodes,
+                                 const chat::contacts::PeerDirectoryItem& projection,
                                  bool force_contact)
 {
     for (auto& existing : nodes)
@@ -429,7 +429,7 @@ void upsert_reticulum_projection(std::vector<chat::contacts::NodeInfo>& nodes,
         return;
     }
 
-    chat::contacts::NodeInfo inserted = projection;
+    chat::contacts::PeerDirectoryItem inserted = projection;
     inserted.is_contact = inserted.is_contact || force_contact;
     nodes.push_back(inserted);
 }
@@ -485,7 +485,7 @@ void merge_reticulum_directory_projection()
             continue;
         }
 
-        const chat::contacts::NodeInfo item =
+        const chat::contacts::PeerDirectoryItem item =
             node_from_lxmf_address(
                 record,
                 bucket == rtcontacts::ProjectionBucket::Contact);
@@ -548,7 +548,7 @@ void refresh_reticulum_groups_data()
             continue;
         }
 
-        chat::contacts::NodeInfo item{};
+        chat::contacts::PeerDirectoryItem item{};
         item.node_id = 0;
         item.protocol = chat::contacts::NodeProtocolType::Reticulum;
         item.role = chat::contacts::NodeRoleType::Client;
@@ -601,8 +601,8 @@ void refresh_contacts_data_impl_internal()
         std::stable_sort(
             g_contacts_state.nearby_list.begin(),
             g_contacts_state.nearby_list.end(),
-            [](const chat::contacts::NodeInfo& lhs,
-               const chat::contacts::NodeInfo& rhs)
+            [](const chat::contacts::PeerDirectoryItem& lhs,
+               const chat::contacts::PeerDirectoryItem& rhs)
             {
                 return lhs.last_seen > rhs.last_seen;
             });

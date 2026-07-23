@@ -344,8 +344,8 @@ void notifyNodeInfoUpdate(app::IAppFacade& app_context, const sys::NodeInfoUpdat
         return;
     }
 
-    const chat::contacts::NodeInfo* node_info =
-        app_context.getContactService().getNodeInfo(node_event.node_id);
+    const chat::contacts::PeerDirectoryItem* node_info =
+        app_context.getContactService().getPeerByNodeId(node_event.node_id);
     const bool is_contact = node_info && node_info->is_contact;
     if (alert_mode == kContactAlertsContacts && !is_contact)
     {

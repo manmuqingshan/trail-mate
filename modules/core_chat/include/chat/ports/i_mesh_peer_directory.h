@@ -45,8 +45,29 @@ struct MeshPeerDirectoryStatus
 
 struct MeshPeerDirectoryCapacity
 {
-    std::size_t persisted_records = 0;
-    std::size_t hot_cache_records = 0;
+    constexpr MeshPeerDirectoryCapacity(std::size_t persisted = 0,
+                                        std::size_t hot_cache = 0)
+        : persisted_records(persisted), hot_cache_records(hot_cache)
+    {
+    }
+
+    std::size_t persisted_records;
+    std::size_t hot_cache_records;
+};
+
+enum class MeshPeerDirectoryView : uint8_t
+{
+    All = 0,
+    Contacts = 1,
+    Nearby = 2,
+    Ignored = 3,
+};
+
+class IMeshPeerDirectoryVisitor
+{
+  public:
+    virtual ~IMeshPeerDirectoryVisitor() = default;
+    virtual bool visit(const MeshPeerRecord& record) = 0;
 };
 
 class IMeshPeerDirectory
@@ -70,9 +91,19 @@ class IMeshPeerDirectory
                                            MeshPeerRecord* out_records,
                                            std::size_t max_records,
                                            std::size_t* out_count) = 0;
+    virtual MeshPeerDirectoryStatus visit(
+        MeshProtocol protocol,
+        MeshPeerDirectoryView view,
+        IMeshPeerDirectoryVisitor& visitor) = 0;
+    virtual MeshPeerDirectoryStatus setUserAlias(
+        const MeshPeerIdentity& identity,
+        const char* alias) = 0;
     virtual MeshPeerDirectoryStatus setUserFlags(
         const MeshPeerIdentity& identity,
         const MeshPeerUserFlags& flags) = 0;
+    virtual MeshPeerDirectoryStatus setKeyManuallyVerified(
+        const MeshPeerIdentity& identity,
+        bool verified) = 0;
     virtual MeshPeerDirectoryStatus remove(const MeshPeerIdentity& identity) = 0;
     virtual MeshPeerDirectoryStatus clearProtocol(MeshProtocol protocol) = 0;
     virtual MeshPeerDirectoryCapacity capacityFor(MeshProtocol protocol) const = 0;

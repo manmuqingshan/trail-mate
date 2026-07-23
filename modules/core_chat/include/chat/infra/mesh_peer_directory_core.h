@@ -10,9 +10,6 @@
 namespace chat
 {
 
-MeshPeerRecord mergeMeshPeerRecordFacts(const MeshPeerRecord& existing,
-                                        const MeshPeerRecord& incoming);
-
 class MeshPeerDirectoryCore final : public IMeshPeerDirectory
 {
   public:
@@ -48,9 +45,19 @@ class MeshPeerDirectoryCore final : public IMeshPeerDirectory
                                    MeshPeerRecord* out_records,
                                    std::size_t max_records,
                                    std::size_t* out_count) override;
+    MeshPeerDirectoryStatus visit(
+        MeshProtocol protocol,
+        MeshPeerDirectoryView view,
+        IMeshPeerDirectoryVisitor& visitor) override;
+    MeshPeerDirectoryStatus setUserAlias(
+        const MeshPeerIdentity& identity,
+        const char* alias) override;
     MeshPeerDirectoryStatus setUserFlags(
         const MeshPeerIdentity& identity,
         const MeshPeerUserFlags& flags) override;
+    MeshPeerDirectoryStatus setKeyManuallyVerified(
+        const MeshPeerIdentity& identity,
+        bool verified) override;
     MeshPeerDirectoryStatus remove(const MeshPeerIdentity& identity) override;
     MeshPeerDirectoryStatus clearProtocol(MeshProtocol protocol) override;
     MeshPeerDirectoryCapacity capacityFor(MeshProtocol protocol) const override;

@@ -1,6 +1,5 @@
-#include "chat/ports/i_contact_store.h"
+#include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/ports/i_mesh_adapter.h"
-#include "chat/ports/i_node_store.h"
 #include "chat/usecase/contact_service.h"
 #include "ui_key_verification_runtime/key_verification_action_sink.h"
 #include "ui_key_verification_runtime/key_verification_presentation_source.h"
@@ -77,106 +76,29 @@ class FakeMeshAdapter final : public ::chat::IMeshAdapter
     ::chat::MeshProtocol protocol = ::chat::MeshProtocol::MeshCore;
 };
 
-class FakeNodeStore final : public ::chat::contacts::INodeStore
+class MemoryPeerDirectoryBlobStore final
+    : public ::chat::IMeshPeerDirectoryBlobStore
 {
   public:
-    void begin() override {}
-
-    void applyUpdate(uint32_t node_id,
-                     const ::chat::contacts::NodeUpdate& update) override
+    ::chat::MeshPeerDirectoryBlobLoadResult loadBlob(
+        std::vector<uint8_t>& out) override
     {
-        for (auto& entry : entries_)
-        {
-            if (entry.node_id == node_id)
-            {
-                if (update.has_key_manually_verified)
-                {
-                    entry.key_manually_verified =
-                        update.key_manually_verified;
-                }
-                return;
-            }
-        }
+        out = bytes_;
+        return bytes_.empty()
+                   ? ::chat::MeshPeerDirectoryBlobLoadResult::Missing
+                   : ::chat::MeshPeerDirectoryBlobLoadResult::Loaded;
     }
 
-    void upsert(uint32_t node_id,
-                const char* short_name,
-                const char* long_name,
-                uint32_t now_secs,
-                float = 0.0f,
-                float = 0.0f,
-                uint8_t protocol = 0,
-                uint8_t = ::chat::contacts::kNodeRoleUnknown,
-                uint8_t = 0xFF,
-                uint8_t = 0,
-                uint8_t = 0xFF) override
+    bool saveBlob(const uint8_t* data, std::size_t len) override
     {
-        ::chat::contacts::NodeEntry entry{};
-        entry.node_id = node_id;
-        std::strncpy(entry.short_name, short_name ? short_name : "",
-                     sizeof(entry.short_name) - 1U);
-        std::strncpy(entry.long_name, long_name ? long_name : "",
-                     sizeof(entry.long_name) - 1U);
-        entry.last_seen = now_secs;
-        entry.protocol = protocol;
-        entries_.push_back(entry);
-    }
-
-    void updateProtocol(uint32_t, uint8_t, uint32_t) override {}
-    void updatePosition(uint32_t,
-                        const ::chat::contacts::NodePosition&) override {}
-    bool remove(uint32_t) override { return false; }
-    const std::vector<::chat::contacts::NodeEntry>& getEntries() const override
-    {
-        return entries_;
-    }
-    void clear() override { entries_.clear(); }
-    bool flush() override { return true; }
-
-    std::vector<::chat::contacts::NodeEntry> entries_;
-};
-
-class FakeContactStore final : public ::chat::contacts::IContactStore
-{
-  public:
-    void begin() override {}
-
-    std::string getNickname(uint32_t node_id) const override
-    {
-        return node_id == nickname_node ? nickname : std::string();
-    }
-
-    bool setNickname(uint32_t node_id, const char* value) override
-    {
-        nickname_node = node_id;
-        nickname = value ? value : "";
+        bytes_.assign(data, data + len);
         return true;
     }
 
-    bool removeNickname(uint32_t node_id) override
-    {
-        if (node_id == nickname_node)
-        {
-            nickname_node = 0;
-            nickname.clear();
-            return true;
-        }
-        return false;
-    }
+    void clearBlob() override { bytes_.clear(); }
 
-    bool hasNickname(const char*) const override { return false; }
-    std::vector<uint32_t> getAllContactIds() const override
-    {
-        if (nickname_node == 0)
-        {
-            return {};
-        }
-        return {nickname_node};
-    }
-    size_t getCount() const override { return nickname_node == 0 ? 0U : 1U; }
-
-    uint32_t nickname_node = 0;
-    std::string nickname;
+  private:
+    std::vector<uint8_t> bytes_{};
 };
 
 } // namespace
@@ -185,11 +107,21 @@ int main()
 {
     using namespace ui::key_verification;
 
-    FakeNodeStore node_store;
-    node_store.upsert(0x1234, "ADA", "Ada Lovelace", 1);
-    FakeContactStore contact_store;
-    assert(contact_store.setNickname(0x1234, "Ada"));
-    ::chat::contacts::ContactService contacts(node_store, contact_store);
+    MemoryPeerDirectoryBlobStore blob_store;
+    ::chat::MeshPeerDirectoryCore directory(blob_store);
+    ::chat::contacts::ContactService contacts(directory);
+    contacts.begin();
+    contacts.updateNodeInfo(0x1234, "ADA", "Ada Lovelace", 0.0F, 0.0F, 1);
+    ::chat::MeshPeerRecord keyed_peer{};
+    keyed_peer.valid = true;
+    keyed_peer.identity = ::chat::makeMeshPeerNodeIdentity(
+        ::chat::MeshProtocol::Meshtastic,
+        0x1234);
+    keyed_peer.last_seen_s = 1;
+    keyed_peer.meshtastic.has_public_key = true;
+    keyed_peer.meshtastic.public_key[0] = 0x42;
+    assert(directory.record(keyed_peer).succeeded());
+    assert(contacts.addContact(0x1234, "Ada"));
 
     FakeMeshAdapter mesh;
     ui_key_verification_runtime::KeyVerificationSessionAdapter session{};
@@ -245,7 +177,8 @@ int main()
     result = sink.accept(0x1234);
     assert(result.ok);
     assert(session.state == VerificationState::Verified);
-    assert(node_store.entries_[0].key_manually_verified);
+    const auto* verified_peer = contacts.getPeerByNodeId(0x1234);
+    assert(verified_peer && verified_peer->key_manually_verified);
 
     source.onFinal(0x1234, 102, true, "WXYZ-9876");
     result = sink.copyCode(0x1234);

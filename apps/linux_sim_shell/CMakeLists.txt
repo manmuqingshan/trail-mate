@@ -109,6 +109,7 @@ if(BUILD_TESTING)
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/store/ram_store.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_read_model.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/contact_service.cpp"
@@ -386,28 +387,15 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_chat_delivery_event_projection_adapter_smoke
              COMMAND trailmate_chat_delivery_event_projection_adapter_smoke)
 
-    add_executable(trailmate_node_store_core_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_node_store_core.cpp"
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/contact_store_core.cpp"
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/node_store_blob_format.cpp"
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/node_store_core.cpp"
+    add_executable(trailmate_mesh_peer_directory_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_peer_directory_contract.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/contact_service.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
-    target_include_directories(trailmate_node_store_core_smoke
+    target_include_directories(trailmate_mesh_peer_directory_contract_smoke
         PRIVATE
             "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
             "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
-    target_compile_features(trailmate_node_store_core_smoke
-        PRIVATE cxx_std_17)
-    add_test(NAME trailmate_node_store_core_smoke
-             COMMAND trailmate_node_store_core_smoke)
-
-    add_executable(trailmate_mesh_peer_directory_contract_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_peer_directory_contract.cpp"
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp")
-    target_include_directories(trailmate_mesh_peer_directory_contract_smoke
-        PRIVATE
-            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
     target_compile_features(trailmate_mesh_peer_directory_contract_smoke
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_mesh_peer_directory_contract_smoke
@@ -765,6 +753,7 @@ if(BUILD_TESTING)
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_key_verification_runtime/tests/test_key_verification_runtime_adapters.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_key_verification_runtime/src/key_verification_action_sink.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_key_verification_runtime/src/key_verification_presentation_source.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/contact_service.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
     target_include_directories(trailmate_key_verification_runtime_adapters_smoke

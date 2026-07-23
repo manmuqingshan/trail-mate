@@ -219,19 +219,15 @@ bool MeshCoreBleService::getMeshCoreContactByIndex(std::size_t index,
             const size_t copy_len = std::min(static_cast<size_t>(out->out_path_len), sizeof(out->out_path));
             std::memcpy(out->out_path, peer.out_path, copy_len);
         }
-        const auto* store = ctx_.getNodeStore();
-        if (store)
+        const auto* directory_peer =
+            ctx_.getContactService().getPeerByNodeId(peer.node_id);
+        if (directory_peer)
         {
-            for (const auto& entry : store->getEntries())
-            {
-                if (entry.node_id == peer.node_id)
-                {
-                    copyBounded(out->name,
-                                sizeof(out->name),
-                                entry.long_name[0] != '\0' ? entry.long_name : entry.short_name);
-                    break;
-                }
-            }
+            copyBounded(out->name,
+                        sizeof(out->name),
+                        directory_peer->long_name[0] != '\0'
+                            ? directory_peer->long_name
+                            : directory_peer->short_name);
         }
         if (out->name[0] == '\0')
         {

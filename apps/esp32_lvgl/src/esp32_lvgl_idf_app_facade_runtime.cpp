@@ -8,18 +8,13 @@
 #include "chat/delivery/chat_delivery_event_port.h"
 #include "chat/delivery/chat_delivery_event_projector.h"
 #include "chat/delivery/chat_delivery_read_model.h"
-#include "chat/infra/contact_store_core.h"
 #include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/infra/meshcore/mc_region_presets.h"
 #include "chat/infra/meshtastic/mt_region.h"
-#include "chat/infra/node_store_blob_format.h"
-#include "chat/infra/node_store_core.h"
 #include "chat/infra/store/ram_store.h"
-#include "chat/ports/i_contact_blob_store.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/ports/i_mesh_peer_directory_blob_store.h"
-#include "chat/ports/i_node_blob_store.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "esp_log.h"
@@ -81,23 +76,12 @@ constexpr const char* kIdfStoreTag = "idf-app-store";
 constexpr const char* kIdfConfigTag = "idf-app-cfg";
 constexpr const char* kIdfSettingsNs = "idf_app";
 constexpr const char* kIdfConfigKey = "app_cfg";
-constexpr const char* kIdfNodesNvsKey = "nodes_blob";
-constexpr const char* kIdfContactsNvsKey = "contacts";
-constexpr const char* kIdfContactsFile = "/contacts.dat";
-constexpr const char* kIdfNodesFile = "/nodes.bin";
 constexpr const char* kIdfMeshPeersDir = "/mesh";
 constexpr const char* kIdfMeshPeersFile = "/mesh/peers.bin";
 constexpr size_t kIdfReadChunkBytes = 256;
 constexpr uint32_t kIdfAppConfigMagic = 0x50344346UL; // P4CF
 constexpr uint16_t kIdfAppConfigVersion = 1;
-constexpr uint32_t kIdfNodeStoreFlushIntervalMs = 5000UL;
-constexpr size_t kIdfMaxContactBlobBytes =
-    chat::contacts::ContactStoreCore::kMaxContacts *
-    chat::contacts::ContactStoreCore::kSerializedEntrySize;
-constexpr size_t kIdfMaxNodeFileBytes =
-    sizeof(chat::contacts::NodeStoreSdHeader) +
-    chat::contacts::NodeStoreCore::kMaxNodes *
-        chat::contacts::NodeStoreCore::kSerializedEntrySize;
+constexpr uint32_t kIdfPeerDirectoryFlushIntervalMs = 5000UL;
 constexpr size_t kIdfMaxMeshPeerBlobBytes = 768U * 1024U;
 constexpr const char* kIdfTeamTag = "idf-team";
 constexpr size_t kTeamAeadTagBytes = 16;
@@ -282,62 +266,6 @@ bool saveIdfAppConfig(const app::AppConfig& config)
     return ok;
 }
 
-bool loadNvsBlob(const char* key, const char* label, std::vector<uint8_t>& out, size_t max_len)
-{
-    std::vector<uint8_t> blob;
-    if (!platform::ui::settings_store::get_blob(kIdfSettingsNs, key, blob))
-    {
-        return false;
-    }
-    if (blob.empty() || blob.size() > max_len)
-    {
-        ESP_LOGW(kIdfStoreTag,
-                 "%s nvs load rejected len=%u max=%u",
-                 label,
-                 static_cast<unsigned>(blob.size()),
-                 static_cast<unsigned>(max_len));
-        out.clear();
-        return false;
-    }
-    out = blob;
-    ESP_LOGI(kIdfStoreTag,
-             "%s load source=nvs key=%s len=%u",
-             label,
-             key,
-             static_cast<unsigned>(out.size()));
-    return true;
-}
-
-bool saveNvsBlob(const char* key, const char* label, const uint8_t* data, size_t len, size_t max_len)
-{
-    if (len == 0)
-    {
-        return platform::ui::settings_store::put_blob(kIdfSettingsNs, key, nullptr, 0);
-    }
-    if (!data || len > max_len)
-    {
-        return false;
-    }
-
-    const bool ok = platform::ui::settings_store::put_blob(kIdfSettingsNs, key, data, len);
-    ESP_LOGI(kIdfStoreTag,
-             "%s save target=nvs key=%s len=%u ok=%u",
-             label,
-             key,
-             static_cast<unsigned>(len),
-             ok ? 1U : 0U);
-    return ok;
-}
-
-bool isValidContactBlobSize(size_t len)
-{
-    return len != 0 &&
-           len <= kIdfMaxContactBlobBytes &&
-           (len % chat::contacts::ContactStoreCore::kSerializedEntrySize) == 0 &&
-           (len / chat::contacts::ContactStoreCore::kSerializedEntrySize) <=
-               chat::contacts::ContactStoreCore::kMaxContacts;
-}
-
 std::string makeSdPath(const char* relative)
 {
     if (!relative || !relative[0])
@@ -476,197 +404,6 @@ bool writeSdFileAtomic(const char* relative, const uint8_t* data, size_t len)
     }
     return true;
 }
-
-class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
-{
-  public:
-    bool loadBlob(std::vector<uint8_t>& out) override
-    {
-        std::vector<uint8_t> file;
-        if (!readSdFile(kIdfNodesFile, file, kIdfMaxNodeFileBytes) ||
-            file.size() <= sizeof(chat::contacts::NodeStoreSdHeader))
-        {
-            return loadBlobFromNvs(out);
-        }
-
-        chat::contacts::NodeStoreSdHeader header{};
-        std::memcpy(&header, file.data(), sizeof(header));
-        const uint8_t* payload = file.data() + sizeof(header);
-        const size_t payload_len = file.size() - sizeof(header);
-        if (chat::contacts::validateNodeStoreSdBlob(header, payload, payload_len) !=
-            chat::contacts::NodeBlobValidation::Ok)
-        {
-            out.clear();
-            ESP_LOGW(kIdfStoreTag,
-                     "node load invalid path=%s ver=%u count=%u len=%u",
-                     kIdfNodesFile,
-                     static_cast<unsigned>(header.ver),
-                     static_cast<unsigned>(header.count),
-                     static_cast<unsigned>(payload_len));
-            return loadBlobFromNvs(out);
-        }
-
-        std::vector<chat::contacts::NodeEntry> entries;
-        if (!chat::contacts::NodeStoreCore::decodeBlob(entries, payload, payload_len, header.ver))
-        {
-            out.clear();
-            ESP_LOGW(kIdfStoreTag, "node load decode failed path=%s ver=%u",
-                     kIdfNodesFile,
-                     static_cast<unsigned>(header.ver));
-            return loadBlobFromNvs(out);
-        }
-
-        chat::contacts::NodeStoreCore::encodeBlob(out, entries);
-        ESP_LOGI(kIdfStoreTag,
-                 "node load source=sd path=%s count=%u len=%u",
-                 kIdfNodesFile,
-                 static_cast<unsigned>(entries.size()),
-                 static_cast<unsigned>(out.size()));
-        return !out.empty();
-    }
-
-    bool saveBlob(const uint8_t* data, size_t len) override
-    {
-        if (len == 0)
-        {
-            (void)removeSdFile(kIdfNodesFile);
-            (void)saveNvsBlob(kIdfNodesNvsKey, "node", nullptr, 0, kIdfMaxNodeFileBytes);
-            return true;
-        }
-        if (!chat::contacts::isValidNodeBlobSize(len) ||
-            chat::contacts::nodeBlobEntryCount(len) > chat::contacts::NodeStoreCore::kMaxNodes)
-        {
-            return false;
-        }
-
-        chat::contacts::NodeStoreSdHeader header =
-            chat::contacts::makeNodeStoreSdHeader(data, len);
-        std::vector<uint8_t> file(sizeof(header) + len);
-        std::memcpy(file.data(), &header, sizeof(header));
-        std::memcpy(file.data() + sizeof(header), data, len);
-        const bool sd_ok = writeSdFileAtomic(kIdfNodesFile, file.data(), file.size());
-        const bool nvs_attempted = !sd_ok;
-        const bool nvs_ok =
-            nvs_attempted
-                ? saveNvsBlob(kIdfNodesNvsKey, "node", data, len, kIdfMaxNodeFileBytes)
-                : false;
-        ESP_LOGI(kIdfStoreTag,
-                 "node save path=%s count=%u len=%u sd=%u nvs=%s",
-                 kIdfNodesFile,
-                 static_cast<unsigned>(header.count),
-                 static_cast<unsigned>(len),
-                 sd_ok ? 1U : 0U,
-                 nvs_attempted ? (nvs_ok ? "ok" : "fail") : "skipped");
-        return sd_ok || nvs_ok;
-    }
-
-    void clearBlob() override
-    {
-        (void)removeSdFile(kIdfNodesFile);
-        (void)saveNvsBlob(kIdfNodesNvsKey, "node", nullptr, 0, kIdfMaxNodeFileBytes);
-    }
-
-  private:
-    bool loadBlobFromNvs(std::vector<uint8_t>& out)
-    {
-        if (!loadNvsBlob(kIdfNodesNvsKey, "node", out, kIdfMaxNodeFileBytes))
-        {
-            out.clear();
-            return false;
-        }
-        if (!chat::contacts::isValidNodeBlobSize(out.size()) ||
-            chat::contacts::nodeBlobEntryCount(out.size()) >
-                chat::contacts::NodeStoreCore::kMaxNodes)
-        {
-            ESP_LOGW(kIdfStoreTag,
-                     "node nvs load invalid len=%u",
-                     static_cast<unsigned>(out.size()));
-            out.clear();
-            return false;
-        }
-
-        std::vector<chat::contacts::NodeEntry> entries;
-        if (!chat::contacts::NodeStoreCore::decodeBlob(entries, out.data(), out.size()))
-        {
-            ESP_LOGW(kIdfStoreTag,
-                     "node nvs decode failed len=%u",
-                     static_cast<unsigned>(out.size()));
-            out.clear();
-            return false;
-        }
-
-        chat::contacts::NodeStoreCore::encodeBlob(out, entries);
-        ESP_LOGI(kIdfStoreTag,
-                 "node load source=nvs count=%u len=%u",
-                 static_cast<unsigned>(entries.size()),
-                 static_cast<unsigned>(out.size()));
-        return !out.empty();
-    }
-};
-
-class IdfSdContactBlobStore final : public chat::IContactBlobStore
-{
-  public:
-    bool loadBlob(std::vector<uint8_t>& out) override
-    {
-        const bool ok = readSdFile(kIdfContactsFile, out, kIdfMaxContactBlobBytes);
-        if (ok)
-        {
-            ESP_LOGI(kIdfStoreTag,
-                     "contacts load source=sd path=%s len=%u",
-                     kIdfContactsFile,
-                     static_cast<unsigned>(out.size()));
-            if (isValidContactBlobSize(out.size()))
-            {
-                return true;
-            }
-            ESP_LOGW(kIdfStoreTag,
-                     "contacts sd load invalid len=%u",
-                     static_cast<unsigned>(out.size()));
-            out.clear();
-        }
-
-        if (!loadNvsBlob(kIdfContactsNvsKey, "contacts", out, kIdfMaxContactBlobBytes))
-        {
-            out.clear();
-            return false;
-        }
-        if (!isValidContactBlobSize(out.size()))
-        {
-            ESP_LOGW(kIdfStoreTag,
-                     "contacts nvs load invalid len=%u",
-                     static_cast<unsigned>(out.size()));
-            out.clear();
-            return false;
-        }
-        return true;
-    }
-
-    bool saveBlob(const uint8_t* data, size_t len) override
-    {
-        if (len == 0)
-        {
-            (void)removeSdFile(kIdfContactsFile);
-            (void)saveNvsBlob(kIdfContactsNvsKey, "contacts", nullptr, 0, kIdfMaxContactBlobBytes);
-            return true;
-        }
-        if (!isValidContactBlobSize(len))
-        {
-            return false;
-        }
-
-        const bool sd_ok = writeSdFileAtomic(kIdfContactsFile, data, len);
-        const bool nvs_ok =
-            saveNvsBlob(kIdfContactsNvsKey, "contacts", data, len, kIdfMaxContactBlobBytes);
-        ESP_LOGI(kIdfStoreTag,
-                 "contacts save path=%s len=%u sd=%u nvs=%u",
-                 kIdfContactsFile,
-                 static_cast<unsigned>(len),
-                 sd_ok ? 1U : 0U,
-                 nvs_ok ? 1U : 0U);
-        return sd_ok || nvs_ok;
-    }
-};
 
 class IdfSdMeshPeerDirectoryBlobStore final
     : public chat::IMeshPeerDirectoryBlobStore
@@ -1223,12 +960,6 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         applyNetworkLimits();
         applyPrivacyConfig();
 
-        node_store_.setProtectedNodeChecker(
-            [this](uint32_t node_id)
-            {
-                return !contact_store_.getNickname(node_id).empty();
-            });
-        node_store_.setAutoSaveEnabled(false);
         contact_service_.begin();
         chat_store_ = createIdfChatStore();
         if (!chat_store_)
@@ -1442,8 +1173,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void clearNodeDb() override
     {
-        node_store_.clear();
-        node_blob_store_.clearBlob();
+        (void)mesh_peer_directory_.clearProtocol(config_.mesh_protocol);
     }
 
     void clearMessageDb() override
@@ -1482,7 +1212,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         platform::ui::tracker::poll();
         chat_service_->processIncoming();
         chat_service_->flushStore();
-        flushNodeStoreIfDue();
+        flushPeerDirectoryIfDue();
         if (team_service_)
         {
             team_service_->processIncoming();
@@ -1709,18 +1439,15 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         return null_mesh_adapter_;
     }
 
-    void flushNodeStoreIfDue()
+    void flushPeerDirectoryIfDue()
     {
         const uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
-        if ((now_ms - last_node_store_flush_ms_) < kIdfNodeStoreFlushIntervalMs)
+        if ((now_ms - last_peer_directory_flush_ms_) <
+            kIdfPeerDirectoryFlushIntervalMs)
         {
             return;
         }
-        last_node_store_flush_ms_ = now_ms;
-        if (!node_store_.flush())
-        {
-            ESP_LOGW(kIdfStoreTag, "node flush failed");
-        }
+        last_peer_directory_flush_ms_ = now_ms;
         if (mesh_peer_directory_ready_ &&
             !mesh_peer_directory_.flush().succeeded())
         {
@@ -1872,13 +1599,9 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     BoardBase* board_ = nullptr;
     LoraBoard* lora_board_ = nullptr;
     app::AppConfig config_{};
-    IdfSdNodeBlobStore node_blob_store_{};
-    IdfSdContactBlobStore contact_blob_store_{};
     IdfSdMeshPeerDirectoryBlobStore mesh_peer_directory_blob_store_{};
-    chat::contacts::NodeStoreCore node_store_{node_blob_store_};
-    chat::contacts::ContactStoreCore contact_store_{contact_blob_store_};
     chat::MeshPeerDirectoryCore mesh_peer_directory_{mesh_peer_directory_blob_store_};
-    chat::contacts::ContactService contact_service_{node_store_, contact_store_};
+    chat::contacts::ContactService contact_service_{mesh_peer_directory_};
     chat::ChatModel chat_model_{};
     std::unique_ptr<chat::IChatStore> chat_store_{};
     IdfNullMeshAdapter null_mesh_adapter_{};
@@ -1902,7 +1625,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     chat::ui::IChatUiRuntime* chat_ui_runtime_ = nullptr;
     bool mesh_peer_directory_ready_ = false;
     bool background_tasks_started_ = false;
-    uint32_t last_node_store_flush_ms_ = 0;
+    uint32_t last_peer_directory_flush_ms_ = 0;
 };
 
 IdfAppFacadeRuntime s_runtime{};

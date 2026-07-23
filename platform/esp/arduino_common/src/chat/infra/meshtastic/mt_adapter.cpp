@@ -7,7 +7,6 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "chat/domain/contact_types.h"
-#include "chat/ports/i_node_store.h"
 #include "chat/time_utils.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/gps/gps_service_api.h"

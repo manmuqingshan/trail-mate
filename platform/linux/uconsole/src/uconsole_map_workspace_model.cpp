@@ -152,7 +152,7 @@ std::string trim_copy(std::string value)
     return value;
 }
 
-std::string node_label(const ::chat::contacts::NodeInfo& node)
+std::string node_label(const ::chat::contacts::PeerDirectoryItem& node)
 {
     if (!node.display_name.empty())
     {
@@ -170,7 +170,7 @@ std::string node_label(const ::chat::contacts::NodeInfo& node)
 }
 
 void append_projected_node(MapWorkspaceSnapshot& out,
-                           const ::chat::contacts::NodeInfo& node,
+                           const ::chat::contacts::PeerDirectoryItem& node,
                            const ::platform::linux_runtime::MapTileId& top_left)
 {
     if (!node.position.valid)
