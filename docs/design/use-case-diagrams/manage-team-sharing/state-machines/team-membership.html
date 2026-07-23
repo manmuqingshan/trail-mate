@@ -1,0 +1,9 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>State：团队成员投影</title></head><body><main data-praxis-kind="design_state_machine_diagram" data-praxis-status="candidate"><h1>Pairing 与本地成员投影</h1><pre class="mermaid">stateDiagram-v2
+[*] --> NoTeam
+NoTeam --> LeaderPairing
+NoTeam --> MemberPairing
+LeaderPairing --> TeamActive
+MemberPairing --> TeamActive
+LeaderPairing --> NoTeam
+MemberPairing --> NoTeam
+TeamActive --> NoTeam: kicked/leave/reset</pre></main></body></html>

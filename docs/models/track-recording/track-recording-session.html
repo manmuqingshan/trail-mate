@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>TrackCommand / TrackEvent / RecorderStatus</title></head><body><main data-praxis-anchor="diagram:track-recording-session" data-praxis-kind="uml_diagram"><h1>TrackCommand / TrackEvent / RecorderStatus</h1><pre class="mermaid">flowchart LR
+Runtime[TrackRuntime] --&gt; Command[TrackCommand]
+Command --&gt; Worker[TrackStorageWorker]
+Worker --&gt; Files[ITrackFileAdapter]
+Worker --&gt; Event[TrackEvent]
+Event --&gt; State[TrackStateMachine]
+State --&gt;|Started| Recording
+State --&gt;|ResourceBusy| Recovering
+State --&gt;|FlushFailed or Failed| Error
+State --&gt;|Stopped| Stopped
+Buffer[TrackPointBuffer] --&gt; Command</pre><p>当前命令没有 Pause/Resume；事件也没有 Acknowledge/Reset。</p></main></body></html>

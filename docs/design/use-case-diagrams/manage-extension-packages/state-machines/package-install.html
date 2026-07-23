@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>State：Package Install</title></head><body><main data-praxis-kind="design_state_machine_diagram" data-praxis-status="confirmed"><h1>Package Install Status</h1><pre class="mermaid">stateDiagram-v2
+[*] --> Idle
+Idle --> Installing
+Installing --> Succeeded
+Installing --> Failed
+Succeeded --> Idle
+Failed --> Idle</pre></main></body></html>

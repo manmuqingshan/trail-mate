@@ -1,0 +1,6 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：频谱扫描</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>频谱扫描</h1><pre class="mermaid">flowchart TD
+Plan --> Acquire{"radio?"}
+Acquire -- 是 --> Scan["sample bins"]
+Scan --> Analyze["noise/hot/best"]
+Analyze --> Apply["user applies"]
+Apply --> Release</pre></main></body></html>

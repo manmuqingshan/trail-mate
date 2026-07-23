@@ -1,0 +1,10 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：实时通话</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/realtime-audio-call/activity.md"><h1>来电与去电汇合</h1><pre class="mermaid">flowchart TD
+Incoming["IncomingIdentifying"] --> Ring["IncomingRinging"]
+Ring --> Accept{"accept?"}
+Accept -- 否 --> End["Ended"]
+Accept -- 是 --> Start["AcceptedStarting"]
+Outgoing["Outgoing"] --> Start
+Start --> Ready{"link + exclusive + media ready?"}
+Ready -- 是 --> Active["ActiveCall"]
+Ready -- 失败 --> Failed["Failed"]
+Active --> End</pre></main></body></html>

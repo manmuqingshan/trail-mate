@@ -1,0 +1,203 @@
+{
+  "schemaVersion": "praxis.umlModelRegistry.v1",
+  "principles": [
+    "Model 按领域语言、状态所有权和不变量划分，不按文档模板划分。",
+    "存在但未被工具发现的领域模型应补足证据，不得被误报为模型不存在。",
+    "因设计缺陷而缺失的领域模型进入 Review Queue，不用空壳 Model 掩盖。",
+    "Design、Engineering 与 C4 是领域模型的阅读投影，不是固定的三种顶层 Model。"
+  ],
+  "models": [
+    {
+      "id": "model:communication-conversation",
+      "kind": "domain",
+      "title": "通信、会话与投递模型",
+      "viewpoint": "消息如何获得稳定身份、进入会话并经历可验证的投递生命周期。",
+      "purpose": "统一用户可见的消息语义，同时保留 Meshtastic、MeshCore 与 Reticulum 的线协议差异。",
+      "authority": "core_chat 的消息账本与 core_mesh 的接收提交执行流。",
+      "status": "confirmed",
+      "docPath": "docs/models/communication-conversation/model.md",
+      "htmlPath": "docs/models/communication-conversation/model.html",
+      "elements": [
+        { "id": "element:chat-message", "kind": "class", "role": "classifier", "name": "ChatMessage", "packagePath": "Communication/Conversation", "summary": "跨协议统一消息记录；消息身份与无线帧身份分离。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_chat/include/chat/domain/chat_types.h"] },
+        { "id": "element:conversation", "kind": "class", "role": "classifier", "name": "ConversationId / ConversationMeta", "packagePath": "Communication/Conversation", "summary": "以 protocol、channel、peer 或 Reticulum destination 标识会话，并保存列表投影元数据。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_chat/include/chat/domain/chat_types.h"] },
+        { "id": "element:message-ledger", "kind": "component", "role": "classifier", "name": "ChatMessageLedger", "packagePath": "Communication/Delivery", "summary": "投递状态的唯一提交入口，合并重复事件并保护终态。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_chat/include/chat/delivery/chat_message_ledger.h", "modules/core_chat/src/delivery/chat_message_ledger.cpp"] },
+        { "id": "element:receive-packet", "kind": "component", "role": "classifier", "name": "ReceivePacketService", "packagePath": "Communication/Protocol Boundary", "summary": "验证接收包并把协议事实提交为通信事实。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_mesh/include/mesh/usecase/receive_packet_service.h", "modules/core_mesh/src/usecase/receive_packet_service.cpp"] }
+      ],
+      "diagrams": [
+        { "id": "diagram:message-delivery-lifecycle", "kind": "state_machine", "title": "MessageStatus 与 Ledger 持久化", "summary": "区分代码中的消息状态与 Durable/Deferred/Rejected 持久化结果。", "packagePath": "Communication/Delivery", "docPath": "docs/models/communication-conversation/message-delivery-lifecycle.md", "htmlPath": "docs/models/communication-conversation/message-delivery-lifecycle.html", "status": "confirmed", "confidence": "high", "representedElements": ["element:chat-message", "element:conversation", "element:message-ledger", "element:receive-packet"] }
+      ]
+    },
+    {
+      "id": "model:mesh-network-identity",
+      "kind": "domain",
+      "title": "Mesh 本机身份与对端公钥",
+      "viewpoint": "本机密钥如何建立，对端公钥如何查询、保存并防止未验证覆盖。",
+      "purpose": "描述代码中实际存在的 LocalIdentity 与 PeerPublicKey；不把它夸大为完整联系人身份模型。",
+      "authority": "core_mesh 的 LocalIdentity、PeerPublicKey、对应 stores 与 PeerIdentityService。",
+      "status": "confirmed",
+      "docPath": "docs/models/mesh-network-identity/model.md",
+      "htmlPath": "docs/models/mesh-network-identity/model.html",
+      "elements": [
+        { "id": "element:local-identity", "kind": "class", "role": "classifier", "name": "LocalIdentity", "packagePath": "Mesh/Identity/Local", "summary": "设备自身稳定身份及协议可用材料。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_mesh/include/mesh/domain/local_identity.h"] },
+        { "id": "element:peer-identity", "kind": "class", "role": "classifier", "name": "PeerPublicKey", "packagePath": "Mesh/Identity/Peer", "summary": "NodeId、公钥、更新时间与 verified 标志组成的对端密钥记录。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_mesh/include/mesh/domain/peer_identity.h"] },
+        { "id": "element:peer-identity-service", "kind": "component", "role": "classifier", "name": "PeerIdentityService", "packagePath": "Mesh/Identity/Peer", "summary": "创建本机身份、查找对端密钥，并阻止未验证密钥覆盖已验证密钥。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_mesh/include/mesh/usecase/peer_identity_service.h", "modules/core_mesh/src/usecase/peer_identity_service.cpp"] },
+        { "id": "element:local-identity-store", "kind": "port", "role": "internal_structure", "name": "ILocalIdentityStore", "packagePath": "Mesh/Identity/Ports", "summary": "隔离身份持久化机制。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_mesh/include/mesh/ports/i_local_identity_store.h"] }
+      ],
+      "diagrams": [
+        { "id": "diagram:identity-resolution", "kind": "activity", "title": "本机身份建立与对端公钥保护", "summary": "展示 ensureLocalIdentity 与 verified PeerPublicKey replacement 规则。", "packagePath": "Mesh/Identity", "docPath": "docs/models/mesh-network-identity/identity-resolution.md", "htmlPath": "docs/models/mesh-network-identity/identity-resolution.html", "status": "confirmed", "confidence": "high", "representedElements": ["element:local-identity", "element:peer-identity", "element:peer-identity-service", "element:local-identity-store"] }
+      ]
+    },
+    {
+      "id": "model:contact-peer-directory",
+      "kind": "domain",
+      "title": "联系人、对端目录与本地信任",
+      "viewpoint": "协议观察如何成为本地对端记录，用户如何把节点保存为联系人、忽略节点或确认本地信任。",
+      "purpose": "把目录身份、协议事实、观察事实和用户事实分开；明确联系人生命周期不属于消息投递，也不等同于 Mesh 公钥身份。",
+      "authority": "core_chat 的 MeshPeerRecord、IMeshPeerDirectory、ContactService、INodeStore 与 IContactStore。",
+      "status": "confirmed",
+      "docPath": "docs/models/contact-peer-directory/model.md",
+      "htmlPath": "docs/models/contact-peer-directory/model.html",
+      "elements": [
+        { "id": "element:mesh-peer-directory-identity", "kind": "class", "role": "classifier", "name": "MeshPeerIdentity", "packagePath": "Directory/Identity", "summary": "以 protocol 与 NodeId、公钥或 Reticulum destination 组成的有效目录键。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_chat/include/chat/domain/mesh_peer_directory.h"] },
+        { "id": "element:mesh-peer-record", "kind": "class", "role": "classifier", "name": "MeshPeerRecord", "packagePath": "Directory/Record", "summary": "分离协议 facts、无线观察、first/last seen 与本机 user flags 的对端记录。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_chat/include/chat/domain/mesh_peer_directory.h"] },
+        { "id": "element:contact-service", "kind": "component", "role": "classifier", "name": "ContactService", "packagePath": "Directory/Contact", "summary": "管理协议分区、nickname、附近/忽略分类、人工验证和节点删除语义。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_chat/include/chat/usecase/contact_service.h", "modules/core_chat/src/usecase/contact_service.cpp"] },
+        { "id": "element:contact-node-projection", "kind": "class", "role": "classifier", "name": "NodeInfo / NodeUpdate", "packagePath": "Directory/Projection", "summary": "旧联系人路径使用的节点、位置、设备指标和用户状态投影。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_chat/include/chat/domain/contact_types.h", "modules/core_chat/include/chat/ports/i_node_store.h"] },
+        { "id": "element:peer-directory-ports", "kind": "port", "role": "internal_structure", "name": "IMeshPeerDirectory / INodeStore / IContactStore", "packagePath": "Directory/Ports", "summary": "分别保存统一对端目录、节点观察与联系人 nickname；当前仍存在双重表达。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_chat/include/chat/ports/i_mesh_peer_directory.h", "modules/core_chat/include/chat/ports/i_node_store.h", "modules/core_chat/include/chat/ports/i_contact_store.h"] }
+      ],
+      "diagrams": [
+        { "id": "diagram:peer-directory-lifecycle", "kind": "activity", "title": "对端观察、联系人提升与本地信任", "summary": "区分协议观察、目录记录、联系人 nickname、ignored/trusted 以及不同删除语义。", "packagePath": "Directory", "docPath": "docs/models/contact-peer-directory/peer-directory-lifecycle.md", "htmlPath": "docs/models/contact-peer-directory/peer-directory-lifecycle.html", "status": "confirmed", "confidence": "high", "representedElements": ["element:mesh-peer-directory-identity", "element:mesh-peer-record", "element:contact-service", "element:contact-node-projection", "element:peer-directory-ports"] }
+      ]
+    },
+    {
+      "id": "model:team-coordination",
+      "kind": "domain",
+      "title": "团队凭据、配对状态与协同消息",
+      "viewpoint": "TeamKeys、Leader/Member 配对状态和 Beacon/Join/Key 消息如何建立团队凭据。",
+      "purpose": "确认配对 process manager 与用途分离密钥；明确成员 aggregate 尚未形成。",
+      "authority": "core_team 的 TeamKeys、TeamPairingState、TeamPairingCoordinator 与 wire types。",
+      "status": "candidate",
+      "docPath": "docs/models/team-coordination/model.md",
+      "htmlPath": "docs/models/team-coordination/model.html",
+      "elements": [
+        { "id": "element:team", "kind": "class", "role": "classifier", "name": "TeamId / TeamKeys", "packagePath": "Team/Credentials", "summary": "团队标识、key_id 以及 management、position、waypoint、chat 四类密钥。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_team/include/team/domain/team_types.h"] },
+        { "id": "element:team-member", "kind": "state_machine", "role": "owned_behavior", "name": "TeamPairingRole / TeamPairingState", "packagePath": "Team/Pairing", "summary": "Leader/Member 角色与 Idle、Beacon、Scanning、JoinSent、WaitingKey、Completed、Failed 状态。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_team/include/team/domain/team_types.h"] },
+        { "id": "element:team-pairing-coordinator", "kind": "component", "role": "classifier", "name": "TeamPairingCoordinator", "packagePath": "Team/Pairing", "summary": "协调 pairing transport、crypto、事件与团队更新。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_team/include/team/usecase/team_pairing_coordinator.h", "modules/core_team/src/usecase/team_pairing_coordinator.cpp"] },
+        { "id": "element:team-wire", "kind": "class", "role": "classifier", "name": "Team Wire Messages", "packagePath": "Team/Sharing", "summary": "位置、轨迹、路标、管理与聊天的协议值。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_team/include/team/protocol/team_position.h", "modules/core_team/include/team/protocol/team_track.h", "modules/core_team/include/team/protocol/team_waypoint.h", "modules/core_team/include/team/protocol/team_mgmt.h"] }
+      ],
+      "diagrams": [
+        { "id": "diagram:team-pairing", "kind": "sequence", "title": "Leader / Member 配对消息交换", "summary": "按 coordinator 的 Beacon、Join、Key handler 展示配对协作。", "packagePath": "Team/Pairing", "docPath": "docs/models/team-coordination/team-pairing.md", "htmlPath": "docs/models/team-coordination/team-pairing.html", "status": "confirmed", "confidence": "high", "representedElements": ["element:team", "element:team-member", "element:team-pairing-coordinator", "element:team-wire"] }
+      ]
+    },
+    {
+      "id": "model:positioning-time",
+      "kind": "domain",
+      "title": "GNSS 定位、跳变过滤与时间更新",
+      "viewpoint": "NMEA revision 如何经过 GpsJitterFilter 成为 LocationFix、位置事件和时间更新。",
+      "purpose": "让消费者通过 LocationService 获取位置，而不是各自解析 driver 状态；路线导航另属缺失模型。",
+      "authority": "core_gps 的 LocationService。",
+      "status": "confirmed",
+      "docPath": "docs/models/positioning-time/model.md",
+      "htmlPath": "docs/models/positioning-time/model.html",
+      "elements": [
+        { "id": "element:gps-snapshot", "kind": "class", "role": "classifier", "name": "LocationFix", "packagePath": "Positioning/Fix", "summary": "经领域边界输出的定位 fix，而不是 UI 自行拼装的 GPS snapshot。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_gps/include/gps/domain/location_fix.h"] },
+        { "id": "element:location-service", "kind": "component", "role": "classifier", "name": "LocationService", "packagePath": "Positioning/Fix", "summary": "维护最后有效位置并判定快照质量与新鲜度。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_gps/include/gps/usecase/location_service.h", "modules/core_gps/src/usecase/location_service.cpp"] },
+        { "id": "element:fix-validity", "kind": "component", "role": "classifier", "name": "GpsJitterFilter", "packagePath": "Positioning/Filtering", "summary": "对 GNSS fix 应用跳变过滤；它是代码中明确存在的策略对象。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_gps/include/gps/usecase/gps_jitter_filter.h"] },
+        { "id": "element:gnss-time-authority", "kind": "port", "role": "internal_structure", "name": "ITimeAuthorityUpdater", "packagePath": "Positioning/Time", "summary": "LocationService 向系统时间权威提交 GNSS 时间事实的端口。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_gps/include/gps/ports/i_time_authority.h"] }
+      ],
+      "diagrams": [
+        { "id": "diagram:fix-lifecycle", "kind": "sequence", "title": "GNSS revision 处理链", "summary": "展示 NMEA revision、jitter filter、location event 与 time update 的真实协作。", "packagePath": "Positioning/Fix", "docPath": "docs/models/positioning-time/fix-lifecycle.md", "htmlPath": "docs/models/positioning-time/fix-lifecycle.html", "status": "confirmed", "confidence": "high", "representedElements": ["element:gps-snapshot", "element:location-service", "element:fix-validity", "element:gnss-time-authority"] }
+      ]
+    },
+    {
+      "id": "model:track-recording",
+      "kind": "domain",
+      "title": "轨迹记录与持久化模型",
+      "viewpoint": "记录会话、采样点、有界缓冲、存储命令和失败恢复如何协作。",
+      "purpose": "保证轨迹在资源受限设备上可用、可恢复且内存有界。",
+      "authority": "core_gps 的 TrackRuntime 与 TrackStateMachine。",
+      "status": "confirmed",
+      "docPath": "docs/models/track-recording/model.md",
+      "htmlPath": "docs/models/track-recording/model.html",
+      "elements": [
+        { "id": "element:track-runtime", "kind": "class", "role": "classifier", "name": "TrackRuntime", "packagePath": "Track/Session", "summary": "轨迹记录会话的内存状态与资源所有权。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_gps/include/gps/track_runtime.h"] },
+        { "id": "element:track-state-machine", "kind": "state_machine", "role": "owned_behavior", "name": "TrackStateMachine", "packagePath": "Track/Session", "summary": "集中执行记录命令与合法状态迁移。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_gps/include/gps/track_runtime.h"] },
+        { "id": "element:track-command-queue", "kind": "component", "role": "classifier", "name": "Track Storage Command Queue", "packagePath": "Track/Buffer", "summary": "用固定深度命令槽隔离采样热路径与持久化。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_gps/include/gps/track_runtime.h"] },
+        { "id": "element:track-storage-worker", "kind": "component", "role": "classifier", "name": "TrackStorageWorker", "packagePath": "Track/Storage", "summary": "消费存储命令并回报成功或明确失败。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_gps/include/gps/track_runtime.h"] }
+      ],
+      "diagrams": [
+        { "id": "diagram:track-recording-session", "kind": "state_machine", "title": "TrackCommand / TrackEvent / RecorderStatus", "summary": "只展示代码中实际存在的命令、事件和状态，不添加 Pause/Resume。", "packagePath": "Track/Session", "docPath": "docs/models/track-recording/track-recording-session.md", "htmlPath": "docs/models/track-recording/track-recording-session.html", "status": "confirmed", "confidence": "high", "representedElements": ["element:track-runtime", "element:track-state-machine", "element:track-command-queue", "element:track-storage-worker"] }
+      ]
+    },
+    {
+      "id": "model:device-target-capability",
+      "kind": "domain",
+      "title": "设备目标、能力与权威模型",
+      "viewpoint": "硬件目标拥有哪些能力、能力当前是否可用以及由谁拥有控制权。",
+      "purpose": "避免把编译成功误当作功能可用，并对不可用/降级给出明确原因。",
+      "authority": "core_device 的 TargetManifestView、CapabilityStatus 与 AuthorityBinding。",
+      "status": "confirmed",
+      "docPath": "docs/models/device-target-capability/model.md",
+      "htmlPath": "docs/models/device-target-capability/model.html",
+      "elements": [
+        { "id": "element:target-manifest", "kind": "class", "role": "classifier", "name": "TargetManifestView", "packagePath": "Device/Target", "summary": "目标身份、板级特征和产品能力契约。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_device/include/device/target_manifest_types.h"] },
+        { "id": "element:capability-kind", "kind": "class", "role": "classifier", "name": "CapabilityKind", "packagePath": "Device/Capability", "summary": "产品能够讨论的稳定能力词汇。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_device/include/device/capability_types.h"] },
+        { "id": "element:capability-status", "kind": "class", "role": "classifier", "name": "CapabilityStatus", "packagePath": "Device/Capability", "summary": "能力状态及不可用/降级的显式原因。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_device/include/device/capability_types.h", "modules/core_device/src/device/capability_types.cpp"] },
+        { "id": "element:authority-binding", "kind": "class", "role": "classifier", "name": "AuthorityBinding", "packagePath": "Device/Authority", "summary": "资源能力到当前权威 owner 的绑定。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_device/include/device/authority_types.h"] }
+      ],
+      "diagrams": [
+        { "id": "diagram:capability-resolution", "kind": "activity", "title": "目标能力解析", "summary": "静态 manifest 与运行时权威共同决定功能可用性。", "packagePath": "Device/Capability", "docPath": "docs/models/device-target-capability/capability-resolution.md", "htmlPath": "docs/models/device-target-capability/capability-resolution.html", "status": "confirmed", "confidence": "high", "representedElements": ["element:target-manifest", "element:capability-kind", "element:capability-status", "element:authority-binding"] }
+      ]
+    },
+    {
+      "id": "model:hostlink-integration",
+      "kind": "integration",
+      "title": "HostLink 会话状态与帧路由",
+      "viewpoint": "SessionRuntime、LinkState、frame decision 和 codecs 如何构成主控与 C6 的边界。",
+      "purpose": "使用真实状态与函数描述握手、序号、节流、断线和 frame 分类。",
+      "authority": "core_hostlink 的 SessionRuntime、LinkState、HostlinkFrameDecision 与 codecs。",
+      "status": "confirmed",
+      "docPath": "docs/models/hostlink-integration/model.md",
+      "htmlPath": "docs/models/hostlink-integration/model.html",
+      "elements": [
+        { "id": "element:c6-frame", "kind": "class", "role": "classifier", "name": "C6 Frame", "packagePath": "HostLink/Frame", "summary": "跨处理器传输的有界、可验证消息单元。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_hostlink/include/hostlink/c6/c6_protocol.h", "modules/core_hostlink/include/hostlink/c6/c6_frame_codec.h"] },
+        { "id": "element:hostlink-session", "kind": "class", "role": "classifier", "name": "SessionRuntime / LinkState", "packagePath": "HostLink/Session", "summary": "Stopped、Waiting、Connected、Handshaking、Ready、Error 以及序号和超时状态。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_hostlink/include/hostlink/hostlink_session.h", "modules/core_hostlink/src/hostlink_session.cpp"] },
+        { "id": "element:hostlink-router", "kind": "component", "role": "classifier", "name": "HostlinkFrameRouter", "packagePath": "HostLink/Routing", "summary": "按明确类型把已验证帧交给唯一处理者。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_hostlink/include/hostlink/hostlink_frame_router.h", "modules/core_hostlink/src/hostlink_frame_router.cpp"] },
+        { "id": "element:hostlink-codecs", "kind": "component", "role": "classifier", "name": "HostLink Codecs", "packagePath": "HostLink/Routing", "summary": "服务、配置、事件与 app data 的显式边界翻译。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_hostlink/include/hostlink/hostlink_service_codec.h", "modules/core_hostlink/include/hostlink/hostlink_event_codec.h", "modules/core_hostlink/include/hostlink/hostlink_config_codec.h"] }
+      ],
+      "diagrams": [
+        { "id": "diagram:hostlink-session", "kind": "state_machine", "title": "LinkState 与 handshake 生命周期", "summary": "使用 Stopped、Waiting、Connected、Handshaking、Ready、Error 的真实状态。", "packagePath": "HostLink/Session", "docPath": "docs/models/hostlink-integration/hostlink-session.md", "htmlPath": "docs/models/hostlink-integration/hostlink-session.html", "status": "confirmed", "confidence": "high", "representedElements": ["element:c6-frame", "element:hostlink-session", "element:hostlink-router", "element:hostlink-codecs"] }
+      ]
+    },
+    {
+      "id": "model:phone-interoperability",
+      "kind": "integration",
+      "title": "手机应用协议互操作",
+      "viewpoint": "IPhoneAppFacade 如何向应用提供共同契约，同时保留两个 protocol core 的线语义。",
+      "purpose": "统一应用可见的 time/location/status/config/command，不统一 Meshtastic 与 MeshCore 的 wire model。",
+      "authority": "core_phone 的 IPhoneAppFacade、Phone IO 与 Meshtastic/MeshCore phone cores。",
+      "status": "confirmed",
+      "docPath": "docs/models/phone-interoperability/model.md",
+      "htmlPath": "docs/models/phone-interoperability/model.html",
+      "elements": [
+        { "id": "element:phone-io", "kind": "port", "role": "internal_structure", "name": "Phone IO", "packagePath": "Phone/Session", "summary": "隔离 BLE/serial 等外部传输。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_phone/include/phone/common/phone_io.h"] },
+        { "id": "element:phone-facade", "kind": "interface", "role": "classifier", "name": "IPhoneAppFacade", "packagePath": "Phone/Facade", "summary": "向应用暴露时间、位置、设备状态、配置 patch 与 typed command 的协议无关接口。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_phone/include/phone/common/phone_facade.h", "modules/core_phone/include/phone/common/phone_app_facade.h"] },
+        { "id": "element:meshtastic-phone", "kind": "component", "role": "classifier", "name": "MeshtasticPhoneCore", "packagePath": "Phone/Protocol", "summary": "Meshtastic 手机协议的消息、配置与会话行为。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_phone/include/phone/meshtastic/meshtastic_phone_core.h", "modules/core_phone/src/meshtastic/meshtastic_phone_core.cpp"] },
+        { "id": "element:meshcore-phone", "kind": "component", "role": "classifier", "name": "MeshCorePhoneCore", "packagePath": "Phone/Protocol", "summary": "MeshCore 手机协议行为，与 Meshtastic 线语义分离。", "status": "confirmed", "confidence": "high", "sourcePaths": ["modules/core_phone/include/phone/meshcore/meshcore_phone_core.h", "modules/core_phone/src/meshcore/meshcore_phone_core.cpp"] }
+      ],
+      "diagrams": [
+        { "id": "diagram:phone-session", "kind": "sequence", "title": "IPhoneAppFacade 到协议 core", "summary": "共同应用命令与 Meshtastic/MeshCore 专属协议行为的边界。", "packagePath": "Phone/Session", "docPath": "docs/models/phone-interoperability/phone-session.md", "htmlPath": "docs/models/phone-interoperability/phone-session.html", "status": "confirmed", "confidence": "high", "representedElements": ["element:phone-io", "element:phone-facade", "element:meshtastic-phone", "element:meshcore-phone"] }
+      ]
+    }
+  ],
+  "traces": [
+    { "id": "trace:identity-to-directory", "relation": "trace", "sourceId": "model:mesh-network-identity", "targetId": "model:contact-peer-directory", "sourceModelId": "model:mesh-network-identity", "targetModelId": "model:contact-peer-directory", "summary": "Mesh 密钥模型提供 verified peer key；目录保存其本机索引和用户投影，但证明语义尚未统一。" },
+    { "id": "trace:directory-to-conversation", "relation": "realize", "sourceId": "model:contact-peer-directory", "targetId": "model:communication-conversation", "sourceModelId": "model:contact-peer-directory", "targetModelId": "model:communication-conversation", "summary": "会话读取联系人显示名称和来源信任投影，但不拥有联系人生命周期。" },
+    { "id": "trace:directory-to-team", "relation": "refine", "sourceId": "model:contact-peer-directory", "targetId": "model:team-coordination", "sourceModelId": "model:contact-peer-directory", "targetModelId": "model:team-coordination", "summary": "Team roster 当前以 NodeId 关联目录；到稳定 TeamMember 身份的映射仍是设计缺口。" },
+    { "id": "trace:conversation-to-team", "relation": "realize", "sourceId": "model:communication-conversation", "targetId": "model:team-coordination", "sourceModelId": "model:communication-conversation", "targetModelId": "model:team-coordination", "summary": "通信承载团队协议，但不拥有成员资格。" },
+    { "id": "trace:location-to-team", "relation": "realize", "sourceId": "model:positioning-time", "targetId": "model:team-coordination", "sourceModelId": "model:positioning-time", "targetModelId": "model:team-coordination", "summary": "有效位置驱动受策略约束的团队位置共享。" },
+    { "id": "trace:location-to-track", "relation": "realize", "sourceId": "model:positioning-time", "targetId": "model:track-recording", "sourceModelId": "model:positioning-time", "targetModelId": "model:track-recording", "summary": "轨迹只接受通过有效性策略的位置样本。" },
+    { "id": "trace:capability-to-phone", "relation": "refine", "sourceId": "model:device-target-capability", "targetId": "model:phone-interoperability", "sourceModelId": "model:device-target-capability", "targetModelId": "model:phone-interoperability", "summary": "目标能力决定手机互操作是否可用及退化原因。" },
+    { "id": "trace:capability-to-hostlink", "relation": "refine", "sourceId": "model:device-target-capability", "targetId": "model:hostlink-integration", "sourceModelId": "model:device-target-capability", "targetModelId": "model:hostlink-integration", "summary": "HostLink availability 由目标能力与运行时会话共同决定。" }
+  ],
+  "projections": []
+}

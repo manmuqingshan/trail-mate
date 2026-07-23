@@ -1,0 +1,13 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Map 数据源</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>数据源到 Map workspace</h1><pre class="mermaid">sequenceDiagram
+participant M as Map Model
+participant T as Tiles
+participant G as GPS
+participant D as Directory
+participant Team
+participant Geo as Geo Stores
+M->>T: viewport tiles
+M->>G: fix
+M->>D: peers
+M->>Team: positions
+M->>Geo: routes/tracks/waypoints
+M->>M: preserve type/source/time</pre></main></body></html>

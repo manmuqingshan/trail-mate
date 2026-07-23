@@ -1,112 +1,54 @@
-# Class Collaboration Diagram：类/结构协作：接收文本消息
-
-<!-- praxis:use-case-diagram:start -->
-
-## 元数据
-
-项目版本：0.1.30-alpha
-设计文档版本：0.1.30-alpha
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
-Agent 版本决策：none - 本次文档质量修正，不触发版本 bump
-更新于：2026-06-25T15:56:23.352Z
-来源：Agent 重新分析生成
-父级 Use Case：use-case:receive-text-message
-业务边界路径：Trail Mate 系统 / 聊天通信
-父级文档：docs/design/use-case-diagrams/receive-text-message.md
-Markdown 路径：docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.md
-HTML 路径：docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.html
-
-## 协作场景
-
-描述接收文本消息时涉及的主要类/接口及其静态关系。
-
-## 参与者 / 角色
-
-- **User**：最终用户，通过 UI 查看接收到的消息。
-- **ChatUI**：GTK 聊天界面，负责显示消息列表。
-- **ChatLogic**：聊天逻辑层，处理消息的追加和 UI 更新。
-- **TLoRaPagerBoard**：T-LoRa-Pager 板级驱动类，管理无线电接收。
-- **Radio**：外部无线电硬件模块。
-
-## 类与接口
-
-- `ChatUI`：GTK 聊天界面类，方法 `displayMessage()`。
-- `ChatLogic`：聊天逻辑类，方法 `addIncomingMessage()`。
-- `TLoRaPagerBoard`：板级驱动类，继承自 `LilyGo_Display`，包含 `startRadioReceive()` 和 `readRadioData()`。
-- `Radio`：外部硬件，事件驱动接收。
-
-## 依赖关系
-
-- User --> ChatUI：调用 UI 操作
-- ChatUI --> ChatLogic：委托逻辑处理
-- ChatLogic --> TLoRaPagerBoard：调用读取无线电数据
-- TLoRaPagerBoard --> Radio：读取数据包
-
-## Class UML 读图说明
-
-展示接收文本消息场景中用户界面、业务逻辑和硬件驱动之间的静态结构关系。
-
-## 实现范围锚点
-
-- 模块：boards
-- 模块：apps/linux_uconsole_gtk
-- 关键文件：boards/tlora_pager/src/tlora_pager_board.cpp
-- 关键文件：apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp
-- 代码锚点：boards/tlora_pager/src/tlora_pager_board.cpp#L1335（startRadioReceive）
-- 不覆盖代码：底层驱动细节、数据编码/解码细节
-
-## 不覆盖场景
-
-- 消息回调线程安全
-- 离线消息处理
-
-## Mermaid 图
+# Class Collaboration：接收职责边界
 
 ```mermaid
 classDiagram
-  class User {
-    +String name
+  class ActiveProtocolBackend {
+    +decodeAndAuthenticate(frame)
+    +emitAck(outcome)
   }
-  class ChatUI {
-    +displayMessage()
+  class ReceivePacketService {
+    +handle(packet)
+    +deduplicate(identity)
   }
-  class ChatLogic {
-    +addIncomingMessage()
+  class ChatMessageLedger {
+    +commit(fact) CommitResult
   }
-  class TLoRaPagerBoard {
-    +startRadioReceive()
-    +readRadioData()
+  class IMeshPeerDirectory {
+    +record(peerFacts)
   }
-  class Radio {
-    +receive()
+  class IMessageStore {
+    +append(message) CommitResult
   }
-  User --> ChatUI : uses
-  ChatUI --> ChatLogic : calls
-  ChatLogic --> TLoRaPagerBoard : calls
-  TLoRaPagerBoard --> Radio : reads
+  ActiveProtocolBackend --> ReceivePacketService : verified packet
+  ReceivePacketService --> IMeshPeerDirectory : peer facts
+  ReceivePacketService --> ChatMessageLedger : Incoming fact
+  ChatMessageLedger --> IMessageStore : durable commit
 ```
 
-## 证据上下文
+协议 backend 拥有 wire validation；Receive service 拥有接收用例；Ledger 拥有消息状态合并；Store 不决定业务终态。
 
-| 来源 | 路径 | 行号 | 强度 | 摘要 |
-| --- | --- | --- | --- | --- |
-| 本地仓库扫描 | boards/tlora_pager/src/tlora_pager_board.cpp | 1335-1344 | strong | TLoRaPagerBoard::startRadioReceive |
-| 本地仓库扫描 | boards/tlora_pager/src/tlora_pager_board.cpp | 1368-1377 | strong | TLoRaPagerBoard::readRadioData |
-| 本地仓库扫描 | apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_chat_logic.cpp | 1 | strong | ChatLogic 消息处理 |
+## 职责分配
 
-## 变更记录
+| 协作者 | 拥有 | 明确不拥有 |
+| --- | --- | --- |
+| ActiveProtocolBackend | framing、目标、crypto、协议 ACK | 会话未读、业务终态 |
+| ReceivePacketService | 接收编排、protocol-scoped dedup、peer/message 组合 | wire parsing、持久化实现 |
+| ChatMessageLedger | 消息身份、状态偏序、commit result | radio、协议编码 |
+| IMeshPeerDirectory | protocol-scoped peer facts | 业务联系人跨协议身份 |
+| IMessageStore | durable append/revision | Delivered/Failed 业务裁决 |
 
-### 0.1.30-alpha - 2026-06-25T15:56:23.352Z
+## 依赖方向
 
-变更类型：DISCOVERY
-版本决策：none - 本次文档质量修正，不触发版本 bump
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
+Backend 通过已验证 packet DTO 调用 Receive service；Receive 依赖 Directory 与 Ledger 端口；Ledger 依赖 Store 端口。Store adapter 不反向调用 UI 或 Backend，避免基础设施决定业务状态。
 
-摘要：
-- 创建接收文本消息的 Class Collaboration 图。
+## 数据所有权
 
-<!-- praxis:use-case-diagram:end -->
+大 frame 的生命周期终止在 Backend；跨边界传递的是紧凑且有明确 ownership 的 packet/commit input。Ledger fact 带 protocol namespace、message identity 和 attempt/revision，禁止共享可变 message struct。
+
+## 一致性与失败
+
+Peer observation 与 message commit 是相关但可能独立失败的事实。消息只有 Durable 后发布；Directory 失败按策略重试并保留诊断。Store Deferred 由有界 slot 接管，不阻塞 radio path。
+
+## 测试缝
+
+可替换 Fake Backend、Directory、Ledger/Store 分别验证：wire 无效不进入 use case、dedup 不重复提交、终态合并不由 Store 决定，以及 Deferred 的 ownership 安全。

@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Composite：Phone Protocol Boundary</title></head><body><main data-praxis-kind="design_composite_structure_diagram" data-praxis-status="confirmed"><h1>Phone Protocol Boundary</h1><pre class="mermaid">flowchart LR
+Phone --> BLE
+BLE --> MT["Meshtastic Core"]
+BLE --> MC["MeshCore Core"]
+MT --> F["IPhoneAppFacade"]
+MC --> F
+F --> App["Chat/Contact/Config/GPS/Backend"]</pre></main></body></html>

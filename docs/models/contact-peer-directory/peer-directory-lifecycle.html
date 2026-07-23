@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>对端目录生命周期</title></head>
+<body><main data-praxis-anchor="diagram:peer-directory-lifecycle" data-praxis-kind="uml_diagram"><h1>对端观察、联系人提升与本地信任</h1><p>协议观察进入目录后分别形成协议事实、观察事实与本机用户事实；联系人删除和节点删除拥有不同语义。</p><pre class="mermaid">flowchart LR
+Rx[协议观察] --&gt; Identity{身份有效?}
+Identity --&gt;|是| Directory[MeshPeerRecord]
+Directory --&gt; Contact[联系人 nickname]
+Directory --&gt; Ignore[ignored]
+Directory --&gt; Trust[trusted / verified projection]
+Contact --&gt; RemoveContact[只删除 nickname]
+Directory --&gt; RemoveNode[删除节点与 nickname]</pre></main></body></html>

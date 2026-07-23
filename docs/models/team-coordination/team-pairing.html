@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>团队配对与入组</title><style>:root{color-scheme:dark}body{background:#0b1219;color:#e8f2f8;font:15px/1.6 system-ui}main{max-width:900px;margin:auto;padding:28px}section{background:#111c26;border:1px solid #294052;border-radius:12px;padding:20px}a{color:#70d7ff}pre{white-space:pre-wrap;background:#081018;padding:18px;border-radius:8px}</style></head><body><main><h1>团队配对与入组</h1><p><a href="model.html">返回团队协同与配对模型</a></p><section><pre class="mermaid">sequenceDiagram
+  actor Owner
+  participant Pair as TeamPairingCoordinator
+  participant Crypto as ITeamCrypto
+  participant Link as PairingTransport
+  participant Team as TeamService
+  Owner-&gt;&gt;Pair: start pairing
+  Pair-&gt;&gt;Crypto: verify material
+  Pair-&gt;&gt;Link: exchange messages
+  Link--&gt;&gt;Pair: verified response
+  Pair-&gt;&gt;Team: admit member</pre><p>response、密码学验证和成员提交共同形成配对成功。</p></section></main></body></html>

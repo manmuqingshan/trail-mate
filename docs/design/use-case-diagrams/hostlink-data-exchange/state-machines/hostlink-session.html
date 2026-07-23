@@ -1,0 +1,9 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>State：HostLink Session</title></head><body><main data-praxis-kind="design_state_machine_diagram" data-praxis-status="confirmed"><h1>HostLink Session</h1><pre class="mermaid">stateDiagram-v2
+Stopped --> Waiting
+Waiting --> Connected
+Connected --> Handshaking
+Handshaking --> Ready
+Handshaking --> Error
+Ready --> Waiting
+Error --> Waiting
+Waiting --> Stopped</pre></main></body></html>

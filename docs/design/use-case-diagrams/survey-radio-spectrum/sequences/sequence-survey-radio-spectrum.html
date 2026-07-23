@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Sweep</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>Sweep 与 Radio Owner</h1><pre class="mermaid">sequenceDiagram
+participant UI as Sweep
+participant P as Band Plan
+participant R as Radio
+UI->>P: bins
+loop each bin
+UI->>R: configure + sample
+R-->>UI: RSSI
+end
+UI->>UI: choose best
+UI->>R: apply selected
+UI->>R: release</pre></main></body></html>

@@ -1,0 +1,10 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：从协议观察到本地联系人</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/manage-peer-directory/activity.md"><h1>从协议观察到本地联系人</h1><pre class="mermaid">flowchart TD
+Rx["协议观察"] --> Valid{"身份有效?"}
+Valid -- 否 --> Drop["拒绝"]
+Valid -- 是 --> Upsert["按协议身份 upsert"]
+Upsert --> Bucket{"saved / ignored?"}
+Bucket -- saved --> Contact["Contacts"]
+Bucket -- ignored --> Ignore["Ignored"]
+Bucket -- neither --> Nearby["Nearby"]
+Nearby --> Act["保存、忽略或验证"]
+Act --> Commit["提交本地关系"]</pre></main></body></html>

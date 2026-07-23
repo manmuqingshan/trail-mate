@@ -1,0 +1,14 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Package 安装</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>Extensions 到 Installed Index</h1><pre class="mermaid">sequenceDiagram
+participant UI
+participant R as Repository
+participant A as Wi-Fi Access
+participant H as HTTP
+participant S as Storage
+participant I as Index
+UI->>R: install
+R->>A: lease
+R->>H: download
+R->>R: hash + safe zip
+R->>S: extract + visible
+R->>I: atomic record
+R-->>UI: result</pre></main></body></html>

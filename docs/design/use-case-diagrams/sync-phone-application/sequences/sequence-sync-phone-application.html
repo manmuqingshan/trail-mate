@@ -1,0 +1,13 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Phone App Facade</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>Phone Protocol Core 到 App Facade</h1><pre class="mermaid">sequenceDiagram
+actor P as Phone
+participant B as BLE
+participant C as Protocol Core
+participant F as IPhoneAppFacade
+participant A as App Services
+P->>B: frame
+B->>C: fixed slot
+C->>F: operation
+F->>A: bounded call
+A-->>F: result
+F-->>C: neutral result
+C-->>P: native response</pre></main></body></html>
