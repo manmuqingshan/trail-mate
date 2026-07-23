@@ -109,6 +109,34 @@ def update_library_build_metadata(library_json_path, desired_updates, descriptio
     print(f"[pio] pre: Trimmed {description} build metadata")
 
 
+def create_library_build_metadata(
+    library_json_path,
+    manifest_defaults,
+    desired_updates,
+    description,
+):
+    if os.path.exists(library_json_path):
+        update_library_build_metadata(
+            library_json_path,
+            desired_updates,
+            description,
+        )
+        return
+
+    library_dir = os.path.dirname(library_json_path)
+    if not os.path.isdir(library_dir):
+        print(f"[pio] pre: {description} metadata not found yet: {library_json_path}")
+        return
+
+    library_json = dict(manifest_defaults)
+    library_json["build"] = dict(desired_updates)
+    with open(library_json_path, "w", encoding="utf-8", newline="\n") as fp:
+        json.dump(library_json, fp, indent=4)
+        fp.write("\n")
+
+    print(f"[pio] pre: Created trimmed {description} build metadata")
+
+
 def iter_active_project_source_files():
     source_roots = ("apps", "boards", "modules", "platform")
     source_extensions = (".c", ".cc", ".cpp", ".h", ".hpp", ".ino")
@@ -251,14 +279,234 @@ def configure_esp8266audio_for_esp32():
 
     audio_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "ESP8266Audio")
     library_json_path = os.path.join(audio_dir, "library.json")
-    desired_src_filter = [
-        "+<*>",
-        "-<AudioFileSourceSD.cpp>",
-    ]
+    # Pager has its own audio path. T-Deck only uses the I2S output and its
+    # logger definition; keep the full-library fallback for other ESP boards.
+    if pio_env in ("tlora_pager_sx1262", "tlora_pager_sx1262_debug"):
+        desired_src_filter = ["-<*>"]
+    elif pio_env in ("tdeck", "tdeck_debug"):
+        desired_src_filter = [
+            "-<*>",
+            "+<AudioLogger.cpp>",
+            "+<AudioOutputI2S.cpp>",
+        ]
+    else:
+        desired_src_filter = [
+            "+<*>",
+            "-<AudioFileSourceSD.cpp>",
+        ]
     update_library_build_metadata(
         library_json_path,
         {"srcFilter": desired_src_filter},
         f"ESP8266Audio for {pio_env}",
+    )
+
+
+def configure_radiolib_for_sx1262_esp32():
+    if not is_esp32_env or pio_env not in (
+        "tlora_pager_sx1262",
+        "tlora_pager_sx1262_debug",
+        "tdeck",
+        "tdeck_debug",
+    ):
+        return
+
+    radiolib_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "RadioLib")
+    library_json_path = os.path.join(radiolib_dir, "library.json")
+    # These targets only instantiate SX1262. Avoid compiling every other
+    # transceiver and protocol implementation that RadioLib ships.
+    desired_src_filter = [
+        "-<*>",
+        "+<Hal.cpp>",
+        "+<Module.cpp>",
+        "+<hal/Arduino/ArduinoHal.cpp>",
+        "+<protocols/PhysicalLayer/*.cpp>",
+        "+<protocols/Print/*.cpp>",
+        "+<utils/*.cpp>",
+        "+<modules/SX126x/SX1262.cpp>",
+        "+<modules/SX126x/SX126x.cpp>",
+        "+<modules/SX126x/SX126x_LR_FHSS.cpp>",
+        "+<modules/SX126x/SX126x_commands.cpp>",
+        "+<modules/SX126x/SX126x_config.cpp>",
+    ]
+    update_library_build_metadata(
+        library_json_path,
+        {"srcFilter": desired_src_filter},
+        f"RadioLib for {pio_env}",
+    )
+
+
+def configure_lvgl_for_esp32_ui():
+    if not is_esp32_env or pio_env not in (
+        "tlora_pager_sx1262",
+        "tlora_pager_sx1262_debug",
+        "tdeck",
+        "tdeck_debug",
+    ):
+        return
+
+    lvgl_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "lvgl")
+    library_json_path = os.path.join(lvgl_dir, "library.json")
+    # Keep this list aligned with platform/esp/arduino_common/include/lv_conf.h.
+    # Disabled desktop drivers, render backends, and codecs otherwise still
+    # create hundreds of empty or unreachable compilation units.
+    desired_src_filter = [
+        "-<*>",
+        "+<lv_init.c>",
+        "+<core/>",
+        "+<display/>",
+        "+<draw/*.c>",
+        "+<draw/convert/lv_draw_buf_convert.c>",
+        "+<draw/sw/>",
+        "+<font/lv_binfont_loader.c>",
+        "+<font/lv_font.c>",
+        "+<font/lv_font_fmt_txt.c>",
+        "+<font/lv_font_montserrat_*.c>",
+        "+<indev/>",
+        "+<layouts/>",
+        "+<misc/>",
+        "+<osal/lv_os.c>",
+        "+<osal/lv_os_none.c>",
+        "+<stdlib/lv_mem.c>",
+        "+<stdlib/builtin/lv_sprintf_builtin.c>",
+        "+<stdlib/builtin/lv_string_builtin.c>",
+        "+<themes/>",
+        "+<tick/>",
+        "+<widgets/>",
+        "+<libs/bin_decoder/>",
+        "+<libs/bmp/>",
+        "+<libs/fsdrv/lv_fs_memfs.c>",
+        "+<libs/gif/>",
+        "+<libs/lodepng/>",
+        "+<libs/qrcode/>",
+        "+<libs/tjpgd/>",
+        "+<others/observer/>",
+        "+<others/snapshot/>",
+    ]
+    update_library_build_metadata(
+        library_json_path,
+        {"srcFilter": desired_src_filter},
+        f"LVGL for {pio_env}",
+    )
+
+
+def configure_crypto_for_sx1262_esp32():
+    if not is_esp32_env or pio_env not in (
+        "tlora_pager_sx1262",
+        "tlora_pager_sx1262_debug",
+        "tdeck",
+        "tdeck_debug",
+    ):
+        return
+
+    crypto_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "Crypto")
+    library_json_path = os.path.join(crypto_dir, "library.json")
+    # This is the linked object closure for AES-CTR, ChaCha-Poly1305,
+    # Curve25519, RNG, and SHA-256 used by the four supported protocols.
+    desired_src_filter = [
+        "-<*>",
+        "+<AESEsp32.cpp>",
+        "+<AuthenticatedCipher.cpp>",
+        "+<BigNumberUtil.cpp>",
+        "+<BlockCipher.cpp>",
+        "+<ChaCha.cpp>",
+        "+<ChaChaPoly.cpp>",
+        "+<Cipher.cpp>",
+        "+<Crypto.cpp>",
+        "+<Curve25519.cpp>",
+        "+<Hash.cpp>",
+        "+<Poly1305.cpp>",
+        "+<RNG.cpp>",
+        "+<SHA256.cpp>",
+    ]
+    update_library_build_metadata(
+        library_json_path,
+        {"srcFilter": desired_src_filter},
+        f"Crypto for {pio_env}",
+    )
+
+
+def configure_sensorlib_for_sx1262_esp32():
+    if not is_esp32_env or pio_env not in (
+        "tlora_pager_sx1262",
+        "tlora_pager_sx1262_debug",
+        "tdeck",
+        "tdeck_debug",
+    ):
+        return
+
+    sensor_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "SensorLib")
+    library_json_path = os.path.join(sensor_dir, "library.json")
+    # Both boards use BHI260AP. T-Deck additionally needs the GT911 base
+    # implementation; its concrete driver is header-only in SensorLib 0.3.3.
+    desired_src_filter = [
+        "-<*>",
+        "+<SensorBHI260AP.cpp>",
+        "+<bosch/BoschParseStatic.cpp>",
+        "+<bosch/bhy2.c>",
+        "+<bosch/bhy2_hif.c>",
+        "+<bosch/common/common.cpp>",
+        "+<platform/SensorCommStatic.cpp>",
+    ]
+    if pio_env in ("tdeck", "tdeck_debug"):
+        desired_src_filter.append("+<TouchDrvInterface.cpp>")
+
+    update_library_build_metadata(
+        library_json_path,
+        {"srcFilter": desired_src_filter},
+        f"SensorLib for {pio_env}",
+    )
+
+
+def configure_sdfat_for_sx1262_esp32():
+    if not is_esp32_env or pio_env not in (
+        "tlora_pager_sx1262",
+        "tlora_pager_sx1262_debug",
+        "tdeck",
+        "tdeck_debug",
+    ):
+        return
+
+    sdfat_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "SdFat")
+    library_json_path = os.path.join(sdfat_dir, "library.json")
+    # Preserve FAT32/exFAT and the generic Arduino SPI path while excluding
+    # formatters, streams, debug helpers, and other architectures' drivers.
+    desired_src_filter = [
+        "-<*>",
+        "+<ExFatLib/ExFatFile.cpp>",
+        "+<ExFatLib/ExFatFilePrint.cpp>",
+        "+<ExFatLib/ExFatFileWrite.cpp>",
+        "+<ExFatLib/ExFatName.cpp>",
+        "+<ExFatLib/ExFatPartition.cpp>",
+        "+<ExFatLib/ExFatVolume.cpp>",
+        "+<FatLib/FatFile.cpp>",
+        "+<FatLib/FatFileLFN.cpp>",
+        "+<FatLib/FatFilePrint.cpp>",
+        "+<FatLib/FatName.cpp>",
+        "+<FatLib/FatPartition.cpp>",
+        "+<FatLib/FatVolume.cpp>",
+        "+<FsLib/FsFile.cpp>",
+        "+<FsLib/FsNew.cpp>",
+        "+<FsLib/FsVolume.cpp>",
+        "+<SdCard/SdCardInfo.cpp>",
+        "+<SdCard/SdSpiCard/SdSpiCard.cpp>",
+        "+<SdCard/SdSpiCard/SpiDriver/SdSpiChipSelect.cpp>",
+        "+<common/FmtNumber.cpp>",
+        "+<common/FsCache.cpp>",
+        "+<common/FsDateTime.cpp>",
+        "+<common/FsName.cpp>",
+        "+<common/FsUtf.cpp>",
+        "+<common/upcase.cpp>",
+    ]
+    create_library_build_metadata(
+        library_json_path,
+        {
+            "name": "SdFat",
+            "version": "2.3.1",
+            "frameworks": ["arduino"],
+            "platforms": ["*"],
+        },
+        {"srcFilter": desired_src_filter},
+        f"SdFat for {pio_env}",
     )
 
 
@@ -341,6 +589,11 @@ guard_no_arduino_sd_audio_paths()
 configure_radiolib_for_gat562()
 configure_crypto_for_gat562()
 configure_esp8266audio_for_esp32()
+configure_radiolib_for_sx1262_esp32()
+configure_lvgl_for_esp32_ui()
+configure_crypto_for_sx1262_esp32()
+configure_sensorlib_for_sx1262_esp32()
+configure_sdfat_for_sx1262_esp32()
 configure_nrf52_framework_libraries()
 inject_project_version_define()
 
