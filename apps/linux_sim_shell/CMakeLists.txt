@@ -911,6 +911,14 @@ if(BUILD_TESTING)
              COMMAND trailmate_node_info_input_contract_smoke
                      "${TRAIL_MATE_REPO_ROOT}")
 
+    add_executable(trailmate_node_info_map_runtime_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_node_info_map_runtime_contract.cpp")
+    target_compile_features(trailmate_node_info_map_runtime_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_node_info_map_runtime_contract_smoke
+             COMMAND trailmate_node_info_map_runtime_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
     add_executable(trailmate_wifi_connect_backoff_contract_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_wifi_connect_backoff_contract.cpp")
     target_compile_features(trailmate_wifi_connect_backoff_contract_smoke

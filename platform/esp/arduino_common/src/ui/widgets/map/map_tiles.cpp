@@ -236,6 +236,7 @@ class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
 constexpr std::size_t kMapTileCommandQueueCapacity = 16;
 constexpr std::size_t kMapTileEventQueueCapacity = 16;
 constexpr std::size_t kMapTileWorkerScratchBytes = 192U * 1024U;
+constexpr std::size_t kMapTileWorkerTaskStackBytes = 4U * 1024U;
 constexpr int kMapTileEventsPerUiDrain = 1;
 constexpr int kMapTileRequestsPerUiStep = 2;
 constexpr uint32_t kMapTileUiDrainBudgetMs = 4;
@@ -257,6 +258,10 @@ constexpr uint32_t kMapTileDisplaySpiNormalCooldownMs = 160;
 constexpr uint32_t kMapTileDisplaySpiSlowCooldownMs = 1500;
 constexpr uint32_t kMapTileDisplayPressureCooldownMs = 1500;
 constexpr uint32_t kMapTileDisplayPressureTileBackoffMs = 450;
+
+StaticTask_t s_map_tile_worker_task_tcb{};
+StackType_t s_map_tile_worker_task_stack[
+    (kMapTileWorkerTaskStackBytes + sizeof(StackType_t) - 1U) / sizeof(StackType_t)]{};
 
 uint32_t g_map_tile_decode_log_ms = 0;
 uint32_t g_map_tile_event_log_ms = 0;
@@ -1585,18 +1590,27 @@ class MapTileAsyncHost final
             }
         }
 
-        const BaseType_t ok = xTaskCreate(taskThunk,
-                                          "map_tile_worker",
-                                          4 * 1024,
-                                          this,
-                                          1,
-                                          &task_);
+        task_ = xTaskCreateStatic(taskThunk,
+                                  "map_tile_worker",
+                                  kMapTileWorkerTaskStackBytes,
+                                  this,
+                                  1,
+                                  s_map_tile_worker_task_stack,
+                                  &s_map_tile_worker_task_tcb);
+        const BaseType_t ok = task_ != nullptr ? pdPASS : errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
         if (ok != pdPASS)
         {
             if (!task_start_failed_logged_)
             {
-                std::printf("[GPS][MAP][worker] task_start_failed rc=%ld\n",
-                            static_cast<long>(ok));
+                std::printf("[GPS][MAP][worker] task_start_failed rc=%ld "
+                            "stack=static_internal bytes=%u internal_free=%u "
+                            "internal_largest=%u\n",
+                            static_cast<long>(ok),
+                            static_cast<unsigned>(kMapTileWorkerTaskStackBytes),
+                            static_cast<unsigned>(
+                                heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                            static_cast<unsigned>(heap_caps_get_largest_free_block(
+                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
                 task_start_failed_logged_ = true;
             }
             return false;
