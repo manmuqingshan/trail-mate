@@ -10,24 +10,52 @@ window {
   background: #e8ebe5;
   color: #1b211e;
 }
-.menu-bar {
+.navigation-rail {
   background: #1d2221;
   color: #f6f8f4;
-  padding: 3px 8px;
-  min-height: 28px;
-  border-bottom: 1px solid #111514;
+  padding: 10px 9px 9px 9px;
+  border-right: 1px solid #111514;
+}
+.navigation-brand {
+  padding: 2px 7px 8px 7px;
+}
+.navigation-subtitle {
+  color: #9da9a3;
+  font-size: 11px;
+}
+.navigation-section-label {
+  color: #7f8e87;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 7px 7px 2px 7px;
+}
+.navigation-footer {
+  border-top: 1px solid #39413e;
+  padding: 7px 7px 2px 7px;
+}
+.navigation-footer-title {
+  color: #d5ddd8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 .menu-title {
   color: #f8faf7;
   font-weight: 700;
-  padding: 0 6px;
+  font-size: 16px;
 }
 .menu-button {
   background: transparent;
   color: #dce3de;
   border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 3px 8px;
+  border-radius: 5px;
+  padding: 5px 9px;
+  min-height: 18px;
+}
+.menu-button:hover {
+  background: #2a312f;
+  border-color: #3d4844;
 }
 .menu-badge {
   background: #dfeee7;
@@ -63,9 +91,9 @@ window {
   padding: 4px 9px;
 }
 .nav-button-active {
-  background: #dfeee7;
-  color: #12241e;
-  border-color: #6f9f8d;
+  background: #d9e8df;
+  color: #10271f;
+  border-color: #7ca18f;
   font-weight: 700;
 }
 .workbench {

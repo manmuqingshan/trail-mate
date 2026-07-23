@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <deque>
@@ -34,15 +36,59 @@ constexpr int kMetricCount = 4;
 constexpr int kCapabilityRows = 5;
 constexpr int kChatConversationRows = 7;
 constexpr int kChatMessageRows = 7;
+constexpr std::uint32_t kLvglFunctionKeyF1 = 0x110001U;
 
-constexpr std::array<const char*, 8> kNavLabels{
+namespace embedded_palette
+{
+
+constexpr std::uint32_t kPageBg = 0xFFF3DF;
+constexpr std::uint32_t kSurface = 0xFFF7E9;
+constexpr std::uint32_t kSurfaceAlt = 0xFFF0D3;
+constexpr std::uint32_t kPanelBg = 0xFAF0D8;
+constexpr std::uint32_t kBorder = 0xD9B06A;
+constexpr std::uint32_t kSeparator = 0xE8D2AB;
+constexpr std::uint32_t kAccent = 0xEBA341;
+constexpr std::uint32_t kAccentDark = 0xC98118;
+constexpr std::uint32_t kHeaderText = 0x2A1A05;
+constexpr std::uint32_t kText = 0x3A2A1A;
+constexpr std::uint32_t kTextWarm = 0x6B4A1E;
+constexpr std::uint32_t kTextMuted = 0x6A5646;
+constexpr std::uint32_t kTextDim = 0x8A6A3A;
+constexpr std::uint32_t kWhite = 0xFFFFFF;
+constexpr std::uint32_t kStatusGreen = 0x5BAF4A;
+constexpr std::uint32_t kStatusBlue = 0x2F6FD6;
+constexpr std::uint32_t kWarn = 0xB94A2C;
+constexpr std::uint32_t kError = 0xCC0000;
+constexpr std::uint32_t kSoftAmber = 0xF3D39C;
+constexpr std::uint32_t kSoftBlue = 0xDCE8F7;
+constexpr std::uint32_t kSoftGreen = 0xDCEFD8;
+constexpr std::uint32_t kSoftWarn = 0xF5D9D1;
+constexpr std::uint32_t kMapBg = 0xF6E7C8;
+constexpr std::uint32_t kPlotBg = 0xF2E4C8;
+constexpr std::uint32_t kMapTile1 = 0xEAD9B2;
+constexpr std::uint32_t kMapTile2 = 0xF2E4C8;
+constexpr std::uint32_t kMapTile3 = 0xE4D2AA;
+constexpr std::uint32_t kMapTile4 = 0xE0C894;
+constexpr std::uint32_t kMapTile5 = 0xEEDBB4;
+constexpr std::uint32_t kMapTile6 = 0xE7D3A4;
+constexpr std::uint32_t kMapTile7 = 0xF3E2BE;
+constexpr std::uint32_t kMapTile8 = 0xDEC58F;
+
+} // namespace embedded_palette
+
+constexpr std::array<const char*, 13> kNavLabels{
     "Overview",
     "Chat",
-    "Contacts",
     "Map",
+    "Contacts",
+    "GPS & sky plot",
     "Team",
-    "Data",
-    "Diagnostics",
+    "Tracker",
+    "Radio tools",
+    "Hardware",
+    "Data & maps",
+    "Extensions",
+    "Logs",
     "Settings",
 };
 
@@ -52,11 +98,16 @@ enum class Section : std::uint8_t
 {
     Overview = 0,
     Chat,
-    Contacts,
     Map,
+    Contacts,
+    Gps,
     Team,
+    Tracker,
+    RadioTools,
+    Hardware,
     Data,
-    Diagnostics,
+    Extensions,
+    Logs,
     Settings,
 };
 
@@ -100,6 +151,8 @@ struct QueuedKeyEvent
         return LV_KEY_UP;
     case InputKey::Down:
         return LV_KEY_DOWN;
+    case InputKey::F1:
+        return kLvglFunctionKeyF1;
     case InputKey::Unknown:
     case InputKey::Fn:
     case InputKey::Ctrl:
@@ -143,7 +196,9 @@ void resetBox(lv_obj_t* obj)
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 }
 
-void applyPanel(lv_obj_t* obj, std::uint32_t bg, std::uint32_t border = 0xD3D9D2)
+void applyPanel(lv_obj_t* obj,
+                std::uint32_t bg,
+                std::uint32_t border = embedded_palette::kBorder)
 {
     resetBox(obj);
     lv_obj_set_style_bg_color(obj, color(bg), 0);
@@ -201,15 +256,25 @@ void setLabel(lv_obj_t* label, const char* text)
     case Section::Chat:
         return "Chat workspace";
     case Section::Contacts:
-        return "Contacts workspace";
+        return "Contacts & nodes";
     case Section::Map:
-        return "Map workspace";
+        return "Offline map workspace";
+    case Section::Gps:
+        return "GPS & sky plot";
     case Section::Team:
-        return "Team workspace";
+        return "Team operations";
+    case Section::Tracker:
+        return "Track recorder";
+    case Section::RadioTools:
+        return "Radio tools";
+    case Section::Hardware:
+        return "Hardware status";
     case Section::Data:
-        return "Data workspace";
-    case Section::Diagnostics:
-        return "Diagnostics workspace";
+        return "Data & offline maps";
+    case Section::Extensions:
+        return "Extensions";
+    case Section::Logs:
+        return "Packet and runtime logs";
     case Section::Settings:
         return "Settings workspace";
     }
@@ -225,15 +290,25 @@ void setLabel(lv_obj_t* label, const char* text)
     case Section::Chat:
         return "Conversation list and message activity preview.";
     case Section::Contacts:
-        return "Known nodes, nearby peers and trust status preview.";
+        return "Saved identities, nearby peers, trust and node actions.";
     case Section::Map:
-        return "Map canvas slot reserved for Linux package workflows.";
+        return "Cached tiles, background downloads, contours and field overlays.";
+    case Section::Gps:
+        return "Live receiver health, satellite geometry and fix details.";
     case Section::Team:
-        return "Roster, pairing and activity slot for team operations.";
+        return "Shared field state, team chat and location coordination.";
+    case Section::Tracker:
+        return "Persistent GPX, CSV or binary recording on Linux storage.";
+    case Section::RadioTools:
+        return "Energy sweep, SSTV receiver and walkie controls in one workbench.";
+    case Section::Hardware:
+        return "uConsole modules and shared capability status.";
     case Section::Data:
-        return "Import/export and local storage jobs will surface here.";
-    case Section::Diagnostics:
-        return "Runtime logs, capability state and hardware checks.";
+        return "Map cache, downloads, tracks and local application storage.";
+    case Section::Extensions:
+        return "Install and remove packages from the Trail Mate catalog.";
+    case Section::Logs:
+        return "Inspect decoded LoRa, GPS and MQTT traffic.";
     case Section::Settings:
         return "Grouped configuration entrypoint for Linux targets.";
     }
@@ -326,6 +401,10 @@ class UConsoleDesktopShell
     {
         for (const auto& event : events)
         {
+            if (handleGlobalShortcut(event))
+            {
+                continue;
+            }
             const std::uint32_t mapped = mapInputEvent(event);
             if (mapped == 0U) continue;
             key_events_.push_back({mapped, LV_INDEV_STATE_PRESSED});
@@ -457,17 +536,178 @@ class UConsoleDesktopShell
         shell->refreshChatWorkspace(true);
     }
 
+    bool handleGlobalShortcut(const InputEvent& event)
+    {
+        if (event.key == InputKey::F1)
+        {
+            toggleShortcutOverlay();
+            return true;
+        }
+
+        if (event.key == InputKey::Power)
+        {
+            if (shortcuts_visible_)
+            {
+                toggleShortcutOverlay();
+                return true;
+            }
+            if (active_section_ != Section::Overview)
+            {
+                selectSection(Section::Overview);
+                return true;
+            }
+            return false;
+        }
+
+        if (event.key != InputKey::Character || event.text == '\0')
+        {
+            return false;
+        }
+
+        const bool editing_chat =
+            active_section_ == Section::Chat && group_ != nullptr &&
+            lv_group_get_focused(group_) == chat_input_;
+        if (editing_chat)
+        {
+            return false;
+        }
+
+        const char key = static_cast<char>(
+            std::tolower(static_cast<unsigned char>(event.text)));
+        if (shortcuts_visible_)
+        {
+            if (key == 'h' || key == '?')
+            {
+                toggleShortcutOverlay();
+            }
+            return true;
+        }
+
+        switch (key)
+        {
+        case 'h':
+        case '?':
+            toggleShortcutOverlay();
+            return true;
+        case '\\':
+            toggleSidebar();
+            return true;
+        case '[':
+            cycleSection(-1);
+            return true;
+        case ']':
+            cycleSection(1);
+            return true;
+        case 'o':
+            selectSection(Section::Overview);
+            return true;
+        case 'c':
+            selectSection(Section::Chat);
+            return true;
+        case 'm':
+            selectSection(Section::Map);
+            return true;
+        case 'n':
+            selectSection(Section::Contacts);
+            return true;
+        case 'g':
+            selectSection(Section::Gps);
+            return true;
+        case 't':
+            selectSection(Section::Team);
+            return true;
+        case 'k':
+            selectSection(Section::Tracker);
+            return true;
+        case 'r':
+            selectSection(Section::RadioTools);
+            return true;
+        case 'w':
+            selectSection(Section::Hardware);
+            return true;
+        case 'd':
+            selectSection(Section::Data);
+            return true;
+        case 'e':
+            selectSection(Section::Extensions);
+            return true;
+        case 'l':
+            selectSection(Section::Logs);
+            return true;
+        case 's':
+            selectSection(Section::Settings);
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    void cycleSection(int delta)
+    {
+        const int section_count = static_cast<int>(kNavLabels.size());
+        const int current = static_cast<int>(active_section_);
+        const int next = (current + delta + section_count) % section_count;
+        selectSection(static_cast<Section>(next));
+    }
+
+    void toggleSidebar()
+    {
+        if (sidebar_ == nullptr)
+        {
+            return;
+        }
+        sidebar_collapsed_ = !sidebar_collapsed_;
+        if (sidebar_collapsed_)
+        {
+            lv_obj_add_flag(sidebar_, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_clear_flag(sidebar_, LV_OBJ_FLAG_HIDDEN);
+            const auto index = static_cast<std::size_t>(active_section_);
+            if (index < nav_buttons_.size() && nav_buttons_[index] != nullptr)
+            {
+                lv_group_focus_obj(nav_buttons_[index]);
+            }
+        }
+        refreshFooter();
+    }
+
+    void toggleShortcutOverlay()
+    {
+        if (shortcut_overlay_ == nullptr)
+        {
+            return;
+        }
+        shortcuts_visible_ = !shortcuts_visible_;
+        if (shortcuts_visible_)
+        {
+            lv_obj_clear_flag(shortcut_overlay_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(shortcut_overlay_);
+        }
+        else
+        {
+            lv_obj_add_flag(shortcut_overlay_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
     void selectSection(Section section)
     {
         active_section_ = section;
         refreshNavStyles();
         setLabel(workspace_title_, sectionTitle(active_section_));
         setLabel(workspace_subtitle_, sectionSubtitle(active_section_));
+        if (active_section_ != Section::Overview &&
+            active_section_ != Section::Chat)
+        {
+            rebuildDesktopPage();
+        }
         refreshSectionVisibility();
         if (active_section_ == Section::Chat)
         {
             refreshChatWorkspace(true);
         }
+        refreshFooter();
     }
 
     void buildUi()
@@ -475,7 +715,7 @@ class UConsoleDesktopShell
         lv_obj_t* root = lv_scr_act();
         lv_obj_clean(root);
         resetBox(root);
-        lv_obj_set_style_bg_color(root, color(0xECEFEA), 0);
+        lv_obj_set_style_bg_color(root, color(embedded_palette::kPageBg), 0);
         lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
         lv_obj_set_style_pad_all(root, 0, 0);
         lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
@@ -488,8 +728,8 @@ class UConsoleDesktopShell
         applyTransparent(body);
         lv_obj_set_width(body, LV_PCT(100));
         lv_obj_set_flex_grow(body, 1);
-        lv_obj_set_style_pad_all(body, 14, 0);
-        lv_obj_set_style_pad_column(body, 14, 0);
+        lv_obj_set_style_pad_all(body, 10, 0);
+        lv_obj_set_style_pad_column(body, 10, 0);
         lv_obj_set_flex_flow(body, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START);
@@ -497,6 +737,8 @@ class UConsoleDesktopShell
         buildSidebar(body);
         buildWorkspace(body);
         buildStatusPanel(body);
+        buildBottomBar(root);
+        buildShortcutOverlay(root);
 
         selectSection(Section::Overview);
     }
@@ -506,34 +748,183 @@ class UConsoleDesktopShell
         lv_obj_t* bar = lv_obj_create(root);
         resetBox(bar);
         lv_obj_set_width(bar, LV_PCT(100));
-        lv_obj_set_height(bar, 58);
-        lv_obj_set_style_bg_color(bar, color(0x202426), 0);
+        lv_obj_set_height(bar, 44);
+        lv_obj_set_style_bg_color(bar, color(embedded_palette::kAccent), 0);
         lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-        lv_obj_set_style_pad_left(bar, 18, 0);
-        lv_obj_set_style_pad_right(bar, 18, 0);
-        lv_obj_set_style_pad_top(bar, 8, 0);
-        lv_obj_set_style_pad_bottom(bar, 8, 0);
-        lv_obj_set_style_pad_column(bar, 12, 0);
+        lv_obj_set_style_pad_left(bar, 14, 0);
+        lv_obj_set_style_pad_right(bar, 14, 0);
+        lv_obj_set_style_pad_top(bar, 5, 0);
+        lv_obj_set_style_pad_bottom(bar, 5, 0);
+        lv_obj_set_style_pad_column(bar, 8, 0);
         lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                               LV_FLEX_ALIGN_CENTER);
 
         lv_obj_t* title_wrap = lv_obj_create(bar);
         applyTransparent(title_wrap);
-        lv_obj_set_height(title_wrap, LV_SIZE_CONTENT);
+        lv_obj_set_height(title_wrap, LV_PCT(100));
         lv_obj_set_flex_grow(title_wrap, 1);
-        lv_obj_set_flex_flow(title_wrap, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_flow(title_wrap, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(title_wrap, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+        createLabel(title_wrap, "Trail Mate uConsole", &lv_font_montserrat_16,
+                    embedded_palette::kHeaderText);
+    }
+
+    void buildBottomBar(lv_obj_t* root)
+    {
+        lv_obj_t* bar = lv_obj_create(root);
+        resetBox(bar);
+        lv_obj_set_width(bar, LV_PCT(100));
+        lv_obj_set_height(bar, 30);
+        lv_obj_set_style_bg_color(bar,
+                                  color(embedded_palette::kSurfaceAlt), 0);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_side(bar, LV_BORDER_SIDE_TOP, 0);
+        lv_obj_set_style_border_width(bar, 1, 0);
+        lv_obj_set_style_border_color(bar,
+                                      color(embedded_palette::kBorder), 0);
+        lv_obj_set_style_pad_left(bar, 12, 0);
+        lv_obj_set_style_pad_right(bar, 12, 0);
+        lv_obj_set_style_pad_column(bar, 10, 0);
+        lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+        footer_context_label_ =
+            createLabel(bar, "Overview", &lv_font_montserrat_12,
+                        embedded_palette::kTextWarm);
+        lv_obj_set_width(footer_context_label_, 190);
+
+        footer_status_label_ =
+            createLabel(bar, "Starting services...", &lv_font_montserrat_12,
+                        embedded_palette::kTextMuted);
+        lv_obj_set_flex_grow(footer_status_label_, 1);
+        lv_obj_set_style_text_align(footer_status_label_,
+                                    LV_TEXT_ALIGN_CENTER, 0);
+
+        footer_shortcuts_label_ =
+            createLabel(bar, "", &lv_font_montserrat_12,
+                        embedded_palette::kText);
+        lv_obj_set_width(footer_shortcuts_label_, 470);
+        lv_obj_set_style_text_align(footer_shortcuts_label_,
+                                    LV_TEXT_ALIGN_RIGHT, 0);
+    }
+
+    void buildShortcutOverlay(lv_obj_t* root)
+    {
+        shortcut_overlay_ = lv_obj_create(root);
+        resetBox(shortcut_overlay_);
+        lv_obj_add_flag(shortcut_overlay_, LV_OBJ_FLAG_FLOATING);
+        lv_obj_set_size(shortcut_overlay_, LV_PCT(100), LV_PCT(100));
+        lv_obj_set_pos(shortcut_overlay_, 0, 0);
+        lv_obj_set_style_bg_color(shortcut_overlay_,
+                                  color(embedded_palette::kHeaderText), 0);
+        lv_obj_set_style_bg_opa(shortcut_overlay_, LV_OPA_60, 0);
+
+        lv_obj_t* card = lv_obj_create(shortcut_overlay_);
+        applyPanel(card, embedded_palette::kSurface,
+                   embedded_palette::kBorder);
+        lv_obj_set_size(card, 690, 430);
+        lv_obj_set_style_pad_all(card, 18, 0);
+        lv_obj_set_style_pad_row(card, 14, 0);
+        lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        lv_obj_center(card);
 
-        createLabel(title_wrap, "Trail Mate uConsole", &lv_font_montserrat_20,
-                    0xF7F8F4);
-        createLabel(title_wrap, "Linux desktop-class target",
-                    &lv_font_montserrat_12, 0xAAB2AF);
+        createLabel(card, "uConsole keyboard shortcuts",
+                    &lv_font_montserrat_20, embedded_palette::kText);
+        createLabel(card,
+                    "Global shortcuts are disabled while typing in the chat "
+                    "composer.",
+                    &lv_font_montserrat_12, embedded_palette::kTextMuted);
 
-        top_mesh_label_ = createChip(bar, "Mesh: -", 0x2F5D62, 0xDDF8F0);
-        top_node_label_ = createChip(bar, "Node: -", 0x584A1F, 0xFFF1BF);
-        top_unread_label_ = createChip(bar, "Unread: 0", 0x4F3B4D, 0xF8DDF2);
+        lv_obj_t* columns = lv_obj_create(card);
+        applyTransparent(columns);
+        lv_obj_set_width(columns, LV_PCT(100));
+        lv_obj_set_flex_grow(columns, 1);
+        lv_obj_set_style_pad_column(columns, 30, 0);
+        lv_obj_set_flex_flow(columns, LV_FLEX_FLOW_ROW);
+
+        lv_obj_t* navigation = lv_obj_create(columns);
+        applyTransparent(navigation);
+        lv_obj_set_height(navigation, LV_PCT(100));
+        lv_obj_set_flex_grow(navigation, 1);
+        lv_obj_set_style_pad_row(navigation, 10, 0);
+        lv_obj_set_flex_flow(navigation, LV_FLEX_FLOW_COLUMN);
+        createLabel(navigation, "NAVIGATION", &lv_font_montserrat_12,
+                    embedded_palette::kTextDim);
+        lv_obj_t* navigation_help = createLabel(
+            navigation,
+            "Up / Down / Tab   Move focus\n"
+            "Enter / Right     Open or activate\n"
+            "Esc               Return to overview\n"
+            "[ / ]             Previous / next workspace\n"
+            "\\                 Collapse navigation\n"
+            "F1 / H            Toggle this help",
+            &lv_font_montserrat_14, embedded_palette::kText,
+            LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(navigation_help, LV_PCT(100));
+        lv_obj_set_style_text_line_space(navigation_help, 9, 0);
+
+        lv_obj_t* workspaces = lv_obj_create(columns);
+        applyTransparent(workspaces);
+        lv_obj_set_height(workspaces, LV_PCT(100));
+        lv_obj_set_flex_grow(workspaces, 1);
+        lv_obj_set_style_pad_row(workspaces, 10, 0);
+        lv_obj_set_flex_flow(workspaces, LV_FLEX_FLOW_COLUMN);
+        createLabel(workspaces, "DIRECT WORKSPACES", &lv_font_montserrat_12,
+                    embedded_palette::kTextDim);
+        lv_obj_t* workspace_help = createLabel(
+            workspaces,
+            "O  Overview      C  Chat\n"
+            "M  Map           N  Contacts\n"
+            "G  GPS           T  Team\n"
+            "K  Tracker       R  Radio tools\n"
+            "W  Hardware      D  Data & maps\n"
+            "E  Extensions    L  Logs\n"
+            "S  Settings",
+            &lv_font_montserrat_14, embedded_palette::kText,
+            LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(workspace_help, LV_PCT(100));
+        lv_obj_set_style_text_line_space(workspace_help, 9, 0);
+
+        createLabel(card,
+                    "Shortcut model follows the keyboard-first Pager/T-Deck "
+                    "interaction style.",
+                    &lv_font_montserrat_12, embedded_palette::kTextMuted);
+
+        lv_obj_add_flag(shortcut_overlay_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    [[nodiscard]] const char* shortcutHint() const noexcept
+    {
+        switch (active_section_)
+        {
+        case Section::Chat:
+            return "\\ Nav  |  Tab Focus  |  Enter Open/Send  |  F1 Help";
+        case Section::Map:
+            return "\\ Nav  |  M Map  |  [ ] Workspace  |  F1 Help";
+        case Section::Overview:
+            return "\\ Nav  |  C Chat  |  M Map  |  [ ] Page  |  F1 Help";
+        default:
+            return "\\ Nav  |  Enter Open  |  [ ] Workspace  |  F1 Help";
+        }
+    }
+
+    void refreshFooter()
+    {
+        const auto index = static_cast<std::size_t>(active_section_);
+        std::string context =
+            index < kNavLabels.size() ? kNavLabels[index] : "Workspace";
+        if (sidebar_collapsed_)
+        {
+            context += " / navigation hidden";
+        }
+        setLabel(footer_context_label_, context);
+        setLabel(footer_shortcuts_label_, shortcutHint());
     }
 
     lv_obj_t* createChip(lv_obj_t* parent,
@@ -543,12 +934,12 @@ class UConsoleDesktopShell
     {
         lv_obj_t* chip = lv_obj_create(parent);
         resetBox(chip);
-        lv_obj_set_size(chip, LV_SIZE_CONTENT, 32);
+        lv_obj_set_size(chip, LV_SIZE_CONTENT, 26);
         lv_obj_set_style_bg_color(chip, color(bg), 0);
         lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(chip, 6, 0);
-        lv_obj_set_style_pad_left(chip, 10, 0);
-        lv_obj_set_style_pad_right(chip, 10, 0);
+        lv_obj_set_style_pad_left(chip, 8, 0);
+        lv_obj_set_style_pad_right(chip, 8, 0);
         lv_obj_t* label =
             createLabel(chip, text, &lv_font_montserrat_12, fg);
         lv_obj_center(label);
@@ -558,19 +949,36 @@ class UConsoleDesktopShell
     void buildSidebar(lv_obj_t* parent)
     {
         sidebar_ = lv_obj_create(parent);
-        applyPanel(sidebar_, 0x252A29, 0x252A29);
-        lv_obj_set_width(sidebar_, 220);
+        applyPanel(sidebar_, embedded_palette::kSurfaceAlt,
+                   embedded_palette::kBorder);
+        lv_obj_set_width(sidebar_, 168);
         lv_obj_set_height(sidebar_, LV_PCT(100));
-        lv_obj_set_style_pad_all(sidebar_, 12, 0);
-        lv_obj_set_style_pad_row(sidebar_, 8, 0);
+        lv_obj_set_style_pad_all(sidebar_, 7, 0);
+        lv_obj_set_style_pad_row(sidebar_, 2, 0);
         lv_obj_set_flex_flow(sidebar_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(sidebar_, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
-        createLabel(sidebar_, "Workspace", &lv_font_montserrat_14, 0xE8EDE8);
+        createLabel(sidebar_, "TRAIL MATE", &lv_font_montserrat_16,
+                    embedded_palette::kText);
 
         for (std::size_t index = 0; index < kNavLabels.size(); ++index)
         {
+            if (index == 0)
+            {
+                createLabel(sidebar_, "WORKSPACES", &lv_font_montserrat_10,
+                            embedded_palette::kTextDim);
+            }
+            else if (index == 3)
+            {
+                createLabel(sidebar_, "FIELD", &lv_font_montserrat_10,
+                            embedded_palette::kTextDim);
+            }
+            else if (index == 8)
+            {
+                createLabel(sidebar_, "SYSTEM", &lv_font_montserrat_10,
+                            embedded_palette::kTextDim);
+            }
             nav_bindings_[index] = {this, static_cast<Section>(index)};
             nav_buttons_[index] =
                 createNavButton(sidebar_, kNavLabels[index],
@@ -585,18 +993,19 @@ class UConsoleDesktopShell
         lv_obj_t* button = lv_btn_create(parent);
         resetBox(button);
         lv_obj_set_width(button, LV_PCT(100));
-        lv_obj_set_height(button, 42);
-        lv_obj_set_style_radius(button, 6, 0);
-        lv_obj_set_style_pad_left(button, 10, 0);
-        lv_obj_set_style_pad_right(button, 10, 0);
-        lv_obj_set_style_bg_color(button, color(0x303635), 0);
+        lv_obj_set_height(button, 25);
+        lv_obj_set_style_radius(button, 5, 0);
+        lv_obj_set_style_pad_left(button, 8, 0);
+        lv_obj_set_style_pad_right(button, 8, 0);
+        lv_obj_set_style_bg_color(button, color(embedded_palette::kSurface), 0);
         lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
         lv_obj_add_event_cb(button, navEventCb, LV_EVENT_CLICKED, binding);
         lv_obj_add_event_cb(button, navEventCb, LV_EVENT_KEY, binding);
         lv_group_add_obj(group_, button);
 
-        lv_obj_t* label =
-            createLabel(button, label_text, &lv_font_montserrat_14, 0xD7DED9);
+        lv_obj_t* label = createLabel(button, label_text,
+                                      &lv_font_montserrat_12,
+                                      embedded_palette::kText);
         lv_obj_set_width(label, LV_PCT(100));
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
         lv_obj_center(label);
@@ -609,7 +1018,7 @@ class UConsoleDesktopShell
         applyTransparent(workspace);
         lv_obj_set_height(workspace, LV_PCT(100));
         lv_obj_set_flex_grow(workspace, 1);
-        lv_obj_set_style_pad_row(workspace, 12, 0);
+        lv_obj_set_style_pad_row(workspace, 8, 0);
         lv_obj_set_flex_flow(workspace, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(workspace, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -617,21 +1026,24 @@ class UConsoleDesktopShell
         lv_obj_t* header = lv_obj_create(workspace);
         applyTransparent(header);
         lv_obj_set_width(header, LV_PCT(100));
-        lv_obj_set_height(header, 54);
-        lv_obj_set_flex_flow(header, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(header, LV_FLEX_ALIGN_CENTER,
-                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-        workspace_title_ = createLabel(header, sectionTitle(active_section_),
-                                       &lv_font_montserrat_20, 0x1F2523);
+        lv_obj_set_height(header, 36);
+        lv_obj_set_style_pad_column(header, 10, 0);
+        lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        workspace_title_ =
+            createLabel(header, sectionTitle(active_section_),
+                        &lv_font_montserrat_20, embedded_palette::kText);
         workspace_subtitle_ =
             createLabel(header, sectionSubtitle(active_section_),
-                        &lv_font_montserrat_12, 0x61706A);
+                        &lv_font_montserrat_12,
+                        embedded_palette::kTextMuted);
 
         metrics_panel_ = lv_obj_create(workspace);
         applyTransparent(metrics_panel_);
         lv_obj_set_width(metrics_panel_, LV_PCT(100));
-        lv_obj_set_height(metrics_panel_, 96);
-        lv_obj_set_style_pad_column(metrics_panel_, 10, 0);
+        lv_obj_set_height(metrics_panel_, 58);
+        lv_obj_set_style_pad_column(metrics_panel_, 8, 0);
         lv_obj_set_flex_flow(metrics_panel_, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(metrics_panel_, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -642,36 +1054,41 @@ class UConsoleDesktopShell
         createMetric(metrics_panel_, 3, "Nearby");
 
         conversation_panel_ = lv_obj_create(workspace);
-        applyPanel(conversation_panel_, 0xFFFFFF);
+        applyPanel(conversation_panel_, embedded_palette::kSurface);
         lv_obj_set_width(conversation_panel_, LV_PCT(100));
-        lv_obj_set_flex_grow(conversation_panel_, 1);
-        lv_obj_set_style_pad_row(conversation_panel_, 8, 0);
+        lv_obj_set_height(conversation_panel_, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_row(conversation_panel_, 2, 0);
         lv_obj_set_flex_flow(conversation_panel_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(conversation_panel_, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
         createLabel(conversation_panel_, "Recent conversations",
-                    &lv_font_montserrat_16, 0x24302C);
+                    &lv_font_montserrat_16, embedded_palette::kText);
         for (int index = 0; index < kConversationRows; ++index)
         {
             buildConversationRow(index);
         }
 
         buildChatWorkspace(workspace);
+        buildDesktopPages(workspace);
     }
 
     void createMetric(lv_obj_t* parent, int index, const char* title)
     {
         lv_obj_t* box = lv_obj_create(parent);
-        applyPanel(box, 0xFFFFFF);
+        applyPanel(box, embedded_palette::kSurface);
         lv_obj_set_height(box, LV_PCT(100));
         lv_obj_set_flex_grow(box, 1);
-        lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(box, LV_FLEX_ALIGN_CENTER,
-                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-        createLabel(box, title, &lv_font_montserrat_12, 0x66716E);
+        lv_obj_set_style_pad_left(box, 10, 0);
+        lv_obj_set_style_pad_right(box, 10, 0);
+        lv_obj_set_flex_flow(box, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(box, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        createLabel(box, title, &lv_font_montserrat_12,
+                    embedded_palette::kTextMuted);
         metric_value_labels_[index] =
-            createLabel(box, "0", &lv_font_montserrat_24, 0x1E2B27);
+            createLabel(box, "0", &lv_font_montserrat_20,
+                        embedded_palette::kText);
     }
 
     void buildConversationRow(int index)
@@ -679,47 +1096,51 @@ class UConsoleDesktopShell
         lv_obj_t* row = lv_obj_create(conversation_panel_);
         applyTransparent(row);
         lv_obj_set_width(row, LV_PCT(100));
-        lv_obj_set_height(row, 62);
-        lv_obj_set_style_pad_top(row, 4, 0);
-        lv_obj_set_style_pad_bottom(row, 4, 0);
-        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
-                              LV_FLEX_ALIGN_START);
+        lv_obj_set_height(row, 42);
+        lv_obj_set_style_pad_column(row, 10, 0);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
         conversation_rows_[index] = row;
         conversation_title_labels_[index] =
-            createLabel(row, "-", &lv_font_montserrat_14, 0x22302B);
-        lv_obj_set_width(conversation_title_labels_[index], LV_PCT(100));
+            createLabel(row, "-", &lv_font_montserrat_14,
+                        embedded_palette::kText, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(conversation_title_labels_[index], 150);
         conversation_preview_labels_[index] =
-            createLabel(row, "", &lv_font_montserrat_12, 0x596760);
-        lv_obj_set_width(conversation_preview_labels_[index], LV_PCT(100));
+            createLabel(row, "", &lv_font_montserrat_12,
+                        embedded_palette::kTextMuted, LV_LABEL_LONG_DOT);
+        lv_obj_set_flex_grow(conversation_preview_labels_[index], 1);
         conversation_meta_labels_[index] =
-            createLabel(row, "", &lv_font_montserrat_12, 0x8A6A20);
-        lv_obj_set_width(conversation_meta_labels_[index], LV_PCT(100));
+            createLabel(row, "", &lv_font_montserrat_12,
+                        embedded_palette::kTextDim, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(conversation_meta_labels_[index], 86);
+        lv_obj_set_style_text_align(conversation_meta_labels_[index],
+                                    LV_TEXT_ALIGN_RIGHT, 0);
     }
 
     void buildChatWorkspace(lv_obj_t* parent)
     {
         chat_panel_ = lv_obj_create(parent);
-        applyPanel(chat_panel_, 0xFFFFFF);
+        applyPanel(chat_panel_, embedded_palette::kSurface);
         lv_obj_set_width(chat_panel_, LV_PCT(100));
         lv_obj_set_flex_grow(chat_panel_, 1);
-        lv_obj_set_style_pad_column(chat_panel_, 12, 0);
+        lv_obj_set_style_pad_column(chat_panel_, 10, 0);
         lv_obj_set_flex_flow(chat_panel_, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(chat_panel_, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
         lv_obj_t* conversation_list = lv_obj_create(chat_panel_);
         applyTransparent(conversation_list);
-        lv_obj_set_width(conversation_list, 310);
+        lv_obj_set_width(conversation_list, 280);
         lv_obj_set_height(conversation_list, LV_PCT(100));
-        lv_obj_set_style_pad_row(conversation_list, 8, 0);
+        lv_obj_set_style_pad_row(conversation_list, 5, 0);
         lv_obj_set_flex_flow(conversation_list, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(conversation_list, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
         createLabel(conversation_list, "Conversations", &lv_font_montserrat_16,
-                    0x24302C);
+                    embedded_palette::kText);
         for (int index = 0; index < kChatConversationRows; ++index)
         {
             buildChatConversationRow(conversation_list, index);
@@ -729,7 +1150,7 @@ class UConsoleDesktopShell
         applyTransparent(thread);
         lv_obj_set_height(thread, LV_PCT(100));
         lv_obj_set_flex_grow(thread, 1);
-        lv_obj_set_style_pad_row(thread, 10, 0);
+        lv_obj_set_style_pad_row(thread, 6, 0);
         lv_obj_set_flex_flow(thread, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(thread, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -737,29 +1158,32 @@ class UConsoleDesktopShell
         lv_obj_t* thread_header = lv_obj_create(thread);
         applyTransparent(thread_header);
         lv_obj_set_width(thread_header, LV_PCT(100));
-        lv_obj_set_height(thread_header, 48);
-        lv_obj_set_flex_flow(thread_header, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(thread_header, LV_FLEX_ALIGN_CENTER,
-                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-        chat_title_label_ =
-            createLabel(thread_header, "-", &lv_font_montserrat_16, 0x1F2523);
-        chat_meta_label_ =
-            createLabel(thread_header, "-", &lv_font_montserrat_12, 0x61706A);
-        lv_obj_set_width(chat_title_label_, LV_PCT(100));
-        lv_obj_set_width(chat_meta_label_, LV_PCT(100));
+        lv_obj_set_height(thread_header, 34);
+        lv_obj_set_style_pad_column(thread_header, 8, 0);
+        lv_obj_set_flex_flow(thread_header, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(thread_header, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        chat_title_label_ = createLabel(thread_header, "-",
+                                        &lv_font_montserrat_16,
+                                        embedded_palette::kText);
+        chat_meta_label_ = createLabel(thread_header, "-",
+                                       &lv_font_montserrat_12,
+                                       embedded_palette::kTextMuted);
+        lv_obj_set_width(chat_title_label_, 190);
+        lv_obj_set_flex_grow(chat_meta_label_, 1);
 
         chat_messages_panel_ = lv_obj_create(thread);
-        applyPanel(chat_messages_panel_, 0xF8FAF6);
+        applyPanel(chat_messages_panel_, embedded_palette::kPanelBg);
         lv_obj_set_width(chat_messages_panel_, LV_PCT(100));
         lv_obj_set_flex_grow(chat_messages_panel_, 1);
-        lv_obj_set_style_pad_row(chat_messages_panel_, 8, 0);
+        lv_obj_set_style_pad_row(chat_messages_panel_, 5, 0);
         lv_obj_set_flex_flow(chat_messages_panel_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(chat_messages_panel_, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
-        chat_empty_label_ =
-            createLabel(chat_messages_panel_, "No messages yet.",
-                        &lv_font_montserrat_14, 0x65716B);
+        chat_empty_label_ = createLabel(
+            chat_messages_panel_, "No messages yet.", &lv_font_montserrat_14,
+            embedded_palette::kTextMuted);
         lv_obj_set_width(chat_empty_label_, LV_PCT(100));
         for (int index = 0; index < kChatMessageRows; ++index)
         {
@@ -769,14 +1193,14 @@ class UConsoleDesktopShell
         lv_obj_t* input_row = lv_obj_create(thread);
         applyTransparent(input_row);
         lv_obj_set_width(input_row, LV_PCT(100));
-        lv_obj_set_height(input_row, 72);
-        lv_obj_set_style_pad_column(input_row, 10, 0);
+        lv_obj_set_height(input_row, 50);
+        lv_obj_set_style_pad_column(input_row, 8, 0);
         lv_obj_set_flex_flow(input_row, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(input_row, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
         chat_input_ = lv_textarea_create(input_row);
-        lv_obj_set_height(chat_input_, 54);
+        lv_obj_set_height(chat_input_, 40);
         lv_obj_set_flex_grow(chat_input_, 1);
         lv_textarea_set_one_line(chat_input_, true);
         lv_textarea_set_placeholder_text(chat_input_, "Type a message");
@@ -786,23 +1210,780 @@ class UConsoleDesktopShell
 
         chat_send_button_ = lv_btn_create(input_row);
         resetBox(chat_send_button_);
-        lv_obj_set_size(chat_send_button_, 92, 54);
+        lv_obj_set_size(chat_send_button_, 76, 40);
         lv_obj_set_style_radius(chat_send_button_, 6, 0);
-        lv_obj_set_style_bg_color(chat_send_button_, color(0x2F5D62), 0);
+        lv_obj_set_style_bg_color(chat_send_button_,
+                                  color(embedded_palette::kAccent), 0);
         lv_obj_set_style_bg_opa(chat_send_button_, LV_OPA_COVER, 0);
         lv_obj_add_event_cb(chat_send_button_, chatSendEventCb,
                             LV_EVENT_CLICKED, this);
         lv_obj_add_event_cb(chat_send_button_, chatSendEventCb, LV_EVENT_KEY,
                             this);
         lv_group_add_obj(group_, chat_send_button_);
-        lv_obj_t* send_label =
-            createLabel(chat_send_button_, "Send", &lv_font_montserrat_14,
-                        0xF7F8F4);
+        lv_obj_t* send_label = createLabel(
+            chat_send_button_, "Send", &lv_font_montserrat_14,
+            embedded_palette::kHeaderText);
         lv_obj_center(send_label);
 
         chat_status_label_ =
-            createLabel(thread, "Ready.", &lv_font_montserrat_12, 0x66716E);
+            createLabel(thread, "Ready.", &lv_font_montserrat_12,
+                        embedded_palette::kTextMuted);
         lv_obj_set_width(chat_status_label_, LV_PCT(100));
+    }
+
+    lv_obj_t* createPreviewPanel(lv_obj_t* parent,
+                                 const char* title,
+                                 int width = 0,
+                                 std::uint32_t background =
+                                     embedded_palette::kSurface,
+                                 bool fill_height = false)
+    {
+        lv_obj_t* panel = lv_obj_create(parent);
+        applyPanel(panel, background);
+        if (width > 0)
+        {
+            lv_obj_set_width(panel, width);
+        }
+        else
+        {
+            lv_obj_set_flex_grow(panel, 1);
+        }
+        lv_obj_set_height(panel,
+                          fill_height ? LV_PCT(100) : LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_all(panel, 10, 0);
+        lv_obj_set_style_pad_row(panel, 7, 0);
+        lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        createLabel(panel, title, &lv_font_montserrat_16,
+                    embedded_palette::kText);
+        return panel;
+    }
+
+    void addPreviewRow(lv_obj_t* parent,
+                       const char* title,
+                       const char* detail,
+                       std::uint32_t accent =
+                           embedded_palette::kStatusGreen)
+    {
+        lv_obj_t* row = lv_obj_create(parent);
+        applyPanel(row, embedded_palette::kPanelBg,
+                   embedded_palette::kBorder);
+        lv_obj_set_width(row, LV_PCT(100));
+        lv_obj_set_height(row, 54);
+        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_LEFT, 0);
+        lv_obj_set_style_border_width(row, 4, 0);
+        lv_obj_set_style_border_color(row, color(accent), 0);
+        lv_obj_set_style_pad_all(row, 7, 0);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        createLabel(row, title, &lv_font_montserrat_14,
+                    embedded_palette::kText);
+        lv_obj_t* meta = createLabel(
+            row, detail, &lv_font_montserrat_12,
+            embedded_palette::kTextMuted, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(meta, LV_PCT(100));
+    }
+
+    lv_obj_t* addActionPill(lv_obj_t* parent,
+                            const char* text,
+                            std::uint32_t background =
+                                embedded_palette::kSoftGreen,
+                            std::uint32_t foreground =
+                                embedded_palette::kText)
+    {
+        lv_obj_t* pill = lv_obj_create(parent);
+        resetBox(pill);
+        lv_obj_set_size(pill, LV_SIZE_CONTENT, 28);
+        lv_obj_set_style_bg_color(pill, color(background), 0);
+        lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(pill, 5, 0);
+        lv_obj_set_style_pad_left(pill, 9, 0);
+        lv_obj_set_style_pad_right(pill, 9, 0);
+        lv_obj_t* label =
+            createLabel(pill, text, &lv_font_montserrat_12, foreground);
+        lv_obj_center(label);
+        return pill;
+    }
+
+    void buildDesktopPages(lv_obj_t* parent)
+    {
+        desktop_page_panel_ = lv_obj_create(parent);
+        applyTransparent(desktop_page_panel_);
+        lv_obj_set_width(desktop_page_panel_, LV_PCT(100));
+        lv_obj_set_flex_grow(desktop_page_panel_, 1);
+        lv_obj_set_style_pad_column(desktop_page_panel_, 10, 0);
+        lv_obj_set_flex_flow(desktop_page_panel_, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(desktop_page_panel_, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    }
+
+    void buildMapPreview()
+    {
+        lv_obj_t* map = createPreviewPanel(
+            desktop_page_panel_, "Field map", 0, embedded_palette::kMapBg,
+            true);
+
+        lv_obj_t* toolbar = lv_obj_create(map);
+        applyTransparent(toolbar);
+        lv_obj_set_width(toolbar, LV_PCT(100));
+        lv_obj_set_height(toolbar, 30);
+        lv_obj_set_style_pad_column(toolbar, 5, 0);
+        lv_obj_set_flex_flow(toolbar, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(toolbar, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        addActionPill(toolbar, "Terrain", embedded_palette::kSoftBlue,
+                      embedded_palette::kText);
+        addActionPill(toolbar, "Contours");
+        addActionPill(toolbar, "Recenter");
+        addActionPill(toolbar, "Measure");
+
+        lv_obj_t* grid = lv_obj_create(map);
+        resetBox(grid);
+        lv_obj_set_width(grid, LV_PCT(100));
+        lv_obj_set_flex_grow(grid, 1);
+        lv_obj_set_style_pad_row(grid, 2, 0);
+        lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(grid, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        constexpr std::array<std::uint32_t, 9> tile_colors{
+            embedded_palette::kMapTile1, embedded_palette::kMapTile2,
+            embedded_palette::kMapTile3, embedded_palette::kMapBg,
+            embedded_palette::kMapTile4, embedded_palette::kMapTile5,
+            embedded_palette::kMapTile6, embedded_palette::kMapTile7,
+            embedded_palette::kMapTile8};
+        for (int row_index = 0; row_index < 3; ++row_index)
+        {
+            lv_obj_t* row = lv_obj_create(grid);
+            resetBox(row);
+            lv_obj_set_width(row, LV_PCT(100));
+            lv_obj_set_height(row, 0);
+            lv_obj_set_flex_grow(row, 1);
+            lv_obj_set_style_pad_column(row, 2, 0);
+            lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+            for (int column = 0; column < 3; ++column)
+            {
+                const int tile_index = (row_index * 3) + column;
+                lv_obj_t* tile = lv_obj_create(row);
+                resetBox(tile);
+                lv_obj_set_width(tile, 0);
+                lv_obj_set_height(tile, LV_PCT(100));
+                lv_obj_set_flex_grow(tile, 1);
+                lv_obj_set_style_bg_color(
+                    tile, color(tile_colors[tile_index]), 0);
+                lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+                lv_obj_set_style_border_color(
+                    tile, color(embedded_palette::kBorder), 0);
+                lv_obj_set_style_border_width(tile, 1, 0);
+                if (tile_index == 4)
+                {
+                    lv_obj_t* marker =
+                        addActionPill(tile, "YOU",
+                                      embedded_palette::kStatusGreen,
+                                      embedded_palette::kWhite);
+                    lv_obj_center(marker);
+                }
+                else if (tile_index == 2 || tile_index == 6)
+                {
+                    lv_obj_t* marker = addActionPill(
+                        tile, tile_index == 2 ? "SCOUT" : "BASE",
+                        embedded_palette::kSoftAmber,
+                        embedded_palette::kText);
+                    lv_obj_center(marker);
+                }
+            }
+        }
+        createLabel(map,
+                    "31.2304 N  /  121.4737 E  /  zoom 14  /  Terrain",
+                    &lv_font_montserrat_12, embedded_palette::kTextMuted);
+
+        lv_obj_t* download = createPreviewPanel(
+            desktop_page_panel_, "Map downloads", 220,
+            embedded_palette::kSurface);
+        addPreviewRow(download, "Cache", "2,418 tiles / 386 MB",
+                      embedded_palette::kStatusGreen);
+        addPreviewRow(download, "Downloading", "4 workers / visible area",
+                      embedded_palette::kAccentDark);
+        addPreviewRow(download, "Retries", "2 queued / backoff active",
+                      embedded_palette::kWarn);
+        addActionPill(download, "Open cache directory");
+    }
+
+    void buildGpsPreview()
+    {
+        lv_obj_t* sky = createPreviewPanel(
+            desktop_page_panel_, "Satellite sky plot", 0,
+            embedded_palette::kSurface, true);
+        lv_obj_t* stage = lv_obj_create(sky);
+        resetBox(stage);
+        lv_obj_set_width(stage, LV_PCT(100));
+        lv_obj_set_flex_grow(stage, 1);
+        lv_obj_set_style_bg_color(stage, color(embedded_palette::kMapBg), 0);
+        lv_obj_set_style_bg_opa(stage, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(stage,
+                                      color(embedded_palette::kBorder), 0);
+        lv_obj_set_style_border_width(stage, 1, 0);
+        lv_obj_set_style_radius(stage, 6, 0);
+
+        constexpr int sky_x = 28;
+        constexpr int sky_y = 38;
+        constexpr int sky_size = 430;
+        constexpr int sky_radius = sky_size / 2;
+        constexpr int center_x = sky_x + sky_radius;
+        constexpr int center_y = sky_y + sky_radius;
+        constexpr std::uint32_t grid_color = 0xC9943F;
+
+        lv_obj_t* vertical_axis = lv_obj_create(stage);
+        resetBox(vertical_axis);
+        lv_obj_set_pos(vertical_axis, center_x, sky_y);
+        lv_obj_set_size(vertical_axis, 1, sky_size);
+        lv_obj_set_style_bg_color(vertical_axis, color(grid_color), 0);
+        lv_obj_set_style_bg_opa(vertical_axis, LV_OPA_COVER, 0);
+
+        lv_obj_t* horizontal_axis = lv_obj_create(stage);
+        resetBox(horizontal_axis);
+        lv_obj_set_pos(horizontal_axis, sky_x, center_y);
+        lv_obj_set_size(horizontal_axis, sky_size, 1);
+        lv_obj_set_style_bg_color(horizontal_axis, color(grid_color), 0);
+        lv_obj_set_style_bg_opa(horizontal_axis, LV_OPA_COVER, 0);
+
+        constexpr std::array<int, 3> ring_sizes{
+            sky_size, (sky_size * 2) / 3, sky_size / 3};
+        for (std::size_t index = 0; index < ring_sizes.size(); ++index)
+        {
+            const int ring_size = ring_sizes[index];
+            lv_obj_t* ring = lv_obj_create(stage);
+            resetBox(ring);
+            lv_obj_set_size(ring, ring_size, ring_size);
+            lv_obj_set_pos(ring, center_x - ring_size / 2,
+                           center_y - ring_size / 2);
+            lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_color(ring, color(grid_color), 0);
+            lv_obj_set_style_border_width(ring, index == 0 ? 2 : 1, 0);
+            lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+        }
+
+        lv_obj_t* center_dot = lv_obj_create(stage);
+        resetBox(center_dot);
+        lv_obj_set_size(center_dot, 7, 7);
+        lv_obj_set_pos(center_dot, center_x - 3, center_y - 3);
+        lv_obj_set_style_bg_color(
+            center_dot, color(embedded_palette::kTextWarm), 0);
+        lv_obj_set_style_bg_opa(center_dot, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(center_dot, LV_RADIUS_CIRCLE, 0);
+
+        struct PlotLabel
+        {
+            int x;
+            int y;
+            const char* text;
+            const lv_font_t* font;
+            std::uint32_t text_color;
+        };
+        constexpr std::array<PlotLabel, 8> plot_labels{{
+            {center_x - 6, sky_y - 26, "N", &lv_font_montserrat_16,
+             embedded_palette::kText},
+            {sky_x + sky_size + 11, center_y - 8, "E",
+             &lv_font_montserrat_16, embedded_palette::kText},
+            {center_x - 5, sky_y + sky_size + 8, "S",
+             &lv_font_montserrat_16, embedded_palette::kText},
+            {sky_x - 22, center_y - 8, "W", &lv_font_montserrat_16,
+             embedded_palette::kText},
+            {sky_x + 34, sky_y + 37, "90 deg", &lv_font_montserrat_10,
+             embedded_palette::kTextDim},
+            {sky_x + 105, sky_y + 108, "60 deg", &lv_font_montserrat_10,
+             embedded_palette::kTextDim},
+            {center_x + sky_radius / 3 + 8, center_y - 18, "30 deg",
+             &lv_font_montserrat_10, embedded_palette::kTextDim},
+            {center_x + 9, center_y + 8, "Horizon",
+             &lv_font_montserrat_10, embedded_palette::kTextDim},
+        }};
+        for (const auto& item : plot_labels)
+        {
+            lv_obj_t* label =
+                createLabel(stage, item.text, item.font, item.text_color);
+            lv_obj_set_pos(label, item.x, item.y);
+        }
+
+        struct SatelliteDot
+        {
+            int id;
+            const char* system;
+            float azimuth;
+            float elevation;
+            int snr;
+            bool used;
+            std::uint32_t fill_color;
+            std::uint32_t border_color;
+            std::uint32_t text_color;
+        };
+        constexpr std::array<SatelliteDot, 8> satellites{{
+            {12, "GPS", 332.0F, 67.0F, 42, true, 0xE3B11F, 0x3E7D3E,
+             embedded_palette::kHeaderText},
+            {31, "GPS", 296.0F, 52.0F, 39, true, 0xE3B11F, 0x3E7D3E,
+             embedded_palette::kHeaderText},
+            {7, "BDS", 8.0F, 61.0F, 38, true, 0xB94A2C, 0x3E7D3E,
+             embedded_palette::kWhite},
+            {4, "GAL", 158.0F, 48.0F, 36, true, 0x3E7D3E, 0x3E7D3E,
+             embedded_palette::kWhite},
+            {11, "GAL", 132.0F, 35.0F, 33, true, 0x3E7D3E, 0x8FBF4D,
+             embedded_palette::kWhite},
+            {19, "BDS", 226.0F, 29.0F, 30, true, 0xB94A2C, 0x8FBF4D,
+             embedded_palette::kWhite},
+            {22, "GPS", 82.0F, 23.0F, 28, false, 0xE3B11F, 0xB94A2C,
+             embedded_palette::kHeaderText},
+            {5, "GPS", 278.0F, 16.0F, 18, false, 0xE3B11F, 0x6E6E6E,
+             embedded_palette::kHeaderText},
+        }};
+        for (const auto& sat : satellites)
+        {
+            constexpr int dot_size = 31;
+            const float radius =
+                static_cast<float>(sky_radius) *
+                (1.0F - std::clamp(sat.elevation, 0.0F, 90.0F) / 90.0F);
+            const float radians =
+                sat.azimuth * 3.1415926535F / 180.0F;
+            const int satellite_x = static_cast<int>(std::round(
+                static_cast<float>(center_x) + radius * std::sin(radians)));
+            const int satellite_y = static_cast<int>(std::round(
+                static_cast<float>(center_y) - radius * std::cos(radians)));
+
+            lv_obj_t* dot = lv_obj_create(stage);
+            resetBox(dot);
+            lv_obj_set_size(dot, dot_size, dot_size);
+            lv_obj_set_pos(dot, satellite_x - dot_size / 2,
+                           satellite_y - dot_size / 2);
+            lv_obj_set_style_bg_color(dot, color(sat.fill_color), 0);
+            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_color(dot, color(sat.border_color), 0);
+            lv_obj_set_style_border_width(dot, 3, 0);
+            lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+
+            char id[8];
+            std::snprintf(id, sizeof(id), "%d", sat.id);
+            lv_obj_t* label = createLabel(
+                dot, id, &lv_font_montserrat_10, sat.text_color);
+            lv_obj_center(label);
+
+            if (sat.used)
+            {
+                lv_obj_t* use_tag = lv_obj_create(stage);
+                resetBox(use_tag);
+                lv_obj_set_size(use_tag, 28, 16);
+                lv_obj_set_pos(use_tag, satellite_x + 8, satellite_y + 8);
+                lv_obj_set_style_bg_color(
+                    use_tag, color(embedded_palette::kStatusGreen), 0);
+                lv_obj_set_style_bg_opa(use_tag, LV_OPA_COVER, 0);
+                lv_obj_set_style_radius(use_tag, 8, 0);
+                lv_obj_t* use_label =
+                    createLabel(use_tag, "USE", &lv_font_montserrat_10,
+                                embedded_palette::kWhite);
+                lv_obj_center(use_label);
+            }
+        }
+
+        constexpr int legend_x = 494;
+        lv_obj_t* constellation_title =
+            createLabel(stage, "CONSTELLATION", &lv_font_montserrat_10,
+                        embedded_palette::kTextDim);
+        lv_obj_set_pos(constellation_title, legend_x, 76);
+
+        struct LegendItem
+        {
+            const char* label;
+            std::uint32_t color;
+        };
+        constexpr std::array<LegendItem, 4> systems{{
+            {"GPS", 0xE3B11F},
+            {"GLONASS", 0x2D6FB6},
+            {"Galileo", 0x3E7D3E},
+            {"BeiDou", 0xB94A2C},
+        }};
+        constexpr std::array<LegendItem, 4> signals{{
+            {"Good", 0x3E7D3E},
+            {"Weak", 0xC18B2C},
+            {"Not used", 0xB94A2C},
+            {"In view", 0x6E6E6E},
+        }};
+        const auto build_legend =
+            [stage](const std::array<LegendItem, 4>& items, int x, int y)
+        {
+            for (std::size_t index = 0; index < items.size(); ++index)
+            {
+                lv_obj_t* swatch = lv_obj_create(stage);
+                resetBox(swatch);
+                lv_obj_set_size(swatch, 13, 13);
+                lv_obj_set_pos(swatch, x, y + static_cast<int>(index) * 28);
+                lv_obj_set_style_bg_color(
+                    swatch, color(items[index].color), 0);
+                lv_obj_set_style_bg_opa(swatch, LV_OPA_COVER, 0);
+                lv_obj_set_style_radius(swatch, 4, 0);
+
+                lv_obj_t* label =
+                    createLabel(stage, items[index].label,
+                                &lv_font_montserrat_12,
+                                embedded_palette::kTextMuted);
+                lv_obj_set_pos(label, x + 21,
+                               y - 1 + static_cast<int>(index) * 28);
+            }
+        };
+        build_legend(systems, legend_x, 96);
+
+        lv_obj_t* signal_title =
+            createLabel(stage, "SIGNAL BORDER", &lv_font_montserrat_10,
+                        embedded_palette::kTextDim);
+        lv_obj_set_pos(signal_title, legend_x, 228);
+        build_legend(signals, legend_x, 250);
+
+        lv_obj_t* legend_note =
+            createLabel(stage, "Fill = constellation\nRing = signal state",
+                        &lv_font_montserrat_10,
+                        embedded_palette::kTextDim, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(legend_note, 170);
+        lv_obj_set_style_text_line_space(legend_note, 3, 0);
+        lv_obj_set_pos(legend_note, legend_x, 376);
+
+        createLabel(sky, "North up  /  live 1 Hz  /  altitude 18.4 m",
+                    &lv_font_montserrat_12, embedded_palette::kTextWarm);
+
+        lv_obj_t* receiver = createPreviewPanel(
+            desktop_page_panel_, "Satellite status", 330,
+            embedded_palette::kSurface, true);
+
+        lv_obj_t* receiver_summary = lv_obj_create(receiver);
+        applyPanel(receiver_summary, embedded_palette::kAccent,
+                   embedded_palette::kAccentDark);
+        lv_obj_set_width(receiver_summary, LV_PCT(100));
+        lv_obj_set_height(receiver_summary, 42);
+        lv_obj_set_style_pad_all(receiver_summary, 8, 0);
+        lv_obj_t* summary_label =
+            createLabel(receiver_summary, "USE 6/8   HDOP 0.8   FIX 3D",
+                        &lv_font_montserrat_12,
+                        embedded_palette::kHeaderText);
+        lv_obj_center(summary_label);
+
+        lv_obj_t* table_header = lv_obj_create(receiver);
+        resetBox(table_header);
+        lv_obj_set_width(table_header, LV_PCT(100));
+        lv_obj_set_height(table_header, 28);
+        lv_obj_set_style_bg_color(
+            table_header, color(embedded_palette::kSurfaceAlt), 0);
+        lv_obj_set_style_bg_opa(table_header, LV_OPA_COVER, 0);
+
+        constexpr std::array<int, 5> column_x{8, 45, 112, 176, 227};
+        constexpr std::array<const char*, 5> column_names{
+            "ID", "SYS", "ELEV", "SNR", "USE"};
+        for (std::size_t column = 0; column < column_names.size(); ++column)
+        {
+            lv_obj_t* label =
+                createLabel(table_header, column_names[column],
+                            &lv_font_montserrat_10,
+                            embedded_palette::kTextDim);
+            lv_obj_set_pos(label, column_x[column], 7);
+        }
+
+        for (std::size_t row_index = 0; row_index < satellites.size();
+             ++row_index)
+        {
+            const auto& sat = satellites[row_index];
+            lv_obj_t* row = lv_obj_create(receiver);
+            resetBox(row);
+            lv_obj_set_width(row, LV_PCT(100));
+            lv_obj_set_height(row, 37);
+            lv_obj_set_style_bg_color(
+                row,
+                color(row_index % 2 == 0 ? embedded_palette::kPanelBg
+                                         : embedded_palette::kSurface),
+                0);
+            lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_color(
+                row, color(embedded_palette::kSeparator), 0);
+            lv_obj_set_style_border_width(row, 1, 0);
+            lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+
+            char id[8];
+            char elevation[12];
+            char snr[8];
+            std::snprintf(id, sizeof(id), "%d", sat.id);
+            std::snprintf(elevation, sizeof(elevation), "%.0f deg",
+                          static_cast<double>(sat.elevation));
+            std::snprintf(snr, sizeof(snr), "%d", sat.snr);
+            const std::array<const char*, 5> values{
+                id, sat.system, elevation, snr, sat.used ? "YES" : "NO"};
+            for (std::size_t column = 0; column < values.size(); ++column)
+            {
+                const std::uint32_t value_color =
+                    column == 1
+                        ? sat.fill_color
+                        : (column == 4
+                               ? (sat.used ? embedded_palette::kStatusGreen
+                                           : embedded_palette::kWarn)
+                               : embedded_palette::kText);
+                lv_obj_t* label =
+                    createLabel(row, values[column],
+                                &lv_font_montserrat_12, value_color);
+                lv_obj_set_pos(label, column_x[column], 10);
+            }
+        }
+
+        lv_obj_t* receiver_meta =
+            createLabel(receiver, "Live / 31.2304, 121.4737 / GPS UTC",
+                        &lv_font_montserrat_10,
+                        embedded_palette::kTextMuted);
+        lv_obj_set_width(receiver_meta, LV_PCT(100));
+        addActionPill(receiver, "Open map");
+    }
+
+    void buildRadioToolsPreview()
+    {
+        lv_obj_t* spectrum = createPreviewPanel(
+            desktop_page_panel_, "Energy sweep", 0,
+            embedded_palette::kSurface);
+        lv_obj_t* chart = lv_obj_create(spectrum);
+        applyPanel(chart, embedded_palette::kPlotBg,
+                   embedded_palette::kBorder);
+        lv_obj_set_width(chart, LV_PCT(100));
+        lv_obj_set_height(chart, 280);
+        lv_obj_set_style_pad_all(chart, 12, 0);
+        lv_obj_set_style_pad_column(chart, 3, 0);
+        lv_obj_set_flex_flow(chart, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(chart, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END,
+                              LV_FLEX_ALIGN_END);
+        constexpr std::array<int, 28> levels{
+            42, 48, 44, 55, 50, 62, 71, 95, 128, 176,
+            112, 76, 59, 52, 48, 66, 88, 142, 196, 154,
+            92, 68, 58, 49, 45, 54, 73, 98};
+        for (std::size_t index = 0; index < levels.size(); ++index)
+        {
+            lv_obj_t* bar = lv_obj_create(chart);
+            resetBox(bar);
+            lv_obj_set_width(bar, 0);
+            lv_obj_set_height(bar, levels[index]);
+            lv_obj_set_flex_grow(bar, 1);
+            lv_obj_set_style_bg_color(
+                bar,
+                color(levels[index] > 150 ? embedded_palette::kAccent
+                                          : embedded_palette::kStatusBlue),
+                0);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(bar, 2, 0);
+        }
+        createLabel(spectrum,
+                    "433.050 - 434.790 MHz / strongest 434.225 MHz at -69.1 dBm",
+                    &lv_font_montserrat_12, embedded_palette::kTextWarm);
+        addActionPill(spectrum, "Run sweep");
+
+        lv_obj_t* sessions = lv_obj_create(desktop_page_panel_);
+        applyTransparent(sessions);
+        lv_obj_set_width(sessions, 330);
+        lv_obj_set_height(sessions, LV_PCT(100));
+        lv_obj_set_style_pad_row(sessions, 10, 0);
+        lv_obj_set_flex_flow(sessions, LV_FLEX_FLOW_COLUMN);
+
+        lv_obj_t* sstv = createPreviewPanel(
+            sessions, "SSTV receiver", 330, embedded_palette::kSurface);
+        addPreviewRow(sstv, "Mode", "Martin M1 / waiting for sync",
+                      embedded_palette::kStatusBlue);
+        addPreviewRow(sstv, "Last image", "No decoded image yet");
+        addActionPill(sstv, "Start receiver");
+
+        lv_obj_t* walkie = createPreviewPanel(
+            sessions, "Walkie", 330, embedded_palette::kSurface);
+        addPreviewRow(walkie, "Session", "Stopped / capability: Simulated",
+                      embedded_palette::kWarn);
+        addPreviewRow(walkie, "Channel", "433.175 MHz / monitor off");
+        lv_obj_t* actions = lv_obj_create(walkie);
+        applyTransparent(actions);
+        lv_obj_set_width(actions, LV_PCT(100));
+        lv_obj_set_height(actions, 30);
+        lv_obj_set_style_pad_column(actions, 6, 0);
+        lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
+        addActionPill(actions, "Start session");
+        addActionPill(actions, "Press PTT", embedded_palette::kSoftBlue,
+                      embedded_palette::kText);
+    }
+
+    void buildExtensionsPreview()
+    {
+        lv_obj_t* catalog = createPreviewPanel(
+            desktop_page_panel_, "Available packages", 0,
+            embedded_palette::kSurface);
+        addPreviewRow(catalog, "English language pack",
+                      "v1.4 / locale / 86 KB / installed",
+                      embedded_palette::kStatusGreen);
+        addPreviewRow(catalog, "Noto Sans CJK field font",
+                      "v2.1 / font / 4.8 MB / update available",
+                      embedded_palette::kAccentDark);
+        addPreviewRow(catalog, "Pinyin input method",
+                      "v1.2 / IME / 612 KB / available",
+                      embedded_palette::kStatusBlue);
+        addPreviewRow(catalog, "Emergency symbol set",
+                      "v1.0 / assets / 138 KB / available",
+                      embedded_palette::kTextWarm);
+        addPreviewRow(catalog, "Topographic map style",
+                      "v0.9 / map style / 244 KB / available",
+                      embedded_palette::kStatusGreen);
+
+        lv_obj_t* details = createPreviewPanel(
+            desktop_page_panel_, "Package details", 320,
+            embedded_palette::kSurface);
+        createLabel(details, "Noto Sans CJK field font",
+                    &lv_font_montserrat_16, embedded_palette::kText);
+        createLabel(details, "Typography for multilingual field messages,",
+                    &lv_font_montserrat_12, embedded_palette::kTextMuted);
+        createLabel(details, "maps, node names and team coordination.",
+                    &lv_font_montserrat_12, embedded_palette::kTextMuted);
+        addPreviewRow(details, "Compatibility", "Desktop / full memory profile",
+                      embedded_palette::kStatusGreen);
+        addPreviewRow(details, "Storage", "linux-local / 4.8 MB");
+        addPreviewRow(details, "Status", "Update available",
+                      embedded_palette::kAccentDark);
+        addActionPill(details, "Install update");
+    }
+
+    void buildGenericFieldPreview(Section section)
+    {
+        lv_obj_t* primary = createPreviewPanel(
+            desktop_page_panel_, sectionTitle(section), 0,
+            embedded_palette::kSurface);
+        lv_obj_t* secondary = createPreviewPanel(
+            desktop_page_panel_, "Desktop actions", 320,
+            embedded_palette::kSurface);
+        switch (section)
+        {
+        case Section::Contacts:
+            addPreviewRow(primary, "Base Camp",
+                          "!435a1002 / Meshtastic / online",
+                          embedded_palette::kStatusGreen);
+            addPreviewRow(primary, "Trail Scout",
+                          "!435a1003 / Meshtastic / 2 min ago",
+                          embedded_palette::kStatusBlue);
+            addPreviewRow(primary, "MQTT Relay",
+                          "!435a1010 / MQTT / trusted",
+                          embedded_palette::kTextWarm);
+            addPreviewRow(secondary, "Selected node",
+                          "Base Camp / key verified");
+            addActionPill(secondary, "Open chat");
+            addActionPill(secondary, "Request NodeInfo");
+            addActionPill(secondary, "Ignore node",
+                          embedded_palette::kSoftWarn,
+                          embedded_palette::kWarn);
+            break;
+        case Section::Team:
+            addPreviewRow(primary, "Alpha team",
+                          "4 members / leader Base Camp",
+                          embedded_palette::kTextWarm);
+            addPreviewRow(primary, "Trail Scout shared position",
+                          "31.2308, 121.4741 / 2 min ago",
+                          embedded_palette::kStatusBlue);
+            addPreviewRow(primary, "Waypoint updated",
+                          "North checkpoint / synced",
+                          embedded_palette::kStatusGreen);
+            addActionPill(secondary, "Open team chat");
+            addActionPill(secondary, "Share current position");
+            break;
+        case Section::Tracker:
+            addPreviewRow(primary, "Recorder", "Recording / GPX",
+                          embedded_palette::kWarn);
+            addPreviewRow(primary, "Current file",
+                          "track-20260723-142830.gpx",
+                          embedded_palette::kStatusBlue);
+            addPreviewRow(primary, "Sampling", "10 s / GPS 3D fix");
+            addActionPill(secondary, "Stop recording",
+                          embedded_palette::kSoftWarn,
+                          embedded_palette::kWarn);
+            addActionPill(secondary, "Open track directory");
+            break;
+        case Section::Hardware:
+            addPreviewRow(primary, "AIO2", "Available / USB serial",
+                          embedded_palette::kStatusGreen);
+            addPreviewRow(primary, "LoRa SX1262",
+                          "Available / spidev1.0",
+                          embedded_palette::kStatusGreen);
+            addPreviewRow(primary, "GPS", "Available / 3D fix",
+                          embedded_palette::kStatusGreen);
+            addPreviewRow(primary, "Audio", "Simulated backend",
+                          embedded_palette::kWarn);
+            addPreviewRow(secondary, "Runtime", "Linux desktop / uConsole");
+            addPreviewRow(secondary, "Protocol", "Native Meshtastic");
+            break;
+        case Section::Data:
+            addPreviewRow(primary, "Map cache",
+                          "2,418 tiles / 386 MB / healthy",
+                          embedded_palette::kStatusGreen);
+            addPreviewRow(primary, "Background downloads",
+                          "4 active / 2 retrying",
+                          embedded_palette::kAccentDark);
+            addPreviewRow(primary, "Track files", "18 files / 42 MB");
+            addPreviewRow(primary, "Messages", "SQLite / 3,284 records");
+            addActionPill(secondary, "Open map workspace");
+            addActionPill(secondary, "Retry failed tiles");
+            break;
+        case Section::Logs:
+            addPreviewRow(primary, "14:28:31  LoRa RX",
+                          "Meshtastic text / !435a1002 / RSSI -81",
+                          embedded_palette::kStatusGreen);
+            addPreviewRow(primary, "14:28:30  GPS",
+                          "GGA / 3D fix / 8 satellites",
+                          embedded_palette::kStatusBlue);
+            addPreviewRow(primary, "14:28:28  MQTT RX",
+                          "msh/CN/2/e/LongFast / decoded",
+                          embedded_palette::kTextWarm);
+            addPreviewRow(secondary, "Source filter", "LoRa");
+            addActionPill(secondary, "GPS");
+            addActionPill(secondary, "LoRa");
+            addActionPill(secondary, "MQTT");
+            break;
+        case Section::Settings:
+            addPreviewRow(primary, "Radio protocol", "Meshtastic");
+            addPreviewRow(primary, "Region and preset",
+                          "CN / LongFast / 433.175 MHz");
+            addPreviewRow(primary, "GPS", "Enabled / 5 s interval");
+            addPreviewRow(primary, "Map", "Terrain / zoom 14 / auto download");
+            addPreviewRow(secondary, "Configuration", "Unsaved changes: 0");
+            addActionPill(secondary, "Apply settings");
+            addActionPill(secondary, "Reload");
+            break;
+        default:
+            break;
+        }
+    }
+
+    void rebuildDesktopPage()
+    {
+        if (desktop_page_panel_ == nullptr)
+        {
+            return;
+        }
+        lv_obj_clean(desktop_page_panel_);
+        switch (active_section_)
+        {
+        case Section::Map:
+            buildMapPreview();
+            break;
+        case Section::Gps:
+            buildGpsPreview();
+            break;
+        case Section::RadioTools:
+            buildRadioToolsPreview();
+            break;
+        case Section::Extensions:
+            buildExtensionsPreview();
+            break;
+        case Section::Contacts:
+        case Section::Team:
+        case Section::Tracker:
+        case Section::Hardware:
+        case Section::Data:
+        case Section::Logs:
+        case Section::Settings:
+            buildGenericFieldPreview(active_section_);
+            break;
+        case Section::Overview:
+        case Section::Chat:
+            break;
+        }
     }
 
     void buildChatConversationRow(lv_obj_t* parent, int index)
@@ -815,7 +1996,8 @@ class UConsoleDesktopShell
         lv_obj_set_height(button, 74);
         lv_obj_set_style_radius(button, 6, 0);
         lv_obj_set_style_pad_all(button, 8, 0);
-        lv_obj_set_style_bg_color(button, color(0xF3F6F2), 0);
+        lv_obj_set_style_bg_color(button,
+                                  color(embedded_palette::kPanelBg), 0);
         lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
         lv_obj_set_flex_flow(button, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(button, LV_FLEX_ALIGN_CENTER,
@@ -828,11 +2010,14 @@ class UConsoleDesktopShell
 
         chat_conversation_buttons_[index] = button;
         chat_conversation_title_labels_[index] =
-            createLabel(button, "-", &lv_font_montserrat_14, 0x22302B);
+            createLabel(button, "-", &lv_font_montserrat_14,
+                        embedded_palette::kText);
         chat_conversation_preview_labels_[index] =
-            createLabel(button, "", &lv_font_montserrat_12, 0x596760);
+            createLabel(button, "", &lv_font_montserrat_12,
+                        embedded_palette::kTextMuted);
         chat_conversation_meta_labels_[index] =
-            createLabel(button, "", &lv_font_montserrat_12, 0x8A6A20);
+            createLabel(button, "", &lv_font_montserrat_12,
+                        embedded_palette::kTextDim);
         lv_obj_set_width(chat_conversation_title_labels_[index], LV_PCT(100));
         lv_obj_set_width(chat_conversation_preview_labels_[index], LV_PCT(100));
         lv_obj_set_width(chat_conversation_meta_labels_[index], LV_PCT(100));
@@ -841,7 +2026,7 @@ class UConsoleDesktopShell
     void buildChatMessageRow(int index)
     {
         lv_obj_t* row = lv_obj_create(chat_messages_panel_);
-        applyPanel(row, 0xFFFFFF);
+        applyPanel(row, embedded_palette::kSurface);
         lv_obj_set_width(row, LV_PCT(100));
         lv_obj_set_height(row, 72);
         lv_obj_set_style_pad_all(row, 8, 0);
@@ -851,12 +2036,14 @@ class UConsoleDesktopShell
 
         chat_message_rows_[index] = row;
         chat_message_sender_labels_[index] =
-            createLabel(row, "-", &lv_font_montserrat_12, 0x34413D);
+            createLabel(row, "-", &lv_font_montserrat_12,
+                        embedded_palette::kTextWarm);
         chat_message_text_labels_[index] =
-            createLabel(row, "", &lv_font_montserrat_14, 0x17211E,
-                        LV_LABEL_LONG_WRAP);
+            createLabel(row, "", &lv_font_montserrat_14,
+                        embedded_palette::kText, LV_LABEL_LONG_WRAP);
         chat_message_meta_labels_[index] =
-            createLabel(row, "", &lv_font_montserrat_12, 0x66716E);
+            createLabel(row, "", &lv_font_montserrat_12,
+                        embedded_palette::kTextMuted);
         lv_obj_set_width(chat_message_sender_labels_[index], LV_PCT(100));
         lv_obj_set_width(chat_message_text_labels_[index], LV_PCT(100));
         lv_obj_set_width(chat_message_meta_labels_[index], LV_PCT(100));
@@ -864,37 +2051,39 @@ class UConsoleDesktopShell
 
     void buildStatusPanel(lv_obj_t* parent)
     {
-        lv_obj_t* panel = lv_obj_create(parent);
-        applyPanel(panel, 0xFFFFFF);
-        lv_obj_set_width(panel, 330);
-        lv_obj_set_height(panel, LV_PCT(100));
-        lv_obj_set_style_pad_row(panel, 12, 0);
-        lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
-                              LV_FLEX_ALIGN_START);
+        status_panel_ = lv_obj_create(parent);
+        applyPanel(status_panel_, embedded_palette::kSurface);
+        lv_obj_set_width(status_panel_, 330);
+        lv_obj_set_height(status_panel_, LV_PCT(100));
+        lv_obj_set_style_pad_row(status_panel_, 12, 0);
+        lv_obj_set_flex_flow(status_panel_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(status_panel_, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
-        createLabel(panel, "Runtime and capabilities", &lv_font_montserrat_16,
-                    0x24302C);
+        createLabel(status_panel_, "Runtime and capabilities",
+                    &lv_font_montserrat_16, embedded_palette::kText);
         for (int index = 0; index < kCapabilityRows; ++index)
         {
             capability_labels_[index] =
-                createLabel(panel, "-", &lv_font_montserrat_12, 0x4F5C57,
+                createLabel(status_panel_, "-", &lv_font_montserrat_12,
+                            embedded_palette::kTextMuted,
                             LV_LABEL_LONG_WRAP);
             lv_obj_set_width(capability_labels_[index], LV_PCT(100));
         }
 
-        lv_obj_t* divider = lv_obj_create(panel);
+        lv_obj_t* divider = lv_obj_create(status_panel_);
         resetBox(divider);
         lv_obj_set_width(divider, LV_PCT(100));
         lv_obj_set_height(divider, 1);
-        lv_obj_set_style_bg_color(divider, color(0xD9DEDA), 0);
+        lv_obj_set_style_bg_color(divider,
+                                  color(embedded_palette::kSeparator), 0);
         lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
 
-        createLabel(panel, "Contacts and nearby nodes", &lv_font_montserrat_16,
-                    0x24302C);
+        createLabel(status_panel_, "Contacts and nearby nodes",
+                    &lv_font_montserrat_16, embedded_palette::kText);
         for (int index = 0; index < kContactRows; ++index)
         {
-            buildContactRow(panel, index);
+            buildContactRow(status_panel_, index);
         }
     }
 
@@ -910,10 +2099,12 @@ class UConsoleDesktopShell
 
         contact_rows_[index] = row;
         contact_name_labels_[index] =
-            createLabel(row, "-", &lv_font_montserrat_14, 0x22302B);
+            createLabel(row, "-", &lv_font_montserrat_14,
+                        embedded_palette::kText);
         lv_obj_set_width(contact_name_labels_[index], LV_PCT(100));
         contact_meta_labels_[index] =
-            createLabel(row, "", &lv_font_montserrat_12, 0x66716E);
+            createLabel(row, "", &lv_font_montserrat_12,
+                        embedded_palette::kTextMuted);
         lv_obj_set_width(contact_meta_labels_[index], LV_PCT(100));
     }
 
@@ -925,32 +2116,41 @@ class UConsoleDesktopShell
             lv_obj_t* button = nav_buttons_[index];
             if (button == nullptr) continue;
             const bool active = index == active_index;
-            lv_obj_set_style_bg_color(button,
-                                      color(active ? 0xD7E8DF : 0x303635), 0);
+            lv_obj_set_style_bg_color(
+                button,
+                color(active ? embedded_palette::kAccent
+                             : embedded_palette::kSurface),
+                0);
             lv_obj_set_style_border_width(button, active ? 1 : 0, 0);
-            lv_obj_set_style_border_color(button, color(0x7EA48F), 0);
+            lv_obj_set_style_border_color(
+                button, color(embedded_palette::kBorder), 0);
             lv_obj_t* label = lv_obj_get_child(button, 0);
             if (label != nullptr)
             {
                 lv_obj_set_style_text_color(
-                    label, color(active ? 0x15251F : 0xD7DED9), 0);
+                    label,
+                    color(active ? embedded_palette::kHeaderText
+                                 : embedded_palette::kText),
+                    0);
             }
         }
     }
 
     void refreshSectionVisibility()
     {
+        const bool overview_active = active_section_ == Section::Overview;
         const bool chat_active = active_section_ == Section::Chat;
+        const bool desktop_page_active = !overview_active && !chat_active;
         if (metrics_panel_ != nullptr)
         {
-            if (chat_active)
+            if (!overview_active)
                 lv_obj_add_flag(metrics_panel_, LV_OBJ_FLAG_HIDDEN);
             else
                 lv_obj_clear_flag(metrics_panel_, LV_OBJ_FLAG_HIDDEN);
         }
         if (conversation_panel_ != nullptr)
         {
-            if (chat_active)
+            if (!overview_active)
                 lv_obj_add_flag(conversation_panel_, LV_OBJ_FLAG_HIDDEN);
             else
                 lv_obj_clear_flag(conversation_panel_, LV_OBJ_FLAG_HIDDEN);
@@ -961,6 +2161,17 @@ class UConsoleDesktopShell
                 lv_obj_clear_flag(chat_panel_, LV_OBJ_FLAG_HIDDEN);
             else
                 lv_obj_add_flag(chat_panel_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (desktop_page_panel_ != nullptr)
+        {
+            if (desktop_page_active)
+                lv_obj_clear_flag(desktop_page_panel_, LV_OBJ_FLAG_HIDDEN);
+            else
+                lv_obj_add_flag(desktop_page_panel_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (status_panel_ != nullptr)
+        {
+            lv_obj_add_flag(status_panel_, LV_OBJ_FLAG_HIDDEN);
         }
     }
 
@@ -978,6 +2189,10 @@ class UConsoleDesktopShell
         setLabel(top_mesh_label_, "Mesh: " + snapshot.mesh_protocol);
         setLabel(top_node_label_, "Node: " + snapshot.self_node);
         setLabel(top_unread_label_, "Unread: " + formatCount(snapshot.unread_count));
+        setLabel(footer_status_label_,
+                 snapshot.mesh_protocol + "  /  node " + snapshot.self_node +
+                     "  /  " + formatCount(snapshot.unread_count) +
+                     " unread");
 
         setLabel(metric_value_labels_[0],
                  formatCount(snapshot.conversation_count));
@@ -999,7 +2214,9 @@ class UConsoleDesktopShell
                 setLabel(conversation_meta_labels_[index], item.meta);
                 lv_obj_set_style_text_color(
                     conversation_meta_labels_[index],
-                    color(item.unread > 0 ? 0xA06316 : 0x78827D), 0);
+                    color(item.unread > 0 ? embedded_palette::kAccentDark
+                                          : embedded_palette::kTextDim),
+                    0);
             }
             else
             {
@@ -1075,14 +2292,19 @@ class UConsoleDesktopShell
             setLabel(chat_conversation_meta_labels_[index], item.meta);
             lv_obj_set_style_bg_color(
                 chat_conversation_buttons_[index],
-                color(item.active ? 0xD7E8DF : 0xF3F6F2), 0);
+                color(item.active ? embedded_palette::kSoftAmber
+                                  : embedded_palette::kPanelBg),
+                0);
             lv_obj_set_style_border_width(chat_conversation_buttons_[index],
                                           item.active ? 1 : 0, 0);
-            lv_obj_set_style_border_color(chat_conversation_buttons_[index],
-                                          color(0x7EA48F), 0);
+            lv_obj_set_style_border_color(
+                chat_conversation_buttons_[index],
+                color(embedded_palette::kBorder), 0);
             lv_obj_set_style_text_color(
                 chat_conversation_meta_labels_[index],
-                color(item.unread > 0 ? 0xA06316 : 0x66716E), 0);
+                color(item.unread > 0 ? embedded_palette::kAccentDark
+                                      : embedded_palette::kTextMuted),
+                0);
         }
 
         const bool has_messages = !snapshot.messages.empty();
@@ -1111,12 +2333,16 @@ class UConsoleDesktopShell
             setLabel(chat_message_meta_labels_[index], item.meta);
             lv_obj_set_style_bg_color(
                 chat_message_rows_[index],
-                color(item.failed ? 0xFFF0EE
-                                  : (item.outgoing ? 0xEEF8F3 : 0xFFFFFF)),
+                color(item.failed
+                          ? embedded_palette::kSoftWarn
+                          : (item.outgoing ? embedded_palette::kSoftGreen
+                                           : embedded_palette::kSurface)),
                 0);
             lv_obj_set_style_text_color(
                 chat_message_meta_labels_[index],
-                color(item.failed ? 0xA23B30 : 0x66716E), 0);
+                color(item.failed ? embedded_palette::kError
+                                  : embedded_palette::kTextMuted),
+                0);
         }
     }
 
@@ -1124,6 +2350,8 @@ class UConsoleDesktopShell
     UConsoleDashboardModel dashboard_model_;
     UConsoleChatWorkspaceModel chat_model_;
     bool initialized_ = false;
+    bool sidebar_collapsed_ = false;
+    bool shortcuts_visible_ = false;
     Section active_section_ = Section::Overview;
     lv_group_t* group_ = nullptr;
     std::deque<QueuedKeyEvent> key_events_{};
@@ -1135,9 +2363,15 @@ class UConsoleDesktopShell
     lv_obj_t* top_mesh_label_ = nullptr;
     lv_obj_t* top_node_label_ = nullptr;
     lv_obj_t* top_unread_label_ = nullptr;
+    lv_obj_t* footer_context_label_ = nullptr;
+    lv_obj_t* footer_status_label_ = nullptr;
+    lv_obj_t* footer_shortcuts_label_ = nullptr;
+    lv_obj_t* shortcut_overlay_ = nullptr;
     lv_obj_t* metrics_panel_ = nullptr;
     lv_obj_t* conversation_panel_ = nullptr;
     lv_obj_t* chat_panel_ = nullptr;
+    lv_obj_t* desktop_page_panel_ = nullptr;
+    lv_obj_t* status_panel_ = nullptr;
     lv_obj_t* chat_messages_panel_ = nullptr;
     lv_obj_t* chat_title_label_ = nullptr;
     lv_obj_t* chat_meta_label_ = nullptr;

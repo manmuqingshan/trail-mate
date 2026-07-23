@@ -1876,6 +1876,12 @@ void LinuxAppServices::applyPositionConfig()
                                                 config_.external_nmea_sentence_mask);
     platform::ui::gps::set_motion_idle_timeout(config_.motion_config.idle_timeout_ms);
     platform::ui::gps::set_motion_sensor_id(config_.motion_config.sensor_id);
+    platform::ui::tracker::set_interval_seconds(
+        std::max<uint32_t>(1U, config_.map_track_interval));
+    platform::ui::tracker::set_format(
+        static_cast<platform::ui::tracker::Format>(
+            std::min<std::uint8_t>(config_.map_track_format, 2U)));
+    platform::ui::tracker::set_auto_recording(config_.map_track_enabled);
     (void)platform::ui::gps::diagnostics();
 }
 

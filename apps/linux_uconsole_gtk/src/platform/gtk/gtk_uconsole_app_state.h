@@ -16,6 +16,7 @@
 #include "app/linux_app_services.h"
 #include "gps/usecase/gnss_skyplot_presenter.h"
 #include "platform/linux/runtime_packet_log.h"
+#include "platform/ui/pack_repository_runtime.h"
 #include "uconsole/uconsole_chat_workspace_model.h"
 #include "uconsole/uconsole_dashboard_model.h"
 #include "uconsole/uconsole_map_workspace_model.h"
@@ -81,6 +82,12 @@ struct GtkUConsoleAppState
     GtkWidget* nav_chat = nullptr;
     GtkWidget* nav_chat_badge = nullptr;
     GtkWidget* nav_map = nullptr;
+    GtkWidget* nav_contacts = nullptr;
+    GtkWidget* nav_gps = nullptr;
+    GtkWidget* nav_team = nullptr;
+    GtkWidget* nav_tracker = nullptr;
+    GtkWidget* nav_radio_tools = nullptr;
+    GtkWidget* nav_extensions = nullptr;
     GtkWidget* nav_hardware = nullptr;
     GtkWidget* nav_data = nullptr;
     GtkWidget* nav_logs = nullptr;
@@ -114,6 +121,14 @@ struct GtkUConsoleAppState
     GtkWidget* capability_box = nullptr;
     GtkWidget* hardware_page_box = nullptr;
     GtkWidget* data_page_box = nullptr;
+    GtkWidget* contacts_page_box = nullptr;
+    GtkWidget* gps_page_box = nullptr;
+    GtkWidget* gps_skyplot = nullptr;
+    GtkWidget* gps_satellite_list = nullptr;
+    GtkWidget* team_page_box = nullptr;
+    GtkWidget* tracker_page_box = nullptr;
+    GtkWidget* radio_tools_page_box = nullptr;
+    GtkWidget* extensions_page_box = nullptr;
     GtkWidget* logs_page_box = nullptr;
     GtkWidget* logs_source_gps = nullptr;
     GtkWidget* logs_source_lora = nullptr;
@@ -280,6 +295,29 @@ struct GtkUConsoleAppState
     int overview_timeline_filter_index = 0;
     std::string settings_notice{};
     int settings_notice_ticks = 0;
+    std::string team_action_status{};
+    std::string tracker_action_status{};
+
+    struct RadioSweepPoint
+    {
+        float frequency_mhz = 0.0F;
+        float rssi_dbm = -140.0F;
+    };
+
+    struct RadioSweepResult
+    {
+        bool ok = false;
+        std::string message{};
+        std::vector<RadioSweepPoint> points{};
+    };
+
+    std::future<RadioSweepResult> radio_sweep_future{};
+    std::vector<RadioSweepPoint> radio_sweep_points{};
+    std::string radio_tools_status{};
+    bool radio_sweep_running = false;
+    std::vector<::ui::runtime::packs::PackageRecord> extension_catalog{};
+    std::string extensions_status{};
+    bool extensions_loaded = false;
 
     std::vector<GtkUConsolePageLifecycle> page_lifecycle{};
     std::string active_page{};

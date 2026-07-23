@@ -15,6 +15,11 @@ struct SdlWindowOptions
     int scale = 1;
     bool fullscreen = false;
     std::string title = "Trail Mate uConsole";
+    std::string screenshot_path{};
+    int screenshot_after_frames = 45;
+    int initial_nav_steps = 0;
+    char initial_shortcut = '\0';
+    bool hidden = false;
 };
 
 class SdlWindowPresenter : public cardputer_zero::platform::SurfacePresenter

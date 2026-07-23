@@ -1,10 +1,30 @@
 ﻿#include "platform/gtk/gtk_uconsole_pages.h"
+#include "platform/gtk/gtk_uconsole_shell.h"
 #include "platform/gtk/gtk_uconsole_widgets.h"
 
+#include <algorithm>
 #include <string>
 
 namespace trailmate::uconsole::gtk
 {
+
+namespace
+{
+
+void onDataOpenMapClicked(GtkButton*, gpointer data)
+{
+    showPage(*static_cast<GtkUConsoleAppState*>(data), "map");
+}
+
+void onDataRetryMapDownloadsClicked(GtkButton*, gpointer data)
+{
+    auto& state = *static_cast<GtkUConsoleAppState*>(data);
+    state.map_failed_tiles.clear();
+    state.map_fetch_status = "state: retry requested";
+    refreshUi(state);
+}
+
+} // namespace
 
 static void refreshDataPage(GtkUConsoleAppState& state,
                             const UConsoleDashboardSnapshot& dashboard,
@@ -40,6 +60,86 @@ static void refreshDataPage(GtkUConsoleAppState& state,
                                   map_snapshot.cache_stats.database.filename()
                                       .string()));
     gtk_box_append(GTK_BOX(state.data_page_box), strip);
+
+    const std::size_t visible_cached = static_cast<std::size_t>(std::count_if(
+        map_snapshot.tiles.begin(),
+        map_snapshot.tiles.end(),
+        [](const MapTileItem& tile)
+        { return tile.available; }));
+    const std::size_t visible_total = map_snapshot.tiles.size();
+    const std::size_t visible_missing = visible_total - visible_cached;
+
+    GtkWidget* downloads = makePanel();
+    gtk_widget_add_css_class(downloads, "map-download-panel");
+    GtkWidget* download_header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget* download_title =
+        makeLabel("Automatic offline map downloads", "pane-heading");
+    gtk_widget_set_hexpand(download_title, TRUE);
+    gtk_box_append(GTK_BOX(download_header), download_title);
+
+    GtkWidget* retry = gtk_button_new_with_label("Retry failed");
+    gtk_widget_add_css_class(retry, "nav-button");
+    gtk_widget_set_sensitive(retry,
+                             state.map_failed_tiles.empty() ? FALSE : TRUE);
+    g_signal_connect(retry,
+                     "clicked",
+                     G_CALLBACK(onDataRetryMapDownloadsClicked),
+                     &state);
+    gtk_box_append(GTK_BOX(download_header), retry);
+
+    GtkWidget* open_map = gtk_button_new_with_label("Open map");
+    gtk_widget_add_css_class(open_map, "nav-button");
+    g_signal_connect(open_map,
+                     "clicked",
+                     G_CALLBACK(onDataOpenMapClicked),
+                     &state);
+    gtk_box_append(GTK_BOX(download_header), open_map);
+    gtk_box_append(GTK_BOX(downloads), download_header);
+
+    GtkWidget* download_metrics = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_add_css_class(download_metrics, "metric-strip");
+    gtk_box_append(GTK_BOX(download_metrics),
+                   makeMetricCard("Visible tiles",
+                                  std::to_string(visible_cached) + " / " +
+                                      std::to_string(visible_total),
+                                  std::to_string(visible_missing) +
+                                      " waiting",
+                                  visible_missing > 0));
+    gtk_box_append(GTK_BOX(download_metrics),
+                   makeMetricCard("Active downloads",
+                                  std::to_string(state.map_fetch_jobs.size()),
+                                  "Up to " +
+                                      std::to_string(
+                                          kMaxConcurrentMapFetches) +
+                                      " concurrent"));
+    gtk_box_append(GTK_BOX(download_metrics),
+                   makeMetricCard("Retry queue",
+                                  std::to_string(
+                                      state.map_failed_tiles.size()),
+                                  state.map_failed_tiles.empty()
+                                      ? "Healthy"
+                                      : "Exponential backoff",
+                                  !state.map_failed_tiles.empty()));
+    gtk_box_append(GTK_BOX(download_metrics),
+                   makeMetricCard("Base layer",
+                                  map_snapshot.source_label,
+                                  "Zoom " +
+                                      std::to_string(map_snapshot.zoom)));
+    gtk_box_append(GTK_BOX(downloads), download_metrics);
+
+    const std::string download_state =
+        state.map_fetch_status.empty()
+            ? "Idle; missing tiles are fetched automatically around the current map viewport."
+            : state.map_fetch_status;
+    gtk_box_append(GTK_BOX(downloads),
+                   buildDetailRow("Background worker",
+                                  download_state,
+                                  !state.map_failed_tiles.empty()));
+    gtk_box_append(GTK_BOX(downloads),
+                   buildDetailRow(
+                       "Cache policy",
+                       "Fetch visible base tiles on demand, keep them on disk, and reuse them offline."));
+    gtk_box_append(GTK_BOX(state.data_page_box), downloads);
 
     GtkWidget* detail = makePanel();
     gtk_widget_add_css_class(detail, "inspector-pane");
