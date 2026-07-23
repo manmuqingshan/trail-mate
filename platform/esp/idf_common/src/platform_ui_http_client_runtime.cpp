@@ -1224,10 +1224,10 @@ bool download(const Request& request,
     }
 
     bool ok = false;
-    wifi_access::Decision decision = wifi_access::Decision::Granted;
-    if (!wifi_access::ensure_connected(access_request, &decision))
+    wifi_access::ConnectResult connect_result{};
+    if (!wifi_access::ensure_connected(access_request, &connect_result))
     {
-        out_error = wifi_access::decision_name(decision);
+        out_error = wifi_access::decision_name(connect_result.decision);
     }
     else if (!memory_ready(request))
     {

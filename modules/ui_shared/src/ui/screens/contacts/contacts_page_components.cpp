@@ -307,7 +307,6 @@ static void on_del_confirm_clicked(lv_event_t* e);
 static void on_del_cancel_clicked(lv_event_t* e);
 static void on_discovery_scan_done(lv_timer_t* timer);
 static void execute_discovery_command(uint8_t command_index);
-static void on_node_info_back_clicked(lv_event_t* e);
 static void on_node_info_key(lv_event_t* e);
 static void open_chat_compose();
 static void close_chat_compose();
@@ -2519,7 +2518,6 @@ static void open_reticulum_node_info_screen(const chat::contacts::PeerDirectoryI
     }
     g_contacts_state.node_info_prev_group = lv_group_get_default();
     set_default_group(g_contacts_state.node_info_group);
-    node_info::ui::bind_input_group(g_contacts_state.node_info_group);
     if (s_reticulum_node_info_top_bar.back_btn)
     {
         lv_group_add_obj(g_contacts_state.node_info_group, s_reticulum_node_info_top_bar.back_btn);
@@ -2635,25 +2633,11 @@ static void open_node_info_screen_for_node(uint32_t node_id)
                            g_contacts_state.node_info_prev_group,
                            g_contacts_state.node_info_group);
 
-    if (widgets.back_btn)
-    {
-        lv_obj_add_event_cb(widgets.back_btn, on_node_info_back_clicked, LV_EVENT_CLICKED, nullptr);
-        lv_obj_add_event_cb(widgets.back_btn, on_node_info_key, LV_EVENT_KEY, nullptr);
-        CONTACTS_NODE_INFO_LOG("back button wired and focused back_btn=%p\n", widgets.back_btn);
-    }
-    lv_obj_t* node_info_controls[] = {
-        widgets.zoom_out_btn,
-        widgets.zoom_in_btn,
-        widgets.layer_btn,
-        widgets.help_btn,
-    };
-    for (lv_obj_t* control : node_info_controls)
-    {
-        if (control)
-        {
-            lv_obj_add_event_cb(control, on_node_info_key, LV_EVENT_KEY, nullptr);
-        }
-    }
+    node_info::ui::InputCallbacks input_callbacks{};
+    input_callbacks.back_requested = reticulum_node_info_back_requested;
+    node_info::ui::bind_input_group(g_contacts_state.node_info_group,
+                                    input_callbacks);
+    CONTACTS_NODE_INFO_LOG("node_info input bound back_btn=%p\n", widgets.back_btn);
 
     if (g_contacts_state.root)
     {
@@ -3658,12 +3642,6 @@ static void on_del_cancel_clicked(lv_event_t* /*e*/)
 {
     modal_close(g_contacts_state.del_confirm_modal);
     contacts_focus_to_list();
-}
-
-static void on_node_info_back_clicked(lv_event_t* /*e*/)
-{
-    CONTACTS_NODE_INFO_LOG("back button clicked\n");
-    close_node_info_screen();
 }
 
 static void on_node_info_key(lv_event_t* e)

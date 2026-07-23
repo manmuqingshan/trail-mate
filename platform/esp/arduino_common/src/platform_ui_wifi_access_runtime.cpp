@@ -193,19 +193,31 @@ ScreenPhase sample_screen_phase(std::uint32_t now_ms)
     return ScreenPhase::ScreenOn;
 }
 
-bool mark_connect_attempt(Client client, std::uint32_t now_ms)
+struct ConnectAttemptWindow
+{
+    bool allowed = false;
+    std::uint32_t retry_after_ms = 0;
+};
+
+ConnectAttemptWindow mark_connect_attempt(Client client, std::uint32_t now_ms)
 {
     (void)client;
-    bool allowed = false;
+    ConnectAttemptWindow window{};
     portENTER_CRITICAL(&s_lock);
     const std::uint32_t last = s_state.last_connect_attempt_ms;
-    if (last == 0 || (now_ms - last) >= kConnectBackoffMs)
+    const std::uint32_t age_ms = now_ms - last;
+    if (last == 0 || age_ms >= kConnectBackoffMs)
     {
         s_state.last_connect_attempt_ms = now_ms;
-        allowed = true;
+        window.allowed = true;
+        window.retry_after_ms = kConnectBackoffMs;
+    }
+    else
+    {
+        window.retry_after_ms = kConnectBackoffMs - age_ms;
     }
     portEXIT_CRITICAL(&s_lock);
-    return allowed;
+    return window;
 }
 
 bool ota_active_for_other(const Request& request)
@@ -655,11 +667,13 @@ bool set_transport_enabled(bool enabled)
     return clients_ready;
 }
 
-bool ensure_connected(const Request& request, Decision* out_decision)
+bool ensure_connected(const Request& request, ConnectResult* out_result)
 {
     const std::uint32_t now_ms = sys::millis_now();
     const ScreenPhase phase = sample_screen_phase(now_ms);
     Decision decision = Decision::Granted;
+    std::uint32_t retry_after_ms = 0;
+    bool log_denial = true;
 
     if (!transport_enabled())
     {
@@ -725,39 +739,53 @@ bool ensure_connected(const Request& request, Decision* out_decision)
         {
             decision = Decision::ConnectDeferredForWake;
         }
-        else if (!mark_connect_attempt(request.client, now_ms))
-        {
-            decision = Decision::ConnectBackoff;
-        }
-        else if (!::platform::ui::wifi::connect(nullptr))
-        {
-            decision =
-                ::platform::ui::wifi::status().state ==
-                        ::platform::ui::wifi::ConnectionState::ResourceDeferred
-                    ? Decision::ConnectDeferredForResources
-                    : Decision::ConnectFailed;
-        }
         else
         {
-            // ESP-IDF P4 targets delegate Wi-Fi to the C6 companion. A
-            // successfully queued Connect command completes asynchronously;
-            // absence of an immediate GOT_IP event is not a failed command.
-            decision = ::platform::ui::wifi::status().connected ? Decision::Granted
-                                                                : Decision::ConnectBackoff;
+            const ConnectAttemptWindow window =
+                mark_connect_attempt(request.client, now_ms);
+            retry_after_ms = window.retry_after_ms;
+            if (!window.allowed)
+            {
+                decision = Decision::ConnectBackoff;
+                log_denial = false;
+            }
+            else if (!::platform::ui::wifi::connect(nullptr))
+            {
+                decision =
+                    ::platform::ui::wifi::status().state ==
+                            ::platform::ui::wifi::ConnectionState::ResourceDeferred
+                        ? Decision::ConnectDeferredForResources
+                        : Decision::ConnectFailed;
+            }
+            else
+            {
+                // ESP-IDF P4 targets delegate Wi-Fi to the C6 companion. A
+                // successfully queued Connect command completes asynchronously;
+                // absence of an immediate GOT_IP event is not a failed command.
+                decision = ::platform::ui::wifi::status().connected
+                               ? Decision::Granted
+                               : Decision::ConnectBackoff;
+            }
         }
     }
 
-    if (out_decision)
+    if (decision == Decision::Granted)
     {
-        *out_decision = decision;
+        retry_after_ms = 0;
     }
-    if (decision != Decision::Granted)
+    if (out_result)
     {
-        std::printf("[WiFiAccess] connect denied client=%s kind=%s phase=%s decision=%s reason=%s\n",
+        out_result->decision = decision;
+        out_result->retry_after_ms = retry_after_ms;
+    }
+    if (decision != Decision::Granted && log_denial)
+    {
+        std::printf("[WiFiAccess] connect denied client=%s kind=%s phase=%s decision=%s retry_after_ms=%lu reason=%s\n",
                     client_name(request.client),
                     access_kind_name(request.kind),
                     screen_phase_name(phase),
                     decision_name(decision),
+                    static_cast<unsigned long>(retry_after_ms),
                     request.reason ? request.reason : "");
     }
     return decision == Decision::Granted;

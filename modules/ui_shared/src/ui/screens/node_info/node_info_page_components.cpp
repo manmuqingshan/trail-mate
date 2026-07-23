@@ -55,6 +55,7 @@ NodeInfoWidgets s_widgets;
 ::ui::widgets::TopBar s_top_bar;
 ::ui::components::shortcut_help_modal::State s_help_modal;
 lv_group_t* s_input_group = nullptr;
+InputCallbacks s_input_callbacks{};
 
 struct NodeInfoRuntimeState
 {
@@ -73,7 +74,17 @@ struct NodeInfoRuntimeState
 
 NodeInfoRuntimeState s_state;
 
-void on_help_button_clicked(lv_event_t*)
+void consume_key_event(lv_event_t* event)
+{
+    if (!event)
+    {
+        return;
+    }
+    lv_event_stop_bubbling(event);
+    lv_event_stop_processing(event);
+}
+
+void toggle_shortcut_help()
 {
     using namespace ::ui::components::shortcut_help_modal;
     if (is_open(s_help_modal))
@@ -82,12 +93,14 @@ void on_help_button_clicked(lv_event_t*)
         return;
     }
     static constexpr Row kRows[] = {
+        {"Rotary", nullptr, "Move focus"},
+        {"Enter", nullptr, "Use focused control"},
         {"-", nullptr, "Zoom out"},
-        {"+", nullptr, "Zoom in"},
+        {"+", "=", "Zoom in"},
+        {"L", nullptr, "Change offline map layer"},
         {"Touch", "Drag", "Pan the map"},
-        {"Layer", nullptr, "Change offline map layer"},
-        {"No tiles", nullptr, "Install offline map files on SD"},
         {"Back", nullptr, "Return to Contacts"},
+        {"H", nullptr, "Close help"},
     };
     Config config{};
     config.title = "Node Map Help";
@@ -95,6 +108,59 @@ void on_help_button_clicked(lv_event_t*)
     config.row_count = sizeof(kRows) / sizeof(kRows[0]);
     config.restore_group = s_input_group;
     (void)open(s_help_modal, s_widgets.root, config);
+}
+
+void request_back()
+{
+    if (s_input_callbacks.back_requested)
+    {
+        s_input_callbacks.back_requested(s_input_callbacks.user_data);
+    }
+}
+
+void send_control_click(lv_obj_t* control)
+{
+    if (control && lv_obj_is_valid(control) &&
+        !lv_obj_has_state(control, LV_STATE_DISABLED))
+    {
+        lv_obj_send_event(control, LV_EVENT_CLICKED, nullptr);
+    }
+}
+
+void on_node_info_input_key(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_KEY)
+    {
+        return;
+    }
+
+    const uint32_t key = lv_event_get_key(event);
+    if (key == 'h' || key == 'H')
+    {
+        toggle_shortcut_help();
+    }
+    else if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE)
+    {
+        request_back();
+    }
+    else if (key == '-' || key == '_')
+    {
+        send_control_click(s_widgets.zoom_out_btn);
+    }
+    else if (key == '+' || key == '=')
+    {
+        send_control_click(s_widgets.zoom_in_btn);
+    }
+    else if (key == 'l' || key == 'L')
+    {
+        send_control_click(s_widgets.layer_btn);
+    }
+    else
+    {
+        return;
+    }
+
+    consume_key_event(event);
 }
 
 struct LayerPopupState
@@ -1609,20 +1675,6 @@ void position_overlay_widgets()
     {
         lv_obj_center(s_widgets.layer_label);
     }
-    apply_layer_button_style(s_widgets.help_btn, s_widgets.help_label, metrics.compact);
-    if (valid_obj(s_widgets.help_btn))
-    {
-        lv_obj_set_size(s_widgets.help_btn, metrics.layer_w, metrics.layer_h);
-        lv_obj_set_pos(s_widgets.help_btn,
-                       std::max<lv_coord_t>(metrics.pad,
-                                            layer_x - metrics.layer_w -
-                                                metrics.zoom_gap),
-                       layer_y);
-    }
-    if (valid_obj(s_widgets.help_label))
-    {
-        lv_obj_center(s_widgets.help_label);
-    }
     log_scene_widgets("position_overlay_widgets");
 }
 
@@ -2132,9 +2184,6 @@ NodeInfoWidgets create(lv_obj_t* parent)
     s_widgets.layer_btn = lv_btn_create(s_widgets.map_stage);
     s_widgets.layer_label = lv_label_create(s_widgets.layer_btn);
     lv_label_set_text(s_widgets.layer_label, ::ui::i18n::tr("Layer"));
-    s_widgets.help_btn = lv_btn_create(s_widgets.map_stage);
-    s_widgets.help_label = lv_label_create(s_widgets.help_btn);
-    lv_label_set_text(s_widgets.help_label, ::ui::i18n::tr("Help"));
     apply_zoom_button_style(s_widgets.zoom_in_btn, s_widgets.zoom_in_label);
     apply_zoom_button_style(s_widgets.zoom_out_btn, s_widgets.zoom_out_label);
     apply_layer_button_style(s_widgets.layer_btn, s_widgets.layer_label, view_metrics().compact);
@@ -2147,10 +2196,6 @@ NodeInfoWidgets create(lv_obj_t* parent)
                         LV_EVENT_CLICKED,
                         reinterpret_cast<void*>(static_cast<intptr_t>(-1)));
     lv_obj_add_event_cb(s_widgets.layer_btn, on_layer_button_clicked, LV_EVENT_CLICKED, nullptr);
-    lv_obj_add_event_cb(s_widgets.help_btn,
-                        on_help_button_clicked,
-                        LV_EVENT_CLICKED,
-                        nullptr);
     update_zoom_button_state(false);
 
     lv_obj_update_layout(s_widgets.root);
@@ -2169,6 +2214,7 @@ void destroy()
     close_layer_popup();
     ::ui::components::shortcut_help_modal::close(s_help_modal);
     s_input_group = nullptr;
+    s_input_callbacks = InputCallbacks{};
     if (s_layer_popup.group)
     {
         lv_group_del(s_layer_popup.group);
@@ -2193,9 +2239,13 @@ const NodeInfoWidgets& widgets()
     return s_widgets;
 }
 
-void bind_input_group(lv_group_t* group)
+void bind_input_group(lv_group_t* group, const InputCallbacks& callbacks)
 {
     s_input_group = group;
+    s_input_callbacks = callbacks;
+    ::ui::widgets::top_bar_set_back_callback(s_top_bar,
+                                             callbacks.back_requested,
+                                             callbacks.user_data);
     if (!group)
     {
         return;
@@ -2206,15 +2256,19 @@ void bind_input_group(lv_group_t* group)
         s_widgets.zoom_out_btn,
         s_widgets.zoom_in_btn,
         s_widgets.layer_btn,
-        s_widgets.help_btn,
     };
     for (lv_obj_t* control : controls)
     {
         if (control && lv_obj_is_valid(control))
         {
             lv_group_add_obj(group, control);
+            lv_obj_add_event_cb(control,
+                                on_node_info_input_key,
+                                LV_EVENT_KEY,
+                                nullptr);
         }
     }
+    lv_group_set_editing(group, false);
     if (s_widgets.back_btn && lv_obj_is_valid(s_widgets.back_btn))
     {
         lv_group_focus_obj(s_widgets.back_btn);

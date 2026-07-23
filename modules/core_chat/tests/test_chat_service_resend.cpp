@@ -553,6 +553,22 @@ int main()
         assert(incoming_store.getUnread(broadcast) == 1);
         assert(incoming_observer.count == 1);
 
+        const chat::NodeId direct_sender = 0x5678ABCDU;
+        const chat::ConversationId direct(chat::ChannelId::PRIMARY,
+                                          direct_sender,
+                                          chat::MeshProtocol::Meshtastic);
+        incoming_mesh.pushIncoming(direct_sender,
+                                   0x43U,
+                                   "private",
+                                   {},
+                                   incoming_mesh.getNodeId());
+        incoming_service.processIncoming();
+        const auto direct_messages = incoming_store.loadRecent(direct, 10);
+        assert(direct_messages.size() == 1);
+        assert(direct_messages.front().peer == direct_sender);
+        assert(incoming_store.loadRecent(broadcast, 10).size() == 1);
+        assert(incoming_observer.count == 2);
+
         for (std::uint32_t i = 0; i < 256U; ++i)
         {
             incoming_mesh.pushIncoming(0x1234ABCDU, 0x1000U + i, "window fill");
@@ -561,12 +577,12 @@ int main()
         {
             incoming_service.processIncoming();
         }
-        assert(incoming_observer.count == 257);
+        assert(incoming_observer.count == 258);
 
         incoming_mesh.pushIncoming(0x1234ABCDU, 0x10FFU, "recent duplicate");
         incoming_mesh.pushIncoming(0x1234ABCDU, 0x42U, "evicted original id");
         incoming_service.processIncoming();
-        assert(incoming_observer.count == 258);
+        assert(incoming_observer.count == 259);
         assert(incoming_observer.last_msg_id == 0x42U);
     }
 

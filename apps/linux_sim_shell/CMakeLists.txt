@@ -903,6 +903,22 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_ime_input_mode_descriptor_smoke
              COMMAND trailmate_ime_input_mode_descriptor_smoke)
 
+    add_executable(trailmate_node_info_input_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_node_info_input_contract.cpp")
+    target_compile_features(trailmate_node_info_input_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_node_info_input_contract_smoke
+             COMMAND trailmate_node_info_input_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_wifi_connect_backoff_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_wifi_connect_backoff_contract.cpp")
+    target_compile_features(trailmate_wifi_connect_backoff_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_wifi_connect_backoff_contract_smoke
+             COMMAND trailmate_wifi_connect_backoff_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
     add_executable(trailmate_network_micron_markup_contract_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_network_micron_markup_contract.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/screens/network/micron_markup_contract.cpp")

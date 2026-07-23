@@ -64,6 +64,12 @@ enum class Decision : std::uint8_t
     ConnectDeferredForResources,
 };
 
+struct ConnectResult
+{
+    Decision decision = Decision::InvalidRequest;
+    std::uint32_t retry_after_ms = 0;
+};
+
 enum class ExclusiveOwner : std::uint8_t
 {
     None = 0,
@@ -147,7 +153,7 @@ bool call_exclusive_active();
 bool call_accept_available();
 
 bool set_transport_enabled(bool enabled);
-bool ensure_connected(const Request& request, Decision* out_decision = nullptr);
+bool ensure_connected(const Request& request, ConnectResult* out_result = nullptr);
 Lease acquire(const Request& request);
 void release(const Lease& lease);
 bool lease_revoked(const Lease& lease);

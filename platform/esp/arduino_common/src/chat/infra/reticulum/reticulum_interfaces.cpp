@@ -545,12 +545,13 @@ bool WifiGatewayReticulumInterface::ensureSocket()
             request.priority = platform::ui::wifi_access::Priority::Messaging;
             request.allow_connect = true;
             request.reason = "reticulum_gateway";
-            platform::ui::wifi_access::Decision decision =
-                platform::ui::wifi_access::Decision::Granted;
-            if (!platform::ui::wifi_access::ensure_connected(request, &decision))
+            platform::ui::wifi_access::ConnectResult connect_result{};
+            if (!platform::ui::wifi_access::ensure_connected(request,
+                                                             &connect_result))
             {
                 Serial.printf("[Reticulum][IF][WiFi] station denied decision=%s host=%s:%u\n",
-                              platform::ui::wifi_access::decision_name(decision),
+                              platform::ui::wifi_access::decision_name(
+                                  connect_result.decision),
                               host_,
                               static_cast<unsigned>(port_));
             }

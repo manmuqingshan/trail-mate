@@ -89,6 +89,12 @@ bool elapsed(uint32_t now_ms, uint32_t last_ms, uint32_t interval_ms)
     return last_ms == 0 || (now_ms - last_ms) >= interval_ms;
 }
 
+bool deadlinePending(uint32_t now_ms, uint32_t deadline_ms)
+{
+    return deadline_ms != 0 &&
+           static_cast<int32_t>(deadline_ms - now_ms) > 0;
+}
+
 bool isDigits(const char* text)
 {
     if (!text || text[0] == '\0')
@@ -315,6 +321,7 @@ class PlainMqttRuntime
     uint32_t last_config_refresh_ms_ = 0;
     uint32_t last_mqtt_reconnect_ms_ = 0;
     uint32_t last_io_ms_ = 0;
+    uint32_t wifi_retry_not_before_ms_ = 0;
     char address_scratch_[80] = {};
     char subscribe_topic_[96] = {};
     char publish_topic_[96] = {};
@@ -687,8 +694,15 @@ class PlainMqttRuntime
         }
         if (status.connected)
         {
+            wifi_retry_not_before_ms_ = 0;
             logWifiGate(status, WifiGateState::Ready);
             return true;
+        }
+
+        if (deadlinePending(now_ms, wifi_retry_not_before_ms_))
+        {
+            logWifiGate(status, WifiGateState::WaitingForConnection);
+            return false;
         }
 
         std::printf("[%s][MQTT] requesting Wi-Fi access for MQTT ssid=%s\n",
@@ -702,18 +716,26 @@ class PlainMqttRuntime
         request.priority = platform::ui::wifi_access::Priority::Messaging;
         request.allow_connect = true;
         request.reason = "mqtt";
-        platform::ui::wifi_access::Decision decision =
-            platform::ui::wifi_access::Decision::Granted;
-        if (platform::ui::wifi_access::ensure_connected(request, &decision))
+        platform::ui::wifi_access::ConnectResult connect_result{};
+        if (platform::ui::wifi_access::ensure_connected(request, &connect_result))
         {
+            wifi_retry_not_before_ms_ = 0;
             status = platform::ui::wifi::status();
             logWifiGate(status, WifiGateState::Ready);
             return true;
         }
+        if (connect_result.retry_after_ms > 0)
+        {
+            wifi_retry_not_before_ms_ =
+                now_ms + connect_result.retry_after_ms;
+        }
         status = platform::ui::wifi::status();
-        std::printf("[%s][MQTT] Wi-Fi access denied decision=%s state=%u message='%s'\n",
+        std::printf("[%s][MQTT] Wi-Fi access denied decision=%s retry_after_ms=%lu state=%u message='%s'\n",
                     protocolTag(),
-                    platform::ui::wifi_access::decision_name(decision),
+                    platform::ui::wifi_access::decision_name(
+                        connect_result.decision),
+                    static_cast<unsigned long>(
+                        connect_result.retry_after_ms),
                     static_cast<unsigned>(status.state),
                     status.message);
         logWifiGate(status, WifiGateState::WaitingForConnection);
@@ -903,6 +925,7 @@ class PlainMqttRuntime
 #else
         (void)reason;
 #endif
+        wifi_retry_not_before_ms_ = 0;
         resetConnectionState();
     }
 

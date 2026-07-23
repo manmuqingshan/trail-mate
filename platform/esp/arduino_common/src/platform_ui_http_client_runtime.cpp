@@ -274,11 +274,11 @@ bool download(const Request& request,
         return false;
     }
 
-    wifi_access::Decision connect_decision = wifi_access::Decision::Granted;
-    if (!wifi_access::ensure_connected(access_request, &connect_decision))
+    wifi_access::ConnectResult connect_result{};
+    if (!wifi_access::ensure_connected(access_request, &connect_result))
     {
         wifi_access::release(lease);
-        out_error = wifi_access::decision_name(connect_decision);
+        out_error = wifi_access::decision_name(connect_result.decision);
         return false;
     }
     if (!require_memory_preflight(request, "pre-init low memory", out_error))
