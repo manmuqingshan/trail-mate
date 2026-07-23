@@ -1,0 +1,13 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：协议观察与目录</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/manage-peer-directory/sequences/sequence-manage-peer-directory.md"><h1>协议观察、目录与 Contacts 投影</h1><pre class="mermaid">sequenceDiagram
+participant B as Protocol backend
+participant D as PeerDirectory
+participant C as ContactService
+participant S as Stores
+participant UI as Contacts UI
+B->>D: record identity + facts
+D->>C: observed record
+C->>S: persist
+UI->>C: query active protocol
+C-->>UI: contacts/nearby/ignored
+UI->>C: save, ignore or verify
+C->>S: commit local relation</pre></main></body></html>

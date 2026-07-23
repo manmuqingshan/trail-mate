@@ -1,114 +1,45 @@
-# Activity Diagram：业务流程：配置无线电参数
-
-<!-- praxis:use-case-diagram:start -->
-
-## 元数据
-
-项目版本：0.1.30-alpha
-设计文档版本：0.1.30-alpha
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
-Agent 版本决策：none - 本次渲染没有单独的 agent 版本决策
-更新于：2026-06-25T14:17:55.307Z
-来源：Agent 候选分析
-父级 Use Case：use-case:configure-radio-parameters
-业务边界路径：Trail Mate 系统 / 聊天通信
-父级文档：docs/design/use-case-diagrams/configure-radio-parameters.md
-Markdown 路径：docs/design/use-case-diagrams/configure-radio-parameters/activity.md
-HTML 路径：docs/design/use-case-diagrams/configure-radio-parameters/activity.html
-
-## 业务流程目标
-
-无线电参数自定义
-
-## 流程边界
-
-从设置到应用
-
-## 参与泳道 / 阶段
-
-- 未显式声明泳道；请结合节点标签和实现范围判断业务阶段。
-
-## 主成功路径
-
-主成功场景
-
-- mainSuccessScenario
-
-## 决策点与分支
-
-- pickMode -->|LoRa| loraConf
-- pickMode -->|FSK| fskConf
-
-## 失败 / 补偿路径
-
-- 无
-
-## 流程业务规则
-
-策略模式
-
-## Activity UML 读图说明
-
-分支选择
-
-## 实现范围锚点
-
-- 模块：boards
-- 入口：configureLoraRadio
-- 关键文件：boards/tlora_pager/src/tlora_pager_board.cpp
-- 代码锚点：boards/tlora_pager/src/tlora_pager_board.cpp#L1
-- 不覆盖代码：底层函数调用链
-- 不覆盖代码：DTO/Mapper/Repository 细节
-
-## 不覆盖范围
-
-- 完整代码调用链
-- 仓库级全局流程
-- 未被证据支持的业务分支
-
-
-## Mermaid 图
+# Activity Diagram：协议切换与提交
 
 ```mermaid
 flowchart TD
-  startNode([开始])
-  pickMode[选择调制模式]
-  loraConf[配置 LoRa 参数]
-  fskConf[配置 FSK 参数]
-  applyPower[应用发射功率]
-  testTX[测试发射]
-  endNode([结束])
-  startNode --> pickMode
-  pickMode -->|LoRa| loraConf
-  pickMode -->|FSK| fskConf
-  loraConf --> applyPower
-  fskConf --> applyPower
-  applyPower --> testTX
-  testTX --> endNode
+  Edit["用户编辑协议与无线配置"] --> Validate{"目标能力和参数有效?"}
+  Validate -- 否 --> Reject["保留旧协议并解释错误"]
+  Validate -- 是 --> Stop["停止旧 backend / 释放 radio"]
+  Stop --> Load["加载新协议分区身份、频道与密钥"]
+  Load --> Create{"创建并启动新 backend 成功?"}
+  Create -- 否 --> Safe["保持 stopped/error；不提交新协议"]
+  Create -- 是 --> Persist{"保存完整配置成功?"}
+  Persist -- 否 --> Unsaved["标记运行中但未保存；允许重试"]
+  Persist -- 是 --> Commit["提交 active protocol 并刷新投影"]
 ```
 
-## 证据上下文
+## 本图回答的问题
 
-| 来源 | 路径 | 行号 | 强度 | 摘要 |
-| --- | --- | --- | --- | --- |
-| 本地仓库扫描 | boards/tlora_pager/src/tlora_pager_board.cpp | 1-1 | strong | 无线电配置函数 |
-| 本地仓库扫描 | boards/tlora_pager/src/tlora_pager_board.cpp | 1-1 | strong | 无线电配置相关方法 |
+用户改变协议或无线参数时，系统如何避免“界面显示已经切换，但 radio 仍运行旧 backend”的半提交状态。本活动从完整候选配置进入验证开始，到运行态与持久化状态都得到明确结果为止。
 
-## 变更记录
+## 输入、输出与责任边界
 
-### 0.1.30-alpha - 2026-06-25T14:17:55.307Z
+| 项目 | 设计含义 |
+| --- | --- |
+| 输入 | 目标协议、频率/带宽/扩频参数，以及该协议分区中的身份、频道和密钥 |
+| 验证 owner | 配置应用层；同时检查目标硬件能力和协议参数约束 |
+| 运行态 owner | `MeshAdapterRouter` 与 radio backend |
+| 持久化 owner | `AppConfig / ConfigFacade` 及协议分区存储 |
+| 成功输出 | 新 backend 已启动，完整配置已保存，活动协议投影已更新 |
 
-变更类型：DISCOVERY
-版本决策：none - 本次渲染没有单独的 agent 版本决策
+## 分支规则
 
+1. 参数或目标能力无效时不能停止旧 backend；拒绝必须携带可定位到字段的错误。
+2. 旧 backend 停止后，新 backend 启动失败时不能回写活动协议。系统进入显式 `stopped/error`，而不是伪装成旧协议仍然可用。
+3. 新 backend 已启动但保存失败属于“运行态成功、持久化失败”。界面必须显示未保存并允许原样重试，不能静默宣称完成。
+4. 协议切换加载的是目标协议自己的身份、频道和 peer 分区；相同显示名不构成跨协议合并依据。
 
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
+## 提交与补偿
 
-摘要：
-- 恢复或更新「配置无线电参数」的 Activity Diagram。
+这里有两个不同提交点：radio 启动是运行态提交，配置原子保存是持久化提交。只有两者都成功才刷新稳定的活动协议投影。启动后的保存失败不能自动回滚 radio，因为回滚同样可能失败；因此以可见的 `running-unsaved` 状态保留事实，并阻止用户误以为重启后仍会使用当前配置。
 
-<!-- praxis:use-case-diagram:end -->
+## 源码证据与测试关注点
+
+- backend 创建和安装位于 `IdfAppFacadeRuntime::createMeshBackend`、`create_mesh_backend` 与 `MeshAdapterRouter` 协作边界。
+- 每个失败出口都要验证旧/new backend 所有权和 radio 释放状态。
+- 测试至少覆盖：验证失败、stop 成功但 start 失败、start 成功但 persist 失败，以及相同配置的幂等重试。

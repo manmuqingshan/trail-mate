@@ -1,115 +1,54 @@
-# Sequence Diagram：对象交互：配置无线电
-
-<!-- praxis:use-case-diagram:start -->
-
-## 元数据
-
-项目版本：0.1.30-alpha
-设计文档版本：0.1.30-alpha
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
-Agent 版本决策：none - 本次渲染没有单独的 agent 版本决策
-更新于：2026-06-25T14:17:55.307Z
-来源：Agent 候选分析
-父级 Use Case：use-case:configure-radio-parameters
-业务边界路径：Trail Mate 系统 / 聊天通信
-父级文档：docs/design/use-case-diagrams/configure-radio-parameters.md
-Markdown 路径：docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.md
-HTML 路径：docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.html
-
-## 交互场景
-
-参数调整
-
-## 参与者 / 生命线
-
-- actor User
-- participant UI as 设置页面
-- participant Board as TLoRaPagerBoard
-- participant Radio as SX1262
-
-## 消息时序
-
-- User->>UI: 配置 LoRa 频率
-- UI->>Board: configureLoraRadio(freq, bw, sf)
-- Board->>Radio: 写入寄存器
-- Radio-->>Board: 成功
-- Board->>Board: apply_tx_power(power)
-- Board-->>UI: 配置完成
-- UI->>User: 显示状态
-
-## 同步 / 异步 / 回调
-
-- Radio-->>Board: 成功
-- Board-->>UI: 配置完成
-
-## 返回 / 异常 / 补偿
-
-- Radio-->>Board: 成功
-- Board-->>UI: 配置完成
-
-## 事务 / 幂等 / 重试边界
-
-硬件封装
-
-- 无
-
-## Sequence UML 读图说明
-
-交互
-
-## 实现范围锚点
-
-- 模块：boards
-- 代码锚点：boards/tlora_pager/src/tlora_pager_board.cpp#L1
-- 不覆盖代码：非当前场景的全部调用链
-- 不覆盖代码：未被证据支持的异步/补偿路径
-
-## 不覆盖场景
-
-- 所有相关函数调用
-- 所有失败补偿场景
-- 未被证据支持的异步或回调流程
-
-
-## Mermaid 图
+# Sequence Diagram：Settings 到活动 backend
 
 ```mermaid
 sequenceDiagram
-  actor User
-  participant UI as 设置页面
-  participant Board as TLoRaPagerBoard
-  participant Radio as SX1262
-  User->>UI: 配置 LoRa 频率
-  UI->>Board: configureLoraRadio(freq, bw, sf)
-  Board->>Radio: 写入寄存器
-  Radio-->>Board: 成功
-  Board->>Board: apply_tx_power(power)
-  Board-->>UI: 配置完成
-  UI->>User: 显示状态
+  actor U as 用户
+  participant Settings as Settings UI
+  participant Config as AppConfig / ConfigFacade
+  participant Router as MeshAdapterRouter
+  participant Store as 协议分区存储
+  participant Radio as Radio owner
+  U->>Settings: 选择协议并保存完整配置
+  Settings->>Config: validate(candidate)
+  Config-->>Settings: valid / errors
+  Settings->>Router: installBackend(protocol)
+  Router->>Radio: stop old backend
+  Router->>Store: load protocol identity/channels/peers
+  Router->>Radio: configure + start new backend
+  Radio-->>Router: started / failed
+  alt started
+    Settings->>Config: persist committed config
+    Config-->>Settings: saved
+  else failed
+    Router-->>Settings: explicit stopped/error
+  end
 ```
 
-## 证据上下文
+## 场景与参与者职责
 
-| 来源 | 路径 | 行号 | 强度 | 摘要 |
-| --- | --- | --- | --- | --- |
-| 本地仓库扫描 | boards/tlora_pager/src/tlora_pager_board.cpp | 1-1 | strong | 无线电配置函数 |
-| 本地仓库扫描 | boards/tlora_pager/src/tlora_pager_board.cpp | 1-1 | strong | 无线电配置相关方法 |
+本时序描述用户从 Settings 提交完整候选配置，而不是单个控件即时改写 radio。Settings 负责收集候选值和展示结果；Config 负责验证与持久化；Router 负责 backend 生命周期；协议分区存储只返回目标协议的身份、频道和 peer 数据；Radio 是独占硬件 owner。
 
-## 变更记录
+## 顺序约束
 
-### 0.1.30-alpha - 2026-06-25T14:17:55.307Z
+1. `validate(candidate)` 必须发生在停止旧 backend 之前，避免可预见的输入错误造成通信中断。
+2. `stop old backend` 必须先于加载并启动新 backend，保证同一 radio 不被两个协议实现同时占有。
+3. 新 backend 报告 `started` 之后才能持久化 `activeProtocol`；创建对象不等于启动成功。
+4. 持久化成功之后才允许 Settings 发布稳定投影。观察者不能从尚未提交的 UI 字段推断活动协议。
 
-变更类型：DISCOVERY
-版本决策：none - 本次渲染没有单独的 agent 版本决策
+## 失败、超时与重复提交
 
+Router 的启动失败返回显式错误状态，并保持 radio 所有权可判定。Settings 不应在内部自动循环创建 backend；重试由用户或受控恢复策略发起。重复提交同一已提交配置应短路为幂等成功，不重复停止和启动。若 stop 或 start 超时，系统将当前 backend 状态标记为未知/错误，禁止并行发起第二次切换。
 
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
+## 可观察提交点
 
-摘要：
-- 恢复或更新「配置无线电参数」的 Sequence Diagram。
+| 事件 | 可以断言的事实 |
+| --- | --- |
+| validate 返回 valid | 候选值合法；运行态未改变 |
+| old backend stopped | radio 已释放；新协议尚不可用 |
+| new backend started | 本次运行可使用新协议；配置可能尚未持久化 |
+| config saved | 重启后仍能恢复同一选择 |
+| projection refreshed | 用户和其他应用服务可以观察稳定结果 |
 
-<!-- praxis:use-case-diagram:end -->
+## 源码与验证
+
+关键验证对象是 backend 安装边界、协议分区读取和配置保存，而不是 Settings 控件。契约测试应记录调用顺序，并注入 stop、load、start、persist 四个阶段的独立故障。

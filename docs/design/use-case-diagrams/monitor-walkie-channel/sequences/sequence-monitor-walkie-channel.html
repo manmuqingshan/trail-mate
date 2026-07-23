@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Walkie Monitor</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>Walkie Monitor</h1><pre class="mermaid">sequenceDiagram
+actor U as 用户
+participant UI as Walkie UI
+participant R as Runtime
+UI->>R: start
+U->>UI: monitor on
+UI->>R: enable
+loop refresh
+UI->>R: status
+R-->>UI: RSSI/audio
+end
+UI->>R: stop</pre></main></body></html>

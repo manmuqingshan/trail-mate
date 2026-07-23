@@ -1,109 +1,44 @@
-# Activity Diagram：业务流程：管理团队共享
-
-<!-- praxis:use-case-diagram:start -->
-
-## 元数据
-
-项目版本：0.1.30-alpha
-设计文档版本：0.1.30-alpha
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
-Agent 版本决策：none - 本次渲染没有单独的 agent 版本决策
-更新于：2026-06-25T14:17:55.307Z
-来源：Agent 候选分析
-父级 Use Case：use-case:manage-team-sharing
-业务边界路径：Trail Mate 系统 / 团队协作
-父级文档：docs/design/use-case-diagrams/manage-team-sharing.md
-Markdown 路径：docs/design/use-case-diagrams/manage-team-sharing/activity.md
-HTML 路径：docs/design/use-case-diagrams/manage-team-sharing/activity.html
-
-## 业务流程目标
-
-团队位置共享
-
-## 流程边界
-
-从团队管理到位置共享
-
-## 参与泳道 / 阶段
-
-- 未显式声明泳道；请结合节点标签和实现范围判断业务阶段。
-
-## 主成功路径
-
-主成功场景
-
-- mainSuccessScenario
-
-## 决策点与分支
-
-- 无
-
-## 失败 / 补偿路径
-
-- 无
-
-## 流程业务规则
-
-发布-订阅
-
-## Activity UML 读图说明
-
-顺序
-
-## 实现范围锚点
-
-- 模块：apps/linux_uconsole_gtk
-- 模块：boards
-- 入口：team page
-- 关键文件：apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp
-- 代码锚点：apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp#L1
-- 不覆盖代码：底层函数调用链
-- 不覆盖代码：DTO/Mapper/Repository 细节
-
-## 不覆盖范围
-
-- 完整代码调用链
-- 仓库级全局流程
-- 未被证据支持的业务分支
-
-
-## Mermaid 图
-
+# Activity：配对到成员状态
 ```mermaid
 flowchart TD
-  startNode([开始])
-  createOrJoin[创建或加入团队]
-  shareLocation[共享自身位置]
-  showMembers[在地图上显示成员]
-  endNode([结束])
-  startNode --> createOrJoin
-  createOrJoin --> shareLocation
-  shareLocation --> showMembers
-  showMembers --> endNode
+  Role{"创建团队或加入?"}
+  Role -- 创建 --> Keys["创建/恢复 TeamId + TeamKeys"]
+  Keys --> Invite["Leader 发起 pairing"]
+  Role -- 加入 --> Request["收到 pairing request"]
+  Request --> Confirm{"用户确认?"}
+  Confirm -- 否 --> Reject["拒绝/超时；不建成员"]
+  Confirm -- 是 --> Exchange["交换 confirm + key material"]
+  Invite --> Exchange
+  Exchange --> Verify{"消息和密钥验证通过?"}
+  Verify -- 否 --> Reject
+  Verify -- 是 --> Persist["保存 keys / 更新本地 roster 投影"]
+  Persist --> Active["Team mode active"]
+  Active --> Admin{"kick / transfer / key request"}
+  Admin --> Validate{"角色允许?"}
+  Validate -- 否 --> RejectAction["拒绝管理动作"]
+  Validate -- 是 --> Commit["发送 Team payload 并更新事件投影"]
 ```
 
-## 证据上下文
+## 本图回答的问题
 
-| 来源 | 路径 | 行号 | 强度 | 摘要 |
-| --- | --- | --- | --- | --- |
-| 本地仓库扫描 | apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp | 524-524 | medium | ESP32 固件中存在 TeamController |
-| 本地仓库扫描 | apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp | 1-1 | medium | 团队管理逻辑 |
+设备如何创建或加入团队、交换用途分离的密钥，并执行 kick、leader transfer 和 key request 等管理动作。本文确认配对行为；完整 TeamMember 生命周期仍是 candidate。
 
-## 变更记录
+## 身份、角色与密钥
 
-### 0.1.30-alpha - 2026-06-25T14:17:55.307Z
+TeamId、leader/member pairing role、pairing state 和不同用途的 TeamKeys 是当前明确事实。协议 NodeId 可以参与传输，但不能自动成为稳定 TeamMemberId。每种密钥用途和版本必须保留，禁止把一段共享 secret 同时解释为所有能力。
 
-变更类型：DISCOVERY
-版本决策：none - 本次渲染没有单独的 agent 版本决策
+## 配对提交
 
+用户确认、远端 confirm、消息验证、key material 验证和本地持久化缺一不可。收到 pairing request 不创建成员；发送 confirm 也不表示双方都已提交。只有持久化成功后才能进入 Team mode active。
 
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
+## 管理动作授权
 
-摘要：
-- 恢复或更新「管理团队共享位置」的 Activity Diagram。
+kick、leader transfer 和 key distribution 必须检查当前角色、目标成员、团队 revision/密钥版本和消息认证。UI 是否显示按钮不是授权来源。拒绝必须说明角色不足、目标不存在、密钥过期或传输不可用。
 
-<!-- praxis:use-case-diagram:end -->
+## 缺失设计
+
+当前 roster 主要是 `vector<NodeId>`，没有成员资格来源、角色生命周期、revision、撤销证明或跨协议 IdentityLink。因此“成员已加入/已被移除”的冲突合并与重放规则尚未闭合。
+
+## 测试
+
+覆盖用户拒绝、confirm 超时、密钥验证失败、持久化失败、重复 pairing、非 leader 管理命令、leader transfer 竞争和旧 key request。

@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：Wi-Fi 连接与资源请求</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/connect-wifi-services/activity.md"><h1>Wi-Fi 连接与资源请求</h1><pre class="mermaid">flowchart TD
+Connect["连接 Wi-Fi"] --> Request["提交资源 Request"]
+Request --> Policy{"screen / OTA / call / busy 允许?"}
+Policy -- 否 --> Deny["具体 Decision"]
+Policy -- 是 --> Lease["签发可撤销 Lease"]
+Lease --> Work["有界工作"]
+Work --> Release["release"]</pre></main></body></html>

@@ -1,0 +1,16 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Location 到 Track Store</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>Location 到 Track Store</h1><pre class="mermaid">sequenceDiagram
+actor U as 用户
+participant S as StateMachine
+participant L as Location
+participant R as Recorder
+participant W as StorageWorker
+participant Store
+U->>S: Start
+loop fix revisions
+L->>R: valid fix
+W->>R: drain batch
+W->>Store: append
+end
+U->>S: Stop
+S->>W: drain
+W->>Store: flush + close</pre></main></body></html>
